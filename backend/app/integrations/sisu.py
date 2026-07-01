@@ -58,11 +58,19 @@ def _money(value) -> float | None:
         return None
 
 
-async def get_team_clients(max_pages: int | None = None) -> list[dict]:
-    """Pull every client/transaction for the team, following pagination."""
+def _clip(value, n: int):
+    """Clamp a string to a column's max length (Sisu free-text can be long)."""
+    return value[:n] if isinstance(value, str) else value
+
+
+async def iter_team_clients(max_pages: int | None = None):
+    """Yield (page_number, rows) for each page of the team's clients.
+
+    Streaming keeps memory bounded (we discard each raw page after mapping) and
+    lets the caller report progress across the ~33 pages.
+    """
     if max_pages is None:
         max_pages = settings.SISU_MAX_PAGES or None
-    out: list[dict] = []
     page = 1
     url = f"{settings.SISU_BASE_URL}{GET_TEAM_CLIENTS}"
     async with httpx.AsyncClient(auth=_auth(), timeout=90,
@@ -72,13 +80,20 @@ async def get_team_clients(max_pages: int | None = None) -> list[dict]:
             r.raise_for_status()
             payload = r.json()
             rows = payload.get("clients") or []
-            out.extend(rows)
+            yield page, rows
             pg = payload.get("pagination") or {}
             if not pg.get("has_next"):
                 break
             if max_pages and page >= max_pages:
                 break
             page = pg.get("next_num") or (page + 1)
+
+
+async def get_team_clients(max_pages: int | None = None) -> list[dict]:
+    """Pull every client/transaction for the team (buffered; prefer the iterator)."""
+    out: list[dict] = []
+    async for _, rows in iter_team_clients(max_pages):
+        out.extend(rows)
     return out
 
 
@@ -107,9 +122,9 @@ def map_agent(c: dict) -> dict | None:
         return None
     name = " ".join(p for p in [ag.get("first_name"), ag.get("last_name")] if p).strip()
     return {
-        "external_id": str(aid),
-        "name": name or f"Agent {aid}",
-        "email": ag.get("email"),
+        "external_id": str(aid)[:64],
+        "name": _clip(name or f"Agent {aid}", 200),
+        "email": _clip(ag.get("email"), 255),
         "is_active": (ag.get("status") or "N") == "N",
     }
 
@@ -121,18 +136,18 @@ def map_client(c: dict) -> dict:
     person = " ".join(p for p in [c.get("first_name"), c.get("last_name")] if p).strip()
     aid = (c.get("agent") or {}).get("agent_id") or c.get("agent_id")
     return {
-        "external_id": str(c.get("client_id") or c.get("transaction_id")),
+        "external_id": str(c.get("client_id") or c.get("transaction_id"))[:64],
         "side": SIDE.get(c.get("type_id")),
         "status": classify_status(c),
         "gci": _money(c.get("gross_commission_amt")) or _money(c.get("commission_amt")),
         "sale_price": _money(c.get("trans_amt")) or _money(c.get("closed_volume_amt")),
-        "address": c.get("address_1"),
-        "buyer_name": buyer_names or seller_names or person or None,
-        "buyer_email": c.get("email"),
+        "address": _clip(c.get("address_1"), 300),
+        "buyer_name": _clip(buyer_names or seller_names or person or None, 200),
+        "buyer_email": _clip(c.get("email"), 255),
         "agent_external_id": str(aid) if aid else None,
+        "sisu_status_code": _clip(c.get("status_code"), 16),
         "contract_date": parse_dt(c.get("uc_dt")),
         "close_date": parse_dt(c.get("closed_dt")),
         "appt_set_date": parse_dt(c.get("appt_set_dt")),
         "lead_date": parse_dt(c.get("lead_dt")),
-        "sisu_status_code": c.get("status_code"),
     }

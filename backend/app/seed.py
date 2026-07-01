@@ -122,15 +122,19 @@ async def seed():
 
         biz = {"ulrg": ulrg, "springb": springb, "sympli": sympli}
 
-        # ── Integrations: ULRG ops live (sisu+fub), QBO connected per entity, Arive pending.
+        # ── Integrations. Sisu is the real Phase-1 source (always connected so the
+        #    sync runs it). QBO/FUB are only "connected" for the local demo's green
+        #    source pills; in production they stay disconnected until truly wired
+        #    (so the sync doesn't attempt them with placeholder creds).
+        demo = settings.SEED_SAMPLE_OPS
         s.add(Integration(tenant_id=tenant.id, provider="sisu", business_id=ulrg.id,
                           status="connected", last_synced_at=dt.datetime.utcnow()))
         s.add(Integration(tenant_id=tenant.id, provider="fub", business_id=ulrg.id,
-                          status="connected", last_synced_at=dt.datetime.utcnow()))
+                          status="connected" if demo else "disconnected"))
         for key, b in biz.items():
             s.add(Integration(tenant_id=tenant.id, provider="qbo", business_id=b.id,
-                              status="connected", realm_id=f"realm-{key}",
-                              last_synced_at=dt.datetime.utcnow()))
+                              status="connected" if demo else "disconnected",
+                              realm_id=f"realm-{key}"))
         s.add(Integration(tenant_id=tenant.id, provider="arive", business_id=sympli.id,
                           status="disconnected"))
 

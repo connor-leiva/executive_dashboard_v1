@@ -26,27 +26,51 @@ async def _valid_access_token(s: AsyncSession, integ: Integration) -> str:
     return tok["access_token"]
 
 
-async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID):
-    """Pull the whole team's clients from Sisu and upsert agents + transactions."""
-    clients = await sisu.get_team_clients()
-
-    # 1) Upsert the agent roster (dedupe by Sisu agent_id).
-    agents: dict[str, dict] = {}
-    for c in clients:
-        a = sisu.map_agent(c)
-        if a:
-            agents[a["external_id"]] = a
-    for a in agents.values():
-        await s.execute(pg_insert(Agent).values(
-            tenant_id=tenant_id, business_id=business_id, source="sisu",
-            external_id=a["external_id"], name=a["name"], email=a.get("email"),
-            is_active=a.get("is_active", True),
-        ).on_conflict_do_update(
-            index_elements=["tenant_id", "source", "external_id"],
-            set_={"name": a["name"], "email": a.get("email"),
-                  "is_active": a.get("is_active", True)},
-        ))
+async def _upsert_many(s: AsyncSession, model, rows: list[dict], index_elements, update_keys, chunk=500):
+    """Batched INSERT ... ON CONFLICT DO UPDATE (uses `excluded` for the SET)."""
+    for i in range(0, len(rows), chunk):
+        part = rows[i:i + chunk]
+        stmt = pg_insert(model).values(part)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=index_elements,
+            set_={k: stmt.excluded[k] for k in update_keys},
+        )
+        await s.execute(stmt)
     await s.commit()
+
+
+_TXN_UPDATE_KEYS = [
+    "side", "status", "gci", "sale_price", "address", "buyer_name", "buyer_email",
+    "agent_id", "contract_date", "close_date", "appt_set_date", "lead_date",
+    "sisu_status_code",
+]
+
+
+async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID):
+    """Stream the whole team's clients from Sisu and batch-upsert agents + transactions."""
+    agents: dict[str, dict] = {}
+    mapped: list[dict] = []      # slim transaction dicts (raw pages discarded)
+
+    async for page, rows in sisu.iter_team_clients():
+        for c in rows:
+            a = sisu.map_agent(c)
+            if a:
+                agents[a["external_id"]] = a
+            t = sisu.map_client(c)
+            if t["external_id"] and t["external_id"] != "None":
+                mapped.append(t)
+        print(f"[sisu] fetched page {page} · {len(mapped)} rows, {len(agents)} agents", flush=True)
+
+    # 1) Batch-upsert the agent roster.
+    agent_rows = [
+        dict(tenant_id=tenant_id, business_id=business_id, source="sisu",
+             external_id=a["external_id"], name=a["name"], email=a.get("email"),
+             is_active=a.get("is_active", True))
+        for a in agents.values()
+    ]
+    await _upsert_many(s, Agent, agent_rows, ["tenant_id", "source", "external_id"],
+                       ["name", "email", "is_active"])
+    print(f"[sisu] upserted {len(agent_rows)} agents", flush=True)
 
     agent_map = {
         a.external_id: a.id
@@ -55,27 +79,21 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUI
         ).scalars().all()
     }
 
-    # 2) Upsert transactions.
-    for c in clients:
-        t = sisu.map_client(c)
-        if not t["external_id"] or t["external_id"] == "None":
-            continue
-        vals = dict(
-            side=t.get("side"), status=t["status"], gci=t.get("gci"),
-            sale_price=t.get("sale_price"), address=t.get("address"),
-            buyer_name=t.get("buyer_name"), buyer_email=t.get("buyer_email"),
-            agent_id=agent_map.get(t.get("agent_external_id")),
-            contract_date=t.get("contract_date"), close_date=t.get("close_date"),
-            appt_set_date=t.get("appt_set_date"), lead_date=t.get("lead_date"),
-            sisu_status_code=t.get("sisu_status_code"),
-        )
-        await s.execute(pg_insert(Transaction).values(
-            tenant_id=tenant_id, business_id=business_id, source="sisu",
-            external_id=t["external_id"], **vals,
-        ).on_conflict_do_update(
-            index_elements=["tenant_id", "source", "external_id"], set_=vals,
-        ))
-    await s.commit()
+    # 2) Batch-upsert transactions.
+    txn_rows = [
+        dict(tenant_id=tenant_id, business_id=business_id, source="sisu",
+             external_id=t["external_id"], side=t.get("side"), status=t["status"],
+             gci=t.get("gci"), sale_price=t.get("sale_price"), address=t.get("address"),
+             buyer_name=t.get("buyer_name"), buyer_email=t.get("buyer_email"),
+             agent_id=agent_map.get(t.get("agent_external_id")),
+             contract_date=t.get("contract_date"), close_date=t.get("close_date"),
+             appt_set_date=t.get("appt_set_date"), lead_date=t.get("lead_date"),
+             sisu_status_code=t.get("sisu_status_code"))
+        for t in mapped
+    ]
+    await _upsert_many(s, Transaction, txn_rows, ["tenant_id", "source", "external_id"],
+                       _TXN_UPDATE_KEYS)
+    print(f"[sisu] upserted {len(txn_rows)} transactions", flush=True)
 
 
 async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID):
@@ -144,6 +162,9 @@ async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, peri
             elif integ.provider == "qbo":
                 await sync_qbo_pl(s, tenant_id, integ, period_start, period_end)
             run.status, run.finished_at = "ok", dt.datetime.utcnow()
+            # Clear any prior error and mark the source healthy again.
+            integ.status, integ.last_error = "connected", None
+            integ.last_synced_at = dt.datetime.utcnow()
         except Exception as e:  # noqa: BLE001 — surface error on the integration
             run.status, run.detail, run.finished_at = "error", str(e), dt.datetime.utcnow()
             integ.status, integ.last_error = "error", str(e)
