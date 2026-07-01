@@ -106,3 +106,28 @@ async def test_create_ghl_integration():
         integs = (await c.get("/api/v1/integrations", headers=H)).json()
         ghl = [i for i in integs if i["provider"] == "ghl"]
         assert ghl and ghl[0]["status"] == "connected" and ghl[0]["business_key"] == "springb"
+
+
+async def test_active_members_drilldown():
+    # Insert a couple of GHL member records, then confirm the drawer lists them.
+    from app.db import SessionLocal
+    from app.models import Business, MetricRecord
+    from sqlalchemy import select as _select
+    async with SessionLocal() as s:
+        biz = (await s.execute(_select(Business).where(Business.key == "springb"))).scalar_one()
+        for i in range(2):
+            s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
+                               kind="member", external_id=f"c{i}", name=f"Member {i}",
+                               status="active", segment="forum",
+                               source_url=f"https://app.gohighlevel.com/x/{i}"))
+        await s.commit()
+    token = await _client_token()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        r = await c.get("/api/v1/metrics/active_members/detail",
+                        headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["source"] == "Go High Level"
+    assert d["count"] == 2 and len(d["rows"]) == 2
+    assert d["rows"][0]["source_url"]

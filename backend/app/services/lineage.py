@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import Transaction, Agent
+from ..models import Transaction, Agent, MetricRecord, Business
 from .metrics import _period_range
 
 
@@ -51,8 +51,7 @@ async def _closed(s, tenant_id, start, end):
 _TXN_LABEL = {"units_closed": "Units closed", "gci": "Total GCI",
               "volume": "Volume", "avg_price": "Avg sale price"}
 _FINANCIAL = {"combined_profit", "revenue", "noi", "gross_profit", "opex", "cogs"}
-_PENDING_SRC = {"funded_loans": ("Arive", "Funded loans reaching the funded stage"),
-                "active_members": ("Go High Level", "Contacts with an active membership tag")}
+_PENDING_SRC = {"funded_loans": ("Arive", "Funded loans reaching the funded stage")}
 
 
 async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str) -> dict:
@@ -105,6 +104,22 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str) -> di
                 for aid, c in sorted(by_agent.items(), key=lambda x: -x[1])]
         return {"label": "Agents producing", "source": "Sisu",
                 "computed_as": f"Agents with at least one closed sale, {span()}",
+                "count": len(rows), "rows": rows}
+
+    # ── active members (Go High Level) — the real member records ──
+    if key == "active_members":
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        recs = []
+        if biz:
+            recs = (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind == "member",
+                MetricRecord.status == "active").order_by(MetricRecord.name))).scalars().all()
+        rows = [{"id": str(r.id), "name": r.name or r.email or r.external_id,
+                 "status": r.segment or "member", "source_url": r.source_url} for r in recs]
+        return {"label": "Active members", "source": "Go High Level",
+                "computed_as": "Contacts tagged as active members (beCollective + The Forum).",
                 "count": len(rows), "rows": rows}
 
     # ── financial (QuickBooks) — itemize once QBO is connected ──
