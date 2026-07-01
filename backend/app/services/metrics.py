@@ -112,15 +112,30 @@ async def _producing_agents(s, tenant_id, business_id, start, end) -> tuple[int,
 
 
 async def _funnel(s, tenant_id, business_id, start, end) -> list[FunnelRow]:
-    leads = (await s.execute(
+    # Top of funnel: prefer FUB leads when synced (Phase 1b); otherwise fall back
+    # to Sisu deal dates (lead_date / appt_set_date).
+    lead_ct = (await s.execute(
         select(func.count()).select_from(Lead).where(
             Lead.tenant_id == tenant_id, Lead.business_id == business_id)
     )).scalar() or 0
-    appts = (await s.execute(
-        select(func.count()).select_from(Lead).where(
-            Lead.tenant_id == tenant_id, Lead.business_id == business_id,
-            Lead.stage.in_(_APPOINTMENT_STAGES))
-    )).scalar() or 0
+    if lead_ct:
+        leads = lead_ct
+        appts = (await s.execute(
+            select(func.count()).select_from(Lead).where(
+                Lead.tenant_id == tenant_id, Lead.business_id == business_id,
+                Lead.stage.in_(_APPOINTMENT_STAGES))
+        )).scalar() or 0
+    else:
+        leads = (await s.execute(
+            select(func.count()).select_from(Transaction).where(
+                Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
+                Transaction.lead_date >= start, Transaction.lead_date <= end)
+        )).scalar() or 0
+        appts = (await s.execute(
+            select(func.count()).select_from(Transaction).where(
+                Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
+                Transaction.appt_set_date >= start, Transaction.appt_set_date <= end)
+        )).scalar() or 0
     under_contract = (await s.execute(
         select(func.count()).select_from(Transaction).where(
             Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,

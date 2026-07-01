@@ -146,54 +146,57 @@ async def seed():
                              **{k: Decimal(round(v * 0.926)) for k, v in PL[key].items()}))
         s.add(CashSnapshot(tenant_id=tenant.id, business_id=None, as_of=end, amount=Decimal(340000)))
 
-        # ── ULRG agents (31 active; first 24 produce).
-        agents = []
-        for i in range(31):
-            a = Agent(tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
-                      external_id=f"sisu-agent-{i+1:02d}", name=f"Agent {i+1:02d}",
-                      email=f"agent{i+1:02d}@ulrg.com", is_active=True)
-            agents.append(a)
-        s.add_all(agents)
-        await s.flush()
+        # ── Representative ULRG operational data (gated; off in prod so the real
+        #    Sisu sync is the sole source). ─────────────────────────────────────
+        if settings.SEED_SAMPLE_OPS:
+            # ULRG agents (31 active; first 24 produce).
+            agents = []
+            for i in range(31):
+                a = Agent(tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
+                          external_id=f"sisu-agent-{i+1:02d}", name=f"Agent {i+1:02d}",
+                          email=f"agent{i+1:02d}@ulrg.com", is_active=True)
+                agents.append(a)
+            s.add_all(agents)
+            await s.flush()
 
-        # ── Closed transactions (38): GCI sums 420k, volume sums 14.2M, 24 distinct agents.
-        gci_parts = _spread(420000, 38)
-        price_parts = _spread(14_200_000, 38)
-        for i in range(38):
-            s.add(Transaction(
-                tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
-                external_id=f"txn-closed-{i+1:03d}", side="buy" if i % 2 else "sell",
-                status="closed", gci=Decimal(gci_parts[i]), sale_price=Decimal(price_parts[i]),
-                address=f"{100+i} Main St", buyer_name=f"Buyer {i+1}",
-                buyer_email=f"buyer{i+1}@example.com",
-                agent_id=agents[i % 24].id,
-                contract_date=mid, close_date=mid))
+            # Closed transactions (38): GCI sums 420k, volume sums 14.2M, 24 distinct agents.
+            gci_parts = _spread(420000, 38)
+            price_parts = _spread(14_200_000, 38)
+            for i in range(38):
+                s.add(Transaction(
+                    tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
+                    external_id=f"txn-closed-{i+1:03d}", side="buy" if i % 2 else "sell",
+                    status="closed", gci=Decimal(gci_parts[i]), sale_price=Decimal(price_parts[i]),
+                    address=f"{100+i} Main St", buyer_name=f"Buyer {i+1}",
+                    buyer_email=f"buyer{i+1}@example.com",
+                    agent_id=agents[i % 24].id,
+                    contract_date=mid, close_date=mid))
 
-        # ── Pending (22): pipeline sums 8.1M. 8 went under contract this period.
-        pend_parts = _spread(8_100_000, 22)
-        for i in range(22):
-            s.add(Transaction(
-                tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
-                external_id=f"txn-pending-{i+1:03d}", side="buy" if i % 2 else "sell",
-                status="pending", sale_price=Decimal(pend_parts[i]),
-                address=f"{500+i} Oak Ave", buyer_name=f"Pending Buyer {i+1}",
-                agent_id=agents[i % 24].id,
-                contract_date=mid if i < 8 else prev_month))
+            # Pending (22): pipeline sums 8.1M. 8 went under contract this period.
+            pend_parts = _spread(8_100_000, 22)
+            for i in range(22):
+                s.add(Transaction(
+                    tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
+                    external_id=f"txn-pending-{i+1:03d}", side="buy" if i % 2 else "sell",
+                    status="pending", sale_price=Decimal(pend_parts[i]),
+                    address=f"{500+i} Oak Ave", buyer_name=f"Pending Buyer {i+1}",
+                    agent_id=agents[i % 24].id,
+                    contract_date=mid if i < 8 else prev_month))
 
-        # ── Active listings (17, sell side).
-        for i in range(17):
-            s.add(Transaction(
-                tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
-                external_id=f"txn-active-{i+1:03d}", side="sell", status="active",
-                sale_price=Decimal(380000), address=f"{900+i} Pine Rd",
-                agent_id=agents[i % 24].id))
+            # Active listings (17, sell side).
+            for i in range(17):
+                s.add(Transaction(
+                    tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
+                    external_id=f"txn-active-{i+1:03d}", side="sell", status="active",
+                    sale_price=Decimal(380000), address=f"{900+i} Pine Rd",
+                    agent_id=agents[i % 24].id))
 
-        # ── Leads (680; 142 at appointment) for the funnel top.
-        for i in range(680):
-            s.add(Lead(tenant_id=tenant.id, business_id=ulrg.id, source="fub",
-                       external_id=f"lead-{i+1:04d}",
-                       stage="Appointment" if i < 142 else "Lead",
-                       agent_id=agents[i % 24].id, created_at_src=mid))
+            # Leads (680; 142 at appointment) for the funnel top.
+            for i in range(680):
+                s.add(Lead(tenant_id=tenant.id, business_id=ulrg.id, source="fub",
+                           external_id=f"lead-{i+1:04d}",
+                           stage="Appointment" if i < 142 else "Lead",
+                           agent_id=agents[i % 24].id, created_at_src=mid))
 
         await s.commit()
 

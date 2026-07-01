@@ -44,9 +44,14 @@ class Settings(BaseSettings):
     QBO_REDIRECT_URI: str = "http://localhost:8000/api/v1/integrations/qbo/callback"
     APP_PUBLIC_URL: str = "http://localhost:5173"  # where the QBO callback redirects back to
 
-    # Sisu + Follow Up Boss (reuse Realtor.com dashboard values)
-    SISU_API_BASE: str = ""
+    # Sisu (real estate production — team-wide clients feed, Basic auth)
+    SISU_USERNAME: str = ""
     SISU_API_TOKEN: str = ""
+    SISU_BASE_URL: str = "https://api.sisu.co/api"
+    SISU_TEAM_ID: str = "621"
+    SISU_EXTERNAL_SERVICE: str = "fub"
+    SISU_MAX_PAGES: int = 0            # 0 = pull all pages; >0 caps for faster syncs
+    # Follow Up Boss (lead-source layer — Phase 1b, Basic auth: key as username)
     FUB_API_KEY: str = ""
     FUB_API_BASE: str = "https://api.followupboss.com/v1"
 
@@ -58,6 +63,11 @@ class Settings(BaseSettings):
     # SINGLE_TENANT_FALLBACK=false once real multitenancy + custom domains land.
     DEV_TENANT_SLUG: str = "springb"
     SINGLE_TENANT_FALLBACK: bool = True
+
+    # Seed representative ULRG operational data (fake transactions/agents/leads).
+    # Keep true for local demos; set false in production so the real Sisu sync
+    # is the sole source of ULRG operational metrics.
+    SEED_SAMPLE_OPS: bool = True
 
     @property
     def origins(self) -> list[str]:

@@ -1,55 +1,138 @@
-"""Sisu client — real estate production data (agents, transactions, pipeline).
+"""Sisu client — team-wide production feed.
 
-PORT the exact client (endpoints + auth header + field mapping) from the
-Realtor.com reporting dashboard. The scaffold below names the data contract this
-app depends on; align the field mapping to the live Sisu payload on first run.
+Auth: HTTP Basic (SISU_USERNAME : SISU_API_TOKEN). Base https://api.sisu.co/api.
+
+Primary endpoint: GET /api/v1/team/get-team-clients — the whole team's
+clients/transactions, paginated (1000/page, follow pagination.has_next). Each
+record is a rich real-estate deal; we map the fields the command center needs.
+
+Confirmed against the live schema (team 621):
+- type_id "b"|"s"  -> buy|sell side
+- status_code "CLOSD"|"LOSTT" (+ date-driven classification below)
+- money: gross_commission_amt (GCI), trans_amt (sale price; closed_volume_amt
+  is frequently null)
+- dates are RFC-2822 strings, e.g. "Wed, 29 Apr 2020 00:00:00 GMT"
+- lost is signalled by archive_ts (lost_reason_id is often null)
+- each record embeds an `agent` object (agent_id, name, email, status N|D)
 """
-from .base import get_json
+from __future__ import annotations
+
+import datetime as dt
+from email.utils import parsedate_to_datetime
+
+import httpx
+
 from ..config import settings
 
-SISU_HEADERS = {"Authorization": f"Bearer {settings.SISU_API_TOKEN}"}  # match existing client
+GET_TEAM_CLIENTS = "/v1/team/get-team-clients"
+SIDE = {"b": "buy", "s": "sell"}
 
 
-async def sisu_transactions(since: str | None = None):
-    # TODO: replace path/params with the exact ones used in the Realtor.com dashboard client.
-    params = {"updated_since": since} if since else {}
-    data = await get_json(
-        f"{settings.SISU_API_BASE}/transactions", headers=SISU_HEADERS, params=params
-    )
-    return data.get("transactions", data if isinstance(data, list) else [])
+def _auth() -> tuple[str, str]:
+    return (settings.SISU_USERNAME, settings.SISU_API_TOKEN)
 
 
-async def sisu_agents():
-    data = await get_json(f"{settings.SISU_API_BASE}/agents", headers=SISU_HEADERS)
-    return data.get("agents", data if isinstance(data, list) else [])
+def parse_dt(value) -> dt.date | None:
+    """Parse Sisu's RFC-2822 date strings (or ISO) into a date."""
+    if not value:
+        return None
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    try:
+        return parsedate_to_datetime(str(value)).date()
+    except (TypeError, ValueError, IndexError):
+        try:
+            return dt.date.fromisoformat(str(value)[:10])
+        except ValueError:
+            return None
 
 
-# Data contract this app needs from each transaction (map Sisu fields -> these):
-#   external_id, side(buy/sell), status(active/pending/closed/dead),
-#   gci, sale_price, address, buyer_name, buyer_email, agent_external_id,
-#   contract_date(ISO), close_date(ISO)
-def map_transaction(t: dict) -> dict:
+def _money(value) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+async def get_team_clients(max_pages: int | None = None) -> list[dict]:
+    """Pull every client/transaction for the team, following pagination."""
+    if max_pages is None:
+        max_pages = settings.SISU_MAX_PAGES or None
+    out: list[dict] = []
+    page = 1
+    url = f"{settings.SISU_BASE_URL}{GET_TEAM_CLIENTS}"
+    async with httpx.AsyncClient(auth=_auth(), timeout=90,
+                                 headers={"accept": "application/json"}) as c:
+        while True:
+            r = await c.get(url, params={"page": page, "per_page": 1000})
+            r.raise_for_status()
+            payload = r.json()
+            rows = payload.get("clients") or []
+            out.extend(rows)
+            pg = payload.get("pagination") or {}
+            if not pg.get("has_next"):
+                break
+            if max_pages and page >= max_pages:
+                break
+            page = pg.get("next_num") or (page + 1)
+    return out
+
+
+def classify_status(c: dict) -> str:
+    """Map a Sisu client to our status enum (date/flag-driven).
+
+    closed (closed_dt in the past) > dead (archived/lost) > pending (under
+    contract) > active. Team-configured status strings are unreliable, so we
+    key off the canonical date fields, with archive_ts as the lost signal.
+    """
+    today = dt.date.today()
+    closed = parse_dt(c.get("closed_dt"))
+    if closed and closed <= today:
+        return "closed"
+    if c.get("archive_ts") or c.get("lost_reason_id") or c.get("status_code") == "LOSTT":
+        return "dead"
+    if parse_dt(c.get("uc_dt")):
+        return "pending"
+    return "active"
+
+
+def map_agent(c: dict) -> dict | None:
+    ag = c.get("agent") or {}
+    aid = ag.get("agent_id") or c.get("agent_id")
+    if not aid:
+        return None
+    name = " ".join(p for p in [ag.get("first_name"), ag.get("last_name")] if p).strip()
     return {
-        "external_id": str(t.get("external_id") or t.get("id")),
-        "side": t.get("side"),
-        "status": t.get("status"),
-        "gci": t.get("gci"),
-        "sale_price": t.get("sale_price"),
-        "address": t.get("address"),
-        "buyer_name": t.get("buyer_name"),
-        "buyer_email": t.get("buyer_email"),
-        "agent_external_id": (
-            str(t["agent_external_id"]) if t.get("agent_external_id") is not None else None
-        ),
-        "contract_date": t.get("contract_date"),
-        "close_date": t.get("close_date"),
+        "external_id": str(aid),
+        "name": name or f"Agent {aid}",
+        "email": ag.get("email"),
+        "is_active": (ag.get("status") or "N") == "N",
     }
 
 
-def map_agent(a: dict) -> dict:
+def map_client(c: dict) -> dict:
+    """Map a Sisu client record to our Transaction contract."""
+    buyer_names = c.get("buyer_names")
+    seller_names = c.get("seller_names")
+    person = " ".join(p for p in [c.get("first_name"), c.get("last_name")] if p).strip()
+    aid = (c.get("agent") or {}).get("agent_id") or c.get("agent_id")
     return {
-        "external_id": str(a.get("external_id") or a.get("id")),
-        "name": a.get("name") or a.get("full_name") or "",
-        "email": a.get("email"),
-        "is_active": a.get("is_active", True),
+        "external_id": str(c.get("client_id") or c.get("transaction_id")),
+        "side": SIDE.get(c.get("type_id")),
+        "status": classify_status(c),
+        "gci": _money(c.get("gross_commission_amt")) or _money(c.get("commission_amt")),
+        "sale_price": _money(c.get("trans_amt")) or _money(c.get("closed_volume_amt")),
+        "address": c.get("address_1"),
+        "buyer_name": buyer_names or seller_names or person or None,
+        "buyer_email": c.get("email"),
+        "agent_external_id": str(aid) if aid else None,
+        "contract_date": parse_dt(c.get("uc_dt")),
+        "close_date": parse_dt(c.get("closed_dt")),
+        "appt_set_date": parse_dt(c.get("appt_set_dt")),
+        "lead_date": parse_dt(c.get("lead_dt")),
+        "sisu_status_code": c.get("status_code"),
     }

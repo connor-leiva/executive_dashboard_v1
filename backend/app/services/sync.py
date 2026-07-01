@@ -27,30 +27,54 @@ async def _valid_access_token(s: AsyncSession, integ: Integration) -> str:
 
 
 async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID):
-    rows = await sisu.sisu_transactions()
-    # Resolve agent external ids -> our agent uuids for this business.
+    """Pull the whole team's clients from Sisu and upsert agents + transactions."""
+    clients = await sisu.get_team_clients()
+
+    # 1) Upsert the agent roster (dedupe by Sisu agent_id).
+    agents: dict[str, dict] = {}
+    for c in clients:
+        a = sisu.map_agent(c)
+        if a:
+            agents[a["external_id"]] = a
+    for a in agents.values():
+        await s.execute(pg_insert(Agent).values(
+            tenant_id=tenant_id, business_id=business_id, source="sisu",
+            external_id=a["external_id"], name=a["name"], email=a.get("email"),
+            is_active=a.get("is_active", True),
+        ).on_conflict_do_update(
+            index_elements=["tenant_id", "source", "external_id"],
+            set_={"name": a["name"], "email": a.get("email"),
+                  "is_active": a.get("is_active", True)},
+        ))
+    await s.commit()
+
     agent_map = {
         a.external_id: a.id
         for a in (await s.execute(
             select(Agent).where(Agent.tenant_id == tenant_id, Agent.source == "sisu"))
         ).scalars().all()
     }
-    for raw in rows:
-        t = sisu.map_transaction(raw)
-        stmt = pg_insert(Transaction).values(
-            tenant_id=tenant_id, business_id=business_id, source="sisu",
-            external_id=t["external_id"], side=t.get("side"), status=t["status"],
-            gci=t.get("gci"), sale_price=t.get("sale_price"), address=t.get("address"),
+
+    # 2) Upsert transactions.
+    for c in clients:
+        t = sisu.map_client(c)
+        if not t["external_id"] or t["external_id"] == "None":
+            continue
+        vals = dict(
+            side=t.get("side"), status=t["status"], gci=t.get("gci"),
+            sale_price=t.get("sale_price"), address=t.get("address"),
             buyer_name=t.get("buyer_name"), buyer_email=t.get("buyer_email"),
             agent_id=agent_map.get(t.get("agent_external_id")),
             contract_date=t.get("contract_date"), close_date=t.get("close_date"),
-        ).on_conflict_do_update(
-            index_elements=["tenant_id", "source", "external_id"],
-            set_={"status": t["status"], "gci": t.get("gci"), "sale_price": t.get("sale_price"),
-                  "agent_id": agent_map.get(t.get("agent_external_id")),
-                  "contract_date": t.get("contract_date"), "close_date": t.get("close_date")},
+            appt_set_date=t.get("appt_set_date"), lead_date=t.get("lead_date"),
+            sisu_status_code=t.get("sisu_status_code"),
         )
-        await s.execute(stmt)
+        await s.execute(pg_insert(Transaction).values(
+            tenant_id=tenant_id, business_id=business_id, source="sisu",
+            external_id=t["external_id"], **vals,
+        ).on_conflict_do_update(
+            index_elements=["tenant_id", "source", "external_id"], set_=vals,
+        ))
     await s.commit()
 
 
