@@ -23,6 +23,23 @@ function providerLabel(row) {
   return row.provider === "qbo" && row.business_key ? `${name} · ${row.business_key}` : name;
 }
 
+// Token-based sources that should always be offer-able even if no row exists
+// yet (the Connect form creates the integration on first connect).
+const CONNECTABLE = [
+  { provider: "ghl", business_key: "springb" },
+  { provider: "arive", business_key: "sympli" },
+];
+
+function ensureProviders(rows) {
+  const out = [...rows];
+  for (const req of CONNECTABLE) {
+    if (!out.some((r) => r.provider === req.provider)) {
+      out.push({ id: `new-${req.provider}`, provider: req.provider, business_key: req.business_key, status: "disconnected", last_synced_at: null });
+    }
+  }
+  return out;
+}
+
 /* ── shell ─────────────────────────────────────────────────── */
 
 const SUBNAV = [
@@ -146,8 +163,8 @@ function IntegrationsPage() {
   const live = Boolean(API_BASE);
 
   function load() {
-    if (!live) { setRows(SAMPLE_INTEGRATIONS); return; }
-    getJSON("/integrations").then(setRows).catch(() => setError(true));
+    if (!live) { setRows(ensureProviders(SAMPLE_INTEGRATIONS)); return; }
+    getJSON("/integrations").then((r) => setRows(ensureProviders(r))).catch(() => setError(true));
   }
   useEffect(load, []);
 

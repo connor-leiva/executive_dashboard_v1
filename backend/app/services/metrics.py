@@ -352,7 +352,11 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                 sc["sympli_funded"] = scc.get("funded")
                 sc["sympli_volume"] = scc.get("volume")
             if b.key == "springb":
-                members = await _active_members(s, tenant_id, b.id)
+                try:
+                    members = await _active_members(s, tenant_id, b.id)
+                except Exception:          # e.g. metric_record migration not yet applied
+                    await s.rollback()
+                    members = 0
                 if members > 0:            # Go High Level has synced real members
                     for t in ops:
                         if t.label == "Active members":
