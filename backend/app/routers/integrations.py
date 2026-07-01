@@ -121,16 +121,18 @@ async def create_integration(body: dict, user: User = Depends(current_user),
     integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == user.tenant_id, Integration.provider == provider,
         Integration.business_id == biz.id))).scalar_one_or_none()
-    new = integ is None
-    if new:
+    new = integ is None or not integ.access_token_enc
+    if new and not body.get("token"):
+        raise HTTPException(400, "A token is required to connect.")
+    if integ is None:
         integ = Integration(tenant_id=user.tenant_id, provider=provider, business_id=biz.id)
-    if body.get("token"):
+    if body.get("token"):                       # blank on edit = keep the current token
         integ.access_token_enc = enc(body["token"])
     if body.get("config") is not None:
         integ.config = body["config"]
     integ.status = "connected"
     integ.last_error = None
-    if new:
+    if integ.id is None:
         s.add(integ)
     await s.commit()
     return {"id": str(integ.id)}

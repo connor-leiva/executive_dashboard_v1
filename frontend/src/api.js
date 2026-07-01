@@ -29,6 +29,21 @@ export async function postJSON(path, body) {
   return res.json();
 }
 
+export async function putJSON(path, body) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${API}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = new Error(`${res.status} ${await res.text()}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
 export async function login(email, password) {
   const res = await fetch(`${API}/auth/login`, {
     method: "POST",

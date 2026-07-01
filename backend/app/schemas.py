@@ -123,3 +123,18 @@ class IntegrationStatus(BaseModel):
     realm_id: str | None = None
     last_synced_at: str | None = None
     last_error: str | None = None
+    config: dict | None = None      # non-secret per-provider config (pre-fills the edit form)
+
+
+# ── businesses ────────────────────────────────────────────────────
+class BusinessUpdate(BaseModel):
+    """Editable brand + health config. All fields optional (partial update)."""
+    name: str | None = None
+    tag: str | None = None
+    status: str | None = None            # healthy | watch | opportunity
+    accent: str | None = None
+    ink: str | None = None
+    is_jv: bool | None = None
+    jv_share: float | None = None        # 0.5 = 50%
+    watch_margin_below: float | None = None
+    per_loan_share: float | None = None

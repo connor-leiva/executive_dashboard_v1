@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, NavLink, Link } from "react-router-dom";
 import { T, PROVIDER_NAME, relativeTime } from "./theme.js";
-import { getJSON, postJSON } from "./api.js";
+import { getJSON, postJSON, putJSON } from "./api.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -102,10 +102,12 @@ function btn(kind) {
 const GHL_DEFAULT_TAGS = "inner circle active, the forum active, forumadmin, member: secondary, inner circle active add on";
 
 function GhlConnectForm({ row, onClose, onDone }) {
+  const cfg = row.config || {};
+  const editing = row.status === "connected" || row.status === "error";
   const [token, setToken] = useState("");
-  const [locationId, setLocationId] = useState("");
-  const [tags, setTags] = useState(GHL_DEFAULT_TAGS);
-  const [calendarId, setCalendarId] = useState("");
+  const [locationId, setLocationId] = useState(cfg.location_id || "");
+  const [tags, setTags] = useState((cfg.member_tags && cfg.member_tags.join(", ")) || GHL_DEFAULT_TAGS);
+  const [calendarId, setCalendarId] = useState(cfg.forum_calendar_id || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -116,15 +118,17 @@ function GhlConnectForm({ row, onClose, onDone }) {
     try {
       const member_tags = tags.split(",").map((t) => t.trim()).filter(Boolean);
       await postJSON("/integrations", {
-        provider: "ghl", business_key: row.business_key || "springb", token,
+        provider: "ghl", business_key: row.business_key || "springb",
+        token: token.trim() || undefined,   // blank on edit = keep the current key
         config: {
-          location_id: locationId.trim(), member_tags, forum_tags: [], becollective_tags: [],
+          location_id: locationId.trim(), member_tags,
+          forum_tags: cfg.forum_tags || [], becollective_tags: cfg.becollective_tags || [],
           forum_calendar_id: calendarId.trim() || null,
         },
       });
       onDone();
     } catch {
-      setErr("Couldn't connect — double-check the token and Location ID.");
+      setErr("Couldn't save — double-check the token and Location ID.");
     } finally {
       setBusy(false);
     }
@@ -136,10 +140,10 @@ function GhlConnectForm({ row, onClose, onDone }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Connect Go High Level</div>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Go High Level" : "Connect Go High Level"}</div>
         <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>Spring B · beCollective + The Forum. The token is stored encrypted.</div>
-        <label style={label}>Private Integration Token
-          <input style={field} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} required />
+        <label style={label}>Private Integration Token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
+          <input style={field} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : ""} required={!editing} />
         </label>
         <label style={label}>Location ID
           <input style={field} value={locationId} onChange={(e) => setLocationId(e.target.value)} required />
@@ -153,7 +157,7 @@ function GhlConnectForm({ row, onClose, onDone }) {
         {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
-          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Connecting…" : "Connect"}</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
         </div>
       </form>
     </div>
@@ -236,6 +240,9 @@ function IntegrationsPage() {
                   <button disabled={!live || syncing} onClick={() => syncNow(row)} style={live && !syncing ? btn() : btn("disabled")}>
                     {syncing ? "Syncing…" : row.status === "error" ? "Retry" : "Sync now"}
                   </button>
+                  {row.provider === "ghl" && (
+                    <button disabled={!live || syncing} onClick={() => setConnecting(row)} style={live && !syncing ? btn() : btn("disabled")} title="Rotate the key or update tags / calendar">Edit</button>
+                  )}
                   <button disabled={!live || syncing} onClick={() => disconnect(row)} style={live && !syncing ? btn("danger") : btn("disabled")}>Disconnect</button>
                 </>
               ) : row.provider === "ghl" && live ? (
@@ -288,30 +295,135 @@ function AccountPage() {
 /* ── businesses (read-only for now) ────────────────────────── */
 
 const SAMPLE_BUSINESSES = [
-  { key: "ulrg", name: "ULRG + Team", tag: "Real estate", status: "healthy", accent: T.meadow, is_jv: false, jv_share: 1 },
-  { key: "springb", name: "Spring B", tag: "beCollective + The Forum", status: "watch", accent: T.poppy, is_jv: false, jv_share: 1 },
-  { key: "sympli", name: "Sympli Mortgage", tag: "Joint venture · 50% owned", status: "opportunity", accent: T.teal, is_jv: true, jv_share: 0.5 },
+  { key: "ulrg", name: "ULRG + Team", tag: "Real estate", status: "healthy", accent: T.meadow, ink: "#4F6A4D", is_jv: false, jv_share: 1, watch_margin_below: null, per_loan_share: null },
+  { key: "springb", name: "Spring B", tag: "beCollective + The Forum", status: "watch", accent: T.poppy, ink: T.poppyText, is_jv: false, jv_share: 1, watch_margin_below: 25, per_loan_share: null },
+  { key: "sympli", name: "Sympli Mortgage", tag: "Joint venture · 50% owned", status: "opportunity", accent: T.teal, ink: T.teal, is_jv: true, jv_share: 0.5, watch_margin_below: null, per_loan_share: 2100 },
 ];
+
+function BusinessEditForm({ biz, onClose, onDone }) {
+  const [f, setF] = useState({
+    name: biz.name || "", tag: biz.tag || "", status: biz.status || "healthy",
+    accent: biz.accent || "#61835E", ink: biz.ink || "#4F6A4D", is_jv: !!biz.is_jv,
+    jv_pct: Math.round((biz.jv_share ?? 1) * 100),
+    watch_margin_below: biz.watch_margin_below ?? "",
+    per_loan_share: biz.per_loan_share ?? "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+  const numOrNull = (v) => (v === "" || v === null ? null : Number(v));
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      await putJSON(`/businesses/${biz.key}`, {
+        name: f.name.trim(), tag: f.tag.trim(), status: f.status,
+        accent: f.accent.trim(), ink: f.ink.trim(), is_jv: f.is_jv,
+        jv_share: Math.max(0, Math.min(100, Number(f.jv_pct) || 0)) / 100,
+        watch_margin_below: numOrNull(f.watch_margin_below),
+        per_loan_share: numOrNull(f.per_loan_share),
+      });
+      onDone();
+    } catch {
+      setErr("Couldn't save — check the values and try again.");
+    } finally { setBusy(false); }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const half = { display: "flex", gap: 10 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 460, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)", maxHeight: "88vh", overflowY: "auto" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Edit {biz.name}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>Brand and health config for this profit center.</div>
+        <label style={label}>Name<input style={field} value={f.name} onChange={set("name")} required /></label>
+        <label style={label}>Tagline<input style={field} value={f.tag} onChange={set("tag")} /></label>
+        <div style={half}>
+          <label style={{ ...label, flex: 1 }}>Status
+            <select style={field} value={f.status} onChange={set("status")}>
+              <option value="healthy">Healthy</option>
+              <option value="watch">Watch</option>
+              <option value="opportunity">Opportunity</option>
+            </select>
+          </label>
+          <label style={{ ...label, flex: 1 }}>Watch when margin below (%)
+            <input style={field} type="number" step="0.5" value={f.watch_margin_below} onChange={set("watch_margin_below")} placeholder="—" />
+          </label>
+        </div>
+        <div style={half}>
+          <label style={{ ...label, flex: 1 }}>Accent
+            <span style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 5 }}>
+              <input type="color" value={f.accent} onChange={set("accent")} style={{ width: 34, height: 34, border: `1px solid ${T.line}`, borderRadius: 8, background: T.white, padding: 2 }} />
+              <input style={{ ...field, marginTop: 0 }} value={f.accent} onChange={set("accent")} />
+            </span>
+          </label>
+          <label style={{ ...label, flex: 1 }}>Ink
+            <span style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 5 }}>
+              <input type="color" value={f.ink} onChange={set("ink")} style={{ width: 34, height: 34, border: `1px solid ${T.line}`, borderRadius: 8, background: T.white, padding: 2 }} />
+              <input style={{ ...field, marginTop: 0 }} value={f.ink} onChange={set("ink")} />
+            </span>
+          </label>
+        </div>
+        <label style={{ ...label, display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="checkbox" checked={f.is_jv} onChange={set("is_jv")} /> Joint venture
+        </label>
+        {f.is_jv && (
+          <div style={half}>
+            <label style={{ ...label, flex: 1 }}>JV share (%)
+              <input style={field} type="number" step="1" value={f.jv_pct} onChange={set("jv_pct")} />
+            </label>
+            <label style={{ ...label, flex: 1 }}>Revenue per funded loan ($)
+              <input style={field} type="number" step="50" value={f.per_loan_share} onChange={set("per_loan_share")} placeholder="—" />
+            </label>
+          </div>
+        )}
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : "Save changes"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 function BusinessesPage() {
   const [rows, setRows] = useState(null);
-  useEffect(() => {
-    if (!API_BASE) { setRows(SAMPLE_BUSINESSES); return; }
+  const [editing, setEditing] = useState(null);
+  const live = Boolean(API_BASE);
+
+  function load() {
+    if (!live) { setRows(SAMPLE_BUSINESSES); return; }
     getJSON("/businesses").then(setRows).catch(() => setRows(SAMPLE_BUSINESSES));
-  }, []);
+  }
+  useEffect(load, []);
+
   return (
-    <Card title="Businesses" hint="Brand and health config per profit center. Editing lands in a later pass.">
+    <Card title="Businesses" hint="Brand and health config per profit center. Status flags 'watch' automatically when the margin drops below the threshold.">
+      {!live && (
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
+          Preview (sample) — connect to the live API to edit.
+        </div>
+      )}
       {rows ? rows.map((b) => (
         <div key={b.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${T.line}` }}>
           <span style={{ width: 10, height: 10, borderRadius: 3, background: b.accent, flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{b.name}</div>
             <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>{b.tag}</div>
           </div>
           {b.is_jv && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate }}>JV {Math.round(b.jv_share * 100)}%</span>}
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, textTransform: "capitalize" }}>{b.status}</span>
+          <button disabled={!live} onClick={() => setEditing(b)} style={live ? btn() : btn("disabled")}>Edit</button>
         </div>
       )) : <div style={{ color: T.muted, fontSize: 13 }}>Loading…</div>}
+      {editing && (
+        <BusinessEditForm biz={editing} onClose={() => setEditing(null)}
+          onDone={() => { setEditing(null); load(); }} />
+      )}
     </Card>
   );
 }

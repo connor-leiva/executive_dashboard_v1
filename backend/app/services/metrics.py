@@ -67,6 +67,16 @@ def _compact_usd(n: float | None) -> str:
     return f"${round(n):,}"
 
 
+def derive_status(business, margin: float | None) -> str:
+    """Data-driven health. When a period margin and a watch threshold both exist,
+    a margin below the threshold flags 'watch'; otherwise fall back to the stored
+    status (editable on /settings/businesses)."""
+    thresh = business.watch_margin_below
+    if margin is not None and thresh is not None and margin < float(thresh):
+        return "watch"
+    return business.status or "healthy"
+
+
 # ── small SQL aggregations ────────────────────────────────────────
 async def _count(s, tenant_id, business_id, status, start, end, side=None, require_sale=False) -> int:
     q = select(func.count()).select_from(Transaction).where(
@@ -429,7 +439,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
 
         tag = "Real estate" if b.tag == "Brokerage" else b.tag   # ULRG is a team, not a brokerage
         areas[b.key] = AreaPayload(
-            id=str(b.id), key=b.key, name=b.name, tag=tag, status=b.status,
+            id=str(b.id), key=b.key, name=b.name, tag=tag, status=derive_status(b, margin),
             accent=b.accent, ink=b.ink, sources=_SOURCES.get(b.key, ["QuickBooks"]),
             revenue=rev, noi=noi, margin=margin, trend=_trend(b), pl=pl, ops=ops, funnel=funnel,
         )

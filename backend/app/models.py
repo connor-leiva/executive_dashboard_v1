@@ -62,6 +62,10 @@ class Business(Base):
     ink: Mapped[str] = mapped_column(String(9), default="#4F6A4D")      # readable text accent
     is_jv: Mapped[bool] = mapped_column(Boolean, default=False)
     jv_share: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("1.0"))  # 0.5 = 50%
+    # Flag "watch" when the period margin falls below this (data-driven status).
+    watch_margin_below: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    # Spring's avg JV revenue per funded loan (drives the flywheel gap, Part 4).
+    per_loan_share: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     # Non-secret per-business config: sparkline trend, manual ops tiles, manual
     # funnel, and scorecard contributions (used until a live source connects).

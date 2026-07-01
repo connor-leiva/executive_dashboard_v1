@@ -175,3 +175,56 @@ async def test_springb_mrr_and_registered():
 
         reg = (await c.get("/api/v1/metrics/registered/detail", headers=H)).json()
         assert reg["count"] == 3                                   # next event only, not the +40d one
+
+
+async def test_edit_business_and_derived_status():
+    token = await _client_token()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        H = {"Authorization": f"Bearer {token}"}
+        # Partial update: tag + a watch threshold. ULRG's margin is 17% (72k/420k).
+        r = await c.put("/api/v1/businesses/ulrg", headers=H,
+                        json={"tag": "Real estate team", "watch_margin_below": 20})
+        assert r.status_code == 200, r.text
+        assert r.json()["tag"] == "Real estate team"
+        assert r.json()["watch_margin_below"] == 20.0
+
+        # 17% < 20% threshold → status derives to 'watch'.
+        d = (await c.get("/api/v1/dashboard?period=mtd", headers=H)).json()
+        assert d["areas"]["ulrg"]["status"] == "watch"
+        assert d["areas"]["ulrg"]["tag"] == "Real estate team"
+
+        # Drop the threshold below the margin → falls back to stored 'healthy'.
+        await c.put("/api/v1/businesses/ulrg", headers=H, json={"watch_margin_below": 10})
+        d2 = (await c.get("/api/v1/dashboard?period=mtd", headers=H)).json()
+        assert d2["areas"]["ulrg"]["status"] == "healthy"
+
+        # Validation: bad status + out-of-range jv_share are rejected.
+        assert (await c.put("/api/v1/businesses/ulrg", headers=H, json={"status": "nope"})).status_code == 400
+        assert (await c.put("/api/v1/businesses/ulrg", headers=H, json={"jv_share": 1.5})).status_code == 400
+        assert (await c.put("/api/v1/businesses/ghostbiz", headers=H, json={"tag": "x"})).status_code == 404
+
+
+async def test_edit_integration_token_optional_and_config_returned():
+    token = await _client_token()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        H = {"Authorization": f"Bearer {token}"}
+        # Connecting a brand-new token-based source requires a token.
+        r0 = await c.post("/api/v1/integrations", headers=H,
+                          json={"provider": "arive", "business_key": "sympli", "config": {"pipeline": "x"}})
+        assert r0.status_code == 400
+
+        # Connect GHL with a token, then EDIT it with no token (keeps the key) + new config.
+        await c.post("/api/v1/integrations", headers=H, json={
+            "provider": "ghl", "business_key": "springb", "token": "pit-secret",
+            "config": {"location_id": "loc1", "member_tags": ["the forum active"]}})
+        r1 = await c.post("/api/v1/integrations", headers=H, json={
+            "provider": "ghl", "business_key": "springb",
+            "config": {"location_id": "loc1", "member_tags": ["the forum active"],
+                       "forum_calendar_id": "cal-123"}})
+        assert r1.status_code == 200, r1.text
+
+        ghl = [i for i in (await c.get("/api/v1/integrations", headers=H)).json() if i["provider"] == "ghl"][0]
+        assert ghl["status"] == "connected"                       # token preserved, still connected
+        assert ghl["config"]["forum_calendar_id"] == "cal-123"    # config editable + returned
