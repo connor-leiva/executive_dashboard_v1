@@ -1,7 +1,7 @@
 # Spring Command Center
 
 An executive financial + operational command center for Spring's three profit
-centers — **ULRG + Team** (brokerage), **Spring B** (beCollective + The Forum),
+centers — **ULRG + Team** (real estate), **Spring B** (beCollective + The Forum),
 and **Sympli Mortgage** (50% JV). Each business is seen through a **financial
 layer** (QuickBooks, source of truth) and an **operational layer** (the system
 that runs it: Sisu / Follow Up Boss / Arive).

@@ -106,7 +106,7 @@ async def seed():
         s.add(User(tenant_id=tenant.id, email=OWNER_EMAIL, password_hash=hash_pw(OWNER_PASSWORD),
                    name="Spring Bengtzen", role="owner"))
 
-        ulrg = Business(tenant_id=tenant.id, key="ulrg", name="ULRG + Team", tag="Brokerage",
+        ulrg = Business(tenant_id=tenant.id, key="ulrg", name="ULRG + Team", tag="Real estate",
                         status="healthy", accent="#61835E", ink="#4F6A4D", is_jv=False,
                         jv_share=Decimal("1.0"), sort_order=0, config=ULRG_CONFIG)
         springb = Business(tenant_id=tenant.id, key="springb", name="Spring B",

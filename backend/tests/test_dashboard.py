@@ -40,10 +40,10 @@ async def test_login_and_dashboard_shape():
     # ULRG operational figures are computed from seeded transactions/leads.
     ulrg = d["areas"]["ulrg"]
     ops = {o["label"]: o["value"] for o in ulrg["ops"]}
-    assert ops["Units closed"] == "38"
+    assert ops["Units Closed"] == "38"
     assert ops["Volume"] == "$14.2M"
     assert ops["GCI"] == "$420K"
-    assert ops["Agents producing"] == "24"
+    assert ops["Agents Producing"] == "24"
     funnel = {f["label"]: f["v"] for f in ulrg["funnel"]}
     assert funnel == {"Leads": 680, "Appointments": 142, "Under contract": 46, "Closed": 38}
 
@@ -66,9 +66,9 @@ async def test_login_and_dashboard_shape():
 
     # Scorecards present with the mockup labels + business_key for dot colors.
     labels = {s["label"]: s for s in d["scorecards"]}
-    assert labels["Combined profit"]["value"] == "$109K"
-    assert labels["Combined profit"]["business_key"] == "portfolio"
-    assert labels["Active members"]["value"] == "142"
+    assert labels["Combined Profit"]["value"] == "$109K"
+    assert labels["Combined Profit"]["business_key"] == "portfolio"
+    assert labels["Active Members"]["value"] == "142"
 
     # Sources collapse per provider; QBO connected, Arive still pending (Phase 3).
     src = {s["name"]: s["status"] for s in d["sources"]}

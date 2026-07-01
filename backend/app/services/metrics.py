@@ -270,19 +270,24 @@ def _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings, producing
     avg_price = volume / closed if closed else 0
     scope = period_label.lower() if period_label else "this period"
     return [
-        OpTile(label="Units closed", value=str(closed), sub=scope, key="units_closed"),
+        OpTile(label="Units Closed", value=str(closed), sub=scope, key="units_closed"),
         OpTile(label="Volume", value=_compact_usd(volume), key="volume"),
         OpTile(label="GCI", value=_compact_usd(gci), sub=scope, key="gci"),
-        OpTile(label="Avg sale price", value=_compact_usd(avg_price), key="avg_price"),
-        OpTile(label="Pending pipeline", value=str(pending), sub=_compact_usd(pipeline), key="pending"),
-        OpTile(label="Active listings", value=str(active_listings), key="active_listings"),
-        OpTile(label="Agents producing", value=str(producing), sub=f"of {total}", key="agents_producing"),
+        OpTile(label="Avg Sale Price", value=_compact_usd(avg_price), key="avg_price"),
+        OpTile(label="Pending Pipeline", value=str(pending), sub=_compact_usd(pipeline), key="pending"),
+        OpTile(label="Active Listings", value=str(active_listings), key="active_listings"),
+        OpTile(label="Agents Producing", value=str(producing), sub=f"of {total}", key="agents_producing"),
     ]
 
 
 def _ops_from_config(b: Business) -> list[OpTile]:
     cfg = b.config or {}
-    return [OpTile(**o) for o in cfg.get("ops", [])]
+    out = []
+    for o in cfg.get("ops", []):
+        o = dict(o)
+        o["label"] = (o.get("label") or "").title()   # Title-case KPI labels
+        out.append(OpTile(**o))
+    return out
 
 
 def _scorecards(
@@ -291,19 +296,19 @@ def _scorecards(
 ) -> list[Scorecard]:
     return [
         Scorecard(
-            label="Combined profit",
+            label="Combined Profit",
             value=_compact_usd(portfolio_noi) if have_financials else "—",
             sub=f"{portfolio_margin}% margin" if have_financials else "awaiting QuickBooks",
             business_key="portfolio", key="combined_profit"),
         Scorecard(label="Total GCI", value=_compact_usd(ulrg_gci), sub="this period", business_key="ulrg", key="gci"),
-        Scorecard(label="Closed units", value=str(ulrg_closed), sub="this period", business_key="ulrg", key="units_closed"),
-        Scorecard(label="Under contract", value=str(ulrg_pending),
+        Scorecard(label="Closed Units", value=str(ulrg_closed), sub="this period", business_key="ulrg", key="units_closed"),
+        Scorecard(label="Under Contract", value=str(ulrg_pending),
                   sub=f"{_compact_usd(ulrg_pipeline)} pipeline", business_key="ulrg", key="pending"),
-        Scorecard(label="Agents producing", value=str(producing), sub=f"of {total_agents}", business_key="ulrg", key="agents_producing"),
-        Scorecard(label="Loans funded", value=sympli_funded or "—",
+        Scorecard(label="Agents Producing", value=str(producing), sub=f"of {total_agents}", business_key="ulrg", key="agents_producing"),
+        Scorecard(label="Loans Funded", value=sympli_funded or "—",
                   sub=f"{sympli_volume} volume" if sympli_volume else None, business_key="sympli", key="funded_loans"),
-        Scorecard(label="Attach rate", value=attach_rate or "—", sub="ULRG → Sympli", business_key="sympli"),
-        Scorecard(label="Active members", value=members or "—", sub="beCollective + Forum", business_key="springb", key="active_members"),
+        Scorecard(label="Attach Rate", value=attach_rate or "—", sub="ULRG → Sympli", business_key="sympli"),
+        Scorecard(label="Active Members", value=members or "—", sub="beCollective + Forum", business_key="springb", key="active_members"),
     ]
 
 
@@ -357,14 +362,13 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                 except Exception:          # e.g. metric_record migration not yet applied
                     await s.rollback()
                     members = 0
-                if members > 0:            # Go High Level has synced real members
-                    for t in ops:
-                        if t.label == "Active members":
+                for t in ops:
+                    if t.label == "Active Members":
+                        t.key = "active_members"          # drill-down on the Spring B panel
+                        if members > 0:                   # GHL has synced real members
                             t.value = str(members)
                             t.sub = "beCollective + Forum"
-                    sc["members"] = str(members)
-                else:
-                    sc["members"] = scc.get("members")
+                sc["members"] = str(members) if members > 0 else scc.get("members")
 
         # Financial (Phase 2) — from the exact-period PLSnapshot.
         pl_row = (await s.execute(select(PLSnapshot).where(
@@ -382,8 +386,9 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             rev = noi = margin = None
             pl = []
 
+        tag = "Real estate" if b.tag == "Brokerage" else b.tag   # ULRG is a team, not a brokerage
         areas[b.key] = AreaPayload(
-            id=str(b.id), key=b.key, name=b.name, tag=b.tag, status=b.status,
+            id=str(b.id), key=b.key, name=b.name, tag=tag, status=b.status,
             accent=b.accent, ink=b.ink, sources=_SOURCES.get(b.key, ["QuickBooks"]),
             revenue=rev, noi=noi, margin=margin, trend=_trend(b), pl=pl, ops=ops, funnel=funnel,
         )

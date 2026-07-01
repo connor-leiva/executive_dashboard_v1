@@ -281,7 +281,7 @@ function AccountPage() {
 /* ── businesses (read-only for now) ────────────────────────── */
 
 const SAMPLE_BUSINESSES = [
-  { key: "ulrg", name: "ULRG + Team", tag: "Brokerage", status: "healthy", accent: T.meadow, is_jv: false, jv_share: 1 },
+  { key: "ulrg", name: "ULRG + Team", tag: "Real estate", status: "healthy", accent: T.meadow, is_jv: false, jv_share: 1 },
   { key: "springb", name: "Spring B", tag: "beCollective + The Forum", status: "watch", accent: T.poppy, is_jv: false, jv_share: 1 },
   { key: "sympli", name: "Sympli Mortgage", tag: "Joint venture · 50% owned", status: "opportunity", accent: T.teal, is_jv: true, jv_share: 0.5 },
 ];

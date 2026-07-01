@@ -176,8 +176,8 @@ function OpTile({ d, onDrill }) {
   const Tag = clickable ? "button" : "div";
   return (
     <Tag onClick={clickable ? () => onDrill(d.key) : undefined} className={clickable ? "cc-card" : undefined}
-      style={{ display: "block", textAlign: "left", width: "100%", border: "none",
-        background: T.parchment, borderRadius: 10, padding: "12px 13px", cursor: clickable ? "pointer" : "default" }}>
+      style={{ display: "block", textAlign: "left", width: "100%", minWidth: 0, boxSizing: "border-box", margin: 0, font: "inherit",
+        border: "none", background: T.parchment, borderRadius: 10, padding: "12px 13px", cursor: clickable ? "pointer" : "default" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
         <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.slate, fontWeight: 500 }}>{d.label}</span>
         {clickable && <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.muted }}>↗</span>}
@@ -338,7 +338,8 @@ function Overview({ data, onOpen, onDrill }) {
               <Tag key={i} onClick={clickable ? () => onDrill(s.key) : undefined}
                 className={clickable ? "cc-card" : undefined}
                 style={{
-                  textAlign: "left", width: "100%", background: T.white, border: `1px solid ${T.line}`,
+                  textAlign: "left", width: "100%", minWidth: 0, boxSizing: "border-box", margin: 0, font: "inherit",
+                  background: T.white, border: `1px solid ${T.line}`,
                   borderRadius: 12, padding: "16px 16px", cursor: clickable ? "pointer" : "default",
                 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
@@ -734,7 +735,7 @@ export default function CommandCenter() {
   else if (view === "flywheel") content = <Flywheel flywheel={flywheel} />;
 
   return (
-    <div style={{ background: T.parchment, minHeight: "100%", fontFamily: "Inter,sans-serif" }}>
+    <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=Sacramento&display=swap');
         .cc-card { transition: transform .15s ease, box-shadow .15s ease; }
@@ -756,7 +757,7 @@ export default function CommandCenter() {
         @media (prefers-reduced-motion: reduce) { .cc-card, .cc-nav { transition: none; } .cc-card:hover { transform: none; } .cc-skel { animation: none; } }
       `}</style>
 
-      <div style={{ display: "flex", minHeight: "100%" }}>
+      <div style={{ display: "flex", minHeight: "100vh" }}>
         {/* Rail */}
         <aside style={{ width: 224, background: T.evergreen, padding: "24px 16px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
           <div style={{ padding: "0 8px 22px" }}>
