@@ -9,5 +9,6 @@ COPY . .
 RUN pip install --no-cache-dir ".[postgres]" "uvicorn[standard]>=0.30"
 
 EXPOSE 8000
+# Bind Railway's injected $PORT (falls back to 8000 locally).
 # Run migrations as the Railway pre-deploy/release command: `alembic upgrade head`.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

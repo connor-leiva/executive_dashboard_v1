@@ -7,7 +7,7 @@ _engine_kwargs: dict = {"pool_pre_ping": True}
 if not settings.is_sqlite:
     _engine_kwargs.update(pool_size=5, max_overflow=10)
 
-engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
+engine = create_async_engine(settings.async_database_url, **_engine_kwargs)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

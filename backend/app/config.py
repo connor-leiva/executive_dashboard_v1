@@ -1,6 +1,29 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _normalize_async(url: str) -> str:
+    """Coerce a plain Postgres URL to the asyncpg driver for the async engine.
+
+    Railway's Postgres plugin exposes DATABASE_URL as `postgresql://...`, which
+    SQLAlchemy's async engine rejects ("asyncio extension requires an async
+    driver"). SQLite / already-qualified URLs pass through unchanged.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + url[len("postgresql://"):]
+    return url
+
+
+def _normalize_sync(url: str) -> str:
+    """Coerce the same URL to a sync driver (psycopg) for Alembic."""
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url.replace("+asyncpg", "+psycopg").replace("+aiosqlite", "")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -30,8 +53,11 @@ class Settings(BaseSettings):
     # worker
     SYNC_INTERVAL_MINUTES: int = 30
 
-    # dev convenience: bypass Host->tenant lookup with a single-tenant slug
+    # Single-tenant fallback: when a request Host doesn't match a `domain` row,
+    # resolve to this tenant slug. Safe while there is one tenant (Spring); set
+    # SINGLE_TENANT_FALLBACK=false once real multitenancy + custom domains land.
     DEV_TENANT_SLUG: str = "springb"
+    SINGLE_TENANT_FALLBACK: bool = True
 
     @property
     def origins(self) -> list[str]:
@@ -40,6 +66,14 @@ class Settings(BaseSettings):
     @property
     def is_sqlite(self) -> bool:
         return self.DATABASE_URL.startswith("sqlite")
+
+    @property
+    def async_database_url(self) -> str:
+        return _normalize_async(self.DATABASE_URL)
+
+    @property
+    def sync_database_url(self) -> str:
+        return _normalize_sync(self.DATABASE_URL)
 
 
 settings = Settings()

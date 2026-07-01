@@ -15,17 +15,9 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
-def _sync_url(url: str) -> str:
-    # Alembic runs synchronously; map async drivers to their sync equivalents.
-    return (
-        url.replace("+asyncpg", "+psycopg")
-        .replace("+aiosqlite", "")
-    )
-
-
 def run_migrations_offline() -> None:
     context.configure(
-        url=_sync_url(settings.DATABASE_URL),
+        url=settings.sync_database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -37,7 +29,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     section = config.get_section(config.config_ini_section) or {}
-    section["sqlalchemy.url"] = _sync_url(settings.DATABASE_URL)
+    section["sqlalchemy.url"] = settings.sync_database_url
     connectable = engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(

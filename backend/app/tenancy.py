@@ -35,8 +35,10 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
         if row:
             _current_tenant.set(row.tenant_id)
             return row.tenant_id
-        # Dev convenience: fall back to the single seeded tenant by slug.
-        if settings.ENV == "development":
+        # Single-tenant fallback: when the Host doesn't match a domain row, resolve
+        # to the seeded tenant slug. Enabled in dev, and in prod while there is one
+        # tenant (so Railway subdomains work before custom domains are wired).
+        if settings.ENV == "development" or settings.SINGLE_TENANT_FALLBACK:
             t = (await s.execute(
                 select(Tenant).where(Tenant.slug == settings.DEV_TENANT_SLUG)
             )).scalar_one_or_none()
