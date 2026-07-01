@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     SISU_TEAM_ID: str = "621"
     SISU_EXTERNAL_SERVICE: str = "fub"
     SISU_MAX_PAGES: int = 0            # 0 = pull all pages; >0 caps for faster syncs
+    # "Current" window for pending pipeline + active listings. Sisu holds ~20yrs
+    # of history; a deal under contract or a listing older than this is stale
+    # data, not live pipeline. Tune against Sisu's own current counts.
+    SISU_CURRENT_WINDOW_DAYS: int = 180
     # Follow Up Boss (lead-source layer — Phase 1b, Basic auth: key as username)
     FUB_API_KEY: str = ""
     FUB_API_BASE: str = "https://api.followupboss.com/v1"

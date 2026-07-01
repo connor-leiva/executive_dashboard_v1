@@ -193,7 +193,7 @@ async def seed():
                     tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
                     external_id=f"txn-active-{i+1:03d}", side="sell", status="active",
                     sale_price=Decimal(380000), address=f"{900+i} Pine Rd",
-                    agent_id=agents[i % 24].id))
+                    listing_date=mid, agent_id=agents[i % 24].id))
 
             # Leads (680; 142 at appointment) for the funnel top.
             for i in range(680):

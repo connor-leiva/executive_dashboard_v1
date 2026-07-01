@@ -17,6 +17,7 @@ Confirmed against the live schema (team 621):
 """
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from email.utils import parsedate_to_datetime
 
@@ -97,6 +98,69 @@ async def get_team_clients(max_pages: int | None = None) -> list[dict]:
     return out
 
 
+async def _get_page(client: httpx.AsyncClient, page: int) -> dict:
+    """Fetch one page with 429 (rate-limit) + 5xx backoff."""
+    url = f"{settings.SISU_BASE_URL}{GET_TEAM_CLIENTS}"
+    for attempt in range(4):
+        r = await client.get(url, params={"page": page, "per_page": 1000})
+        if r.status_code == 429 and attempt < 3:
+            await asyncio.sleep(6 * (attempt + 1))
+            continue
+        if r.status_code >= 500 and attempt < 3:
+            await asyncio.sleep(2 ** attempt)
+            continue
+        r.raise_for_status()
+        return r.json()
+    r.raise_for_status()
+    return r.json()
+
+
+async def fetch_all_clients(concurrency: int = 8, progress=None):
+    """Fetch all pages CONCURRENTLY and map to (transactions, agents).
+
+    Each page is ~9s, so sequential paging over ~33 pages takes minutes; a
+    bounded-concurrency fan-out cuts that to roughly one page's worth of
+    latency × ceil(pages/concurrency). Raw pages are mapped and discarded as
+    they arrive to bound memory.
+
+    Returns (list[transaction dict], dict[agent_external_id -> agent dict]).
+    """
+    txns: list[dict] = []
+    agents: dict[str, dict] = {}
+
+    def absorb(rows):
+        for cl in rows:
+            a = map_agent(cl)
+            if a:
+                agents[a["external_id"]] = a
+            t = map_client(cl)
+            if t["external_id"] and t["external_id"] != "None":
+                txns.append(t)
+
+    async with httpx.AsyncClient(auth=_auth(), timeout=120,
+                                 headers={"accept": "application/json"}) as c:
+        first = await _get_page(c, 1)
+        pages = int((first.get("pagination") or {}).get("pages") or 1)
+        if settings.SISU_MAX_PAGES:
+            pages = min(pages, settings.SISU_MAX_PAGES)
+        absorb(first.get("clients") or [])
+        done = [1]
+        if progress:
+            progress(1, pages, len(txns))
+        sem = asyncio.Semaphore(concurrency)
+
+        async def worker(pg: int):
+            async with sem:
+                payload = await _get_page(c, pg)
+            absorb(payload.get("clients") or [])
+            done[0] += 1
+            if progress:
+                progress(done[0], pages, len(txns))
+
+        await asyncio.gather(*(worker(pg) for pg in range(2, pages + 1)))
+    return txns, agents
+
+
 def classify_status(c: dict) -> str:
     """Map a Sisu client to our status enum (date/flag-driven).
 
@@ -150,4 +214,5 @@ def map_client(c: dict) -> dict:
         "close_date": parse_dt(c.get("closed_dt")),
         "appt_set_date": parse_dt(c.get("appt_set_dt")),
         "lead_date": parse_dt(c.get("lead_dt")),
+        "listing_date": parse_dt(c.get("listing_dt")),
     }

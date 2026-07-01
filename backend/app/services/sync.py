@@ -42,24 +42,17 @@ async def _upsert_many(s: AsyncSession, model, rows: list[dict], index_elements,
 _TXN_UPDATE_KEYS = [
     "side", "status", "gci", "sale_price", "address", "buyer_name", "buyer_email",
     "agent_id", "contract_date", "close_date", "appt_set_date", "lead_date",
-    "sisu_status_code",
+    "listing_date", "sisu_status_code",
 ]
 
 
 async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID):
-    """Stream the whole team's clients from Sisu and batch-upsert agents + transactions."""
-    agents: dict[str, dict] = {}
-    mapped: list[dict] = []      # slim transaction dicts (raw pages discarded)
+    """Fetch the whole team's clients from Sisu (concurrently) and batch-upsert."""
+    def _prog(done, total, n):
+        print(f"[sisu] page {done}/{total} · {n} rows", flush=True)
 
-    async for page, rows in sisu.iter_team_clients():
-        for c in rows:
-            a = sisu.map_agent(c)
-            if a:
-                agents[a["external_id"]] = a
-            t = sisu.map_client(c)
-            if t["external_id"] and t["external_id"] != "None":
-                mapped.append(t)
-        print(f"[sisu] fetched page {page} · {len(mapped)} rows, {len(agents)} agents", flush=True)
+    mapped, agents = await sisu.fetch_all_clients(progress=_prog)
+    print(f"[sisu] fetched {len(mapped)} transactions, {len(agents)} agents", flush=True)
 
     # 1) Batch-upsert the agent roster.
     agent_rows = [
@@ -88,6 +81,7 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUI
              agent_id=agent_map.get(t.get("agent_external_id")),
              contract_date=t.get("contract_date"), close_date=t.get("close_date"),
              appt_set_date=t.get("appt_set_date"), lead_date=t.get("lead_date"),
+             listing_date=t.get("listing_date"),
              sisu_status_code=t.get("sisu_status_code"))
         for t in mapped
     ]

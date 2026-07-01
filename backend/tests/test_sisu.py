@@ -72,6 +72,15 @@ def test_map_client_seller_side():
     assert sisu.map_client(c)["side"] == "sell"
 
 
+def test_map_client_listing_date():
+    c = _closed_buyer() | {"type_id": "s", "listing_dt": "Tue, 24 Mar 2020 00:00:00 GMT"}
+    t = sisu.map_client(c)
+    assert t["side"] == "sell"
+    assert t["listing_date"] == dt.date(2020, 3, 24)
+    # buyer record has no listing date
+    assert sisu.map_client(_closed_buyer())["listing_date"] is None
+
+
 def test_map_agent_active_flag():
     a = sisu.map_agent(_closed_buyer())
     assert a["external_id"] == "3589"

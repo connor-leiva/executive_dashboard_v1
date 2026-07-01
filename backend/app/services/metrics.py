@@ -16,6 +16,7 @@ import uuid
 from sqlalchemy import select, func, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..models import Business, Transaction, Agent, Lead, PLSnapshot, CashSnapshot, Integration
 from ..schemas import (
     DashboardResponse, Portfolio, CompositionSeg, AreaPayload, PLRow,
@@ -89,6 +90,25 @@ async def _sum(s, tenant_id, business_id, column, status, start, end) -> float:
     if start and end:
         q = q.where(Transaction.close_date >= start, Transaction.close_date <= end)
     return float((await s.execute(q)).scalar() or 0)
+
+
+async def _current_pending(s, tenant_id, business_id, cutoff) -> tuple[int, float]:
+    """Count + $ volume of CURRENT under-contract deals (uc_dt within the window),
+    so 20 years of stale/never-closed contracts don't inflate the pipeline."""
+    base = (Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
+            Transaction.status == "pending", Transaction.contract_date >= cutoff)
+    cnt = (await s.execute(select(func.count()).select_from(Transaction).where(*base))).scalar() or 0
+    vol = (await s.execute(
+        select(func.coalesce(func.sum(Transaction.sale_price), 0)).where(*base))).scalar() or 0
+    return int(cnt), float(vol)
+
+
+async def _active_listings(s, tenant_id, business_id, cutoff) -> int:
+    """Current active listings: sell-side, active, listed within the window."""
+    return int((await s.execute(select(func.count()).select_from(Transaction).where(
+        Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
+        Transaction.status == "active", Transaction.side == "sell",
+        Transaction.listing_date >= cutoff))).scalar() or 0)
 
 
 async def _producing_agents(s, tenant_id, business_id, start, end) -> tuple[int, int]:
@@ -296,12 +316,13 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
 
         # Operational (Phase 1) — only ULRG has live transaction data.
         if b.key == "ulrg":
+            cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
             closed = await _count(s, tenant_id, b.id, "closed", start, end)
-            pending = await _count(s, tenant_id, b.id, "pending", None, None)
             volume = await _sum(s, tenant_id, b.id, Transaction.sale_price, "closed", start, end)
             gci = await _sum(s, tenant_id, b.id, Transaction.gci, "closed", start, end)
-            pipeline = await _sum(s, tenant_id, b.id, Transaction.sale_price, "pending", None, None)
-            active_listings = await _count(s, tenant_id, b.id, "active", None, None, side="sell")
+            # Current-state tiles are recency-scoped (not date-in-period).
+            pending, pipeline = await _current_pending(s, tenant_id, b.id, cutoff)
+            active_listings = await _active_listings(s, tenant_id, b.id, cutoff)
             producing, total = await _producing_agents(s, tenant_id, b.id, start, end)
             ops = _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings, producing, total)
             funnel = await _funnel(s, tenant_id, b.id, start, end)
