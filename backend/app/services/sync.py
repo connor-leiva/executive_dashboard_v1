@@ -142,8 +142,11 @@ async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration, start: str
 
 
 async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, period_end: str):
+    # Include "error" so a previously-failed sync is retried (a stuck error would
+    # otherwise silently skip the source). Disconnected sources are left alone.
     integs = (await s.execute(select(Integration).where(
-        Integration.tenant_id == tenant_id, Integration.status == "connected"))).scalars().all()
+        Integration.tenant_id == tenant_id,
+        Integration.status.in_(("connected", "error"))))).scalars().all()
     for integ in integs:
         run = SyncRun(tenant_id=tenant_id, provider=integ.provider)
         s.add(run)

@@ -64,45 +64,17 @@ def _clip(value, n: int):
     return value[:n] if isinstance(value, str) else value
 
 
-async def iter_team_clients(max_pages: int | None = None):
-    """Yield (page_number, rows) for each page of the team's clients.
-
-    Streaming keeps memory bounded (we discard each raw page after mapping) and
-    lets the caller report progress across the ~33 pages.
-    """
-    if max_pages is None:
-        max_pages = settings.SISU_MAX_PAGES or None
-    page = 1
-    url = f"{settings.SISU_BASE_URL}{GET_TEAM_CLIENTS}"
-    async with httpx.AsyncClient(auth=_auth(), timeout=90,
-                                 headers={"accept": "application/json"}) as c:
-        while True:
-            r = await c.get(url, params={"page": page, "per_page": 1000})
-            r.raise_for_status()
-            payload = r.json()
-            rows = payload.get("clients") or []
-            yield page, rows
-            pg = payload.get("pagination") or {}
-            if not pg.get("has_next"):
-                break
-            if max_pages and page >= max_pages:
-                break
-            page = pg.get("next_num") or (page + 1)
-
-
-async def get_team_clients(max_pages: int | None = None) -> list[dict]:
-    """Pull every client/transaction for the team (buffered; prefer the iterator)."""
-    out: list[dict] = []
-    async for _, rows in iter_team_clients(max_pages):
-        out.extend(rows)
-    return out
-
-
 async def _get_page(client: httpx.AsyncClient, page: int) -> dict:
-    """Fetch one page with 429 (rate-limit) + 5xx backoff."""
+    """Fetch one page with 429 (rate-limit) + 5xx backoff.
+
+    IMPORTANT: get-team-clients only paginates over **POST** — the GET form
+    always returns page 1 (same ~1000 rows), so a GET-based sync silently sees
+    a duplicated slice of the 32k+ records. Body: {"page", "per_page": 1000}
+    (per_page > 1000 breaks the endpoint). No server-side filter is supported.
+    """
     url = f"{settings.SISU_BASE_URL}{GET_TEAM_CLIENTS}"
     for attempt in range(4):
-        r = await client.get(url, params={"page": page, "per_page": 1000})
+        r = await client.post(url, json={"page": page, "per_page": 1000})
         if r.status_code == 429 and attempt < 3:
             await asyncio.sleep(6 * (attempt + 1))
             continue

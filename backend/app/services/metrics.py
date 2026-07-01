@@ -68,7 +68,7 @@ def _compact_usd(n: float | None) -> str:
 
 
 # ── small SQL aggregations ────────────────────────────────────────
-async def _count(s, tenant_id, business_id, status, start, end, side=None) -> int:
+async def _count(s, tenant_id, business_id, status, start, end, side=None, require_sale=False) -> int:
     q = select(func.count()).select_from(Transaction).where(
         Transaction.tenant_id == tenant_id,
         Transaction.business_id == business_id,
@@ -76,17 +76,21 @@ async def _count(s, tenant_id, business_id, status, start, end, side=None) -> in
     )
     if side:
         q = q.where(Transaction.side == side)
+    if require_sale:  # real sales only (excludes $0 outbound referrals), matches Sisu
+        q = q.where(Transaction.sale_price > 0)
     if start and end:
         q = q.where(Transaction.close_date >= start, Transaction.close_date <= end)
     return int((await s.execute(q)).scalar() or 0)
 
 
-async def _sum(s, tenant_id, business_id, column, status, start, end) -> float:
+async def _sum(s, tenant_id, business_id, column, status, start, end, require_sale=False) -> float:
     q = select(func.coalesce(func.sum(column), 0)).where(
         Transaction.tenant_id == tenant_id,
         Transaction.business_id == business_id,
         Transaction.status == status,
     )
+    if require_sale:
+        q = q.where(Transaction.sale_price > 0)
     if start and end:
         q = q.where(Transaction.close_date >= start, Transaction.close_date <= end)
     return float((await s.execute(q)).scalar() or 0)
@@ -162,7 +166,7 @@ async def _funnel(s, tenant_id, business_id, start, end) -> list[FunnelRow]:
             Transaction.status.in_(("pending", "closed")),
             Transaction.contract_date >= start, Transaction.contract_date <= end)
     )).scalar() or 0
-    closed = await _count(s, tenant_id, business_id, "closed", start, end)
+    closed = await _count(s, tenant_id, business_id, "closed", start, end, require_sale=True)
     return [
         FunnelRow(label="Leads", v=int(leads)),
         FunnelRow(label="Appointments", v=int(appts)),
@@ -317,9 +321,9 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         # Operational (Phase 1) — only ULRG has live transaction data.
         if b.key == "ulrg":
             cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
-            closed = await _count(s, tenant_id, b.id, "closed", start, end)
-            volume = await _sum(s, tenant_id, b.id, Transaction.sale_price, "closed", start, end)
-            gci = await _sum(s, tenant_id, b.id, Transaction.gci, "closed", start, end)
+            closed = await _count(s, tenant_id, b.id, "closed", start, end, require_sale=True)
+            volume = await _sum(s, tenant_id, b.id, Transaction.sale_price, "closed", start, end, require_sale=True)
+            gci = await _sum(s, tenant_id, b.id, Transaction.gci, "closed", start, end, require_sale=True)
             # Current-state tiles are recency-scoped (not date-in-period).
             pending, pipeline = await _current_pending(s, tenant_id, b.id, cutoff)
             active_listings = await _active_listings(s, tenant_id, b.id, cutoff)
