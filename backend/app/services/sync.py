@@ -141,6 +141,28 @@ async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration, start: str
     await s.commit()
 
 
+async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, period_start, period_end):
+    """Sync one integration, recording a SyncRun and updating its status."""
+    run = SyncRun(tenant_id=tenant_id, provider=integ.provider)
+    s.add(run)
+    await s.commit()
+    try:
+        if integ.provider == "sisu":
+            await sync_sisu(s, tenant_id, integ.business_id)
+        elif integ.provider == "fub":
+            await sync_fub(s, tenant_id, integ.business_id)
+        elif integ.provider == "qbo":
+            await sync_qbo_pl(s, tenant_id, integ, period_start, period_end)
+        run.status, run.finished_at = "ok", dt.datetime.utcnow()
+        # Clear any prior error and mark the source healthy again.
+        integ.status, integ.last_error = "connected", None
+        integ.last_synced_at = dt.datetime.utcnow()
+    except Exception as e:  # noqa: BLE001 — surface error on the integration
+        run.status, run.detail, run.finished_at = "error", str(e), dt.datetime.utcnow()
+        integ.status, integ.last_error = "error", str(e)
+    await s.commit()
+
+
 async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, period_end: str):
     # Include "error" so a previously-failed sync is retried (a stuck error would
     # otherwise silently skip the source). Disconnected sources are left alone.
@@ -148,21 +170,11 @@ async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, peri
         Integration.tenant_id == tenant_id,
         Integration.status.in_(("connected", "error"))))).scalars().all()
     for integ in integs:
-        run = SyncRun(tenant_id=tenant_id, provider=integ.provider)
-        s.add(run)
-        await s.commit()
-        try:
-            if integ.provider == "sisu":
-                await sync_sisu(s, tenant_id, integ.business_id)
-            elif integ.provider == "fub":
-                await sync_fub(s, tenant_id, integ.business_id)
-            elif integ.provider == "qbo":
-                await sync_qbo_pl(s, tenant_id, integ, period_start, period_end)
-            run.status, run.finished_at = "ok", dt.datetime.utcnow()
-            # Clear any prior error and mark the source healthy again.
-            integ.status, integ.last_error = "connected", None
-            integ.last_synced_at = dt.datetime.utcnow()
-        except Exception as e:  # noqa: BLE001 — surface error on the integration
-            run.status, run.detail, run.finished_at = "error", str(e), dt.datetime.utcnow()
-            integ.status, integ.last_error = "error", str(e)
-        await s.commit()
+        await _sync_integration(s, tenant_id, integ, period_start, period_end)
+
+
+async def run_one(s: AsyncSession, tenant_id: uuid.UUID, integ_id, period_start: str, period_end: str):
+    integ = (await s.execute(select(Integration).where(
+        Integration.id == integ_id, Integration.tenant_id == tenant_id))).scalar_one_or_none()
+    if integ:
+        await _sync_integration(s, tenant_id, integ, period_start, period_end)

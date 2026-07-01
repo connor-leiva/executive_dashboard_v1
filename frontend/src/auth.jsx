@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { T } from "./theme.js";
 import { login, hasToken } from "./api.js";
 import CommandCenter from "./CommandCenter.jsx";
+import Settings from "./Settings.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -84,7 +86,15 @@ export function App() {
   if (needsLogin) {
     return <Login onLogin={() => setAuthed(true)} />;
   }
-  return <CommandCenter />;
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<CommandCenter />} />
+        <Route path="/settings/*" element={<Settings />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
 }
 
 export default App;

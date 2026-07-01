@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { T, STATUS, usd, signed } from "./theme.js";
+import { Link } from "react-router-dom";
+import { T, STATUS, usd, signed, relativeTime } from "./theme.js";
 import { useDashboard } from "./useDashboard.js";
-import { getJSON } from "./api.js";
+import { getJSON, postJSON } from "./api.js";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -613,6 +614,10 @@ function UserMenu({ user }) {
               <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{user?.name || "Account"}</div>
               {user?.email && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{user.email}</div>}
             </div>
+            <Link to="/settings/integrations" onClick={() => setOpen(false)} style={{
+              display: "block", fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: T.ink,
+              textDecoration: "none", borderRadius: 6, padding: "8px 10px", marginTop: 4,
+            }}>Settings</Link>
             <button onClick={signOut} style={{
               width: "100%", textAlign: "left", fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500,
               color: T.poppyText, background: "transparent", border: "none", borderRadius: 6,
@@ -677,10 +682,30 @@ export default function CommandCenter() {
   const [periodKey, setPeriodKey] = useState("mtd");
   const { data, loading, error, usingSample, retry } = useDashboard(periodKey);
   const [view, setView] = useState("overview");
+  const [refreshing, setRefreshing] = useState(false);
   const user = useMe();
 
   const { areas, flywheel, sources, period } = data || {};
   const busy = loading && !data;
+  const updated = (sources || []).map((s) => s.last_synced).filter(Boolean).sort().slice(-1)[0];
+
+  async function doRefresh() {
+    if (!API_BASE || refreshing) return;
+    setRefreshing(true);
+    try {
+      const { job_id } = await postJSON(`/sync/all?period=${periodKey}`);
+      for (let i = 0; i < 60; i++) {          // poll up to ~2 min
+        await new Promise((r) => setTimeout(r, 2000));
+        const st = await getJSON(`/sync/status/${job_id}`);
+        if (st.status === "ok" || st.status === "error") break;
+      }
+      retry();                                 // refetch the dashboard
+    } catch {
+      /* leave the dashboard as-is on failure */
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   let content;
   if (busy) content = <SkeletonDashboard />;
@@ -703,6 +728,7 @@ export default function CommandCenter() {
         .cc-twocol { display: flex; gap: 18px; flex-wrap: wrap; align-items: stretch; }
         .cc-skel { background: linear-gradient(90deg, ${T.line} 25%, ${T.parchment} 50%, ${T.line} 75%); background-size: 800px 100%; animation: cc-shimmer 1.4s linear infinite; }
         @keyframes cc-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+        @keyframes cc-spin { to { transform: rotate(360deg); } }
         .cc-usermenu { position: relative; }
         .cc-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 190px; background: ${T.white}; border: 1px solid ${T.line}; border-radius: 10px; box-shadow: 0 12px 30px rgba(0,46,44,.12); padding: 6px; }
         @media (max-width: 900px) { .cc-score { grid-template-columns: repeat(2, minmax(0,1fr)); } }
@@ -765,7 +791,25 @@ export default function CommandCenter() {
                     </span>
                   ))
                 : [0, 1, 2].map((i) => <Skel key={i} w={72} h={18} style={{ display: "inline-block" }} />)}
-              <span style={{ width: 8 }} />
+              <span style={{ width: 6 }} />
+              {updated && !refreshing && (
+                <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>Updated {relativeTime(updated)}</span>
+              )}
+              <button
+                onClick={doRefresh}
+                disabled={!API_BASE || refreshing}
+                title={API_BASE ? "Sync all sources" : "Available on the live app"}
+                className="cc-nav"
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter,sans-serif",
+                  fontSize: 12, fontWeight: 600, color: API_BASE ? T.slate : T.muted,
+                  background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8,
+                  padding: "5px 10px", cursor: API_BASE && !refreshing ? "pointer" : "not-allowed",
+                }}
+              >
+                <span style={{ display: "inline-block", animation: refreshing ? "cc-spin 0.9s linear infinite" : "none" }}>↻</span>
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </button>
               <UserMenu user={user} />
             </div>
           </div>

@@ -31,3 +31,27 @@ export const STATUS = {
 
 export const usd = (n) => "$" + Math.abs(Math.round(n)).toLocaleString("en-US");
 export const signed = (n) => (n < 0 ? `(${usd(n)})` : usd(n));
+
+// "4 minutes ago" from an ISO timestamp; null-safe.
+export function relativeTime(iso) {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return null;
+  const s = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? "" : "s"} ago`;
+}
+
+// Provider key → display name.
+export const PROVIDER_NAME = {
+  qbo: "QuickBooks",
+  sisu: "Sisu",
+  fub: "Follow Up Boss",
+  ghl: "Go High Level",
+  arive: "Arive",
+};
