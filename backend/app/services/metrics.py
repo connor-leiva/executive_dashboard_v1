@@ -115,6 +115,34 @@ async def _active_members(s, tenant_id, business_id) -> int:
         MetricRecord.status == "active"))).scalar() or 0)
 
 
+async def _springb_extras(s, tenant_id, business_id) -> dict:
+    """Best-effort Go High Level extras for Spring B: MRR (sum of active
+    subscriptions) and the next Forum event + its registered count (calendar).
+    Each value stays None when that source hasn't synced, so the tile keeps its
+    seeded placeholder rather than showing a misleading zero."""
+    out = {"mrr": None, "next_event": None, "registered": None}
+
+    def _base(kind):
+        return (MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+                MetricRecord.source == "ghl", MetricRecord.kind == kind)
+
+    sub_n = int((await s.execute(select(func.count()).select_from(MetricRecord)
+                                 .where(*_base("subscription")))).scalar() or 0)
+    if sub_n:
+        mrr = (await s.execute(select(func.coalesce(func.sum(MetricRecord.amount), 0))
+                               .where(*_base("subscription"), MetricRecord.status == "active"))).scalar()
+        out["mrr"] = float(mrr or 0)
+
+    today = dt.date.today()
+    nxt = (await s.execute(select(func.min(MetricRecord.occurred_on))
+                           .where(*_base("registration"), MetricRecord.occurred_on >= today))).scalar()
+    if nxt:
+        out["next_event"] = nxt
+        out["registered"] = int((await s.execute(select(func.count()).select_from(MetricRecord)
+                                 .where(*_base("registration"), MetricRecord.occurred_on == nxt))).scalar() or 0)
+    return out
+
+
 async def _active_listings(s, tenant_id, business_id, cutoff) -> int:
     """Current active listings: sell-side, active, listed within the window."""
     return int((await s.execute(select(func.count()).select_from(Transaction).where(
@@ -359,15 +387,28 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             if b.key == "springb":
                 try:
                     members = await _active_members(s, tenant_id, b.id)
+                    extras = await _springb_extras(s, tenant_id, b.id)
                 except Exception:          # e.g. metric_record migration not yet applied
                     await s.rollback()
-                    members = 0
+                    members, extras = 0, {"mrr": None, "next_event": None, "registered": None}
+                today = dt.date.today()
                 for t in ops:
                     if t.label == "Active Members":
                         t.key = "active_members"          # drill-down on the Spring B panel
                         if members > 0:                   # GHL has synced real members
                             t.value = str(members)
                             t.sub = "beCollective + Forum"
+                    elif t.label == "Recurring Revenue" and extras["mrr"] is not None:
+                        t.value = _compact_usd(extras["mrr"])
+                        t.sub = "MRR"
+                        t.key = "mrr"                     # drill-down: active subscriptions
+                    elif t.label == "Next Forum Event" and extras["next_event"] is not None:
+                        days = (extras["next_event"] - today).days
+                        t.value = "today" if days == 0 else ("1 day" if days == 1 else f"{days} days")
+                        t.sub = f"{extras['next_event'].strftime('%b')} {extras['next_event'].day}"
+                    elif t.label == "Registered" and extras["registered"] is not None:
+                        t.value = str(extras["registered"])
+                        t.key = "registered"             # drill-down: next-event registrants
                 sc["members"] = str(members) if members > 0 else scc.get("members")
 
         # Financial (Phase 2) — from the exact-period PLSnapshot.

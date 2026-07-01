@@ -131,3 +131,47 @@ async def test_active_members_drilldown():
     assert d["source"] == "Go High Level"
     assert d["count"] == 2 and len(d["rows"]) == 2
     assert d["rows"][0]["source_url"]
+
+
+async def test_springb_mrr_and_registered():
+    """GHL subscriptions → MRR, and calendar events → next Forum event + registered."""
+    import datetime as _dt
+    from app.db import SessionLocal
+    from app.models import Business, MetricRecord
+    from sqlalchemy import select as _select
+    today = _dt.date.today()
+    async with SessionLocal() as s:
+        biz = (await s.execute(_select(Business).where(Business.key == "springb"))).scalar_one()
+        # Two active subscriptions ($49 + $100 = $149 MRR) + one cancelled (ignored).
+        for i, (amt, st) in enumerate([(49, "active"), (100, "active"), (30, "cancelled")]):
+            s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
+                               kind="subscription", external_id=f"sub{i}", name=f"Sub {i}",
+                               amount=amt, status=st))
+        # Next event is +10 days (3 booked); a later event at +40 must not count.
+        for i in range(3):
+            s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
+                               kind="registration", external_id=f"reg{i}", name=f"Attendee {i}",
+                               status="booked", occurred_on=today + _dt.timedelta(days=10)))
+        s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
+                           kind="registration", external_id="reg-late", name="Later",
+                           status="booked", occurred_on=today + _dt.timedelta(days=40)))
+        await s.commit()
+
+    token = await _client_token()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        H = {"Authorization": f"Bearer {token}"}
+        d = (await c.get("/api/v1/dashboard?period=mtd", headers=H)).json()
+        ops = {o["label"]: o for o in d["areas"]["springb"]["ops"]}
+        assert ops["Recurring Revenue"]["value"] == "$149"
+        assert ops["Recurring Revenue"]["key"] == "mrr"           # clickable
+        assert ops["Next Forum Event"]["value"] == "10 days"
+        assert ops["Registered"]["value"] == "3"
+
+        mrr = (await c.get("/api/v1/metrics/mrr/detail", headers=H)).json()
+        assert mrr["source"] == "Go High Level"
+        assert mrr["count"] == 2                                   # only active subs
+        assert "/mo" in mrr["rows"][0]["status"]
+
+        reg = (await c.get("/api/v1/metrics/registered/detail", headers=H)).json()
+        assert reg["count"] == 3                                   # next event only, not the +40d one

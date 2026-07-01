@@ -29,3 +29,19 @@ def test_contact_helpers():
 
     # name falls back through contactName / email / id
     assert ghl.contact_name({"id": "z", "email": "e@x.com"}) == "e@x.com"
+
+
+def test_subscription_helpers():
+    # dollars, monthly → as-is
+    assert ghl.sub_monthly_amount({"amount": 49, "interval": "month"}) == 49.0
+    # cents heuristic (>= 1000) → divided by 100
+    assert ghl.sub_monthly_amount({"amount": 4900, "interval": "month"}) == 49.0
+    # yearly → normalised to monthly (1200/yr = 100/mo)
+    assert ghl.sub_monthly_amount({"amount": 120000, "interval": "year"}) == 100.0
+    # missing/garbage amount → 0, never raises
+    assert ghl.sub_monthly_amount({"status": "active"}) == 0.0
+
+    assert ghl.sub_is_active({"status": "active"}) is True
+    assert ghl.sub_is_active({"status": "trialing"}) is True
+    assert ghl.sub_is_active({"status": "cancelled"}) is False
+    assert ghl.sub_is_active({}) is False

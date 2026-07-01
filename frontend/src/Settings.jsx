@@ -105,6 +105,7 @@ function GhlConnectForm({ row, onClose, onDone }) {
   const [token, setToken] = useState("");
   const [locationId, setLocationId] = useState("");
   const [tags, setTags] = useState(GHL_DEFAULT_TAGS);
+  const [calendarId, setCalendarId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -116,7 +117,10 @@ function GhlConnectForm({ row, onClose, onDone }) {
       const member_tags = tags.split(",").map((t) => t.trim()).filter(Boolean);
       await postJSON("/integrations", {
         provider: "ghl", business_key: row.business_key || "springb", token,
-        config: { location_id: locationId.trim(), member_tags, forum_tags: [], becollective_tags: [] },
+        config: {
+          location_id: locationId.trim(), member_tags, forum_tags: [], becollective_tags: [],
+          forum_calendar_id: calendarId.trim() || null,
+        },
       });
       onDone();
     } catch {
@@ -142,6 +146,9 @@ function GhlConnectForm({ row, onClose, onDone }) {
         </label>
         <label style={label}>Active-member tags (comma-separated)
           <input style={field} value={tags} onChange={(e) => setTags(e.target.value)} />
+        </label>
+        <label style={label}>Forum Calendar ID <span style={{ fontWeight: 400, color: T.muted }}>· optional (lights up Next Forum Event + Registered)</span>
+          <input style={field} value={calendarId} onChange={(e) => setCalendarId(e.target.value)} placeholder="Leave blank to skip" />
         </label>
         {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>

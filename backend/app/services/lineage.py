@@ -87,7 +87,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str) -> di
             Transaction.side == "sell", Transaction.listing_date >= cutoff,
         ).order_by(Transaction.listing_date.desc())
         txns = (await s.execute(q)).scalars().all()
-        return {"label": "Active listings", "source": "Sisu",
+        return {"label": "Active Listings", "source": "Sisu",
                 "computed_as": f"Sell-side listings active in the last {settings.SISU_CURRENT_WINDOW_DAYS} days",
                 "count": len(txns), "rows": [_txn_row(t) for t in txns]}
 
@@ -118,8 +118,47 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str) -> di
                 MetricRecord.status == "active").order_by(MetricRecord.name))).scalars().all()
         rows = [{"id": str(r.id), "name": ((r.name or "").strip().title() or r.email or r.external_id),
                  "status": r.segment or "member", "source_url": r.source_url} for r in recs]
-        return {"label": "Active members", "source": "Go High Level",
+        return {"label": "Active Members", "source": "Go High Level",
                 "computed_as": "Contacts tagged as active members (beCollective + The Forum).",
+                "count": len(rows), "rows": rows}
+
+    # ── recurring revenue (Go High Level subscriptions) → MRR ──
+    if key == "mrr":
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        recs = []
+        if biz:
+            recs = (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind == "subscription",
+                MetricRecord.status == "active").order_by(MetricRecord.amount.desc()))).scalars().all()
+        rows = [{"id": str(r.id), "name": (r.name or r.email or r.external_id),
+                 "status": (f"${float(r.amount):,.0f}/mo" if r.amount is not None else "active"),
+                 "source_url": r.source_url} for r in recs]
+        return {"label": "Recurring Revenue", "source": "Go High Level",
+                "computed_as": "Sum of active recurring subscriptions, normalised to a monthly amount.",
+                "count": len(rows), "rows": rows}
+
+    # ── registered (Go High Level calendar) → next Forum event bookings ──
+    if key == "registered":
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        rows = []
+        if biz:
+            today = dt.date.today()
+            nxt = (await s.execute(select(MetricRecord.occurred_on).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind == "registration",
+                MetricRecord.occurred_on >= today).order_by(MetricRecord.occurred_on))).scalars().first()
+            if nxt:
+                recs = (await s.execute(select(MetricRecord).where(
+                    MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                    MetricRecord.source == "ghl", MetricRecord.kind == "registration",
+                    MetricRecord.occurred_on == nxt).order_by(MetricRecord.name))).scalars().all()
+                rows = [{"id": str(r.id), "name": (r.name or r.external_id),
+                         "status": r.status or "booked", "source_url": r.source_url} for r in recs]
+        return {"label": "Registered", "source": "Go High Level",
+                "computed_as": "Bookings on the Forum calendar for the next scheduled event.",
                 "count": len(rows), "rows": rows}
 
     # ── financial (QuickBooks) — itemize once QBO is connected ──

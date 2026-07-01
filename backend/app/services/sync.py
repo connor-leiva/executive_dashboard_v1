@@ -14,6 +14,18 @@ from ..security import enc, dec
 from ..integrations import fub, sisu, qbo, ghl
 
 
+def _parse_ghl_dt(v) -> dt.date | None:
+    """GHL timestamps arrive as ISO strings or epoch-ms; return the calendar date."""
+    if v is None:
+        return None
+    try:
+        if isinstance(v, (int, float)) or (isinstance(v, str) and v.isdigit()):
+            return dt.datetime.utcfromtimestamp(int(v) / 1000).date()
+        return dt.datetime.fromisoformat(str(v).replace("Z", "+00:00")).date()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
 async def _valid_access_token(s: AsyncSession, integ: Integration) -> str:
     now = dt.datetime.utcnow()
     if integ.token_expires_at and integ.token_expires_at - now > dt.timedelta(minutes=2):
@@ -125,8 +137,22 @@ async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID
     await s.commit()
 
 
+async def _ghl_snapshot(s: AsyncSession, tenant_id, business_id, kind: str, rows: list[dict]):
+    """Replace the prior GHL record set of this kind (so drops fall out)."""
+    await s.execute(delete(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == kind))
+    for i in range(0, len(rows), 500):
+        await s.execute(pg_insert(MetricRecord).values(rows[i:i + 500]))
+    await s.commit()
+
+
 async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
-    """Snapshot Spring B members from Go High Level, tag-driven (config)."""
+    """Snapshot Spring B from Go High Level: members (tag-driven), plus — best
+    effort — recurring subscriptions (MRR) and Forum calendar events. The members
+    pull is the contract; subscriptions/calendar degrade to a skip if the token
+    lacks the payments/calendars scope or the calendar isn't configured, so a
+    missing scope never fails the whole sync."""
     cfg = integ.config or {}
     location_id = cfg.get("location_id")
     member_tags = {t.lower() for t in cfg.get("member_tags", [])}
@@ -136,6 +162,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     if not (location_id and member_tags and token):
         raise ValueError("Go High Level needs a token, location_id, and member_tags in config.")
 
+    # 1) Members (the contract) — tag-driven.
     contacts = await ghl.get_contacts(token, location_id)
     rows = []
     for c in contacts:
@@ -148,15 +175,53 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                 email=(c.get("email") or None), status="active", segment=segment,
                 source_url=ghl.contact_url(location_id, c.get("id")),
             ))
-
-    # Snapshot: replace the prior member set so churned contacts drop out.
-    await s.execute(delete(MetricRecord).where(
-        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == integ.business_id,
-        MetricRecord.source == "ghl", MetricRecord.kind == "member"))
-    for i in range(0, len(rows), 500):
-        await s.execute(pg_insert(MetricRecord).values(rows[i:i + 500]))
-    await s.commit()
+    await _ghl_snapshot(s, tenant_id, integ.business_id, "member", rows)
     print(f"[ghl] {len(rows)} active members from {len(contacts)} contacts", flush=True)
+
+    # 2) Recurring subscriptions → MRR (best effort; needs a payments scope).
+    try:
+        subs = await ghl.get_subscriptions(token, location_id)
+        sub_rows = [dict(
+            tenant_id=tenant_id, business_id=integ.business_id, source="ghl", kind="subscription",
+            external_id=str(sub.get("id") or sub.get("_id") or sub.get("subscriptionId")),
+            name=(sub.get("contactName") or sub.get("customerName")
+                  or (sub.get("contact") or {}).get("name") or sub.get("productName") or "Subscription")[:200],
+            email=((sub.get("contact") or {}).get("email") or sub.get("email") or None),
+            amount=ghl.sub_monthly_amount(sub),
+            status="active" if ghl.sub_is_active(sub) else (sub.get("status") or "inactive").lower(),
+            meta={"interval": sub.get("interval") or sub.get("recurringInterval"),
+                  "raw_status": sub.get("status")},
+        ) for sub in subs]
+        await _ghl_snapshot(s, tenant_id, integ.business_id, "subscription", sub_rows)
+        active_n = sum(1 for r in sub_rows if r["status"] == "active")
+        print(f"[ghl] {active_n}/{len(sub_rows)} active subscriptions", flush=True)
+    except Exception as e:  # noqa: BLE001 — scope/endpoint optional
+        print(f"[ghl] subscriptions skipped: {e}", flush=True)
+
+    # 3) Forum calendar events → Next event + Registered (best effort; needs a
+    # calendars scope and forum_calendar_id in config).
+    cal_id = cfg.get("forum_calendar_id")
+    if cal_id:
+        try:
+            now = dt.datetime.utcnow()
+            start_ms = int(now.timestamp() * 1000)
+            end_ms = int((now + dt.timedelta(days=180)).timestamp() * 1000)
+            events = await ghl.get_calendar_events(token, cal_id, start_ms, end_ms)
+            reg_rows = []
+            for ev in events:
+                on = _parse_ghl_dt(ev.get("startTime") or ev.get("start_time") or ev.get("startAt"))
+                reg_rows.append(dict(
+                    tenant_id=tenant_id, business_id=integ.business_id, source="ghl", kind="registration",
+                    external_id=str(ev.get("id") or ev.get("_id") or ev.get("appointmentId")),
+                    name=(ev.get("title") or ev.get("name") or "Forum event")[:200],
+                    status=(ev.get("appointmentStatus") or ev.get("status") or "booked").lower(),
+                    occurred_on=on,
+                    meta={"contact_id": ev.get("contactId"), "title": ev.get("title")},
+                ))
+            await _ghl_snapshot(s, tenant_id, integ.business_id, "registration", reg_rows)
+            print(f"[ghl] {len(reg_rows)} calendar events (next 180d)", flush=True)
+        except Exception as e:  # noqa: BLE001 — scope/endpoint/calendar optional
+            print(f"[ghl] calendar skipped: {e}", flush=True)
 
 
 async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration, start: str, end: str):

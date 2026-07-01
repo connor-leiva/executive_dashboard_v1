@@ -70,3 +70,52 @@ def classify_member(tags: list[str], member_tags: set[str], forum_tags: set[str]
     if tset & becollective_tags:
         return True, "becollective"
     return True, None
+
+
+# ── subscriptions (MRR) — GHL Payments API; needs a payments scope ──
+async def get_subscriptions(token: str, location_id: str, max_pages: int | None = None) -> list[dict]:
+    out: list[dict] = []
+    params: dict = {"locationId": location_id, "limit": 100, "offset": 0}
+    page = 0
+    async with httpx.AsyncClient(timeout=45) as c:
+        while True:
+            r = await c.get(f"{GHL_BASE}/payments/subscriptions", headers=_headers(token), params=params)
+            r.raise_for_status()
+            data = r.json()
+            rows = data.get("data") or data.get("subscriptions") or []
+            out.extend(rows)
+            page += 1
+            if len(rows) < 100 or (max_pages and page >= max_pages):
+                break
+            params["offset"] += 100
+    return out
+
+
+def sub_is_active(sub: dict) -> bool:
+    return (sub.get("status") or "").lower() in ("active", "trialing")
+
+
+def sub_monthly_amount(sub: dict) -> float:
+    """Best-effort monthly amount. GHL amounts are often in the smallest unit
+    (cents); yearly intervals are normalised to monthly. Confirm live + adjust."""
+    raw = sub.get("amount", sub.get("priceAmount", sub.get("price", 0)))
+    try:
+        amt = float(raw)
+    except (TypeError, ValueError):
+        amt = 0.0
+    if amt >= 1000:                     # heuristic: looks like cents
+        amt /= 100.0
+    interval = str(sub.get("interval") or sub.get("recurringInterval") or "month").lower()
+    if "year" in interval or "annual" in interval:
+        amt /= 12.0
+    return round(amt, 2)
+
+
+# ── calendar events (Next Forum event + Registered) ──
+async def get_calendar_events(token: str, calendar_id: str, start_ms: int, end_ms: int) -> list[dict]:
+    async with httpx.AsyncClient(timeout=45) as c:
+        r = await c.get(f"{GHL_BASE}/calendars/events", headers=_headers(token),
+                        params={"calendarId": calendar_id, "startTime": start_ms, "endTime": end_ms})
+        r.raise_for_status()
+        data = r.json()
+        return data.get("events") or data.get("data") or []
