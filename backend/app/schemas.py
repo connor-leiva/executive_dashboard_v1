@@ -31,6 +31,7 @@ class OpTile(BaseModel):
     label: str
     value: str
     sub: str | None = None
+    key: str | None = None      # metric key for the audit drawer (drill-down)
 
 
 class FunnelRow(BaseModel):
@@ -78,6 +79,7 @@ class Scorecard(BaseModel):
     value: str
     sub: str | None = None
     business_key: str          # drives the dot color on the frontend
+    key: str | None = None     # metric key for the audit drawer (drill-down)
 
 
 class FlywheelAgent(BaseModel):

@@ -6,6 +6,7 @@ from ..deps import current_user
 from ..models import User
 from ..schemas import DashboardResponse
 from ..services.metrics import build_dashboard
+from ..services.lineage import metric_detail
 
 router = APIRouter(tags=["dashboard"])
 
@@ -17,3 +18,14 @@ async def dashboard(
     s: AsyncSession = Depends(get_session),
 ):
     return await build_dashboard(s, user.tenant_id, period)
+
+
+@router.get("/metrics/{key}/detail")
+async def metric_detail_ep(
+    key: str,
+    period: str = Query("mtd"),
+    user: User = Depends(current_user),
+    s: AsyncSession = Depends(get_session),
+):
+    """The records behind a KPI + a plain-English 'computed_as' + source links."""
+    return await metric_detail(s, user.tenant_id, key, period)

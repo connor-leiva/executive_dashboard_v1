@@ -77,3 +77,18 @@ async def test_login_and_dashboard_shape():
 
     # Flywheel stays gated until Phase 3.
     assert d["flywheel"]["available"] is False
+
+
+async def test_metric_detail_units_closed():
+    token = await _client_token()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        r = await c.get("/api/v1/metrics/units_closed/detail?period=mtd",
+                        headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["source"] == "Sisu"
+    assert d["count"] == 38 and len(d["rows"]) == 38
+    row = d["rows"][0]
+    assert {"name", "sale_price", "source_url"} <= set(row)
+    assert row["source_url"] and "app.sisu.co" in row["source_url"]

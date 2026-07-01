@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     SISU_BASE_URL: str = "https://api.sisu.co/api"
     SISU_TEAM_ID: str = "621"
     SISU_EXTERNAL_SERVICE: str = "fub"
+    # Deep-link template for a Sisu transaction (audit drawer). {id} = client_id.
+    # CONFIRM against the live Sisu app URL and adjust if needed.
+    SISU_TXN_URL: str = "https://app.sisu.co/transactions/{id}"
+    # A source is "stale" if not synced within this many minutes (freshness tint).
+    STALE_AFTER_MINUTES: int = 180
     SISU_MAX_PAGES: int = 0            # 0 = pull all pages; >0 caps for faster syncs
     # "Current" window for pending pipeline + active listings. Sisu holds ~20yrs
     # of history; a deal under contract or a listing older than this is stale

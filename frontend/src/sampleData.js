@@ -54,14 +54,14 @@ const sampleData = {
   },
 
   scorecards: [
-    { label: "Combined profit", value: "$109K", sub: "19% margin", business_key: "portfolio" },
-    { label: "Total GCI", value: "$420K", sub: "month to date", business_key: "ulrg" },
-    { label: "Closed units", value: "38", sub: "this month", business_key: "ulrg" },
-    { label: "Under contract", value: "22", sub: "$8.1M pipeline", business_key: "ulrg" },
-    { label: "Agents producing", value: "24", sub: "of 31", business_key: "ulrg" },
-    { label: "Loans funded", value: "19", sub: "$7.3M volume", business_key: "sympli" },
+    { label: "Combined profit", value: "$109K", sub: "19% margin", business_key: "portfolio", key: "combined_profit" },
+    { label: "Total GCI", value: "$420K", sub: "month to date", business_key: "ulrg", key: "gci" },
+    { label: "Closed units", value: "38", sub: "this month", business_key: "ulrg", key: "units_closed" },
+    { label: "Under contract", value: "22", sub: "$8.1M pipeline", business_key: "ulrg", key: "pending" },
+    { label: "Agents producing", value: "24", sub: "of 31", business_key: "ulrg", key: "agents_producing" },
+    { label: "Loans funded", value: "19", sub: "$7.3M volume", business_key: "sympli", key: "funded_loans" },
     { label: "Attach rate", value: "31%", sub: "ULRG → Sympli", business_key: "sympli" },
-    { label: "Active members", value: "142", sub: "beCollective + Forum", business_key: "springb" },
+    { label: "Active members", value: "142", sub: "beCollective + Forum", business_key: "springb", key: "active_members" },
   ],
 
   areas: {
@@ -85,13 +85,13 @@ const sampleData = {
         { label: "Net operating income", value: 72000, kind: "tot", note: "17% margin" },
       ],
       ops: [
-        { label: "Units closed", value: "38", sub: "month to date" },
-        { label: "Volume", value: "$14.2M" },
-        { label: "GCI", value: "$420K", sub: "month to date" },
-        { label: "Avg sale price", value: "$374K" },
-        { label: "Pending pipeline", value: "22", sub: "$8.1M" },
-        { label: "Active listings", value: "17" },
-        { label: "Agents producing", value: "24", sub: "of 31" },
+        { label: "Units closed", value: "38", sub: "month to date", key: "units_closed" },
+        { label: "Volume", value: "$14.2M", key: "volume" },
+        { label: "GCI", value: "$420K", sub: "month to date", key: "gci" },
+        { label: "Avg sale price", value: "$374K", key: "avg_price" },
+        { label: "Pending pipeline", value: "22", sub: "$8.1M", key: "pending" },
+        { label: "Active listings", value: "17", key: "active_listings" },
+        { label: "Agents producing", value: "24", sub: "of 31", key: "agents_producing" },
       ],
       funnel: [
         { label: "Leads", v: 680 },

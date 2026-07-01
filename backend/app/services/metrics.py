@@ -262,13 +262,13 @@ def _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings, producing
     avg_price = volume / closed if closed else 0
     scope = period_label.lower() if period_label else "this period"
     return [
-        OpTile(label="Units closed", value=str(closed), sub=scope),
-        OpTile(label="Volume", value=_compact_usd(volume)),
-        OpTile(label="GCI", value=_compact_usd(gci), sub=scope),
-        OpTile(label="Avg sale price", value=_compact_usd(avg_price)),
-        OpTile(label="Pending pipeline", value=str(pending), sub=_compact_usd(pipeline)),
-        OpTile(label="Active listings", value=str(active_listings)),
-        OpTile(label="Agents producing", value=str(producing), sub=f"of {total}"),
+        OpTile(label="Units closed", value=str(closed), sub=scope, key="units_closed"),
+        OpTile(label="Volume", value=_compact_usd(volume), key="volume"),
+        OpTile(label="GCI", value=_compact_usd(gci), sub=scope, key="gci"),
+        OpTile(label="Avg sale price", value=_compact_usd(avg_price), key="avg_price"),
+        OpTile(label="Pending pipeline", value=str(pending), sub=_compact_usd(pipeline), key="pending"),
+        OpTile(label="Active listings", value=str(active_listings), key="active_listings"),
+        OpTile(label="Agents producing", value=str(producing), sub=f"of {total}", key="agents_producing"),
     ]
 
 
@@ -286,16 +286,16 @@ def _scorecards(
             label="Combined profit",
             value=_compact_usd(portfolio_noi) if have_financials else "—",
             sub=f"{portfolio_margin}% margin" if have_financials else "awaiting QuickBooks",
-            business_key="portfolio"),
-        Scorecard(label="Total GCI", value=_compact_usd(ulrg_gci), sub="month to date", business_key="ulrg"),
-        Scorecard(label="Closed units", value=str(ulrg_closed), sub="this month", business_key="ulrg"),
+            business_key="portfolio", key="combined_profit"),
+        Scorecard(label="Total GCI", value=_compact_usd(ulrg_gci), sub="this period", business_key="ulrg", key="gci"),
+        Scorecard(label="Closed units", value=str(ulrg_closed), sub="this period", business_key="ulrg", key="units_closed"),
         Scorecard(label="Under contract", value=str(ulrg_pending),
-                  sub=f"{_compact_usd(ulrg_pipeline)} pipeline", business_key="ulrg"),
-        Scorecard(label="Agents producing", value=str(producing), sub=f"of {total_agents}", business_key="ulrg"),
+                  sub=f"{_compact_usd(ulrg_pipeline)} pipeline", business_key="ulrg", key="pending"),
+        Scorecard(label="Agents producing", value=str(producing), sub=f"of {total_agents}", business_key="ulrg", key="agents_producing"),
         Scorecard(label="Loans funded", value=sympli_funded or "—",
-                  sub=f"{sympli_volume} volume" if sympli_volume else None, business_key="sympli"),
+                  sub=f"{sympli_volume} volume" if sympli_volume else None, business_key="sympli", key="funded_loans"),
         Scorecard(label="Attach rate", value=attach_rate or "—", sub="ULRG → Sympli", business_key="sympli"),
-        Scorecard(label="Active members", value=members or "—", sub="beCollective + Forum", business_key="springb"),
+        Scorecard(label="Active members", value=members or "—", sub="beCollective + Forum", business_key="springb", key="active_members"),
     ]
 
 

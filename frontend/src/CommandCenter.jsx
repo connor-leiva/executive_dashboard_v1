@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { T, STATUS, usd, signed, relativeTime } from "./theme.js";
 import { useDashboard } from "./useDashboard.js";
 import { getJSON, postJSON } from "./api.js";
+import AuditDrawer from "./AuditDrawer.jsx";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -170,15 +171,22 @@ function PLEmpty({ area }) {
   );
 }
 
-function OpTile({ d }) {
+function OpTile({ d, onDrill }) {
+  const clickable = Boolean(d.key) && Boolean(onDrill);
+  const Tag = clickable ? "button" : "div";
   return (
-    <div style={{ background: T.parchment, borderRadius: 10, padding: "12px 13px" }}>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.slate, marginBottom: 6, fontWeight: 500 }}>{d.label}</div>
+    <Tag onClick={clickable ? () => onDrill(d.key) : undefined} className={clickable ? "cc-card" : undefined}
+      style={{ display: "block", textAlign: "left", width: "100%", border: "none",
+        background: T.parchment, borderRadius: 10, padding: "12px 13px", cursor: clickable ? "pointer" : "default" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.slate, fontWeight: 500 }}>{d.label}</span>
+        {clickable && <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.muted }}>↗</span>}
+      </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
         <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{d.value}</span>
         {d.sub && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{d.sub}</span>}
       </div>
-    </div>
+    </Tag>
   );
 }
 
@@ -263,7 +271,7 @@ function AreaCard({ area, onOpen }) {
   );
 }
 
-function Overview({ data, onOpen }) {
+function Overview({ data, onOpen, onDrill }) {
   const { portfolio, scorecards, areas, flywheel, period } = data;
   const hasRevenue = portfolio.revenue != null;
   const fw = flywheel || {};
@@ -323,16 +331,26 @@ function Overview({ data, onOpen }) {
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>across all three businesses</span>
         </div>
         <div className="cc-score">
-          {scorecards.map((s, i) => (
-            <div key={i} style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 16px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
-                <span style={{ width: 7, height: 7, borderRadius: 2, background: dotFor(s.business_key) }} />
-                <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, fontWeight: 500 }}>{s.label}</span>
-              </div>
-              <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 30, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>{s.sub}</div>
-            </div>
-          ))}
+          {scorecards.map((s, i) => {
+            const clickable = Boolean(s.key) && Boolean(onDrill);
+            const Tag = clickable ? "button" : "div";
+            return (
+              <Tag key={i} onClick={clickable ? () => onDrill(s.key) : undefined}
+                className={clickable ? "cc-card" : undefined}
+                style={{
+                  textAlign: "left", width: "100%", background: T.white, border: `1px solid ${T.line}`,
+                  borderRadius: 12, padding: "16px 16px", cursor: clickable ? "pointer" : "default",
+                }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 2, background: dotFor(s.business_key) }} />
+                  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, fontWeight: 500 }}>{s.label}</span>
+                  {clickable && <span style={{ marginLeft: "auto", fontSize: 11, color: T.muted }}>↗</span>}
+                </div>
+                <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 30, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>{s.sub}</div>
+              </Tag>
+            );
+          })}
         </div>
       </div>
 
@@ -374,7 +392,7 @@ function Overview({ data, onOpen }) {
 
 /* ── area detail ───────────────────────────────────────────── */
 
-function AreaDetail({ area }) {
+function AreaDetail({ area, onDrill }) {
   const a = area;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -399,7 +417,7 @@ function AreaDetail({ area }) {
             <PanelLabel accent={a.accent}>Operational · leading indicators</PanelLabel>
             <span style={{ display: "flex", gap: 6 }}>{a.sources.filter((s) => s !== "QuickBooks").map((s) => <Source key={s} name={s} />)}</span>
           </div>
-          <div className="cc-ops">{a.ops.map((d, i) => <OpTile key={i} d={d} />)}</div>
+          <div className="cc-ops">{a.ops.map((d, i) => <OpTile key={i} d={d} onDrill={onDrill} />)}</div>
         </Card>
       </div>
 
@@ -683,6 +701,7 @@ export default function CommandCenter() {
   const { data, loading, error, usingSample, retry } = useDashboard(periodKey);
   const [view, setView] = useState("overview");
   const [refreshing, setRefreshing] = useState(false);
+  const [drill, setDrill] = useState(null);       // metric key for the audit drawer
   const user = useMe();
 
   const { areas, flywheel, sources, period } = data || {};
@@ -710,8 +729,8 @@ export default function CommandCenter() {
   let content;
   if (busy) content = <SkeletonDashboard />;
   else if (error && !data) content = <ErrorState onRetry={retry} />;
-  else if (view === "overview") content = <Overview data={data} onOpen={setView} />;
-  else if (view === "ulrg" || view === "springb" || view === "sympli") content = <AreaDetail area={areas[view]} />;
+  else if (view === "overview") content = <Overview data={data} onOpen={setView} onDrill={setDrill} />;
+  else if (view === "ulrg" || view === "springb" || view === "sympli") content = <AreaDetail area={areas[view]} onDrill={setDrill} />;
   else if (view === "flywheel") content = <Flywheel flywheel={flywheel} />;
 
   return (
@@ -785,11 +804,17 @@ export default function CommandCenter() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginRight: 2 }}>Live from</span>
               {period
-                ? (sources || []).map((s) => (
-                    <span key={s.name} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ width: 6, height: 6, borderRadius: 99, background: s.status === "connected" ? T.meadow : T.muted }} /><Source name={s.name} />
-                    </span>
-                  ))
+                ? (sources || []).map((s) => {
+                    const stale = s.status === "connected" && s.last_synced &&
+                      Date.now() - new Date(s.last_synced).getTime() > 2 * 3600 * 1000;
+                    const dot = s.status !== "connected" ? T.muted : stale ? "#C99A2E" : T.meadow;
+                    const tip = s.last_synced ? `${s.name} · synced ${relativeTime(s.last_synced)}` : `${s.name} · ${s.status}`;
+                    return (
+                      <span key={s.name} title={tip} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 99, background: dot }} /><Source name={s.name} />
+                      </span>
+                    );
+                  })
                 : [0, 1, 2].map((i) => <Skel key={i} w={72} h={18} style={{ display: "inline-block" }} />)}
               <span style={{ width: 6 }} />
               {updated && !refreshing && (
@@ -817,6 +842,8 @@ export default function CommandCenter() {
           <div style={{ padding: 26, maxWidth: 1100 }}>{content}</div>
         </main>
       </div>
+
+      <AuditDrawer metricKey={drill} period={periodKey} onClose={() => setDrill(null)} />
     </div>
   );
 }
