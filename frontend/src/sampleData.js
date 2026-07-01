@@ -16,7 +16,7 @@ const round1 = (n) => Math.round(n * 10) / 10;
 
 const sampleData = {
   period: {
-    label: "MTD",
+    label: "Month to date",
     as_of: "2026-03-31",
     start: "2026-03-01",
     end: "2026-03-31",

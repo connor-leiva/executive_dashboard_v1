@@ -273,7 +273,10 @@ function Overview({ data, onOpen }) {
   const annualGap = fw.annual_gap != null
     ? fw.annual_gap
     : (fw.monthly_gap != null ? fw.monthly_gap * 12 : null);
-  const periodLabel = monthYear(period?.as_of) || period?.label;
+  // MTD → the current month name; other periods → the descriptive label.
+  const periodLabel = (period?.label === "Month to date")
+    ? monthYear(period?.as_of)
+    : (period?.label || monthYear(period?.as_of));
   const orderedCards = [areas.ulrg, areas.springb, areas.sympli].filter(Boolean);
   const fwAvailable = fw.available !== false && buyerClosings != null;
 
@@ -289,7 +292,7 @@ function Overview({ data, onOpen }) {
         <Eyebrow onDark>Portfolio · {periodLabel}</Eyebrow>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 34, flexWrap: "wrap", margin: "16px 0 24px" }}>
           <div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDarkMute, marginBottom: 5 }}>Portfolio revenue · month to date</div>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDarkMute, marginBottom: 5 }}>Portfolio revenue · {(period?.label || "month to date").toLowerCase()}</div>
             {hasRevenue ? (
               <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
                 <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 46, fontWeight: 700, color: T.onDark, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(portfolio.revenue)}</span>
@@ -540,6 +543,30 @@ function Splash({ label, tone }) {
 
 /* ── shell ─────────────────────────────────────────────────── */
 
+const PERIODS = [
+  { k: "mtd", label: "Month" },
+  { k: "qtd", label: "Quarter" },
+  { k: "ytd", label: "Year" },
+  { k: "last_month", label: "Last month" },
+];
+
+function PeriodSelector({ value, onChange }) {
+  return (
+    <div style={{ display: "inline-flex", background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: 2, gap: 2 }}>
+      {PERIODS.map((p) => {
+        const active = p.k === value;
+        return (
+          <button key={p.k} onClick={() => onChange(p.k)} className="cc-nav" style={{
+            fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600,
+            color: active ? T.onDark : T.slate, background: active ? T.evergreen : "transparent",
+            border: "none", borderRadius: 6, padding: "5px 11px", cursor: "pointer",
+          }}>{p.label}</button>
+        );
+      })}
+    </div>
+  );
+}
+
 const NAV = [
   { k: "overview", label: "Portfolio", dot: T.parchment },
   { k: "ulrg", label: "ULRG + Team", dot: T.meadow },
@@ -549,7 +576,8 @@ const NAV = [
 ];
 
 export default function CommandCenter() {
-  const { data, loading, error, usingSample } = useDashboard("mtd");
+  const [periodKey, setPeriodKey] = useState("mtd");
+  const { data, loading, error, usingSample } = useDashboard(periodKey);
   const [view, setView] = useState("overview");
 
   if (loading) return <Splash label="Loading your numbers…" />;
@@ -616,9 +644,7 @@ export default function CommandCenter() {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate }}>As of</span>
               <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{formatAsOf(period?.as_of)}</span>
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, color: T.slate, background: T.parchment, borderRadius: 5, padding: "3px 9px", border: `1px solid ${T.line}` }}>
-                {period?.label === "MTD" ? "Month to date" : period?.label}
-              </span>
+              <PeriodSelector value={periodKey} onChange={setPeriodKey} />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginRight: 2 }}>Live from</span>

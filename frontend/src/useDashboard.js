@@ -22,9 +22,9 @@ export function useDashboard(period = "mtd") {
       };
     }
 
-    setData(null);
+    // Keep the previous data visible while a new period loads (no full-screen
+    // flash on switch); only the very first load shows the splash.
     setError(null);
-    setUsingSample(false);
 
     getJSON(`/dashboard?period=${period}`)
       .then((d) => {
