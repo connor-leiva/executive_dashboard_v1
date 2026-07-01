@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { T, STATUS, usd, signed } from "./theme.js";
 import { useDashboard } from "./useDashboard.js";
+import { getJSON } from "./api.js";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -541,6 +542,103 @@ function Splash({ label, tone }) {
   );
 }
 
+/* ── states: skeletons, error, user menu ─────────────────────── */
+
+function Skel({ w = "100%", h = 12, r = 8, style }) {
+  return <span className="cc-skel" style={{ display: "block", width: w, height: h, borderRadius: r, ...style }} />;
+}
+
+function SkeletonCard({ h = 96 }) {
+  return (
+    <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, padding: 16 }}>
+      <Skel w="55%" h={10} style={{ marginBottom: 14 }} />
+      <Skel w="72%" h={h > 110 ? 30 : 24} />
+    </div>
+  );
+}
+
+function SkeletonDashboard() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }} aria-busy="true">
+      <Skel h={150} r={16} />
+      <div className="cc-score">{Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}</div>
+      <div className="cc-cards">{Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} h={130} />)}</div>
+    </div>
+  );
+}
+
+function ErrorState({ onRetry }) {
+  return (
+    <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 40, textAlign: "center" }}>
+      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Couldn't reach the API</div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted, marginTop: 6 }}>The dashboard service didn't respond.</div>
+      <button onClick={onRetry} className="cc-nav" style={{
+        marginTop: 16, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: T.onDark,
+        background: T.evergreen, border: "none", borderRadius: 8, padding: "9px 16px", cursor: "pointer",
+      }}>Retry</button>
+    </div>
+  );
+}
+
+function signOut() {
+  const token = localStorage.getItem("cc_token");
+  if (API_BASE && token) {
+    fetch(`${API_BASE}/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+  }
+  localStorage.removeItem("cc_token");
+  window.location.reload();
+}
+
+function UserMenu({ user }) {
+  const [open, setOpen] = useState(false);
+  const first = (user?.name || "Account").split(" ")[0];
+  return (
+    <div className="cc-usermenu">
+      <button onClick={() => setOpen((o) => !o)} className="cc-nav" style={{
+        display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "Inter,sans-serif",
+        fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.parchment,
+        border: `1px solid ${T.line}`, borderRadius: 8, padding: "5px 10px", cursor: "pointer",
+      }}>
+        <span style={{
+          width: 20, height: 20, borderRadius: 99, background: T.evergreen, color: T.onDark,
+          display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700,
+        }}>{(user?.name || "?").slice(0, 1).toUpperCase()}</span>
+        {first} ▾
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 15 }} />
+          <div className="cc-menu">
+            <div style={{ padding: "4px 10px 8px", borderBottom: `1px solid ${T.line}` }}>
+              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{user?.name || "Account"}</div>
+              {user?.email && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{user.email}</div>}
+            </div>
+            <button onClick={signOut} style={{
+              width: "100%", textAlign: "left", fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500,
+              color: T.poppyText, background: "transparent", border: "none", borderRadius: 6,
+              padding: "8px 10px", cursor: "pointer", marginTop: 4,
+            }}>Sign out</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function useMe() {
+  const [user, setUser] = useState(null);
+  useEffect(() => {
+    if (!API_BASE) {
+      setUser({ name: "Spring Bengtzen", email: "spring@springb.com" });
+      return;
+    }
+    let alive = true;
+    getJSON("/me").then((u) => alive && setUser(u)).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return user;
+}
+
 /* ── shell ─────────────────────────────────────────────────── */
 
 const PERIODS = [
@@ -577,13 +675,19 @@ const NAV = [
 
 export default function CommandCenter() {
   const [periodKey, setPeriodKey] = useState("mtd");
-  const { data, loading, error, usingSample } = useDashboard(periodKey);
+  const { data, loading, error, usingSample, retry } = useDashboard(periodKey);
   const [view, setView] = useState("overview");
+  const user = useMe();
 
-  if (loading) return <Splash label="Loading your numbers…" />;
-  if (error || !data) return <Splash label="Couldn't reach the API." tone="error" />;
+  const { areas, flywheel, sources, period } = data || {};
+  const busy = loading && !data;
 
-  const { areas, flywheel, sources, period } = data;
+  let content;
+  if (busy) content = <SkeletonDashboard />;
+  else if (error && !data) content = <ErrorState onRetry={retry} />;
+  else if (view === "overview") content = <Overview data={data} onOpen={setView} />;
+  else if (view === "ulrg" || view === "springb" || view === "sympli") content = <AreaDetail area={areas[view]} />;
+  else if (view === "flywheel") content = <Flywheel flywheel={flywheel} />;
 
   return (
     <div style={{ background: T.parchment, minHeight: "100%", fontFamily: "Inter,sans-serif" }}>
@@ -597,10 +701,14 @@ export default function CommandCenter() {
         .cc-score { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
         .cc-ops { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .cc-twocol { display: flex; gap: 18px; flex-wrap: wrap; align-items: stretch; }
+        .cc-skel { background: linear-gradient(90deg, ${T.line} 25%, ${T.parchment} 50%, ${T.line} 75%); background-size: 800px 100%; animation: cc-shimmer 1.4s linear infinite; }
+        @keyframes cc-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+        .cc-usermenu { position: relative; }
+        .cc-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 190px; background: ${T.white}; border: 1px solid ${T.line}; border-radius: 10px; box-shadow: 0 12px 30px rgba(0,46,44,.12); padding: 6px; }
         @media (max-width: 900px) { .cc-score { grid-template-columns: repeat(2, minmax(0,1fr)); } }
         @media (max-width: 820px) { .cc-cards { grid-template-columns: 1fr; } }
         @media (max-width: 560px) { .cc-score { grid-template-columns: 1fr; } }
-        @media (prefers-reduced-motion: reduce) { .cc-card, .cc-nav { transition: none; } .cc-card:hover { transform: none; } }
+        @media (prefers-reduced-motion: reduce) { .cc-card, .cc-nav { transition: none; } .cc-card:hover { transform: none; } .cc-skel { animation: none; } }
       `}</style>
 
       <div style={{ display: "flex", minHeight: "100%" }}>
@@ -643,24 +751,26 @@ export default function CommandCenter() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 26px", borderBottom: `1px solid ${T.line}`, background: T.white, flexWrap: "wrap", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate }}>As of</span>
-              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{formatAsOf(period?.as_of)}</span>
+              {period
+                ? <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{formatAsOf(period.as_of)}</span>
+                : <Skel w={92} h={14} style={{ display: "inline-block" }} />}
               <PeriodSelector value={periodKey} onChange={setPeriodKey} />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginRight: 2 }}>Live from</span>
-              {(sources || []).map((s) => (
-                <span key={s.name} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: 99, background: s.status === "connected" ? T.meadow : T.muted }} /><Source name={s.name} />
-                </span>
-              ))}
+              {period
+                ? (sources || []).map((s) => (
+                    <span key={s.name} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: 99, background: s.status === "connected" ? T.meadow : T.muted }} /><Source name={s.name} />
+                    </span>
+                  ))
+                : [0, 1, 2].map((i) => <Skel key={i} w={72} h={18} style={{ display: "inline-block" }} />)}
+              <span style={{ width: 8 }} />
+              <UserMenu user={user} />
             </div>
           </div>
 
-          <div style={{ padding: 26, maxWidth: 1100 }}>
-            {view === "overview" && <Overview data={data} onOpen={setView} />}
-            {(view === "ulrg" || view === "springb" || view === "sympli") && <AreaDetail area={areas[view]} />}
-            {view === "flywheel" && <Flywheel flywheel={flywheel} />}
-          </div>
+          <div style={{ padding: 26, maxWidth: 1100 }}>{content}</div>
         </main>
       </div>
     </div>

@@ -42,6 +42,7 @@ async def test_login_and_dashboard_shape():
     ops = {o["label"]: o["value"] for o in ulrg["ops"]}
     assert ops["Units closed"] == "38"
     assert ops["Volume"] == "$14.2M"
+    assert ops["GCI"] == "$420K"
     assert ops["Agents producing"] == "24"
     funnel = {f["label"]: f["v"] for f in ulrg["funnel"]}
     assert funnel == {"Leads": 680, "Appointments": 142, "Under contract": 46, "Closed": 38}

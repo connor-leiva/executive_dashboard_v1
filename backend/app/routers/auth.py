@@ -23,6 +23,13 @@ async def login(body: LoginRequest, s: AsyncSession = Depends(get_session)):
     return LoginResponse(token=make_token(user.id, user.tenant_id))
 
 
+@router.post("/auth/logout")
+async def logout():
+    # JWTs are stateless — the client clearing its token is the real logout.
+    # TODO: add a denylist table + check in current_user for hard revocation.
+    return {"ok": True}
+
+
 @router.get("/me", response_model=MeResponse)
 async def me(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     tenant = (await s.execute(select(Tenant).where(Tenant.id == user.tenant_id))).scalar_one()

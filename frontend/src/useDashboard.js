@@ -8,6 +8,11 @@ export function useDashboard(period = "mtd") {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [usingSample, setUsingSample] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  const retry = () => {
+    setError(null);
+    setNonce((n) => n + 1);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -49,7 +54,7 @@ export function useDashboard(period = "mtd") {
     return () => {
       alive = false;
     };
-  }, [period]);
+  }, [period, nonce]);
 
-  return { data, error, loading: !data && !error, usingSample };
+  return { data, error, loading: !data && !error, usingSample, retry };
 }

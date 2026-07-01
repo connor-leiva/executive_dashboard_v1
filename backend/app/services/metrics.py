@@ -257,11 +257,14 @@ def _pl_rows(pl: PLSnapshot, b: Business) -> list[PLRow]:
     return rows
 
 
-def _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings, producing, total) -> list[OpTile]:
+def _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings, producing,
+              total, period_label="") -> list[OpTile]:
     avg_price = volume / closed if closed else 0
+    scope = period_label.lower() if period_label else "this period"
     return [
-        OpTile(label="Units closed", value=str(closed), sub="month to date"),
+        OpTile(label="Units closed", value=str(closed), sub=scope),
         OpTile(label="Volume", value=_compact_usd(volume)),
+        OpTile(label="GCI", value=_compact_usd(gci), sub=scope),
         OpTile(label="Avg sale price", value=_compact_usd(avg_price)),
         OpTile(label="Pending pipeline", value=str(pending), sub=_compact_usd(pipeline)),
         OpTile(label="Active listings", value=str(active_listings)),
@@ -328,7 +331,8 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             pending, pipeline = await _current_pending(s, tenant_id, b.id, cutoff)
             active_listings = await _active_listings(s, tenant_id, b.id, cutoff)
             producing, total = await _producing_agents(s, tenant_id, b.id, start, end)
-            ops = _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings, producing, total)
+            ops = _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings,
+                            producing, total, _PERIOD_LABELS.get(period, period.upper()))
             funnel = await _funnel(s, tenant_id, b.id, start, end)
             sc.update(ulrg_gci=gci, ulrg_closed=closed, ulrg_pending=pending,
                       ulrg_pipeline=pipeline, producing=producing, total_agents=total)

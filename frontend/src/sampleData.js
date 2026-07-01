@@ -87,6 +87,7 @@ const sampleData = {
       ops: [
         { label: "Units closed", value: "38", sub: "month to date" },
         { label: "Volume", value: "$14.2M" },
+        { label: "GCI", value: "$420K", sub: "month to date" },
         { label: "Avg sale price", value: "$374K" },
         { label: "Pending pipeline", value: "22", sub: "$8.1M" },
         { label: "Active listings", value: "17" },
