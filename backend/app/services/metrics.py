@@ -17,7 +17,7 @@ from sqlalchemy import select, func, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import Business, Transaction, Agent, Lead, PLSnapshot, CashSnapshot, Integration
+from ..models import Business, Transaction, Agent, Lead, PLSnapshot, CashSnapshot, Integration, MetricRecord
 from ..schemas import (
     DashboardResponse, Portfolio, CompositionSeg, AreaPayload, PLRow,
     OpTile, FunnelRow, Scorecard, Flywheel, SourceStatus,
@@ -105,6 +105,14 @@ async def _current_pending(s, tenant_id, business_id, cutoff) -> tuple[int, floa
     vol = (await s.execute(
         select(func.coalesce(func.sum(Transaction.sale_price), 0)).where(*base))).scalar() or 0
     return int(cnt), float(vol)
+
+
+async def _active_members(s, tenant_id, business_id) -> int:
+    """Current active members (Go High Level, tag-driven) for a business."""
+    return int((await s.execute(select(func.count()).select_from(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member",
+        MetricRecord.status == "active"))).scalar() or 0)
 
 
 async def _active_listings(s, tenant_id, business_id, cutoff) -> int:
@@ -344,7 +352,15 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                 sc["sympli_funded"] = scc.get("funded")
                 sc["sympli_volume"] = scc.get("volume")
             if b.key == "springb":
-                sc["members"] = scc.get("members")
+                members = await _active_members(s, tenant_id, b.id)
+                if members > 0:            # Go High Level has synced real members
+                    for t in ops:
+                        if t.label == "Active members":
+                            t.value = str(members)
+                            t.sub = "beCollective + Forum"
+                    sc["members"] = str(members)
+                else:
+                    sc["members"] = scc.get("members")
 
         # Financial (Phase 2) — from the exact-period PLSnapshot.
         pl_row = (await s.execute(select(PLSnapshot).where(

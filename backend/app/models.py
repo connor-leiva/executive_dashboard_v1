@@ -186,6 +186,27 @@ class SyncRun(Base):
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class MetricRecord(Base):
+    """Flexible records behind non-real-estate metrics (Go High Level: members,
+    subscriptions, event registrations). Also feeds the audit drawer."""
+    __tablename__ = "metric_record"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"))
+    source: Mapped[str] = mapped_column(String(24))          # ghl
+    kind: Mapped[str] = mapped_column(String(32))            # member | subscription | registration
+    external_id: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)   # active | cancelled | registered
+    segment: Mapped[str | None] = mapped_column(String(32), nullable=True)  # becollective | forum
+    occurred_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    meta: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    __table_args__ = (UniqueConstraint("tenant_id", "source", "kind", "external_id", name="uq_metricrec"),)
+
+
 # ── Phase 3 stub (Arive / flywheel) — create the table, do not populate yet ──
 class LoanRecord(Base):
     __tablename__ = "loan_record"

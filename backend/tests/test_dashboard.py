@@ -92,3 +92,17 @@ async def test_metric_detail_units_closed():
     row = d["rows"][0]
     assert {"name", "sale_price", "source_url"} <= set(row)
     assert row["source_url"] and "app.sisu.co" in row["source_url"]
+
+
+async def test_create_ghl_integration():
+    token = await _client_token()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        H = {"Authorization": f"Bearer {token}"}
+        r = await c.post("/api/v1/integrations", headers=H, json={
+            "provider": "ghl", "business_key": "springb", "token": "pit-secret",
+            "config": {"location_id": "loc1", "member_tags": ["the forum active"]}})
+        assert r.status_code == 200, r.text
+        integs = (await c.get("/api/v1/integrations", headers=H)).json()
+        ghl = [i for i in integs if i["provider"] == "ghl"]
+        assert ghl and ghl[0]["status"] == "connected" and ghl[0]["business_key"] == "springb"

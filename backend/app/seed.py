@@ -137,6 +137,15 @@ async def seed():
                               realm_id=f"realm-{key}"))
         s.add(Integration(tenant_id=tenant.id, provider="arive", business_id=sympli.id,
                           status="disconnected"))
+        # Go High Level (Spring B) — member tags pre-filled from Connor's Forum
+        # filter; add beCollective tags when segmented. Connect fills token + location_id.
+        s.add(Integration(tenant_id=tenant.id, provider="ghl", business_id=springb.id,
+                          status="disconnected",
+                          config={"location_id": "",
+                                  "member_tags": ["inner circle active", "the forum active",
+                                                  "forumadmin", "member: secondary",
+                                                  "inner circle active add on"],
+                                  "forum_tags": [], "becollective_tags": []}))
 
         # ── P&L snapshots (current period) + a prior month (for a real MoM) + cash.
         prior_start, prior_end = _period_range("last_month")

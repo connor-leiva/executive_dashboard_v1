@@ -106,6 +106,36 @@ async def sync_one(integ_id: uuid.UUID, bg: BackgroundTasks, period: str = Query
     return {"ok": True}
 
 
+@router.post("/integrations")
+async def create_integration(body: dict, user: User = Depends(current_user),
+                             s: AsyncSession = Depends(get_session)):
+    """Create/update a token-based integration (Go High Level, Arive). Body:
+    {provider, business_key, token, config}. Token is encrypted at rest."""
+    provider = (body.get("provider") or "").strip()
+    if provider not in ("ghl", "arive"):
+        raise HTTPException(400, "Unsupported provider")
+    biz = (await s.execute(select(Business).where(
+        Business.tenant_id == user.tenant_id, Business.key == body.get("business_key")))).scalar_one_or_none()
+    if not biz:
+        raise HTTPException(404, "Unknown business")
+    integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == user.tenant_id, Integration.provider == provider,
+        Integration.business_id == biz.id))).scalar_one_or_none()
+    new = integ is None
+    if new:
+        integ = Integration(tenant_id=user.tenant_id, provider=provider, business_id=biz.id)
+    if body.get("token"):
+        integ.access_token_enc = enc(body["token"])
+    if body.get("config") is not None:
+        integ.config = body["config"]
+    integ.status = "connected"
+    integ.last_error = None
+    if new:
+        s.add(integ)
+    await s.commit()
+    return {"id": str(integ.id)}
+
+
 @router.post("/integrations/{integ_id}/disconnect")
 async def disconnect(integ_id: uuid.UUID, user: User = Depends(current_user),
                      s: AsyncSession = Depends(get_session)):

@@ -5,13 +5,13 @@ call. Upserts target Postgres (prod); the worker does not run against SQLite.
 import datetime as dt
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Integration, Transaction, Agent, Lead, PLSnapshot, SyncRun
+from ..models import Integration, Transaction, Agent, Lead, PLSnapshot, SyncRun, MetricRecord
 from ..security import enc, dec
-from ..integrations import fub, sisu, qbo
+from ..integrations import fub, sisu, qbo, ghl
 
 
 async def _valid_access_token(s: AsyncSession, integ: Integration) -> str:
@@ -125,6 +125,40 @@ async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID
     await s.commit()
 
 
+async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
+    """Snapshot Spring B members from Go High Level, tag-driven (config)."""
+    cfg = integ.config or {}
+    location_id = cfg.get("location_id")
+    member_tags = {t.lower() for t in cfg.get("member_tags", [])}
+    forum_tags = {t.lower() for t in cfg.get("forum_tags", [])}
+    becoll_tags = {t.lower() for t in cfg.get("becollective_tags", [])}
+    token = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not (location_id and member_tags and token):
+        raise ValueError("Go High Level needs a token, location_id, and member_tags in config.")
+
+    contacts = await ghl.get_contacts(token, location_id)
+    rows = []
+    for c in contacts:
+        is_member, segment = ghl.classify_member(
+            ghl.contact_tags(c), member_tags, forum_tags, becoll_tags)
+        if is_member:
+            rows.append(dict(
+                tenant_id=tenant_id, business_id=integ.business_id, source="ghl", kind="member",
+                external_id=str(c.get("id")), name=ghl.contact_name(c)[:200],
+                email=(c.get("email") or None), status="active", segment=segment,
+                source_url=ghl.contact_url(location_id, c.get("id")),
+            ))
+
+    # Snapshot: replace the prior member set so churned contacts drop out.
+    await s.execute(delete(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == integ.business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member"))
+    for i in range(0, len(rows), 500):
+        await s.execute(pg_insert(MetricRecord).values(rows[i:i + 500]))
+    await s.commit()
+    print(f"[ghl] {len(rows)} active members from {len(contacts)} contacts", flush=True)
+
+
 async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration, start: str, end: str):
     token = await _valid_access_token(s, integ)
     report = await qbo.profit_and_loss(integ.realm_id, token, start, end)
@@ -151,6 +185,8 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
             await sync_sisu(s, tenant_id, integ.business_id)
         elif integ.provider == "fub":
             await sync_fub(s, tenant_id, integ.business_id)
+        elif integ.provider == "ghl":
+            await sync_ghl(s, tenant_id, integ)
         elif integ.provider == "qbo":
             await sync_qbo_pl(s, tenant_id, integ, period_start, period_end)
         run.status, run.finished_at = "ok", dt.datetime.utcnow()

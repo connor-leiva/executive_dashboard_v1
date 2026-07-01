@@ -13,6 +13,7 @@ const STATUS_LABEL = { connected: "Connected", error: "Error", disconnected: "Di
 const SAMPLE_INTEGRATIONS = [
   { id: "s", provider: "sisu", business_key: "ulrg", status: "connected", last_synced_at: new Date(Date.now() - 240000).toISOString() },
   { id: "f", provider: "fub", business_key: "ulrg", status: "disconnected", last_synced_at: null },
+  { id: "g", provider: "ghl", business_key: "springb", status: "disconnected", last_synced_at: null },
   { id: "q", provider: "qbo", business_key: "ulrg", status: "disconnected", last_synced_at: null },
   { id: "a", provider: "arive", business_key: "sympli", status: "disconnected", last_synced_at: null },
 ];
@@ -79,12 +80,69 @@ function btn(kind) {
   return { ...base, color: T.slate, background: T.parchment, border: `1px solid ${T.line}` };
 }
 
+/* ── Go High Level connect form ────────────────────────────── */
+
+const GHL_DEFAULT_TAGS = "inner circle active, the forum active, forumadmin, member: secondary, inner circle active add on";
+
+function GhlConnectForm({ row, onClose, onDone }) {
+  const [token, setToken] = useState("");
+  const [locationId, setLocationId] = useState("");
+  const [tags, setTags] = useState(GHL_DEFAULT_TAGS);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      const member_tags = tags.split(",").map((t) => t.trim()).filter(Boolean);
+      await postJSON("/integrations", {
+        provider: "ghl", business_key: row.business_key || "springb", token,
+        config: { location_id: locationId.trim(), member_tags, forum_tags: [], becollective_tags: [] },
+      });
+      onDone();
+    } catch {
+      setErr("Couldn't connect — double-check the token and Location ID.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Connect Go High Level</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>Spring B · beCollective + The Forum. The token is stored encrypted.</div>
+        <label style={label}>Private Integration Token
+          <input style={field} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} required />
+        </label>
+        <label style={label}>Location ID
+          <input style={field} value={locationId} onChange={(e) => setLocationId(e.target.value)} required />
+        </label>
+        <label style={label}>Active-member tags (comma-separated)
+          <input style={field} value={tags} onChange={(e) => setTags(e.target.value)} />
+        </label>
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Connecting…" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ── integrations ──────────────────────────────────────────── */
 
 function IntegrationsPage() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(null);
+  const [connecting, setConnecting] = useState(null);
   const live = Boolean(API_BASE);
 
   function load() {
@@ -156,6 +214,8 @@ function IntegrationsPage() {
                   </button>
                   <button disabled={!live || syncing} onClick={() => disconnect(row)} style={live && !syncing ? btn("danger") : btn("disabled")}>Disconnect</button>
                 </>
+              ) : row.provider === "ghl" && live ? (
+                <button onClick={() => setConnecting(row)} style={btn("primary")}>Connect</button>
               ) : (
                 <button disabled title="Available when this source is wired up" style={btn("disabled")}>Connect</button>
               )}
@@ -163,6 +223,10 @@ function IntegrationsPage() {
           );
         })}
       </div>
+      {connecting && (
+        <GhlConnectForm row={connecting} onClose={() => setConnecting(null)}
+          onDone={() => { setConnecting(null); load(); }} />
+      )}
     </Card>
   );
 }
