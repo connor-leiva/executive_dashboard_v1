@@ -32,11 +32,18 @@ export function useDashboard(period = "mtd") {
         setData(d);
         setUsingSample(false);
       })
-      .catch(() => {
-        // Fetch failed → never leave the UI blank; fall back to sample data.
+      .catch((e) => {
         if (!alive) return;
-        setData(sampleData);
-        setUsingSample(true);
+        if (e && (e.status === 401 || e.status === 403)) {
+          // Token no longer valid (e.g. after a re-seed changed the tenant) →
+          // clear it and reload so the app shows the login screen.
+          localStorage.removeItem("cc_token");
+          window.location.reload();
+          return;
+        }
+        // A real API error (500, network) — surface it instead of silently
+        // showing sample data, which hides prod problems.
+        setError(e);
       });
 
     return () => {

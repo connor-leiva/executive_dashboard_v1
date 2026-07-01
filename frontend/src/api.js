@@ -6,7 +6,11 @@ export async function getJSON(path) {
   const res = await fetch(`${API}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const err = new Error(`${res.status} ${await res.text()}`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
