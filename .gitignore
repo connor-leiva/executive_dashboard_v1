@@ -1,0 +1,16 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+# Secrets / local env (keep .env.example and .env.production tracked)
+.env
+.env.local
+.env.*.local
+*.db
+*.sqlite3
+.DS_Store
+.pytest_cache/
+.ruff_cache/

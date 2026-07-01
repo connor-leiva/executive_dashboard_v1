@@ -1,0 +1,360 @@
+"""Turn raw rows into the DashboardResponse.
+
+Handles the Phase-1 case where financials aren't connected yet: money fields
+come back None and the frontend shows an "awaiting QuickBooks" state. Output
+strings/labels are kept identical to the mockup so the frontend renders unchanged.
+
+Note on portfolio totals: we sum each area's *full* revenue/NOI (matching the
+mockup's combined figures). Spring's JV economics surface as the dedicated
+"Spring's JV share" P&L row inside Sympli, not by discounting the portfolio.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import uuid
+
+from sqlalchemy import select, func, distinct
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..models import Business, Transaction, Agent, Lead, PLSnapshot, CashSnapshot, Integration
+from ..schemas import (
+    DashboardResponse, Portfolio, CompositionSeg, AreaPayload, PLRow,
+    OpTile, FunnelRow, Scorecard, Flywheel, SourceStatus,
+)
+
+# Per-area source badges shown in the UI.
+_SOURCES = {
+    "ulrg": ["QuickBooks", "Sisu", "Follow Up Boss"],
+    "springb": ["QuickBooks"],
+    "sympli": ["QuickBooks", "Arive"],
+}
+# Per-area P&L row labels (match the mockup exactly).
+_PL_LABELS = {
+    "ulrg": ("Revenue (GCI)", "Cost of sale — agent commissions"),
+    "springb": ("Revenue — membership + events", "Cost of sale — production, venue, speakers"),
+    "sympli": ("Revenue — loan production", "Cost of sale — loan officer comp"),
+}
+_PERIOD_LABELS = {
+    "mtd": "Month to date", "qtd": "Quarter to date",
+    "ytd": "Year to date", "last_month": "Last month",
+}
+_APPOINTMENT_STAGES = ("Appointment", "Appointment Set", "Met")
+
+
+# ── period / formatting ───────────────────────────────────────────
+def _period_range(period: str):
+    today = dt.date.today()
+    if period == "ytd":
+        return today.replace(month=1, day=1), today
+    if period == "qtd":
+        return today.replace(month=((today.month - 1) // 3) * 3 + 1, day=1), today
+    if period == "last_month":
+        first = today.replace(day=1)
+        last_end = first - dt.timedelta(days=1)
+        return last_end.replace(day=1), last_end
+    return today.replace(day=1), today  # mtd
+
+
+def _compact_usd(n: float | None) -> str:
+    if n is None:
+        return "—"
+    n = float(n)
+    if abs(n) >= 1_000_000:
+        return f"${n / 1_000_000:.1f}M"
+    if abs(n) >= 1_000:
+        return f"${round(n / 1_000):,}K"
+    return f"${round(n):,}"
+
+
+# ── small SQL aggregations ────────────────────────────────────────
+async def _count(s, tenant_id, business_id, status, start, end, side=None) -> int:
+    q = select(func.count()).select_from(Transaction).where(
+        Transaction.tenant_id == tenant_id,
+        Transaction.business_id == business_id,
+        Transaction.status == status,
+    )
+    if side:
+        q = q.where(Transaction.side == side)
+    if start and end:
+        q = q.where(Transaction.close_date >= start, Transaction.close_date <= end)
+    return int((await s.execute(q)).scalar() or 0)
+
+
+async def _sum(s, tenant_id, business_id, column, status, start, end) -> float:
+    q = select(func.coalesce(func.sum(column), 0)).where(
+        Transaction.tenant_id == tenant_id,
+        Transaction.business_id == business_id,
+        Transaction.status == status,
+    )
+    if start and end:
+        q = q.where(Transaction.close_date >= start, Transaction.close_date <= end)
+    return float((await s.execute(q)).scalar() or 0)
+
+
+async def _producing_agents(s, tenant_id, business_id, start, end) -> tuple[int, int]:
+    producing = (await s.execute(
+        select(func.count(distinct(Transaction.agent_id))).where(
+            Transaction.tenant_id == tenant_id,
+            Transaction.business_id == business_id,
+            Transaction.status == "closed",
+            Transaction.agent_id.is_not(None),
+            Transaction.close_date >= start, Transaction.close_date <= end,
+        )
+    )).scalar() or 0
+    total = (await s.execute(
+        select(func.count()).select_from(Agent).where(
+            Agent.tenant_id == tenant_id,
+            Agent.business_id == business_id,
+            Agent.is_active.is_(True),
+        )
+    )).scalar() or 0
+    return int(producing), int(total)
+
+
+async def _funnel(s, tenant_id, business_id, start, end) -> list[FunnelRow]:
+    leads = (await s.execute(
+        select(func.count()).select_from(Lead).where(
+            Lead.tenant_id == tenant_id, Lead.business_id == business_id)
+    )).scalar() or 0
+    appts = (await s.execute(
+        select(func.count()).select_from(Lead).where(
+            Lead.tenant_id == tenant_id, Lead.business_id == business_id,
+            Lead.stage.in_(_APPOINTMENT_STAGES))
+    )).scalar() or 0
+    under_contract = (await s.execute(
+        select(func.count()).select_from(Transaction).where(
+            Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
+            Transaction.status.in_(("pending", "closed")),
+            Transaction.contract_date >= start, Transaction.contract_date <= end)
+    )).scalar() or 0
+    closed = await _count(s, tenant_id, business_id, "closed", start, end)
+    return [
+        FunnelRow(label="Leads", v=int(leads)),
+        FunnelRow(label="Appointments", v=int(appts)),
+        FunnelRow(label="Under contract", v=int(under_contract)),
+        FunnelRow(label="Closed", v=int(closed)),
+    ]
+
+
+async def _mom(s, tenant_id, current_rev: float) -> float | None:
+    """Portfolio revenue % change vs the prior month, from PLSnapshots."""
+    prior_start, prior_end = _period_range("last_month")
+    prior = (await s.execute(
+        select(func.coalesce(func.sum(PLSnapshot.revenue), 0)).where(
+            PLSnapshot.tenant_id == tenant_id,
+            PLSnapshot.period_start == prior_start,
+            PLSnapshot.period_end == prior_end)
+    )).scalar() or 0
+    prior = float(prior)
+    if not prior:
+        return None
+    return round((current_rev - prior) / prior * 100, 1)
+
+
+async def _cash(s, tenant_id, end) -> float | None:
+    row = (await s.execute(
+        select(CashSnapshot).where(
+            CashSnapshot.tenant_id == tenant_id,
+            CashSnapshot.business_id.is_(None),
+            CashSnapshot.as_of <= end,
+        ).order_by(CashSnapshot.as_of.desc())
+    )).scalars().first()
+    return float(row.amount) if row else None
+
+
+async def _source_statuses(s, tenant_id) -> list[SourceStatus]:
+    integs = (await s.execute(
+        select(Integration).where(Integration.tenant_id == tenant_id)
+    )).scalars().all()
+    display = {"qbo": "QuickBooks", "sisu": "Sisu", "fub": "Follow Up Boss", "arive": "Arive"}
+    # Collapse multiple rows per provider (QBO is per-realm) into one status.
+    agg: dict[str, dict] = {}
+    for i in integs:
+        cur = agg.setdefault(i.provider, {"status": "disconnected", "last": None})
+        if i.status == "connected":
+            cur["status"] = "connected"
+        elif i.status == "error" and cur["status"] != "connected":
+            cur["status"] = "error"
+        if i.last_synced_at and (cur["last"] is None or i.last_synced_at > cur["last"]):
+            cur["last"] = i.last_synced_at
+    out = []
+    for prov in ("qbo", "sisu", "fub", "arive"):
+        a = agg.get(prov, {"status": "disconnected", "last": None})
+        out.append(SourceStatus(
+            name=display[prov], status=a["status"],
+            last_synced=a["last"].isoformat() if a["last"] else None,
+        ))
+    return out
+
+
+# ── mappers ───────────────────────────────────────────────────────
+def _trend(b: Business) -> list[float]:
+    cfg = b.config or {}
+    return [float(x) for x in cfg.get("trend", [])]
+
+
+def _pl_rows(pl: PLSnapshot, b: Business) -> list[PLRow]:
+    rev = float(pl.revenue)
+    cogs = float(pl.cogs)
+    gross = float(pl.gross_profit)
+    opex = float(pl.opex)
+    noi = float(pl.noi)
+    rev_label, cogs_label = _PL_LABELS.get(b.key, ("Revenue", "Cost of sale"))
+    gp_pct = round(gross / rev * 100) if rev else 0
+    margin = round(noi / rev * 100) if rev else 0
+    rows = [
+        PLRow(label=rev_label, value=rev, kind="rev"),
+        PLRow(label=cogs_label, value=-cogs, kind="ded"),
+        PLRow(label="Gross profit", value=gross, kind="sub", note=f"{gp_pct}%"),
+        PLRow(label="Operating expenses", value=-opex, kind="ded"),
+        PLRow(label="Net operating income", value=noi, kind="tot", note=f"{margin}% margin"),
+    ]
+    if b.is_jv:
+        share_pct = int(round(float(b.jv_share) * 100))
+        rows.append(PLRow(
+            label=f"Spring's JV share ({share_pct}%)",
+            value=noi * float(b.jv_share), kind="share",
+        ))
+    return rows
+
+
+def _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings, producing, total) -> list[OpTile]:
+    avg_price = volume / closed if closed else 0
+    return [
+        OpTile(label="Units closed", value=str(closed), sub="month to date"),
+        OpTile(label="Volume", value=_compact_usd(volume)),
+        OpTile(label="Avg sale price", value=_compact_usd(avg_price)),
+        OpTile(label="Pending pipeline", value=str(pending), sub=_compact_usd(pipeline)),
+        OpTile(label="Active listings", value=str(active_listings)),
+        OpTile(label="Agents producing", value=str(producing), sub=f"of {total}"),
+    ]
+
+
+def _ops_from_config(b: Business) -> list[OpTile]:
+    cfg = b.config or {}
+    return [OpTile(**o) for o in cfg.get("ops", [])]
+
+
+def _scorecards(
+    *, portfolio_noi, portfolio_margin, ulrg_gci, ulrg_closed, ulrg_pending, ulrg_pipeline,
+    producing, total_agents, sympli_funded, sympli_volume, attach_rate, members, have_financials,
+) -> list[Scorecard]:
+    return [
+        Scorecard(
+            label="Combined profit",
+            value=_compact_usd(portfolio_noi) if have_financials else "—",
+            sub=f"{portfolio_margin}% margin" if have_financials else "awaiting QuickBooks",
+            business_key="portfolio"),
+        Scorecard(label="Total GCI", value=_compact_usd(ulrg_gci), sub="month to date", business_key="ulrg"),
+        Scorecard(label="Closed units", value=str(ulrg_closed), sub="this month", business_key="ulrg"),
+        Scorecard(label="Under contract", value=str(ulrg_pending),
+                  sub=f"{_compact_usd(ulrg_pipeline)} pipeline", business_key="ulrg"),
+        Scorecard(label="Agents producing", value=str(producing), sub=f"of {total_agents}", business_key="ulrg"),
+        Scorecard(label="Loans funded", value=sympli_funded or "—",
+                  sub=f"{sympli_volume} volume" if sympli_volume else None, business_key="sympli"),
+        Scorecard(label="Attach rate", value=attach_rate or "—", sub="ULRG → Sympli", business_key="sympli"),
+        Scorecard(label="Active members", value=members or "—", sub="beCollective + Forum", business_key="springb"),
+    ]
+
+
+# ── main build ────────────────────────────────────────────────────
+async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) -> DashboardResponse:
+    start, end = _period_range(period)
+    businesses = (await s.execute(
+        select(Business).where(Business.tenant_id == tenant_id).order_by(Business.sort_order)
+    )).scalars().all()
+
+    areas: dict[str, AreaPayload] = {}
+    portfolio_rev = 0.0
+    portfolio_noi = 0.0
+    have_financials = False
+
+    # raw values we need for scorecards
+    sc: dict[str, object] = {
+        "ulrg_gci": 0.0, "ulrg_closed": 0, "ulrg_pending": 0, "ulrg_pipeline": 0.0,
+        "producing": 0, "total_agents": 0, "sympli_funded": None, "sympli_volume": None,
+        "members": None,
+    }
+
+    for b in businesses:
+        cfg = b.config or {}
+
+        # Operational (Phase 1) — only ULRG has live transaction data.
+        if b.key == "ulrg":
+            closed = await _count(s, tenant_id, b.id, "closed", start, end)
+            pending = await _count(s, tenant_id, b.id, "pending", None, None)
+            volume = await _sum(s, tenant_id, b.id, Transaction.sale_price, "closed", start, end)
+            gci = await _sum(s, tenant_id, b.id, Transaction.gci, "closed", start, end)
+            pipeline = await _sum(s, tenant_id, b.id, Transaction.sale_price, "pending", None, None)
+            active_listings = await _count(s, tenant_id, b.id, "active", None, None, side="sell")
+            producing, total = await _producing_agents(s, tenant_id, b.id, start, end)
+            ops = _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings, producing, total)
+            funnel = await _funnel(s, tenant_id, b.id, start, end)
+            sc.update(ulrg_gci=gci, ulrg_closed=closed, ulrg_pending=pending,
+                      ulrg_pipeline=pipeline, producing=producing, total_agents=total)
+        else:
+            ops = _ops_from_config(b)
+            funnel = [FunnelRow(**f) for f in cfg.get("funnel", [])] if cfg.get("funnel") else None
+            scc = cfg.get("scorecard", {})
+            if b.key == "sympli":
+                sc["sympli_funded"] = scc.get("funded")
+                sc["sympli_volume"] = scc.get("volume")
+            if b.key == "springb":
+                sc["members"] = scc.get("members")
+
+        # Financial (Phase 2) — from the exact-period PLSnapshot.
+        pl_row = (await s.execute(select(PLSnapshot).where(
+            PLSnapshot.tenant_id == tenant_id, PLSnapshot.business_id == b.id,
+            PLSnapshot.period_start == start, PLSnapshot.period_end == end))).scalar_one_or_none()
+
+        if pl_row:
+            have_financials = True
+            rev, noi = float(pl_row.revenue), float(pl_row.noi)
+            margin = round(noi / rev * 100) if rev else 0
+            pl = _pl_rows(pl_row, b)
+            portfolio_rev += rev
+            portfolio_noi += noi
+        else:
+            rev = noi = margin = None
+            pl = []
+
+        areas[b.key] = AreaPayload(
+            id=str(b.id), key=b.key, name=b.name, tag=b.tag, status=b.status,
+            accent=b.accent, ink=b.ink, sources=_SOURCES.get(b.key, ["QuickBooks"]),
+            revenue=rev, noi=noi, margin=margin, trend=_trend(b), pl=pl, ops=ops, funnel=funnel,
+        )
+
+    # Composition (only when financials are present).
+    composition: list[CompositionSeg] = []
+    if have_financials and portfolio_rev:
+        order = [k for k in ("ulrg", "sympli", "springb") if k in areas]
+        for k in order:
+            a = areas[k]
+            if a.revenue:
+                composition.append(CompositionSeg(
+                    key=k, name=a.name, revenue=a.revenue,
+                    pct=round(a.revenue / portfolio_rev * 100, 1), accent=a.accent))
+
+    portfolio_margin = round(portfolio_noi / portfolio_rev * 100) if portfolio_rev else 0
+    mom = await _mom(s, tenant_id, portfolio_rev) if (period == "mtd" and portfolio_rev) else None
+    cash = await _cash(s, tenant_id, end)
+    sources = await _source_statuses(s, tenant_id)
+    scorecards = _scorecards(
+        portfolio_noi=portfolio_noi, portfolio_margin=portfolio_margin,
+        ulrg_gci=sc["ulrg_gci"], ulrg_closed=sc["ulrg_closed"], ulrg_pending=sc["ulrg_pending"],
+        ulrg_pipeline=sc["ulrg_pipeline"], producing=sc["producing"], total_agents=sc["total_agents"],
+        sympli_funded=sc["sympli_funded"], sympli_volume=sc["sympli_volume"],
+        attach_rate=None, members=sc["members"], have_financials=have_financials,
+    )
+
+    return DashboardResponse(
+        period={"label": _PERIOD_LABELS.get(period, period.upper()), "as_of": end.isoformat(),
+                "start": start.isoformat(), "end": end.isoformat()},
+        portfolio=Portfolio(
+            revenue=portfolio_rev or None, noi=portfolio_noi or None,
+            margin=portfolio_margin if portfolio_rev else None, mom=mom,
+            cash=cash, composition=composition),
+        scorecards=scorecards, areas=areas,
+        flywheel=Flywheel(available=False),   # Phase 3
+        sources=sources,
+    )
