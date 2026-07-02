@@ -243,7 +243,7 @@ function QuickBooksConnect({ live }) {
             </div>
             {connected ? (
               <>
-                {row.status !== "error" && <button disabled={!live || syncing} onClick={() => syncNow(row)} style={live && !syncing ? btn() : btn("disabled")}>{syncing ? "Syncing…" : "Sync now"}</button>}
+                <button disabled={!live || syncing} onClick={() => syncNow(row)} style={live && !syncing ? btn() : btn("disabled")}>{syncing ? "Syncing…" : row.status === "error" ? "Retry" : "Sync now"}</button>
                 <button disabled={!live || syncing} onClick={() => connect(b)} style={live && !syncing ? btn() : btn("disabled")} title="Re-authorize this QuickBooks company">Reconnect</button>
                 <button disabled={!live || syncing} onClick={() => disconnect(row)} style={live && !syncing ? btn("danger") : btn("disabled")}>Disconnect</button>
               </>
