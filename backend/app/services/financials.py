@@ -95,10 +95,12 @@ async def compute_financials(s: AsyncSession, tenant_id, business: Business, per
     proj_net = proj_gci - proj_comm
     proj_profit = proj_net - run_rate
 
-    # BOOKED — the period's QuickBooks snapshot.
+    # BOOKED — the period's QuickBooks snapshot (keyed on the calendar period).
+    from .metrics import _pl_period
+    pl_start, pl_end = _pl_period(period)
     snap = (await s.execute(select(PLSnapshot).where(
         PLSnapshot.tenant_id == tenant_id, PLSnapshot.business_id == business.id,
-        PLSnapshot.period_start == start, PLSnapshot.period_end == end))).scalar_one_or_none()
+        PLSnapshot.period_start == pl_start, PLSnapshot.period_end == pl_end))).scalar_one_or_none()
     if snap:
         b = dict(rev=float(snap.revenue), cost=float(snap.cogs), gross=float(snap.gross_profit),
                  opex=float(snap.opex), noi=float(snap.noi), closed=bool(snap.books_closed))

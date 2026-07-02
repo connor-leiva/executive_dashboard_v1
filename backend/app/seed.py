@@ -22,7 +22,7 @@ from .models import (
     PLSnapshot, CashSnapshot,
 )
 from .security import hash_pw
-from .services.metrics import _period_range
+from .services.metrics import _period_range, _pl_period
 
 OWNER_EMAIL = "spring@springb.com"
 OWNER_PASSWORD = "springtime"   # dev only — change after first login
@@ -163,9 +163,10 @@ async def seed():
 
         # ── P&L snapshots (current period) + a prior month (for a real MoM) + cash.
         prior_start, prior_end = _period_range("last_month")
+        cur_start, cur_end = _pl_period("mtd")   # calendar key, matches the dashboard read
         for key, b in biz.items():
-            s.add(PLSnapshot(tenant_id=tenant.id, business_id=b.id, period_start=start,
-                             period_end=end, source="qbo", realm_id=f"realm-{key}",
+            s.add(PLSnapshot(tenant_id=tenant.id, business_id=b.id, period_start=cur_start,
+                             period_end=cur_end, source="qbo", realm_id=f"realm-{key}",
                              **{k: Decimal(v) for k, v in PL[key].items()}))
             # Prior month ~7-8% lower so the hero MoM badge reflects real movement.
             s.add(PLSnapshot(tenant_id=tenant.id, business_id=b.id, period_start=prior_start,

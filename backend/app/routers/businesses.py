@@ -82,7 +82,8 @@ async def close_books(key: str, period: str,
         Business.tenant_id == user.tenant_id, Business.key == key))).scalar_one_or_none()
     if not b:
         raise HTTPException(404, "Unknown business")
-    start, end, _ = _period(period)
+    from ..services.metrics import _pl_period
+    start, end = _pl_period(period)
     snap = (await s.execute(select(PLSnapshot).where(
         PLSnapshot.tenant_id == user.tenant_id, PLSnapshot.business_id == b.id,
         PLSnapshot.period_start == start, PLSnapshot.period_end == end))).scalar_one_or_none()

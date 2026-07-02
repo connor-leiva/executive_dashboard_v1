@@ -10,6 +10,7 @@ mockup's combined figures). Spring's JV economics surface as the dedicated
 """
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 import uuid
 
@@ -54,6 +55,22 @@ def _period_range(period: str):
         last_end = first - dt.timedelta(days=1)
         return last_end.replace(day=1), last_end
     return today.replace(day=1), today  # mtd
+
+
+def _pl_period(period: str) -> tuple[dt.date, dt.date]:
+    """(period_start, CALENDAR period-end) — the key a QBO snapshot is stored and
+    read under. Unlike _period_range (whose end is 'today', for the Sisu "so far"
+    queries), this end is the fixed month/quarter/year end — so a snapshot doesn't
+    go missing when viewed a day after it was synced."""
+    start, end = _period_range(period)
+    if period == "qtd":
+        m = ((start.month - 1) // 3) * 3 + 3
+        return start, dt.date(start.year, m, calendar.monthrange(start.year, m)[1])
+    if period == "ytd":
+        return start, dt.date(start.year, 12, 31)
+    if period == "last_month":
+        return start, end                       # already a full calendar month
+    return start, dt.date(start.year, start.month, calendar.monthrange(start.year, start.month)[1])  # mtd
 
 
 def _compact_usd(n: float | None) -> str:
@@ -429,10 +446,11 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                             t.key = "active_members"
                     sc["members"] = scc.get("members")
 
-        # Financial (Phase 2) — from the exact-period PLSnapshot.
+        # Financial (Phase 2) — from the PLSnapshot, keyed on the calendar period.
+        pl_start, pl_end = _pl_period(period)
         pl_row = (await s.execute(select(PLSnapshot).where(
             PLSnapshot.tenant_id == tenant_id, PLSnapshot.business_id == b.id,
-            PLSnapshot.period_start == start, PLSnapshot.period_end == end))).scalar_one_or_none()
+            PLSnapshot.period_start == pl_start, PLSnapshot.period_end == pl_end))).scalar_one_or_none()
 
         if pl_row:
             have_financials = True

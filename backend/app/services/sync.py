@@ -257,24 +257,32 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         print(f"[ghl] subscriptions skipped: {e}", flush=True)
 
 
-async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration, start: str, end: str):
-    token = await _valid_access_token(s, integ)
-    report = await qbo.profit_and_loss(integ.realm_id, token, start, end)  # QBO wants string dates
-    nums = {k: Decimal(str(v)) for k, v in qbo.parse_pl(report).items()}   # NUMERIC cols want Decimal
+# Every period the dashboard can toggle to needs its own snapshot.
+_QBO_PERIODS = ("mtd", "qtd", "ytd", "last_month")
 
-    # pl_snapshot.period_* are DATE columns — asyncpg (Postgres) needs date objects,
-    # not the ISO strings the sync job passes for the QBO API params.
-    ps = dt.date.fromisoformat(start) if isinstance(start, str) else start
-    pe = dt.date.fromisoformat(end) if isinstance(end, str) else end
-    stmt = pg_insert(PLSnapshot).values(
-        tenant_id=tenant_id, business_id=integ.business_id, period_start=ps, period_end=pe,
-        source="qbo", realm_id=integ.realm_id, **nums,
-    ).on_conflict_do_update(
-        index_elements=["tenant_id", "business_id", "period_start", "period_end"],
-        set_={**nums, "pulled_at": dt.datetime.now(dt.timezone.utc)},
-    )
-    await s.execute(stmt)
-    integ.last_synced_at = dt.datetime.now(dt.timezone.utc)
+
+async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration):
+    """Pull the QBO P&L for EVERY dashboard period and upsert a snapshot for each,
+    so Month / Quarter / Year / Last month all have data — not just whichever one
+    happened to be synced. Periods come from the same _period_range the dashboard
+    reads with, so the ranges line up exactly."""
+    from .metrics import _period_range, _pl_period          # local import avoids a cycle
+    token = await _valid_access_token(s, integ)
+    now = dt.datetime.now(dt.timezone.utc)
+    for period in _QBO_PERIODS:
+        fetch_start, fetch_end = _period_range(period)     # actuals through today
+        ps, pe = _pl_period(period)                         # store under the fixed calendar key
+        report = await qbo.profit_and_loss(integ.realm_id, token, fetch_start.isoformat(), fetch_end.isoformat())
+        nums = {k: Decimal(str(v)) for k, v in qbo.parse_pl(report).items()}   # NUMERIC wants Decimal
+        stmt = pg_insert(PLSnapshot).values(
+            tenant_id=tenant_id, business_id=integ.business_id, period_start=ps, period_end=pe,
+            source="qbo", realm_id=integ.realm_id, **nums,
+        ).on_conflict_do_update(
+            index_elements=["tenant_id", "business_id", "period_start", "period_end"],
+            set_={**nums, "pulled_at": now},
+        )
+        await s.execute(stmt)
+    integ.last_synced_at = now
     await s.commit()
 
 
@@ -291,7 +299,7 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
         elif integ.provider == "ghl":
             await sync_ghl(s, tenant_id, integ)
         elif integ.provider == "qbo":
-            await sync_qbo_pl(s, tenant_id, integ, period_start, period_end)
+            await sync_qbo_pl(s, tenant_id, integ)         # syncs all periods itself
         run.status, run.finished_at = "ok", dt.datetime.utcnow()
         # Clear any prior error and mark the source healthy again.
         integ.status, integ.last_error = "connected", None
