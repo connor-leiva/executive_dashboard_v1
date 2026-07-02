@@ -35,6 +35,25 @@ export function SpringLogomark({ tone = "dark", size = 28, color, style }) {
   );
 }
 
+/* Ribbed-gradient hero surface: the delivered gradient (light ground, colored
+   ribs) placed over the business token color with multiply — white ground
+   becomes the brand color, ribs become deeper texture. One ribbed surface per
+   view (always the hero band). tone drives the text stack, not per-element. */
+const HERO_BG = {
+  evergreen: T.evergreen, meadow: T.meadow, poppy: T.poppy,
+  mist: T.mist, parchment: T.parchment, petal: T.petal, daffodil: T.daffodilBg,
+};
+export function ribbedHero(gradient = "evergreen") {
+  const g = gradient.toLowerCase();
+  const file = g.charAt(0).toUpperCase() + g.slice(1);
+  return {
+    backgroundColor: HERO_BG[g] || T.evergreen,
+    backgroundImage: `url(/brand/RibbedGradient_${file}.jpg)`,
+    backgroundSize: "cover", backgroundPosition: "center",
+    backgroundBlendMode: "multiply",
+  };
+}
+
 /* Any brand icon, tinted via CSS mask. color follows the text context. */
 export function Icon({ name, size = 18, color = "currentColor", style }) {
   return (

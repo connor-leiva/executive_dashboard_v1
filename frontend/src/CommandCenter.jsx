@@ -7,7 +7,7 @@ import { getJSON, postJSON } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
 import Financials from "./Financials.jsx";
 import ForumView, { BeCollectivePlaceholder } from "./ForumView.jsx";
-import { SpringSignature } from "./Brand.jsx";
+import { SpringSignature, ribbedHero, Icon } from "./Brand.jsx";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -307,8 +307,7 @@ function Overview({ data, onOpen, onDrill }) {
       {/* Hero */}
       <div style={{
         position: "relative", overflow: "hidden", borderRadius: 16, padding: 28,
-        backgroundColor: T.evergreen,
-        backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.055) 0px, rgba(255,255,255,0.055) 1.5px, rgba(255,255,255,0) 1.5px, rgba(255,255,255,0) 13px), radial-gradient(135% 130% at 88% -15%, rgba(97,131,94,0.50) 0%, rgba(0,46,44,0) 55%)`,
+        ...ribbedHero("evergreen"),
       }}>
         <SpringSignature tone="light" height={46} aria-hidden style={{ position: "absolute", top: 14, right: 26, opacity: 0.12, pointerEvents: "none" }} />
         <Eyebrow onDark>Portfolio · {periodLabel}</Eyebrow>
@@ -506,8 +505,9 @@ function Flywheel({ flywheel }) {
           </div>
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <span style={{ width: 5, height: 30, borderRadius: 3, background: `linear-gradient(${T.meadow},${T.teal})` }} />
+        <Icon name="spark" size={22} color={T.teal} />
         <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 600, color: T.ink }}>The Referral Flywheel</span>
         <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted }}>ULRG → Sympli · the connection QuickBooks can't see</span>
       </div>
@@ -574,9 +574,8 @@ function Flywheel({ flywheel }) {
 function Splash({ label, tone }) {
   return (
     <div style={{
-      minHeight: "100vh", background: T.evergreen, display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: "Inter,sans-serif", padding: 24,
-      backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.045) 0px, rgba(255,255,255,0.045) 1.5px, rgba(255,255,255,0) 1.5px, rgba(255,255,255,0) 13px), radial-gradient(135% 130% at 50% -15%, rgba(97,131,94,0.50) 0%, rgba(0,46,44,0) 55%)`,
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: "Inter,sans-serif", padding: 24, ...ribbedHero("evergreen"),
     }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');`}</style>
       <div style={{ textAlign: "center" }}>
@@ -661,14 +660,14 @@ function UserMenu({ user }) {
               {user?.email && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{user.email}</div>}
             </div>
             <Link to="/settings/integrations" onClick={() => setOpen(false)} style={{
-              display: "block", fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: T.ink,
+              display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: T.ink,
               textDecoration: "none", borderRadius: 6, padding: "8px 10px", marginTop: 4,
-            }}>Settings</Link>
+            }}><Icon name="settings" size={15} color={T.slate} />Settings</Link>
             <button onClick={signOut} style={{
-              width: "100%", textAlign: "left", fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500,
+              width: "100%", display: "flex", alignItems: "center", gap: 8, textAlign: "left", fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500,
               color: T.poppyText, background: "transparent", border: "none", borderRadius: 6,
               padding: "8px 10px", cursor: "pointer", marginTop: 4,
-            }}>Sign out</button>
+            }}><Icon name="logout" size={15} color={T.poppyText} />Sign out</button>
           </div>
         </>
       )}
@@ -871,7 +870,7 @@ export default function CommandCenter() {
                   padding: "5px 10px", cursor: API_BASE && !refreshing ? "pointer" : "not-allowed",
                 }}
               >
-                <span style={{ display: "inline-block", animation: refreshing ? "cc-spin 0.9s linear infinite" : "none" }}>↻</span>
+                <span style={{ display: "inline-flex", animation: refreshing ? "cc-spin 0.9s linear infinite" : "none" }}><Icon name="sync" size={13} color={API_BASE ? T.slate : T.muted} /></span>
                 {refreshing ? "Refreshing…" : "Refresh"}
               </button>
               <UserMenu user={user} />
