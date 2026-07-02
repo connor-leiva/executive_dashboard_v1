@@ -4,6 +4,7 @@ call. Upserts target Postgres (prod); the worker does not run against SQLite.
 """
 import datetime as dt
 import uuid
+from decimal import Decimal
 
 from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -258,17 +259,22 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
 
 async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration, start: str, end: str):
     token = await _valid_access_token(s, integ)
-    report = await qbo.profit_and_loss(integ.realm_id, token, start, end)
-    nums = qbo.parse_pl(report)
+    report = await qbo.profit_and_loss(integ.realm_id, token, start, end)  # QBO wants string dates
+    nums = {k: Decimal(str(v)) for k, v in qbo.parse_pl(report).items()}   # NUMERIC cols want Decimal
+
+    # pl_snapshot.period_* are DATE columns — asyncpg (Postgres) needs date objects,
+    # not the ISO strings the sync job passes for the QBO API params.
+    ps = dt.date.fromisoformat(start) if isinstance(start, str) else start
+    pe = dt.date.fromisoformat(end) if isinstance(end, str) else end
     stmt = pg_insert(PLSnapshot).values(
-        tenant_id=tenant_id, business_id=integ.business_id, period_start=start, period_end=end,
+        tenant_id=tenant_id, business_id=integ.business_id, period_start=ps, period_end=pe,
         source="qbo", realm_id=integ.realm_id, **nums,
     ).on_conflict_do_update(
         index_elements=["tenant_id", "business_id", "period_start", "period_end"],
-        set_={**nums, "pulled_at": dt.datetime.utcnow()},
+        set_={**nums, "pulled_at": dt.datetime.now(dt.timezone.utc)},
     )
     await s.execute(stmt)
-    integ.last_synced_at = dt.datetime.utcnow()
+    integ.last_synced_at = dt.datetime.now(dt.timezone.utc)
     await s.commit()
 
 
