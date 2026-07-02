@@ -257,6 +257,26 @@ async def test_ulrg_three_lens_financials():
         assert d2["lenses"]["booked"]["flag"] is None
 
 
+async def test_qbo_token_freshness_handles_tz_aware_expiry():
+    """A fresh QBO token must be accepted without a refresh — and comparing its
+    expiry can't blow up on tz-aware (Postgres) vs naive (SQLite) datetimes."""
+    import datetime as _dt
+    from app.services.sync import _valid_access_token
+    from app.models import Integration
+    from app.security import enc
+    from app.db import SessionLocal
+
+    integ = Integration(provider="qbo", access_token_enc=enc("fresh-token"))
+    # tz-AWARE expiry (as Postgres hands back) — the bug case.
+    integ.token_expires_at = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(minutes=30)
+    async with SessionLocal() as s:
+        assert await _valid_access_token(s, integ) == "fresh-token"   # no raise, no refresh
+    # tz-NAIVE expiry (as SQLite hands back) works too.
+    integ.token_expires_at = _dt.datetime.utcnow() + _dt.timedelta(minutes=30)
+    async with SessionLocal() as s:
+        assert await _valid_access_token(s, integ) == "fresh-token"
+
+
 async def test_financials_drilldowns():
     token = await _client_token()
     transport = ASGITransport(app=app)

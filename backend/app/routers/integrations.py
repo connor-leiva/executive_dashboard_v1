@@ -41,7 +41,7 @@ async def qbo_callback(
     payload = read_token(token_part)                 # validates + carries tid
     tenant_id = uuid.UUID(payload["tid"])
     tok = await qbo.exchange_code(code)
-    expires = dt.datetime.utcnow() + dt.timedelta(seconds=int(tok["expires_in"]))
+    expires = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=int(tok["expires_in"]))
     biz = (await s.execute(select(Business).where(
         Business.id == uuid.UUID(business_id), Business.tenant_id == tenant_id))).scalar_one()
     existing = (await s.execute(select(Integration).where(

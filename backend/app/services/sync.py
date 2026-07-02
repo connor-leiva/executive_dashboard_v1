@@ -27,8 +27,11 @@ def _parse_ghl_dt(v) -> dt.date | None:
 
 
 async def _valid_access_token(s: AsyncSession, integ: Integration) -> str:
-    now = dt.datetime.utcnow()
-    if integ.token_expires_at and integ.token_expires_at - now > dt.timedelta(minutes=2):
+    now = dt.datetime.now(dt.timezone.utc)                 # tz-aware
+    exp = integ.token_expires_at
+    if exp is not None and exp.tzinfo is None:             # Postgres returns aware, SQLite naive
+        exp = exp.replace(tzinfo=dt.timezone.utc)
+    if exp and exp - now > dt.timedelta(minutes=2):
         return dec(integ.access_token_enc)
     tok = await qbo.refresh(dec(integ.refresh_token_enc))
     integ.access_token_enc = enc(tok["access_token"])
