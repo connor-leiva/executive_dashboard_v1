@@ -248,6 +248,63 @@ async def test_event_renders_without_date():
     assert "event" in {c["k"] for c in d["deck"]}
 
 
+async def test_forum_period_scoping():
+    # Only New Members respects the period; ARR / funnel / renewals are current-state.
+    await _seed_forum()
+    from app.db import SessionLocal
+    from app.models import Business, MetricRecord
+    from sqlalchemy import select
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
+                           kind="onboarded", external_id="on-early", name="Early Joiner",
+                           occurred_on=dt.date(dt.date.today().year, 2, 1), amount=3000, segment="forum"))
+        await s.commit()
+    mtd, ytd = await _get_forum("mtd"), await _get_forum("ytd")
+    nm = lambda d: int({k["label"]: k["value"] for k in d["kpis"]}["New Members"])
+    assert nm(ytd) > nm(mtd)                                  # ytd includes the earlier joiner
+    kv = lambda d, lbl: {k["label"]: k["value"] for k in d["kpis"]}[lbl]
+    assert kv(mtd, "Forum ARR") == kv(ytd, "Forum ARR")      # current-state, period-independent
+    assert mtd["funnel"] == ytd["funnel"]
+    assert mtd["renewals"]["summary"]["count"] == ytd["renewals"]["summary"]["count"]
+
+
+async def test_reg_count_appends():
+    # reg_count appends one row per event per day (external_id = "tag:date");
+    # a same-day re-sync upserts rather than duplicating.
+    await _seed_forum()
+    from app.db import SessionLocal
+    from app.models import Business, MetricRecord
+    from sqlalchemy import select, func
+    tag = "the forum q3 2026"
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+
+        async def upsert(day, amount):
+            ext = f"{tag}:{day.isoformat()}"
+            row = (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == biz.tenant_id, MetricRecord.source == "ghl",
+                MetricRecord.kind == "reg_count", MetricRecord.external_id == ext))).scalar_one_or_none()
+            if row:
+                row.amount = amount
+            else:
+                s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
+                                   kind="reg_count", external_id=ext, amount=amount, occurred_on=day))
+            await s.commit()
+
+        d1, d2 = dt.date(2026, 6, 1), dt.date(2026, 6, 2)
+        await upsert(d1, 20)
+        await upsert(d2, 24)
+        await upsert(d1, 22)                                  # same-day re-sync → upsert
+        n = (await s.execute(select(func.count()).select_from(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.kind == "reg_count"))).scalar()
+        assert n == 2                                         # two days, not three rows
+        row1 = (await s.execute(select(MetricRecord).where(
+            MetricRecord.kind == "reg_count",
+            MetricRecord.external_id == f"{tag}:{d1.isoformat()}"))).scalar_one()
+        assert float(row1.amount) == 22                       # upserted, not duplicated
+
+
 async def test_forum_fallbacks():
     # No recruiting records and no event date → those sections degrade to null,
     # and the deck drops their cards — the payload never errors.

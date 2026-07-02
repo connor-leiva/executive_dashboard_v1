@@ -202,7 +202,7 @@ async def test_forum_kpis_from_ghl_records():
         assert ops["MRR"]["value"] == "$4K"
 
         arr = (await c.get("/api/v1/metrics/forum_arr/detail", headers=H)).json()
-        assert arr["count"] == 3 and "renews" in arr["rows"][0]["status"]
+        assert arr["count"] == 3 and "renews" in arr["rows"][0]["r2"]   # enriched drawer row shape
         nm = (await c.get("/api/v1/metrics/new_members/detail?period=mtd", headers=H)).json()
         assert nm["count"] == 2
         reg = (await c.get("/api/v1/metrics/registered/detail", headers=H)).json()

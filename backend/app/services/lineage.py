@@ -140,21 +140,55 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
         def title_name(r):
             return (r.name or "").strip().title() or r.email or r.external_id
 
+        def money(n):
+            return f"${float(n or 0):,.0f}"
+
+        SEG_LABEL = {"forum": "The Forum", "inner_circle": "Inner Circle"}
+
+        def seg_of(segment):
+            return "IC" if segment == "inner_circle" else "F"
+
+        def renews_of(ms):
+            mon = (ms.meta or {}).get("renewal_month") if ms else None
+            return (mon or "")[:3].title() or None
+
+        # Small join maps (Forum record counts are tiny): contact → segment /
+        # membership, plus the registered-contact set for the event ✓/✗ column.
+        members_all = (await s.execute(q("member").where(MetricRecord.status == "active"))).scalars().all()
+        seg_by_contact = {m.external_id: m.segment for m in members_all}
+        ms_all = (await s.execute(q("membership"))).scalars().all()
+        ms_by_contact = {(m.meta or {}).get("contact_id"): m for m in ms_all if (m.meta or {}).get("contact_id")}
+        reg_all = (await s.execute(q("registration"))).scalars().all()
+        reg_ids = {(r.meta or {}).get("contact_id") for r in reg_all
+                   if not (r.meta or {}).get("guest") and (r.meta or {}).get("contact_id")}
+        reg_names = {(r.name or "").strip().lower() for r in reg_all if not (r.meta or {}).get("guest")}
+
+        def is_registered(contact_id, name):
+            return contact_id in reg_ids or (name or "").strip().lower() in reg_names
+
         if key == "active_members":
-            recs = (await s.execute(q("member").where(MetricRecord.status == "active")
-                    .order_by(MetricRecord.segment, MetricRecord.name))).scalars().all()
-            seg = {"forum": "The Forum", "inner_circle": "Inner Circle"}
-            rows = [{"id": str(r.id), "name": title_name(r),
-                     "status": seg.get(r.segment, r.segment or "member"), "source_url": r.source_url} for r in recs]
+            recs = sorted(members_all, key=lambda m: (m.segment or "", m.name or ""))
+            rows = []
+            for m in recs:
+                ms = ms_by_contact.get(m.external_id)
+                pay = (ms.meta or {}).get("payment") if ms else None
+                mon = renews_of(ms)
+                ev = "✓" if is_registered(m.external_id, m.name) else "✗"
+                r2 = " · ".join(x for x in [f"renews {mon}" if mon else None, f"event {ev}"] if x)
+                rows.append({"id": str(m.id), "name": title_name(m), "seg": seg_of(m.segment),
+                             "l2": {"monthly": "Monthly", "pif": "Paid in full"}.get(pay) or SEG_LABEL.get(m.segment, "member"),
+                             "r1": money(ms.amount) if ms and ms.amount is not None else "",
+                             "r2": r2, "source_url": m.source_url})
             return {"label": "Active Members", "source": "Go High Level",
                     "computed_as": "Distinct contacts carrying any official membership tag (The Forum + Inner Circle).",
                     "count": len(rows), "rows": rows}
 
         if key == "forum_arr":
-            recs = (await s.execute(q("membership").order_by(MetricRecord.amount.desc()))).scalars().all()
-            rows = [{"id": str(r.id), "name": (r.name or r.external_id),
-                     "status": (f"${float(r.amount or 0):,.0f}"
-                                + (f" · renews {(r.meta or {}).get('renewal_month')}" if (r.meta or {}).get("renewal_month") else "")),
+            recs = sorted(ms_all, key=lambda m: -float(m.amount or 0))
+            rows = [{"id": str(r.id), "name": title_name(r),
+                     "seg": seg_of(seg_by_contact.get((r.meta or {}).get("contact_id"))),
+                     "l2": "Renewals pipeline", "r1": money(r.amount),
+                     "r2": f"renews {renews_of(r)}" if renews_of(r) else "",
                      "source_url": r.source_url} for r in recs]
             return {"label": "Forum ARR", "source": "Go High Level",
                     "computed_as": "Contract value across open opportunities in the Current Forum Members (renewals) pipeline.",
@@ -182,10 +216,10 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
                     "count": len(rows), "rows": rows}
 
         if key == "registered":
-            recs = (await s.execute(q("registration").order_by(MetricRecord.name))).scalars().all()
-            recs = [r for r in recs if not (r.meta or {}).get("guest")]   # members only; guests are separate
-            rows = [{"id": str(r.id), "name": title_name(r), "status": "registered",
-                     "source_url": r.source_url} for r in recs]
+            recs = sorted((r for r in reg_all if not (r.meta or {}).get("guest")), key=lambda r: (r.name or ""))
+            rows = [{"id": str(r.id), "name": title_name(r),
+                     "seg": seg_of(seg_by_contact.get((r.meta or {}).get("contact_id"))),
+                     "l2": "Registered", "r1": "✓", "source_url": r.source_url} for r in recs]
             return {"label": "Registered", "source": "Go High Level",
                     "computed_as": "Members registered for the next Forum event (guest prospect seats excluded).",
                     "count": len(rows), "rows": rows}
@@ -193,8 +227,10 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
         if key == "mrr":
             recs = (await s.execute(q("subscription").where(MetricRecord.status == "active")
                     .order_by(MetricRecord.amount.desc()))).scalars().all()
-            rows = [{"id": str(r.id), "name": (r.name or r.email or r.external_id),
-                     "status": (f"${float(r.amount):,.0f}/mo" if r.amount is not None else "active"),
+            rows = [{"id": str(r.id), "name": title_name(r),
+                     "seg": seg_of(seg_by_contact.get((r.meta or {}).get("contact_id"))),
+                     "l2": "Monthly subscription",
+                     "r1": (f"{money(r.amount)}/mo" if r.amount is not None else "active"),
                      "source_url": r.source_url} for r in recs]
             return {"label": "MRR", "source": "Go High Level",
                     "computed_as": "Active recurring subscriptions (the monthly-paying member subset).",
@@ -211,20 +247,23 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
                 mon = (meta.get("renewal_month") or "")[:3].title()
                 if mon not in window:
                     continue
-                book.append((mon, -(float(r.amount or 0)), title_name(r),
-                             f"renews {mon} · ${float(r.amount or 0):,.0f}", r.source_url, str(r.id)))
+                seg = seg_of(seg_by_contact.get(meta.get("contact_id")))
+                book.append((mon, -(float(r.amount or 0)), seg, money(r.amount),
+                             title_name(r), r.source_url, str(r.id)))
             book.sort(key=lambda x: (_months.index(x[0]) if x[0] in _months else 99, x[1]))
-            rows = [{"id": rid, "name": nm, "status": stt, "source_url": url}
-                    for (_m, _v, nm, stt, url, rid) in book]
+            rows = [{"id": rid, "name": nm, "seg": seg, "l2": f"renews {mon}", "r1": val, "source_url": url}
+                    for (mon, _v, seg, val, nm, url, rid) in book]
             return {"label": "Renewal Book · next 90 days", "source": "Go High Level",
                     "computed_as": "Memberships whose renewal month falls in the next 90 days, by month + contract value.",
                     "count": len(rows), "rows": rows}
 
         if key == "monthly":
             recs = (await s.execute(q("subscription").order_by(MetricRecord.amount.desc()))).scalars().all()
-            rows = [{"id": str(r.id), "name": (r.name or r.email or r.external_id),
-                     "status": (f"${float(r.amount):,.0f}/mo" if r.amount is not None else "monthly")
-                               + (" · past due" if r.status == "past_due" else " · current"),
+            rows = [{"id": str(r.id), "name": title_name(r),
+                     "seg": seg_of(seg_by_contact.get((r.meta or {}).get("contact_id"))),
+                     "l2": "Monthly · past due" if r.status == "past_due" else "Monthly · current",
+                     "r1": (f"{money(r.amount)}/mo" if r.amount is not None else "monthly"),
+                     "tone": "watch" if r.status == "past_due" else None,
                      "source_url": r.source_url} for r in recs]
             return {"label": "Monthly Subscriptions", "source": "Go High Level",
                     "computed_as": "All recurring subscriptions in GHL Payments (active + past due).",
@@ -233,23 +272,21 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
         if key == "pastdue":
             recs = (await s.execute(q("subscription").where(MetricRecord.status == "past_due")
                     .order_by(MetricRecord.amount.desc()))).scalars().all()
-            rows = [{"id": str(r.id), "name": (r.name or r.email or r.external_id),
-                     "status": (f"${float(r.amount):,.0f}/mo · past due" if r.amount is not None else "past due"),
+            rows = [{"id": str(r.id), "name": title_name(r),
+                     "seg": seg_of(seg_by_contact.get((r.meta or {}).get("contact_id"))),
+                     "l2": "Card failed", "tone": "watch",
+                     "r1": (f"{money(r.amount)}/mo" if r.amount is not None else "past due"),
                      "source_url": r.source_url} for r in recs]
             return {"label": "Subscriptions Past Due", "source": "Go High Level",
                     "computed_as": "Subscriptions whose most-recent charge failed — the recovery list.",
                     "count": len(rows), "rows": rows}
 
         if key == "unregistered":
-            regs = (await s.execute(q("registration"))).scalars().all()
-            reg_names = {(r.name or "").strip().lower() for r in regs if not (r.meta or {}).get("guest")}
-            members = (await s.execute(q("member").where(MetricRecord.status == "active")
-                       .order_by(MetricRecord.segment, MetricRecord.name))).scalars().all()
-            seg = {"forum": "The Forum", "inner_circle": "Inner Circle"}
-            rows = [{"id": str(m.id), "name": title_name(m),
-                     "status": f"not registered · {seg.get(m.segment, m.segment or 'member')}",
-                     "source_url": m.source_url}
-                    for m in members if (m.name or "").strip().lower() not in reg_names]
+            recs = sorted((m for m in members_all if not is_registered(m.external_id, m.name)),
+                          key=lambda m: (m.segment or "", m.name or ""))
+            rows = [{"id": str(m.id), "name": title_name(m), "seg": seg_of(m.segment),
+                     "l2": SEG_LABEL.get(m.segment, "member"), "r1": "call",
+                     "source_url": m.source_url} for m in recs]
             return {"label": "Not Yet Registered", "source": "Go High Level",
                     "computed_as": "Active members without a registration for the next event — the call list.",
                     "count": len(rows), "rows": rows}

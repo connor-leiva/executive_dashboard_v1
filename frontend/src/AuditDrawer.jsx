@@ -4,6 +4,18 @@ import { getJSON } from "./api.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
+/* Forum segment chip — daffodil Forum / mist IC (never poppy). */
+function SegChip({ seg }) {
+  const f = seg === "F" || seg === "Forum";
+  return (
+    <span style={{
+      fontFamily: "Poppins,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+      color: f ? T.evergreen : T.teal, background: f ? T.daffodil : T.mist,
+      borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0,
+    }}>{f ? "Forum" : "IC"}</span>
+  );
+}
+
 /* Right-side drawer showing the records behind a KPI (the trust layer). */
 export default function AuditDrawer({ metricKey, business, period, onClose }) {
   const [d, setD] = useState(null);
@@ -64,16 +76,31 @@ export default function AuditDrawer({ metricKey, business, period, onClose }) {
               {d.count != null && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, margin: "16px 0 4px" }}>{d.count} record{d.count === 1 ? "" : "s"}</div>}
               {d.rows.length === 0 && !d.report_url && <div style={{ ...muted, marginTop: 14 }}>No records for this period.</div>}
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {d.rows.map((r) => (
-                  <li key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${T.line}` }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: T.ink, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
-                      {(r.close_date || r.address || r.side || r.company_dollar != null) && <div style={{ fontSize: 11, color: T.muted }}>{[r.close_date, r.address, r.side, r.company_dollar != null ? `net ${usd(r.company_dollar)}` : null].filter(Boolean).join(" · ")}</div>}
-                    </div>
-                    <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{amountFor(r)}</div>
-                    {r.source_url && <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in the source system" style={{ fontSize: 14, color: T.teal, textDecoration: "none" }}>↗</a>}
-                  </li>
-                ))}
+                {d.rows.map((r) => {
+                  // Forum rows carry {seg, l2, r1, r2, tone}; other drills keep the
+                  // financial shape. tone:"watch" → daffodil dot + amber value (never red).
+                  const forum = r.seg !== undefined || r.l2 !== undefined || r.r1 !== undefined;
+                  const watch = r.tone === "watch";
+                  return (
+                    <li key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${T.line}` }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13, color: T.ink, fontWeight: forum ? 600 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
+                          {r.seg && <SegChip seg={r.seg} />}
+                          {watch && <span aria-hidden style={{ width: 6, height: 6, borderRadius: 99, background: T.daffodil, border: `1.5px solid ${T.amber}`, flexShrink: 0 }} />}
+                        </div>
+                        {forum
+                          ? (r.l2 && <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{r.l2}</div>)
+                          : ((r.close_date || r.address || r.side || r.company_dollar != null) && <div style={{ fontSize: 11, color: T.muted }}>{[r.close_date, r.address, r.side, r.company_dollar != null ? `net ${usd(r.company_dollar)}` : null].filter(Boolean).join(" · ")}</div>)}
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: watch ? T.amber : T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{forum ? r.r1 : amountFor(r)}</div>
+                        {forum && r.r2 && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>{r.r2}</div>}
+                      </div>
+                      {r.source_url && <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in the source system" style={{ fontSize: 14, color: T.teal, textDecoration: "none" }}>↗</a>}
+                    </li>
+                  );
+                })}
               </ul>
             </>
           )}

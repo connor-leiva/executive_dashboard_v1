@@ -272,14 +272,15 @@ async def seed():
                     segment="inner_circle" if ic else "forum",
                     amount=Decimal(amt),
                     meta={"renewal_month": mon, "renewal_status": _renew_status[i],
-                          "payment": pay, "stage": "member"})
+                          "payment": pay, "stage": "member", "contact_id": f"mem-{i+1:03d}"})
 
-            # Monthly subscriptions (drives MRR) — 16 active, 2 past due.
+            # Monthly subscriptions (drives MRR) — 16 active, 2 past due. Linked to
+            # the first members by contact so the roster's payment column joins.
             for i in range(18):
                 _mr(kind="subscription", external_id=f"sub-{i+1:03d}",
                     name=f"Member {i+1:02d}", amount=Decimal(250),
                     status="past_due" if i >= 16 else "active",
-                    segment="forum")
+                    segment="forum", meta={"contact_id": f"mem-{i+1:03d}"})
 
             # Recruiting funnel (open Forum Main Sales Funnel opps by real stage —
             # collapsed into Applied/Appointment/VIP Guest/Contract sent/Onboarding;
@@ -320,7 +321,8 @@ async def seed():
                 _mr(kind="registration", external_id=f"reg-{i+1:03d}",
                     name=(f"Guest {i-37}" if guest else f"Member {i+1:02d}"),
                     status="registered", segment="forum",
-                    meta={"guest": guest, "event_tag": "the forum q3 2026"})
+                    meta={"guest": guest, "event_tag": "the forum q3 2026",
+                          "contact_id": (f"guest-{i}" if guest else f"mem-{i+1:03d}")})
 
         await s.commit()
 

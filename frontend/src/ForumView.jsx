@@ -402,6 +402,29 @@ const FORUM_CSS = `
   }
 `;
 
+/* The four canonical deck slots — a missing section shows dimmed, not hidden. */
+const DECK_SLOTS = [
+  { k: "pipeline", label: "Recruiting pipeline", need: "needs a sales pipeline configured" },
+  { k: "renewals", label: "Renewals · next 90 days", need: "needs the renewals pipeline" },
+  { k: "event", label: "Next event", need: "needs event config" },
+  { k: "revq", label: "Revenue quality", need: "needs a payments scope" },
+];
+
+function DimmedCard({ label, need }) {
+  return (
+    <div style={{
+      opacity: 0.6, background: T.white, border: `1px dashed ${T.line}`, borderRadius: 14,
+      padding: "16px 16px 14px", minHeight: 148, display: "flex", flexDirection: "column", gap: 7,
+    }}>
+      <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.slate }}>{label}</span>
+      <div style={{ marginTop: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ width: 6, height: 6, borderRadius: 99, background: T.line, flexShrink: 0 }} />
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>{need}</span>
+      </div>
+    </div>
+  );
+}
+
 /* ── The Forum view ────────────────────────────────────────── */
 
 export default function ForumView({ data, area, onDrill }) {
@@ -422,10 +445,15 @@ export default function ForumView({ data, area, onDrill }) {
         <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 600, color: T.ink }}>The Forum</span>
         <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted }}>Mastermind · {data.members_total} members</span>
         <span style={{ flex: 1 }} />
-        {watchCount > 0 && (
+        {watchCount > 0 ? (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span className="fv-pulse" style={{ width: 7, height: 7, borderRadius: 99, background: T.amber, color: T.amber }} />
             <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.amber }}>{watchCount} item{watchCount === 1 ? "" : "s"} to watch</span>
+          </span>
+        ) : (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 99, background: T.meadow }} />
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.meadowInk }}>Healthy</span>
           </span>
         )}
       </div>
@@ -450,18 +478,22 @@ export default function ForumView({ data, area, onDrill }) {
         </Card>
       </div>
 
-      {/* deep-dive deck */}
-      {deck.length > 0 && (
+      {/* deep-dive deck — all four slots always show; a missing section renders
+          dimmed with what it needs, so gaps get configured rather than hidden. */}
+      {(
         <div>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "2px 2px 12px" }}>
             <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: T.slate }}>Deep dives</span>
             <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>select a card to expand</span>
           </div>
           <div className="fd-deck">
-            {deck.map((d) => (
-              <DeckCard key={d.k} d={d} data={data} active={sel === d.k}
-                onSelect={() => setSel(sel === d.k ? null : d.k)} />
-            ))}
+            {DECK_SLOTS.map((slot) => {
+              const d = deck.find((x) => x.k === slot.k);
+              return d
+                ? <DeckCard key={slot.k} d={d} data={data} active={sel === slot.k}
+                    onSelect={() => setSel(sel === slot.k ? null : slot.k)} />
+                : <DimmedCard key={slot.k} label={slot.label} need={slot.need} />;
+            })}
           </div>
           {meta && (
             <Card style={{ marginTop: 14 }}>
