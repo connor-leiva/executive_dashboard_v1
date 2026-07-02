@@ -97,7 +97,9 @@ async def _seed_forum(*, with_recruiting: bool = True, with_event: bool = True):
             cfg.setdefault("event_date", "2026-09-18")
             cfg.setdefault("prior_event_pace", 34)
         else:
-            cfg.pop("event_date", None)
+            for _k in ("event_date", "event_name", "event_tag", "event_title",
+                       "event_dates", "prior_event_pace"):
+                cfg.pop(_k, None)
         integ.config = cfg
         await s.commit()
 
@@ -174,6 +176,28 @@ async def test_forum_drills():
         assert past["count"] == 1
         unreg = (await c.get("/api/v1/metrics/unregistered/detail?business=springb", headers=H)).json()
         assert unreg["count"] == 2                       # IC1, IC2 have no registration
+
+
+async def test_event_renders_without_date():
+    # Prod scenario: event_name is configured but event_date hasn't been set yet.
+    # The event card must still render (days_out None) rather than disappear.
+    await _seed_forum()
+    from app.db import SessionLocal
+    from app.models import Business, Integration
+    from sqlalchemy import select
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        integ = (await s.execute(select(Integration).where(
+            Integration.business_id == biz.id, Integration.provider == "ghl"))).scalar_one()
+        cfg = dict(integ.config or {})
+        cfg.pop("event_date", None)
+        cfg["event_name"] = "Park City, UT"
+        integ.config = cfg
+        await s.commit()
+    d = await _get_forum()
+    assert d["event"] is not None and d["event"]["days_out"] is None
+    assert d["event"]["where"] == "Park City, UT"
+    assert "event" in {c["k"] for c in d["deck"]}
 
 
 async def test_forum_fallbacks():

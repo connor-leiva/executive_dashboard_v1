@@ -167,13 +167,18 @@ def _renewals(memberships) -> dict | None:
 
 
 def _event(cfg, members_total, member_regs, guests) -> dict | None:
-    if not cfg.get("event_date"):
+    # Render whenever a next event is configured (name / tag / title / date).
+    # The date only powers the countdown — without it days_out is None but the
+    # registration progress + call list still show.
+    if not (cfg.get("event_date") or cfg.get("event_name")
+            or cfg.get("event_tag") or cfg.get("event_title")):
         return None
-    try:
-        ev_date = dt.date.fromisoformat(str(cfg["event_date"]))
-        days_out = (ev_date - dt.date.today()).days
-    except (ValueError, TypeError):
-        days_out = None
+    days_out = None
+    if cfg.get("event_date"):
+        try:
+            days_out = (dt.date.fromisoformat(str(cfg["event_date"])) - dt.date.today()).days
+        except (ValueError, TypeError):
+            days_out = None
     unregistered = max(0, members_total - member_regs)
     # pace: latest reg_count for the prior event vs config fallback
     prior = cfg.get("prior_event_pace")

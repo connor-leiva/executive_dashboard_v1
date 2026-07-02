@@ -185,6 +185,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     event_tag = (cfg.get("event_tag") or "").lower().strip()
     renewals_match = (cfg.get("renewals_pipeline_match") or "renewals").lower()
     onboarded_match = (cfg.get("onboarded_stage_match") or "won: onboarded").lower()
+    sales_match = (cfg.get("sales_pipeline_match") or "sales").lower()
     token = dec(integ.access_token_enc) if integ.access_token_enc else None
     if not (location_id and member_tags and token):
         raise ValueError("Go High Level needs a token, location_id, and member_tags in config.")
@@ -216,8 +217,12 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         pipelines = await ghl.get_pipelines(token, location_id)
         stage_name = {st.get("id"): st.get("name") for p in pipelines for st in (p.get("stages") or [])}
         ren_ids = {p.get("id") for p in pipelines if renewals_match in (p.get("name") or "").lower()}
+        sales_ids = {p.get("id") for p in pipelines if sales_match in (p.get("name") or "").lower()}
+        # Stage order within the sales pipeline → funnel position (top = 0).
+        stage_pos = {st.get("id"): i for p in pipelines if p.get("id") in sales_ids
+                     for i, st in enumerate(p.get("stages") or [])}
         opps = await ghl.get_opportunities(token, location_id)
-        memberships, onboarded = [], []
+        memberships, onboarded, recruiting = [], [], []
         for o in opps:
             stage = (stage_name.get(o.get("pipelineStageId")) or "").strip()
             base = dict(tenant_id=tenant_id, business_id=biz, source="ghl",
@@ -231,10 +236,18 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                 onboarded.append({**base, "kind": "onboarded", "status": o.get("status") or "won",
                                   "occurred_on": _parse_ghl_dt(o.get("lastStatusChangeAt")),
                                   "meta": {"stage": stage}})
+            elif o.get("pipelineId") in sales_ids and o.get("status") == "open":
+                # Open recruiting opps in the sales funnel → the pipeline card.
+                recruiting.append({**base, "kind": "recruiting", "status": "open",
+                                   "amount": float(o.get("monetaryValue") or 0) or None,
+                                   "meta": {"stage": stage,
+                                            "stage_position": stage_pos.get(o.get("pipelineStageId"), 99)}})
         await _ghl_snapshot(s, tenant_id, biz, "membership", memberships)
         await _ghl_snapshot(s, tenant_id, biz, "onboarded", onboarded)
+        await _ghl_snapshot(s, tenant_id, biz, "recruiting", recruiting)
         arr = sum(m["amount"] for m in memberships)
-        print(f"[ghl] {len(memberships)} renewals (ARR ${arr:,.0f}), {len(onboarded)} onboarded", flush=True)
+        print(f"[ghl] {len(memberships)} renewals (ARR ${arr:,.0f}), {len(onboarded)} onboarded, "
+              f"{len(recruiting)} recruiting", flush=True)
     except Exception as e:  # noqa: BLE001 — opportunities scope optional
         print(f"[ghl] opportunities skipped: {e}", flush=True)
 
