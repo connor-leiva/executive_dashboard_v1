@@ -26,6 +26,10 @@ function dotFor(businessKey) {
       return T.meadow;
     case "sympli":
       return T.teal;
+    case "forum":
+      return T.daffodil;
+    case "becollective":
+      return T.petal;
     case "springb":
       return T.poppy;
     default:
@@ -262,6 +266,10 @@ function AreaCard({ area, onOpen }) {
                 NOI <span style={{ color: a.ink, fontWeight: 700 }}>{usd(a.noi)}</span> · {a.margin}%
               </div>
             </>
+          ) : a.key === "becollective" ? (
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, maxWidth: 160, lineHeight: 1.4 }}>
+              Operational view coming · GHL segment configured
+            </div>
           ) : (
             <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, maxWidth: 150, lineHeight: 1.4 }}>
               Connect QuickBooks for revenue
@@ -290,7 +298,7 @@ function Overview({ data, onOpen, onDrill }) {
   const periodLabel = (period?.label === "Month to date")
     ? monthYear(period?.as_of)
     : (period?.label || monthYear(period?.as_of));
-  const orderedCards = [areas.ulrg, areas.springb, areas.sympli].filter(Boolean);
+  const orderedCards = [areas.ulrg, areas.forum, areas.becollective, areas.sympli].filter(Boolean);
   const fwAvailable = fw.available !== false && buyerClosings != null;
 
   return (
@@ -756,7 +764,7 @@ export default function CommandCenter() {
   else if (error && !data) content = <ErrorState onRetry={retry} />;
   else if (activeView === "overview") content = <Overview data={data} onOpen={setView} onDrill={onDrill} />;
   else if (activeView === "forum") content = forum.data
-    ? <ForumView data={forum.data} area={areas?.springb} onDrill={onDrill} />
+    ? <ForumView data={forum.data} area={areas?.forum} onDrill={onDrill} />
     : <SkeletonDashboard />;
   else if (activeView === "becollective") content = <BeCollectivePlaceholder />;
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;

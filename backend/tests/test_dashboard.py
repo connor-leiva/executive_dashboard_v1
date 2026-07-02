@@ -35,7 +35,13 @@ async def test_login_and_dashboard_shape():
 
     # Top-level shape mirrors the mockup data objects.
     assert set(d) >= {"period", "portfolio", "scorecards", "areas", "flywheel", "sources"}
-    assert set(d["areas"]) == {"ulrg", "springb", "sympli"}
+    # Spring B is split into The Forum + beCollective (one QBO entity, two views).
+    assert set(d["areas"]) == {"ulrg", "forum", "becollective", "sympli"}
+    assert "springb" not in d["areas"]
+    assert d["areas"]["forum"]["name"] == "The Forum"
+    assert "members" in d["areas"]["forum"]["tag"]
+    bec = d["areas"]["becollective"]
+    assert bec["status"] == "opportunity" and bec["ops"] == [] and bec["revenue"] is None
 
     # ULRG operational figures are computed from seeded transactions/leads.
     ulrg = d["areas"]["ulrg"]
@@ -54,9 +60,10 @@ async def test_login_and_dashboard_shape():
     assert d["portfolio"]["noi"] == 109000
     assert d["portfolio"]["cash"] == 340000
 
-    # Composition adds up and is ordered ulrg, sympli, springb.
+    # Composition adds up and is ordered ulrg, sympli, forum (labeled "Spring B").
     comp = d["portfolio"]["composition"]
-    assert [c["key"] for c in comp] == ["ulrg", "sympli", "springb"]
+    assert [c["key"] for c in comp] == ["ulrg", "sympli", "forum"]
+    assert next(c for c in comp if c["key"] == "forum")["name"] == "Spring B"
     assert abs(sum(c["pct"] for c in comp) - 100) < 0.2
 
     # Sympli is a JV — its P&L carries the "Spring's JV share" row.
@@ -69,6 +76,7 @@ async def test_login_and_dashboard_shape():
     assert labels["Combined Profit"]["value"] == "$109K"
     assert labels["Combined Profit"]["business_key"] == "portfolio"
     assert labels["Active Members"]["value"] == "70"      # Forum sample data (SEED_SAMPLE_OPS)
+    assert labels["Active Members"]["business_key"] == "forum" and labels["Active Members"]["sub"] == "The Forum"
 
     # Sources collapse per provider; QBO connected, Arive still pending (Phase 3).
     src = {s["name"]: s["status"] for s in d["sources"]}
@@ -184,7 +192,7 @@ async def test_forum_kpis_from_ghl_records():
     async with AsyncClient(transport=transport, base_url="http://testserver") as c:
         H = {"Authorization": f"Bearer {token}"}
         d = (await c.get("/api/v1/dashboard?period=mtd", headers=H)).json()
-        ops = {o["label"]: o for o in d["areas"]["springb"]["ops"]}
+        ops = {o["label"]: o for o in d["areas"]["forum"]["ops"]}
         assert ops["Active Members"]["value"] == "3"
         assert "Forum 2" in ops["Active Members"]["sub"] and "Inner Circle 1" in ops["Active Members"]["sub"]
         assert ops["Forum ARR"]["value"] == "$83K" and ops["Forum ARR"]["key"] == "forum_arr"

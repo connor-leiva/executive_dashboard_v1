@@ -367,7 +367,7 @@ def _scorecards(
         Scorecard(label="Loans Funded", value=sympli_funded or "—",
                   sub=f"{sympli_volume} volume" if sympli_volume else None, business_key="sympli", key="funded_loans"),
         Scorecard(label="Attach Rate", value=attach_rate or "—", sub="ULRG → Sympli", business_key="sympli"),
-        Scorecard(label="Active Members", value=members or "—", sub="The Forum + Inner Circle", business_key="springb", key="active_members"),
+        Scorecard(label="Active Members", value=members or "—", sub="The Forum", business_key="forum", key="active_members"),
     ]
 
 
@@ -470,15 +470,35 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             revenue=rev, noi=noi, margin=margin, trend=_trend(b), pl=pl, ops=ops, funnel=funnel,
         )
 
+    # Spring B is one QBO entity but two views: split its area into The Forum
+    # (the operational + shared-P&L view) and beCollective (its own GHL segment,
+    # pending its focused view). The composition bar stays one "Spring B" segment.
+    if "springb" in areas:
+        sb = areas.pop("springb")
+        sbiz = next((b for b in businesses if b.key == "springb"), None)
+        members = arr = 0
+        if sbiz:
+            fk = await _forum_kpis(s, tenant_id, sbiz.id, start, end)
+            members, arr = fk["members"], fk["arr"]
+        forum_tag = f"Mastermind · {members} members" + (f" · {_compact_usd(arr)} ARR" if arr else "")
+        areas["forum"] = sb.model_copy(update={
+            "key": "forum", "name": "The Forum", "tag": forum_tag,
+            "accent": "#9C6A1E", "ink": "#9C6A1E"})   # amber (daffodil is too light for a border)
+        areas["becollective"] = AreaPayload(
+            id=sb.id, key="becollective", name="beCollective", tag="Community · GHL segment",
+            status="opportunity", accent="#FFBA9F", ink="#C2410C",
+            sources=["Go High Level"], revenue=None, noi=None, margin=None,
+            trend=sb.trend, pl=[], ops=[], funnel=None)
+
     # Composition (only when financials are present).
     composition: list[CompositionSeg] = []
     if have_financials and portfolio_rev:
-        order = [k for k in ("ulrg", "sympli", "springb") if k in areas]
+        order = [k for k in ("ulrg", "sympli", "forum") if k in areas]
         for k in order:
             a = areas[k]
             if a.revenue:
                 composition.append(CompositionSeg(
-                    key=k, name=a.name, revenue=a.revenue,
+                    key=k, name="Spring B" if k == "forum" else a.name, revenue=a.revenue,
                     pct=round(a.revenue / portfolio_rev * 100, 1), accent=a.accent))
 
     portfolio_margin = round(portfolio_noi / portfolio_rev * 100) if portfolio_rev else 0

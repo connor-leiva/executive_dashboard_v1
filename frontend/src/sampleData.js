@@ -44,11 +44,11 @@ const sampleData = {
         accent: TEAL,
       },
       {
-        key: "springb",
+        key: "forum",
         name: "Spring B",
         revenue: 68000,
         pct: round1((68000 / PORTFOLIO_REVENUE) * 100), // 11.9
-        accent: POPPY,
+        accent: "#9C6A1E",
       },
     ],
   },
@@ -61,7 +61,7 @@ const sampleData = {
     { label: "Agents Producing", value: "24", sub: "of 31", business_key: "ulrg", key: "agents_producing" },
     { label: "Loans Funded", value: "19", sub: "$7.3M volume", business_key: "sympli", key: "funded_loans" },
     { label: "Attach Rate", value: "31%", sub: "ULRG → Sympli", business_key: "sympli" },
-    { label: "Active Members", value: "70", sub: "The Forum + Inner Circle", business_key: "springb", key: "active_members" },
+    { label: "Active Members", value: "70", sub: "The Forum", business_key: "forum", key: "active_members" },
   ],
 
   areas: {
@@ -101,13 +101,13 @@ const sampleData = {
       ],
     },
 
-    springb: {
-      key: "springb",
-      name: "Spring B",
-      tag: "beCollective + The Forum",
+    forum: {
+      key: "forum",
+      name: "The Forum",
+      tag: "Mastermind · 70 members · $1.2M ARR",
       status: "watch",
-      accent: POPPY,
-      ink: POPPY_TEXT,
+      accent: "#9C6A1E",
+      ink: "#9C6A1E",
       sources: ["QuickBooks"],
       revenue: 68000,
       noi: 15000,
@@ -128,6 +128,23 @@ const sampleData = {
         { label: "Registered", value: "28", sub: "Park City, UT", key: "registered" },
         { label: "MRR", value: "$27K", sub: "monthly subscriptions", key: "mrr" },
       ],
+      funnel: null,
+    },
+
+    becollective: {
+      key: "becollective",
+      name: "beCollective",
+      tag: "Community · GHL segment",
+      status: "opportunity",
+      accent: "#FFBA9F",
+      ink: "#C2410C",
+      sources: ["Go High Level"],
+      revenue: null,
+      noi: null,
+      margin: null,
+      trend: [12, 14, 13, 15, 16, 15, 17],
+      pl: [],
+      ops: [],
       funnel: null,
     },
 

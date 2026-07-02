@@ -109,6 +109,11 @@ function GhlConnectForm({ row, onClose, onDone }) {
   const [tags, setTags] = useState((cfg.member_tags && cfg.member_tags.join(", ")) || GHL_DEFAULT_TAGS);
   const [eventTag, setEventTag] = useState(cfg.event_tag || "");
   const [eventName, setEventName] = useState(cfg.event_name || "");
+  const [eventTitle, setEventTitle] = useState(cfg.event_title || "");
+  const [eventDates, setEventDates] = useState(cfg.event_dates || "");
+  const [eventDate, setEventDate] = useState(cfg.event_date || "");
+  const [priorPace, setPriorPace] = useState(cfg.prior_event_pace ?? "");
+  const [salesMatch, setSalesMatch] = useState(cfg.sales_pipeline_match || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -126,6 +131,11 @@ function GhlConnectForm({ row, onClose, onDone }) {
           location_id: locationId.trim(), member_tags,
           event_tag: eventTag.trim().toLowerCase() || null,
           event_name: eventName.trim() || null,
+          event_title: eventTitle.trim() || null,
+          event_dates: eventDates.trim() || null,
+          event_date: eventDate || null,
+          prior_event_pace: priorPace === "" ? null : Number(priorPace),
+          sales_pipeline_match: salesMatch.trim().toLowerCase() || null,
         },
       });
       onDone();
@@ -156,9 +166,28 @@ function GhlConnectForm({ row, onClose, onDone }) {
         <label style={label}>Next-event registration tag <span style={{ fontWeight: 400, color: T.muted }}>· drives Registered</span>
           <input style={field} value={eventTag} onChange={(e) => setEventTag(e.target.value)} placeholder="e.g. the forum q3 2026" />
         </label>
-        <label style={label}>Next-event name <span style={{ fontWeight: 400, color: T.muted }}>· shown on the panel</span>
+        <label style={label}>Next-event location <span style={{ fontWeight: 400, color: T.muted }}>· shown on the panel</span>
           <input style={field} value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="e.g. Park City, UT" />
         </label>
+        <label style={label}>Next-event title <span style={{ fontWeight: 400, color: T.muted }}>· optional</span>
+          <input style={field} value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="e.g. The Forum · Q3 Immersion" />
+        </label>
+        <div style={{ display: "flex", gap: 10 }}>
+          <label style={{ ...label, flex: 1 }}>Event date <span style={{ fontWeight: 400, color: T.muted }}>· countdown</span>
+            <input style={field} type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
+          </label>
+          <label style={{ ...label, flex: 1 }}>Dates label <span style={{ fontWeight: 400, color: T.muted }}>· display</span>
+            <input style={field} value={eventDates} onChange={(e) => setEventDates(e.target.value)} placeholder="Sep 18–20, 2026" />
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <label style={{ ...label, flex: 1 }}>Prior-event pace <span style={{ fontWeight: 400, color: T.muted }}>· # registered</span>
+            <input style={field} type="number" min="0" value={priorPace} onChange={(e) => setPriorPace(e.target.value)} placeholder="e.g. 34" />
+          </label>
+          <label style={{ ...label, flex: 1 }}>Sales pipeline match <span style={{ fontWeight: 400, color: T.muted }}>· recruiting</span>
+            <input style={field} value={salesMatch} onChange={(e) => setSalesMatch(e.target.value)} placeholder="sales" />
+          </label>
+        </div>
         {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
