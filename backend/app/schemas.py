@@ -149,6 +149,7 @@ class FinRow(BaseModel):
     v: float
     kind: str            # rev | ded | sub | tot
     est: bool = False
+    key: str | None = None   # audit drill-down key (opens the drawer)
 
 
 class LiveLens(BaseModel):

@@ -31,15 +31,22 @@ const money = (n) => (n < 0 ? `($${fmt(n)})` : `$${fmt(n)}`);
 // Hero / selector / legend: keep the sign visible (a loss must not read as a gain).
 const signedMoney = (n) => (n < 0 ? `-$${fmt(n)}` : `$${fmt(n)}`);
 
-function PL({ rows }) {
+function PL({ rows, onDrill }) {
   return (
     <div className="pl">
-      {rows.map((r, i) => (
-        <div key={i} className={`plr ${r.kind === "tot" ? "tot" : ""} ${r.kind === "sub" ? "sub" : ""} ${r.kind === "ded" ? "ded" : ""}`}>
-          <span className="pll">{r.l}{r.est && <em className="est">est</em>}</span>
-          <span className="plv">{money(r.v)}</span>
-        </div>
-      ))}
+      {rows.map((r, i) => {
+        const clickable = r.key && onDrill;
+        const cls = `plr ${r.kind === "tot" ? "tot" : ""} ${r.kind === "sub" ? "sub" : ""} ${r.kind === "ded" ? "ded" : ""} ${clickable ? "clk" : ""}`;
+        return (
+          <div key={i} className={cls}
+            onClick={clickable ? () => onDrill(r.key) : undefined}
+            role={clickable ? "button" : undefined} tabIndex={clickable ? 0 : undefined}
+            onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onDrill(r.key); } } : undefined}>
+            <span className="pll">{r.l}{r.est && <em className="est">est</em>}{clickable && <span className="drill">↗</span>}</span>
+            <span className="plv">{money(r.v)}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -87,7 +94,7 @@ function Trajectory({ lenses, active }) {
   );
 }
 
-export default function Financials({ businessKey = "ulrg", businessName = "ULRG + Team", period = "mtd" }) {
+export default function Financials({ businessKey = "ulrg", businessName = "ULRG + Team", period = "mtd", onDrill }) {
   const { data, loading, error, retry } = useFinancials(businessKey, period);
   const [active, setActive] = useState("projection");
 
@@ -102,13 +109,13 @@ export default function Financials({ businessKey = "ulrg", businessName = "ULRG 
           <button className="retry" onClick={retry}>Retry</button>
         </div></div>
       ) : (
-        <Loaded data={data} businessName={businessName} active={active} setActive={setActive} />
+        <Loaded data={data} businessName={businessName} active={active} setActive={setActive} onDrill={onDrill} />
       )}
     </div>
   );
 }
 
-function Loaded({ data, businessName, active, setActive }) {
+function Loaded({ data, businessName, active, setActive, onDrill }) {
   const lenses = data.lenses;
   const recon = data.reconciliation;
   const monthYear = new Date(`${data.period.start}T00:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" });
@@ -181,13 +188,13 @@ function Loaded({ data, businessName, active, setActive }) {
 
           {active === "projection" ? (
             <>
-              <PL rows={[P.rows[0]]} />
+              <PL rows={[P.rows[0]]} onDrill={onDrill} />
               <SplitLine closed={P.closed_gci} pending={P.pending_gci}
                          closedUnits={P.closed_units} pendingUnits={P.pending_units} />
-              <PL rows={P.rows.slice(1)} />
+              <PL rows={P.rows.slice(1)} onDrill={onDrill} />
             </>
           ) : (
-            <PL rows={L.rows} />
+            <PL rows={L.rows} onDrill={onDrill} />
           )}
 
           {active === "live" && (
@@ -259,6 +266,11 @@ const FIN_CSS = `
   .fin-root .plr.sub .pll, .fin-root .plr.sub .plv { font-weight:600; }
   .fin-root .plr.tot { border-top:2px solid ${C.ink}; margin-top:4px; padding-top:12px; }
   .fin-root .plr.tot .pll { font-weight:700; font-size:13px; } .fin-root .plr.tot .plv { font-weight:700; font-size:17px; }
+  .fin-root .plr.clk { cursor:pointer; margin:0 -10px; padding-left:10px; padding-right:10px; border-radius:8px; }
+  .fin-root .plr.clk:hover { background:${C.page}; }
+  .fin-root .plr.clk:focus-visible { outline:2px solid ${C.dProj}; outline-offset:-2px; }
+  .fin-root .drill { color:${C.muted}; font-size:11px; margin-left:6px; }
+  .fin-root .plr.clk:hover .drill { color:${C.teal}; }
   .fin-root .est { font-style:normal; font-size:9px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:${C.muted}; border:1px solid ${C.hair}; border-radius:3px; padding:1px 4px; margin-left:6px; }
   .fin-root .sl { padding:2px 0 10px; }
   .fin-root .sl-bar { display:flex; height:9px; border-radius:5px; overflow:hidden; gap:2px; }

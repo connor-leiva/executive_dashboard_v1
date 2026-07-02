@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import Transaction, Agent, MetricRecord, Business
+from ..models import Transaction, Agent, MetricRecord, Business, PLSnapshot
 from .metrics import _period_range
 
 
@@ -23,6 +23,23 @@ def _sisu_url(external_id) -> str | None:
         return settings.SISU_TXN_URL.format(id=external_id)
     except (KeyError, IndexError):
         return None
+
+
+def _fin_row(t: Transaction, kind: str, when) -> dict:
+    """A deal behind a three-lens financial row: GCI, agent commission, and net
+    GCI (company dollar = GCI − commission) when the commission has been enriched."""
+    gci = float(t.gci) if t.gci is not None else 0.0
+    comm = float(t.agent_commission) if t.agent_commission is not None else None
+    return {
+        "id": str(t.id),
+        "name": t.buyer_name or t.address or t.external_id,
+        "gci": gci,
+        "agent_commission": comm,
+        "company_dollar": round(gci - comm, 2) if comm is not None else None,
+        "side": t.side, "kind": kind,
+        "close_date": when.isoformat() if when else None,
+        "source_url": _sisu_url(t.external_id),
+    }
 
 
 def _txn_row(t: Transaction) -> dict:
@@ -180,6 +197,54 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str) -> di
             return {"label": "MRR", "source": "Go High Level",
                     "computed_as": "Active recurring subscriptions (the monthly-paying member subset).",
                     "count": len(rows), "rows": rows}
+
+    # ── three-lens financials (the Sisu deals behind the P&L rows) ──
+    if key in ("fin_closed", "fin_projected"):
+        from .financials import _period as _finp, _projection_end
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
+        fstart, fend, is_cur = _finp(period)
+        deals: list = []
+        if biz:
+            closed = (await s.execute(select(Transaction).where(
+                Transaction.tenant_id == tenant_id, Transaction.business_id == biz.id,
+                Transaction.status == "closed", Transaction.close_date >= fstart,
+                Transaction.close_date <= fend).order_by(Transaction.close_date.desc()))).scalars().all()
+            deals = [(t, "closed", t.close_date) for t in closed]
+            if key == "fin_projected" and is_cur:
+                pend_end = _projection_end(period, fstart, fend)
+                pend = (await s.execute(select(Transaction).where(
+                    Transaction.tenant_id == tenant_id, Transaction.business_id == biz.id,
+                    Transaction.status == "pending", Transaction.expected_close_date >= fstart,
+                    Transaction.expected_close_date <= pend_end).order_by(Transaction.expected_close_date))).scalars().all()
+                deals += [(t, "pending", t.expected_close_date) for t in pend]
+        rows = [_fin_row(t, kind, when) for (t, kind, when) in deals]
+        label = "Projected GCI" if key == "fin_projected" else "Closed this period"
+        return {"label": label, "source": "Sisu",
+                "computed_as": ("Net GCI = gross GCI − agent commissions (company dollar, from Sisu "
+                                "commission-info). Projection adds pending deals at the default agent split."),
+                "count": len(rows), "rows": rows}
+
+    if key == "fin_expenses":
+        from .financials import _period as _finp, expense_run_rate
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
+        fstart, fend, _ = _finp(period)
+        rate, src = (await expense_run_rate(s, tenant_id, biz, fend)) if biz else (0.0, "manual")
+        snaps = []
+        if biz and src != "manual":
+            snaps = (await s.execute(select(PLSnapshot).where(
+                PLSnapshot.tenant_id == tenant_id, PLSnapshot.business_id == biz.id,
+                PLSnapshot.period_end < fend.replace(day=1)).order_by(
+                PLSnapshot.period_end.desc()).limit(1 if src == "last_month" else 3))).scalars().all()
+        rows = [{"id": str(sn.id), "name": sn.period_end.strftime("%B %Y"),
+                 "gci": float(sn.opex), "status": "operating expenses", "source_url": None} for sn in snaps]
+        how = {"manual": "a manually-set monthly figure",
+               "last_month": "last month's operating expenses",
+               "trailing_3mo": "the trailing 3 months' operating expenses"}.get(src, src)
+        return {"label": "Est. expenses (run-rate)", "source": "QuickBooks",
+                "computed_as": f"Monthly expense run-rate of ${rate:,.0f}, from {how}.",
+                "count": len(rows), "rows": rows}
 
     # ── financial (QuickBooks) — itemize once QBO is connected ──
     if key in _FINANCIAL:

@@ -421,7 +421,7 @@ function AreaDetail({ area, onDrill, period }) {
       {isUlrg ? (
         <>
           {/* Three-lens financial view (Live / Projection / Booked) replaces the single P&L pane. */}
-          <Financials businessKey={a.key} businessName={a.name} period={period} />
+          <Financials businessKey={a.key} businessName={a.name} period={period} onDrill={onDrill} />
           {opsCard}
         </>
       ) : (

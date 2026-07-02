@@ -257,6 +257,24 @@ async def test_ulrg_three_lens_financials():
         assert d2["lenses"]["booked"]["flag"] is None
 
 
+async def test_financials_drilldowns():
+    token = await _client_token()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        H = {"Authorization": f"Bearer {token}"}
+        closed = (await c.get("/api/v1/metrics/fin_closed/detail?period=mtd", headers=H)).json()
+        assert closed["source"] == "Sisu"
+        assert closed["count"] == 38                      # closed deals this period
+        assert "gci" in closed["rows"][0]
+
+        proj = (await c.get("/api/v1/metrics/fin_projected/detail?period=mtd", headers=H)).json()
+        assert proj["count"] == 60                        # 38 closed + 22 pending
+
+        exp = (await c.get("/api/v1/metrics/fin_expenses/detail?period=mtd", headers=H)).json()
+        assert exp["source"] == "QuickBooks"
+        assert "96,000" in exp["computed_as"]             # ULRG manual run-rate
+
+
 async def test_edit_integration_token_optional_and_config_returned():
     token = await _client_token()
     transport = ASGITransport(app=app)
