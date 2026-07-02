@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import Transaction, Agent, MetricRecord, Business, PLSnapshot
+from ..models import Transaction, Agent, MetricRecord, Business, PLSnapshot, Integration
 from .metrics import _period_range
 
 
@@ -71,7 +71,7 @@ _FINANCIAL = {"combined_profit", "revenue", "noi", "gross_profit", "opex", "cogs
 _PENDING_SRC = {"funded_loans": ("Arive", "Funded loans reaching the funded stage")}
 
 
-async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str) -> dict:
+async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, business: str | None = None) -> dict:
     start, end = _period_range(period)
     cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
 
@@ -245,6 +245,36 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str) -> di
         return {"label": "Est. expenses (run-rate)", "source": "QuickBooks",
                 "computed_as": f"Monthly expense run-rate of ${rate:,.0f}, from {how}.",
                 "count": len(rows), "rows": rows}
+
+    # ── revenue (QuickBooks) — the actual commission deposits behind the number ──
+    if key == "revenue" and business:
+        from .metrics import _pl_period
+        from .sync import _valid_access_token
+        from ..integrations import qbo as _qbo
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == business))).scalar_one_or_none()
+        integ = None
+        if biz:
+            integ = (await s.execute(select(Integration).where(
+                Integration.tenant_id == tenant_id, Integration.provider == "qbo",
+                Integration.business_id == biz.id, Integration.status == "connected"))).scalars().first()
+        rows = []
+        if integ and integ.access_token_enc and integ.realm_id:
+            try:
+                token = await _valid_access_token(s, integ)
+                ps, pe = _pl_period(period)
+                deals = _qbo.deposits_to_deals(await _qbo.deposits(integ.realm_id, token, ps.isoformat(), pe.isoformat()))
+                rows = [{"id": d["id"], "name": d["agent"] or "(unassigned)",
+                         "address": d["property"], "gci": d["gci"], "close_date": d["date"],
+                         "source_url": f"https://app.qbo.intuit.com/app/deposit?txnId={d['deposit_id']}"}
+                        for d in deals]
+            except Exception:  # noqa: BLE001 — fall back to the report link below
+                rows = []
+        if rows:
+            return {"label": "Revenue", "source": "QuickBooks",
+                    "computed_as": "Commission deposits posted this period — GCI, agent, and property per deal.",
+                    "count": len(rows), "rows": rows,
+                    "report_url": "https://app.qbo.intuit.com/app/reports"}
 
     # ── financial (QuickBooks) — itemize once QBO is connected ──
     if key in _FINANCIAL:

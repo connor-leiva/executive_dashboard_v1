@@ -5,7 +5,7 @@ import { getJSON } from "./api.js";
 const API_BASE = import.meta.env.VITE_API_BASE;
 
 /* Right-side drawer showing the records behind a KPI (the trust layer). */
-export default function AuditDrawer({ metricKey, period, onClose }) {
+export default function AuditDrawer({ metricKey, business, period, onClose }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(false);
 
@@ -14,8 +14,9 @@ export default function AuditDrawer({ metricKey, period, onClose }) {
     setD(null);
     setErr(false);
     if (!API_BASE) return; // sample mode → show the note below
-    getJSON(`/metrics/${metricKey}/detail?period=${period}`).then(setD).catch(() => setErr(true));
-  }, [metricKey, period]);
+    const q = `/metrics/${metricKey}/detail?period=${period}${business ? `&business=${encodeURIComponent(business)}` : ""}`;
+    getJSON(q).then(setD).catch(() => setErr(true));
+  }, [metricKey, business, period]);
 
   if (!metricKey) return null;
 
@@ -67,7 +68,7 @@ export default function AuditDrawer({ metricKey, period, onClose }) {
                   <li key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${T.line}` }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, color: T.ink, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
-                      {(r.close_date || r.side || r.company_dollar != null) && <div style={{ fontSize: 11, color: T.muted }}>{[r.close_date, r.side, r.company_dollar != null ? `net ${usd(r.company_dollar)}` : null].filter(Boolean).join(" · ")}</div>}
+                      {(r.close_date || r.address || r.side || r.company_dollar != null) && <div style={{ fontSize: 11, color: T.muted }}>{[r.close_date, r.address, r.side, r.company_dollar != null ? `net ${usd(r.company_dollar)}` : null].filter(Boolean).join(" · ")}</div>}
                     </div>
                     <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{amountFor(r)}</div>
                     {r.source_url && <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in the source system" style={{ fontSize: 14, color: T.teal, textDecoration: "none" }}>↗</a>}

@@ -109,13 +109,14 @@ export default function Financials({ businessKey = "ulrg", businessName = "ULRG 
           <button className="retry" onClick={retry}>Retry</button>
         </div></div>
       ) : (
-        <Loaded data={data} businessName={businessName} active={active} setActive={setActive} onDrill={onDrill} />
+        <Loaded data={data} businessName={businessName} businessKey={businessKey} active={active} setActive={setActive} onDrill={onDrill} />
       )}
     </div>
   );
 }
 
-function Loaded({ data, businessName, active, setActive, onDrill }) {
+function Loaded({ data, businessName, businessKey, active, setActive, onDrill }) {
+  const drill = onDrill ? (key) => onDrill(key, businessKey) : undefined;   // scope drill-downs to this entity
   const lenses = data.lenses;
   const recon = data.reconciliation;
   const monthYear = new Date(`${data.period.start}T00:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" });
@@ -188,13 +189,13 @@ function Loaded({ data, businessName, active, setActive, onDrill }) {
 
           {active === "projection" ? (
             <>
-              <PL rows={[P.rows[0]]} onDrill={onDrill} />
+              <PL rows={[P.rows[0]]} onDrill={drill} />
               <SplitLine closed={P.closed_gci} pending={P.pending_gci}
                          closedUnits={P.closed_units} pendingUnits={P.pending_units} />
-              <PL rows={P.rows.slice(1)} onDrill={onDrill} />
+              <PL rows={P.rows.slice(1)} onDrill={drill} />
             </>
           ) : (
-            <PL rows={L.rows} onDrill={onDrill} />
+            <PL rows={L.rows} onDrill={drill} />
           )}
 
           {active === "live" && (

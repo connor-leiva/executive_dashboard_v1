@@ -717,7 +717,8 @@ export default function CommandCenter() {
   const { data, loading, error, usingSample, retry } = useDashboard(periodKey);
   const [view, setView] = useState("overview");
   const [refreshing, setRefreshing] = useState(false);
-  const [drill, setDrill] = useState(null);       // metric key for the audit drawer
+  const [drill, setDrill] = useState(null);       // { key, business } for the audit drawer
+  const onDrill = (key, business) => setDrill(key ? { key, business } : null);
   const user = useMe();
 
   const { areas, flywheel, sources, period } = data || {};
@@ -745,8 +746,8 @@ export default function CommandCenter() {
   let content;
   if (busy) content = <SkeletonDashboard />;
   else if (error && !data) content = <ErrorState onRetry={retry} />;
-  else if (view === "overview") content = <Overview data={data} onOpen={setView} onDrill={setDrill} />;
-  else if (view === "ulrg" || view === "springb" || view === "sympli") content = <AreaDetail area={areas[view]} onDrill={setDrill} period={periodKey} />;
+  else if (view === "overview") content = <Overview data={data} onOpen={setView} onDrill={onDrill} />;
+  else if (view === "ulrg" || view === "springb" || view === "sympli") content = <AreaDetail area={areas[view]} onDrill={onDrill} period={periodKey} />;
   else if (view === "flywheel") content = <Flywheel flywheel={flywheel} />;
 
   return (
@@ -859,7 +860,7 @@ export default function CommandCenter() {
         </main>
       </div>
 
-      <AuditDrawer metricKey={drill} period={periodKey} onClose={() => setDrill(null)} />
+      <AuditDrawer metricKey={drill?.key} business={drill?.business} period={periodKey} onClose={() => setDrill(null)} />
     </div>
   );
 }

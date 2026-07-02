@@ -4,7 +4,36 @@ Asserts the six group totals (Income, COGS, GrossProfit, Expenses,
 NetOperatingIncome, NetIncome) come back non-null from a representative summary
 response. Capture a live response and replace SAMPLE on first real run.
 """
-from app.integrations.qbo import parse_pl
+from app.integrations.qbo import parse_pl, deposits_to_deals
+
+
+def test_deposits_to_deals_from_commission_deposit():
+    # The exact structure from a ULRG commission deposit (screenshot): gross
+    # commission income + agent payout + fee + eXp deductions, all tagged with the
+    # property as Class.
+    dep = {"Id": "26907", "TxnDate": "2026-06-03", "Line": [
+        {"Amount": 15705.00, "DepositLineDetail": {"AccountRef": {"name": "41000 Gross Commission Income"},
+            "Entity": {"name": "eXp Realty, LLC"}, "ClassRef": {"name": "5769 S Hillside"}}},
+        {"Amount": -10993.50, "DepositLineDetail": {"AccountRef": {"name": "51000 Commission Paid"},
+            "Entity": {"name": "Pablo Negrete (c):5769 S Hillside"}, "ClassRef": {"name": "5769 S Hillside"}}},
+        {"Amount": 695.00, "DepositLineDetail": {"AccountRef": {"name": "Transaction Fee"},
+            "Entity": {"name": "eXp Realty, LLC"}, "ClassRef": {"name": "5769 S Hillside"}}},
+        {"Amount": -32.96, "DepositLineDetail": {"AccountRef": {"name": "51000 Commission Paid"},
+            "Entity": {"name": "eXp Realty, LLC"}, "ClassRef": {"name": "5769 S Hillside"}}},
+        {"Amount": -268.68, "DepositLineDetail": {"AccountRef": {"name": "eXp Stock"},
+            "Entity": {"name": "eXp Realty, LLC"}, "ClassRef": {"name": "5769 S Hillside"}}},
+    ]}
+    deals = deposits_to_deals([dep])
+    assert len(deals) == 1
+    d = deals[0]
+    assert d["gci"] == 15705.00                       # the gross-commission income line
+    assert d["agent"] == "Pablo Negrete"              # largest commission payout, ":property"/"(c)" stripped
+    assert d["property"] == "5769 S Hillside"         # the Class
+    assert d["date"] == "2026-06-03"
+    assert "26907" in d["source_url" if "source_url" in d else "id"]
+
+
+
 
 
 def _group(name: str, label: str, total: str) -> dict:
