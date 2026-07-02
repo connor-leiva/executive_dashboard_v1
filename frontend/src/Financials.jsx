@@ -28,6 +28,8 @@ const FLAG_LABEL = { close_in_progress: "Close in progress" };
 
 const fmt = (n) => Math.abs(Math.round(n)).toLocaleString("en-US");
 const money = (n) => (n < 0 ? `($${fmt(n)})` : `$${fmt(n)}`);
+// Hero / selector / legend: keep the sign visible (a loss must not read as a gain).
+const signedMoney = (n) => (n < 0 ? `-$${fmt(n)}` : `$${fmt(n)}`);
 
 function PL({ rows }) {
   return (
@@ -77,7 +79,7 @@ function Trajectory({ lenses, active }) {
       <div className="traj-legend">
         {legend.map((x) => (
           <span key={x.k} className={`tl ${active === x.k ? "on" : ""}`}>
-            <span className="tl-dot" style={{ background: x.dot }} />{x.label} <b>${fmt(x.v)}</b>
+            <span className="tl-dot" style={{ background: x.dot }} />{x.label} <b>{signedMoney(x.v)}</b>
           </span>
         ))}
       </div>
@@ -140,7 +142,7 @@ function Loaded({ data, businessName, active, setActive }) {
             <span className={`edot ${L.live ? "live" : ""}`} style={{ background: L.dAccent, color: L.dAccent }} />
             {L.name}<span className="etag">· {L.tag}</span>
           </div>
-          <div className="hprofit">${fmt(L.profit)}</div>
+          <div className="hprofit">{signedMoney(L.profit)}</div>
           <div className="hdesc">{L.desc}</div>
         </div>
 
@@ -156,7 +158,7 @@ function Loaded({ data, businessName, active, setActive }) {
                   <span className={`seg-dot ${x.live ? "live" : ""}`} style={{ background: x.dAccent, color: x.dAccent }} />
                   {x.name}
                 </span>
-                <span className="seg-v">${fmt(x.profit)}</span>
+                <span className="seg-v">{signedMoney(x.profit)}</span>
                 {x.flagLabel && <span className="seg-flag">{x.flagLabel}</span>}
               </button>
             );

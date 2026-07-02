@@ -7,6 +7,7 @@ between Live and Booked is the booking lag (reconciliation).
 """
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 
 from sqlalchemy import select, func
@@ -26,6 +27,22 @@ def _period(period: str) -> tuple[dt.date, dt.date, bool]:
     if period == "ytd":
         return t.replace(month=1, day=1), t, True
     return t.replace(day=1), t, True   # mtd
+
+
+def _projection_end(period: str, start: dt.date, end: dt.date) -> dt.date:
+    """The calendar end of the period, for the pending/expected-close window.
+    Closed deals + the Booked snapshot are "as of today" (end); the Projection
+    counts everything pending expected to close anywhere in the *whole* period —
+    matching Sisu's month view (Status End Date = the last of the month), not
+    just up to today (early in a month that would exclude nearly all pending)."""
+    if period == "qtd":
+        m = ((start.month - 1) // 3) * 3 + 3
+        return dt.date(start.year, m, calendar.monthrange(start.year, m)[1])
+    if period == "ytd":
+        return dt.date(start.year, 12, 31)
+    if period == "last_month":
+        return end
+    return dt.date(start.year, start.month, calendar.monthrange(start.year, start.month)[1])  # mtd
 
 
 async def expense_run_rate(s: AsyncSession, tenant_id, business: Business, end: dt.date) -> tuple[float, str]:
@@ -58,19 +75,20 @@ async def _agg(s, tenant_id, bid, status, date_col, start, end) -> tuple[float, 
 
 async def compute_financials(s: AsyncSession, tenant_id, business: Business, period: str) -> dict:
     start, end, is_current = _period(period)
+    proj_end = _projection_end(period, start, end)
     run_rate, rr_src = await expense_run_rate(s, tenant_id, business, end)
     split = float(business.default_agent_split) if business.default_agent_split else None
 
-    # LIVE — closed deals this period.
+    # LIVE — closed deals this period (as of today).
     g_gci, g_comm, c_units = await _agg(s, tenant_id, business.id, "closed", Transaction.close_date, start, end)
     if g_gci and not g_comm and split:          # Sisu didn't provide commission → split fallback
         g_comm = g_gci * split
     net = g_gci - g_comm
     live_profit = net - run_rate
 
-    # PROJECTION — pending set to close in-period (current periods only).
+    # PROJECTION — pending expected to close anywhere in the period (current only).
     p_gci, p_comm, p_units = (await _agg(s, tenant_id, business.id, "pending",
-                                         Transaction.expected_close_date, start, end)) if is_current else (0.0, 0.0, 0)
+                                         Transaction.expected_close_date, start, proj_end)) if is_current else (0.0, 0.0, 0)
     if p_gci and not p_comm and split:
         p_comm = p_gci * split
     proj_gci, proj_comm = g_gci + p_gci, g_comm + p_comm

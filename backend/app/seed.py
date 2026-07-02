@@ -204,13 +204,16 @@ async def seed():
             pend_parts = _spread(8_100_000, 22)
             pend_gci = _spread(165_000, 22)
             for i in range(22):
+                # Expected closes spread across the month (many AFTER today) so the
+                # projection spans the whole period, not just up to today.
+                exp_close = start + dt.timedelta(days=(i % 27) + 1)
                 s.add(Transaction(
                     tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
                     external_id=f"txn-pending-{i+1:03d}", side="buy" if i % 2 else "sell",
                     status="pending", gci=Decimal(pend_gci[i]), sale_price=Decimal(pend_parts[i]),
                     address=f"{500+i} Oak Ave", buyer_name=f"Pending Buyer {i+1}",
                     agent_id=agents[i % 24].id,
-                    contract_date=mid if i < 8 else prev_month, expected_close_date=mid))
+                    contract_date=mid if i < 8 else prev_month, expected_close_date=exp_close))
 
             # Active listings (17, sell side).
             for i in range(17):
