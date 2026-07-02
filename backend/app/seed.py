@@ -36,17 +36,19 @@ def _spread(total: int, n: int) -> list[int]:
     return out
 
 
+# Placeholder tiles shown only until Go High Level syncs; once connected, the
+# Forum panel is rebuilt from live data (members / ARR / renewals / onboarded).
 SPRINGB_CONFIG = {
     "trend": [21, 26, 16, 11, 27, 13, 15],
     "ops": [
-        {"label": "Active members", "value": "142", "sub": "beCollective"},
-        {"label": "Recurring revenue", "value": "$28K", "sub": "MRR"},
-        {"label": "Next Forum event", "value": "18 days"},
-        {"label": "Registered", "value": "86", "sub": "of 120 seats"},
-        {"label": "Member churn", "value": "3.1%", "sub": "30-day"},
-        {"label": "Event margin", "value": "19%", "sub": "below target"},
+        {"label": "Active Members", "value": "—", "sub": "connect Go High Level"},
+        {"label": "Forum ARR", "value": "—"},
+        {"label": "New Members", "value": "—"},
+        {"label": "Renewals Due", "value": "—"},
+        {"label": "Registered", "value": "—"},
+        {"label": "MRR", "value": "—"},
     ],
-    "scorecard": {"members": "142"},
+    "scorecard": {"members": None},
 }
 
 SYMPLI_CONFIG = {
@@ -137,15 +139,25 @@ async def seed():
                               realm_id=f"realm-{key}"))
         s.add(Integration(tenant_id=tenant.id, provider="arive", business_id=sympli.id,
                           status="disconnected"))
-        # Go High Level (Spring B) — member tags pre-filled from Connor's Forum
-        # filter; add beCollective tags when segmented. Connect fills token + location_id.
+        # Go High Level (The Forum) — mapping from the live API audit (see the
+        # GHL reference memory). member_tags = the official 70; forum/innercircle
+        # tags split the segments; the renewals pipeline drives ARR + renewals due;
+        # the sales funnel's "Won: Onboarded" stage drives new members; the next
+        # event + Registered are tag-driven. Connect fills token + location_id.
         s.add(Integration(tenant_id=tenant.id, provider="ghl", business_id=springb.id,
                           status="disconnected",
-                          config={"location_id": "",
-                                  "member_tags": ["inner circle active", "the forum active",
-                                                  "forumadmin", "member: secondary",
-                                                  "inner circle active add on"],
-                                  "forum_tags": [], "becollective_tags": []}))
+                          config={
+                              "location_id": "",
+                              "member_tags": ["inner circle active", "the forum active",
+                                              "forumadmin", "member: secondary",
+                                              "inner circle active add on"],
+                              "forum_tags": ["the forum active", "member: secondary", "forumadmin"],
+                              "innercircle_tags": ["inner circle active", "inner circle active add on"],
+                              "renewals_pipeline_match": "renewals",
+                              "onboarded_stage_match": "won: onboarded",
+                              "event_tag": "the forum q3 2026",
+                              "event_name": "Park City, UT",
+                          }))
 
         # ── P&L snapshots (current period) + a prior month (for a real MoM) + cash.
         prior_start, prior_end = _period_range("last_month")

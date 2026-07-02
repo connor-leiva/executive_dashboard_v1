@@ -117,40 +117,44 @@ async def _current_pending(s, tenant_id, business_id, cutoff) -> tuple[int, floa
     return int(cnt), float(vol)
 
 
-async def _active_members(s, tenant_id, business_id) -> int:
-    """Current active members (Go High Level, tag-driven) for a business."""
-    return int((await s.execute(select(func.count()).select_from(MetricRecord).where(
-        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
-        MetricRecord.source == "ghl", MetricRecord.kind == "member",
-        MetricRecord.status == "active"))).scalar() or 0)
-
-
-async def _springb_extras(s, tenant_id, business_id) -> dict:
-    """Best-effort Go High Level extras for Spring B: MRR (sum of active
-    subscriptions) and the next Forum event + its registered count (calendar).
-    Each value stays None when that source hasn't synced, so the tile keeps its
-    seeded placeholder rather than showing a misleading zero."""
-    out = {"mrr": None, "next_event": None, "registered": None}
-
+async def _forum_kpis(s, tenant_id, business_id, start, end) -> dict:
+    """The Forum's Go High Level KPIs from metric_record — see reference audit:
+    members (official tag union, segmented), Forum ARR + renewals due (renewals
+    pipeline), new members (sales-funnel onboarded, period), event registrations,
+    and MRR (active subscriptions)."""
     def _base(kind):
         return (MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
                 MetricRecord.source == "ghl", MetricRecord.kind == kind)
 
-    sub_n = int((await s.execute(select(func.count()).select_from(MetricRecord)
-                                 .where(*_base("subscription")))).scalar() or 0)
-    if sub_n:
-        mrr = (await s.execute(select(func.coalesce(func.sum(MetricRecord.amount), 0))
-                               .where(*_base("subscription"), MetricRecord.status == "active"))).scalar()
-        out["mrr"] = float(mrr or 0)
+    async def _count(*conds):
+        return int((await s.execute(select(func.count()).select_from(MetricRecord).where(*conds))).scalar() or 0)
 
-    today = dt.date.today()
-    nxt = (await s.execute(select(func.min(MetricRecord.occurred_on))
-                           .where(*_base("registration"), MetricRecord.occurred_on >= today))).scalar()
-    if nxt:
-        out["next_event"] = nxt
-        out["registered"] = int((await s.execute(select(func.count()).select_from(MetricRecord)
-                                 .where(*_base("registration"), MetricRecord.occurred_on == nxt))).scalar() or 0)
-    return out
+    members = await _count(*_base("member"), MetricRecord.status == "active")
+    seg_rows = (await s.execute(select(MetricRecord.segment, func.count())
+                .where(*_base("member"), MetricRecord.status == "active")
+                .group_by(MetricRecord.segment))).all()
+    segments = {(k or "member"): v for k, v in seg_rows}
+
+    memberships = (await s.execute(select(MetricRecord).where(*_base("membership")))).scalars().all()
+    arr = sum(float(m.amount or 0) for m in memberships)
+    mon3 = dt.date.today().strftime("%b").lower()      # 'jul' — 3-char prefix tolerates "Febuary" typo
+    renewals_due = sum(1 for m in memberships
+                       if ((m.meta or {}).get("renewal_month", "")[:3].lower() == mon3))
+
+    new_members = await _count(*_base("onboarded"),
+                               MetricRecord.occurred_on >= start, MetricRecord.occurred_on <= end)
+    registered = await _count(*_base("registration"))
+    mrr = float((await s.execute(select(func.coalesce(func.sum(MetricRecord.amount), 0))
+                 .where(*_base("subscription"), MetricRecord.status == "active"))).scalar() or 0)
+
+    integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.business_id == business_id,
+        Integration.provider == "ghl"))).scalar_one_or_none()
+    event_name = (integ.config or {}).get("event_name") if integ else None
+
+    return {"members": members, "segments": segments, "arr": arr, "memberships": len(memberships),
+            "renewals_due": renewals_due, "new_members": new_members,
+            "registered": registered, "mrr": mrr, "event_name": event_name}
 
 
 async def _active_listings(s, tenant_id, business_id, cutoff) -> int:
@@ -346,7 +350,7 @@ def _scorecards(
         Scorecard(label="Loans Funded", value=sympli_funded or "—",
                   sub=f"{sympli_volume} volume" if sympli_volume else None, business_key="sympli", key="funded_loans"),
         Scorecard(label="Attach Rate", value=attach_rate or "—", sub="ULRG → Sympli", business_key="sympli"),
-        Scorecard(label="Active Members", value=members or "—", sub="beCollective + Forum", business_key="springb", key="active_members"),
+        Scorecard(label="Active Members", value=members or "—", sub="The Forum + Inner Circle", business_key="springb", key="active_members"),
     ]
 
 
@@ -396,30 +400,34 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                 sc["sympli_volume"] = scc.get("volume")
             if b.key == "springb":
                 try:
-                    members = await _active_members(s, tenant_id, b.id)
-                    extras = await _springb_extras(s, tenant_id, b.id)
+                    k = await _forum_kpis(s, tenant_id, b.id, start, end)
                 except Exception:          # e.g. metric_record migration not yet applied
                     await s.rollback()
-                    members, extras = 0, {"mrr": None, "next_event": None, "registered": None}
-                today = dt.date.today()
-                for t in ops:
-                    if t.label == "Active Members":
-                        t.key = "active_members"          # drill-down on the Spring B panel
-                        if members > 0:                   # GHL has synced real members
-                            t.value = str(members)
-                            t.sub = "beCollective + Forum"
-                    elif t.label == "Recurring Revenue" and extras["mrr"] is not None:
-                        t.value = _compact_usd(extras["mrr"])
-                        t.sub = "MRR"
-                        t.key = "mrr"                     # drill-down: active subscriptions
-                    elif t.label == "Next Forum Event" and extras["next_event"] is not None:
-                        days = (extras["next_event"] - today).days
-                        t.value = "today" if days == 0 else ("1 day" if days == 1 else f"{days} days")
-                        t.sub = f"{extras['next_event'].strftime('%b')} {extras['next_event'].day}"
-                    elif t.label == "Registered" and extras["registered"] is not None:
-                        t.value = str(extras["registered"])
-                        t.key = "registered"             # drill-down: next-event registrants
-                sc["members"] = str(members) if members > 0 else scc.get("members")
+                    k = None
+                if k and (k["members"] > 0 or k["memberships"] > 0):   # GHL is synced
+                    seg = k["segments"]
+                    ev_name = k["event_name"]
+                    ops = [
+                        OpTile(label="Active Members", value=str(k["members"]),
+                               sub=f"Forum {seg.get('forum', 0)} · Inner Circle {seg.get('inner_circle', 0)}",
+                               key="active_members"),
+                        OpTile(label="Forum ARR", value=_compact_usd(k["arr"]),
+                               sub=f"{k['memberships']} memberships", key="forum_arr"),
+                        OpTile(label="New Members", value=str(k["new_members"]),
+                               sub=_PERIOD_LABELS.get(period, period), key="new_members"),
+                        OpTile(label="Renewals Due", value=str(k["renewals_due"]),
+                               sub=dt.date.today().strftime("%B"), key="renewals_due"),
+                        OpTile(label="Registered", value=str(k["registered"]),
+                               sub=ev_name, key="registered"),
+                        OpTile(label="MRR", value=_compact_usd(k["mrr"]) if k["mrr"] else "—",
+                               sub="monthly subscriptions", key="mrr"),
+                    ]
+                    sc["members"] = str(k["members"])
+                else:                       # not synced yet — keep seeded placeholders
+                    for t in ops:
+                        if t.label == "Active Members":
+                            t.key = "active_members"
+                    sc["members"] = scc.get("members")
 
         # Financial (Phase 2) — from the exact-period PLSnapshot.
         pl_row = (await s.execute(select(PLSnapshot).where(

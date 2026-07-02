@@ -9,6 +9,8 @@ venv/
 .env
 .env.local
 .env.*.local
+.probe.env
+ghl_audit*.json
 *.db
 *.sqlite3
 .DS_Store

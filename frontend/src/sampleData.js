@@ -61,7 +61,7 @@ const sampleData = {
     { label: "Agents Producing", value: "24", sub: "of 31", business_key: "ulrg", key: "agents_producing" },
     { label: "Loans Funded", value: "19", sub: "$7.3M volume", business_key: "sympli", key: "funded_loans" },
     { label: "Attach Rate", value: "31%", sub: "ULRG → Sympli", business_key: "sympli" },
-    { label: "Active Members", value: "142", sub: "beCollective + Forum", business_key: "springb", key: "active_members" },
+    { label: "Active Members", value: "70", sub: "The Forum + Inner Circle", business_key: "springb", key: "active_members" },
   ],
 
   areas: {
@@ -121,12 +121,12 @@ const sampleData = {
         { label: "Net operating income", value: 15000, kind: "tot", note: "22% margin" },
       ],
       ops: [
-        { label: "Active Members", value: "142", sub: "beCollective", key: "active_members" },
-        { label: "Recurring Revenue", value: "$28K", sub: "MRR" },
-        { label: "Next Forum Event", value: "18 days" },
-        { label: "Registered", value: "86", sub: "of 120 seats" },
-        { label: "Member Churn", value: "3.1%", sub: "30-day" },
-        { label: "Event Margin", value: "19%", sub: "below target" },
+        { label: "Active Members", value: "70", sub: "Forum 26 · Inner Circle 44", key: "active_members" },
+        { label: "Forum ARR", value: "$1.2M", sub: "47 memberships", key: "forum_arr" },
+        { label: "New Members", value: "7", sub: "month to date", key: "new_members" },
+        { label: "Renewals Due", value: "5", sub: "July", key: "renewals_due" },
+        { label: "Registered", value: "28", sub: "Park City, UT", key: "registered" },
+        { label: "MRR", value: "$27K", sub: "monthly subscriptions", key: "mrr" },
       ],
       funnel: null,
     },

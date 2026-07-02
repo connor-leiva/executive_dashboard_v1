@@ -148,80 +148,93 @@ async def _ghl_snapshot(s: AsyncSession, tenant_id, business_id, kind: str, rows
 
 
 async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
-    """Snapshot Spring B from Go High Level: members (tag-driven), plus — best
-    effort — recurring subscriptions (MRR) and Forum calendar events. The members
-    pull is the contract; subscriptions/calendar degrade to a skip if the token
-    lacks the payments/calendars scope or the calendar isn't configured, so a
-    missing scope never fails the whole sync."""
+    """Snapshot The Forum from Go High Level into metric_record, across the three
+    surfaces the team actually uses (see the reference audit):
+      • members      — union of member_tags (the official 70), segmented Forum/IC
+      • registration — contacts tagged for the next event (event_tag)
+      • membership   — open opps in the renewals pipeline → ARR + renewal month
+      • onboarded    — sales-funnel opps in the "Won: Onboarded" stage → new members
+      • subscription — active GHL subscriptions → MRR (monthly-payer subset)
+    Members/registration/opps are the contract; subscriptions degrade to a skip if
+    the payments scope is missing, so that never fails the whole sync."""
     cfg = integ.config or {}
     location_id = cfg.get("location_id")
     member_tags = {t.lower() for t in cfg.get("member_tags", [])}
     forum_tags = {t.lower() for t in cfg.get("forum_tags", [])}
-    becoll_tags = {t.lower() for t in cfg.get("becollective_tags", [])}
+    ic_tags = {t.lower() for t in cfg.get("innercircle_tags", [])}
+    event_tag = (cfg.get("event_tag") or "").lower().strip()
+    renewals_match = (cfg.get("renewals_pipeline_match") or "renewals").lower()
+    onboarded_match = (cfg.get("onboarded_stage_match") or "won: onboarded").lower()
     token = dec(integ.access_token_enc) if integ.access_token_enc else None
     if not (location_id and member_tags and token):
         raise ValueError("Go High Level needs a token, location_id, and member_tags in config.")
 
-    # 1) Members (the contract) — tag-driven.
-    contacts = await ghl.get_contacts(token, location_id)
-    rows = []
-    for c in contacts:
-        is_member, segment = ghl.classify_member(
-            ghl.contact_tags(c), member_tags, forum_tags, becoll_tags)
-        if is_member:
-            rows.append(dict(
-                tenant_id=tenant_id, business_id=integ.business_id, source="ghl", kind="member",
-                external_id=str(c.get("id")), name=ghl.contact_name(c)[:200],
-                email=(c.get("email") or None), status="active", segment=segment,
-                source_url=ghl.contact_url(location_id, c.get("id")),
-            ))
-    await _ghl_snapshot(s, tenant_id, integ.business_id, "member", rows)
-    print(f"[ghl] {len(rows)} active members from {len(contacts)} contacts", flush=True)
+    biz = integ.business_id
 
-    # 2) Recurring subscriptions → MRR (best effort; needs a payments scope).
+    # 1) Contacts → members (tag union, segmented) + event registrations (tag).
+    contacts = await ghl.get_contacts(token, location_id)
+    members, regs = [], []
+    for c in contacts:
+        tset = set(ghl.contact_tags(c))
+        base = dict(tenant_id=tenant_id, business_id=biz, source="ghl",
+                    external_id=str(c.get("id")), name=ghl.contact_name(c)[:200],
+                    email=(c.get("email") or None),
+                    source_url=ghl.contact_url(location_id, c.get("id")))
+        if tset & member_tags:
+            members.append({**base, "kind": "member", "status": "active",
+                            "segment": ghl.member_segment(tset, forum_tags, ic_tags)})
+        if event_tag and event_tag in tset:
+            regs.append({**base, "kind": "registration", "status": "registered",
+                         "meta": {"event_tag": event_tag}})
+    await _ghl_snapshot(s, tenant_id, biz, "member", members)
+    await _ghl_snapshot(s, tenant_id, biz, "registration", regs)
+    print(f"[ghl] {len(members)} members, {len(regs)} registered for '{event_tag}' "
+          f"(from {len(contacts)} contacts)", flush=True)
+
+    # 2) Opportunities → memberships (renewals pipeline) + onboarded (sales funnel).
+    try:
+        pipelines = await ghl.get_pipelines(token, location_id)
+        stage_name = {st.get("id"): st.get("name") for p in pipelines for st in (p.get("stages") or [])}
+        ren_ids = {p.get("id") for p in pipelines if renewals_match in (p.get("name") or "").lower()}
+        opps = await ghl.get_opportunities(token, location_id)
+        memberships, onboarded = [], []
+        for o in opps:
+            stage = (stage_name.get(o.get("pipelineStageId")) or "").strip()
+            base = dict(tenant_id=tenant_id, business_id=biz, source="ghl",
+                        external_id=str(o.get("id")), name=ghl.opp_name(o)[:200],
+                        source_url=ghl.contact_url(location_id, o.get("contactId")))
+            if o.get("pipelineId") in ren_ids and o.get("status") == "open":
+                memberships.append({**base, "kind": "membership", "status": "active",
+                                    "amount": float(o.get("monetaryValue") or 0),
+                                    "meta": {"renewal_month": stage}})
+            elif onboarded_match in stage.lower():
+                onboarded.append({**base, "kind": "onboarded", "status": o.get("status") or "won",
+                                  "occurred_on": _parse_ghl_dt(o.get("lastStatusChangeAt")),
+                                  "meta": {"stage": stage}})
+        await _ghl_snapshot(s, tenant_id, biz, "membership", memberships)
+        await _ghl_snapshot(s, tenant_id, biz, "onboarded", onboarded)
+        arr = sum(m["amount"] for m in memberships)
+        print(f"[ghl] {len(memberships)} renewals (ARR ${arr:,.0f}), {len(onboarded)} onboarded", flush=True)
+    except Exception as e:  # noqa: BLE001 — opportunities scope optional
+        print(f"[ghl] opportunities skipped: {e}", flush=True)
+
+    # 3) Subscriptions → MRR (best effort; needs a payments scope).
     try:
         subs = await ghl.get_subscriptions(token, location_id)
         sub_rows = [dict(
-            tenant_id=tenant_id, business_id=integ.business_id, source="ghl", kind="subscription",
-            external_id=str(sub.get("id") or sub.get("_id") or sub.get("subscriptionId")),
-            name=(sub.get("contactName") or sub.get("customerName")
-                  or (sub.get("contact") or {}).get("name") or sub.get("productName") or "Subscription")[:200],
-            email=((sub.get("contact") or {}).get("email") or sub.get("email") or None),
+            tenant_id=tenant_id, business_id=biz, source="ghl", kind="subscription",
+            external_id=str(sub.get("_id") or sub.get("subscriptionId") or sub.get("id")),
+            name=(sub.get("contactName") or (sub.get("contact") or {}).get("name") or "Subscription")[:200],
+            email=(sub.get("contactEmail") or None),
             amount=ghl.sub_monthly_amount(sub),
             status="active" if ghl.sub_is_active(sub) else (sub.get("status") or "inactive").lower(),
-            meta={"interval": sub.get("interval") or sub.get("recurringInterval"),
-                  "raw_status": sub.get("status")},
+            meta={"raw_status": sub.get("status")},
         ) for sub in subs]
-        await _ghl_snapshot(s, tenant_id, integ.business_id, "subscription", sub_rows)
+        await _ghl_snapshot(s, tenant_id, biz, "subscription", sub_rows)
         active_n = sum(1 for r in sub_rows if r["status"] == "active")
         print(f"[ghl] {active_n}/{len(sub_rows)} active subscriptions", flush=True)
     except Exception as e:  # noqa: BLE001 — scope/endpoint optional
         print(f"[ghl] subscriptions skipped: {e}", flush=True)
-
-    # 3) Forum calendar events → Next event + Registered (best effort; needs a
-    # calendars scope and forum_calendar_id in config).
-    cal_id = cfg.get("forum_calendar_id")
-    if cal_id:
-        try:
-            now = dt.datetime.utcnow()
-            start_ms = int(now.timestamp() * 1000)
-            end_ms = int((now + dt.timedelta(days=180)).timestamp() * 1000)
-            events = await ghl.get_calendar_events(token, cal_id, start_ms, end_ms)
-            reg_rows = []
-            for ev in events:
-                on = _parse_ghl_dt(ev.get("startTime") or ev.get("start_time") or ev.get("startAt"))
-                reg_rows.append(dict(
-                    tenant_id=tenant_id, business_id=integ.business_id, source="ghl", kind="registration",
-                    external_id=str(ev.get("id") or ev.get("_id") or ev.get("appointmentId")),
-                    name=(ev.get("title") or ev.get("name") or "Forum event")[:200],
-                    status=(ev.get("appointmentStatus") or ev.get("status") or "booked").lower(),
-                    occurred_on=on,
-                    meta={"contact_id": ev.get("contactId"), "title": ev.get("title")},
-                ))
-            await _ghl_snapshot(s, tenant_id, integ.business_id, "registration", reg_rows)
-            print(f"[ghl] {len(reg_rows)} calendar events (next 180d)", flush=True)
-        except Exception as e:  # noqa: BLE001 — scope/endpoint/calendar optional
-            print(f"[ghl] calendar skipped: {e}", flush=True)
 
 
 async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration, start: str, end: str):

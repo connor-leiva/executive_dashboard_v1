@@ -32,12 +32,11 @@ def test_contact_helpers():
 
 
 def test_subscription_helpers():
-    # dollars, monthly → as-is
-    assert ghl.sub_monthly_amount({"amount": 49, "interval": "month"}) == 49.0
-    # cents heuristic (>= 1000) → divided by 100
-    assert ghl.sub_monthly_amount({"amount": 4900, "interval": "month"}) == 49.0
-    # yearly → normalised to monthly (1200/yr = 100/mo)
-    assert ghl.sub_monthly_amount({"amount": 120000, "interval": "year"}) == 100.0
+    # The Forum's GHL returns whole dollars — monthly amounts pass through as-is.
+    assert ghl.sub_monthly_amount({"amount": 2500, "interval": "month"}) == 2500.0
+    assert ghl.sub_monthly_amount({"amount": 1850}) == 1850.0
+    # yearly → normalised to monthly (30k/yr = 2500/mo)
+    assert ghl.sub_monthly_amount({"amount": 30000, "interval": "year"}) == 2500.0
     # missing/garbage amount → 0, never raises
     assert ghl.sub_monthly_amount({"status": "active"}) == 0.0
 
@@ -45,3 +44,13 @@ def test_subscription_helpers():
     assert ghl.sub_is_active({"status": "trialing"}) is True
     assert ghl.sub_is_active({"status": "cancelled"}) is False
     assert ghl.sub_is_active({}) is False
+
+
+def test_member_segment():
+    forum = {"the forum active", "member: secondary", "forumadmin"}
+    ic = {"inner circle active", "inner circle active add on"}
+    assert ghl.member_segment({"the forum active"}, forum, ic) == "forum"
+    assert ghl.member_segment({"inner circle active"}, forum, ic) == "inner_circle"
+    # Forum takes precedence when a contact carries both
+    assert ghl.member_segment({"the forum active", "inner circle active"}, forum, ic) == "forum"
+    assert ghl.member_segment({"random"}, forum, ic) == "member"

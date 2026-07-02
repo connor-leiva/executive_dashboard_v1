@@ -72,10 +72,58 @@ def classify_member(tags: list[str], member_tags: set[str], forum_tags: set[str]
     return True, None
 
 
-# ── subscriptions (MRR) — GHL Payments API; needs a payments scope ──
+# ── membership segmentation (the official 70 = union of member_tags) ──
+def member_segment(tags: set[str], forum_tags: set[str], ic_tags: set[str]) -> str:
+    """Which program a tagged member belongs to. Forum takes precedence when a
+    contact carries both (matches the team's reconciliation)."""
+    if tags & forum_tags:
+        return "forum"
+    if tags & ic_tags:
+        return "inner_circle"
+    return "member"
+
+
+# ── opportunities (renewals pipeline = ARR; sales funnel = new members) ──
+async def get_pipelines(token: str, location_id: str) -> list[dict]:
+    async with httpx.AsyncClient(timeout=45) as c:
+        r = await c.get(f"{GHL_BASE}/opportunities/pipelines",
+                        headers=_headers(token), params={"locationId": location_id})
+        r.raise_for_status()
+        return (r.json() or {}).get("pipelines") or []
+
+
+async def get_opportunities(token: str, location_id: str, max_pages: int | None = None) -> list[dict]:
+    """All opportunities, following the search cursor (startAfterId/startAfter)."""
+    out: list[dict] = []
+    params: dict = {"location_id": location_id, "limit": 100}
+    page = 0
+    async with httpx.AsyncClient(timeout=60) as c:
+        while True:
+            r = await c.get(f"{GHL_BASE}/opportunities/search", headers=_headers(token), params=params)
+            r.raise_for_status()
+            data = r.json()
+            rows = data.get("opportunities") or []
+            out.extend(rows)
+            meta = data.get("meta") or {}
+            sai = meta.get("startAfterId")
+            page += 1
+            if not rows or not sai or (max_pages and page >= max_pages):
+                break
+            params["startAfterId"] = sai
+            if meta.get("startAfter"):
+                params["startAfter"] = meta["startAfter"]
+    return out
+
+
+def opp_name(o: dict) -> str:
+    return o.get("name") or ((o.get("contact") or {}).get("name")) or o.get("contactId") or "Member"
+
+
+# ── subscriptions (MRR) — GHL Payments API. NOTE: the payments endpoints reject
+# `locationId`; they require altId + altType=location (else HTTP 422). ──
 async def get_subscriptions(token: str, location_id: str, max_pages: int | None = None) -> list[dict]:
     out: list[dict] = []
-    params: dict = {"locationId": location_id, "limit": 100, "offset": 0}
+    params: dict = {"altId": location_id, "altType": "location", "limit": 100}
     page = 0
     async with httpx.AsyncClient(timeout=45) as c:
         while True:
@@ -87,7 +135,7 @@ async def get_subscriptions(token: str, location_id: str, max_pages: int | None 
             page += 1
             if len(rows) < 100 or (max_pages and page >= max_pages):
                 break
-            params["offset"] += 100
+            params["offset"] = len(out)
     return out
 
 
@@ -96,26 +144,20 @@ def sub_is_active(sub: dict) -> bool:
 
 
 def sub_monthly_amount(sub: dict) -> float:
-    """Best-effort monthly amount. GHL amounts are often in the smallest unit
-    (cents); yearly intervals are normalised to monthly. Confirm live + adjust."""
+    """Monthly amount of a subscription. The Forum's GHL returns amounts in whole
+    dollars (verified against transactions), so no cents conversion; yearly
+    intervals are normalised to monthly."""
     raw = sub.get("amount", sub.get("priceAmount", sub.get("price", 0)))
     try:
         amt = float(raw)
     except (TypeError, ValueError):
         amt = 0.0
-    if amt >= 1000:                     # heuristic: looks like cents
-        amt /= 100.0
     interval = str(sub.get("interval") or sub.get("recurringInterval") or "month").lower()
     if "year" in interval or "annual" in interval:
         amt /= 12.0
     return round(amt, 2)
 
 
-# ── calendar events (Next Forum event + Registered) ──
-async def get_calendar_events(token: str, calendar_id: str, start_ms: int, end_ms: int) -> list[dict]:
-    async with httpx.AsyncClient(timeout=45) as c:
-        r = await c.get(f"{GHL_BASE}/calendars/events", headers=_headers(token),
-                        params={"calendarId": calendar_id, "startTime": start_ms, "endTime": end_ms})
-        r.raise_for_status()
-        data = r.json()
-        return data.get("events") or data.get("data") or []
+# Events are NOT modelled in GHL calendars for The Forum (that calendar is empty);
+# they're tracked by per-event TAGS (e.g. "the forum q3 2026"). "Registered" is
+# therefore a contact-tag count, handled in the contacts pass of the sync.

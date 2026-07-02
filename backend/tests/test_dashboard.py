@@ -68,7 +68,7 @@ async def test_login_and_dashboard_shape():
     labels = {s["label"]: s for s in d["scorecards"]}
     assert labels["Combined Profit"]["value"] == "$109K"
     assert labels["Combined Profit"]["business_key"] == "portfolio"
-    assert labels["Active Members"]["value"] == "142"
+    assert labels["Active Members"]["value"] == "—"       # placeholder until GHL syncs
 
     # Sources collapse per provider; QBO connected, Arive still pending (Phase 3).
     src = {s["name"]: s["status"] for s in d["sources"]}
@@ -133,28 +133,47 @@ async def test_active_members_drilldown():
     assert d["rows"][0]["source_url"]
 
 
-async def test_springb_mrr_and_registered():
-    """GHL subscriptions → MRR, and calendar events → next Forum event + registered."""
+async def test_forum_kpis_from_ghl_records():
+    """The Forum panel: members (segmented) + ARR/renewals (renewals pipeline) +
+    new members (onboarded) + registered (event tag) + MRR (subscriptions)."""
     import datetime as _dt
     from app.db import SessionLocal
     from app.models import Business, MetricRecord
-    from sqlalchemy import select as _select
+    from sqlalchemy import select as _select, delete as _delete
     today = _dt.date.today()
+    this_month = today.strftime("%B")
     async with SessionLocal() as s:
         biz = (await s.execute(_select(Business).where(Business.key == "springb"))).scalar_one()
-        # Two active subscriptions ($49 + $100 = $149 MRR) + one cancelled (ignored).
-        for i, (amt, st) in enumerate([(49, "active"), (100, "active"), (30, "cancelled")]):
-            s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
-                               kind="subscription", external_id=f"sub{i}", name=f"Sub {i}",
-                               amount=amt, status=st))
-        # Next event is +10 days (3 booked); a later event at +40 must not count.
-        for i in range(3):
-            s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
-                               kind="registration", external_id=f"reg{i}", name=f"Attendee {i}",
-                               status="booked", occurred_on=today + _dt.timedelta(days=10)))
-        s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
-                           kind="registration", external_id="reg-late", name="Later",
-                           status="booked", occurred_on=today + _dt.timedelta(days=40)))
+        # deterministic: clear any GHL records a prior test seeded
+        await s.execute(_delete(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.source == "ghl"))
+
+        def add(**kw):
+            s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl", **kw))
+
+        # members: 2 Forum + 1 Inner Circle (Active Members = 3, segmented)
+        add(kind="member", external_id="m1", name="ann lee", status="active", segment="forum")
+        add(kind="member", external_id="m2", name="bo diaz", status="active", segment="forum")
+        add(kind="member", external_id="m3", name="cy roe", status="active", segment="inner_circle")
+        # memberships (renewals pipeline): ARR = 27000+30000+26000 = 83000; one renews this month
+        add(kind="membership", external_id="o1", name="Ann Lee", status="active", amount=27000,
+            meta={"renewal_month": this_month})
+        add(kind="membership", external_id="o2", name="Bo Diaz", status="active", amount=30000,
+            meta={"renewal_month": "March"})
+        add(kind="membership", external_id="o3", name="Cy Roe", status="active", amount=26000,
+            meta={"renewal_month": "May"})
+        # onboarded: 2 this period, 1 outside → New Members = 2
+        add(kind="onboarded", external_id="w1", name="New A", status="won", occurred_on=today)
+        add(kind="onboarded", external_id="w2", name="New B", status="won", occurred_on=today)
+        add(kind="onboarded", external_id="w3", name="Old", status="won",
+            occurred_on=today - _dt.timedelta(days=90))
+        # registrations (event tag): 4
+        for i in range(4):
+            add(kind="registration", external_id=f"r{i}", name=f"reg {i}", status="registered")
+        # subscriptions: 2 active ($2500 + $1500 = $4000 MRR) + 1 cancelled
+        add(kind="subscription", external_id="s1", name="Sub A", amount=2500, status="active")
+        add(kind="subscription", external_id="s2", name="Sub B", amount=1500, status="active")
+        add(kind="subscription", external_id="s3", name="Sub C", amount=999, status="cancelled")
         await s.commit()
 
     token = await _client_token()
@@ -163,18 +182,20 @@ async def test_springb_mrr_and_registered():
         H = {"Authorization": f"Bearer {token}"}
         d = (await c.get("/api/v1/dashboard?period=mtd", headers=H)).json()
         ops = {o["label"]: o for o in d["areas"]["springb"]["ops"]}
-        assert ops["Recurring Revenue"]["value"] == "$149"
-        assert ops["Recurring Revenue"]["key"] == "mrr"           # clickable
-        assert ops["Next Forum Event"]["value"] == "10 days"
-        assert ops["Registered"]["value"] == "3"
+        assert ops["Active Members"]["value"] == "3"
+        assert "Forum 2" in ops["Active Members"]["sub"] and "Inner Circle 1" in ops["Active Members"]["sub"]
+        assert ops["Forum ARR"]["value"] == "$83K" and ops["Forum ARR"]["key"] == "forum_arr"
+        assert ops["New Members"]["value"] == "2"
+        assert ops["Renewals Due"]["value"] == "1"                 # only the one renewing this month
+        assert ops["Registered"]["value"] == "4"
+        assert ops["MRR"]["value"] == "$4K"
 
-        mrr = (await c.get("/api/v1/metrics/mrr/detail", headers=H)).json()
-        assert mrr["source"] == "Go High Level"
-        assert mrr["count"] == 2                                   # only active subs
-        assert "/mo" in mrr["rows"][0]["status"]
-
+        arr = (await c.get("/api/v1/metrics/forum_arr/detail", headers=H)).json()
+        assert arr["count"] == 3 and "renews" in arr["rows"][0]["status"]
+        nm = (await c.get("/api/v1/metrics/new_members/detail?period=mtd", headers=H)).json()
+        assert nm["count"] == 2
         reg = (await c.get("/api/v1/metrics/registered/detail", headers=H)).json()
-        assert reg["count"] == 3                                   # next event only, not the +40d one
+        assert reg["count"] == 4
 
 
 async def test_edit_business_and_derived_status():

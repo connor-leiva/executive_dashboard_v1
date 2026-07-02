@@ -106,60 +106,80 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str) -> di
                 "computed_as": f"Agents with at least one closed sale, {span()}",
                 "count": len(rows), "rows": rows}
 
-    # ── active members (Go High Level) — the real member records ──
-    if key == "active_members":
+    # ── The Forum (Go High Level) drill-downs ──
+    if key in {"active_members", "forum_arr", "renewals_due", "new_members", "registered", "mrr"}:
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
-        recs = []
-        if biz:
-            recs = (await s.execute(select(MetricRecord).where(
-                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
-                MetricRecord.source == "ghl", MetricRecord.kind == "member",
-                MetricRecord.status == "active").order_by(MetricRecord.name))).scalars().all()
-        rows = [{"id": str(r.id), "name": ((r.name or "").strip().title() or r.email or r.external_id),
-                 "status": r.segment or "member", "source_url": r.source_url} for r in recs]
-        return {"label": "Active Members", "source": "Go High Level",
-                "computed_as": "Contacts tagged as active members (beCollective + The Forum).",
-                "count": len(rows), "rows": rows}
+        if not biz:
+            return {"label": key.replace("_", " ").title(), "source": "Go High Level",
+                    "computed_as": "Go High Level isn't connected yet.", "count": 0, "rows": []}
 
-    # ── recurring revenue (Go High Level subscriptions) → MRR ──
-    if key == "mrr":
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
-        recs = []
-        if biz:
-            recs = (await s.execute(select(MetricRecord).where(
+        def q(kind):
+            return select(MetricRecord).where(
                 MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
-                MetricRecord.source == "ghl", MetricRecord.kind == "subscription",
-                MetricRecord.status == "active").order_by(MetricRecord.amount.desc()))).scalars().all()
-        rows = [{"id": str(r.id), "name": (r.name or r.email or r.external_id),
-                 "status": (f"${float(r.amount):,.0f}/mo" if r.amount is not None else "active"),
-                 "source_url": r.source_url} for r in recs]
-        return {"label": "Recurring Revenue", "source": "Go High Level",
-                "computed_as": "Sum of active recurring subscriptions, normalised to a monthly amount.",
-                "count": len(rows), "rows": rows}
+                MetricRecord.source == "ghl", MetricRecord.kind == kind)
 
-    # ── registered (Go High Level calendar) → next Forum event bookings ──
-    if key == "registered":
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
-        rows = []
-        if biz:
-            today = dt.date.today()
-            nxt = (await s.execute(select(MetricRecord.occurred_on).where(
-                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
-                MetricRecord.source == "ghl", MetricRecord.kind == "registration",
-                MetricRecord.occurred_on >= today).order_by(MetricRecord.occurred_on))).scalars().first()
-            if nxt:
-                recs = (await s.execute(select(MetricRecord).where(
-                    MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
-                    MetricRecord.source == "ghl", MetricRecord.kind == "registration",
-                    MetricRecord.occurred_on == nxt).order_by(MetricRecord.name))).scalars().all()
-                rows = [{"id": str(r.id), "name": (r.name or r.external_id),
-                         "status": r.status or "booked", "source_url": r.source_url} for r in recs]
-        return {"label": "Registered", "source": "Go High Level",
-                "computed_as": "Bookings on the Forum calendar for the next scheduled event.",
-                "count": len(rows), "rows": rows}
+        def title_name(r):
+            return (r.name or "").strip().title() or r.email or r.external_id
+
+        if key == "active_members":
+            recs = (await s.execute(q("member").where(MetricRecord.status == "active")
+                    .order_by(MetricRecord.segment, MetricRecord.name))).scalars().all()
+            seg = {"forum": "The Forum", "inner_circle": "Inner Circle"}
+            rows = [{"id": str(r.id), "name": title_name(r),
+                     "status": seg.get(r.segment, r.segment or "member"), "source_url": r.source_url} for r in recs]
+            return {"label": "Active Members", "source": "Go High Level",
+                    "computed_as": "Distinct contacts carrying any official membership tag (The Forum + Inner Circle).",
+                    "count": len(rows), "rows": rows}
+
+        if key == "forum_arr":
+            recs = (await s.execute(q("membership").order_by(MetricRecord.amount.desc()))).scalars().all()
+            rows = [{"id": str(r.id), "name": (r.name or r.external_id),
+                     "status": (f"${float(r.amount or 0):,.0f}"
+                                + (f" · renews {(r.meta or {}).get('renewal_month')}" if (r.meta or {}).get("renewal_month") else "")),
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "Forum ARR", "source": "Go High Level",
+                    "computed_as": "Contract value across open opportunities in the Current Forum Members (renewals) pipeline.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "renewals_due":
+            mon3 = dt.date.today().strftime("%b").lower()
+            recs = [r for r in (await s.execute(q("membership").order_by(MetricRecord.name))).scalars().all()
+                    if (r.meta or {}).get("renewal_month", "")[:3].lower() == mon3]
+            rows = [{"id": str(r.id), "name": (r.name or r.external_id),
+                     "status": (r.meta or {}).get("renewal_month"), "source_url": r.source_url} for r in recs]
+            return {"label": "Renewals Due", "source": "Go High Level",
+                    "computed_as": f"Forum members whose renewal month is {dt.date.today().strftime('%B')}.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "new_members":
+            recs = (await s.execute(q("onboarded").where(
+                MetricRecord.occurred_on >= start, MetricRecord.occurred_on <= end)
+                .order_by(MetricRecord.occurred_on.desc()))).scalars().all()
+            rows = [{"id": str(r.id), "name": (r.name or r.external_id),
+                     "status": (r.occurred_on.isoformat() if r.occurred_on else "onboarded"),
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "New Members", "source": "Go High Level",
+                    "computed_as": f"Sales-funnel opportunities reaching 'Won: Onboarded', {span()}.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "registered":
+            recs = (await s.execute(q("registration").order_by(MetricRecord.name))).scalars().all()
+            rows = [{"id": str(r.id), "name": title_name(r), "status": "registered",
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "Registered", "source": "Go High Level",
+                    "computed_as": "Contacts tagged for the next Forum event.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "mrr":
+            recs = (await s.execute(q("subscription").where(MetricRecord.status == "active")
+                    .order_by(MetricRecord.amount.desc()))).scalars().all()
+            rows = [{"id": str(r.id), "name": (r.name or r.email or r.external_id),
+                     "status": (f"${float(r.amount):,.0f}/mo" if r.amount is not None else "active"),
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "MRR", "source": "Go High Level",
+                    "computed_as": "Active recurring subscriptions (the monthly-paying member subset).",
+                    "count": len(rows), "rows": rows}
 
     # ── financial (QuickBooks) — itemize once QBO is connected ──
     if key in _FINANCIAL:
