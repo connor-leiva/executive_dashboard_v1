@@ -32,48 +32,53 @@ export function Login({ onLogin }) {
 
   const field = {
     width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 14,
-    color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8,
+    color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 9,
     padding: "11px 12px", marginTop: 6,
   };
-  const label = {
-    fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.onDarkMute,
-  };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate };
 
   return (
-    <div style={{
-      minHeight: "100vh", background: T.evergreen, display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 24,
-      backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.045) 0px, rgba(255,255,255,0.045) 1.5px, rgba(255,255,255,0) 1.5px, rgba(255,255,255,0) 13px), radial-gradient(135% 130% at 50% -15%, rgba(97,131,94,0.50) 0%, rgba(0,46,44,0) 55%)`,
+    <div className="login-root" style={{
+      minHeight: "100vh", position: "relative", overflow: "hidden", display: "flex", alignItems: "center",
+      padding: "24px 7vw", backgroundImage: "url(/brand/photos/gradient_1.jpg)", backgroundSize: "cover", backgroundPosition: "center",
     }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');`}</style>
-      <div style={{ width: "100%", maxWidth: 360 }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 26 }}>
-          <SpringSignature tone="light" height={46} />
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 10, textTransform: "uppercase" }}>Command Center</div>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+        .login-photo { position:absolute; top:0; right:0; bottom:0; width:48%;
+          background:url(/brand/photos/lady_motionblur.jpg) center/cover no-repeat;
+          -webkit-mask-image:linear-gradient(90deg, transparent 0%, #000 30%); mask-image:linear-gradient(90deg, transparent 0%, #000 30%); }
+        @media (max-width:900px){ .login-photo{ display:none; } }
+        .login-input:focus-visible, .login-btn:focus-visible { outline:2px solid ${T.teal}; outline-offset:2px; }
+        .login-btn:hover:not(:disabled){ background:${T.poppyActive}; }
+      `}</style>
+      <div className="login-photo" aria-hidden />
+      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 400 }}>
+        <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 16, padding: "30px 28px", boxShadow: "0 24px 70px rgba(0,46,44,.16)" }}>
+          <SpringSignature tone="dark" height={44} />
+          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.slate, marginTop: 12, textTransform: "uppercase" }}>Command Center</div>
+          <form onSubmit={submit} style={{ marginTop: 24 }}>
+            <label style={label}>Email
+              <input className="login-input" style={field} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            </label>
+            <div style={{ height: 14 }} />
+            <label style={label}>Password
+              <input className="login-input" style={field} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            </label>
+            {error && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 14 }}>{error}</div>}
+            <button className="login-btn" type="submit" disabled={busy} style={{
+              width: "100%", marginTop: 20, fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600,
+              color: T.white, background: T.poppy, border: "none", borderRadius: 9, padding: "12px",
+              cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, transition: "background .15s ease",
+            }}>
+              {busy ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
         </div>
-        <form onSubmit={submit} style={{ background: "rgba(248,245,242,0.04)", border: "1px solid rgba(248,245,242,0.10)", borderRadius: 14, padding: 22 }}>
-          <label style={label}>
-            Email
-            <input style={field} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </label>
-          <div style={{ height: 14 }} />
-          <label style={label}>
-            Password
-            <input style={field} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          </label>
-          {error && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.petal, marginTop: 14 }}>{error}</div>}
-          <button type="submit" disabled={busy} style={{
-            width: "100%", marginTop: 18, fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600,
-            color: T.evergreen, background: T.sprout, border: "none", borderRadius: 8, padding: "11px 12px",
-            cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1,
-          }}>
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
-        <div style={{ textAlign: "center", marginTop: 18, fontFamily: "Inter,sans-serif", fontSize: 11.5 }}>
-          <a href="/privacy.html" style={{ color: T.onDarkMute, textDecoration: "none" }}>Privacy Policy</a>
-          <span style={{ color: T.onDarkMute, margin: "0 8px" }}>·</span>
-          <a href="/eula.html" style={{ color: T.onDarkMute, textDecoration: "none" }}>Terms</a>
+        <div style={{ textAlign: "center", marginTop: 16, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>A Spring company tool</div>
+        <div style={{ textAlign: "center", marginTop: 6, fontFamily: "Inter,sans-serif", fontSize: 11.5 }}>
+          <a href="/privacy.html" style={{ color: T.muted, textDecoration: "none" }}>Privacy Policy</a>
+          <span style={{ color: T.muted, margin: "0 8px" }}>·</span>
+          <a href="/eula.html" style={{ color: T.muted, textDecoration: "none" }}>Terms</a>
         </div>
       </div>
     </div>
