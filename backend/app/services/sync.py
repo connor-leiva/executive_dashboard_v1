@@ -160,8 +160,12 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     cfg = integ.config or {}
     location_id = cfg.get("location_id")
     member_tags = {t.lower() for t in cfg.get("member_tags", [])}
-    forum_tags = {t.lower() for t in cfg.get("forum_tags", [])}
-    ic_tags = {t.lower() for t in cfg.get("innercircle_tags", [])}
+    # Segmentation defaults so an already-connected integration (whose stored config
+    # predates these keys) still splits Forum vs Inner Circle without a reconfig.
+    forum_tags = {t.lower() for t in (cfg.get("forum_tags") or
+                  ["the forum active", "member: secondary", "forumadmin"])}
+    ic_tags = {t.lower() for t in (cfg.get("innercircle_tags") or
+               ["inner circle active", "inner circle active add on"])}
     event_tag = (cfg.get("event_tag") or "").lower().strip()
     renewals_match = (cfg.get("renewals_pipeline_match") or "renewals").lower()
     onboarded_match = (cfg.get("onboarded_stage_match") or "won: onboarded").lower()
