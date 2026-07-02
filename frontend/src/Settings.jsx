@@ -300,7 +300,7 @@ function AccountPage() {
 /* ── businesses (read-only for now) ────────────────────────── */
 
 const SAMPLE_BUSINESSES = [
-  { key: "ulrg", name: "ULRG + Team", tag: "Real estate", status: "healthy", accent: T.meadow, ink: "#4F6A4D", is_jv: false, jv_share: 1, watch_margin_below: null, per_loan_share: null },
+  { key: "ulrg", name: "ULRG + Team", tag: "Real estate", status: "healthy", accent: T.meadow, ink: "#4F6A4D", is_jv: false, jv_share: 1, watch_margin_below: null, per_loan_share: null, expense_run_rate_mode: "manual", expense_run_rate_manual: 96000, default_agent_split: 0.60 },
   { key: "springb", name: "Spring B", tag: "beCollective + The Forum", status: "watch", accent: T.poppy, ink: T.poppyText, is_jv: false, jv_share: 1, watch_margin_below: 25, per_loan_share: null },
   { key: "sympli", name: "Sympli Mortgage", tag: "Joint venture · 50% owned", status: "opportunity", accent: T.teal, ink: T.teal, is_jv: true, jv_share: 0.5, watch_margin_below: null, per_loan_share: 2100 },
 ];
@@ -312,6 +312,9 @@ function BusinessEditForm({ biz, onClose, onDone }) {
     jv_pct: Math.round((biz.jv_share ?? 1) * 100),
     watch_margin_below: biz.watch_margin_below ?? "",
     per_loan_share: biz.per_loan_share ?? "",
+    expense_run_rate_mode: biz.expense_run_rate_mode || "trailing_3mo",
+    expense_run_rate_manual: biz.expense_run_rate_manual ?? "",
+    agent_split_pct: biz.default_agent_split != null ? Math.round(biz.default_agent_split * 100) : "",
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -328,6 +331,9 @@ function BusinessEditForm({ biz, onClose, onDone }) {
         jv_share: Math.max(0, Math.min(100, Number(f.jv_pct) || 0)) / 100,
         watch_margin_below: numOrNull(f.watch_margin_below),
         per_loan_share: numOrNull(f.per_loan_share),
+        expense_run_rate_mode: f.expense_run_rate_mode,
+        expense_run_rate_manual: f.expense_run_rate_mode === "manual" ? numOrNull(f.expense_run_rate_manual) : null,
+        default_agent_split: f.agent_split_pct === "" ? null : Math.max(0, Math.min(100, Number(f.agent_split_pct) || 0)) / 100,
       });
       onDone();
     } catch {
@@ -385,6 +391,25 @@ function BusinessEditForm({ biz, onClose, onDone }) {
             </label>
           </div>
         )}
+
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}`, fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate }}>Financials (three-lens)</div>
+        <div style={half}>
+          <label style={{ ...label, flex: 1 }}>Expense run-rate
+            <select style={field} value={f.expense_run_rate_mode} onChange={set("expense_run_rate_mode")}>
+              <option value="trailing_3mo">Trailing 3 months</option>
+              <option value="last_month">Last month</option>
+              <option value="manual">Manual</option>
+            </select>
+          </label>
+          {f.expense_run_rate_mode === "manual" && (
+            <label style={{ ...label, flex: 1 }}>Monthly expenses ($)
+              <input style={field} type="number" step="500" value={f.expense_run_rate_manual} onChange={set("expense_run_rate_manual")} placeholder="—" />
+            </label>
+          )}
+        </div>
+        <label style={label}>Default agent split (%) <span style={{ fontWeight: 400, color: T.muted }}>· commission fallback when a Sisu deal is missing it</span>
+          <input style={field} type="number" step="1" value={f.agent_split_pct} onChange={set("agent_split_pct")} placeholder="e.g. 60" />
+        </label>
         {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>

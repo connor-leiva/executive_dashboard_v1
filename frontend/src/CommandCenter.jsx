@@ -4,6 +4,7 @@ import { T, STATUS, usd, signed, relativeTime } from "./theme.js";
 import { useDashboard } from "./useDashboard.js";
 import { getJSON, postJSON } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
+import Financials from "./Financials.jsx";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -393,8 +394,20 @@ function Overview({ data, onOpen, onDrill }) {
 
 /* ── area detail ───────────────────────────────────────────── */
 
-function AreaDetail({ area, onDrill }) {
+function AreaDetail({ area, onDrill, period }) {
   const a = area;
+  const isUlrg = a.key === "ulrg";
+
+  const opsCard = (
+    <Card style={{ flex: "1 1 340px", minWidth: 300 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <PanelLabel accent={a.accent}>Operational · leading indicators</PanelLabel>
+        <span style={{ display: "flex", gap: 6 }}>{a.sources.filter((s) => s !== "QuickBooks").map((s) => <Source key={s} name={s} />)}</span>
+      </div>
+      <div className="cc-ops">{a.ops.map((d, i) => <OpTile key={i} d={d} onDrill={onDrill} />)}</div>
+    </Card>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
@@ -405,22 +418,24 @@ function AreaDetail({ area, onDrill }) {
         <Dot status={a.status} />
       </div>
 
-      <div className="cc-twocol">
-        <Card style={{ flex: "1 1 340px", minWidth: 300 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <PanelLabel accent={a.accent}>Financial · P&amp;L</PanelLabel>
-            <Source name="QuickBooks" />
-          </div>
-          {a.pl && a.pl.length > 0 ? <PLTable rows={a.pl} area={a} /> : <PLEmpty area={a} />}
-        </Card>
-        <Card style={{ flex: "1 1 340px", minWidth: 300 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <PanelLabel accent={a.accent}>Operational · leading indicators</PanelLabel>
-            <span style={{ display: "flex", gap: 6 }}>{a.sources.filter((s) => s !== "QuickBooks").map((s) => <Source key={s} name={s} />)}</span>
-          </div>
-          <div className="cc-ops">{a.ops.map((d, i) => <OpTile key={i} d={d} onDrill={onDrill} />)}</div>
-        </Card>
-      </div>
+      {isUlrg ? (
+        <>
+          {/* Three-lens financial view (Live / Projection / Booked) replaces the single P&L pane. */}
+          <Financials businessKey={a.key} businessName={a.name} period={period} />
+          {opsCard}
+        </>
+      ) : (
+        <div className="cc-twocol">
+          <Card style={{ flex: "1 1 340px", minWidth: 300 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <PanelLabel accent={a.accent}>Financial · P&amp;L</PanelLabel>
+              <Source name="QuickBooks" />
+            </div>
+            {a.pl && a.pl.length > 0 ? <PLTable rows={a.pl} area={a} /> : <PLEmpty area={a} />}
+          </Card>
+          {opsCard}
+        </div>
+      )}
 
       {a.funnel && (
         <Card>
@@ -731,7 +746,7 @@ export default function CommandCenter() {
   if (busy) content = <SkeletonDashboard />;
   else if (error && !data) content = <ErrorState onRetry={retry} />;
   else if (view === "overview") content = <Overview data={data} onOpen={setView} onDrill={setDrill} />;
-  else if (view === "ulrg" || view === "springb" || view === "sympli") content = <AreaDetail area={areas[view]} onDrill={setDrill} />;
+  else if (view === "ulrg" || view === "springb" || view === "sympli") content = <AreaDetail area={areas[view]} onDrill={setDrill} period={periodKey} />;
   else if (view === "flywheel") content = <Flywheel flywheel={flywheel} />;
 
   return (

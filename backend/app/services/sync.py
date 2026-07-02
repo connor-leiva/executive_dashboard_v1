@@ -52,9 +52,9 @@ async def _upsert_many(s: AsyncSession, model, rows: list[dict], index_elements,
 
 
 _TXN_UPDATE_KEYS = [
-    "side", "status", "gci", "sale_price", "address", "buyer_name", "buyer_email",
-    "agent_id", "contract_date", "close_date", "appt_set_date", "lead_date",
-    "listing_date", "sisu_status_code",
+    "side", "status", "gci", "agent_commission", "sale_price", "address", "buyer_name",
+    "buyer_email", "agent_id", "contract_date", "close_date", "expected_close_date",
+    "appt_set_date", "lead_date", "listing_date", "sisu_status_code",
 ]
 
 
@@ -88,10 +88,12 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUI
     txn_rows = [
         dict(tenant_id=tenant_id, business_id=business_id, source="sisu",
              external_id=t["external_id"], side=t.get("side"), status=t["status"],
-             gci=t.get("gci"), sale_price=t.get("sale_price"), address=t.get("address"),
+             gci=t.get("gci"), agent_commission=t.get("agent_commission"),
+             sale_price=t.get("sale_price"), address=t.get("address"),
              buyer_name=t.get("buyer_name"), buyer_email=t.get("buyer_email"),
              agent_id=agent_map.get(t.get("agent_external_id")),
              contract_date=t.get("contract_date"), close_date=t.get("close_date"),
+             expected_close_date=t.get("expected_close_date"),
              appt_set_date=t.get("appt_set_date"), lead_date=t.get("lead_date"),
              listing_date=t.get("listing_date"),
              sisu_status_code=t.get("sisu_status_code"))

@@ -176,6 +176,12 @@ def map_client(c: dict) -> dict:
         "side": SIDE.get(c.get("type_id")),
         "status": classify_status(c),
         "gci": _money(c.get("gross_commission_amt")) or _money(c.get("commission_amt")),
+        # Agent commission (cost of sale / company dollar). Field name varies by
+        # team config; best-effort across candidates. When absent, compute_financials
+        # falls back to gci × business.default_agent_split.
+        "agent_commission": (_money(c.get("agent_commission_amt"))
+                             or _money(c.get("commission_agent_amt"))
+                             or _money(c.get("agent_gci_amt"))),
         "sale_price": _money(c.get("trans_amt")) or _money(c.get("closed_volume_amt")),
         "address": _clip(c.get("address_1"), 300),
         "buyer_name": _clip(buyer_names or seller_names or person or None, 200),
@@ -184,6 +190,11 @@ def map_client(c: dict) -> dict:
         "sisu_status_code": _clip(c.get("status_code"), 16),
         "contract_date": parse_dt(c.get("uc_dt")),
         "close_date": parse_dt(c.get("closed_dt")),
+        # Scheduled/estimated close (pending → projection). Sisu keeps the target
+        # close in the close-date field until it actually closes; prefer an
+        # explicit estimate field when present.
+        "expected_close_date": parse_dt(c.get("est_close_dt") or c.get("estimated_close_dt")
+                                        or c.get("projected_close_dt") or c.get("closed_dt")),
         "appt_set_date": parse_dt(c.get("appt_set_dt")),
         "lead_date": parse_dt(c.get("lead_dt")),
         "listing_date": parse_dt(c.get("listing_dt")),

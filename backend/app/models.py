@@ -66,6 +66,10 @@ class Business(Base):
     watch_margin_below: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     # Spring's avg JV revenue per funded loan (drives the flywheel gap, Part 4).
     per_loan_share: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Three-lens financials: monthly expense run-rate + commission fallback.
+    expense_run_rate_mode: Mapped[str] = mapped_column(String(16), default="trailing_3mo")  # trailing_3mo|last_month|manual
+    expense_run_rate_manual: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    default_agent_split: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)  # e.g. 0.60 fallback
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     # Non-secret per-business config: sparkline trend, manual ops tiles, manual
     # funnel, and scorecard contributions (used until a live source connects).
@@ -114,6 +118,7 @@ class Transaction(Base):
     side: Mapped[str | None] = mapped_column(String(8), nullable=True)   # buy | sell
     status: Mapped[str] = mapped_column(String(16))     # active | pending | closed | dead
     gci: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    agent_commission: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)  # cost of sale
     sale_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     address: Mapped[str | None] = mapped_column(String(300), nullable=True)
     buyer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -121,6 +126,7 @@ class Transaction(Base):
     agent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent.id"), nullable=True)
     contract_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     close_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expected_close_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # pending → projection
     # Sisu funnel/leading-indicator dates + raw stage code.
     appt_set_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     lead_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -163,6 +169,7 @@ class PLSnapshot(Base):
     net_income: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     source: Mapped[str] = mapped_column(String(16), default="qbo")
     realm_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    books_closed: Mapped[bool] = mapped_column(Boolean, default=False)  # clears the Booked "close in progress" flag
     pulled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (
         UniqueConstraint("tenant_id", "business_id", "period_start", "period_end", name="uq_pl_period"),

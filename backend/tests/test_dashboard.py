@@ -226,6 +226,37 @@ async def test_edit_business_and_derived_status():
         assert (await c.put("/api/v1/businesses/ghostbiz", headers=H, json={"tag": "x"})).status_code == 404
 
 
+async def test_ulrg_three_lens_financials():
+    token = await _client_token()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        H = {"Authorization": f"Bearer {token}"}
+        d = (await c.get("/api/v1/businesses/ulrg/financials?period=mtd", headers=H)).json()
+
+        assert d["expense_run_rate"] == 96000 and d["expense_run_rate_source"] == "manual"
+
+        live = d["lenses"]["live"]
+        assert live["profit"] == 72000 and live["units"] == 38          # 420k net of 60% split − 96k
+        assert {r["l"]: r["v"] for r in live["rows"]}["Gross GCI"] == 420000
+
+        proj = d["lenses"]["projection"]
+        assert proj["profit"] == 138000 and proj["units"] == 60
+        assert proj["closed_units"] == 38 and proj["pending_units"] == 22
+        assert proj["closed_gci"] == 420000 and proj["pending_gci"] == 165000 and proj["gci"] == 585000
+
+        booked = d["lenses"]["booked"]
+        assert booked["units"] is None and booked["flag"] == "close_in_progress"
+
+        rec = d["reconciliation"]
+        assert rec["sisu_closed"] == 420000 and "gap_gci" in rec
+
+        # Closing the books clears the Booked flag.
+        r = await c.put("/api/v1/businesses/ulrg/periods/mtd/close", headers=H)
+        assert r.status_code == 200, r.text
+        d2 = (await c.get("/api/v1/businesses/ulrg/financials?period=mtd", headers=H)).json()
+        assert d2["lenses"]["booked"]["flag"] is None
+
+
 async def test_edit_integration_token_optional_and_config_returned():
     token = await _client_token()
     transport = ASGITransport(app=app)

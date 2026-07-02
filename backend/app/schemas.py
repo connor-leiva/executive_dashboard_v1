@@ -138,3 +138,53 @@ class BusinessUpdate(BaseModel):
     jv_share: float | None = None        # 0.5 = 50%
     watch_margin_below: float | None = None
     per_loan_share: float | None = None
+    expense_run_rate_mode: str | None = None       # trailing_3mo | last_month | manual
+    expense_run_rate_manual: float | None = None
+    default_agent_split: float | None = None       # 0.60 = 60%
+
+
+# ── three-lens financials ─────────────────────────────────────────
+class FinRow(BaseModel):
+    l: str
+    v: float
+    kind: str            # rev | ded | sub | tot
+    est: bool = False
+
+
+class LiveLens(BaseModel):
+    profit: float
+    units: int
+    rows: list[FinRow]
+
+
+class ProjectionLens(BaseModel):
+    profit: float
+    units: int
+    closed_units: int
+    pending_units: int
+    closed_gci: float
+    pending_gci: float
+    gci: float
+    rows: list[FinRow]
+
+
+class BookedLens(BaseModel):
+    profit: float
+    units: int | None = None
+    flag: str | None = None
+    rows: list[FinRow]
+
+
+class Reconciliation(BaseModel):
+    sisu_closed: float
+    qbo_booked: float
+    gap_gci: float
+    gap_profit: float
+
+
+class FinancialsResponse(BaseModel):
+    period: dict                 # {label, start, end, is_current}
+    expense_run_rate: float
+    expense_run_rate_source: str
+    lenses: dict                 # {"live": LiveLens, "projection": ProjectionLens, "booked": BookedLens}
+    reconciliation: Reconciliation

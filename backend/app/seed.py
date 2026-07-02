@@ -110,7 +110,9 @@ async def seed():
 
         ulrg = Business(tenant_id=tenant.id, key="ulrg", name="ULRG + Team", tag="Real estate",
                         status="healthy", accent="#61835E", ink="#4F6A4D", is_jv=False,
-                        jv_share=Decimal("1.0"), sort_order=0, config=ULRG_CONFIG)
+                        jv_share=Decimal("1.0"), sort_order=0, config=ULRG_CONFIG,
+                        expense_run_rate_mode="manual", expense_run_rate_manual=Decimal(96000),
+                        default_agent_split=Decimal("0.60"))
         springb = Business(tenant_id=tenant.id, key="springb", name="Spring B",
                            tag="beCollective + The Forum", status="watch", accent="#FA8069",
                            ink="#CE4E29", is_jv=False, jv_share=Decimal("1.0"), sort_order=1,
@@ -197,16 +199,18 @@ async def seed():
                     agent_id=agents[i % 24].id,
                     contract_date=mid, close_date=mid))
 
-            # Pending (22): pipeline sums 8.1M. 8 went under contract this period.
+            # Pending (22): pipeline sums 8.1M, GCI sums 165k, all expected to
+            # close this month (feeds the Projection lens). 8 went UC this period.
             pend_parts = _spread(8_100_000, 22)
+            pend_gci = _spread(165_000, 22)
             for i in range(22):
                 s.add(Transaction(
                     tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
                     external_id=f"txn-pending-{i+1:03d}", side="buy" if i % 2 else "sell",
-                    status="pending", sale_price=Decimal(pend_parts[i]),
+                    status="pending", gci=Decimal(pend_gci[i]), sale_price=Decimal(pend_parts[i]),
                     address=f"{500+i} Oak Ave", buyer_name=f"Pending Buyer {i+1}",
                     agent_id=agents[i % 24].id,
-                    contract_date=mid if i < 8 else prev_month))
+                    contract_date=mid if i < 8 else prev_month, expected_close_date=mid))
 
             # Active listings (17, sell side).
             for i in range(17):
