@@ -84,8 +84,12 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     ]
 
     memberships = await records("membership")
+    # Memberships live in the (Forum) renewals pipeline and carry no segment;
+    # recover it by joining to the member roster on contact id.
+    member_recs = await records("member", MetricRecord.status == "active")
+    seg_by_contact = {m.external_id: m.segment for m in member_recs}
     funnel = await _funnel(s, base, cfg)
-    renewals = _renewals(memberships)
+    renewals = _renewals(memberships, seg_by_contact)
     event = _event(cfg, members_total, member_regs, guests)
     revq = await _revq(s, base, memberships, arr, tenant_id, biz.id)
 
@@ -154,12 +158,13 @@ async def _funnel(s, base, cfg) -> dict | None:
     return {"stages": [{"label": g["label"], "v": g["v"]} for g in stages], "footer": footer}
 
 
-def _renewals(memberships) -> dict | None:
+def _renewals(memberships, seg_by_contact=None) -> dict | None:
     """Members due to renew in the next 90 days, by month + contract value.
     (Renewal *health* isn't tracked in GHL — the renewals pipeline is filed by
     month — so there are no committed/talking/risk statuses.)"""
     if not memberships:
         return None
+    seg_by_contact = seg_by_contact or {}
     today = dt.date.today()
     window = {_MONTHS[(today.month - 1 + i) % 12] for i in range(3)}   # this + next 2 months
     rows = []
@@ -169,7 +174,8 @@ def _renewals(memberships) -> dict | None:
         mon = (meta.get("renewal_month") or "")[:3].title()
         if mon not in {w[:3] for w in window}:
             continue
-        seg = "IC" if m.segment == "inner_circle" else "F"
+        seg_raw = seg_by_contact.get(meta.get("contact_id")) or m.segment
+        seg = "IC" if seg_raw == "inner_circle" else "F"
         segments[seg] += 1
         val = float(m.amount or 0)
         rows.append({"name": (m.name or "").title() or m.external_id,
@@ -228,13 +234,25 @@ async def _revq(s, base, memberships, arr, tenant_id, business_id) -> dict | Non
         "past_due": ({"count": len(past), "value": _usd(sum(float(x.amount or 0) for x in past))}
                      if subs else None),
     }
-    # ARR bridge (YTD): needs onboarded + membership_lost amounts
+    # ARR bridge (YTD). Onboarded opps carry no $ (they live in the sales funnel),
+    # so New = the membership contract value of contacts who onboarded this year.
+    # Churn = lost renewals opps this year (those DO carry monetaryValue).
     year_start = dt.date(dt.date.today().year, 1, 1)
-    new_ytd = float((await s.execute(select(func.coalesce(func.sum(MetricRecord.amount), 0)).where(
-        *base("onboarded"), MetricRecord.occurred_on >= year_start))).scalar() or 0)
-    churn_ytd = float((await s.execute(select(func.coalesce(func.sum(MetricRecord.amount), 0)).where(
-        *base("membership_lost"), MetricRecord.occurred_on >= year_start))).scalar() or 0)
-    if new_ytd or churn_ytd:
+    onb = (await s.execute(select(MetricRecord).where(
+        *base("onboarded"), MetricRecord.occurred_on >= year_start))).scalars().all()
+    onb_contacts = {(o.meta or {}).get("contact_id") for o in onb if (o.meta or {}).get("contact_id")}
+    new_ytd = sum(float(m.amount or 0) for m in memberships
+                  if (m.meta or {}).get("contact_id") in onb_contacts)
+    # Fallback to onboarded amounts if contacts don't join (e.g. no membership yet).
+    if not new_ytd:
+        new_ytd = sum(float(o.amount or 0) for o in onb)
+    lost = (await s.execute(select(MetricRecord).where(*base("membership_lost")))).scalars().all()
+    churn_ytd = sum(float(x.amount or 0) for x in lost
+                    if x.occurred_on and x.occurred_on >= year_start)
+    # Only render the bridge when there's real churn data to close it. Without
+    # lost-membership records the line is a misleading flat bar (churn actually
+    # lives in "offboarded" tags today) — omit it per the spec's fallback rule.
+    if lost and (new_ytd or churn_ytd):
         start_arr = arr - new_ytd + churn_ytd
         out["bridge"] = [
             {"label": "Jan 1", "value": _usd(start_arr)},

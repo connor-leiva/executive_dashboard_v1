@@ -193,20 +193,23 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     biz = integ.business_id
 
     # 1) Contacts → members (tag union, segmented) + event registrations (tag).
+    #    A registration whose contact is NOT a member is a guest (prospect seat).
     contacts = await ghl.get_contacts(token, location_id)
     members, regs = [], []
     for c in contacts:
         tset = set(ghl.contact_tags(c))
+        is_member = bool(tset & member_tags)
+        cid = str(c.get("id"))
         base = dict(tenant_id=tenant_id, business_id=biz, source="ghl",
-                    external_id=str(c.get("id")), name=ghl.contact_name(c)[:200],
+                    external_id=cid, name=ghl.contact_name(c)[:200],
                     email=(c.get("email") or None),
                     source_url=ghl.contact_url(location_id, c.get("id")))
-        if tset & member_tags:
+        if is_member:
             members.append({**base, "kind": "member", "status": "active",
                             "segment": ghl.member_segment(tset, forum_tags, ic_tags)})
         if event_tag and event_tag in tset:
             regs.append({**base, "kind": "registration", "status": "registered",
-                         "meta": {"event_tag": event_tag}})
+                         "meta": {"event_tag": event_tag, "guest": not is_member, "contact_id": cid}})
     await _ghl_snapshot(s, tenant_id, biz, "member", members)
     await _ghl_snapshot(s, tenant_id, biz, "registration", regs)
     print(f"[ghl] {len(members)} members, {len(regs)} registered for '{event_tag}' "
@@ -222,20 +225,28 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         stage_pos = {st.get("id"): i for p in pipelines if p.get("id") in sales_ids
                      for i, st in enumerate(p.get("stages") or [])}
         opps = await ghl.get_opportunities(token, location_id)
-        memberships, onboarded, recruiting = [], [], []
+        memberships, onboarded, recruiting, lost = [], [], [], []
         for o in opps:
             stage = (stage_name.get(o.get("pipelineStageId")) or "").strip()
+            cid = str(o.get("contactId") or "")
             base = dict(tenant_id=tenant_id, business_id=biz, source="ghl",
                         external_id=str(o.get("id")), name=ghl.opp_name(o)[:200],
                         source_url=ghl.contact_url(location_id, o.get("contactId")))
             if o.get("pipelineId") in ren_ids and o.get("status") == "open":
                 memberships.append({**base, "kind": "membership", "status": "active",
                                     "amount": float(o.get("monetaryValue") or 0),
-                                    "meta": {"renewal_month": stage}})
+                                    "meta": {"renewal_month": stage, "contact_id": cid}})
+            elif o.get("pipelineId") in ren_ids and o.get("status") == "lost":
+                # A member who didn't renew → ARR-bridge churn input.
+                lost.append({**base, "kind": "membership_lost", "status": "lost",
+                             "amount": float(o.get("monetaryValue") or 0),
+                             "occurred_on": _parse_ghl_dt(o.get("lastStatusChangeAt")),
+                             "meta": {"stage": stage, "contact_id": cid}})
             elif onboarded_match in stage.lower():
                 onboarded.append({**base, "kind": "onboarded", "status": o.get("status") or "won",
                                   "occurred_on": _parse_ghl_dt(o.get("lastStatusChangeAt")),
-                                  "meta": {"stage": stage}})
+                                  "amount": float(o.get("monetaryValue") or 0),
+                                  "meta": {"stage": stage, "contact_id": cid}})
             elif o.get("pipelineId") in sales_ids and o.get("status") == "open":
                 # Open recruiting opps in the sales funnel → the pipeline card.
                 recruiting.append({**base, "kind": "recruiting", "status": "open",
@@ -245,9 +256,10 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         await _ghl_snapshot(s, tenant_id, biz, "membership", memberships)
         await _ghl_snapshot(s, tenant_id, biz, "onboarded", onboarded)
         await _ghl_snapshot(s, tenant_id, biz, "recruiting", recruiting)
+        await _ghl_snapshot(s, tenant_id, biz, "membership_lost", lost)
         arr = sum(m["amount"] for m in memberships)
         print(f"[ghl] {len(memberships)} renewals (ARR ${arr:,.0f}), {len(onboarded)} onboarded, "
-              f"{len(recruiting)} recruiting", flush=True)
+              f"{len(recruiting)} recruiting, {len(lost)} lost", flush=True)
     except Exception as e:  # noqa: BLE001 — opportunities scope optional
         print(f"[ghl] opportunities skipped: {e}", flush=True)
 
@@ -261,13 +273,57 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
             email=(sub.get("contactEmail") or None),
             amount=ghl.sub_monthly_amount(sub),
             status="active" if ghl.sub_is_active(sub) else (sub.get("status") or "inactive").lower(),
-            meta={"raw_status": sub.get("status")},
+            meta={"raw_status": sub.get("status"), "contact_id": str(sub.get("contactId") or "")},
         ) for sub in subs]
         await _ghl_snapshot(s, tenant_id, biz, "subscription", sub_rows)
         active_n = sum(1 for r in sub_rows if r["status"] == "active")
         print(f"[ghl] {active_n}/{len(sub_rows)} active subscriptions", flush=True)
+
+        # 4) Payment type on memberships: monthly if the member has a live
+        #    (active/past_due) subscription (match on contact), else PIF.
+        payers = {r["meta"]["contact_id"] for r in sub_rows
+                  if r["status"] in ("active", "past_due") and r["meta"].get("contact_id")}
+        mrs = (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
+            MetricRecord.source == "ghl", MetricRecord.kind == "membership"))).scalars().all()
+        matched = 0
+        for m in mrs:
+            meta = dict(m.meta or {})
+            is_monthly = meta.get("contact_id") in payers
+            meta["payment"] = "monthly" if is_monthly else "pif"
+            m.meta = meta
+            matched += 1 if is_monthly else 0
+        await s.commit()
+        print(f"[ghl] payment type: {matched}/{len(mrs)} memberships monthly "
+              f"({len(payers)} live sub payers)", flush=True)
     except Exception as e:  # noqa: BLE001 — scope/endpoint optional
         print(f"[ghl] subscriptions skipped: {e}", flush=True)
+
+    # 5) Registration pace snapshot (append-only: one row per event per day).
+    if event_tag:
+        try:
+            today = dt.date.today()
+            days_out = None
+            if cfg.get("event_date"):
+                try:
+                    days_out = (dt.date.fromisoformat(str(cfg["event_date"])) - today).days
+                except (ValueError, TypeError):
+                    days_out = None
+            member_regs = sum(1 for r in regs if not (r["meta"] or {}).get("guest"))
+            ext = f"{event_tag}:{today.isoformat()}"
+            row = (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.source == "ghl",
+                MetricRecord.kind == "reg_count", MetricRecord.external_id == ext))).scalar_one_or_none()
+            if row:
+                row.amount = member_regs
+                row.meta = {"event_tag": event_tag, "days_out": days_out}
+            else:
+                s.add(MetricRecord(tenant_id=tenant_id, business_id=biz, source="ghl",
+                                   kind="reg_count", external_id=ext, amount=member_regs,
+                                   occurred_on=today, meta={"event_tag": event_tag, "days_out": days_out}))
+            await s.commit()
+        except Exception as e:  # noqa: BLE001
+            print(f"[ghl] reg_count skipped: {e}", flush=True)
 
 
 # Every period the dashboard can toggle to needs its own snapshot.

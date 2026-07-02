@@ -181,6 +181,24 @@ async def test_forum_drills():
         assert unreg["count"] == 2                       # IC1, IC2 have no registration
 
 
+async def test_arr_bridge_omitted_without_churn():
+    # Churn lives in "offboarded" tags today, not lost renewals opps. With no
+    # membership_lost records the ARR bridge is omitted (never a flat, misleading
+    # line) per the spec's "omit if inputs incomplete" rule.
+    await _seed_forum()
+    from app.db import SessionLocal
+    from app.models import Business, MetricRecord
+    from sqlalchemy import select, delete
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.source == "ghl",
+            MetricRecord.kind == "membership_lost"))
+        await s.commit()
+    d = await _get_forum()
+    assert "bridge" not in d["revq"]
+
+
 async def test_recruiting_funnel_grouping():
     # VIP Guest must not fall into Applied on the word "application"; dead/nurture
     # stages (Unresponsive) are excluded from the bars and counted in the footer;
