@@ -75,26 +75,26 @@ def test_map_client_expected_close_and_commission_placeholder():
     assert t["agent_commission"] is None
 
 
-def test_company_dollar_from_commission_info():
-    ci = {
-        "adjustments": {"fees": [
-            {"category": "EXP Risk Management & Transaction Review Fees", "adjustment_value": 69.49},
-            {"category": "EXP Risk Management & Transaction Review Fees", "adjustment_value": 47.98},
-        ]},
-        "summaries": {"final": {
-            "agent": {"external_type": 2, "value": 6000.0},   # agent cash
-            "team": {"external_type": 1, "value": 4000.0},    # team side (ignored here)
-        }},
-    }
-    assert sisu._exp_risk_fees(ci) == (69.49, 47.98)          # larger=team, smaller=agent
-    assert sisu._agent_payment(ci) == 6000.0                  # only external_type==2
-    # CD = GCI 12000 + fee 495 − 69.49 − 47.98 − 6000 (agent payment)
-    assert sisu.company_dollar(12000.0, 495.0, ci) == round(12000 + 495 - 69.49 - 47.98 - 6000, 2)
+def test_team_income_from_commission_info():
+    # Real shape (pending 6614734): 70/30 split — team keeps 6,787.50.
+    ci = {"team_income": 6787.5, "summaries": {"final": {
+        "agent": {"external_type": 2, "name": "Kaestle Muir", "value": 15837.5},
+        "team": {"external_type": 1, "name": "Utah Life Real Estate Group", "value": 6787.5},
+    }}}
+    assert sisu.team_income(ci) == 6787.5                       # net GCI = the team's take
+    # agent_commission (cost of sale) = GCI − team_income
+    assert round(22625.0 - sisu.team_income(ci), 2) == 15837.5
 
 
-def test_company_dollar_falls_back_to_default_exp_risk():
-    ci = {"summaries": {"final": {"a": {"external_type": 2, "value": 5000.0}}}}   # no adjustments
-    assert sisu.company_dollar(10000.0, 0.0, ci) == round(10000 - 69.0 - 49.0 - 5000, 2)
+def test_team_income_sums_final_when_no_top_level():
+    # No top-level team_income → sum external_type==1 in summaries.final.
+    ci = {"summaries": {"final": {
+        "agent": {"external_type": 2, "value": 10944.0},
+        "exp": {"external_type": 2, "value": 2736.0},
+        "team": {"external_type": 1, "value": 3420.0},
+    }}}
+    assert sisu.team_income(ci) == 3420.0
+    assert sisu.team_income({}) is None                         # absent → None (caller falls back)
 
 
 def test_map_client_seller_side():

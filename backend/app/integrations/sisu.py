@@ -202,22 +202,17 @@ def map_client(c: dict) -> dict:
     }
 
 
-# ── Company dollar (net GCI) via the per-deal commission-info endpoint ──
-# Ported from the ROI conversion dashboard (validated against Sisu's UI for this
-# eXp team). CD = GCI + trans fee − EXP Risk (team) − EXP Risk (agent) − agent
-# payment. agent_commission (our "cost of sale") = GCI − CD.
-#
-# IMPORTANT: only CLOSED deals have a finalized commission-info (agent payment in
-# summaries.final). A pending deal's agent payment is $0 there, which would make
-# its company dollar ≈ full GCI (i.e. ~$0 commission) — wrong. So we enrich CLOSED
-# deals only; pending fall back to business.default_agent_split in the projection.
-DEFAULT_EXP_RISK_TEAM = 69.0     # observed team-side fee when Sisu omits the adjustment
-DEFAULT_EXP_RISK_AGENT = 49.0    # observed agent-side fee
-
-
+# ── Net GCI (company dollar) via the per-deal commission-info endpoint ──
+# Sisu's commission-info exposes each recipient's cut. NET GCI (what the team
+# keeps) = `team_income` — the external_type==1 recipient's take. It is populated
+# for BOTH closed (final) and PENDING deals (the projected split), verified live:
+#   pending 6614734 GCI 22,625 → team_income 6,787.50 (agent 15,837.50, 70/30)
+#   pending 6613469 GCI 17,100 → team_income 3,420    (20% team split)
+# So agent_commission (our "cost of sale") = GCI − team_income, and we enrich
+# closed AND pending. The flat default_agent_split is only a last-resort fallback
+# for the rare deal whose commission-info can't be read.
 def _num(value) -> float:
-    """Money → float, tolerant of "$1,234.50" / "null" / None (matches the ROI
-    dashboard's parser). Returns 0.0 when absent/unparseable."""
+    """Money → float, tolerant of "$1,234.50" / "null" / None. 0.0 when absent."""
     if value in (None, "", "null"):
         return 0.0
     if isinstance(value, (int, float)):
@@ -229,46 +224,22 @@ def _num(value) -> float:
         return 0.0
 
 
-def _exp_risk_fees(ci: dict) -> tuple[float, float]:
-    """(team, agent) EXP Risk Management fees from commission_info.adjustments.
-    The side designator is unreliable → larger is team, smaller is agent."""
-    amounts: list[float] = []
-    for bucket in (ci.get("adjustments") or {}).values():
-        if not isinstance(bucket, list):
-            continue
-        for item in bucket:
-            if "exp risk management" in (item.get("category") or "").lower():
-                amt = _num(item.get("adjustment_value") or item.get("amount")
-                           or item.get("value") or item.get("total_amount"))
-                if amt > 0:
-                    amounts.append(amt)
-    if not amounts:
-        return 0.0, 0.0
-    if len(amounts) == 1:
-        return amounts[0], 0.0
-    amounts.sort(reverse=True)
-    return amounts[0], amounts[1]
-
-
-def _agent_payment(ci: dict) -> float:
-    """Sum summaries.final for recipients with external_type == 2 (agents)."""
+def team_income(ci: dict) -> float | None:
+    """Company dollar = the team's take (external_type==1) from commission-info.
+    Prefer the top-level `team_income`; else sum the external_type==1 recipients in
+    summaries.final. None when commission-info is absent/unreadable."""
+    if not ci:
+        return None
+    if ci.get("team_income") is not None:
+        return _num(ci.get("team_income"))
     finals = (ci.get("summaries") or {}).get("final") or {}
-    return sum(_num((v or {}).get("value")) for v in finals.values()
-               if (v or {}).get("external_type") == 2)
+    vals = [_num((v or {}).get("value")) for v in finals.values() if (v or {}).get("external_type") == 1]
+    return sum(vals) if vals else None
 
 
-def company_dollar(gci: float, trans_fee: float, ci: dict) -> float:
-    et, ea = _exp_risk_fees(ci)
-    if et == 0.0:
-        et = DEFAULT_EXP_RISK_TEAM
-    if ea == 0.0:
-        ea = DEFAULT_EXP_RISK_AGENT
-    return round(gci + (trans_fee or 0.0) - et - ea - _agent_payment(ci), 2)
-
-
-async def _get_json(client: httpx.AsyncClient, path: str) -> dict:
-    """GET {SISU_BASE}{path} → JSON ({} on error/429-exhausted). Best-effort."""
-    url = f"{settings.SISU_BASE_URL}{path}"
+async def _commission_info(client: httpx.AsyncClient, tid) -> dict:
+    """GET /v1/client/commission-info/{tid} → the commission_info object ({} on error)."""
+    url = f"{settings.SISU_BASE_URL}/v1/client/commission-info/{tid}"
     for attempt in range(3):
         try:
             r = await client.get(url)
@@ -276,7 +247,7 @@ async def _get_json(client: httpx.AsyncClient, path: str) -> dict:
                 await asyncio.sleep(5 * (attempt + 1))
                 continue
             r.raise_for_status()
-            return r.json() or {}
+            return (r.json() or {}).get("commission_info") or {}
         except Exception:  # noqa: BLE001 — best-effort; caller falls back to the split
             if attempt >= 2:
                 return {}
@@ -285,17 +256,20 @@ async def _get_json(client: httpx.AsyncClient, path: str) -> dict:
 
 
 async def enrich_commissions(mapped: list[dict], concurrency: int = 10, progress=None) -> int:
-    """Populate `agent_commission` (= GCI − company dollar) for recently-CLOSED
-    deals via per-deal commission-info (+ edit-client for the reliable trans fee).
-    Pending deals are intentionally NOT enriched (their commission-info isn't
-    finalized) — the projection uses business.default_agent_split for them.
-    Best-effort per deal; returns the count enriched."""
+    """Populate `agent_commission` (= GCI − team_income) from Sisu commission-info,
+    for recently-CLOSED and ALL PENDING deals (both carry a team_income; pending's
+    is the projected split). Best-effort per deal; returns the count enriched."""
     today = dt.date.today()
     cutoff = dt.date(today.year, 1, 1) - dt.timedelta(days=31)   # covers YTD + last month
 
-    targets = [t for t in mapped
-               if t.get("gci") and t.get("external_id")
-               and t.get("status") == "closed" and t.get("close_date") and t["close_date"] >= cutoff]
+    def relevant(t: dict) -> bool:
+        if not (t.get("gci") and t.get("external_id")):
+            return False
+        if t.get("status") == "pending":
+            return True
+        return t.get("status") == "closed" and t.get("close_date") and t["close_date"] >= cutoff
+
+    targets = [t for t in mapped if relevant(t)]
     if not targets:
         return 0
     sem = asyncio.Semaphore(concurrency)
@@ -303,13 +277,10 @@ async def enrich_commissions(mapped: list[dict], concurrency: int = 10, progress
     async with httpx.AsyncClient(auth=_auth(), timeout=45, headers={"accept": "application/json"}) as c:
         async def one(t: dict):
             async with sem:
-                ci = (await _get_json(c, f"/v1/client/commission-info/{t['external_id']}")).get("commission_info") or {}
-                detail = (await _get_json(c, f"/v1/client/edit-client/{t['external_id']}")).get("client") or {}
-            if ci:
-                # edit-client trans_fee is the reliable source; fall back to the summary record.
-                trans_fee = _num(detail.get("trans_fee_amt")) or _num(t.get("trans_fee"))
-                cd = company_dollar(float(t["gci"]), trans_fee, ci)
-                t["agent_commission"] = round(float(t["gci"]) - cd, 2)
+                ci = await _commission_info(c, t["external_id"])
+            ti = team_income(ci)
+            if ti is not None:
+                t["agent_commission"] = round(float(t["gci"]) - ti, 2)
             done[0] += 1
             if progress and done[0] % 50 == 0:
                 progress(done[0], len(targets))
