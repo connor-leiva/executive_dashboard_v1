@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Policy · Spring Command Center</title>
+<meta name="robots" content="index" />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+  :root {
+    --evergreen:#002E2C; --ink:#002E2C; --body:#3B4B44; --slate:#5C6B62; --muted:#8A968C;
+    --parchment:#F8F5F2; --line:#E8E0D4; --white:#FFFFFF; --meadow:#61835E;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--parchment); color:var(--body);
+    font-family:Inter,system-ui,sans-serif; line-height:1.6; font-size:15px; }
+  .wrap { max-width:760px; margin:0 auto; padding:40px 24px 80px; }
+  .back { display:inline-block; font-size:13px; font-weight:600; color:var(--slate);
+    text-decoration:none; margin-bottom:26px; }
+  .back:hover { color:var(--ink); }
+  h1 { font-family:Poppins,sans-serif; font-size:30px; font-weight:700; color:var(--ink);
+    letter-spacing:-.02em; margin:0 0 6px; }
+  .eff { color:var(--muted); font-size:13.5px; margin:0 0 8px; }
+  .note { font-size:13px; color:var(--slate); background:var(--white); border:1px solid var(--line);
+    border-radius:10px; padding:12px 14px; margin:18px 0 26px; }
+  h2 { font-family:Poppins,sans-serif; font-size:17px; font-weight:600; color:var(--evergreen);
+    margin:30px 0 8px; letter-spacing:-.01em; }
+  p { margin:10px 0; } ul { margin:10px 0; padding-left:22px; } li { margin:6px 0; }
+  strong { color:var(--ink); font-weight:600; }
+  .fill { background:#FDECE6; color:#CE4E29; padding:0 4px; border-radius:4px; font-weight:600; }
+  footer { margin-top:50px; padding-top:20px; border-top:1px solid var(--line);
+    font-size:12.5px; color:var(--muted); display:flex; gap:16px; flex-wrap:wrap; }
+  footer a { color:var(--slate); text-decoration:none; } footer a:hover { color:var(--ink); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/">← Spring Command Center</a>
+    <h1>Privacy Policy</h1>
+    <p class="eff">Effective date: July 2, 2026</p>
+
+    <p>Spring Command Center ("the App," "we," "us") is a private, internal business-intelligence
+    application operated by <span class="fill">[LEGAL ENTITY NAME]</span> ("the Company") for use by its
+    authorized personnel. This policy explains what data the App accesses, and how that data is used,
+    stored, and protected.</p>
+
+    <h2>1. Who this applies to</h2>
+    <p>The App is a private tool for the Company's own team. It is not offered to the public and does not
+    create accounts for outside consumers. "Users" means the Company's authorized employees and
+    contractors who are granted access.</p>
+
+    <h2>2. Data we access</h2>
+    <p>With authorization, the App connects to third-party systems the Company already uses and reads
+    business data from them:</p>
+    <ul>
+      <li><strong>QuickBooks Online (Intuit):</strong> financial reporting data such as
+        profit-and-loss summaries and account balances, for the Company's own entities.</li>
+      <li><strong>Sisu:</strong> real estate production data (transactions, agents, pipeline).</li>
+      <li><strong>Follow Up Boss:</strong> CRM data (leads, contacts, agent activity).</li>
+      <li><strong>Arive:</strong> mortgage loan pipeline data.</li>
+    </ul>
+    <p>We access QuickBooks data only through Intuit's official API using OAuth 2.0 authorization granted
+    by an administrator of each QuickBooks company. We request access appropriate to financial reporting
+    and read this data only to display the dashboards and metrics described below.</p>
+
+    <h2>3. How we use the data</h2>
+    <p>Data is used solely to provide internal financial and operational reporting to the Company's
+    authorized Users: computing metrics, rendering dashboards, and flagging anomalies. We do <strong>not</strong>
+    sell, rent, or share the data with third parties, and we do <strong>not</strong> use it for advertising
+    or marketing.</p>
+
+    <h2>4. Personal information</h2>
+    <p>Some connected data may include names or contact details of the Company's clients, agents, or
+    borrowers. We handle this information only as needed to display the reporting described above, and we
+    restrict access to authorized Users.</p>
+
+    <h2>5. Storage and security</h2>
+    <ul>
+      <li>Data is stored in a PostgreSQL database hosted on Railway.</li>
+      <li>All third-party access and refresh tokens, including QuickBooks tokens, are
+        <strong>encrypted at rest</strong>.</li>
+      <li>API credentials (client IDs and secrets) are stored as secured environment variables and are
+        never committed to source code.</li>
+      <li>Access requires authentication, and data is scoped to the Company's own tenant.</li>
+      <li>All data is transmitted over encrypted HTTPS/TLS connections.</li>
+    </ul>
+
+    <h2>6. Data retention and deletion</h2>
+    <p>We retain connected data only as long as needed for reporting. An administrator may disconnect any
+    integration at any time, which revokes the App's access. Upon disconnection or on request, the
+    associated data is deleted from the App.</p>
+
+    <h2>7. Disconnecting QuickBooks</h2>
+    <p>An administrator can disconnect the App from any QuickBooks company at any time from the App's
+    integration settings, or from within QuickBooks under connected apps. Disconnecting revokes the App's
+    token through Intuit's revocation endpoint.</p>
+
+    <h2>8. Third-party services</h2>
+    <p>The App relies on third-party services (Intuit/QuickBooks, Sisu, Follow Up Boss, Arive, and
+    Railway). Their handling of data is governed by their own privacy policies.</p>
+
+    <h2>9. Changes</h2>
+    <p>We may update this policy from time to time. The effective date above reflects the latest version.</p>
+
+    <h2>10. Contact</h2>
+    <p>Questions about this policy: <span class="fill">[CONTACT EMAIL]</span>.</p>
+
+    <footer>
+      <a href="/">Spring Command Center</a>
+      <a href="/eula.html">End-User License Agreement</a>
+      <a href="/privacy.html">Privacy Policy</a>
+    </footer>
+  </div>
+</body>
+</html>

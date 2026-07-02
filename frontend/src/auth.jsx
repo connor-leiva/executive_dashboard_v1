@@ -69,6 +69,11 @@ export function Login({ onLogin }) {
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
+        <div style={{ textAlign: "center", marginTop: 18, fontFamily: "Inter,sans-serif", fontSize: 11.5 }}>
+          <a href="/privacy.html" style={{ color: T.onDarkMute, textDecoration: "none" }}>Privacy Policy</a>
+          <span style={{ color: T.onDarkMute, margin: "0 8px" }}>·</span>
+          <a href="/eula.html" style={{ color: T.onDarkMute, textDecoration: "none" }}>Terms</a>
+        </div>
       </div>
     </div>
   );
