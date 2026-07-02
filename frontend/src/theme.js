@@ -3,35 +3,40 @@
    Evergreen / Parchment / Poppy, Poppins + Inter, ribbed gradient.
    Copied verbatim from the canonical mockup. */
 
+/* Ramp-native brand tokens (Spring Command Center brand spec, Section 3). */
 export const T = {
   evergreen: "#002E2C",
+  ink: "#002E2C",          // text 1
+  secondary: "#334733",    // text 2
+  tertiary: "#4D6A4D",     // text 3
+  slate: "#334733",        // secondary text (was #56655C)
+  muted: "#89A989",        // text 4 / muted (was #8A968C)
   meadow: "#61835E",
+  meadowInk: "#4D6A4D",
+  meadowBg: "#E9EFE7",
   sprout: "#B8CCB8",
-  parchment: "#F8F5F2",
-  line: "#E8E0D4",
+  parchment: "#F6F0E9",    // page surface (was #F8F5F2)
+  page: "#F6F0E9",
+  line: "#EAE1D6",         // hairline (was #E8E0D4)
   white: "#FFFFFF",
   petal: "#FFBA9F",
   poppy: "#FA8069",
-  poppyText: "#CE4E29",
+  poppyActive: "#F74926",
+  poppyText: "#D92B08",    // gap / danger text (was #CE4E29)
+  gapText: "#D92B08",
   mist: "#DCE7E9",
   teal: "#227175",
-  daffodil: "#FFF3AD",
-  ink: "#002E2C",
-  slate: "#56655C",
-  muted: "#8A968C",
+  daffodil: "#FFDD1F",     // flag dot / attention accent (was #FFF3AD)
+  daffodilBg: "#FFF9D6",
+  daffodilText: "#6D5336",
+  amber: "#6D5336",        // alias → daffodilText (Forum/drawer "watch" text)
+  amberBg: "#FFF9D6",      // alias → daffodilBg
   onDark: "#F3EEE7",
   onDarkMute: "#9CB0AB",
-  // The Forum focused view: daffodil = "attention today", amber = watch,
-  // meadow tints = positive progress. No poppy in the Forum view.
-  meadowInk: "#4F6A4D",
-  meadowBg: "#E9EFE7",
-  daffodilBg: "#FFF9D6",
-  amber: "#9C6A1E",
-  amberBg: "#F5EAD3",
 };
 
 export const STATUS = {
-  healthy: { dot: T.meadow, text: "#4F6A4D", label: "Healthy" },
+  healthy: { dot: T.meadow, text: T.tertiary, label: "Healthy" },
   watch: { dot: T.poppy, text: T.poppyText, label: "Watch" },
   opportunity: { dot: T.teal, text: T.teal, label: "Opportunity" },
 };

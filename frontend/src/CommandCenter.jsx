@@ -7,6 +7,7 @@ import { getJSON, postJSON } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
 import Financials from "./Financials.jsx";
 import ForumView, { BeCollectivePlaceholder } from "./ForumView.jsx";
+import { SpringSignature } from "./Brand.jsx";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -309,7 +310,7 @@ function Overview({ data, onOpen, onDrill }) {
         backgroundColor: T.evergreen,
         backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.055) 0px, rgba(255,255,255,0.055) 1.5px, rgba(255,255,255,0) 1.5px, rgba(255,255,255,0) 13px), radial-gradient(135% 130% at 88% -15%, rgba(97,131,94,0.50) 0%, rgba(0,46,44,0) 55%)`,
       }}>
-        <span aria-hidden style={{ position: "absolute", top: 8, right: 26, fontFamily: "Sacramento,cursive", fontSize: 60, color: "rgba(248,245,242,0.13)", lineHeight: 1, pointerEvents: "none" }}>Spring</span>
+        <SpringSignature tone="light" height={46} aria-hidden style={{ position: "absolute", top: 14, right: 26, opacity: 0.12, pointerEvents: "none" }} />
         <Eyebrow onDark>Portfolio · {periodLabel}</Eyebrow>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 34, flexWrap: "wrap", margin: "16px 0 24px" }}>
           <div>
@@ -577,9 +578,10 @@ function Splash({ label, tone }) {
       fontFamily: "Inter,sans-serif", padding: 24,
       backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.045) 0px, rgba(255,255,255,0.045) 1.5px, rgba(255,255,255,0) 1.5px, rgba(255,255,255,0) 13px), radial-gradient(135% 130% at 50% -15%, rgba(97,131,94,0.50) 0%, rgba(0,46,44,0) 55%)`,
     }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=Sacramento&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');`}</style>
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontFamily: "Sacramento,cursive", fontSize: 56, color: T.onDark, lineHeight: 1 }}>Spring</div>
+        <SpringSignature tone="light" height={52} />
+
         <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 8, textTransform: "uppercase" }}>Command Center</div>
         <div style={{ marginTop: 22, fontFamily: "Inter,sans-serif", fontSize: 14, color: tone === "error" ? T.petal : T.onDarkMute }}>{label}</div>
       </div>
@@ -773,7 +775,7 @@ export default function CommandCenter() {
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=Sacramento&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
         .cc-card { transition: transform .15s ease, box-shadow .15s ease; }
         .cc-card:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(0,46,44,.10); }
         .cc-nav { transition: background .12s ease; }
@@ -797,7 +799,7 @@ export default function CommandCenter() {
         {/* Rail */}
         <aside style={{ width: 224, background: T.evergreen, padding: "24px 16px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
           <div style={{ padding: "0 8px 22px" }}>
-            <div style={{ fontFamily: "Sacramento,cursive", fontSize: 34, color: T.onDark, lineHeight: 1 }}>Spring</div>
+            <SpringSignature tone="light" height={30} />
             <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 6, textTransform: "uppercase" }}>Command Center</div>
           </div>
           {NAV.map((n) => {

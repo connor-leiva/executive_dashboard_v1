@@ -4,6 +4,7 @@ import { T } from "./theme.js";
 import { login, hasToken } from "./api.js";
 import CommandCenter from "./CommandCenter.jsx";
 import Settings from "./Settings.jsx";
+import { SpringSignature } from "./Brand.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -44,11 +45,11 @@ export function Login({ onLogin }) {
       padding: 24,
       backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.045) 0px, rgba(255,255,255,0.045) 1.5px, rgba(255,255,255,0) 1.5px, rgba(255,255,255,0) 13px), radial-gradient(135% 130% at 50% -15%, rgba(97,131,94,0.50) 0%, rgba(0,46,44,0) 55%)`,
     }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=Sacramento&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');`}</style>
       <div style={{ width: "100%", maxWidth: 360 }}>
-        <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <div style={{ fontFamily: "Sacramento,cursive", fontSize: 52, color: T.onDark, lineHeight: 1 }}>Spring</div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 8, textTransform: "uppercase" }}>Command Center</div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 26 }}>
+          <SpringSignature tone="light" height={46} />
+          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 10, textTransform: "uppercase" }}>Command Center</div>
         </div>
         <form onSubmit={submit} style={{ background: "rgba(248,245,242,0.04)", border: "1px solid rgba(248,245,242,0.10)", borderRadius: 14, padding: 22 }}>
           <label style={label}>

@@ -51,7 +51,7 @@ const SUBNAV = [
 function SettingsShell({ children }) {
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=Sacramento&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');`}</style>
       <div style={{
         display: "flex", alignItems: "center", gap: 14, padding: "14px 26px",
         borderBottom: `1px solid ${T.line}`, background: T.white,

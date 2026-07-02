@@ -6,7 +6,7 @@
 // data module with no rendering dependency).
 const MEADOW = "#61835E";
 const POPPY = "#FA8069";
-const POPPY_TEXT = "#CE4E29";
+const POPPY_TEXT = "#D92B08";
 const TEAL = "#227175";
 
 const PORTFOLIO_REVENUE = 420000 + 68000 + 82000; // 570000
@@ -48,7 +48,7 @@ const sampleData = {
         name: "Spring B",
         revenue: 68000,
         pct: round1((68000 / PORTFOLIO_REVENUE) * 100), // 11.9
-        accent: "#9C6A1E",
+        accent: "#FFDD1F",
       },
     ],
   },
@@ -71,7 +71,7 @@ const sampleData = {
       tag: "Real estate",
       status: "healthy",
       accent: MEADOW,
-      ink: "#4F6A4D",
+      ink: "#4D6A4D",
       sources: ["QuickBooks", "Sisu", "Follow Up Boss"],
       revenue: 420000,
       noi: 72000,
@@ -106,8 +106,8 @@ const sampleData = {
       name: "The Forum",
       tag: "Mastermind · 70 members · $1.2M ARR",
       status: "watch",
-      accent: "#9C6A1E",
-      ink: "#9C6A1E",
+      accent: "#FFDD1F",
+      ink: "#FFDD1F",
       sources: ["QuickBooks"],
       revenue: 68000,
       noi: 15000,
@@ -137,7 +137,7 @@ const sampleData = {
       tag: "Community · GHL segment",
       status: "opportunity",
       accent: "#FFBA9F",
-      ink: "#C2410C",
+      ink: "#6D5336",
       sources: ["Go High Level"],
       revenue: null,
       noi: null,

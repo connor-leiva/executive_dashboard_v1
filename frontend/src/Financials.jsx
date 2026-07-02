@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useFinancials } from "./useFinancials.js";
+import { SpringSignature } from "./Brand.jsx";
 
 /* ULRG + Team — three-lens Financials (Live / Projection / Booked).
    Design source of truth: ulrg-financial-focus.jsx. Wired to the live API via
@@ -144,7 +145,7 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
 
       {/* hero */}
       <div className="hero">
-        <span className="script">Spring</span>
+        <SpringSignature tone="light" height={42} aria-hidden style={{ position: "absolute", top: 14, right: 24, opacity: 0.12, pointerEvents: "none" }} />
         <div className="feat" key={active}>
           <div className="eyebrow" style={{ color: L.dAccent }}>
             <span className={`edot ${L.live ? "live" : ""}`} style={{ background: L.dAccent, color: L.dAccent }} />
@@ -225,7 +226,6 @@ const FIN_CSS = `
     background-image:repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1.5px, transparent 1.5px 13px),
       radial-gradient(135% 135% at 90% -20%, rgba(95,131,94,.45) 0%, rgba(0,46,44,0) 55%);
     box-shadow:0 2px 6px rgba(0,46,44,.12), 0 18px 40px rgba(0,46,44,.13); }
-  .fin-root .script { position:absolute; top:14px; right:24px; font-family:Sacramento,cursive; font-size:50px; color:rgba(244,239,231,.12); line-height:1; pointer-events:none; }
   .fin-root .feat { min-height:104px; }
   .fin-root .eyebrow { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; }
   .fin-root .eyebrow .edot { width:8px; height:8px; border-radius:99px; }

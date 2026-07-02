@@ -483,10 +483,10 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         forum_tag = f"Mastermind · {members} members" + (f" · {_compact_usd(arr)} ARR" if arr else "")
         areas["forum"] = sb.model_copy(update={
             "key": "forum", "name": "The Forum", "tag": forum_tag,
-            "accent": "#9C6A1E", "ink": "#9C6A1E"})   # amber (daffodil is too light for a border)
+            "accent": "#FFDD1F", "ink": "#6D5336"})   # daffodil (Forum identity)
         areas["becollective"] = AreaPayload(
             id=sb.id, key="becollective", name="beCollective", tag="Community · GHL segment",
-            status="opportunity", accent="#FFBA9F", ink="#C2410C",
+            status="opportunity", accent="#FFBA9F", ink="#6D5336",
             sources=["Go High Level"], revenue=None, noi=None, margin=None,
             trend=sb.trend, pl=[], ops=[], funnel=None)
 
