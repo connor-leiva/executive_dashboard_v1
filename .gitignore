@@ -16,3 +16,6 @@ ghl_audit*.json
 .DS_Store
 .pytest_cache/
 .ruff_cache/
+
+# Brand asset source library (large; processed output in public/brand is committed)
+frontend/brand-src/
