@@ -169,6 +169,94 @@ function GhlConnectForm({ row, onClose, onDone }) {
   );
 }
 
+/* ── QuickBooks: connect each entity to its own QBO company ──── */
+
+function QuickBooksConnect({ live }) {
+  const [businesses, setBusinesses] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(null);
+
+  function load() {
+    if (!live) { setBusinesses(SAMPLE_BUSINESSES); setRows([]); return; }
+    Promise.all([getJSON("/businesses"), getJSON("/integrations")])
+      .then(([b, i]) => { setBusinesses(b); setRows(i.filter((x) => x.provider === "qbo")); })
+      .catch(() => setBusinesses([]));
+  }
+  useEffect(load, []);
+
+  async function connect(biz) {
+    try {
+      const { url } = await getJSON(`/integrations/qbo/connect?business_key=${encodeURIComponent(biz.key)}`);
+      window.location.href = url;               // hand off to Intuit's consent screen
+    } catch { /* leave as-is; the user can retry */ }
+  }
+
+  async function syncNow(row) {
+    setBusy(row.id);
+    const prev = row.last_synced_at;
+    try {
+      await postJSON(`/integrations/${row.id}/sync`);
+      for (let i = 0; i < 30; i++) {
+        await sleep(5000);
+        const fresh = (await getJSON("/integrations")).filter((x) => x.provider === "qbo");
+        setRows(fresh);
+        const r = fresh.find((x) => x.id === row.id);
+        if (r && (r.last_synced_at !== prev || r.status === "error")) break;
+      }
+    } catch { /* the refresh surfaces any error */ } finally { setBusy(null); }
+  }
+
+  async function disconnect(row) {
+    if (!window.confirm("Disconnect this QuickBooks company?")) return;
+    setBusy(row.id);
+    try { await postJSON(`/integrations/${row.id}/disconnect`); load(); } finally { setBusy(null); }
+  }
+
+  if (!businesses) return null;
+  return (
+    <Card title="QuickBooks" hint="Connect each entity to its QuickBooks company. Financial panels light up once connected and synced.">
+      {!live && (
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
+          Preview (sample) — connect to the live API to link QuickBooks.
+        </div>
+      )}
+      {businesses.map((b) => {
+        const row = rows.find((r) => r.business_key === b.key);
+        const connected = row && (row.status === "connected" || row.status === "error");
+        const syncing = row && busy === row.id;
+        return (
+          <div key={b.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${T.line}` }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{b.name}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                {connected ? (
+                  <>
+                    <span style={{ width: 7, height: 7, borderRadius: 99, background: STATUS_DOT[row.status] || T.muted }} />
+                    <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate }}>{STATUS_LABEL[row.status] || row.status}</span>
+                    {row.last_synced_at && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>· synced {relativeTime(row.last_synced_at)}</span>}
+                    {row.status === "error" && row.last_error && <span title={row.last_error} style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText }}>· {String(row.last_error).slice(0, 40)}</span>}
+                  </>
+                ) : (
+                  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>Not connected</span>
+                )}
+              </div>
+            </div>
+            {connected ? (
+              <>
+                {row.status !== "error" && <button disabled={!live || syncing} onClick={() => syncNow(row)} style={live && !syncing ? btn() : btn("disabled")}>{syncing ? "Syncing…" : "Sync now"}</button>}
+                <button disabled={!live || syncing} onClick={() => connect(b)} style={live && !syncing ? btn() : btn("disabled")} title="Re-authorize this QuickBooks company">Reconnect</button>
+                <button disabled={!live || syncing} onClick={() => disconnect(row)} style={live && !syncing ? btn("danger") : btn("disabled")}>Disconnect</button>
+              </>
+            ) : (
+              <button disabled={!live} onClick={() => connect(b)} style={live ? btn("primary") : btn("disabled")}>Connect QuickBooks</button>
+            )}
+          </div>
+        );
+      })}
+    </Card>
+  );
+}
+
 /* ── integrations ──────────────────────────────────────────── */
 
 function IntegrationsPage() {
@@ -219,6 +307,7 @@ function IntegrationsPage() {
   if (!rows) return <Card title="Integrations"><div style={{ color: T.muted, fontSize: 13 }}>Loading…</div></Card>;
 
   return (
+    <>
     <Card title="Integrations" hint="Where each business's numbers come from. Sync a source now, or disconnect it.">
       {!live && (
         <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
@@ -226,7 +315,7 @@ function IntegrationsPage() {
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column" }}>
-        {rows.map((row) => {
+        {rows.filter((r) => r.provider !== "qbo").map((row) => {   // QBO has its own per-entity card below
           const syncing = busy === row.id;
           const connected = row.status === "connected" || row.status === "error";
           return (
@@ -264,6 +353,8 @@ function IntegrationsPage() {
           onDone={() => { setConnecting(null); load(); }} />
       )}
     </Card>
+    <QuickBooksConnect live={live} />
+    </>
   );
 }
 

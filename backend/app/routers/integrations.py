@@ -19,10 +19,17 @@ router = APIRouter(tags=["integrations"])
 
 
 @router.get("/integrations/qbo/connect")
-async def qbo_connect(business_id: uuid.UUID, user: User = Depends(current_user)):
+async def qbo_connect(business_key: str, user: User = Depends(current_user),
+                      s: AsyncSession = Depends(get_session)):
     # Pack tenant+business into signed state so the callback (no Host tenant) can resolve.
-    state = make_token(user.id, user.tenant_id) + "::" + str(business_id)
-    return RedirectResponse(qbo.authorize_url(state))
+    # Return the URL as JSON (not a redirect): the SPA fetches this with the auth
+    # header, then navigates the browser to Intuit.
+    biz = (await s.execute(select(Business).where(
+        Business.tenant_id == user.tenant_id, Business.key == business_key))).scalar_one_or_none()
+    if not biz:
+        raise HTTPException(404, "Unknown business")
+    state = make_token(user.id, user.tenant_id) + "::" + str(biz.id)
+    return {"url": qbo.authorize_url(state)}
 
 
 @router.get("/integrations/qbo/callback")
