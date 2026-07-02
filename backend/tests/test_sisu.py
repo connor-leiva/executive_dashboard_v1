@@ -67,6 +67,36 @@ def test_map_client_fields():
     assert t["sisu_status_code"] == "CLOSD"
 
 
+def test_map_client_expected_close_and_commission_placeholder():
+    t = sisu.map_client(_closed_buyer())
+    # Sisu keeps the (projected) close in closed_dt → expected_close_date mirrors it.
+    assert t["expected_close_date"] == dt.date(2020, 4, 29)
+    # agent_commission is filled later by enrich_commissions(), not at map time.
+    assert t["agent_commission"] is None
+
+
+def test_company_dollar_from_commission_info():
+    ci = {
+        "adjustments": {"fees": [
+            {"category": "EXP Risk Management & Transaction Review Fees", "adjustment_value": 69.49},
+            {"category": "EXP Risk Management & Transaction Review Fees", "adjustment_value": 47.98},
+        ]},
+        "summaries": {"final": {
+            "agent": {"external_type": 2, "value": 6000.0},   # agent cash
+            "team": {"external_type": 1, "value": 4000.0},    # team side (ignored here)
+        }},
+    }
+    assert sisu._exp_risk_fees(ci) == (69.49, 47.98)          # larger=team, smaller=agent
+    assert sisu._agent_payment(ci) == 6000.0                  # only external_type==2
+    # CD = GCI 12000 + fee 495 − 69.49 − 47.98 − 6000 (agent payment)
+    assert sisu.company_dollar(12000.0, 495.0, ci) == round(12000 + 495 - 69.49 - 47.98 - 6000, 2)
+
+
+def test_company_dollar_falls_back_to_default_exp_risk():
+    ci = {"summaries": {"final": {"a": {"external_type": 2, "value": 5000.0}}}}   # no adjustments
+    assert sisu.company_dollar(10000.0, 0.0, ci) == round(10000 - 69.0 - 49.0 - 5000, 2)
+
+
 def test_map_client_seller_side():
     c = _closed_buyer() | {"type_id": "s"}
     assert sisu.map_client(c)["side"] == "sell"

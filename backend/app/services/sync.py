@@ -66,6 +66,16 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUI
     mapped, agents = await sisu.fetch_all_clients(progress=_prog)
     print(f"[sisu] fetched {len(mapped)} transactions, {len(agents)} agents", flush=True)
 
+    # Enrich agent_commission (= GCI − company dollar) for the financials-relevant
+    # subset via the per-deal commission-info endpoint. Best-effort.
+    try:
+        def _cprog(done, total):
+            print(f"[sisu] commissions {done}/{total}", flush=True)
+        n = await sisu.enrich_commissions(mapped, progress=_cprog)
+        print(f"[sisu] enriched {n} commissions", flush=True)
+    except Exception as e:  # noqa: BLE001 — never fail the sync on commission enrichment
+        print(f"[sisu] commission enrichment skipped: {e}", flush=True)
+
     # 1) Batch-upsert the agent roster.
     agent_rows = [
         dict(tenant_id=tenant_id, business_id=business_id, source="sisu",

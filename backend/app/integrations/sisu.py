@@ -179,9 +179,10 @@ def map_client(c: dict) -> dict:
         # Agent commission (cost of sale / company dollar). Field name varies by
         # team config; best-effort across candidates. When absent, compute_financials
         # falls back to gci × business.default_agent_split.
-        "agent_commission": (_money(c.get("agent_commission_amt"))
-                             or _money(c.get("commission_agent_amt"))
-                             or _money(c.get("agent_gci_amt"))),
+        # agent_commission is filled by enrich_commissions() from the per-deal
+        # commission-info endpoint (GCI − company dollar); left None here.
+        "agent_commission": None,
+        "trans_fee": _money(c.get("trans_fee_amt")),
         "sale_price": _money(c.get("trans_amt")) or _money(c.get("closed_volume_amt")),
         "address": _clip(c.get("address_1"), 300),
         "buyer_name": _clip(buyer_names or seller_names or person or None, 200),
@@ -199,3 +200,102 @@ def map_client(c: dict) -> dict:
         "lead_date": parse_dt(c.get("lead_dt")),
         "listing_date": parse_dt(c.get("listing_dt")),
     }
+
+
+# ── Company dollar (net GCI) via the per-deal commission-info endpoint ──
+# Ported from the ROI conversion dashboard (validated against Sisu's UI for this
+# eXp team). CD = GCI + trans fee − EXP Risk (team) − EXP Risk (agent) − agent
+# payment. agent_commission (our "cost of sale") = GCI − CD.
+DEFAULT_EXP_RISK_TEAM = 69.0     # observed team-side fee when Sisu omits the adjustment
+DEFAULT_EXP_RISK_AGENT = 49.0    # observed agent-side fee
+
+
+def _exp_risk_fees(ci: dict) -> tuple[float, float]:
+    """(team, agent) EXP Risk Management fees from commission_info.adjustments.
+    The side designator is unreliable → larger is team, smaller is agent."""
+    amounts: list[float] = []
+    for bucket in (ci.get("adjustments") or {}).values():
+        if not isinstance(bucket, list):
+            continue
+        for item in bucket:
+            if "exp risk management" in (item.get("category") or "").lower():
+                amt = _money(item.get("adjustment_value") or item.get("amount")
+                             or item.get("value") or item.get("total_amount"))
+                if amt and amt > 0:
+                    amounts.append(amt)
+    if not amounts:
+        return 0.0, 0.0
+    if len(amounts) == 1:
+        return amounts[0], 0.0
+    amounts.sort(reverse=True)
+    return amounts[0], amounts[1]
+
+
+def _agent_payment(ci: dict) -> float:
+    """Sum summaries.final for recipients with external_type == 2 (agents)."""
+    finals = (ci.get("summaries") or {}).get("final") or {}
+    return sum(_money((v or {}).get("value")) for v in finals.values()
+               if (v or {}).get("external_type") == 2)
+
+
+def company_dollar(gci: float, trans_fee: float, ci: dict) -> float:
+    et, ea = _exp_risk_fees(ci)
+    if et == 0.0:
+        et = DEFAULT_EXP_RISK_TEAM
+    if ea == 0.0:
+        ea = DEFAULT_EXP_RISK_AGENT
+    return round(gci + (trans_fee or 0.0) - et - ea - _agent_payment(ci), 2)
+
+
+async def _commission_info(client: httpx.AsyncClient, tid) -> dict:
+    """GET /v1/client/commission-info/{tid} → the commission_info object ({} on error)."""
+    url = f"{settings.SISU_BASE_URL}/v1/client/commission-info/{tid}"
+    for attempt in range(3):
+        try:
+            r = await client.get(url)
+            if r.status_code == 429 and attempt < 2:
+                await asyncio.sleep(5 * (attempt + 1))
+                continue
+            r.raise_for_status()
+            return (r.json() or {}).get("commission_info") or {}
+        except Exception:  # noqa: BLE001 — best-effort; caller falls back to the split
+            if attempt >= 2:
+                return {}
+            await asyncio.sleep(1)
+    return {}
+
+
+async def enrich_commissions(mapped: list[dict], concurrency: int = 10, progress=None) -> int:
+    """Populate `agent_commission` (= GCI − company dollar) for the financials-
+    relevant subset (recent closed + all pending) via per-deal commission-info.
+    Best-effort: a failed/empty lookup leaves it None, and compute_financials
+    falls back to the business default_agent_split. Returns the count enriched."""
+    today = dt.date.today()
+    cutoff = dt.date(today.year, 1, 1) - dt.timedelta(days=31)   # covers YTD + last month
+
+    def relevant(t: dict) -> bool:
+        if not (t.get("gci") and t.get("external_id")):
+            return False
+        if t.get("status") == "pending":
+            return True
+        return t.get("status") == "closed" and t.get("close_date") and t["close_date"] >= cutoff
+
+    targets = [t for t in mapped if relevant(t)]
+    if not targets:
+        return 0
+    sem = asyncio.Semaphore(concurrency)
+    done = [0]
+    async with httpx.AsyncClient(auth=_auth(), timeout=45, headers={"accept": "application/json"}) as c:
+        async def one(t: dict):
+            async with sem:
+                ci = await _commission_info(c, t["external_id"])
+            if ci:
+                cd = company_dollar(float(t["gci"]), float(t.get("trans_fee") or 0), ci)
+                t["agent_commission"] = round(float(t["gci"]) - cd, 2)
+            done[0] += 1
+            if progress and done[0] % 50 == 0:
+                progress(done[0], len(targets))
+        await asyncio.gather(*(one(t) for t in targets))
+    if progress:
+        progress(len(targets), len(targets))
+    return sum(1 for t in targets if t.get("agent_commission") is not None)
