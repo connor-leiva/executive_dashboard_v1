@@ -51,7 +51,11 @@ const SUBNAV = [
 function SettingsShell({ children }) {
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');`}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+        input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid ${T.teal}; outline-offset: 2px; }
+        input[type="checkbox"], input[type="radio"] { accent-color: ${T.evergreen}; width: 15px; height: 15px; }
+      `}</style>
       <div style={{
         display: "flex", alignItems: "center", gap: 14, padding: "14px 26px",
         borderBottom: `1px solid ${T.line}`, background: T.white,
@@ -420,7 +424,7 @@ function AccountPage() {
 /* ── businesses (read-only for now) ────────────────────────── */
 
 const SAMPLE_BUSINESSES = [
-  { key: "ulrg", name: "ULRG + Team", tag: "Real estate", status: "healthy", accent: T.meadow, ink: "#4F6A4D", is_jv: false, jv_share: 1, watch_margin_below: null, per_loan_share: null, expense_run_rate_mode: "manual", expense_run_rate_manual: 96000, default_agent_split: 0.60 },
+  { key: "ulrg", name: "ULRG + Team", tag: "Real estate", status: "healthy", accent: T.meadow, ink: "#4D6A4D", is_jv: false, jv_share: 1, watch_margin_below: null, per_loan_share: null, expense_run_rate_mode: "manual", expense_run_rate_manual: 96000, default_agent_split: 0.60 },
   { key: "springb", name: "Spring B", tag: "beCollective + The Forum", status: "watch", accent: T.poppy, ink: T.poppyText, is_jv: false, jv_share: 1, watch_margin_below: 25, per_loan_share: null },
   { key: "sympli", name: "Sympli Mortgage", tag: "Joint venture · 50% owned", status: "opportunity", accent: T.teal, ink: T.teal, is_jv: true, jv_share: 0.5, watch_margin_below: null, per_loan_share: 2100 },
 ];
@@ -428,7 +432,7 @@ const SAMPLE_BUSINESSES = [
 function BusinessEditForm({ biz, onClose, onDone }) {
   const [f, setF] = useState({
     name: biz.name || "", tag: biz.tag || "", status: biz.status || "healthy",
-    accent: biz.accent || "#61835E", ink: biz.ink || "#4F6A4D", is_jv: !!biz.is_jv,
+    accent: biz.accent || "#61835E", ink: biz.ink || "#4D6A4D", is_jv: !!biz.is_jv,
     jv_pct: Math.round((biz.jv_share ?? 1) * 100),
     watch_margin_below: biz.watch_margin_below ?? "",
     per_loan_share: biz.per_loan_share ?? "",

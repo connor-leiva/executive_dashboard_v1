@@ -9,24 +9,24 @@ export const T = {
   ink: "#002E2C",          // text 1
   secondary: "#334733",    // text 2
   tertiary: "#4D6A4D",     // text 3
-  slate: "#334733",        // secondary text (was #56655C)
-  muted: "#89A989",        // text 4 / muted (was #8A968C)
+  slate: "#334733",        // secondary text
+  muted: "#89A989",        // text 4 / muted
   meadow: "#61835E",
   meadowInk: "#4D6A4D",
   meadowBg: "#E9EFE7",
   sprout: "#B8CCB8",
-  parchment: "#F6F0E9",    // page surface (was #F8F5F2)
+  parchment: "#F6F0E9",    // page surface
   page: "#F6F0E9",
-  line: "#EAE1D6",         // hairline (was #E8E0D4)
+  line: "#EAE1D6",         // hairline
   white: "#FFFFFF",
   petal: "#FFBA9F",
   poppy: "#FA8069",
   poppyActive: "#F74926",
-  poppyText: "#D92B08",    // gap / danger text (was #CE4E29)
+  poppyText: "#D92B08",    // gap / danger text
   gapText: "#D92B08",
   mist: "#DCE7E9",
   teal: "#227175",
-  daffodil: "#FFDD1F",     // flag dot / attention accent (was #FFF3AD)
+  daffodil: "#FFDD1F",     // flag dot / attention accent
   daffodilBg: "#FFF9D6",
   daffodilText: "#6D5336",
   amber: "#6D5336",        // alias → daffodilText (Forum/drawer "watch" text)

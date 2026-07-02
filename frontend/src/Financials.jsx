@@ -8,12 +8,12 @@ import { SpringSignature } from "./Brand.jsx";
    CSS is scoped under .fin-root so its generic class names can't collide. */
 
 const C = {
-  ink: "#002E2C", body: "#3B4B44", slate: "#5C6B62", muted: "#93A099",
-  hair: "#ECE6DC", page: "#F0EBE3", surface: "#FFFFFF",
-  meadow: "#5F7D5A", teal: "#1F6E72", evergreen: "#002E2C",
-  poppyDeep: "#CE4E29", amber: "#9C6A1E", amberBg: "#F5EAD3",
-  onDark: "#F4EFE7", onDarkMute: "#9FB4AE",
-  dLive: "#9CC496", dProj: "#5FBFC4", dBooked: "#E4D9BF",
+  ink: "#002E2C", body: "#334733", slate: "#4D6A4D", muted: "#89A989",
+  hair: "#EAE1D6", page: "#F6F0E9", surface: "#FFFFFF",
+  meadow: "#61835E", teal: "#227175", evergreen: "#002E2C",
+  poppyDeep: "#D92B08", amber: "#6D5336", amberBg: "#FFF9D6",
+  onDark: "#F3EEE7", onDarkMute: "#9CB0AB",
+  dLive: "#B8CCB8", dProj: "#67A5AA", dBooked: "#E4D9BF",
 };
 
 const PRES = {

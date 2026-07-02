@@ -530,7 +530,7 @@ function Flywheel({ flywheel }) {
             <div style={{ width: `${100 - pct}%`, background: T.poppy }} />
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: "#4F6A4D", fontWeight: 600 }}>{pct}% captured</span>
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: "#4D6A4D", fontWeight: 600 }}>{pct}% captured</span>
             <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, fontWeight: 600 }}>{100 - pct}% lost · target 60%+</span>
           </div>
         </div>
@@ -778,7 +778,7 @@ export default function CommandCenter() {
         .cc-card { transition: transform .15s ease, box-shadow .15s ease; }
         .cc-card:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(0,46,44,.10); }
         .cc-nav { transition: background .12s ease; }
-        .cc-nav:focus-visible, .cc-card:focus-visible { outline: 2px solid ${T.poppy}; outline-offset: 2px; }
+        .cc-nav:focus-visible, .cc-card:focus-visible { outline: 2px solid ${T.teal}; outline-offset: 2px; }
         .cc-cards { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
         .cc-score { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
         .cc-ops { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -845,7 +845,7 @@ export default function CommandCenter() {
                 ? (sources || []).map((s) => {
                     const stale = s.status === "connected" && s.last_synced &&
                       Date.now() - new Date(s.last_synced).getTime() > 2 * 3600 * 1000;
-                    const dot = s.status !== "connected" ? T.muted : stale ? "#C99A2E" : T.meadow;
+                    const dot = s.status !== "connected" ? T.muted : stale ? "#FFDD1F" : T.meadow;
                     const tip = s.last_synced ? `${s.name} · synced ${relativeTime(s.last_synced)}` : `${s.name} · ${s.status}`;
                     return (
                       <span key={s.name} title={tip} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
