@@ -204,7 +204,6 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
             _months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
             today = dt.date.today()
             window = {_months[(today.month - 1 + i) % 12] for i in range(3)}
-            _label = {"committed": "Committed", "talking": "In conversation", "risk": "At risk"}
             recs = (await s.execute(q("membership"))).scalars().all()
             book = []
             for r in recs:
@@ -212,14 +211,13 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
                 mon = (meta.get("renewal_month") or "")[:3].title()
                 if mon not in window:
                     continue
-                st = meta.get("renewal_status") or "talking"
                 book.append((mon, -(float(r.amount or 0)), title_name(r),
-                             f"{mon} · {_label.get(st, st)} · ${float(r.amount or 0):,.0f}", r.source_url, str(r.id)))
+                             f"renews {mon} · ${float(r.amount or 0):,.0f}", r.source_url, str(r.id)))
             book.sort(key=lambda x: (_months.index(x[0]) if x[0] in _months else 99, x[1]))
             rows = [{"id": rid, "name": nm, "status": stt, "source_url": url}
                     for (_m, _v, nm, stt, url, rid) in book]
             return {"label": "Renewal Book · next 90 days", "source": "Go High Level",
-                    "computed_as": "Memberships whose renewal month falls in the next 90 days, by month.",
+                    "computed_as": "Memberships whose renewal month falls in the next 90 days, by month + contract value.",
                     "count": len(rows), "rows": rows}
 
         if key == "monthly":

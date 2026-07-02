@@ -89,12 +89,10 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     event = _event(cfg, members_total, member_regs, guests)
     revq = await _revq(s, base, memberships, arr, tenant_id, biz.id)
 
-    # ── watch signals ──
+    # ── watch signals (only real ones: past-due payments + event pace) ──
     watch_items = []
     if revq and revq.get("past_due") and revq["past_due"]["count"] > 0:
         watch_items.append("pastdue")
-    if renewals and renewals["summary"]["mix"].get("risk", 0) > 0:
-        watch_items.append("at_risk")
     if event and event.get("behind_pace"):
         watch_items.append("behind_pace")
 
@@ -116,45 +114,59 @@ def _period_label(period: str) -> str:
             "ytd": "year to date", "last_month": "last month"}.get(period, period)
 
 
+# The Forum Main Sales Funnel has ~22 raw stages; collapse them into a clean
+# 4-step recruiting funnel. Overridable via cfg["recruiting_stage_groups"]
+# (ordered [label, [stage-substrings]]). First matching group wins.
+DEFAULT_RECRUITING_GROUPS = [
+    ["Applied", ["qualif", "opt in", "unresponsive", "did not schedule", "application"]],
+    ["Appointment", ["appointment", "vip guest", "call booked", "attended mastermind", "no show"]],
+    ["Contract sent", ["sent contract"]],
+    ["Onboarding", ["payment received", "fulfillment"]],
+]
+
+
 async def _funnel(s, base, cfg) -> dict | None:
     recs = (await s.execute(select(MetricRecord).where(*base("recruiting")))).scalars().all()
     if not recs:
         return None
     default_val = float(cfg.get("default_contract_value") or 0)
-    by_stage: dict = {}
+    groups = cfg.get("recruiting_stage_groups") or DEFAULT_RECRUITING_GROUPS
+    buckets = {label: {"label": label, "v": 0, "value": 0.0} for label, _ in groups}
     for r in recs:
-        m = r.meta or {}
-        st = m.get("stage") or "—"
-        pos = m.get("stage_position", 999)
-        g = by_stage.setdefault(st, {"label": st, "pos": pos, "v": 0, "value": 0.0})
+        stage = ((r.meta or {}).get("stage") or "").lower()
+        label = next((lbl for lbl, subs in groups if any(sub in stage for sub in subs)), None)
+        if label is None:                        # stage outside the defined groups → skip
+            continue
+        g = buckets[label]
         g["v"] += 1
         g["value"] += float(r.amount) if r.amount is not None else default_val
-    stages = sorted(by_stage.values(), key=lambda x: x["pos"])
+    stages = [buckets[lbl] for lbl, _ in groups if buckets[lbl]["v"] > 0]
+    if not stages:
+        return None
     return {"stages": [{"label": g["label"], "v": g["v"], "value": _usd(g["value"])} for g in stages],
             "footer": cfg.get("funnel_footer")}
 
 
 def _renewals(memberships) -> dict | None:
+    """Members due to renew in the next 90 days, by month + contract value.
+    (Renewal *health* isn't tracked in GHL — the renewals pipeline is filed by
+    month — so there are no committed/talking/risk statuses.)"""
     if not memberships:
         return None
     today = dt.date.today()
     window = {_MONTHS[(today.month - 1 + i) % 12] for i in range(3)}   # this + next 2 months
     rows = []
-    mix = {"committed": 0, "talking": 0, "risk": 0}
-    risk_value = 0.0
+    segments = {"F": 0, "IC": 0}
     for m in memberships:
         meta = m.meta or {}
         mon = (meta.get("renewal_month") or "")[:3].title()
         if mon not in {w[:3] for w in window}:
             continue
-        status = meta.get("renewal_status") or "talking"
-        mix[status] = mix.get(status, 0) + 1
+        seg = "IC" if m.segment == "inner_circle" else "F"
+        segments[seg] += 1
         val = float(m.amount or 0)
-        if status == "risk":
-            risk_value += val
         rows.append({"name": (m.name or "").title() or m.external_id,
-                     "seg": "IC" if m.segment == "inner_circle" else "F",
-                     "month": mon, "value": _usd(val), "status": status, "_val": val})
+                     "seg": seg, "month": mon, "value": _usd(val), "_val": val})
     if not rows:
         return None
     order = {"Jan": 0, "Feb": 1, "Mar": 2, "Apr": 3, "May": 4, "Jun": 5,
@@ -162,8 +174,8 @@ def _renewals(memberships) -> dict | None:
     rows.sort(key=lambda r: (order.get(r["month"], 99), -r["_val"]))
     total = sum(r["_val"] for r in rows)
     return {"rows": [{kk: vv for kk, vv in r.items() if kk != "_val"} for r in rows[:6]],
-            "summary": {"count": len(rows), "value": _usd(total), "mix": mix,
-                        "risk_value": _usd(risk_value), "retention": None}}
+            "summary": {"count": len(rows), "value": _usd(total),
+                        "segments": segments, "retention": None}}
 
 
 def _event(cfg, members_total, member_regs, guests) -> dict | None:
@@ -229,16 +241,17 @@ async def _revq(s, base, memberships, arr, tenant_id, business_id) -> dict | Non
 def _deck(funnel, renewals, event, revq, members_total, registered) -> list[dict]:
     deck = []
     if funnel:
-        last = funnel["stages"][-1] if funnel["stages"] else {"v": 0, "value": "$0"}
+        last = funnel["stages"][-1] if funnel["stages"] else {"v": 0, "value": "$0", "label": "near-term"}
         deck.append({"k": "pipeline", "label": "Recruiting pipeline",
                      "hero": str(sum(x["v"] for x in funnel["stages"])), "hero_sub": "in the pipeline",
-                     "salient": f"{last['v']} invited · {last['value']} near-term", "tone": "good"})
+                     "salient": f"{last['v']} in {last['label'].lower()} · {last['value']}", "tone": "good"})
     if renewals:
         sm = renewals["summary"]
+        seg = sm.get("segments", {})
         deck.append({"k": "renewals", "label": "Renewals · next 90 days",
                      "hero": sm["value"], "hero_sub": f"{sm['count']} renewals",
-                     "salient": f"{sm['mix'].get('risk', 0)} at risk · {sm['risk_value']}",
-                     "tone": "watch" if sm["mix"].get("risk", 0) else "good"})
+                     "salient": f"Forum {seg.get('F', 0)} · Inner Circle {seg.get('IC', 0)}",
+                     "tone": "good"})
     if event:
         pct = round((event["registered"] / event["members"] * 100)) if event["members"] else 0
         deck.append({"k": "event", "label": f"Next event · {event['where']}",

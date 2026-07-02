@@ -13,12 +13,6 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 const ACCENT = T.evergreen;   // structure: label ticks, bars
 const GOOD = T.meadow;        // positive progress fills
 
-const RENEWAL_STATUS = {
-  committed: { label: "Committed", bg: T.meadowBg, text: T.meadowInk },
-  talking: { label: "In conversation", bg: T.mist, text: T.teal },
-  risk: { label: "At risk", bg: T.amberBg, text: T.amber },
-};
-
 /* ── small pieces ──────────────────────────────────────────── */
 
 function Source({ name }) {
@@ -53,16 +47,6 @@ function SegChip({ seg }) {
       color: f ? T.evergreen : T.teal, background: f ? T.daffodil : T.mist,
       borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0,
     }}>{f ? "Forum" : "IC"}</span>
-  );
-}
-
-function StatusChip({ status }) {
-  const s = RENEWAL_STATUS[status] || RENEWAL_STATUS.talking;
-  return (
-    <span style={{
-      fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600,
-      color: s.text, background: s.bg, borderRadius: 5, padding: "3px 8px", whiteSpace: "nowrap",
-    }}>{s.label}</span>
   );
 }
 
@@ -134,11 +118,10 @@ function microFor(k, data) {
   const { funnel, renewals, event, revq } = data;
   if (k === "pipeline" && funnel) return <MicroBars stages={funnel.stages} />;
   if (k === "renewals" && renewals) {
-    const m = renewals.summary.mix;
+    const seg = renewals.summary.segments || {};
     return <MicroSplit parts={[
-      { v: m.committed || 0, c: GOOD },
-      { v: m.talking || 0, c: T.teal, o: 0.35 },
-      { v: m.risk || 0, c: T.amber, o: 0.55 },
+      { v: seg.F || 0, c: GOOD },
+      { v: seg.IC || 0, c: T.teal, o: 0.5 },
     ]} />;
   }
   if (k === "event" && event) {
@@ -231,8 +214,7 @@ function RenewalsDetail({ renewals, onOpen }) {
             <span style={{ width: 28, fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>{r.month}</span>
             <span style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
             <SegChip seg={r.seg} />
-            <span style={{ width: 40, fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.value}</span>
-            <span style={{ width: 104, textAlign: "right" }}><StatusChip status={r.status} /></span>
+            <span style={{ width: 56, fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.value}</span>
           </div>
         ))}
       </div>

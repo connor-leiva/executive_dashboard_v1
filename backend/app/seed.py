@@ -281,9 +281,12 @@ async def seed():
                     status="past_due" if i >= 16 else "active",
                     segment="forum")
 
-            # Recruiting funnel (open sales-funnel opps by stage).
-            _funnel = [("New Lead", 0, 14, 0), ("Discovery", 1, 9, 12000),
-                       ("Proposal", 2, 5, 12000), ("Invited", 3, 3, 12000)]
+            # Recruiting funnel (open Forum Main Sales Funnel opps by real stage —
+            # collapsed into Applied/Appointment/Contract sent/Onboarding groups).
+            _funnel = [("Opt In - No Application", 0, 14, 0),
+                       ("Scheduled Appointment", 4, 9, 12000),
+                       ("Sent Contract: Single - PIF", 16, 5, 12000),
+                       ("Payment Received: Fulfillment Started", 20, 3, 12000)]
             fi = 0
             for label, pos, n, val in _funnel:
                 for _ in range(n):

@@ -73,10 +73,11 @@ async def _seed_forum(*, with_recruiting: bool = True, with_event: bool = True):
         add(kind="subscription", external_id="sub3", name="F1", amount=250, status="past_due", segment="forum")
 
         if with_recruiting:
+            # Real Forum Main Sales Funnel stage names → group into Appointment / Contract sent.
             add(kind="recruiting", external_id="opp1", name="P1", status="open", amount=12000,
-                meta={"stage": "Discovery", "stage_position": 1})
+                meta={"stage": "Scheduled Appointment", "stage_position": 4})
             add(kind="recruiting", external_id="opp2", name="P2", status="open", amount=12000,
-                meta={"stage": "Invited", "stage_position": 3})
+                meta={"stage": "Sent Contract: Single - PIF", "stage_position": 16})
 
         add(kind="onboarded", external_id="on1", name="New A", occurred_on=today, amount=3000, segment="forum")
         add(kind="onboarded", external_id="on2", name="New B", occurred_on=today, amount=3000, segment="forum")
@@ -136,11 +137,13 @@ async def test_forum_invariants():
     await _seed_forum()
     d = await _get_forum()
 
-    # renewals: mix components sum to the count
+    # renewals: by month + segment (no health status — GHL doesn't track it)
     sm = d["renewals"]["summary"]
     assert sm["count"] == 4                              # ms1,ms2,ms3,ms4 in window; ms5 out
-    assert sum(sm["mix"].values()) == sm["count"]
-    assert sm["mix"] == {"committed": 2, "talking": 1, "risk": 1}
+    assert sm["segments"] == {"F": 3, "IC": 1}          # 3 Forum + 1 Inner Circle
+    assert sum(sm["segments"].values()) == sm["count"]
+    assert "mix" not in sm                               # health status removed
+    assert all("status" not in r for r in d["renewals"]["rows"])
 
     # payment mix: pif + monthly == membership count, and their $ == ARR
     revq = d["revq"]
@@ -157,9 +160,9 @@ async def test_forum_invariants():
     bridge = {b["label"]: b["value"] for b in revq["bridge"]}
     assert set(bridge) == {"Jan 1", "New", "Churned", "Today"}
 
-    # funnel stages ordered by pipeline position
+    # funnel: raw stages collapsed into the clean groups, in order
     positions = [st["label"] for st in d["funnel"]["stages"]]
-    assert positions == ["Discovery", "Invited"]
+    assert positions == ["Appointment", "Contract sent"]
 
 
 async def test_forum_drills():
