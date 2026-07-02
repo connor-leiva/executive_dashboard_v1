@@ -181,6 +181,33 @@ async def test_forum_drills():
         assert unreg["count"] == 2                       # IC1, IC2 have no registration
 
 
+async def test_recruiting_funnel_grouping():
+    # VIP Guest must not fall into Applied on the word "application"; dead/nurture
+    # stages (Unresponsive) are excluded from the bars and counted in the footer;
+    # and the funnel is count-only (no dollar column).
+    await _seed_forum()
+    from app.db import SessionLocal
+    from app.models import Business, MetricRecord
+    from sqlalchemy import select, delete
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.source == "ghl",
+            MetricRecord.kind == "recruiting"))
+        for ext, stage in [("o1", "Qualifi"), ("o2", "VIP Guest- application submitted"),
+                           ("o3", "VIP GUEST - Call Booked"), ("o4", "Unresponsive"),
+                           ("o5", "Sent Contract: Dual - PIF")]:
+            s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
+                               kind="recruiting", external_id=ext, name=ext, status="open",
+                               meta={"stage": stage}))
+        await s.commit()
+    f = (await _get_forum())["funnel"]
+    labels = {st["label"]: st["v"] for st in f["stages"]}
+    assert labels == {"Applied": 1, "VIP Guest": 2, "Contract sent": 1}   # Unresponsive excluded
+    assert all("value" not in st for st in f["stages"])                    # dollar column dropped
+    assert "1 more" in (f["footer"] or "")                                 # the 1 nurture opp
+
+
 async def test_event_renders_without_date():
     # Prod scenario: event_name is configured but event_date hasn't been set yet.
     # The event card must still render (days_out None) rather than disappear.

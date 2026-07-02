@@ -14,19 +14,18 @@ export default {
     { key: "mrr", label: "MRR", value: "$31K", sub: "monthly subscriptions", drill: "monthly" },
   ],
   deck: [
-    { k: "pipeline", label: "Recruiting pipeline", hero: "31", hero_sub: "in the pipeline", salient: "3 in onboarding · $84K", tone: "good" },
+    { k: "pipeline", label: "Recruiting pipeline", hero: "138", hero_sub: "in the pipeline", salient: "15 in vip guest", tone: "good" },
     { k: "renewals", label: "Renewals · next 90 days", hero: "$300K", hero_sub: "12 renewals", salient: "Forum 8 · Inner Circle 4", tone: "good" },
     { k: "event", label: "Next event · Park City", hero: "75", hero_sub: "days out", salient: "42 unregistered · behind pace", tone: "watch" },
     { k: "revq", label: "Revenue quality", hero: "69%", hero_sub: "paid in full", salient: "2 past due · $4.4K", tone: "watch" },
   ],
   funnel: {
     stages: [
-      { label: "Applied", v: 14, value: "$392K" },
-      { label: "Appointment", v: 9, value: "$252K" },
-      { label: "Contract sent", v: 6, value: "$168K" },
-      { label: "Onboarding", v: 3, value: "$84K" },
+      { label: "Applied", v: 108 },
+      { label: "Appointment", v: 15 },
+      { label: "VIP Guest", v: 15 },
     ],
-    footer: "Forum Main Sales Funnel · open opportunities",
+    footer: "54 more in nurture / unresponsive stages (not active deals)",
   },
   renewals: {
     rows: [

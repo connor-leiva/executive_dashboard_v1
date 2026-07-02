@@ -282,11 +282,14 @@ async def seed():
                     segment="forum")
 
             # Recruiting funnel (open Forum Main Sales Funnel opps by real stage —
-            # collapsed into Applied/Appointment/Contract sent/Onboarding groups).
+            # collapsed into Applied/Appointment/VIP Guest/Contract sent/Onboarding;
+            # dead/nurture stages like Unresponsive land in the footer count).
             _funnel = [("Opt In - No Application", 0, 14, 0),
-                       ("Scheduled Appointment", 4, 9, 12000),
-                       ("Sent Contract: Single - PIF", 16, 5, 12000),
-                       ("Payment Received: Fulfillment Started", 20, 3, 12000)]
+                       ("Scheduled Appointment", 4, 9, 0),
+                       ("VIP Guest- application submitted", 8, 6, 0),
+                       ("Sent Contract: Single - PIF", 16, 5, 0),
+                       ("Payment Received: Fulfillment Started", 20, 3, 0),
+                       ("Unresponsive", 2, 7, 0)]
             fi = 0
             for label, pos, n, val in _funnel:
                 for _ in range(n):

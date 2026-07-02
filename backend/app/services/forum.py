@@ -116,10 +116,15 @@ def _period_label(period: str) -> str:
 
 # The Forum Main Sales Funnel has ~22 raw stages; collapse them into a clean
 # 4-step recruiting funnel. Overridable via cfg["recruiting_stage_groups"]
-# (ordered [label, [stage-substrings]]). First matching group wins.
+# (ordered [label, [stage-substrings]]). First matching group wins, so substrings
+# are precise: e.g. "VIP Guest- application submitted" must land in VIP Guest, not
+# Applied. Dead/nurture stages (Unresponsive, No Show, Attended in the Past) match
+# no group and are counted only in the footer. Count-only — the sales funnel opps
+# don't carry meaningful $ (real dollars live in the renewals pipeline + payments).
 DEFAULT_RECRUITING_GROUPS = [
-    ["Applied", ["qualif", "opt in", "unresponsive", "did not schedule", "application"]],
-    ["Appointment", ["appointment", "vip guest", "call booked", "attended mastermind", "no show"]],
+    ["Applied", ["qualif", "opt in", "did not schedule"]],
+    ["Appointment", ["scheduled appointment", "appointment complete"]],
+    ["VIP Guest", ["vip guest"]],
     ["Contract sent", ["sent contract"]],
     ["Onboarding", ["payment received", "fulfillment"]],
 ]
@@ -129,22 +134,24 @@ async def _funnel(s, base, cfg) -> dict | None:
     recs = (await s.execute(select(MetricRecord).where(*base("recruiting")))).scalars().all()
     if not recs:
         return None
-    default_val = float(cfg.get("default_contract_value") or 0)
     groups = cfg.get("recruiting_stage_groups") or DEFAULT_RECRUITING_GROUPS
-    buckets = {label: {"label": label, "v": 0, "value": 0.0} for label, _ in groups}
+    buckets = {label: {"label": label, "v": 0} for label, _ in groups}
+    grouped = 0
     for r in recs:
         stage = ((r.meta or {}).get("stage") or "").lower()
         label = next((lbl for lbl, subs in groups if any(sub in stage for sub in subs)), None)
-        if label is None:                        # stage outside the defined groups → skip
+        if label is None:                        # dead/nurture stage → footer only
             continue
-        g = buckets[label]
-        g["v"] += 1
-        g["value"] += float(r.amount) if r.amount is not None else default_val
+        buckets[label]["v"] += 1
+        grouped += 1
     stages = [buckets[lbl] for lbl, _ in groups if buckets[lbl]["v"] > 0]
     if not stages:
         return None
-    return {"stages": [{"label": g["label"], "v": g["v"], "value": _usd(g["value"])} for g in stages],
-            "footer": cfg.get("funnel_footer")}
+    other = len(recs) - grouped
+    footer = cfg.get("funnel_footer")
+    if other > 0 and not footer:
+        footer = f"{other} more in nurture / unresponsive stages (not active deals)"
+    return {"stages": [{"label": g["label"], "v": g["v"]} for g in stages], "footer": footer}
 
 
 def _renewals(memberships) -> dict | None:
@@ -241,10 +248,10 @@ async def _revq(s, base, memberships, arr, tenant_id, business_id) -> dict | Non
 def _deck(funnel, renewals, event, revq, members_total, registered) -> list[dict]:
     deck = []
     if funnel:
-        last = funnel["stages"][-1] if funnel["stages"] else {"v": 0, "value": "$0", "label": "near-term"}
+        last = funnel["stages"][-1] if funnel["stages"] else {"v": 0, "label": "pipeline"}
         deck.append({"k": "pipeline", "label": "Recruiting pipeline",
                      "hero": str(sum(x["v"] for x in funnel["stages"])), "hero_sub": "in the pipeline",
-                     "salient": f"{last['v']} in {last['label'].lower()} · {last['value']}", "tone": "good"})
+                     "salient": f"{last['v']} in {last['label'].lower()}", "tone": "good"})
     if renewals:
         sm = renewals["summary"]
         seg = sm.get("segments", {})

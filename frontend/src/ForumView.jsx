@@ -186,8 +186,7 @@ function PipelineDetail({ funnel }) {
             <div style={{ flex: 1, height: 22, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
               <div style={{ width: `${(s.v / max) * 100}%`, height: "100%", background: ACCENT, opacity: 0.35 + 0.65 * (s.v / max), borderRadius: 5 }} />
             </div>
-            <span style={{ width: 26, fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.v}</span>
-            <span style={{ width: 52, fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.value}</span>
+            <span style={{ width: 32, fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.v}</span>
           </div>
         ))}
       </div>
