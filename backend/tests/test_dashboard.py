@@ -68,7 +68,7 @@ async def test_login_and_dashboard_shape():
     labels = {s["label"]: s for s in d["scorecards"]}
     assert labels["Combined Profit"]["value"] == "$109K"
     assert labels["Combined Profit"]["business_key"] == "portfolio"
-    assert labels["Active Members"]["value"] == "—"       # placeholder until GHL syncs
+    assert labels["Active Members"]["value"] == "70"      # Forum sample data (SEED_SAMPLE_OPS)
 
     # Sources collapse per provider; QBO connected, Arive still pending (Phase 3).
     src = {s["name"]: s["status"] for s in d["sources"]}
@@ -112,9 +112,12 @@ async def test_active_members_drilldown():
     # Insert a couple of GHL member records, then confirm the drawer lists them.
     from app.db import SessionLocal
     from app.models import Business, MetricRecord
-    from sqlalchemy import select as _select
+    from sqlalchemy import select as _select, delete as _delete
     async with SessionLocal() as s:
         biz = (await s.execute(_select(Business).where(Business.key == "springb"))).scalar_one()
+        # Clear the sample Forum members so the count reflects just these two.
+        await s.execute(_delete(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.source == "ghl"))
         for i in range(2):
             s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
                                kind="member", external_id=f"c{i}", name=f"Member {i}",

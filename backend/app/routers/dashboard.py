@@ -7,6 +7,7 @@ from ..models import User
 from ..schemas import DashboardResponse
 from ..services.metrics import build_dashboard
 from ..services.lineage import metric_detail
+from ..services.forum import build_forum
 
 router = APIRouter(tags=["dashboard"])
 
@@ -18,6 +19,16 @@ async def dashboard(
     s: AsyncSession = Depends(get_session),
 ):
     return await build_dashboard(s, user.tenant_id, period)
+
+
+@router.get("/forum")
+async def forum(
+    period: str = Query("mtd"),
+    user: User = Depends(current_user),
+    s: AsyncSession = Depends(get_session),
+):
+    """The Forum focused view — KPIs, deep-dive deck, funnel, renewals, event, revenue quality."""
+    return await build_forum(s, user.tenant_id, period)
 
 
 @router.get("/metrics/{key}/detail")

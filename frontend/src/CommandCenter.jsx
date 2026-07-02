@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { T, STATUS, usd, signed, relativeTime } from "./theme.js";
 import { useDashboard } from "./useDashboard.js";
+import { useForum } from "./useForum.js";
 import { getJSON, postJSON } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
 import Financials from "./Financials.jsx";
+import ForumView, { BeCollectivePlaceholder } from "./ForumView.jsx";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -707,7 +709,8 @@ function PeriodSelector({ value, onChange }) {
 const NAV = [
   { k: "overview", label: "Portfolio", dot: T.parchment },
   { k: "ulrg", label: "ULRG + Team", dot: T.meadow },
-  { k: "springb", label: "Spring B", dot: T.poppy },
+  { k: "forum", label: "The Forum", dot: T.daffodil },
+  { k: "becollective", label: "beCollective", dot: T.petal },
   { k: "sympli", label: "Sympli Mortgage", dot: T.teal },
   { k: "flywheel", label: "Referral Flywheel", dot: T.poppy, divide: true },
 ];
@@ -715,6 +718,7 @@ const NAV = [
 export default function CommandCenter() {
   const [periodKey, setPeriodKey] = useState("mtd");
   const { data, loading, error, usingSample, retry } = useDashboard(periodKey);
+  const forum = useForum(periodKey);
   const [view, setView] = useState("overview");
   const [refreshing, setRefreshing] = useState(false);
   const [drill, setDrill] = useState(null);       // { key, business } for the audit drawer
@@ -743,12 +747,20 @@ export default function CommandCenter() {
     }
   }
 
+  // Spring B is now split into The Forum + beCollective; keep any old springb
+  // deep-link (e.g. the overview card) landing on The Forum.
+  const activeView = view === "springb" ? "forum" : view;
+
   let content;
   if (busy) content = <SkeletonDashboard />;
   else if (error && !data) content = <ErrorState onRetry={retry} />;
-  else if (view === "overview") content = <Overview data={data} onOpen={setView} onDrill={onDrill} />;
-  else if (view === "ulrg" || view === "springb" || view === "sympli") content = <AreaDetail area={areas[view]} onDrill={onDrill} period={periodKey} />;
-  else if (view === "flywheel") content = <Flywheel flywheel={flywheel} />;
+  else if (activeView === "overview") content = <Overview data={data} onOpen={setView} onDrill={onDrill} />;
+  else if (activeView === "forum") content = forum.data
+    ? <ForumView data={forum.data} area={areas?.springb} onDrill={onDrill} />
+    : <SkeletonDashboard />;
+  else if (activeView === "becollective") content = <BeCollectivePlaceholder />;
+  else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
+  else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} />;
 
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
@@ -781,7 +793,7 @@ export default function CommandCenter() {
             <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 6, textTransform: "uppercase" }}>Command Center</div>
           </div>
           {NAV.map((n) => {
-            const active = view === n.k;
+            const active = activeView === n.k;
             return (
               <button key={n.k} className="cc-nav" onClick={() => setView(n.k)} style={{
                 display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",

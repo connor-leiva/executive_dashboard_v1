@@ -124,7 +124,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
                 "count": len(rows), "rows": rows}
 
     # ── The Forum (Go High Level) drill-downs ──
-    if key in {"active_members", "forum_arr", "renewals_due", "new_members", "registered", "mrr"}:
+    if key in {"active_members", "forum_arr", "renewals_due", "new_members", "registered",
+               "mrr", "renewal_book", "monthly", "pastdue", "unregistered"}:
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
         if not biz:
@@ -182,10 +183,11 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
 
         if key == "registered":
             recs = (await s.execute(q("registration").order_by(MetricRecord.name))).scalars().all()
+            recs = [r for r in recs if not (r.meta or {}).get("guest")]   # members only; guests are separate
             rows = [{"id": str(r.id), "name": title_name(r), "status": "registered",
                      "source_url": r.source_url} for r in recs]
             return {"label": "Registered", "source": "Go High Level",
-                    "computed_as": "Contacts tagged for the next Forum event.",
+                    "computed_as": "Members registered for the next Forum event (guest prospect seats excluded).",
                     "count": len(rows), "rows": rows}
 
         if key == "mrr":
@@ -196,6 +198,62 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
                      "source_url": r.source_url} for r in recs]
             return {"label": "MRR", "source": "Go High Level",
                     "computed_as": "Active recurring subscriptions (the monthly-paying member subset).",
+                    "count": len(rows), "rows": rows}
+
+        if key == "renewal_book":
+            _months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            today = dt.date.today()
+            window = {_months[(today.month - 1 + i) % 12] for i in range(3)}
+            _label = {"committed": "Committed", "talking": "In conversation", "risk": "At risk"}
+            recs = (await s.execute(q("membership"))).scalars().all()
+            book = []
+            for r in recs:
+                meta = r.meta or {}
+                mon = (meta.get("renewal_month") or "")[:3].title()
+                if mon not in window:
+                    continue
+                st = meta.get("renewal_status") or "talking"
+                book.append((mon, -(float(r.amount or 0)), title_name(r),
+                             f"{mon} · {_label.get(st, st)} · ${float(r.amount or 0):,.0f}", r.source_url, str(r.id)))
+            book.sort(key=lambda x: (_months.index(x[0]) if x[0] in _months else 99, x[1]))
+            rows = [{"id": rid, "name": nm, "status": stt, "source_url": url}
+                    for (_m, _v, nm, stt, url, rid) in book]
+            return {"label": "Renewal Book · next 90 days", "source": "Go High Level",
+                    "computed_as": "Memberships whose renewal month falls in the next 90 days, by month.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "monthly":
+            recs = (await s.execute(q("subscription").order_by(MetricRecord.amount.desc()))).scalars().all()
+            rows = [{"id": str(r.id), "name": (r.name or r.email or r.external_id),
+                     "status": (f"${float(r.amount):,.0f}/mo" if r.amount is not None else "monthly")
+                               + (" · past due" if r.status == "past_due" else " · current"),
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "Monthly Subscriptions", "source": "Go High Level",
+                    "computed_as": "All recurring subscriptions in GHL Payments (active + past due).",
+                    "count": len(rows), "rows": rows}
+
+        if key == "pastdue":
+            recs = (await s.execute(q("subscription").where(MetricRecord.status == "past_due")
+                    .order_by(MetricRecord.amount.desc()))).scalars().all()
+            rows = [{"id": str(r.id), "name": (r.name or r.email or r.external_id),
+                     "status": (f"${float(r.amount):,.0f}/mo · past due" if r.amount is not None else "past due"),
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "Subscriptions Past Due", "source": "Go High Level",
+                    "computed_as": "Subscriptions whose most-recent charge failed — the recovery list.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "unregistered":
+            regs = (await s.execute(q("registration"))).scalars().all()
+            reg_names = {(r.name or "").strip().lower() for r in regs if not (r.meta or {}).get("guest")}
+            members = (await s.execute(q("member").where(MetricRecord.status == "active")
+                       .order_by(MetricRecord.segment, MetricRecord.name))).scalars().all()
+            seg = {"forum": "The Forum", "inner_circle": "Inner Circle"}
+            rows = [{"id": str(m.id), "name": title_name(m),
+                     "status": f"not registered · {seg.get(m.segment, m.segment or 'member')}",
+                     "source_url": m.source_url}
+                    for m in members if (m.name or "").strip().lower() not in reg_names]
+            return {"label": "Not Yet Registered", "source": "Go High Level",
+                    "computed_as": "Active members without a registration for the next event — the call list.",
                     "count": len(rows), "rows": rows}
 
     # ── three-lens financials (the Sisu deals behind the P&L rows) ──

@@ -19,7 +19,7 @@ from .config import settings
 from .db import SessionLocal, engine
 from .models import (
     Base, Tenant, Domain, User, Business, Integration, Agent, Transaction, Lead,
-    PLSnapshot, CashSnapshot,
+    PLSnapshot, CashSnapshot, MetricRecord,
 )
 from .security import hash_pw
 from .services.metrics import _period_range, _pl_period
@@ -157,8 +157,18 @@ async def seed():
                               "innercircle_tags": ["inner circle active", "inner circle active add on"],
                               "renewals_pipeline_match": "renewals",
                               "onboarded_stage_match": "won: onboarded",
+                              # The Forum focused view (Part 2 config):
+                              "sales_pipeline_match": "sales funnel",
+                              "renewal_stage_status": {"committed to renew": "committed",
+                                                       "in conversation": "talking",
+                                                       "at risk": "risk"},
+                              "default_contract_value": 12000,
                               "event_tag": "the forum q3 2026",
                               "event_name": "Park City, UT",
+                              "event_title": "The Forum · Q3 2026",
+                              "event_dates": "Sep 18–20, 2026",
+                              "event_date": "2026-09-18",
+                              "prior_event_pace": 34,
                           }))
 
         # ── P&L snapshots (current period) + a prior month (for a real MoM) + cash.
@@ -230,6 +240,81 @@ async def seed():
                            external_id=f"lead-{i+1:04d}",
                            stage="Appointment" if i < 142 else "Lead",
                            agent_id=agents[i % 24].id, created_at_src=mid))
+
+            # ── The Forum (GHL) — representative records so the focused view
+            #    renders end-to-end locally. Mirrors the live shape: 70 members
+            #    across two segments, a renewal book, a recruiting funnel, an
+            #    upcoming event, and a revenue-quality mix. ────────────────────
+            def _mr(**kw):
+                s.add(MetricRecord(tenant_id=tenant.id, business_id=springb.id,
+                                   source="ghl", **kw))
+
+            _MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            # 70 active members: 48 Forum, 22 Inner Circle.
+            for i in range(70):
+                ic = i >= 48
+                _mr(kind="member", external_id=f"mem-{i+1:03d}",
+                    name=f"Member {i+1:02d}", status="active",
+                    segment="inner_circle" if ic else "forum",
+                    source_url="https://app.gohighlevel.com/")
+
+            # Memberships (billable) — renewal month, status, payment, amount.
+            # 47 memberships; renewal months spread; a handful at-risk/talking.
+            _renew_status = (["committed"] * 30 + ["talking"] * 12 + ["risk"] * 5)
+            for i in range(47):
+                ic = i >= 32
+                mon = _MON[(6 + (i % 6))]          # Jul..Dec renewals
+                pay = "monthly" if i % 3 == 0 else "pif"
+                amt = 6000 if ic else (250 if pay == "monthly" else 3000)
+                _mr(kind="membership", external_id=f"ms-{i+1:03d}",
+                    name=f"Member {i+1:02d}", status="active",
+                    segment="inner_circle" if ic else "forum",
+                    amount=Decimal(amt),
+                    meta={"renewal_month": mon, "renewal_status": _renew_status[i],
+                          "payment": pay, "stage": "member"})
+
+            # Monthly subscriptions (drives MRR) — 16 active, 2 past due.
+            for i in range(18):
+                _mr(kind="subscription", external_id=f"sub-{i+1:03d}",
+                    name=f"Member {i+1:02d}", amount=Decimal(250),
+                    status="past_due" if i >= 16 else "active",
+                    segment="forum")
+
+            # Recruiting funnel (open sales-funnel opps by stage).
+            _funnel = [("New Lead", 0, 14, 0), ("Discovery", 1, 9, 12000),
+                       ("Proposal", 2, 5, 12000), ("Invited", 3, 3, 12000)]
+            fi = 0
+            for label, pos, n, val in _funnel:
+                for _ in range(n):
+                    fi += 1
+                    _mr(kind="recruiting", external_id=f"opp-{fi:03d}",
+                        name=f"Prospect {fi:02d}", status="open",
+                        amount=Decimal(val) if val else None,
+                        meta={"stage": label, "stage_position": pos})
+
+            # Onboarded this year (new members → ARR add) + a couple this month.
+            for i in range(9):
+                on_date = dt.date(2026, (i % 6) + 1, 12)
+                if i >= 7:
+                    on_date = mid
+                _mr(kind="onboarded", external_id=f"onb-{i+1:03d}",
+                    name=f"New Member {i+1}", occurred_on=on_date,
+                    amount=Decimal(3000), segment="forum")
+
+            # Members lost this year (ARR bridge, churned).
+            for i in range(3):
+                _mr(kind="membership_lost", external_id=f"lost-{i+1:03d}",
+                    name=f"Former Member {i+1}", occurred_on=dt.date(2026, (i * 2) + 2, 8),
+                    amount=Decimal(3000), segment="forum")
+
+            # Event registrations for the next event: 38 members + 6 guests.
+            for i in range(44):
+                guest = i >= 38
+                _mr(kind="registration", external_id=f"reg-{i+1:03d}",
+                    name=(f"Guest {i-37}" if guest else f"Member {i+1:02d}"),
+                    status="registered", segment="forum",
+                    meta={"guest": guest, "event_tag": "the forum q3 2026"})
 
         await s.commit()
 

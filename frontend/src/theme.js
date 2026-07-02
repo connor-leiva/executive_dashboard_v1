@@ -21,6 +21,13 @@ export const T = {
   muted: "#8A968C",
   onDark: "#F3EEE7",
   onDarkMute: "#9CB0AB",
+  // The Forum focused view: daffodil = "attention today", amber = watch,
+  // meadow tints = positive progress. No poppy in the Forum view.
+  meadowInk: "#4F6A4D",
+  meadowBg: "#E9EFE7",
+  daffodilBg: "#FFF9D6",
+  amber: "#9C6A1E",
+  amberBg: "#F5EAD3",
 };
 
 export const STATUS = {
