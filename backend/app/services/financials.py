@@ -62,13 +62,24 @@ async def expense_run_rate(s: AsyncSession, tenant_id, business: Business, end: 
     return float(sum(rows) / len(rows)), mode
 
 
+def _period_months(period: str, start: dt.date, end: dt.date) -> int:
+    """Calendar months the period spans through today — so the monthly expense
+    run-rate scales (YTD in July = 7 months), not a flat single month."""
+    if period in ("mtd", "last_month"):
+        return 1
+    return (end.year - start.year) * 12 + (end.month - start.month) + 1
+
+
 async def _agg(s, tenant_id, bid, status, date_col, start, end) -> tuple[float, float, int]:
+    # sale_price > 0 excludes rentals / $0 referrals, matching the operational
+    # "Closed Units" KPI so the financials unit count reconciles with it.
     gci, comm, units = (await s.execute(
         select(func.coalesce(func.sum(Transaction.gci), 0),
                func.coalesce(func.sum(Transaction.agent_commission), 0),
                func.count(Transaction.id))
         .where(Transaction.tenant_id == tenant_id, Transaction.business_id == bid,
-               Transaction.status == status, date_col >= start, date_col <= end)
+               Transaction.status == status, Transaction.sale_price > 0,
+               date_col >= start, date_col <= end)
     )).one()
     return float(gci), float(comm), int(units)
 
@@ -77,6 +88,8 @@ async def compute_financials(s: AsyncSession, tenant_id, business: Business, per
     start, end, is_current = _period(period)
     proj_end = _projection_end(period, start, end)
     run_rate, rr_src = await expense_run_rate(s, tenant_id, business, end)
+    months = _period_months(period, start, end)
+    period_expenses = run_rate * months          # monthly run-rate × months elapsed
     split = float(business.default_agent_split) if business.default_agent_split else None
 
     # LIVE — closed deals this period (as of today).
@@ -84,7 +97,7 @@ async def compute_financials(s: AsyncSession, tenant_id, business: Business, per
     if g_gci and not g_comm and split:          # Sisu didn't provide commission → split fallback
         g_comm = g_gci * split
     net = g_gci - g_comm
-    live_profit = net - run_rate
+    live_profit = net - period_expenses
 
     # PROJECTION — pending expected to close anywhere in the period (current only).
     p_gci, p_comm, p_units = (await _agg(s, tenant_id, business.id, "pending",
@@ -93,7 +106,7 @@ async def compute_financials(s: AsyncSession, tenant_id, business: Business, per
         p_comm = p_gci * split
     proj_gci, proj_comm = g_gci + p_gci, g_comm + p_comm
     proj_net = proj_gci - proj_comm
-    proj_profit = proj_net - run_rate
+    proj_profit = proj_net - period_expenses
 
     # BOOKED — the period's QuickBooks snapshot (keyed on the calendar period).
     from .metrics import _pl_period
@@ -111,20 +124,23 @@ async def compute_financials(s: AsyncSession, tenant_id, business: Business, per
         "period": {"label": period.upper(), "start": start.isoformat(), "end": end.isoformat(),
                    "is_current": is_current},
         "expense_run_rate": run_rate, "expense_run_rate_source": rr_src,
+        "expense_months": months, "period_expenses": period_expenses,
         "lenses": {
             "live": {"profit": live_profit, "units": c_units, "rows": [
                 {"l": "Gross GCI", "v": g_gci, "kind": "rev", "key": "fin_closed"},
                 {"l": "Agent commissions", "v": -g_comm, "kind": "ded", "key": "fin_closed"},
                 {"l": "Net GCI", "v": net, "kind": "sub", "key": "fin_closed"},
-                {"l": "Est. expenses", "v": -run_rate, "kind": "ded", "est": True, "key": "fin_expenses"},
-                {"l": "Net profit, MTD", "v": live_profit, "kind": "tot"}]},
+                {"l": ("Est. expenses" if months == 1 else f"Est. expenses · {months} mo"),
+                 "v": -period_expenses, "kind": "ded", "est": True, "key": "fin_expenses"},
+                {"l": "Net profit", "v": live_profit, "kind": "tot"}]},
             "projection": {"profit": proj_profit, "units": c_units + p_units,
                 "closed_units": c_units, "pending_units": p_units,
                 "closed_gci": g_gci, "pending_gci": p_gci, "gci": proj_gci, "rows": [
                 {"l": "Projected GCI", "v": proj_gci, "kind": "rev", "key": "fin_projected"},
                 {"l": "Commissions", "v": -proj_comm, "kind": "ded", "key": "fin_projected"},
                 {"l": "Net GCI", "v": proj_net, "kind": "sub", "key": "fin_projected"},
-                {"l": "Est. expenses", "v": -run_rate, "kind": "ded", "est": True, "key": "fin_expenses"},
+                {"l": ("Est. expenses" if months == 1 else f"Est. expenses · {months} mo"),
+                 "v": -period_expenses, "kind": "ded", "est": True, "key": "fin_expenses"},
                 {"l": "Projected profit", "v": proj_profit, "kind": "tot"}]},
             "booked": {"profit": b["noi"], "units": None,
                 "flag": None if b["closed"] else "close_in_progress", "rows": [

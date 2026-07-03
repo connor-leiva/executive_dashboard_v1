@@ -319,11 +319,13 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
                 "count": len(rows), "rows": rows}
 
     if key == "fin_expenses":
-        from .financials import _period as _finp, expense_run_rate
+        from .financials import _period as _finp, expense_run_rate, _period_months
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
         fstart, fend, _ = _finp(period)
+        months = _period_months(period, fstart, fend)
         rate, src = (await expense_run_rate(s, tenant_id, biz, fend)) if biz else (0.0, "manual")
+        total = rate * months
         snaps = []
         if biz and src != "manual":
             snaps = (await s.execute(select(PLSnapshot).where(
@@ -335,9 +337,10 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
         how = {"manual": "a manually-set monthly figure",
                "last_month": "last month's operating expenses",
                "trailing_3mo": "the trailing 3 months' operating expenses"}.get(src, src)
+        span = (f"Monthly run-rate ${rate:,.0f} (from {how})" if months == 1
+                else f"Monthly run-rate ${rate:,.0f} (from {how}) × {months} months = ${total:,.0f}")
         return {"label": "Est. expenses (run-rate)", "source": "QuickBooks",
-                "computed_as": f"Monthly expense run-rate of ${rate:,.0f}, from {how}.",
-                "count": len(rows), "rows": rows}
+                "computed_as": span + ".", "count": len(rows), "rows": rows}
 
     # ── revenue (QuickBooks) — the actual commission deposits behind the number ──
     if key == "revenue" and business:
