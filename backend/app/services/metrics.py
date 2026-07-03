@@ -353,6 +353,7 @@ def _ops_from_config(b: Business) -> list[OpTile]:
 def _scorecards(
     *, portfolio_noi, portfolio_margin, ulrg_gci, ulrg_closed, ulrg_pending, ulrg_pipeline,
     producing, total_agents, sympli_funded, sympli_volume, attach_rate, members, have_financials,
+    members_sub="The Forum",
 ) -> list[Scorecard]:
     return [
         Scorecard(
@@ -368,7 +369,7 @@ def _scorecards(
         Scorecard(label="Loans Funded", value=sympli_funded or "—",
                   sub=f"{sympli_volume} volume" if sympli_volume else None, business_key="sympli", key="funded_loans"),
         Scorecard(label="Attach Rate", value=attach_rate or "—", sub="ULRG → Sympli", business_key="sympli"),
-        Scorecard(label="Active Members", value=members or "—", sub="The Forum", business_key="forum", key="active_members"),
+        Scorecard(label="Active Members", value=members or "—", sub=members_sub, business_key="forum", key="active_members"),
     ]
 
 
@@ -388,7 +389,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
     sc: dict[str, object] = {
         "ulrg_gci": 0.0, "ulrg_closed": 0, "ulrg_pending": 0, "ulrg_pipeline": 0.0,
         "producing": 0, "total_agents": 0, "sympli_funded": None, "sympli_volume": None,
-        "members": None,
+        "members": None, "members_sub": "The Forum",
     }
 
     for b in businesses:
@@ -477,16 +478,30 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
     if "springb" in areas:
         sb = areas.pop("springb")
         sbiz = next((b for b in businesses if b.key == "springb"), None)
-        members = arr = 0
+        members = arr = bc_members = 0
         if sbiz:
             fk = await _forum_kpis(s, tenant_id, sbiz.id, start, end)
             members, arr = fk["members"], fk["arr"]
+            bc_members = int((await s.execute(select(func.count()).select_from(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sbiz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind == "bc_member",
+                MetricRecord.status == "active"))).scalar() or 0)
+            # "Active members" scorecard = distinct union across programs (no double count).
+            union_ids = (await s.execute(select(MetricRecord.external_id).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sbiz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind.in_(["member", "bc_member"]),
+                MetricRecord.status == "active"))).scalars().all()
+            if union_ids:
+                sc["members"] = str(len(set(union_ids)))
+                if bc_members:
+                    sc["members_sub"] = "Forum + beCollective"
         forum_tag = f"Mastermind · {members} members" + (f" · {_compact_usd(arr)} ARR" if arr else "")
         areas["forum"] = sb.model_copy(update={
             "key": "forum", "name": "The Forum", "tag": forum_tag,
             "accent": "#FFDD1F", "ink": "#6D5336"})   # daffodil (Forum identity)
         areas["becollective"] = AreaPayload(
-            id=sb.id, key="becollective", name="beCollective", tag="Community · GHL segment",
+            id=sb.id, key="becollective", name="beCollective",
+            tag=(f"Community · {bc_members} members" if bc_members else "Community · GHL segment"),
             status="opportunity", accent="#FFBA9F", ink="#6D5336",
             sources=["Go High Level"], revenue=None, noi=None, margin=None,
             trend=sb.trend, pl=[], ops=[], funnel=None)
@@ -512,6 +527,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         ulrg_pipeline=sc["ulrg_pipeline"], producing=sc["producing"], total_agents=sc["total_agents"],
         sympli_funded=sc["sympli_funded"], sympli_volume=sc["sympli_volume"],
         attach_rate=None, members=sc["members"], have_financials=have_financials,
+        members_sub=sc["members_sub"],
     )
 
     return DashboardResponse(

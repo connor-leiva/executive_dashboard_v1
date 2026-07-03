@@ -42,6 +42,7 @@ async def test_login_and_dashboard_shape():
     assert "members" in d["areas"]["forum"]["tag"]
     bec = d["areas"]["becollective"]
     assert bec["status"] == "opportunity" and bec["ops"] == [] and bec["revenue"] is None
+    assert "members" in bec["tag"]      # live bc_member count on the overview card
 
     # ULRG operational figures are computed from seeded transactions/leads.
     ulrg = d["areas"]["ulrg"]
@@ -75,8 +76,10 @@ async def test_login_and_dashboard_shape():
     labels = {s["label"]: s for s in d["scorecards"]}
     assert labels["Combined Profit"]["value"] == "$109K"
     assert labels["Combined Profit"]["business_key"] == "portfolio"
-    assert labels["Active Members"]["value"] == "70"      # Forum sample data (SEED_SAMPLE_OPS)
-    assert labels["Active Members"]["business_key"] == "forum" and labels["Active Members"]["sub"] == "The Forum"
+    # Distinct union across programs: 70 Forum + 30 beCollective members, no double count.
+    assert labels["Active Members"]["value"] == "100"
+    assert labels["Active Members"]["business_key"] == "forum"
+    assert labels["Active Members"]["sub"] == "Forum + beCollective"
 
     # Sources collapse per provider; QBO connected, Arive still pending (Phase 3).
     src = {s["name"]: s["status"] for s in d["sources"]}
