@@ -346,7 +346,7 @@ function PLMini({ area }) {
             }}>
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: tot ? 14 : 13, fontWeight: tot || sub ? 700 : 400, color: ded ? T.slate : T.ink }}>{r.label}</span>
               <span style={{ fontFamily: "Poppins,sans-serif", fontSize: tot ? 18 : 14, fontWeight: tot ? 700 : sub ? 600 : 500, color: tot ? T.meadowInk : ded ? T.slate : T.ink, fontVariantNumeric: "tabular-nums" }}>
-                {ded ? signed(r.value) : usd(r.value)}
+                {signed(r.value)}
               </span>
             </div>
           );

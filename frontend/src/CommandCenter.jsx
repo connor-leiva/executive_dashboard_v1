@@ -144,7 +144,7 @@ function PLTable({ rows, area }) {
                 fontFamily: "Poppins,sans-serif", fontSize: tot ? 19 : 14, fontWeight: tot ? 700 : sub ? 600 : 500,
                 color: tot ? area.ink : ded ? T.slate : share ? area.ink : T.ink,
                 fontVariantNumeric: "tabular-nums", fontStyle: share ? "italic" : "normal",
-              }}>{ded ? signed(r.value) : usd(r.value)}</span>
+              }}>{signed(r.value)}</span>
             </span>
           </div>
         );
@@ -264,7 +264,7 @@ function AreaCard({ area, onOpen }) {
             <>
               <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{usd(a.revenue)}</div>
               <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, marginTop: 4 }}>
-                NOI <span style={{ color: a.ink, fontWeight: 700 }}>{usd(a.noi)}</span> · {a.margin}%
+                NOI <span style={{ color: a.ink, fontWeight: 700 }}>{signed(a.noi)}</span> · {a.margin}%
               </div>
             </>
           ) : a.key === "becollective" ? (

@@ -77,11 +77,12 @@ def _compact_usd(n: float | None) -> str:
     if n is None:
         return "—"
     n = float(n)
-    if abs(n) >= 1_000_000:
-        return f"${n / 1_000_000:.1f}M"
-    if abs(n) >= 1_000:
-        return f"${round(n / 1_000):,}K"
-    return f"${round(n):,}"
+    sign, a = ("-" if n < 0 else ""), abs(n)
+    if a >= 1_000_000:
+        return f"{sign}${a / 1_000_000:.1f}M"
+    if a >= 1_000:
+        return f"{sign}${round(a / 1_000):,}K"
+    return f"{sign}${round(a):,}"
 
 
 def derive_status(business, margin: float | None) -> str:
