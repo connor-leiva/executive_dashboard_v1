@@ -33,6 +33,7 @@ ICONS = {
     "open": "general/open", "link": "general/link", "download": "general/download",
     "warning": "general/warning", "info": "general/info", "check_circled": "general/check_circled",
     "check": "general/check", "close": "general/close", "chevron_down": "general/chevron_down",
+    "chevron_backward": "general/chevron_backward", "tune": "general/tune",
 }
 
 
