@@ -15,7 +15,7 @@ from ..models import Integration, Business, SyncRun
 from ..schemas import EntityRow, SourceOut, IntegrationsOut
 
 # Provider order + static metadata (matches the settings mockup).
-ORDER = ["qbo", "sisu", "fub", "ghl", "arive"]
+ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "arive"]
 META = {
     "qbo": {"name": "QuickBooks", "provides": ["Profit & Loss", "Balance Sheet"], "feeds": ["ulrg", "springb", "sympli"],
             "desc": "Financial source of truth · one connection per entity"},
@@ -23,12 +23,14 @@ META = {
              "desc": "Real estate production — transactions, agents, GCI"},
     "fub": {"name": "Follow Up Boss", "provides": ["Leads", "Agents"], "feeds": ["ulrg"],
             "desc": "CRM — leads and agent activity"},
-    "ghl": {"name": "Go High Level", "provides": ["Members", "Subscriptions", "Events"], "feeds": ["springb"],
-            "desc": "beCollective + The Forum — members, subscriptions, events"},
+    "ghl": {"name": "Go High Level · The Forum", "provides": ["Members", "Subscriptions", "Events"], "feeds": ["forum"],
+            "desc": "The Forum — members, renewals, subscriptions, events"},
+    "ghl_bc": {"name": "Go High Level · beCollective", "provides": ["Members", "Onboarding", "Events"], "feeds": ["becollective"],
+               "desc": "beCollective — its own GHL location; members, cohort onboarding, events"},
     "arive": {"name": "Arive", "provides": ["Loans", "Pipeline"], "feeds": ["sympli"],
               "desc": "Lights up Sympli's pipeline and the referral flywheel"},
 }
-CONNECTABLE = {"ghl": "springb", "arive": "sympli"}   # offered even without a row
+CONNECTABLE = {"ghl": "springb", "ghl_bc": "springb", "arive": "sympli"}   # offered even without a row
 
 
 def _aware(ts: dt.datetime) -> dt.datetime:
@@ -153,8 +155,8 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 fresh=_humanize(row.last_synced_at if row else None, now),
                 feeds=meta["feeds"] if connected else [], provides=meta["provides"],
                 last_run=_last_run(run, status, interval, now),
-                config_summary=_ghl_config_summary(cfg) if prov == "ghl" and connected else [],
-                config=cfg if prov == "ghl" else None,
+                config_summary=_ghl_config_summary(cfg) if prov in ("ghl", "ghl_bc") and connected else [],
+                config=cfg if prov in ("ghl", "ghl_bc") else None,
                 integration_id=str(row.id) if row else None,
                 business_key=(biz_by_id.get(row.business_id).key if row and row.business_id in biz_by_id
                               else CONNECTABLE.get(prov))))

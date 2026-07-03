@@ -169,17 +169,27 @@ async def seed():
                               "event_dates": "Sep 18–20, 2026",
                               "event_date": "2026-09-18",
                               "prior_event_pace": 34,
-                              # beCollective (separate GHL instance; cohort model).
-                              "becollective_tags": ["be collective financed", "be collective payment complete",
-                                                    "be collective won onboarded group 1"],
-                              "bc_sales_pipeline_match": "be collective main sales funnel",
-                              "bc_onboarded_stage_match": "won: onboarded",
-                              "bc_product_match": ["be collective membership"],
-                              "bc_event_name": "The Shift",
-                              "bc_event_title": "beCollective · The Shift",
-                              "bc_event_dates": "Oct 2026",
-                              "bc_event_date": "2026-10-15",
-                              "bc_prior_event_pace": 40,
+                          }))
+        # beCollective — its OWN Go High Level location (separate account + token),
+        # a cohort program (one-time membership, PIF/Financed). Same config schema as
+        # the Forum's ghl row (plain keys), so one Settings form edits both; the sync
+        # (provider "ghl_bc") writes bc_* records. Connect fills token + location_id.
+        s.add(Integration(tenant_id=tenant.id, provider="ghl_bc", business_id=springb.id,
+                          status="disconnected",
+                          config={
+                              "location_id": "",
+                              "member_tags": ["be collective financed", "be collective payment complete",
+                                              "be collective won onboarded group 1"],
+                              "financed_tags": ["be collective financed"],
+                              "sales_pipeline_match": "be collective main sales funnel",
+                              "onboarded_stage_match": "won: onboarded",
+                              "product_match": ["be collective membership"],
+                              "event_tag": "the shift ticket purchased",
+                              "event_name": "The Shift",
+                              "event_title": "beCollective · The Shift",
+                              "event_dates": "Oct 2026",
+                              "event_date": "2026-10-15",
+                              "prior_event_pace": 40,
                           }))
 
         # ── P&L snapshots (current period) + a prior month (for a real MoM) + cash.

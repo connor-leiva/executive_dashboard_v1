@@ -33,9 +33,12 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
              "kpis": [], "deck": [], "funnel": None, "renewals": None, "event": None, "revq": None}
     if not biz:
         return empty
+    # beCollective has its own GHL integration row (its own location + token). Prefer
+    # it; fall back to the Forum's ghl row for older configs that still hold bc keys.
     integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == tenant_id, Integration.business_id == biz.id,
-        Integration.provider == "ghl"))).scalar_one_or_none()
+        Integration.provider.in_(("ghl_bc", "ghl")))
+        .order_by(Integration.provider.desc()))).scalars().first()
     cfg = (integ.config or {}) if integ else {}
 
     def base(kind):                       # bc_* kinds, distinct from the Forum's
@@ -71,19 +74,21 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
          "sub": F._period_label(period)},
         {"key": "bc_pipeline", "label": "In Pipeline", "value": str(in_pipeline), "sub": "recruiting"},
         {"key": "bc_registered", "label": "Registered", "value": str(member_regs),
-         "sub": cfg.get("bc_event_name") or "next event", "drill": "bc_registered"},
+         "sub": cfg.get("event_name") or "next event", "drill": "bc_registered"},
         {"key": "bc_financed", "label": "Financed", "value": str(financed),
          "sub": "payment plans", "drill": "bc_financed"},
     ]
 
     # Reuse the Forum's card builders with the bc_ base + a beCollective-mapped config.
+    # Config lives on beCollective's own GHL row with plain keys (event_name, etc.),
+    # so the same Settings › GHL form edits both programs.
     fcfg = dict(cfg)
-    fcfg["recruiting_stage_groups"] = cfg.get("bc_recruiting_stage_groups") or BC_FUNNEL_GROUPS
+    fcfg["recruiting_stage_groups"] = cfg.get("recruiting_stage_groups") or BC_FUNNEL_GROUPS
     funnel = await F._funnel(s, base, fcfg)
     renewals = F._renewals(memberships, seg_by_contact)
-    ecfg = {"event_date": cfg.get("bc_event_date"), "event_name": cfg.get("bc_event_name"),
-            "event_title": cfg.get("bc_event_title"), "event_dates": cfg.get("bc_event_dates"),
-            "event_tag": cfg.get("bc_event_tag"), "prior_event_pace": cfg.get("bc_prior_event_pace")}
+    ecfg = {"event_date": cfg.get("event_date"), "event_name": cfg.get("event_name"),
+            "event_title": cfg.get("event_title"), "event_dates": cfg.get("event_dates"),
+            "event_tag": cfg.get("event_tag"), "prior_event_pace": cfg.get("prior_event_pace")}
     event = F._event(ecfg, members_total, member_regs, guests)
 
     watch_items = []

@@ -105,13 +105,17 @@ function btn(kind) {
 /* ── Go High Level connect form ────────────────────────────── */
 
 const GHL_DEFAULT_TAGS = "inner circle active, the forum active, forumadmin, member: secondary, inner circle active add on";
+const BC_DEFAULT_TAGS = "be collective financed, be collective payment complete, be collective won onboarded group 1";
 
 function GhlConnectForm({ row, onClose, onDone }) {
   const cfg = row.config || {};
+  const provider = row.provider || "ghl";
+  const isBc = provider === "ghl_bc";
+  const programName = row.name || (isBc ? "Go High Level · beCollective" : "Go High Level");
   const editing = row.status === "connected" || row.status === "error";
   const [token, setToken] = useState("");
   const [locationId, setLocationId] = useState(cfg.location_id || "");
-  const [tags, setTags] = useState((cfg.member_tags && cfg.member_tags.join(", ")) || GHL_DEFAULT_TAGS);
+  const [tags, setTags] = useState((cfg.member_tags && cfg.member_tags.join(", ")) || (isBc ? BC_DEFAULT_TAGS : GHL_DEFAULT_TAGS));
   const [eventTag, setEventTag] = useState(cfg.event_tag || "");
   const [eventName, setEventName] = useState(cfg.event_name || "");
   const [eventTitle, setEventTitle] = useState(cfg.event_title || "");
@@ -129,7 +133,7 @@ function GhlConnectForm({ row, onClose, onDone }) {
     try {
       const member_tags = tags.split(",").map((t) => t.trim()).filter(Boolean);
       await postJSON("/integrations", {
-        provider: "ghl", business_key: row.business_key || "springb",
+        provider, business_key: row.business_key || "springb",
         token: token.trim() || undefined,   // blank on edit = keep the current key
         config: {
           ...cfg,                             // preserve segmentation + pipeline matchers
@@ -157,8 +161,8 @@ function GhlConnectForm({ row, onClose, onDone }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Go High Level" : "Connect Go High Level"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>Spring B · beCollective + The Forum. The token is stored encrypted.</div>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? `Edit ${programName}` : `Connect ${programName}`}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>{isBc ? "beCollective · its own GHL location." : "The Forum · Go High Level."} The token is stored encrypted.</div>
         <label style={label}>Private Integration Token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
           <input style={field} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : ""} required={!editing} />
         </label>
@@ -409,10 +413,9 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
               </div>
             ) : (
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
-                {!s.entities?.length && s.provider !== "ghl" && <SBtn small icon="sync" disabled={!live || busy === s.integration_id} onClick={() => onSync(s.integration_id)}>{busy === s.integration_id ? "Syncing…" : "Sync now"}</SBtn>}
-                {s.provider === "ghl" && <SBtn small icon="sync" disabled={!live || busy === s.integration_id} onClick={() => onSync(s.integration_id)}>{busy === s.integration_id ? "Syncing…" : "Sync now"}</SBtn>}
+                {!s.entities?.length && <SBtn small icon="sync" disabled={!live || busy === s.integration_id} onClick={() => onSync(s.integration_id)}>{busy === s.integration_id ? "Syncing…" : "Sync now"}</SBtn>}
                 {s.entities?.length > 0 && <SBtn small icon="open" disabled={!live} onClick={() => onConnect(s)}>Connect another entity</SBtn>}
-                {s.provider === "ghl" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit configuration</SBtn>}
+                {(s.provider === "ghl" || s.provider === "ghl_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit configuration</SBtn>}
                 <span style={{ flex: 1 }} />
                 {s.integration_id && <button className="si-danger" disabled={!live} onClick={() => onDisconnect(s)}>Disconnect {s.name}</button>}
               </div>
@@ -424,16 +427,17 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
   );
 }
 
-const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", arive: "Ar" };
+const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar" };
 const DESC = {
   qbo: () => "Financial source of truth · one connection per entity",
   sisu: () => "Real estate production — transactions, agents, GCI",
   fub: () => "CRM — leads and agent activity",
-  ghl: () => "beCollective + The Forum — members, subscriptions, events",
+  ghl: () => "The Forum — members, renewals, subscriptions, events",
+  ghl_bc: () => "beCollective — its own GHL location; members, cohort onboarding, events",
   arive: () => "Uses your Arive API key · lights up Sympli's pipeline and the referral flywheel",
 };
 const SAMPLE_VIEW = {
-  healthy: 3, total: 5, next_sync_in_min: 14,
+  healthy: 3, total: 6, next_sync_in_min: 14,
   sources: [
     { provider: "qbo", name: "QuickBooks", mono: "QB", status: "attention", status_note: "1 of 3 entities needs reconnect", feeds: ["ulrg", "springb", "sympli"], provides: ["Profit & Loss", "Balance Sheet"], last_run: "Last run · 2 entities · 4.2s",
       entities: [
@@ -443,7 +447,8 @@ const SAMPLE_VIEW = {
       ] },
     { provider: "sisu", name: "Sisu", mono: "Si", status: "ok", fresh: "Synced 26 min ago", feeds: ["ulrg"], provides: ["Transactions", "Agents", "GCI"], last_run: "Last run · 412 records · 3.1s", integration_id: "s1" },
     { provider: "fub", name: "Follow Up Boss", mono: "FB", status: "stale", fresh: "Synced 19 hours ago", feeds: ["ulrg"], provides: ["Leads", "Agents"], last_run: "Auto-sync has missed its last 37 runs — check the connection", integration_id: "f1" },
-    { provider: "ghl", name: "Go High Level", mono: "GH", status: "ok", fresh: "Synced 1 hour ago", feeds: ["springb"], provides: ["Members", "Subscriptions", "Events"], last_run: "Last run · 142 members · 38 subscriptions · 2.4s", integration_id: "g1", config: {}, config_summary: [["Location ID", "LqK4…f82"], ["Member tags", "5 tags"], ["Next event", "Park City, UT"]] },
+    { provider: "ghl", name: "Go High Level · The Forum", mono: "GH", status: "ok", fresh: "Synced 1 hour ago", feeds: ["forum"], provides: ["Members", "Subscriptions", "Events"], last_run: "Last run · 142 members · 38 subscriptions · 2.4s", integration_id: "g1", config: {}, config_summary: [["Location ID", "LqK4…f82"], ["Member tags", "5 tags"], ["Next event", "Park City, UT"]] },
+    { provider: "ghl_bc", name: "Go High Level · beCollective", mono: "bC", status: "ok", fresh: "Synced 1 hour ago", feeds: ["becollective"], provides: ["Members", "Onboarding", "Events"], last_run: "Last run · 30 members · 25 memberships · 1.9s", integration_id: "gb1", config: {}, config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] },
     { provider: "arive", name: "Arive", mono: "Ar", status: "disconnected", feeds: [], provides: ["Loans", "Pipeline"], business_key: "sympli" },
   ],
 };
@@ -488,10 +493,11 @@ function IntegrationsPage() {
   }
   function connectSource(s) {
     if (s.provider === "qbo") return qboConnect(s.entities?.[0]?.business_key || "ulrg");
-    if (s.provider === "ghl") return setConnecting({ config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
+    if (s.provider === "ghl" || s.provider === "ghl_bc")
+      return setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
     if (s.provider === "arive") { window.alert("Arive connects with your API key — wiring lands in Phase 3."); return; }
   }
-  const editConfig = (s) => setConnecting({ config: s.config || {}, business_key: s.business_key || "springb", status: "connected" });
+  const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "connected" });
   const reconnectEntity = (e) => qboConnect(e.business_key);
 
   if (error) return <Card title="Integrations"><div style={{ color: T.muted, fontSize: 13 }}>Couldn't load integrations.</div></Card>;

@@ -6,7 +6,7 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,11 +116,14 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUI
     await _upsert_many(s, Transaction, txn_rows, ["tenant_id", "source", "external_id"],
                        _TXN_UPDATE_KEYS)
     print(f"[sisu] upserted {len(txn_rows)} transactions", flush=True)
+    return len(agent_rows) + len(txn_rows)
 
 
-async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID):
+async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID) -> int:
+    n = 0
     # Agents (FUB users) first.
     for raw in await fub.fub_users():
+        n += 1
         u = fub.map_user(raw)
         await s.execute(pg_insert(Agent).values(
             tenant_id=tenant_id, business_id=business_id, source="fub",
@@ -140,6 +143,7 @@ async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID
     }
     # Leads (FUB people).
     for raw in await fub.fub_people():
+        n += 1
         p = fub.map_person(raw)
         await s.execute(pg_insert(Lead).values(
             tenant_id=tenant_id, business_id=business_id, source="fub",
@@ -151,15 +155,18 @@ async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID
             set_={"stage": p.get("stage"), "agent_id": agent_map.get(p.get("agent_external_id"))},
         ))
     await s.commit()
+    return n
 
 
 async def _ghl_snapshot(s: AsyncSession, tenant_id, business_id, kind: str, rows: list[dict]):
-    """Replace the prior GHL record set of this kind (so drops fall out)."""
+    """Replace the prior GHL record set of this kind (so drops fall out). Uses a
+    dialect-agnostic INSERT (no ON CONFLICT here — delete-then-insert), so the GHL
+    syncs are exercisable against SQLite in tests, not just Postgres."""
     await s.execute(delete(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
         MetricRecord.source == "ghl", MetricRecord.kind == kind))
     for i in range(0, len(rows), 500):
-        await s.execute(pg_insert(MetricRecord).values(rows[i:i + 500]))
+        await s.execute(insert(MetricRecord).values(rows[i:i + 500]))
     await s.commit()
 
 
@@ -212,6 +219,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                          "meta": {"event_tag": event_tag, "guest": not is_member, "contact_id": cid}})
     await _ghl_snapshot(s, tenant_id, biz, "member", members)
     await _ghl_snapshot(s, tenant_id, biz, "registration", regs)
+    n_records = len(members) + len(regs)
     print(f"[ghl] {len(members)} members, {len(regs)} registered for '{event_tag}' "
           f"(from {len(contacts)} contacts)", flush=True)
 
@@ -257,6 +265,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         await _ghl_snapshot(s, tenant_id, biz, "onboarded", onboarded)
         await _ghl_snapshot(s, tenant_id, biz, "recruiting", recruiting)
         await _ghl_snapshot(s, tenant_id, biz, "membership_lost", lost)
+        n_records += len(memberships) + len(onboarded) + len(recruiting) + len(lost)
         arr = sum(m["amount"] for m in memberships)
         print(f"[ghl] {len(memberships)} renewals (ARR ${arr:,.0f}), {len(onboarded)} onboarded, "
               f"{len(recruiting)} recruiting, {len(lost)} lost", flush=True)
@@ -276,6 +285,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
             meta={"raw_status": sub.get("status"), "contact_id": str(sub.get("contactId") or "")},
         ) for sub in subs]
         await _ghl_snapshot(s, tenant_id, biz, "subscription", sub_rows)
+        n_records += len(sub_rows)
         active_n = sum(1 for r in sub_rows if r["status"] == "active")
         print(f"[ghl] {active_n}/{len(sub_rows)} active subscriptions", flush=True)
 
@@ -325,6 +335,101 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         except Exception as e:  # noqa: BLE001
             print(f"[ghl] reg_count skipped: {e}", flush=True)
 
+    return n_records
+
+
+async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    """Snapshot beCollective from its OWN Go High Level location into bc_* metric
+    records. beCollective is a separate GHL account (own location + token), and a
+    cohort program (one-time membership, PIF/Financed) — so, unlike The Forum, there
+    are no renewals pipeline and no subscriptions. The surfaces:
+      • bc_member       — contacts carrying an active-member tag
+      • bc_registration — contacts tagged for the next event (guest = non-member)
+      • bc_membership   — won-onboarded opps → contract value + PIF/Financed split
+      • bc_onboarded    — the same won-onboarded opps, dated → new members in-period
+      • bc_recruiting   — open opps in the sales funnel → the pipeline funnel
+    Records are written under source='ghl' with bc_-prefixed kinds, so they never
+    collide with the Forum's records on the shared Spring B business."""
+    cfg = integ.config or {}
+    location_id = cfg.get("location_id")
+    member_tags = {t.lower() for t in (cfg.get("member_tags") or [])}
+    # Which member tag(s) mean a payment plan (Financed) vs paid-in-full.
+    financed_tags = {t.lower() for t in (cfg.get("financed_tags") or ["be collective financed"])}
+    event_tag = (cfg.get("event_tag") or "").lower().strip()
+    onboarded_match = (cfg.get("onboarded_stage_match") or "won: onboarded").lower()
+    sales_match = (cfg.get("sales_pipeline_match") or "be collective main sales funnel").lower()
+    token = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not (location_id and member_tags and token):
+        raise ValueError("beCollective GHL needs a token, location_id, and member_tags in config.")
+
+    biz = integ.business_id
+
+    # 1) Contacts → members (tag union) + registrations (event tag) + financed set.
+    contacts = await ghl.get_contacts(token, location_id)
+    members, regs, financed_contacts = [], [], set()
+    for c in contacts:
+        tset = set(ghl.contact_tags(c))
+        is_member = bool(tset & member_tags)
+        cid = str(c.get("id"))
+        if tset & financed_tags:
+            financed_contacts.add(cid)
+        base = dict(tenant_id=tenant_id, business_id=biz, source="ghl",
+                    external_id=cid, name=ghl.contact_name(c)[:200],
+                    email=(c.get("email") or None),
+                    source_url=ghl.contact_url(location_id, c.get("id")))
+        if is_member:
+            members.append({**base, "kind": "bc_member", "status": "active", "segment": "becollective"})
+        if event_tag and event_tag in tset:
+            regs.append({**base, "kind": "bc_registration", "status": "registered",
+                         "meta": {"event_tag": event_tag, "guest": not is_member, "contact_id": cid}})
+    await _ghl_snapshot(s, tenant_id, biz, "bc_member", members)
+    await _ghl_snapshot(s, tenant_id, biz, "bc_registration", regs)
+    n_records = len(members) + len(regs)
+    print(f"[ghl_bc] {len(members)} members, {len(regs)} registered for '{event_tag}' "
+          f"(from {len(contacts)} contacts)", flush=True)
+
+    # 2) Opportunities → memberships + onboarded (won-onboarded) + recruiting (funnel).
+    try:
+        pipelines = await ghl.get_pipelines(token, location_id)
+        stage_name = {st.get("id"): st.get("name") for p in pipelines for st in (p.get("stages") or [])}
+        sales_ids = {p.get("id") for p in pipelines if sales_match in (p.get("name") or "").lower()}
+        stage_pos = {st.get("id"): i for p in pipelines if p.get("id") in sales_ids
+                     for i, st in enumerate(p.get("stages") or [])}
+        opps = await ghl.get_opportunities(token, location_id)
+        memberships, onboarded, recruiting = [], [], []
+        for o in opps:
+            stage = (stage_name.get(o.get("pipelineStageId")) or "").strip()
+            cid = str(o.get("contactId") or "")
+            base = dict(tenant_id=tenant_id, business_id=biz, source="ghl",
+                        external_id=str(o.get("id")), name=ghl.opp_name(o)[:200],
+                        source_url=ghl.contact_url(location_id, o.get("contactId")))
+            if onboarded_match in stage.lower():
+                amount = float(o.get("monetaryValue") or 0)
+                payment = "monthly" if cid in financed_contacts else "pif"
+                memberships.append({**base, "kind": "bc_membership", "status": "active",
+                                    "amount": amount,
+                                    "meta": {"payment": payment, "stage": stage, "contact_id": cid}})
+                onboarded.append({**base, "kind": "bc_onboarded", "status": o.get("status") or "won",
+                                  "occurred_on": _parse_ghl_dt(o.get("lastStatusChangeAt")),
+                                  "amount": amount, "meta": {"stage": stage, "contact_id": cid}})
+            elif o.get("pipelineId") in sales_ids and o.get("status") == "open":
+                recruiting.append({**base, "kind": "bc_recruiting", "status": "open",
+                                   "amount": float(o.get("monetaryValue") or 0) or None,
+                                   "meta": {"stage": stage,
+                                            "stage_position": stage_pos.get(o.get("pipelineStageId"), 99)}})
+        await _ghl_snapshot(s, tenant_id, biz, "bc_membership", memberships)
+        await _ghl_snapshot(s, tenant_id, biz, "bc_onboarded", onboarded)
+        await _ghl_snapshot(s, tenant_id, biz, "bc_recruiting", recruiting)
+        n_records += len(memberships) + len(onboarded) + len(recruiting)
+        value = sum(m["amount"] for m in memberships)
+        fin = sum(1 for m in memberships if m["meta"]["payment"] == "monthly")
+        print(f"[ghl_bc] {len(memberships)} memberships (value ${value:,.0f}, {fin} financed), "
+              f"{len(onboarded)} onboarded, {len(recruiting)} recruiting", flush=True)
+    except Exception as e:  # noqa: BLE001 — opportunities scope optional
+        print(f"[ghl_bc] opportunities skipped: {e}", flush=True)
+
+    return n_records
+
 
 # Every period the dashboard can toggle to needs its own snapshot.
 _QBO_PERIODS = ("mtd", "qtd", "ytd", "last_month")
@@ -353,28 +458,37 @@ async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration):
         await s.execute(stmt)
     integ.last_synced_at = now
     await s.commit()
+    return len(_QBO_PERIODS)
 
 
 async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, period_start, period_end):
-    """Sync one integration, recording a SyncRun and updating its status."""
+    """Sync one integration, recording a SyncRun (with record/timing stats) and
+    updating its status."""
     run = SyncRun(tenant_id=tenant_id, provider=integ.provider)
     s.add(run)
     await s.commit()
+    started = dt.datetime.utcnow()
     try:
+        records = None
         if integ.provider == "sisu":
-            await sync_sisu(s, tenant_id, integ.business_id)
+            records = await sync_sisu(s, tenant_id, integ.business_id)
         elif integ.provider == "fub":
-            await sync_fub(s, tenant_id, integ.business_id)
+            records = await sync_fub(s, tenant_id, integ.business_id)
         elif integ.provider == "ghl":
-            await sync_ghl(s, tenant_id, integ)
+            records = await sync_ghl(s, tenant_id, integ)
+        elif integ.provider == "ghl_bc":
+            records = await sync_becollective_ghl(s, tenant_id, integ)
         elif integ.provider == "qbo":
-            await sync_qbo_pl(s, tenant_id, integ)         # syncs all periods itself
+            records = await sync_qbo_pl(s, tenant_id, integ)   # syncs all periods itself
         run.status, run.finished_at = "ok", dt.datetime.utcnow()
+        run.stats = {"records": records,
+                     "seconds": round((run.finished_at - started).total_seconds(), 1)}
         # Clear any prior error and mark the source healthy again.
         integ.status, integ.last_error = "connected", None
         integ.last_synced_at = dt.datetime.utcnow()
     except Exception as e:  # noqa: BLE001 — surface error on the integration
         run.status, run.detail, run.finished_at = "error", str(e), dt.datetime.utcnow()
+        run.stats = {"records": None, "seconds": round((run.finished_at - started).total_seconds(), 1)}
         integ.status, integ.last_error = "error", str(e)
     await s.commit()
 
