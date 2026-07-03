@@ -169,6 +169,17 @@ async def seed():
                               "event_dates": "Sep 18–20, 2026",
                               "event_date": "2026-09-18",
                               "prior_event_pace": 34,
+                              # beCollective (separate GHL instance; cohort model).
+                              "becollective_tags": ["be collective financed", "be collective payment complete",
+                                                    "be collective won onboarded group 1"],
+                              "bc_sales_pipeline_match": "be collective main sales funnel",
+                              "bc_onboarded_stage_match": "won: onboarded",
+                              "bc_product_match": ["be collective membership"],
+                              "bc_event_name": "The Shift",
+                              "bc_event_title": "beCollective · The Shift",
+                              "bc_event_dates": "Oct 2026",
+                              "bc_event_date": "2026-10-15",
+                              "bc_prior_event_pace": 40,
                           }))
 
         # ── P&L snapshots (current period) + a prior month (for a real MoM) + cash.
@@ -323,6 +334,38 @@ async def seed():
                     status="registered", segment="forum",
                     meta={"guest": guest, "event_tag": "the forum q3 2026",
                           "contact_id": (f"guest-{i}" if guest else f"mem-{i+1:03d}")})
+
+            # ── beCollective (separate GHL instance; cohort model, bc_* kinds) ──
+            for i in range(30):
+                _mr(kind="bc_member", external_id=f"bcm-{i+1:03d}", name=f"BC Member {i+1:02d}",
+                    status="active", segment="becollective", source_url="https://app.gohighlevel.com/")
+            for i in range(25):
+                pay = "monthly" if i % 2 else "pif"          # financed vs paid-in-full
+                _mr(kind="bc_membership", external_id=f"bcms-{i+1:03d}", name=f"BC Member {i+1:02d}",
+                    status="active", segment="becollective", amount=Decimal(6000 if pay == "pif" else 6500),
+                    meta={"payment": pay, "contact_id": f"bcm-{i+1:03d}"})
+            _bc_funnel = [("Opt In - No Call Booked", 0, 12), ("Scheduled Appointment - App Submitted", 2, 8),
+                          ("Appointment Complete - Needs Decision", 4, 5),
+                          ("Payment Sent: Financed", 6, 4), ("Payment Received - Fulfillment Started", 8, 2),
+                          ("Appointment No Show / Cancel", 3, 6)]        # last → nurture footer
+            _bi = 0
+            for label, pos, n in _bc_funnel:
+                for _ in range(n):
+                    _bi += 1
+                    _mr(kind="bc_recruiting", external_id=f"bcopp-{_bi:03d}", name=f"BC Prospect {_bi:02d}",
+                        status="open", amount=Decimal(6000),
+                        meta={"stage": label, "stage_position": pos})
+            for i in range(4):
+                _mr(kind="bc_onboarded", external_id=f"bconb-{i+1:03d}", name=f"BC New {i+1}",
+                    occurred_on=(mid if i >= 2 else dt.date(2026, (i % 5) + 1, 10)),
+                    amount=Decimal(6000), segment="becollective")
+            for i in range(26):        # 20 members + 6 guests for The Shift
+                guest = i >= 20
+                _mr(kind="bc_registration", external_id=f"bcreg-{i+1:03d}",
+                    name=(f"Guest {i-19}" if guest else f"BC Member {i+1:02d}"),
+                    status="registered", segment="becollective",
+                    meta={"guest": guest, "event_tag": "the shift",
+                          "contact_id": (f"bcguest-{i}" if guest else f"bcm-{i+1:03d}")})
 
         await s.commit()
 

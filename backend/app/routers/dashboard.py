@@ -8,6 +8,7 @@ from ..schemas import DashboardResponse
 from ..services.metrics import build_dashboard
 from ..services.lineage import metric_detail
 from ..services.forum import build_forum
+from ..services.becollective import build_becollective
 
 router = APIRouter(tags=["dashboard"])
 
@@ -29,6 +30,16 @@ async def forum(
 ):
     """The Forum focused view — KPIs, deep-dive deck, funnel, renewals, event, revenue quality."""
     return await build_forum(s, user.tenant_id, period)
+
+
+@router.get("/becollective")
+async def becollective(
+    period: str = Query("mtd"),
+    user: User = Depends(current_user),
+    s: AsyncSession = Depends(get_session),
+):
+    """beCollective focused view — cohort program (mirrors the Forum's shape)."""
+    return await build_becollective(s, user.tenant_id, period)
 
 
 @router.get("/metrics/{key}/detail")
