@@ -376,9 +376,11 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
           </span>
           <span style={{ display: "block", fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 3 }}>{collapsedLine}</span>
         </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
           {dis ? <SBtn kind="primary" small disabled={!live} onClick={(ev) => { ev.stopPropagation(); onConnect(s); }}>Connect</SBtn> : <StatusPill status={s.status} />}
-          <Icon name="chevron_down" size={13} color={T.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .22s ease" }} />
+          <span aria-hidden style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, flexShrink: 0 }}>
+            <Icon name="chevron_down" size={14} color={T.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .22s ease" }} />
+          </span>
         </span>
       </div>
       <div className={`si-collapse ${open ? "open" : ""}`}>
@@ -511,7 +513,7 @@ function IntegrationsPage() {
       <style>{`
         .si-card { background:${T.white}; border:1px solid ${T.line}; border-radius:14px; margin-bottom:12px; box-shadow:0 1px 2px rgba(0,46,44,.04); transition:box-shadow .2s ease, border-color .2s ease; }
         .si-card.on { box-shadow:0 2px 4px rgba(0,46,44,.05), 0 14px 30px rgba(0,46,44,.07); border-color:#E0D6C6; }
-        .si-head { display:flex; align-items:center; gap:14px; width:100%; background:none; border:none; padding:15px 20px; cursor:pointer; }
+        .si-head { box-sizing:border-box; display:flex; align-items:center; gap:14px; width:100%; background:none; border:none; padding:15px 20px; cursor:pointer; }
         .si-mono { width:36px; height:36px; border-radius:10px; background:${T.parchment}; border:1px solid ${T.line}; display:inline-flex; align-items:center; justify-content:center; font-family:Poppins,sans-serif; font-size:12.5px; font-weight:700; color:${T.evergreen}; flex-shrink:0; }
         .si-collapse { display:grid; grid-template-rows:0fr; transition:grid-template-rows .26s cubic-bezier(.4,0,.2,1); }
         .si-collapse.open { grid-template-rows:1fr; }
