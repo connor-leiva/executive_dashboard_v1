@@ -114,6 +114,40 @@ class DashboardResponse(BaseModel):
     sources: list[SourceStatus]
 
 
+# ── Settings › Integrations (accordion revamp, spec v3 Part 1) ──
+class EntityRow(BaseModel):
+    integration_id: str
+    business_key: str
+    business_name: str
+    state: str                    # ok | error
+    last_synced_at: str | None = None
+    realm_id: str | None = None
+    detail: str | None = None     # e.g. "Token expired Jun 29"
+
+
+class SourceOut(BaseModel):
+    provider: str                 # qbo | sisu | fub | ghl | arive
+    name: str
+    status: str                   # ok | stale | attention | disconnected
+    status_note: str | None = None
+    fresh: str | None = None      # humanized "Synced 26 min ago"
+    feeds: list[str] = []         # business keys → dots
+    provides: list[str] = []      # chips
+    last_run: str | None = None
+    entities: list[EntityRow] = []          # qbo only
+    config_summary: list[list[str]] = []    # ghl: [["Location ID","LqK4…f82"], …]
+    config: dict | None = None              # raw, for the edit modal (ghl)
+    integration_id: str | None = None       # single-row sources
+    business_key: str | None = None         # single-row sources (connect wiring)
+
+
+class IntegrationsOut(BaseModel):
+    sources: list[SourceOut]
+    healthy: int
+    total: int
+    next_sync_in_min: int | None = None
+
+
 # ── integrations ──────────────────────────────────────────────────
 class IntegrationStatus(BaseModel):
     id: str

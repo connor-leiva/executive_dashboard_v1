@@ -14,8 +14,16 @@ from ..security import enc, make_token, read_token
 from ..integrations import qbo
 from ..services.sync import run_all, run_one
 from ..services.metrics import _period_range
+from ..services.integrations_view import build_integrations_view
+from ..schemas import IntegrationsOut
 
 router = APIRouter(tags=["integrations"])
+
+
+@router.get("/settings/integrations", response_model=IntegrationsOut)
+async def settings_integrations(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """Grouped, status-aware source list for the Settings › Integrations page."""
+    return await build_integrations_view(s, user.tenant_id)
 
 
 @router.get("/integrations/qbo/connect")

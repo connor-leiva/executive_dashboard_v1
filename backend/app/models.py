@@ -195,6 +195,7 @@ class SyncRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="running")  # running|ok|error
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stats: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # {"records": 412, "seconds": 3.1}
 
 
 class MetricRecord(Base):
