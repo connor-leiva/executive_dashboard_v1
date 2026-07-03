@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 import { T, STATUS, usd, signed, relativeTime } from "./theme.js";
 import { useDashboard } from "./useDashboard.js";
 import { useForum } from "./useForum.js";
+import { useBecollective } from "./useBecollective.js";
 import { getJSON, postJSON } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
 import Financials from "./Financials.jsx";
-import ForumView, { BeCollectivePlaceholder } from "./ForumView.jsx";
+import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
 import { SpringSignature, ribbedHero, Icon } from "./Brand.jsx";
 
 /* ──────────────────────────────────────────────────────────────
@@ -728,6 +729,7 @@ export default function CommandCenter() {
   const [periodKey, setPeriodKey] = useState("mtd");
   const { data, loading, error, usingSample, retry } = useDashboard(periodKey);
   const forum = useForum(periodKey);
+  const becollective = useBecollective(periodKey);
   const [view, setView] = useState("overview");
   const [refreshing, setRefreshing] = useState(false);
   const [drill, setDrill] = useState(null);       // { key, business } for the audit drawer
@@ -767,7 +769,10 @@ export default function CommandCenter() {
   else if (activeView === "forum") content = forum.data
     ? <ForumView data={forum.data} area={areas?.forum} onDrill={onDrill} />
     : <SkeletonDashboard />;
-  else if (activeView === "becollective") content = <BeCollectivePlaceholder />;
+  else if (activeView === "becollective") content = becollective.data
+    ? <ForumView data={becollective.data} area={areas?.becollective} onDrill={onDrill}
+        title="beCollective" subtitle="Community" deckSlots={BC_DECK_SLOTS} drillBusiness="springb" />
+    : <SkeletonDashboard />;
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} />;
 

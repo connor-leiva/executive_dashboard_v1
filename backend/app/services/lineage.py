@@ -291,6 +291,56 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
                     "computed_as": "Active members without a registration for the next event — the call list.",
                     "count": len(rows), "rows": rows}
 
+    # ── beCollective (Go High Level, bc_* kinds) drill-downs ──
+    if key in {"bc_members", "bc_arr", "bc_registered", "bc_financed", "bc_monthly"}:
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        if not biz:
+            return {"label": key.replace("_", " ").title(), "source": "Go High Level",
+                    "computed_as": "beCollective isn't connected yet.", "count": 0, "rows": []}
+
+        def bcq(kind):
+            return select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind == f"bc_{kind}")
+
+        def bc_money(n):
+            return f"${float(n or 0):,.0f}"
+
+        def bc_name(r):
+            return (r.name or "").strip().title() or r.email or r.external_id
+
+        if key == "bc_members":
+            recs = (await s.execute(bcq("member").where(MetricRecord.status == "active")
+                    .order_by(MetricRecord.name))).scalars().all()
+            rows = [{"id": str(r.id), "name": bc_name(r), "seg": "BC", "l2": "beCollective",
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "Active Members", "source": "Go High Level",
+                    "computed_as": "Contacts carrying a beCollective membership tag.",
+                    "count": len(rows), "rows": rows}
+
+        if key in ("bc_arr", "bc_financed"):
+            recs = (await s.execute(bcq("membership").order_by(MetricRecord.amount.desc()))).scalars().all()
+            if key == "bc_financed":
+                recs = [r for r in recs if (r.meta or {}).get("payment") == "monthly"]
+            rows = [{"id": str(r.id), "name": bc_name(r), "seg": "BC",
+                     "l2": ("Financed" if (r.meta or {}).get("payment") == "monthly" else "Paid in full"),
+                     "r1": bc_money(r.amount), "source_url": r.source_url} for r in recs]
+            label = "Financed Members" if key == "bc_financed" else "Membership Value"
+            how = ("beCollective members on a financed payment plan."
+                   if key == "bc_financed" else "Contract value across beCollective memberships.")
+            return {"label": label, "source": "Go High Level", "computed_as": how,
+                    "count": len(rows), "rows": rows}
+
+        if key == "bc_registered":
+            recs = (await s.execute(bcq("registration").order_by(MetricRecord.name))).scalars().all()
+            recs = [r for r in recs if not (r.meta or {}).get("guest")]
+            rows = [{"id": str(r.id), "name": bc_name(r), "seg": "BC", "l2": "Registered", "r1": "✓",
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "Registered", "source": "Go High Level",
+                    "computed_as": "beCollective members registered for the next event (guests excluded).",
+                    "count": len(rows), "rows": rows}
+
     # ── three-lens financials (the Sisu deals behind the P&L rows) ──
     if key in ("fin_closed", "fin_projected"):
         from .financials import _period as _finp, _projection_end

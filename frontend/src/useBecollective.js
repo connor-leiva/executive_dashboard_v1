@@ -1,0 +1,37 @@
+import { useEffect, useState } from "react";
+import { getJSON } from "./api";
+import sampleBecollective from "./sampleBecollective.js";
+
+const API = import.meta.env.VITE_API_BASE;
+
+/* beCollective focused-view payload (mirrors useForum). */
+export function useBecollective(period = "mtd") {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [usingSample, setUsingSample] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    if (!API) {
+      setData(sampleBecollective);
+      setUsingSample(true);
+      setError(null);
+      return () => { alive = false; };
+    }
+    setError(null);
+    getJSON(`/becollective?period=${period}`)
+      .then((d) => { if (alive) { setData(d); setUsingSample(false); } })
+      .catch((e) => {
+        if (!alive) return;
+        if (e && (e.status === 401 || e.status === 403)) {
+          localStorage.removeItem("cc_token");
+          window.location.reload();
+          return;
+        }
+        setError(e);
+      });
+    return () => { alive = false; };
+  }, [period]);
+
+  return { data, error, loading: !data && !error, usingSample };
+}

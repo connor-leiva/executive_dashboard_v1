@@ -410,6 +410,13 @@ const DECK_SLOTS = [
   { k: "revq", label: "Revenue quality", need: "needs a payments scope" },
 ];
 
+/* beCollective is a cohort program: recruiting funnel + next event (no monthly
+   renewals, no subscription revenue-quality). */
+export const BC_DECK_SLOTS = [
+  { k: "pipeline", label: "Recruiting pipeline", need: "needs a sales pipeline configured" },
+  { k: "event", label: "Next event", need: "needs event config" },
+];
+
 function DimmedCard({ label, need }) {
   return (
     <div style={{
@@ -425,12 +432,13 @@ function DimmedCard({ label, need }) {
   );
 }
 
-/* ── The Forum view ────────────────────────────────────────── */
+/* ── Program view (The Forum / beCollective — same primitives, props differ) ── */
 
-export default function ForumView({ data, area, onDrill }) {
+export default function ForumView({ data, area, onDrill, title = "The Forum",
+  subtitle = "Mastermind", deckSlots = DECK_SLOTS, drillBusiness = "springb" }) {
   const [sel, setSel] = useState(null);
   if (!data) return null;
-  const onOpen = (key) => onDrill && onDrill(key, "springb");
+  const onOpen = (key) => onDrill && onDrill(key, drillBusiness);
   const meta = sel ? DETAIL_META[sel] : null;
   const watchCount = data.watch?.count || 0;
   const deck = data.deck || [];
@@ -442,8 +450,8 @@ export default function ForumView({ data, area, onDrill }) {
       {/* header */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <span style={{ width: 5, height: 30, borderRadius: 3, background: ACCENT }} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 600, color: T.ink }}>The Forum</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted }}>Mastermind · {data.members_total} members</span>
+        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 600, color: T.ink }}>{title}</span>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted }}>{subtitle} · {data.members_total} members</span>
         <span style={{ flex: 1 }} />
         {watchCount > 0 ? (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -487,7 +495,7 @@ export default function ForumView({ data, area, onDrill }) {
             <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>select a card to expand</span>
           </div>
           <div className="fd-deck">
-            {DECK_SLOTS.map((slot) => {
+            {deckSlots.map((slot) => {
               const d = deck.find((x) => x.k === slot.k);
               return d
                 ? <DeckCard key={slot.k} d={d} data={data} active={sel === slot.k}

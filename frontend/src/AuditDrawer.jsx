@@ -6,6 +6,10 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 
 /* Forum segment chip — daffodil Forum / mist IC (never poppy). */
 function SegChip({ seg }) {
+  if (seg === "BC") return (
+    <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+      color: T.evergreen, background: T.petal, borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0 }}>BC</span>
+  );
   const f = seg === "F" || seg === "Forum";
   return (
     <span style={{
