@@ -385,6 +385,70 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
                     "computed_as": "Active loans currently at this pipeline stage.",
                     "count": len(rows), "rows": rows}
 
+    # ── the referral flywheel (the deals behind ULRG buyers → Sympli) ──
+    if key in {"flywheel_buyers", "flywheel_captured", "flywheel_uncaptured"}:
+        bmap = {b.key: b for b in (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id))).scalars().all()}
+        ulrg, sympli = bmap.get("ulrg"), bmap.get("sympli")
+        if not (ulrg and sympli):
+            return {"label": "Referral flywheel", "source": "Arive × Sisu",
+                    "computed_as": "Connect Arive and Sisu to itemize the flywheel.", "rows": []}
+
+        funded = (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sympli.id,
+            MetricRecord.source == "arive", MetricRecord.kind == "loan",
+            MetricRecord.segment == "funded"))).scalars().all()
+        loan_by_email: dict = {}
+        for f in funded:
+            em = (f.email or (f.meta or {}).get("borrower_email") or "").lower()
+            if em:
+                loan_by_email.setdefault(em, f)
+
+        buys = (await s.execute(select(Transaction).where(
+            Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
+            Transaction.status == "closed", Transaction.side == "buy",
+            Transaction.sale_price > 0, Transaction.close_date >= start,
+            Transaction.close_date <= end, Transaction.buyer_email.isnot(None))
+            .order_by(Transaction.close_date.desc()))).scalars().all()
+
+        def bname(t):
+            return (t.buyer_name or "").strip().title() or t.buyer_email
+
+        def money(n):
+            return f"${float(n or 0):,.0f}"
+
+        def sub(t):
+            return " · ".join(x for x in [t.address, t.close_date.strftime("%b %d") if t.close_date else None] if x)
+
+        if key == "flywheel_buyers":
+            rows = [{"id": str(t.id), "name": bname(t), "l2": sub(t),
+                     "r1": money(t.sale_price)} for t in buys]
+            return {"label": "ULRG buyer closings", "source": "Sisu",
+                    "computed_as": f"Buy-side ULRG closings, {span()} — every buyer who needed a mortgage.",
+                    "count": len(rows), "rows": rows}
+
+        matched, unmatched = [], []
+        for t in buys:
+            (matched if (t.buyer_email or "").lower() in loan_by_email else unmatched).append(t)
+
+        if key == "flywheel_captured":
+            rows = []
+            for t in matched:
+                ln = loan_by_email[(t.buyer_email or "").lower()]
+                rows.append({"id": str(t.id), "name": bname(t), "seg": "MTG",
+                             "l2": "Financed via Sympli", "r1": money(ln.amount),
+                             "r2": t.address, "source_url": ln.source_url})
+            return {"label": "Financed via Sympli", "source": "Arive × Sisu",
+                    "computed_as": f"ULRG buyers who also funded a Sympli loan — matched on email, {span()}.",
+                    "count": len(rows), "rows": rows}
+
+        rows = [{"id": str(t.id), "name": bname(t), "tone": "watch",
+                 "l2": "Financed elsewhere", "r1": money(t.sale_price), "r2": t.address}
+                for t in unmatched]
+        return {"label": "Financed elsewhere", "source": "Sisu",
+                "computed_as": f"ULRG buyers with no matching Sympli loan — the leakage, {span()}.",
+                "count": len(rows), "rows": rows}
+
     # ── three-lens financials (the Sisu deals behind the P&L rows) ──
     if key in ("fin_closed", "fin_projected"):
         from .financials import _period as _finp, _projection_end

@@ -463,9 +463,13 @@ function AreaDetail({ area, onDrill, period }) {
 
 /* ── flywheel ──────────────────────────────────────────────── */
 
-function FlowNode({ color, big, label, sub, alt }) {
+function FlowNode({ color, big, label, sub, alt, onClick }) {
+  const clickable = Boolean(onClick);
   return (
-    <div style={{ flex: "1 1 130px", minWidth: 118 }}>
+    <div onClick={onClick} className={clickable ? "cc-card" : undefined}
+      title={clickable ? "See the deals behind this number" : undefined}
+      style={{ flex: "1 1 130px", minWidth: 118, borderRadius: 10,
+        cursor: clickable ? "pointer" : "default", padding: clickable ? "6px 8px" : 0, margin: clickable ? "-6px -8px" : 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ width: 9, height: 9, borderRadius: 2, background: color }} />
         <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 34, fontWeight: 700, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{big}</span>
@@ -476,9 +480,10 @@ function FlowNode({ color, big, label, sub, alt }) {
   );
 }
 
-function Flywheel({ flywheel }) {
+function Flywheel({ flywheel, onDrill }) {
   const fw = flywheel || {};
   const available = fw.available !== false;
+  const drill = (key) => (available && onDrill ? () => onDrill(key, "sympli") : undefined);
   const buyerClosings = fw.buyer_closings ?? 0;
   const captured = fw.captured ?? 0;
   const perLoanShare = fw.per_loan_share ?? 0;
@@ -519,11 +524,11 @@ function Flywheel({ flywheel }) {
           <span style={{ display: "flex", gap: 6 }}><Source name="Sisu" /><Source name="Follow Up Boss" /><Source name="Arive" /></span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <FlowNode color={T.meadow} big={buyerClosings} label="ULRG buyer closings" sub="financeable deals" />
+          <FlowNode color={T.meadow} big={buyerClosings} label="ULRG buyer closings" sub="financeable deals" onClick={drill("flywheel_buyers")} />
           <span style={{ fontSize: 22, color: T.slate, padding: "0 4px" }}>→</span>
-          <FlowNode color={T.teal} big={captured} label="Financed via Sympli" sub={`${pct}% capture`} />
+          <FlowNode color={T.teal} big={captured} label="Financed via Sympli" sub={`${pct}% capture`} onClick={drill("flywheel_captured")} />
           <span style={{ fontSize: 22, color: T.muted, padding: "0 4px" }}>→</span>
-          <FlowNode color={T.poppy} big={uncaptured} label="Financed elsewhere" sub="walked out the door" alt />
+          <FlowNode color={T.poppy} big={uncaptured} label="Financed elsewhere" sub="walked out the door" alt onClick={drill("flywheel_uncaptured")} />
         </div>
         <div style={{ marginTop: 22 }}>
           <div style={{ height: 14, background: T.parchment, borderRadius: 7, overflow: "hidden", display: "flex" }}>
@@ -561,9 +566,11 @@ function Flywheel({ flywheel }) {
               </div>
             ))}
           </div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 14, lineHeight: 1.5 }}>
-            Eight producing agents sent zero loan referrals this month. That's the list to work, not a vague "improve capture."
-          </div>
+          {fw.zero_ref_agents > 0 && (
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 14, lineHeight: 1.5 }}>
+              {fw.zero_ref_agents} buyer-side {fw.zero_ref_agents === 1 ? "agent" : "agents"} sent zero loan referrals this period. That's the list to work, not a vague "improve capture."
+            </div>
+          )}
         </Card>
       </div>
     </div>
@@ -774,7 +781,7 @@ export default function CommandCenter() {
         title="beCollective" subtitle="Community" deckSlots={BC_DECK_SLOTS} drillBusiness="springb" />
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
-  else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} />;
+  else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
 
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>

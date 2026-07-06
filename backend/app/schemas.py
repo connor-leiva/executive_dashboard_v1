@@ -96,6 +96,7 @@ class Flywheel(BaseModel):
     per_loan_share: float | None = None
     monthly_gap: float | None = None
     annual_gap: float | None = None
+    zero_ref_agents: int | None = None     # buyer-agents who sent 0 to Sympli this period
     agents: list[FlywheelAgent] = []
 
 

@@ -193,6 +193,7 @@ const sampleData = {
     per_loan_share: 2100,
     monthly_gap: (48 - 15) * 2100, // 69300
     annual_gap: (48 - 15) * 2100 * 12, // 831600
+    zero_ref_agents: 8,
     agents: [
       { name: "Sarah K.", refs: 9 },
       { name: "Mike R.", refs: 6 },

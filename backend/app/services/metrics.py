@@ -270,10 +270,12 @@ async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
                             gap=(v["buys"] >= 2 and v["caps"] == 0))
               for aid, v in tally.items()]
     agents.sort(key=lambda a: (a.refs, not a.gap), reverse=True)
+    zero_ref = sum(1 for v in tally.values() if v["buys"] >= 1 and v["caps"] == 0)
 
     return Flywheel(available=True, buyer_closings=buyer_closings, captured=captured,
                     capture_pct=capture_pct, per_loan_share=per_loan,
-                    monthly_gap=monthly_gap, annual_gap=annual_gap, agents=agents[:6])
+                    monthly_gap=monthly_gap, annual_gap=annual_gap,
+                    zero_ref_agents=zero_ref, agents=agents[:6])
 
 
 async def _active_listings(s, tenant_id, business_id, cutoff) -> int:
