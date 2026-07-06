@@ -547,8 +547,8 @@ function Flywheel({ flywheel, onDrill }) {
             <div style={{ width: `${100 - pct}%`, background: T.poppy }} />
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: "#4D6A4D", fontWeight: 600 }}>{pct}% captured</span>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, fontWeight: 600 }}>{100 - pct}% lost · target 60%+</span>
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: "#4D6A4D", fontWeight: 600 }}>{pct}% captured · target 60%+</span>
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, fontWeight: 600 }}>{100 - pct}% lost</span>
           </div>
         </div>
       </Card>
