@@ -87,12 +87,14 @@ async def test_login_and_dashboard_shape():
     assert src["Arive"] == "disconnected"
 
     # Flywheel lights up from the three-signal join (Sisu vendor pick + email match +
-    # Arive Utah-Life referral): 16 financeable, 11 captured → 69%.
+    # Arive Utah-Life referral): 16 financeable, 7 captured → 44% (below 60% target).
     fw = d["flywheel"]
     assert fw["available"] is True
-    assert fw["buyer_closings"] == 16 and fw["captured"] == 11 and fw["capture_pct"] == 69
-    assert len(fw["lost_to"]) >= 1 and fw["sympli_referred"] == 13
-    assert {s["label"]: s["value"] for s in d["scorecards"]}["Loans Funded"] == "17"
+    assert fw["buyer_closings"] == 16 and fw["captured"] == 7 and fw["capture_pct"] == 44
+    assert fw["capture_target"] == 60 and fw["period_label"] == "this month"
+    assert len(fw["lost_to"]) >= 1 and fw["sympli_referred"] == 10
+    assert sum(a["refs"] for a in fw["referrers"]) == fw["captured"]   # invariant
+    assert {s["label"]: s["value"] for s in d["scorecards"]}["Loans Funded"] == "14"
 
 
 async def test_metric_detail_units_closed():

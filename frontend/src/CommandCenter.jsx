@@ -461,24 +461,7 @@ function AreaDetail({ area, onDrill, period }) {
   );
 }
 
-/* ── flywheel ──────────────────────────────────────────────── */
-
-function FlowNode({ color, big, label, sub, alt, onClick }) {
-  const clickable = Boolean(onClick);
-  return (
-    <div onClick={onClick} className={clickable ? "cc-card" : undefined}
-      title={clickable ? "See the deals behind this number" : undefined}
-      style={{ flex: "1 1 130px", minWidth: 118, borderRadius: 10,
-        cursor: clickable ? "pointer" : "default", padding: clickable ? "6px 8px" : 0, margin: clickable ? "-6px -8px" : 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ width: 9, height: 9, borderRadius: 2, background: color }} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 34, fontWeight: 700, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{big}</span>
-      </div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, fontWeight: 600, marginTop: 4 }}>{label}</div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: alt ? T.poppyText : T.muted, marginTop: 1 }}>{sub}</div>
-    </div>
-  );
-}
+/* ── flywheel v2 (spec: flywheel-view-v2) ──────────────────────── */
 
 function ReconRow({ label, value, good, warn }) {
   const color = warn ? T.poppyText : good ? "#4D6A4D" : T.ink;
@@ -490,100 +473,214 @@ function ReconRow({ label, value, good, warn }) {
   );
 }
 
+/* one colored capture component (dot + big number + label + subline), drillable */
+function FwStat({ color, big, label, sub, subColor, onClick }) {
+  return (
+    <div onClick={onClick} className={onClick ? "cc-card" : undefined}
+      style={{ cursor: onClick ? "pointer" : "default", borderRadius: 8, padding: onClick ? "4px 8px" : 0, margin: onClick ? "-4px -8px" : 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ width: 9, height: 9, borderRadius: 2, background: color }} />
+        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 32, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{big}</span>
+      </div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, marginTop: 5 }}>{label}</div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: subColor || T.muted, marginTop: 1 }}>{sub}</div>
+    </div>
+  );
+}
+
+const FwDrill = ({ onClick, children }) => (
+  <span onClick={onClick} style={{ color: T.teal, fontWeight: 600, cursor: onClick ? "pointer" : "default" }}>
+    {children}{onClick && <Icon name="open" size={11} color={T.teal} style={{ marginLeft: 4, verticalAlign: "-1px" }} />}
+  </span>
+);
+
+const GhostDark = ({ children }) => (
+  <Link to="/settings/businesses" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 16,
+    background: "rgba(248,245,242,.08)", border: "1px solid rgba(248,245,242,.2)", borderRadius: 8, padding: "6px 12px",
+    fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.onDark, textDecoration: "none" }}>
+    <Icon name="tune" size={12} color={T.onDark} />{children}
+  </Link>
+);
+
+/* Row 1 left — the headline attach-rate KPI with progress-to-target + delta. */
+function AttachTile({ fw }) {
+  const pct = fw.capture_pct ?? 0;
+  const target = fw.capture_target ?? 60;
+  const delta = fw.attach_delta_pts;
+  const label = fw.period_label || "this period";
+  return (
+    <Card style={{ flex: "0 1 320px", minWidth: 280 }}>
+      <PanelLabel>Attach rate · {label}</PanelLabel>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 46, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
+        {delta != null && (
+          <span title="vs the prior comparable period" style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: delta >= 0 ? T.meadow : T.slate }}>
+            {delta >= 0 ? "+" : ""}{delta} pts
+          </span>
+        )}
+      </div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, marginTop: 6 }}>of ULRG buyer closings financed via Sympli</div>
+      <div style={{ marginTop: 18 }}>
+        <div style={{ position: "relative", height: 9, borderRadius: 6, background: T.parchment, border: `1px solid ${T.line}` }}>
+          <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(pct, 100)}%`, background: T.teal, borderRadius: 6 }} />
+          <div title={`target ${target}%`} style={{ position: "absolute", left: `${target}%`, top: -4, bottom: -4, width: 2, background: T.evergreen, borderRadius: 2 }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>
+          <span style={{ color: T.teal, fontWeight: 600 }}>{pct}% today</span>
+          <span>target {target}%</span>
+        </div>
+      </div>
+      {fw.per_point_value != null && (
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 16, lineHeight: 1.5 }}>
+          Every point of attach ≈ <b style={{ color: T.ink }}>{usd(fw.per_point_value)}</b>/yr in JV revenue at current volume.
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* Row 1 right — the shortened capture flow: two colored figures + bar. */
+function CaptureCard({ fw, onDrill }) {
+  const closings = fw.buyer_closings ?? 0;
+  const captured = fw.captured ?? 0;
+  const lost = fw.lost ?? (closings - captured);
+  const pct = fw.capture_pct ?? 0;
+  const target = fw.capture_target ?? 60;
+  const label = fw.period_label || "this period";
+  const drill = (k) => (onDrill ? () => onDrill(k, "sympli") : undefined);
+  return (
+    <Card style={{ flex: "1 1 380px", minWidth: 300 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <PanelLabel>Buyer-side capture · {label}</PanelLabel>
+        <span style={{ display: "flex", gap: 6 }}><Source name="Sisu" /><Source name="Follow Up Boss" /><Source name="Arive" /></span>
+      </div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, marginBottom: 14 }}>
+        Of <FwDrill onClick={drill("flywheel_buyers")}>{closings} financeable buyer closings</FwDrill> {label}…
+      </div>
+      <div style={{ display: "flex", gap: 34, flexWrap: "wrap", marginBottom: 16 }}>
+        <FwStat color={T.teal} big={captured} label="Financed via Sympli" sub={`${pct}% capture`} onClick={drill("flywheel_captured")} />
+        <FwStat color={T.poppy} big={lost} label="Financed elsewhere" sub="walked out the door" subColor={T.poppyText} onClick={drill("flywheel_uncaptured")} />
+      </div>
+      <div style={{ position: "relative" }}>
+        <div style={{ display: "flex", height: 12, borderRadius: 7, overflow: "hidden", gap: 2 }}>
+          <div style={{ width: `${pct}%`, background: T.teal }} />
+          <div style={{ width: `${100 - pct}%`, background: T.poppy, opacity: 0.85 }} />
+        </div>
+        <div title={`capture target ${target}%`} style={{ position: "absolute", left: `${target}%`, top: -4, bottom: -4, width: 2, background: T.evergreen, borderRadius: 2 }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontFamily: "Inter,sans-serif", fontSize: 11.5 }}>
+        <span style={{ color: T.teal, fontWeight: 600 }}>{pct}% captured · target {target}%+</span>
+        <span style={{ color: T.poppyText, fontWeight: 600 }}>{100 - pct}% lost</span>
+      </div>
+    </Card>
+  );
+}
+
+/* Row 2 left — config-aware money card. Setup prompt when JV share is unset. */
+function MoneyCard({ fw }) {
+  const share = fw.per_loan_share;    // null/0 → unset
+  const label = fw.period_label || "this period";
+  const target = fw.capture_target ?? 60;
+  const cardStyle = { flex: "0 1 320px", minWidth: 280, background: T.evergreen, border: "none" };
+  if (!share) {
+    return (
+      <Card style={cardStyle}>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.onDarkMute, marginBottom: 10 }}>Revenue left on the table</div>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.onDark, lineHeight: 1.45 }}>
+          Set Sympli's JV share per loan to price the gap.
+        </div>
+        <GhostDark>Set JV share per loan</GhostDark>
+      </Card>
+    );
+  }
+  return (
+    <Card style={cardStyle}>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.onDarkMute, marginBottom: 8 }}>Revenue left on the table</div>
+      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 38, fontWeight: 700, color: T.poppy, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(fw.gap_dollars ?? 0)}</div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.onDarkMute, marginTop: 8 }}>{label} at {fw.capture_pct ?? 0}% capture</div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.onDarkMute, marginTop: 14, lineHeight: 1.55 }}>
+        {fw.lost ?? 0} uncaptured deals × {usd(share)} JV share per loan — revenue Spring already co-owns and isn't
+        collecting. At the {target}% target, this shrinks to <b style={{ color: T.onDark }}>{usd(fw.gap_at_target ?? 0)}</b>.
+      </div>
+      <GhostDark>JV share {usd(share)} · edit</GhostDark>
+    </Card>
+  );
+}
+
+/* Row 2 right — leaderboard: top-N referrers, expand to the full reconciling list. */
+function Leaderboard({ fw, onDrill }) {
+  const [expanded, setExpanded] = useState(false);
+  const referrers = fw.referrers || [];
+  const zeroAgents = fw.zero_agents || [];
+  const rows = expanded ? referrers : referrers.slice(0, 6);
+  const max = Math.max(...referrers.map((a) => a.refs), 1);
+  const totalLoans = referrers.reduce((a, r) => a + r.refs, 0);
+  const label = fw.period_label || "this period";
+  return (
+    <Card style={{ flex: "1 1 380px", minWidth: 300 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <PanelLabel accent={T.meadow}>Who refers, who doesn't</PanelLabel>
+        <span style={{ display: "flex", gap: 6 }}><Source name="Sisu" /><Source name="Arive" /></span>
+      </div>
+      <div style={expanded ? { maxHeight: 296, overflowY: "auto", paddingRight: 4, display: "flex", flexDirection: "column", gap: 9 } : { display: "flex", flexDirection: "column", gap: 9 }}>
+        {rows.map((ag) => (
+          <div key={ag.id || ag.name} onClick={onDrill ? () => onDrill("flywheel_agent_referrals", "sympli", ag.id) : undefined}
+            className={onDrill ? "cc-card" : undefined} title={onDrill ? "See this agent's Sympli referrals" : undefined}
+            style={{ display: "flex", alignItems: "center", gap: 12, cursor: onDrill ? "pointer" : "default", borderRadius: 6, padding: "2px 5px", margin: "0 -5px" }}>
+            <span style={{ width: 118, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ag.name}</span>
+            <div style={{ flex: 1, height: 16, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
+              <div style={{ width: `${(ag.refs / max) * 100}%`, height: "100%", background: T.meadow, borderRadius: 5 }} />
+            </div>
+            <span style={{ width: 22, fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{ag.refs}</span>
+          </div>
+        ))}
+      </div>
+      {referrers.length > 6 && (
+        <button onClick={() => setExpanded(!expanded)} aria-expanded={expanded}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "none", border: "none", cursor: "pointer", marginTop: 12, padding: "4px 2px", fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.slate }}>
+          <Icon name="chevron_down" size={12} color={T.slate} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .2s ease" }} />
+          {expanded ? "Show top referrers" : `Show all ${referrers.length} referring agents · ${totalLoans} loans`}
+        </button>
+      )}
+      {zeroAgents.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.line}` }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: T.daffodilBg, borderRadius: 7, padding: "5px 11px", fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.daffodilText }}>
+            <Icon name="warning" size={12} color={T.daffodilText} />{zeroAgents.length} producing agents · zero referrals {label}
+          </span>
+          <button onClick={onDrill ? () => onDrill("flywheel_zero_referrals", "sympli") : undefined}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.slate }}>
+            View the list<Icon name="open" size={11} color={T.slate} />
+          </button>
+          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>that's the call list, not "improve capture"</span>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function Flywheel({ flywheel, onDrill }) {
   const fw = flywheel || {};
   const available = fw.available !== false;
-  const drill = (key) => (available && onDrill ? () => onDrill(key, "sympli") : undefined);
+  const drill = available ? onDrill : null;
   const lostTo = fw.lost_to || [];
-  const buyerClosings = fw.buyer_closings ?? 0;
-  const captured = fw.captured ?? 0;
-  const perLoanShare = fw.per_loan_share ?? 0;
-  const agents = fw.agents || [];
-  const uncaptured = buyerClosings - captured;
-  const pct = fw.capture_pct != null
-    ? fw.capture_pct
-    : (buyerClosings ? Math.round((captured / buyerClosings) * 100) : 0);
-  const monthlyGap = fw.monthly_gap != null ? fw.monthly_gap : uncaptured * perLoanShare;
-  const maxRef = Math.max(...agents.map((a) => a.refs), 1);
   return (
-    <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 18 }}>
+    <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 16 }}>
       {!available && (
-        <div style={{
-          position: "absolute", inset: -8, zIndex: 5, borderRadius: 16,
-          background: "rgba(248,245,242,0.72)", backdropFilter: "blur(1.5px)",
-          display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
-        }}>
-          <div style={{
-            background: T.evergreen, borderRadius: 14, padding: "18px 24px", textAlign: "center",
-            boxShadow: "0 12px 30px rgba(0,46,44,.18)",
-          }}>
+        <div style={{ position: "absolute", inset: -8, zIndex: 5, borderRadius: 16, background: "rgba(248,245,242,0.72)", backdropFilter: "blur(1.5px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ background: T.evergreen, borderRadius: 14, padding: "18px 24px", textAlign: "center", boxShadow: "0 12px 30px rgba(0,46,44,.18)" }}>
             <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.onDark }}>Unlocks when Arive is connected</div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDarkMute, marginTop: 4 }}>Phase 3</div>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDarkMute, marginTop: 4 }}>Connect Sympli's Arive to light up the flywheel</div>
           </div>
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <span style={{ width: 5, height: 30, borderRadius: 3, background: `linear-gradient(${T.meadow},${T.teal})` }} />
-        <Icon name="spark" size={22} color={T.teal} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 600, color: T.ink }}>The Referral Flywheel</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted }}>ULRG → Sympli · the connection QuickBooks can't see</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
+        <Icon name="spark" size={20} color={T.poppyText} />
+        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 700, color: T.ink, letterSpacing: "-.01em" }}>The Referral Flywheel</span>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>ULRG → Sympli · the connection QuickBooks can't see</span>
       </div>
 
-      <Card>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <PanelLabel>Buyer-side capture · this month</PanelLabel>
-          <span style={{ display: "flex", gap: 6 }}><Source name="Sisu" /><Source name="Follow Up Boss" /><Source name="Arive" /></span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <FlowNode color={T.meadow} big={buyerClosings} label="ULRG buyer closings" sub="financeable deals" onClick={drill("flywheel_buyers")} />
-          <span style={{ fontSize: 22, color: T.slate, padding: "0 4px" }}>→</span>
-          <FlowNode color={T.teal} big={captured} label="Financed via Sympli" sub={`${pct}% capture`} onClick={drill("flywheel_captured")} />
-          <span style={{ fontSize: 22, color: T.muted, padding: "0 4px" }}>→</span>
-          <FlowNode color={T.poppy} big={uncaptured} label="Financed elsewhere" sub="walked out the door" alt onClick={drill("flywheel_uncaptured")} />
-        </div>
-        <div style={{ marginTop: 22 }}>
-          <div style={{ height: 14, background: T.parchment, borderRadius: 7, overflow: "hidden", display: "flex" }}>
-            <div style={{ width: `${pct}%`, background: T.meadow }} />
-            <div style={{ width: `${100 - pct}%`, background: T.poppy }} />
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: "#4D6A4D", fontWeight: 600 }}>{pct}% captured · target 60%+</span>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, fontWeight: 600 }}>{100 - pct}% lost</span>
-          </div>
-        </div>
-      </Card>
-
-      <div className="cc-twocol">
-        <Card style={{ flex: "1 1 240px", background: T.evergreen, border: "none" }}>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.onDarkMute, marginBottom: 8 }}>Revenue left on the table</div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 40, fontWeight: 700, color: T.poppy, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(monthlyGap)}</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.onDarkMute, marginTop: 8 }}>
-            this month · <span style={{ color: T.onDark, fontWeight: 600 }}>{usd(monthlyGap * 12)}/yr</span> at current pace
-          </div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.onDarkMute, marginTop: 14, lineHeight: 1.5 }}>
-            {uncaptured} uncaptured deals × {usd(perLoanShare)} JV share per loan. Revenue Spring already co-owns and isn't collecting.
-          </div>
-        </Card>
-        <Card style={{ flex: "1 1 340px", minWidth: 300 }}>
-          <PanelLabel accent={T.meadow}>Who refers, who doesn't</PanelLabel>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {agents.map((ag, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ width: 96, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: ag.gap ? T.poppyText : T.ink, fontWeight: ag.gap ? 600 : 500 }}>{ag.name}</span>
-                <div style={{ flex: 1, height: 18, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
-                  <div style={{ width: `${(ag.refs / maxRef) * 100}%`, height: "100%", background: ag.gap ? T.poppy : T.meadow, borderRadius: 5 }} />
-                </div>
-                <span style={{ width: 56, fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: ag.gap ? T.poppyText : T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{ag.gap ? "0 ⚠" : ag.refs}</span>
-              </div>
-            ))}
-          </div>
-          {fw.zero_ref_agents > 0 && (
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 14, lineHeight: 1.5 }}>
-              {fw.zero_ref_agents} buyer-side {fw.zero_ref_agents === 1 ? "agent" : "agents"} sent zero loan referrals this period. That's the list to work, not a vague "improve capture."
-            </div>
-          )}
-        </Card>
-      </div>
+      <div className="cc-twocol"><AttachTile fw={fw} /><CaptureCard fw={fw} onDrill={drill} /></div>
+      <div className="cc-twocol"><MoneyCard fw={fw} /><Leaderboard fw={fw} onDrill={drill} /></div>
 
       {(lostTo.length > 0 || fw.sympli_referred != null) && (
         <div className="cc-twocol">
@@ -791,8 +888,8 @@ export default function CommandCenter() {
   const becollective = useBecollective(periodKey);
   const [view, setView] = useState("overview");
   const [refreshing, setRefreshing] = useState(false);
-  const [drill, setDrill] = useState(null);       // { key, business } for the audit drawer
-  const onDrill = (key, business) => setDrill(key ? { key, business } : null);
+  const [drill, setDrill] = useState(null);       // { key, business, agentId } for the audit drawer
+  const onDrill = (key, business, agentId) => setDrill(key ? { key, business, agentId } : null);
   const user = useMe();
 
   const { areas, flywheel, sources, period } = data || {};
@@ -945,7 +1042,7 @@ export default function CommandCenter() {
         </main>
       </div>
 
-      <AuditDrawer metricKey={drill?.key} business={drill?.business} period={periodKey} onClose={() => setDrill(null)} />
+      <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} period={periodKey} onClose={() => setDrill(null)} />
     </div>
   );
 }

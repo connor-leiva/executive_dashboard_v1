@@ -47,8 +47,9 @@ async def metric_detail_ep(
     key: str,
     period: str = Query("mtd"),
     business: str | None = Query(None),
+    agent_id: str | None = Query(None),
     user: User = Depends(current_user),
     s: AsyncSession = Depends(get_session),
 ):
     """The records behind a KPI + a plain-English 'computed_as' + source links."""
-    return await metric_detail(s, user.tenant_id, key, period, business)
+    return await metric_detail(s, user.tenant_id, key, period, business, agent_id)

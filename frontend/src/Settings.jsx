@@ -676,6 +676,7 @@ function BusinessEditForm({ biz, onClose, onDone }) {
     jv_pct: Math.round((biz.jv_share ?? 1) * 100),
     watch_margin_below: biz.watch_margin_below ?? "",
     per_loan_share: biz.per_loan_share ?? "",
+    capture_target: biz.capture_target ?? "",
     expense_run_rate_mode: biz.expense_run_rate_mode || "trailing_3mo",
     expense_run_rate_manual: biz.expense_run_rate_manual ?? "",
     agent_split_pct: biz.default_agent_split != null ? Math.round(biz.default_agent_split * 100) : "",
@@ -695,6 +696,7 @@ function BusinessEditForm({ biz, onClose, onDone }) {
         jv_share: Math.max(0, Math.min(100, Number(f.jv_pct) || 0)) / 100,
         watch_margin_below: numOrNull(f.watch_margin_below),
         per_loan_share: numOrNull(f.per_loan_share),
+        capture_target: numOrNull(f.capture_target),
         expense_run_rate_mode: f.expense_run_rate_mode,
         expense_run_rate_manual: f.expense_run_rate_mode === "manual" ? numOrNull(f.expense_run_rate_manual) : null,
         default_agent_split: f.agent_split_pct === "" ? null : Math.max(0, Math.min(100, Number(f.agent_split_pct) || 0)) / 100,
@@ -746,14 +748,19 @@ function BusinessEditForm({ biz, onClose, onDone }) {
           <input type="checkbox" checked={f.is_jv} onChange={set("is_jv")} /> Joint venture
         </label>
         {f.is_jv && (
-          <div style={half}>
-            <label style={{ ...label, flex: 1 }}>JV share (%)
-              <input style={field} type="number" step="1" value={f.jv_pct} onChange={set("jv_pct")} />
+          <>
+            <div style={half}>
+              <label style={{ ...label, flex: 1 }}>JV share (%)
+                <input style={field} type="number" step="1" value={f.jv_pct} onChange={set("jv_pct")} />
+              </label>
+              <label style={{ ...label, flex: 1 }}>Attach target (%) <span style={{ fontWeight: 400, color: T.muted }}>· flywheel goal</span>
+                <input style={field} type="number" step="5" value={f.capture_target} onChange={set("capture_target")} placeholder="60" />
+              </label>
+            </div>
+            <label style={label}>Revenue per funded loan ($) <span style={{ fontWeight: 400, color: T.muted }}>· prices the flywheel gap</span>
+              <input style={field} type="number" step="50" value={f.per_loan_share} onChange={set("per_loan_share")} placeholder="Set to price the gap" />
             </label>
-            <label style={{ ...label, flex: 1 }}>Revenue per funded loan ($)
-              <input style={field} type="number" step="50" value={f.per_loan_share} onChange={set("per_loan_share")} placeholder="—" />
-            </label>
-          </div>
+          </>
         )}
 
         <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}`, fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate }}>Financials (three-lens)</div>

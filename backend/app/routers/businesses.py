@@ -21,6 +21,7 @@ def _business_dict(b: Business) -> dict:
         "accent": b.accent, "ink": b.ink, "is_jv": b.is_jv, "jv_share": float(b.jv_share),
         "watch_margin_below": float(b.watch_margin_below) if b.watch_margin_below is not None else None,
         "per_loan_share": float(b.per_loan_share) if b.per_loan_share is not None else None,
+        "capture_target": float(b.capture_target) if b.capture_target is not None else None,
         "expense_run_rate_mode": b.expense_run_rate_mode or "trailing_3mo",
         "expense_run_rate_manual": float(b.expense_run_rate_manual) if b.expense_run_rate_manual is not None else None,
         "default_agent_split": float(b.default_agent_split) if b.default_agent_split is not None else None,
@@ -48,7 +49,7 @@ async def update_business(key: str, body: BusinessUpdate,
     if "status" in fields and fields["status"] not in _STATUSES:
         raise HTTPException(400, f"status must be one of {sorted(_STATUSES)}")
 
-    _NUMERIC = {"jv_share", "watch_margin_below", "per_loan_share",
+    _NUMERIC = {"jv_share", "watch_margin_below", "per_loan_share", "capture_target",
                 "expense_run_rate_manual", "default_agent_split"}
     for name, val in fields.items():
         if name in _NUMERIC and val is not None:

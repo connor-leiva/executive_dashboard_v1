@@ -83,6 +83,7 @@ class Scorecard(BaseModel):
 
 
 class FlywheelAgent(BaseModel):
+    id: str = ""
     name: str
     refs: int
     gap: bool = False
@@ -95,15 +96,24 @@ class FlywheelLender(BaseModel):
 
 class Flywheel(BaseModel):
     available: bool            # False until Arive is synced
+    period_label: str | None = None        # "this month" | "this quarter" | "this year" | "last month"
     buyer_closings: int | None = None      # financeable buy-side closings (cash excluded)
     captured: int | None = None
+    lost: int | None = None                # buyer_closings − captured
     capture_pct: int | None = None
-    per_loan_share: float | None = None
-    monthly_gap: float | None = None
+    capture_target: float | None = None
+    attach_delta_pts: float | None = None  # capture_pct − prior comparable period
+    per_loan_share: float | None = None    # from Business; null when unset (NULL or 0)
+    gap_dollars: float | None = None       # lost × per_loan_share (period); null when share unset
+    gap_at_target: float | None = None     # round(closings × (1 − target/100)) × share
+    per_point_value: float | None = None   # closings/100 × share — every attach point ≈ $X
+    monthly_gap: float | None = None       # kept for the overview teaser card
     annual_gap: float | None = None
     zero_ref_agents: int | None = None     # buyer-agents who sent 0 to Sympli this period
-    agents: list[FlywheelAgent] = []
-    # Three-signal attribution extras.
+    agents: list[FlywheelAgent] = []       # (legacy) top referrers
+    referrers: list[FlywheelAgent] = []    # ALL referring agents, refs desc (sums to captured)
+    zero_agents: list[FlywheelAgent] = []  # producing agents with zero referrals
+    # Three-signal attribution extras (the audit cards).
     lost_to: list[FlywheelLender] = []     # competitors winning the uncaptured deals
     sympli_referred: int | None = None     # funded Sympli loans referred by Utah Life (Arive side)
     sympli_referred_linked: int | None = None   # …of those, matched back to a ULRG closing
@@ -184,6 +194,7 @@ class BusinessUpdate(BaseModel):
     jv_share: float | None = None        # 0.5 = 50%
     watch_margin_below: float | None = None
     per_loan_share: float | None = None
+    capture_target: float | None = None            # flywheel attach-rate goal (%)
     expense_run_rate_mode: str | None = None       # trailing_3mo | last_month | manual
     expense_run_rate_manual: float | None = None
     default_agent_split: float | None = None       # 0.60 = 60%

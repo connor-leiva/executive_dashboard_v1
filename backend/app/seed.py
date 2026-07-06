@@ -120,7 +120,8 @@ async def seed():
         sympli = Business(tenant_id=tenant.id, key="sympli", name="Sympli Mortgage",
                           tag="Joint venture · 50% owned", status="opportunity", accent="#227175",
                           ink="#227175", is_jv=True, jv_share=Decimal("0.5"), sort_order=2,
-                          config=SYMPLI_CONFIG)
+                          config=SYMPLI_CONFIG,
+                          per_loan_share=Decimal(2100), capture_target=Decimal(60))
         s.add_all([ulrg, springb, sympli])
         await s.flush()
 
@@ -245,9 +246,9 @@ async def seed():
                 is_buy = bool(i % 2)
                 vid = phone = None
                 if is_buy:
-                    if jb < 8:            vid = 155743          # Sympli → captured (A)
-                    elif jb < 11:         vid = None            # blank → captured via email (C)
-                    elif jb < 15:         vid = _COMP_VIDS[(jb - 11) % 4]   # competitor → lost
+                    if jb < 4:            vid = 155743          # Sympli → captured (A)
+                    elif jb < 7:          vid = None            # blank → captured via email (C)
+                    elif jb < 15:         vid = _COMP_VIDS[(jb - 7) % 4]    # competitor → lost
                     elif jb < 18:         vid = 12              # cash → excluded from denominator
                     else:                 vid = None            # blank + no loan → lost (unknown)
                     phone = f"801200{jb:04d}"
@@ -429,12 +430,13 @@ async def seed():
             _ULRG_REF = {"referral_email": "grace.laubenthal@liveutah.com",
                          "referral_name": "Grace Laubenthal",
                          "buyer_agent_email": "grace.laubenthal@liveutah.com"}
-            # Funded (17): 9 tie back to a ULRG buyer (6 Sympli-vid + 3 matched-by-email),
-            # 4 are Utah-Life-referred with no matching ULRG deal (reconciliation gap),
-            # 4 came from other brokerages. Phones on the vid ones match the ULRG closings.
+            # Funded (14): 6 tie back to a ULRG buyer (3 Sympli-vid + 3 matched-by-email;
+            # buyer 8 is Sympli-vid with NO loan → the vendor_no_loan gap), 4 are
+            # Utah-Life-referred with no matching ULRG deal (reconciliation gap), 4 came
+            # from other brokerages. Phones on the vid ones match the ULRG closings.
             funded_specs = (
                 [(f"buyer{b}@example.com", _ULRG_REF, f"801200{(b // 2 - 1):04d}")
-                 for b in [2, 4, 6, 8, 10, 12, 18, 20, 22]]
+                 for b in [2, 4, 6, 10, 12, 14]]
                 + [(f"extra{k+1}@example.com", _ULRG_REF, None) for k in range(4)]
                 + [(f"other{k+1}@example.com", None, None) for k in range(4)])
             fund_amts = _spread(6_800_000, len(funded_specs))

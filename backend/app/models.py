@@ -66,6 +66,8 @@ class Business(Base):
     watch_margin_below: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     # Spring's avg JV revenue per funded loan (drives the flywheel gap, Part 4).
     per_loan_share: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Attach-rate goal for the flywheel (percent; default 60).
+    capture_target: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("60"))
     # Three-lens financials: monthly expense run-rate + commission fallback.
     expense_run_rate_mode: Mapped[str] = mapped_column(String(16), default="trailing_3mo")  # trailing_3mo|last_month|manual
     expense_run_rate_manual: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)

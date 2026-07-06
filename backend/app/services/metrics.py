@@ -235,6 +235,33 @@ async def _arive_kpis(s, tenant_id, business_id, start, end, states=None) -> dic
     }
 
 
+_FW_PERIOD_LABEL = {"mtd": "this month", "qtd": "this quarter",
+                    "ytd": "this year", "last_month": "last month"}
+
+
+def _prior_range(period, start, end):
+    """The comparable prior period, for the attach delta (None if not derivable)."""
+    try:
+        if period == "mtd":
+            return _period_range("last_month")
+        if period == "last_month":
+            pe = start - dt.timedelta(days=1)
+            return (pe.replace(day=1), pe)
+        if period == "qtd":
+            pe = start - dt.timedelta(days=1)
+            return (dt.date(pe.year, ((pe.month - 1) // 3) * 3 + 1, 1), pe)
+        if period == "ytd":
+            def _yb(d):
+                try:
+                    return d.replace(year=d.year - 1)
+                except ValueError:
+                    return d.replace(year=d.year - 1, day=28)   # Feb 29 → Feb 28
+            return (dt.date(start.year - 1, 1, 1), _yb(end))
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
     """The ULRG → Sympli attachment flywheel, triangulated from three signals:
       A  the ULRG agent picked a Sympli mortgage vendor in Sisu (mortgage_vid)
@@ -292,71 +319,88 @@ async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
             return loan_by_phone[t.buyer_phone]
         return None
 
-    buys = (await s.execute(select(Transaction).where(
-        Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
-        Transaction.status == "closed", Transaction.side == "buy",
-        Transaction.sale_price > 0, Transaction.close_date >= start,
-        Transaction.close_date <= end, Transaction.buyer_email.isnot(None)))).scalars().all()
-    financeable = [t for t in buys if t.mortgage_vid not in cash_vids]   # cash never attaches
+    # Capture for a date range: A (Sympli vid) ∪ C (email/phone link) over the
+    # financeable (cash-excluded) buy-side closings. Called for the current period
+    # (full detail) and again — lightweight — for the prior period's delta.
+    async def capture_for(cs, ce):
+        buys = (await s.execute(select(Transaction).where(
+            Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
+            Transaction.status == "closed", Transaction.side == "buy",
+            Transaction.sale_price > 0, Transaction.close_date >= cs,
+            Transaction.close_date <= ce, Transaction.buyer_email.isnot(None)))).scalars().all()
+        fin = [t for t in buys if t.mortgage_vid not in cash_vids]
+        cap_ids, matched, lost_c, tally, vnl = set(), set(), Counter(), {}, 0
+        for t in fin:
+            by_vid = t.mortgage_vid in sympli_vids
+            loan = linked_loan(t)
+            d = tally.setdefault(t.agent_id, {"buys": 0, "caps": 0})
+            d["buys"] += 1
+            if by_vid or loan:
+                cap_ids.add(t.id)
+                d["caps"] += 1
+                if loan:
+                    matched.add(loan.external_id)
+                elif by_vid:
+                    vnl += 1
+            else:
+                nm = lender_names.get(str(t.mortgage_vid)) if t.mortgage_vid else None
+                lost_c[nm or "Unknown / not recorded"] += 1
+        return {"fin": fin, "cap_ids": cap_ids, "matched": matched, "lost": lost_c,
+                "tally": tally, "vendor_no_loan": vnl}
 
-    captured_ids, matched_loan_ids = set(), set()
-    lost = Counter()
-    vendor_no_loan = 0
-    for t in financeable:
-        by_vid = t.mortgage_vid in sympli_vids
-        loan = linked_loan(t)
-        if by_vid or loan:
-            captured_ids.add(t.id)
-            if loan:
-                matched_loan_ids.add(loan.external_id)
-            elif by_vid:
-                vendor_no_loan += 1                      # picked Sympli, no loan found
-        else:
-            name = lender_names.get(str(t.mortgage_vid)) if t.mortgage_vid else None
-            lost[name or "Unknown / not recorded"] += 1
-
-    n_fin, n_cap = len(financeable), len(captured_ids)
+    cur = await capture_for(start, end)
+    n_fin, n_cap = len(cur["fin"]), len(cur["cap_ids"])
     capture_pct = round(n_cap / n_fin * 100) if n_fin else 0
+    lost_n = n_fin - n_cap
 
-    # Signal B — Sympli-side: loans that FUNDED this period, credited to Utah Life.
-    # (Period-scoped by funding date, like every other headline number.)
-    in_period_funded = [f for f in funded if f.occurred_on and start <= f.occurred_on <= end]
-    sympli_referred = [f for f in in_period_funded if ref_is_ulrg(f)]
-    referral_no_deal = sum(1 for f in sympli_referred if f.external_id not in matched_loan_ids)
+    # Prior comparable period → the attach delta (null when the prior period is empty).
+    attach_delta = None
+    pr = _prior_range(period, start, end)
+    if pr:
+        prior = await capture_for(pr[0], pr[1])
+        if prior["fin"]:
+            attach_delta = capture_pct - round(len(prior["cap_ids"]) / len(prior["fin"]) * 100)
 
-    # Per-loan JV share × the gap = revenue left on the table.
-    ps, pe = _pl_period(period)
-    pl = (await s.execute(select(PLSnapshot).where(
-        PLSnapshot.tenant_id == tenant_id, PLSnapshot.business_id == sympli.id,
-        PLSnapshot.period_start == ps, PLSnapshot.period_end == pe))).scalar_one_or_none()
-    funded_ct = sum(1 for f in funded if f.occurred_on and start <= f.occurred_on <= end)
-    per_loan = (round(float(pl.revenue) * float(sympli.jv_share) / funded_ct, 2)
-                if pl and funded_ct else None)
-    uncaptured = n_fin - n_cap
-    monthly_gap = round(uncaptured * per_loan, 2) if per_loan else None
-    annual_gap = round(monthly_gap * 12, 2) if monthly_gap is not None else None
+    # Money: per-loan JV share from the Business (unset when NULL or 0 → no dollars).
+    share = float(sympli.per_loan_share) if sympli.per_loan_share else None
+    target = float(sympli.capture_target or 60)
+    gap_dollars = round(lost_n * share, 2) if share else None
+    gap_at_target = round(round(n_fin * (1 - target / 100)) * share, 2) if share else None
+    per_point = round(n_fin / 100 * share, 2) if share else None
 
+    # Referrers (all, refs desc — sums to captured) + zero-referral producing agents.
     names = {a.id: a.name for a in (await s.execute(select(Agent).where(
         Agent.tenant_id == tenant_id, Agent.business_id == ulrg.id))).scalars().all()}
-    tally: dict = {}
-    for t in financeable:
-        d = tally.setdefault(t.agent_id, {"buys": 0, "caps": 0})
-        d["buys"] += 1
-        d["caps"] += 1 if t.id in captured_ids else 0
-    agents = [FlywheelAgent(name=names.get(aid) or "House account", refs=v["caps"],
-                            gap=(v["buys"] >= 2 and v["caps"] == 0))
-              for aid, v in tally.items()]
-    agents.sort(key=lambda a: (a.refs, not a.gap), reverse=True)
-    zero_ref = sum(1 for v in tally.values() if v["buys"] >= 1 and v["caps"] == 0)
+
+    def _agent(aid, refs):
+        return FlywheelAgent(id=str(aid) if aid else "", name=names.get(aid) or "House account", refs=refs)
+
+    referrers = sorted([_agent(aid, v["caps"]) for aid, v in cur["tally"].items() if v["caps"] > 0],
+                       key=lambda a: a.refs, reverse=True)
+    ref_ids = {aid for aid, v in cur["tally"].items() if v["caps"] > 0}
+    producing = {a for a in (await s.execute(select(Transaction.agent_id).where(
+        Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
+        Transaction.status == "closed", Transaction.sale_price > 0,
+        Transaction.close_date >= start, Transaction.close_date <= end).distinct())).scalars().all() if a}
+    zero_agents = [_agent(aid, 0) for aid in producing if aid not in ref_ids]
+
+    # Audit extras (period-scoped): Utah-Life-credited loans + reconciliation gaps.
+    in_period_funded = [f for f in funded if f.occurred_on and start <= f.occurred_on <= end]
+    sympli_referred = [f for f in in_period_funded if ref_is_ulrg(f)]
+    referral_no_deal = sum(1 for f in sympli_referred if f.external_id not in cur["matched"])
 
     return Flywheel(
-        available=True, buyer_closings=n_fin, captured=n_cap, capture_pct=capture_pct,
-        per_loan_share=per_loan, monthly_gap=monthly_gap, annual_gap=annual_gap,
-        zero_ref_agents=zero_ref, agents=agents[:6],
-        lost_to=[FlywheelLender(name=k, count=v) for k, v in lost.most_common(8)],
+        available=True, period_label=_FW_PERIOD_LABEL.get(period, "this period"),
+        buyer_closings=n_fin, captured=n_cap, lost=lost_n, capture_pct=capture_pct,
+        capture_target=target, attach_delta_pts=attach_delta, per_loan_share=share,
+        gap_dollars=gap_dollars, gap_at_target=gap_at_target, per_point_value=per_point,
+        monthly_gap=gap_dollars, annual_gap=None,
+        zero_ref_agents=len(zero_agents), agents=referrers[:6],
+        referrers=referrers, zero_agents=zero_agents,
+        lost_to=[FlywheelLender(name=k, count=v) for k, v in cur["lost"].most_common(8)],
         sympli_referred=len(sympli_referred),
         sympli_referred_linked=len(sympli_referred) - referral_no_deal,
-        vendor_no_loan=vendor_no_loan, referral_no_deal=referral_no_deal)
+        vendor_no_loan=cur["vendor_no_loan"], referral_no_deal=referral_no_deal)
 
 
 async def _active_listings(s, tenant_id, business_id, cutoff) -> int:

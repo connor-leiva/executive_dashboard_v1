@@ -187,32 +187,42 @@ const sampleData = {
 
   flywheel: {
     available: true,
-    buyer_closings: 48,
-    captured: 15,
-    capture_pct: Math.round((15 / 48) * 100), // 31
-    per_loan_share: 2100,
-    monthly_gap: (48 - 15) * 2100, // 69300
-    annual_gap: (48 - 15) * 2100 * 12, // 831600
+    period_label: "this year",
+    buyer_closings: 261,
+    captured: 52,
+    lost: 209,
+    capture_pct: 20,
+    capture_target: 60,
+    attach_delta_pts: 4,
+    per_loan_share: 2100,       // set to 0/null to preview the money-card setup state
+    gap_dollars: 209 * 2100,    // 438900
+    gap_at_target: Math.round(261 * 0.4) * 2100, // 104 × 2100 = 218400
+    per_point_value: Math.round((261 / 100) * 2100), // 5481
+    monthly_gap: 209 * 2100,
+    annual_gap: null,
     zero_ref_agents: 8,
     lost_to: [
-      { name: "UMortgage", count: 12 },
-      { name: "Intercap Lending", count: 8 },
-      { name: "First Colony Mortgage", count: 6 },
-      { name: "City Creek Mortgage", count: 4 },
-      { name: "Lender not recorded", count: 3 },
+      { name: "UMortgage", count: 84 },
+      { name: "Intercap Lending", count: 51 },
+      { name: "First Colony Mortgage", count: 33 },
+      { name: "City Creek Mortgage", count: 22 },
+      { name: "Lender not recorded", count: 19 },
     ],
-    sympli_referred: 19,
-    sympli_referred_linked: 15,
-    vendor_no_loan: 3,
-    referral_no_deal: 4,
-    agents: [
-      { name: "Sarah K.", refs: 9 },
-      { name: "Mike R.", refs: 6 },
-      { name: "Jen T.", refs: 4 },
-      { name: "Dana P.", refs: 3 },
-      { name: "Luis M.", refs: 2 },
-      { name: "8 other agents", refs: 0, gap: true },
+    sympli_referred: 58,
+    sympli_referred_linked: 52,
+    vendor_no_loan: 5,
+    referral_no_deal: 6,
+    referrers: [   // 16 agents, refs sum to the 52 captured (the reconciliation invariant)
+      { id: "a1", name: "Kaestle Muir", refs: 6 }, { id: "a2", name: "Brooklyn Liffick", refs: 5 },
+      { id: "a3", name: "Justin Devine", refs: 5 }, { id: "a4", name: "Trish Thompson", refs: 4 },
+      { id: "a5", name: "Jeff Anderson", refs: 4 }, { id: "a6", name: "Ed Fuller", refs: 3 },
+      { id: "a7", name: "Maya Sorensen", refs: 3 }, { id: "a8", name: "Chris Whitmore", refs: 3 },
+      { id: "a9", name: "Dana Pruitt", refs: 3 }, { id: "a10", name: "Alec Rivera", refs: 3 },
+      { id: "a11", name: "Sam Okafor", refs: 3 }, { id: "a12", name: "Renee Calloway", refs: 2 },
+      { id: "a13", name: "Priya Nair", refs: 2 }, { id: "a14", name: "Marcus Bell", refs: 2 },
+      { id: "a15", name: "Tia Goldberg", refs: 2 }, { id: "a16", name: "Owen Blackwood", refs: 2 },
     ],
+    zero_agents: Array.from({ length: 8 }, (_, i) => ({ id: `z${i}`, name: `Producing agent ${i + 1}`, refs: 0 })),
   },
 
   sources: [

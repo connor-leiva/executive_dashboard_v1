@@ -54,22 +54,24 @@ async def test_sympli_kpis_and_flywheel():
         d = await build_dashboard(s, t.id, "mtd")
 
     ops = {o.label: o.value for o in d.areas["sympli"].ops}
-    assert ops["Funded Loans"] == "17"
+    assert ops["Funded Loans"] == "14"
     assert ops["Pre-approvals"] == "41"
-    assert ops["Pull-through Rate"] == "77%"          # 17 funded / (17 funded + 5 dead)
+    assert ops["Pull-through Rate"] == "74%"          # 14 funded / (14 funded + 5 dead)
 
     # Three-signal flywheel: 16 financeable (3 cash excluded from 19 buy-side),
-    # 11 captured (8 Sympli-vid + 3 email-matched), 4 lost to named competitors.
+    # 7 captured (4 Sympli-vid + 3 email-matched) → 44%, below the 60% target.
     fw = d.flywheel
     assert fw.available is True
-    assert fw.buyer_closings == 16 and fw.captured == 11 and fw.capture_pct == 69
-    assert fw.monthly_gap and fw.annual_gap == round(fw.monthly_gap * 12, 2)
+    assert fw.buyer_closings == 16 and fw.captured == 7 and fw.lost == 9 and fw.capture_pct == 44
+    assert fw.capture_target == 60 and fw.per_loan_share == 2100
+    assert fw.gap_dollars == 9 * 2100 and fw.gap_at_target < fw.gap_dollars   # shrinks at target
+    assert sum(a.refs for a in fw.referrers) == fw.captured                   # reconciliation invariant
     assert {l.name for l in fw.lost_to} >= {"UMortgage-Adam", "Intercap Lending"}
-    assert fw.sympli_referred == 13 and fw.sympli_referred_linked == 9   # Arive-side (Utah Life)
-    assert fw.vendor_no_loan == 2 and fw.referral_no_deal == 4            # data-quality gaps
+    assert fw.sympli_referred == 10 and fw.sympli_referred_linked == 6   # Arive-side (Utah Life)
+    assert fw.vendor_no_loan == 1 and fw.referral_no_deal == 4            # data-quality gaps
     sc = {c.label: c.value for c in d.scorecards}
-    assert sc["Attach Rate"] == "69%"
-    assert sc["Loans Funded"] == "17"
+    assert sc["Attach Rate"] == "44%"
+    assert sc["Loans Funded"] == "14"
 
 
 async def test_utah_state_filter():
@@ -83,9 +85,9 @@ async def test_utah_state_filter():
             MetricRecord.kind == "loan", MetricRecord.segment == "funded"))).scalars().all()
         tx = sum(1 for f in funded if (f.meta or {}).get("property_state") == "TX")
         d = await build_dashboard(s, biz.tenant_id, "mtd")
-    assert len(funded) == 20 and tx == 3           # stored: 17 UT + 3 TX
+    assert len(funded) == 17 and tx == 3           # stored: 14 UT + 3 TX
     carded = int([o.value for o in d.areas["sympli"].ops if o.label == "Funded Loans"][0])
-    assert carded == 17                            # only Utah reaches the card
+    assert carded == 14                            # only Utah reaches the card
 
 
 # ── sync_arive maps live-shaped loans → metric records (mutates; keep last) ──

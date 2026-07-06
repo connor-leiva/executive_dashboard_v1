@@ -71,7 +71,8 @@ _FINANCIAL = {"combined_profit", "revenue", "noi", "gross_profit", "opex", "cogs
 _PENDING_SRC = {"funded_loans": ("Arive", "Funded loans reaching the funded stage")}
 
 
-async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, business: str | None = None) -> dict:
+async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
+                        business: str | None = None, agent_id: str | None = None) -> dict:
     start, end = _period_range(period)
     cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
 
@@ -476,6 +477,91 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
         return {"label": "Financed elsewhere", "source": "Sisu",
                 "computed_as": f"Financeable ULRG buyers Sympli didn't win — by lender, {span()}.",
                 "count": len(rows), "rows": rows}
+
+    # ── flywheel: the call list (zero-referral agents) + per-agent referral detail ──
+    if key in {"flywheel_zero_referrals", "flywheel_agent_referrals"}:
+        from .metrics import _arive_states, _in_states
+        bmap = {b.key: b for b in (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id))).scalars().all()}
+        ulrg, sympli = bmap.get("ulrg"), bmap.get("sympli")
+        if not (ulrg and sympli):
+            return {"label": "Referral flywheel", "source": "Sisu × Arive", "rows": []}
+        sisu_integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
+        vcfg = (sisu_integ.config or {}) if sisu_integ else {}
+        sympli_vids = set(vcfg.get("sympli_mortgage_vids") or [])
+        cash_vids = set(vcfg.get("cash_vids") or [])
+        states = await _arive_states(s, tenant_id)
+        funded = [f for f in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sympli.id,
+            MetricRecord.source == "arive", MetricRecord.kind == "loan",
+            MetricRecord.segment == "funded"))).scalars().all() if _in_states(f, states)]
+        loan_by_email, loan_by_phone = {}, {}
+        for f in funded:
+            m = f.meta or {}
+            for em in {(f.email or "").lower(), (m.get("borrower_email") or "").lower()}:
+                if em:
+                    loan_by_email.setdefault(em, f)
+            if m.get("borrower_phone"):
+                loan_by_phone.setdefault(str(m["borrower_phone"]), f)
+
+        def linked(t):
+            for em in {(t.buyer_email or "").lower(), (t.buyer_email2 or "").lower()}:
+                if em and em in loan_by_email:
+                    return loan_by_email[em]
+            if t.buyer_phone and t.buyer_phone in loan_by_phone:
+                return loan_by_phone[t.buyer_phone]
+            return None
+
+        names = {a.id: a.name for a in (await s.execute(select(Agent).where(
+            Agent.tenant_id == tenant_id, Agent.business_id == ulrg.id))).scalars().all()}
+        buys = (await s.execute(select(Transaction).where(
+            Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
+            Transaction.status == "closed", Transaction.side == "buy",
+            Transaction.sale_price > 0, Transaction.close_date >= start,
+            Transaction.close_date <= end, Transaction.buyer_email.isnot(None)))).scalars().all()
+
+        def money2(n):
+            return f"${float(n or 0):,.0f}"
+
+        if key == "flywheel_agent_referrals":
+            recs = [(t, linked(t)) for t in buys
+                    if str(t.agent_id) == str(agent_id)
+                    and (t.mortgage_vid in sympli_vids or linked(t))]
+            recs.sort(key=lambda tl: float(tl[0].sale_price or 0), reverse=True)
+            rows = [{"id": str(t.id), "name": (t.buyer_name or t.buyer_email or "").title() or "Buyer",
+                     "seg": "MTG",
+                     "l2": ("vendor pick" if t.mortgage_vid in sympli_vids else "email match")
+                     + (f" · {ln.occurred_on.strftime('%b %d')}" if ln and ln.occurred_on else ""),
+                     "r1": money2(ln.amount if ln else t.sale_price),
+                     "source_url": ln.source_url if ln else None} for t, ln in recs]
+            aname = {str(k): v for k, v in names.items()}.get(str(agent_id), "Agent")
+            return {"label": f"{aname} · Sympli referrals",
+                    "source": "Arive × Sisu",
+                    "computed_as": f"This agent's ULRG buyers who financed with Sympli, {span()}.",
+                    "count": len(rows), "rows": rows}
+
+        # zero-referral call list: producing agents (closed a deal) who referred nobody.
+        caps, closed_ct = {}, {}
+        for t in buys:
+            if t.mortgage_vid in cash_vids:
+                continue
+            if t.mortgage_vid in sympli_vids or linked(t):
+                caps[t.agent_id] = caps.get(t.agent_id, 0) + 1
+        closed = (await s.execute(select(Transaction).where(
+            Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
+            Transaction.status == "closed", Transaction.sale_price > 0,
+            Transaction.close_date >= start, Transaction.close_date <= end))).scalars().all()
+        for t in closed:
+            if t.agent_id:
+                closed_ct[t.agent_id] = closed_ct.get(t.agent_id, 0) + 1
+        zero = [(aid, n) for aid, n in closed_ct.items() if not caps.get(aid)]
+        zero.sort(key=lambda an: an[1], reverse=True)
+        rows = [{"id": str(aid), "name": names.get(aid) or "House account", "tone": "watch",
+                 "l2": f"{n} closed · 0 referred to Sympli", "r1": "0"} for aid, n in zero]
+        return {"label": "Zero-referral producing agents", "source": "Sisu × Arive",
+                "computed_as": f"Producing agents with no Sympli-financed closings — the call "
+                               f"list, {span()}.", "count": len(rows), "rows": rows}
 
     # ── three-lens financials (the Sisu deals behind the P&L rows) ──
     if key in ("fin_closed", "fin_projected"):
