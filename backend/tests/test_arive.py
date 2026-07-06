@@ -72,6 +72,22 @@ async def test_sympli_kpis_and_flywheel():
     assert sc["Loans Funded"] == "17"
 
 
+async def test_utah_state_filter():
+    """The Arive LOS is multi-state; the dashboard shows Utah only. The 3 seeded TX
+    loans exist as records but never reach the Sympli card. (Runs before the sync
+    test, which snapshots the arive loans away.)"""
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "sympli"))).scalar_one()
+        funded = (await s.execute(select(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.source == "arive",
+            MetricRecord.kind == "loan", MetricRecord.segment == "funded"))).scalars().all()
+        tx = sum(1 for f in funded if (f.meta or {}).get("property_state") == "TX")
+        d = await build_dashboard(s, biz.tenant_id, "mtd")
+    assert len(funded) == 20 and tx == 3           # stored: 17 UT + 3 TX
+    carded = int([o.value for o in d.areas["sympli"].ops if o.label == "Funded Loans"][0])
+    assert carded == 17                            # only Utah reaches the card
+
+
 # ── sync_arive maps live-shaped loans → metric records (mutates; keep last) ──
 _LOANS = [
     {"ariveLoanId": "L1", "baseLoanAmount": 400000, "loanPurpose": "Purchase",

@@ -151,8 +151,11 @@ async def seed():
             s.add(Integration(tenant_id=tenant.id, provider="qbo", business_id=b.id,
                               status="connected" if demo else "disconnected",
                               realm_id=f"realm-{key}"))
+        # Arive is Sympli's full multi-state LOS; Spring's dashboard is Utah (ULRG's
+        # market). `states` scopes the Sympli card + flywheel — widen it if the JV
+        # spans states.
         s.add(Integration(tenant_id=tenant.id, provider="arive", business_id=sympli.id,
-                          status="disconnected"))
+                          status="disconnected", config={"states": ["UT"]}))
         # Go High Level (The Forum) — mapping from the live API audit (see the
         # GHL reference memory). member_tags = the official 70; forum/innercircle
         # tags split the segments; the renewals pipeline drives ARR + renewals due;
@@ -409,12 +412,12 @@ async def seed():
             #    card + 3-signal flywheel render locally. source="arive", kind="loan".
             #    Funded loans carry the referral source (Utah Life = @liveutah.com) and
             #    borrower email/phone that line up with the ULRG buy-side closings. ──
-            def _ar(i, status, seg, amount, occurred, borrower_email, phone=None, referral=None):
+            def _ar(i, status, seg, amount, occurred, borrower_email, phone=None, referral=None, state="UT"):
                 meta = {"status": status, "segment": seg, "purpose": "Purchase",
                         "mortgage_type": "Conventional" if i % 3 else "FHA",
                         "lo_email": f"lo{(i % 3) + 1}@symplimortgage.com",
                         "borrower_email": borrower_email, "borrower_phone": phone or f"801555{i:04d}",
-                        "property_state": "UT"}
+                        "property_state": state}
                 if referral:
                     meta.update(referral)
                 s.add(MetricRecord(
@@ -451,6 +454,11 @@ async def seed():
             for _ in range(5):                         # adverse / withdrawn (dead)
                 _n += 1
                 _ar(_n, "ADVERSE", "dead", 360000, mid, f"borrower{_n}@myarive.com")
+            # Out-of-state Sympli loans (the LOS is multi-state) — excluded by the Utah
+            # filter, so they never touch the Sympli card or flywheel.
+            for _ in range(3):
+                _n += 1
+                _ar(_n, "LOAN_FUNDED", "funded", 450000, mid, f"tx{_n}@myarive.com", state="TX")
 
         await s.commit()
 

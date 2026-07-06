@@ -187,14 +187,32 @@ _ARIVE_UW = {"UNDERWRITING_SUBMITTED", "APPROVED_WITH_CONDITION", "RE_SUBMITTAL"
              "CLEAR_TO_CLOSE", "DOCS_OUT", "DOCS_SIGNED"}
 
 
-async def _arive_kpis(s, tenant_id, business_id, start, end) -> dict:
-    """Sympli's ARIVE loan pipeline from metric_record (kind='loan', source='arive').
-    Funded is period-scoped (occurred_on in range); pipeline/pre-approvals/UW are the
-    current-state snapshot. Segment ('funded'|'pipeline'|'dead') is set by the sync,
-    so funded loans are counted once (post-funding statuses are the same loan)."""
+async def _arive_states(s, tenant_id) -> set:
+    """Which property states count toward the Sympli dashboard. The Arive instance is
+    Sympli's FULL multi-state LOS; Spring's view is Utah (ULRG's market). Configurable
+    on the Arive integration (`states`), default {"UT"}."""
+    integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "arive"))).scalars().first()
+    st = (integ.config or {}).get("states") if integ else None
+    return {str(x).upper() for x in st} if st else {"UT"}
+
+
+def _in_states(loan, states) -> bool:
+    return ((loan.meta or {}).get("property_state") or "").upper() in states
+
+
+async def _arive_kpis(s, tenant_id, business_id, start, end, states=None) -> dict:
+    """Sympli's ARIVE loan pipeline from metric_record (kind='loan', source='arive'),
+    scoped to the dashboard's states (default Utah). Funded is period-scoped
+    (occurred_on in range); pipeline/pre-approvals/UW are the current-state snapshot.
+    Segment ('funded'|'pipeline'|'dead') is set by the sync, so funded loans are
+    counted once (post-funding statuses are the same loan)."""
+    if states is None:
+        states = await _arive_states(s, tenant_id)
     loans = (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
         MetricRecord.source == "arive", MetricRecord.kind == "loan"))).scalars().all()
+    loans = [l for l in loans if _in_states(l, states)]
     funded = [l for l in loans if l.segment == "funded"]
     pipeline = [l for l in loans if l.segment == "pipeline"]
     dead = [l for l in loans if l.segment == "dead"]
@@ -240,10 +258,12 @@ async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
     lender_names = vcfg.get("lender_names") or {}
     ref_domains = [d.lower().lstrip("@") for d in (vcfg.get("referral_domains") or ["liveutah.com"])]
 
+    states = await _arive_states(s, tenant_id)          # Utah-only by default
     funded = (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sympli.id,
         MetricRecord.source == "arive", MetricRecord.kind == "loan",
         MetricRecord.segment == "funded"))).scalars().all()
+    funded = [f for f in funded if _in_states(f, states)]
     if not funded and not sympli_vids:
         return Flywheel(available=False)               # nothing wired yet → stub
 
@@ -298,8 +318,10 @@ async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
     n_fin, n_cap = len(financeable), len(captured_ids)
     capture_pct = round(n_cap / n_fin * 100) if n_fin else 0
 
-    # Signal B — Sympli-side: funded loans Sympli attributes to Utah Life.
-    sympli_referred = [f for f in funded if ref_is_ulrg(f)]
+    # Signal B — Sympli-side: loans that FUNDED this period, credited to Utah Life.
+    # (Period-scoped by funding date, like every other headline number.)
+    in_period_funded = [f for f in funded if f.occurred_on and start <= f.occurred_on <= end]
+    sympli_referred = [f for f in in_period_funded if ref_is_ulrg(f)]
     referral_no_deal = sum(1 for f in sympli_referred if f.external_id not in matched_loan_ids)
 
     # Per-loan JV share × the gap = revenue left on the table.

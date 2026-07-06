@@ -345,11 +345,14 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
     if key in {"funded_loans", "loan_volume", "preapprovals", "in_underwriting"}:
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "sympli"))).scalar_one_or_none()
+        from .metrics import _arive_states, _in_states
         loans = []
         if biz:
+            states = await _arive_states(s, tenant_id)
             loans = (await s.execute(select(MetricRecord).where(
                 MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
                 MetricRecord.source == "arive", MetricRecord.kind == "loan"))).scalars().all()
+            loans = [l for l in loans if _in_states(l, states)]
         if loans:                                  # else fall through to the pending-source note
             def money(n):
                 return f"${float(n or 0):,.0f}"
@@ -401,10 +404,13 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
         cash_vids = set(vcfg.get("cash_vids") or [])
         lender_names = vcfg.get("lender_names") or {}
 
+        from .metrics import _arive_states, _in_states
+        _fw_states = await _arive_states(s, tenant_id)
         funded = (await s.execute(select(MetricRecord).where(
             MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sympli.id,
             MetricRecord.source == "arive", MetricRecord.kind == "loan",
             MetricRecord.segment == "funded"))).scalars().all()
+        funded = [f for f in funded if _in_states(f, _fw_states)]
         loan_by_email, loan_by_phone = {}, {}
         for f in funded:
             m = f.meta or {}
