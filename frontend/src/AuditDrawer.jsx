@@ -10,6 +10,10 @@ function SegChip({ seg }) {
     <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
       color: T.evergreen, background: T.petal, borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0 }}>BC</span>
   );
+  if (seg === "MTG") return (
+    <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+      color: T.teal, background: T.mist, borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0 }}>Loan</span>
+  );
   const f = seg === "F" || seg === "Forum";
   return (
     <span style={{

@@ -377,6 +377,41 @@ async def seed():
                     meta={"guest": guest, "event_tag": "the shift",
                           "contact_id": (f"bcguest-{i}" if guest else f"bcm-{i+1:03d}")})
 
+            # ── Sympli (ARIVE) loan pipeline — representative loans so the Sympli
+            #    card + flywheel render locally. source="arive", kind="loan".
+            #    First 12 funded borrowers share ULRG buyer emails (the flywheel
+            #    join: ULRG buyers who financed with Sympli). ───────────────────
+            def _ar(i, status, seg, amount, occurred, borrower_email, purpose="Purchase"):
+                s.add(MetricRecord(
+                    tenant_id=tenant.id, business_id=sympli.id, source="arive", kind="loan",
+                    external_id=f"arive-{i:04d}", name=f"Borrower {i:03d}",
+                    email=borrower_email, amount=Decimal(amount), status=status, segment=seg,
+                    occurred_on=occurred, source_url="https://app.myarive.com/",
+                    meta={"status": status, "segment": seg, "purpose": purpose,
+                          "mortgage_type": "Conventional" if i % 3 else "FHA",
+                          "lo_email": f"lo{(i % 3) + 1}@symplimortgage.com",
+                          "borrower_email": borrower_email, "borrower_phone": f"801555{i:04d}",
+                          "property_state": "UT"}))
+
+            _n = 0
+            fund_amts = _spread(7_300_000, 19)         # 19 funded this period, ~$7.3M
+            for j in range(19):
+                _n += 1
+                be = f"buyer{j+1}@example.com" if j < 12 else f"borrower{_n}@myarive.com"
+                st = "BROKER_CHECK_RECEIVED" if j % 5 == 0 else "LOAN_FUNDED"   # both are "funded"
+                _ar(_n, st, "funded", fund_amts[j], mid, be)
+            for _ in range(41):                        # active pre-approvals
+                _n += 1
+                _ar(_n, "PREAPPROVED", "pipeline", 380000, mid, f"borrower{_n}@myarive.com")
+            for k in range(23):                        # in underwriting / later pipeline
+                _n += 1
+                st = ["APPLICATION_INTAKE", "UNDERWRITING_SUBMITTED",
+                      "APPROVED_WITH_CONDITION", "CLEAR_TO_CLOSE"][k % 4]
+                _ar(_n, st, "pipeline", 395000, mid, f"borrower{_n}@myarive.com")
+            for _ in range(5):                         # adverse / withdrawn (dead)
+                _n += 1
+                _ar(_n, "ADVERSE", "dead", 360000, mid, f"borrower{_n}@myarive.com")
+
         await s.commit()
 
     print("[ok] Seeded tenant 'springb' for period",

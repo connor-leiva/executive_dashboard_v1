@@ -86,8 +86,12 @@ async def test_login_and_dashboard_shape():
     assert src["QuickBooks"] == "connected"
     assert src["Arive"] == "disconnected"
 
-    # Flywheel stays gated until Phase 3.
-    assert d["flywheel"]["available"] is False
+    # Flywheel lights up from the seeded Arive loan pipeline (ULRG→Sympli join):
+    # 19 buy-side closings, 6 financed via Sympli → 32% capture.
+    fw = d["flywheel"]
+    assert fw["available"] is True
+    assert fw["buyer_closings"] == 19 and fw["captured"] == 6 and fw["capture_pct"] == 32
+    assert {s["label"]: s["value"] for s in d["scorecards"]}["Loans Funded"] == "19"
 
 
 async def test_metric_detail_units_closed():

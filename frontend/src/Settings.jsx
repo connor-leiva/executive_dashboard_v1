@@ -207,6 +207,63 @@ function GhlConnectForm({ row, onClose, onDone }) {
   );
 }
 
+/* ── Arive connect form (three credentials → one encrypted blob) ── */
+
+function AriveConnectForm({ row, onClose, onDone }) {
+  const editing = row.status === "connected" || row.status === "error";
+  const [clientId, setClientId] = useState((row.config || {}).client_id || "");
+  const [secret, setSecret] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await postJSON("/integrations", {
+        provider: "arive", business_key: row.business_key || "sympli",
+        client_id: clientId.trim() || undefined,     // blank on edit = keep current
+        secret: secret.trim() || undefined,
+        api_key: apiKey.trim() || undefined,
+      });
+      onDone();
+    } catch {
+      setErr("Couldn't save — double-check the Client ID, Secret Key, and API Key.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const keep = editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>;
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Arive" : "Connect Arive"}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>Sympli Mortgage · from Arive Settings → Integrations. All three are stored encrypted.</div>
+        <label style={label}>Client ID
+          <input style={field} value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••• (unchanged)" : ""} />
+        </label>
+        <label style={label}>Secret Key {keep}
+          <input style={field} type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
+        </label>
+        <label style={label}>API Key {keep}
+          <input style={field} type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
+        </label>
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ── QuickBooks: connect each entity to its own QBO company ──── */
 
 function QuickBooksConnect({ live }) {
@@ -418,6 +475,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
                 {!s.entities?.length && <SBtn small icon="sync" disabled={!live || busy === s.integration_id} onClick={() => onSync(s.integration_id)}>{busy === s.integration_id ? "Syncing…" : "Sync now"}</SBtn>}
                 {s.entities?.length > 0 && <SBtn small icon="open" disabled={!live} onClick={() => onConnect(s)}>Connect another entity</SBtn>}
                 {(s.provider === "ghl" || s.provider === "ghl_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit configuration</SBtn>}
+                {s.provider === "arive" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update credentials</SBtn>}
                 <span style={{ flex: 1 }} />
                 {s.integration_id && <button className="si-danger" disabled={!live} onClick={() => onDisconnect(s)}>Disconnect {s.name}</button>}
               </div>
@@ -497,9 +555,10 @@ function IntegrationsPage() {
     if (s.provider === "qbo") return qboConnect(s.entities?.[0]?.business_key || "ulrg");
     if (s.provider === "ghl" || s.provider === "ghl_bc")
       return setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
-    if (s.provider === "arive") { window.alert("Arive connects with your API key — wiring lands in Phase 3."); return; }
+    if (s.provider === "arive")
+      return setConnecting({ provider: "arive", name: s.name, config: s.config || {}, business_key: s.business_key || "sympli", status: "disconnected" });
   }
-  const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "connected" });
+  const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || (s.provider === "arive" ? "sympli" : "springb"), status: "connected" });
   const reconnectEntity = (e) => qboConnect(e.business_key);
 
   if (error) return <Card title="Integrations"><div style={{ color: T.muted, fontSize: 13 }}>Couldn't load integrations.</div></Card>;
@@ -563,10 +622,11 @@ function IntegrationsPage() {
         Auto-sync runs every 30 minutes. Disconnecting removes stored tokens; historical data already synced stays in the dashboard.
       </div>
 
-      {connecting && (
-        <GhlConnectForm row={connecting} onClose={() => setConnecting(null)}
-          onDone={() => { setConnecting(null); load(); }} />
-      )}
+      {connecting && (connecting.provider === "arive"
+        ? <AriveConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : <GhlConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />)}
     </>
   );
 }

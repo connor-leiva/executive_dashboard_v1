@@ -341,6 +341,50 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str, busin
                     "computed_as": "beCollective members registered for the next event (guests excluded).",
                     "count": len(rows), "rows": rows}
 
+    # ── Sympli's ARIVE loan pipeline (the loans behind the funded/pipeline KPIs) ──
+    if key in {"funded_loans", "loan_volume", "preapprovals", "in_underwriting"}:
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "sympli"))).scalar_one_or_none()
+        loans = []
+        if biz:
+            loans = (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "arive", MetricRecord.kind == "loan"))).scalars().all()
+        if loans:                                  # else fall through to the pending-source note
+            def money(n):
+                return f"${float(n or 0):,.0f}"
+
+            def lname(r):
+                return (r.name or "").strip().title() or r.email or r.external_id
+
+            if key in ("funded_loans", "loan_volume"):
+                recs = [l for l in loans if l.segment == "funded"
+                        and l.occurred_on and start <= l.occurred_on <= end]
+                recs.sort(key=lambda r: float(r.amount or 0), reverse=True)
+                rows = [{"id": str(r.id), "name": lname(r), "seg": "MTG",
+                         "l2": (r.meta or {}).get("purpose") or "Funded",
+                         "r1": money(r.amount),
+                         "r2": r.occurred_on.strftime("%b %d") if r.occurred_on else None,
+                         "source_url": r.source_url} for r in recs]
+                label = "Loan Volume" if key == "loan_volume" else "Loans Funded"
+                return {"label": label, "source": "Arive",
+                        "computed_as": f"Loans reaching a funded status, {span()} "
+                                       "(funded once — post-funding milestones are the same loan).",
+                        "count": len(rows), "rows": rows}
+
+            codes = ({"PREAPPROVED", "QUALIFICATION"} if key == "preapprovals"
+                     else {"UNDERWRITING_SUBMITTED", "APPROVED_WITH_CONDITION", "RE_SUBMITTAL",
+                           "CLEAR_TO_CLOSE", "DOCS_OUT", "DOCS_SIGNED"})
+            recs = [l for l in loans if l.segment == "pipeline" and (l.status or "").upper() in codes]
+            recs.sort(key=lambda r: float(r.amount or 0), reverse=True)
+            rows = [{"id": str(r.id), "name": lname(r), "seg": "MTG",
+                     "l2": (r.status or "").replace("_", " ").title(),
+                     "r1": money(r.amount), "source_url": r.source_url} for r in recs]
+            label = "Pre-approvals" if key == "preapprovals" else "In Underwriting"
+            return {"label": label, "source": "Arive",
+                    "computed_as": "Active loans currently at this pipeline stage.",
+                    "count": len(rows), "rows": rows}
+
     # ── three-lens financials (the Sisu deals behind the P&L rows) ──
     if key in ("fin_closed", "fin_projected"):
         from .financials import _period as _finp, _projection_end

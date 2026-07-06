@@ -21,7 +21,7 @@ from ..config import settings
 from ..models import Business, Transaction, Agent, Lead, PLSnapshot, CashSnapshot, Integration, MetricRecord
 from ..schemas import (
     DashboardResponse, Portfolio, CompositionSeg, AreaPayload, PLRow,
-    OpTile, FunnelRow, Scorecard, Flywheel, SourceStatus,
+    OpTile, FunnelRow, Scorecard, Flywheel, FlywheelAgent, SourceStatus,
 )
 
 # Per-area source badges shown in the UI.
@@ -173,6 +173,107 @@ async def _forum_kpis(s, tenant_id, business_id, start, end) -> dict:
     return {"members": members, "segments": segments, "arr": arr, "memberships": len(memberships),
             "renewals_due": renewals_due, "new_members": new_members,
             "registered": registered, "mrr": mrr, "event_name": event_name}
+
+
+# ARIVE current-status → pipeline funnel stage (loans sit at one status at a time).
+_ARIVE_FUNNEL = [
+    ("Pre-approval", {"PREAPPROVED", "QUALIFICATION", "PRE-APPROVED"}),
+    ("Application", {"APPLICATION_INTAKE", "LOAN_SETUP", "DISCLOSURE_SENT"}),
+    ("Underwriting", {"UNDERWRITING_SUBMITTED", "APPROVED_WITH_CONDITION", "RE_SUBMITTAL", "RE_SUBMISSION"}),
+    ("Clear to close", {"CLEAR_TO_CLOSE", "DOCS_OUT", "DOCS_SENT", "DOCS_SIGNED"}),
+]
+_ARIVE_UW = {"UNDERWRITING_SUBMITTED", "APPROVED_WITH_CONDITION", "RE_SUBMITTAL",
+             "CLEAR_TO_CLOSE", "DOCS_OUT", "DOCS_SIGNED"}
+
+
+async def _arive_kpis(s, tenant_id, business_id, start, end) -> dict:
+    """Sympli's ARIVE loan pipeline from metric_record (kind='loan', source='arive').
+    Funded is period-scoped (occurred_on in range); pipeline/pre-approvals/UW are the
+    current-state snapshot. Segment ('funded'|'pipeline'|'dead') is set by the sync,
+    so funded loans are counted once (post-funding statuses are the same loan)."""
+    loans = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "arive", MetricRecord.kind == "loan"))).scalars().all()
+    funded = [l for l in loans if l.segment == "funded"]
+    pipeline = [l for l in loans if l.segment == "pipeline"]
+    dead = [l for l in loans if l.segment == "dead"]
+    funded_p = [l for l in funded if l.occurred_on and start <= l.occurred_on <= end]
+    funded_vol = sum(float(l.amount or 0) for l in funded_p)
+    decided = len(funded) + len(dead)                    # pull-through = funded / decided
+    stages = [{"label": lbl, "v": sum(1 for l in pipeline if (l.status or "").upper() in codes)}
+              for lbl, codes in _ARIVE_FUNNEL]
+    stages.append({"label": "Funded", "v": len(funded_p)})
+    return {
+        "loans": len(loans),
+        "funded_count": len(funded_p), "funded_volume": funded_vol,
+        "avg_loan": (funded_vol / len(funded_p)) if funded_p else 0,
+        "pipeline_count": len(pipeline),
+        "pipeline_volume": sum(float(l.amount or 0) for l in pipeline),
+        "preapprovals": sum(1 for l in pipeline if (l.status or "").upper() in {"PREAPPROVED", "QUALIFICATION"}),
+        "in_underwriting": sum(1 for l in pipeline if (l.status or "").upper() in _ARIVE_UW),
+        "pull_through": round(len(funded) / decided * 100) if decided else 0,
+        "funnel": stages,
+    }
+
+
+async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
+    """The ULRG → Sympli referral flywheel: of ULRG buy-side closings this period,
+    how many financed through Sympli (matched on borrower email). The gap × the
+    per-loan JV share = the revenue Sympli is leaving on the table."""
+    biz = {b.key: b for b in (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id))).scalars().all()}
+    ulrg, sympli = biz.get("ulrg"), biz.get("sympli")
+    if not (ulrg and sympli):
+        return Flywheel(available=False)
+
+    funded = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sympli.id,
+        MetricRecord.source == "arive", MetricRecord.kind == "loan",
+        MetricRecord.segment == "funded"))).scalars().all()
+    if not funded:
+        return Flywheel(available=False)               # Arive not synced → stay a stub
+    funded_emails = {(f.email or (f.meta or {}).get("borrower_email") or "").lower()
+                     for f in funded}
+    funded_emails.discard("")
+
+    buys = (await s.execute(select(Transaction).where(
+        Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
+        Transaction.status == "closed", Transaction.side == "buy",
+        Transaction.sale_price > 0, Transaction.close_date >= start,
+        Transaction.close_date <= end, Transaction.buyer_email.isnot(None)))).scalars().all()
+    buyer_closings = len(buys)
+    captured = sum(1 for t in buys if (t.buyer_email or "").lower() in funded_emails)
+    capture_pct = round(captured / buyer_closings * 100) if buyer_closings else 0
+
+    # Per-loan JV share = Sympli's period revenue × Spring's share ÷ funded loans.
+    ps, pe = _pl_period(period)
+    pl = (await s.execute(select(PLSnapshot).where(
+        PLSnapshot.tenant_id == tenant_id, PLSnapshot.business_id == sympli.id,
+        PLSnapshot.period_start == ps, PLSnapshot.period_end == pe))).scalar_one_or_none()
+    funded_ct = sum(1 for f in funded if f.occurred_on and start <= f.occurred_on <= end)
+    per_loan = (round(float(pl.revenue) * float(sympli.jv_share) / funded_ct, 2)
+                if pl and funded_ct else None)
+    uncaptured = buyer_closings - captured
+    monthly_gap = round(uncaptured * per_loan, 2) if per_loan else None
+    annual_gap = round(monthly_gap * 12, 2) if monthly_gap is not None else None
+
+    # Referring agents: rank by buy-side closings; refs = how many they sent to Sympli.
+    names = {a.id: a.name for a in (await s.execute(select(Agent).where(
+        Agent.tenant_id == tenant_id, Agent.business_id == ulrg.id))).scalars().all()}
+    tally: dict = {}
+    for t in buys:
+        d = tally.setdefault(t.agent_id, {"buys": 0, "caps": 0})
+        d["buys"] += 1
+        if (t.buyer_email or "").lower() in funded_emails:
+            d["caps"] += 1
+    agents = [FlywheelAgent(name=names.get(aid) or "House account", refs=v["caps"],
+                            gap=(v["buys"] >= 2 and v["caps"] == 0))
+              for aid, v in tally.items()]
+    agents.sort(key=lambda a: (a.refs, not a.gap), reverse=True)
+
+    return Flywheel(available=True, buyer_closings=buyer_closings, captured=captured,
+                    capture_pct=capture_pct, per_loan_share=per_loan,
+                    monthly_gap=monthly_gap, annual_gap=annual_gap, agents=agents[:6])
 
 
 async def _active_listings(s, tenant_id, business_id, cutoff) -> int:
@@ -415,8 +516,27 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             funnel = [FunnelRow(**f) for f in cfg.get("funnel", [])] if cfg.get("funnel") else None
             scc = cfg.get("scorecard", {})
             if b.key == "sympli":
-                sc["sympli_funded"] = scc.get("funded")
-                sc["sympli_volume"] = scc.get("volume")
+                try:
+                    ak = await _arive_kpis(s, tenant_id, b.id, start, end)
+                except Exception:          # e.g. metric_record migration not yet applied
+                    await s.rollback()
+                    ak = None
+                if ak and ak["loans"] > 0:                 # Arive is synced → live pipeline
+                    plabel = _PERIOD_LABELS.get(period, period)
+                    ops = [
+                        OpTile(label="Funded Loans", value=str(ak["funded_count"]), sub=plabel, key="funded_loans"),
+                        OpTile(label="Loan Volume", value=_compact_usd(ak["funded_volume"]), key="loan_volume"),
+                        OpTile(label="Avg Loan Amount", value=_compact_usd(ak["avg_loan"]), key="avg_loan"),
+                        OpTile(label="Pre-approvals", value=str(ak["preapprovals"]), sub="active", key="preapprovals"),
+                        OpTile(label="In Underwriting", value=str(ak["in_underwriting"]), sub="active", key="in_underwriting"),
+                        OpTile(label="Pull-through Rate", value=f"{ak['pull_through']}%", key="pull_through"),
+                    ]
+                    funnel = [FunnelRow(**f) for f in ak["funnel"]]
+                    sc["sympli_funded"] = str(ak["funded_count"])
+                    sc["sympli_volume"] = _compact_usd(ak["funded_volume"]) if ak["funded_volume"] else None
+                else:                                      # not synced → seeded placeholders
+                    sc["sympli_funded"] = scc.get("funded")
+                    sc["sympli_volume"] = scc.get("volume")
             if b.key == "springb":
                 try:
                     k = await _forum_kpis(s, tenant_id, b.id, start, end)
@@ -521,12 +641,18 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
     mom = await _mom(s, tenant_id, portfolio_rev) if (period == "mtd" and portfolio_rev) else None
     cash = await _cash(s, tenant_id, end)
     sources = await _source_statuses(s, tenant_id)
+    try:
+        flywheel = await _build_flywheel(s, tenant_id, period, start, end)
+    except Exception:              # e.g. metric_record migration not yet applied
+        await s.rollback()
+        flywheel = Flywheel(available=False)
+    attach = f"{flywheel.capture_pct}%" if flywheel.available and flywheel.capture_pct is not None else None
     scorecards = _scorecards(
         portfolio_noi=portfolio_noi, portfolio_margin=portfolio_margin,
         ulrg_gci=sc["ulrg_gci"], ulrg_closed=sc["ulrg_closed"], ulrg_pending=sc["ulrg_pending"],
         ulrg_pipeline=sc["ulrg_pipeline"], producing=sc["producing"], total_agents=sc["total_agents"],
         sympli_funded=sc["sympli_funded"], sympli_volume=sc["sympli_volume"],
-        attach_rate=None, members=sc["members"], have_financials=have_financials,
+        attach_rate=attach, members=sc["members"], have_financials=have_financials,
         members_sub=sc["members_sub"],
     )
 
@@ -538,6 +664,6 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             margin=portfolio_margin if portfolio_rev else None, mom=mom,
             cash=cash, composition=composition),
         scorecards=scorecards, areas=areas,
-        flywheel=Flywheel(available=False),   # Phase 3
+        flywheel=flywheel,
         sources=sources,
     )

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Integration, Transaction, Agent, Lead, PLSnapshot, SyncRun, MetricRecord
 from ..security import enc, dec
-from ..integrations import fub, sisu, qbo, ghl
+from ..integrations import fub, sisu, qbo, ghl, arive
 
 
 def _parse_ghl_dt(v) -> dt.date | None:
@@ -158,16 +158,20 @@ async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID
     return n
 
 
-async def _ghl_snapshot(s: AsyncSession, tenant_id, business_id, kind: str, rows: list[dict]):
-    """Replace the prior GHL record set of this kind (so drops fall out). Uses a
-    dialect-agnostic INSERT (no ON CONFLICT here — delete-then-insert), so the GHL
-    syncs are exercisable against SQLite in tests, not just Postgres."""
+async def _metric_snapshot(s: AsyncSession, tenant_id, business_id, source: str, kind: str, rows: list[dict]):
+    """Replace the prior record set of (source, kind) for this business (so drops
+    fall out). Dialect-agnostic INSERT (no ON CONFLICT — delete-then-insert), so the
+    metric syncs are exercisable against SQLite in tests, not just Postgres."""
     await s.execute(delete(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
-        MetricRecord.source == "ghl", MetricRecord.kind == kind))
+        MetricRecord.source == source, MetricRecord.kind == kind))
     for i in range(0, len(rows), 500):
         await s.execute(insert(MetricRecord).values(rows[i:i + 500]))
     await s.commit()
+
+
+async def _ghl_snapshot(s: AsyncSession, tenant_id, business_id, kind: str, rows: list[dict]):
+    await _metric_snapshot(s, tenant_id, business_id, "ghl", kind, rows)
 
 
 async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
@@ -431,6 +435,64 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
     return n_records
 
 
+def _arive_creds(integ: Integration) -> tuple[str, str, str]:
+    """Arive needs three secrets; we store them as one encrypted JSON blob in
+    access_token_enc (the client_id/api_key are semi-public, the secret is private —
+    keeping all three encrypted together is simplest)."""
+    raw = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not raw:
+        raise ValueError("Arive needs credentials (Client ID, Secret Key, API Key).")
+    import json
+    d = json.loads(raw)
+    cid, secret, api_key = d.get("client_id"), d.get("secret"), d.get("api_key")
+    if not (cid and secret and api_key):
+        raise ValueError("Arive credentials incomplete (need client_id, secret, api_key).")
+    return cid, secret, api_key
+
+
+async def sync_arive(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    """Snapshot Sympli's ARIVE pipeline into metric_record (kind='loan', source=
+    'arive'). One row per loan carrying its current status, loan amount, and the
+    borrower's email/phone (for the ULRG→Sympli flywheel join). Segment marks the
+    loan funded / pipeline / dead so the dashboard counts funded loans once —
+    post-funding statuses (broker check, commission) are the SAME funded loan."""
+    cid, secret, api_key = _arive_creds(integ)
+    biz = integ.business_id
+    loans = await arive.get_loans(cid, secret, api_key)
+
+    rows = []
+    for ln in loans:
+        status = arive.loan_status(ln)
+        seg = "funded" if arive.is_funded(status) else ("dead" if arive.is_dead(status) else "pipeline")
+        b = arive.loan_borrower(ln)
+        prop = ln.get("subjectProperty") if isinstance(ln.get("subjectProperty"), dict) else {}
+        rows.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="arive", kind="loan",
+            external_id=arive.loan_display_id(ln) or str(ln.get("sysGUID") or ""),
+            name=(b["name"] or f"Loan {arive.loan_display_id(ln)}")[:200],
+            email=b["email"],
+            amount=arive.loan_amount(ln),
+            status=status or "UNKNOWN",
+            segment=seg,
+            occurred_on=_parse_ghl_dt(arive.loan_status_date(ln)),
+            source_url=arive.loan_deep_link(ln),
+            meta={
+                "status": status, "segment": seg,
+                "purpose": arive.pick(ln, "loanPurpose", "loan_purpose"),
+                "mortgage_type": arive.pick(ln, "mortgageType", "mortgage_type"),
+                "lo_email": (arive.pick(ln, "loanOriginatorEmail", "loanOfficerEmail") or "").lower() or None,
+                "borrower_email": b["email"], "borrower_phone": b["phone"],
+                "property_state": arive.pick(prop, "state", "propertyState") or arive.pick(ln, "subjectPropertyState"),
+            },
+        ))
+    await _metric_snapshot(s, tenant_id, biz, "arive", "loan", rows)
+    funded = sum(1 for r in rows if r["segment"] == "funded")
+    pipe = sum(1 for r in rows if r["segment"] == "pipeline")
+    vol = sum(r["amount"] for r in rows if r["segment"] == "funded")
+    print(f"[arive] {len(rows)} loans — {funded} funded (${vol:,.0f}), {pipe} in pipeline", flush=True)
+    return len(rows)
+
+
 # Every period the dashboard can toggle to needs its own snapshot.
 _QBO_PERIODS = ("mtd", "qtd", "ytd", "last_month")
 
@@ -478,6 +540,8 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
             records = await sync_ghl(s, tenant_id, integ)
         elif integ.provider == "ghl_bc":
             records = await sync_becollective_ghl(s, tenant_id, integ)
+        elif integ.provider == "arive":
+            records = await sync_arive(s, tenant_id, integ)
         elif integ.provider == "qbo":
             records = await sync_qbo_pl(s, tenant_id, integ)   # syncs all periods itself
         run.status, run.finished_at = "ok", dt.datetime.utcnow()

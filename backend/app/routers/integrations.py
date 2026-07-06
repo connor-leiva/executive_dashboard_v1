@@ -1,4 +1,5 @@
 import uuid
+import json
 import datetime as dt
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -10,7 +11,7 @@ from ..config import settings
 from ..db import get_session, SessionLocal
 from ..deps import current_user
 from ..models import User, Integration, Business, SyncRun
-from ..security import enc, make_token, read_token
+from ..security import enc, dec, make_token, read_token
 from ..integrations import qbo
 from ..services.sync import run_all, run_one
 from ..services.metrics import _period_range
@@ -136,6 +137,34 @@ async def create_integration(body: dict, user: User = Depends(current_user),
     integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == user.tenant_id, Integration.provider == provider,
         Integration.business_id == biz.id))).scalar_one_or_none()
+
+    # Arive uses three credentials (Client ID + Secret Key + API Key) stored as one
+    # encrypted blob. On edit, blank fields keep the current value.
+    if provider == "arive":
+        existing = {}
+        if integ and integ.access_token_enc:
+            try:
+                existing = json.loads(dec(integ.access_token_enc))
+            except Exception:  # noqa: BLE001
+                existing = {}
+        creds = {
+            "client_id": (body.get("client_id") or existing.get("client_id") or "").strip(),
+            "secret": (body.get("secret") or existing.get("secret") or "").strip(),
+            "api_key": (body.get("api_key") or existing.get("api_key") or "").strip(),
+        }
+        if not all(creds.values()):
+            raise HTTPException(400, "Arive needs a Client ID, Secret Key, and API Key.")
+        if integ is None:
+            integ = Integration(tenant_id=user.tenant_id, provider="arive", business_id=biz.id)
+        integ.access_token_enc = enc(json.dumps(creds))
+        if body.get("config") is not None:
+            integ.config = body["config"]
+        integ.status, integ.last_error = "connected", None
+        if integ.id is None:
+            s.add(integ)
+        await s.commit()
+        return {"id": str(integ.id)}
+
     new = integ is None or not integ.access_token_enc
     if new and not body.get("token"):
         raise HTTPException(400, "A token is required to connect.")
