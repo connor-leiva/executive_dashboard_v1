@@ -123,6 +123,10 @@ class Transaction(Base):
     address: Mapped[str | None] = mapped_column(String(300), nullable=True)
     buyer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     buyer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Attachment-flywheel join keys (Sisu vendor pick + extra borrower contacts).
+    mortgage_vid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    buyer_email2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    buyer_phone: Mapped[str | None] = mapped_column(String(16), nullable=True)
     agent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent.id"), nullable=True)
     contract_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     close_date: Mapped[date | None] = mapped_column(Date, nullable=True)

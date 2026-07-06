@@ -57,15 +57,36 @@ async def _upsert_many(s: AsyncSession, model, rows: list[dict], index_elements,
 
 _TXN_UPDATE_KEYS = [
     "side", "status", "gci", "agent_commission", "sale_price", "address", "buyer_name",
-    "buyer_email", "agent_id", "contract_date", "close_date", "expected_close_date",
+    "buyer_email", "mortgage_vid", "buyer_email2", "buyer_phone",
+    "agent_id", "contract_date", "close_date", "expected_close_date",
     "appt_set_date", "lead_date", "listing_date", "sisu_status_code",
 ]
 
 
-async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID):
-    """Fetch the whole team's clients from Sisu (concurrently) and batch-upsert."""
+async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
+    """Fetch the whole team's clients from Sisu (concurrently) and batch-upsert.
+    Also refreshes the vendor directory → the attach-flywheel config (which mortgage
+    vendor ids are Sympli / cash, and the vid→lender-name map)."""
+    business_id = integ.business_id
+
     def _prog(done, total, n):
         print(f"[sisu] page {done}/{total} · {n} rows", flush=True)
+
+    # Vendor directory → resolve Sympli / cash vids + lender names (best-effort; the
+    # flywheel reads these off the Sisu integration config). Seeds referral_domains.
+    try:
+        vendors = await sisu.get_team_vendors()
+        if vendors:
+            vc = sisu.resolve_vendor_config(vendors)
+            cfg = dict(integ.config or {})
+            cfg.update(vc)
+            cfg.setdefault("referral_domains", ["liveutah.com"])
+            integ.config = cfg
+            await s.commit()
+            print(f"[sisu] vendors: {len(vc['sympli_mortgage_vids'])} sympli, "
+                  f"{len(vc['cash_vids'])} cash, {len(vc['lender_names'])} lenders", flush=True)
+    except Exception as e:  # noqa: BLE001 — never fail the sync on the vendor pull
+        print(f"[sisu] vendor sync skipped: {e}", flush=True)
 
     mapped, agents = await sisu.fetch_all_clients(progress=_prog)
     print(f"[sisu] fetched {len(mapped)} transactions, {len(agents)} agents", flush=True)
@@ -105,6 +126,8 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUI
              gci=t.get("gci"), agent_commission=t.get("agent_commission"),
              sale_price=t.get("sale_price"), address=t.get("address"),
              buyer_name=t.get("buyer_name"), buyer_email=t.get("buyer_email"),
+             mortgage_vid=t.get("mortgage_vid"), buyer_email2=t.get("buyer_email2"),
+             buyer_phone=t.get("buyer_phone"),
              agent_id=agent_map.get(t.get("agent_external_id")),
              contract_date=t.get("contract_date"), close_date=t.get("close_date"),
              expected_close_date=t.get("expected_close_date"),
@@ -485,11 +508,28 @@ async def sync_arive(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) 
                 "property_state": arive.pick(prop, "state", "propertyState") or arive.pick(ln, "subjectPropertyState"),
             },
         ))
+    # Enrich funded loans with their referral source (only in full detail, not list
+    # rows) — how we tell a loan came from Utah Life. This drives the flywheel's
+    # Sympli-side capture + per-agent attribution. Best-effort; cap the fan-out.
+    funded_rows = [r for r in rows if r["segment"] == "funded"]
+    try:
+        ids = [r["external_id"] for r in funded_rows if r["external_id"]][:800]
+        details = await arive.get_loans_detail(ids, cid, secret, api_key)
+        enriched = 0
+        for r in funded_rows:
+            d = details.get(str(r["external_id"]))
+            if d:
+                ref = arive.loan_referral(d)
+                r["meta"].update({k: v for k, v in ref.items() if v is not None})
+                enriched += 1
+        print(f"[arive] enriched {enriched}/{len(funded_rows)} funded loans with referral", flush=True)
+    except Exception as e:  # noqa: BLE001 — referral enrichment optional
+        print(f"[arive] referral enrichment skipped: {e}", flush=True)
+
     await _metric_snapshot(s, tenant_id, biz, "arive", "loan", rows)
-    funded = sum(1 for r in rows if r["segment"] == "funded")
     pipe = sum(1 for r in rows if r["segment"] == "pipeline")
-    vol = sum(r["amount"] for r in rows if r["segment"] == "funded")
-    print(f"[arive] {len(rows)} loans — {funded} funded (${vol:,.0f}), {pipe} in pipeline", flush=True)
+    vol = sum(r["amount"] for r in funded_rows)
+    print(f"[arive] {len(rows)} loans — {len(funded_rows)} funded (${vol:,.0f}), {pipe} in pipeline", flush=True)
     return len(rows)
 
 
@@ -533,7 +573,7 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
     try:
         records = None
         if integ.provider == "sisu":
-            records = await sync_sisu(s, tenant_id, integ.business_id)
+            records = await sync_sisu(s, tenant_id, integ)
         elif integ.provider == "fub":
             records = await sync_fub(s, tenant_id, integ.business_id)
         elif integ.provider == "ghl":

@@ -13,6 +13,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 import uuid
+from collections import Counter
 
 from sqlalchemy import select, func, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +22,7 @@ from ..config import settings
 from ..models import Business, Transaction, Agent, Lead, PLSnapshot, CashSnapshot, Integration, MetricRecord
 from ..schemas import (
     DashboardResponse, Portfolio, CompositionSeg, AreaPayload, PLRow,
-    OpTile, FunnelRow, Scorecard, Flywheel, FlywheelAgent, SourceStatus,
+    OpTile, FunnelRow, Scorecard, Flywheel, FlywheelAgent, FlywheelLender, SourceStatus,
 )
 
 # Per-area source badges shown in the UI.
@@ -217,35 +218,91 @@ async def _arive_kpis(s, tenant_id, business_id, start, end) -> dict:
 
 
 async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
-    """The ULRG → Sympli referral flywheel: of ULRG buy-side closings this period,
-    how many financed through Sympli (matched on borrower email). The gap × the
-    per-loan JV share = the revenue Sympli is leaving on the table."""
+    """The ULRG → Sympli attachment flywheel, triangulated from three signals:
+      A  the ULRG agent picked a Sympli mortgage vendor in Sisu (mortgage_vid)
+      C  the buyer's email/phone matches a funded Sympli loan
+      B  the Sympli loan names Utah Life as the referral (Arive, @liveutah.com)
+    Captured (on the financeable ULRG denominator) = A ∪ C. B is an independent
+    Sympli-side count for reconciliation; A/B disagreements are data-quality gaps."""
     biz = {b.key: b for b in (await s.execute(select(Business).where(
         Business.tenant_id == tenant_id))).scalars().all()}
     ulrg, sympli = biz.get("ulrg"), biz.get("sympli")
     if not (ulrg and sympli):
         return Flywheel(available=False)
 
+    # Vendor directory config (resolved by the Sisu sync): which mortgage vids are
+    # Sympli / cash, and the vid→lender-name map for the competitor breakdown.
+    sisu_integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
+    vcfg = (sisu_integ.config or {}) if sisu_integ else {}
+    sympli_vids = set(vcfg.get("sympli_mortgage_vids") or [])
+    cash_vids = set(vcfg.get("cash_vids") or [])
+    lender_names = vcfg.get("lender_names") or {}
+    ref_domains = [d.lower().lstrip("@") for d in (vcfg.get("referral_domains") or ["liveutah.com"])]
+
     funded = (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sympli.id,
         MetricRecord.source == "arive", MetricRecord.kind == "loan",
         MetricRecord.segment == "funded"))).scalars().all()
-    if not funded:
-        return Flywheel(available=False)               # Arive not synced → stay a stub
-    funded_emails = {(f.email or (f.meta or {}).get("borrower_email") or "").lower()
-                     for f in funded}
-    funded_emails.discard("")
+    if not funded and not sympli_vids:
+        return Flywheel(available=False)               # nothing wired yet → stub
+
+    # Index funded loans by borrower email + phone (signal C).
+    loan_by_email, loan_by_phone = {}, {}
+    for f in funded:
+        m = f.meta or {}
+        for em in {(f.email or "").lower(), (m.get("borrower_email") or "").lower()}:
+            if em:
+                loan_by_email.setdefault(em, f)
+        if m.get("borrower_phone"):
+            loan_by_phone.setdefault(str(m["borrower_phone"]), f)
+
+    def ref_is_ulrg(f) -> bool:
+        m = f.meta or {}
+        for e in (m.get("referral_email"), m.get("buyer_agent_email")):
+            if e and any(str(e).lower().endswith(d) for d in ref_domains):
+                return True
+        return False
+
+    def linked_loan(t):
+        for em in {(t.buyer_email or "").lower(), (t.buyer_email2 or "").lower()}:
+            if em and em in loan_by_email:
+                return loan_by_email[em]
+        if t.buyer_phone and t.buyer_phone in loan_by_phone:
+            return loan_by_phone[t.buyer_phone]
+        return None
 
     buys = (await s.execute(select(Transaction).where(
         Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
         Transaction.status == "closed", Transaction.side == "buy",
         Transaction.sale_price > 0, Transaction.close_date >= start,
         Transaction.close_date <= end, Transaction.buyer_email.isnot(None)))).scalars().all()
-    buyer_closings = len(buys)
-    captured = sum(1 for t in buys if (t.buyer_email or "").lower() in funded_emails)
-    capture_pct = round(captured / buyer_closings * 100) if buyer_closings else 0
+    financeable = [t for t in buys if t.mortgage_vid not in cash_vids]   # cash never attaches
 
-    # Per-loan JV share = Sympli's period revenue × Spring's share ÷ funded loans.
+    captured_ids, matched_loan_ids = set(), set()
+    lost = Counter()
+    vendor_no_loan = 0
+    for t in financeable:
+        by_vid = t.mortgage_vid in sympli_vids
+        loan = linked_loan(t)
+        if by_vid or loan:
+            captured_ids.add(t.id)
+            if loan:
+                matched_loan_ids.add(loan.external_id)
+            elif by_vid:
+                vendor_no_loan += 1                      # picked Sympli, no loan found
+        else:
+            name = lender_names.get(str(t.mortgage_vid)) if t.mortgage_vid else None
+            lost[name or "Unknown / not recorded"] += 1
+
+    n_fin, n_cap = len(financeable), len(captured_ids)
+    capture_pct = round(n_cap / n_fin * 100) if n_fin else 0
+
+    # Signal B — Sympli-side: funded loans Sympli attributes to Utah Life.
+    sympli_referred = [f for f in funded if ref_is_ulrg(f)]
+    referral_no_deal = sum(1 for f in sympli_referred if f.external_id not in matched_loan_ids)
+
+    # Per-loan JV share × the gap = revenue left on the table.
     ps, pe = _pl_period(period)
     pl = (await s.execute(select(PLSnapshot).where(
         PLSnapshot.tenant_id == tenant_id, PLSnapshot.business_id == sympli.id,
@@ -253,29 +310,31 @@ async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
     funded_ct = sum(1 for f in funded if f.occurred_on and start <= f.occurred_on <= end)
     per_loan = (round(float(pl.revenue) * float(sympli.jv_share) / funded_ct, 2)
                 if pl and funded_ct else None)
-    uncaptured = buyer_closings - captured
+    uncaptured = n_fin - n_cap
     monthly_gap = round(uncaptured * per_loan, 2) if per_loan else None
     annual_gap = round(monthly_gap * 12, 2) if monthly_gap is not None else None
 
-    # Referring agents: rank by buy-side closings; refs = how many they sent to Sympli.
     names = {a.id: a.name for a in (await s.execute(select(Agent).where(
         Agent.tenant_id == tenant_id, Agent.business_id == ulrg.id))).scalars().all()}
     tally: dict = {}
-    for t in buys:
+    for t in financeable:
         d = tally.setdefault(t.agent_id, {"buys": 0, "caps": 0})
         d["buys"] += 1
-        if (t.buyer_email or "").lower() in funded_emails:
-            d["caps"] += 1
+        d["caps"] += 1 if t.id in captured_ids else 0
     agents = [FlywheelAgent(name=names.get(aid) or "House account", refs=v["caps"],
                             gap=(v["buys"] >= 2 and v["caps"] == 0))
               for aid, v in tally.items()]
     agents.sort(key=lambda a: (a.refs, not a.gap), reverse=True)
     zero_ref = sum(1 for v in tally.values() if v["buys"] >= 1 and v["caps"] == 0)
 
-    return Flywheel(available=True, buyer_closings=buyer_closings, captured=captured,
-                    capture_pct=capture_pct, per_loan_share=per_loan,
-                    monthly_gap=monthly_gap, annual_gap=annual_gap,
-                    zero_ref_agents=zero_ref, agents=agents[:6])
+    return Flywheel(
+        available=True, buyer_closings=n_fin, captured=n_cap, capture_pct=capture_pct,
+        per_loan_share=per_loan, monthly_gap=monthly_gap, annual_gap=annual_gap,
+        zero_ref_agents=zero_ref, agents=agents[:6],
+        lost_to=[FlywheelLender(name=k, count=v) for k, v in lost.most_common(8)],
+        sympli_referred=len(sympli_referred),
+        sympli_referred_linked=len(sympli_referred) - referral_no_deal,
+        vendor_no_loan=vendor_no_loan, referral_no_deal=referral_no_deal)
 
 
 async def _active_listings(s, tenant_id, business_id, cutoff) -> int:

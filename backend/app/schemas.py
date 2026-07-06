@@ -88,9 +88,14 @@ class FlywheelAgent(BaseModel):
     gap: bool = False
 
 
+class FlywheelLender(BaseModel):
+    name: str
+    count: int
+
+
 class Flywheel(BaseModel):
-    available: bool            # False until Phase 3 (Arive)
-    buyer_closings: int | None = None
+    available: bool            # False until Arive is synced
+    buyer_closings: int | None = None      # financeable buy-side closings (cash excluded)
     captured: int | None = None
     capture_pct: int | None = None
     per_loan_share: float | None = None
@@ -98,6 +103,12 @@ class Flywheel(BaseModel):
     annual_gap: float | None = None
     zero_ref_agents: int | None = None     # buyer-agents who sent 0 to Sympli this period
     agents: list[FlywheelAgent] = []
+    # Three-signal attribution extras.
+    lost_to: list[FlywheelLender] = []     # competitors winning the uncaptured deals
+    sympli_referred: int | None = None     # funded Sympli loans referred by Utah Life (Arive side)
+    sympli_referred_linked: int | None = None   # …of those, matched back to a ULRG closing
+    vendor_no_loan: int | None = None      # ULRG picked Sympli, but no matching funded loan (gap)
+    referral_no_deal: int | None = None    # Sympli logged Utah Life, but no matching ULRG closing (gap)
 
 
 class SourceStatus(BaseModel):

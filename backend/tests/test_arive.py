@@ -54,17 +54,22 @@ async def test_sympli_kpis_and_flywheel():
         d = await build_dashboard(s, t.id, "mtd")
 
     ops = {o.label: o.value for o in d.areas["sympli"].ops}
-    assert ops["Funded Loans"] == "19"
+    assert ops["Funded Loans"] == "17"
     assert ops["Pre-approvals"] == "41"
-    assert ops["Pull-through Rate"] == "79%"          # 19 funded / (19 funded + 5 dead)
+    assert ops["Pull-through Rate"] == "77%"          # 17 funded / (17 funded + 5 dead)
 
+    # Three-signal flywheel: 16 financeable (3 cash excluded from 19 buy-side),
+    # 11 captured (8 Sympli-vid + 3 email-matched), 4 lost to named competitors.
     fw = d.flywheel
     assert fw.available is True
-    assert fw.buyer_closings == 19 and fw.captured == 6 and fw.capture_pct == 32
+    assert fw.buyer_closings == 16 and fw.captured == 11 and fw.capture_pct == 69
     assert fw.monthly_gap and fw.annual_gap == round(fw.monthly_gap * 12, 2)
+    assert {l.name for l in fw.lost_to} >= {"UMortgage-Adam", "Intercap Lending"}
+    assert fw.sympli_referred == 13 and fw.sympli_referred_linked == 9   # Arive-side (Utah Life)
+    assert fw.vendor_no_loan == 2 and fw.referral_no_deal == 4            # data-quality gaps
     sc = {c.label: c.value for c in d.scorecards}
-    assert sc["Attach Rate"] == "32%"
-    assert sc["Loans Funded"] == "19"
+    assert sc["Attach Rate"] == "69%"
+    assert sc["Loans Funded"] == "17"
 
 
 # ── sync_arive maps live-shaped loans → metric records (mutates; keep last) ──
@@ -89,7 +94,15 @@ async def test_sync_arive_lands_loans(monkeypatch):
     async def fake_get_loans(cid, secret, api_key, max_loans=2000):
         assert (cid, secret, api_key) == ("cid", "sec", "key")   # creds decoded + passed
         return _LOANS
+
+    async def fake_detail(ids, cid, secret, api_key, concurrency=8):
+        # L1 is referred by Utah Life; L2 has no referral.
+        return {"L1": {"ariveLoanId": "L1", "referralContactSourceEmail": "agent@liveutah.com",
+                       "referralContactSourceName": "An Agent",
+                       "businessContacts": [{"role": "REAL_ESTATE_AGENT", "subType": "BUYERS_AGENT",
+                                             "emailAddressText": "agent@liveutah.com"}]}}
     monkeypatch.setattr(arive, "get_loans", fake_get_loans)
+    monkeypatch.setattr(arive, "get_loans_detail", fake_detail)
 
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "sympli"))).scalar_one()
@@ -115,3 +128,22 @@ async def test_sync_arive_lands_loans(monkeypatch):
             MetricRecord.external_id == "L1"))).scalar_one()
         assert rec.email == "b1@x.com" and float(rec.amount) == 400000.0
         assert rec.status == "LOAN_FUNDED" and (rec.meta or {}).get("property_state") == "UT"
+        # referral enrichment: L1 carries the Utah Life referral from the detail fetch.
+        assert (rec.meta or {}).get("referral_email") == "agent@liveutah.com"
+
+
+def test_resolve_vendor_config():
+    from app.integrations import sisu
+    vendors = [
+        {"vendor_id": 155743, "name": "Sympli Mortgage of Utah", "vendor_type": "M"},
+        {"vendor_id": 249290, "name": "Sympli Mortgage", "vendor_type": "M"},
+        {"vendor_id": 156576, "name": "Sympli Insurance", "vendor_type": "I"},   # NOT mortgage
+        {"vendor_id": 125147, "name": "UMortgage-Adam", "vendor_type": "M"},
+        {"vendor_id": 12, "name": "Cash-No Lender", "vendor_type": "M"},
+        {"vendor_id": 43830, "name": "Meraki Title", "vendor_type": "T"},        # title, ignored
+    ]
+    cfg = sisu.resolve_vendor_config(vendors)
+    assert set(cfg["sympli_mortgage_vids"]) == {155743, 249290}   # insurance excluded
+    assert cfg["cash_vids"] == [12]
+    assert cfg["lender_names"]["125147"] == "UMortgage-Adam"
+    assert "43830" not in cfg["lender_names"]                     # non-mortgage not a lender

@@ -480,10 +480,21 @@ function FlowNode({ color, big, label, sub, alt, onClick }) {
   );
 }
 
+function ReconRow({ label, value, good, warn }) {
+  const color = warn ? T.poppyText : good ? "#4D6A4D" : T.ink;
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+      <span style={{ color: T.slate }}>{label}</span>
+      <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600, color, fontVariantNumeric: "tabular-nums" }}>{warn ? `${value} ⚠` : value}</span>
+    </div>
+  );
+}
+
 function Flywheel({ flywheel, onDrill }) {
   const fw = flywheel || {};
   const available = fw.available !== false;
   const drill = (key) => (available && onDrill ? () => onDrill(key, "sympli") : undefined);
+  const lostTo = fw.lost_to || [];
   const buyerClosings = fw.buyer_closings ?? 0;
   const captured = fw.captured ?? 0;
   const perLoanShare = fw.per_loan_share ?? 0;
@@ -573,6 +584,47 @@ function Flywheel({ flywheel, onDrill }) {
           )}
         </Card>
       </div>
+
+      {(lostTo.length > 0 || fw.sympli_referred != null) && (
+        <div className="cc-twocol">
+          {lostTo.length > 0 && (
+            <Card style={{ flex: "1 1 340px", minWidth: 300 }}>
+              <PanelLabel accent={T.poppy}>Where the rest went</PanelLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {lostTo.map((l, i) => {
+                  const max = Math.max(...lostTo.map((x) => x.count), 1);
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span title={l.name} style={{ width: 160, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.name}</span>
+                      <div style={{ flex: 1, height: 16, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
+                        <div style={{ width: `${(l.count / max) * 100}%`, height: "100%", background: T.poppy, borderRadius: 5 }} />
+                      </div>
+                      <span style={{ width: 26, textAlign: "right", fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{l.count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
+                The lenders winning ULRG's buyers — from the mortgage vendor each agent selected in Sisu.
+              </div>
+            </Card>
+          )}
+          {fw.sympli_referred != null && (
+            <Card style={{ flex: "1 1 300px", minWidth: 280 }}>
+              <PanelLabel accent={T.teal}>Cross-check with Sympli</PanelLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 11, fontFamily: "Inter,sans-serif", fontSize: 12.5 }}>
+                <ReconRow label="Sympli loans credited to Utah Life" value={fw.sympli_referred} />
+                <ReconRow label="…matched to a ULRG closing" value={fw.sympli_referred_linked} good />
+                {fw.vendor_no_loan > 0 && <ReconRow label="Picked Sympli, no loan found" value={fw.vendor_no_loan} warn />}
+                {fw.referral_no_deal > 0 && <ReconRow label="Sympli logged us, no ULRG deal" value={fw.referral_no_deal} warn />}
+              </div>
+              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
+                Triangulated from three signals — the agent's vendor pick, the borrower match, and Sympli's own referral record. Gaps are deals to reconcile.
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -13,6 +13,7 @@ fetch `GET /loans/{id}` when full detail is needed.
 from __future__ import annotations
 
 import time
+import asyncio
 
 import httpx
 
@@ -104,6 +105,21 @@ async def get_loans(client_id: str, secret: str, api_key: str,
     return out[:max_loans]
 
 
+def _detail_body(body):
+    """/loans/{id} returns the loan object at the TOP level (has ariveLoanId).
+    Older shapes wrapped it under responses/rows — handle both."""
+    if isinstance(body, dict):
+        if "ariveLoanId" in body:
+            return body
+        if isinstance(body.get("responses"), dict):
+            return body["responses"]
+        rows = _rows(body)
+        if rows:
+            return rows[0]
+        return body
+    return None
+
+
 async def get_loan(loan_id: str, client_id: str, secret: str, api_key: str) -> dict | None:
     """Full detail for one loan (list rows are sparse). Accepts display id or GUID."""
     token = await get_access_token(client_id, secret, api_key)
@@ -112,16 +128,45 @@ async def get_loan(loan_id: str, client_id: str, secret: str, api_key: str) -> d
     if r.status_code == 404:
         return None
     r.raise_for_status()
-    body = r.json()
-    # {"responses": {...}} | {"rows": [{...}]} | bare object
-    if isinstance(body, dict):
-        if isinstance(body.get("responses"), dict):
-            return body["responses"]
-        rows = _rows(body)
-        if rows:
-            return rows[0]
-        return body
-    return None
+    return _detail_body(r.json())
+
+
+async def get_loans_detail(ids, client_id: str, secret: str, api_key: str,
+                           concurrency: int = 8) -> dict:
+    """Full detail for many loans concurrently → {display_id: detail}. Best-effort
+    per loan (a failed detail is skipped, not fatal)."""
+    token = await get_access_token(client_id, secret, api_key)
+    out: dict = {}
+    sem = asyncio.Semaphore(concurrency)
+    async with httpx.AsyncClient(timeout=45) as c:
+        async def one(lid):
+            async with sem:
+                try:
+                    r = await c.get(f"{ARIVE_BASE}/loans/{lid}", headers=_headers(token, api_key))
+                    if r.status_code == 200:
+                        d = _detail_body(r.json())
+                        if isinstance(d, dict):
+                            out[str(lid)] = d
+                except Exception:  # noqa: BLE001
+                    pass
+        await asyncio.gather(*(one(i) for i in ids))
+    return out
+
+
+def loan_referral(full: dict) -> dict:
+    """Referral source + buyer's real-estate agent from full loan detail — how we
+    tell a loan came from a partner brokerage (e.g. Utah Life = @liveutah.com)."""
+    email = pick(full, "referralContactSourceEmail")
+    agent_email = None
+    for bc in (full.get("businessContacts") or []):
+        if isinstance(bc, dict) and str(bc.get("role") or "").upper() == "REAL_ESTATE_AGENT":
+            ae = pick(bc, "emailAddressText", "email")
+            if ae and (str(bc.get("subType") or "").upper() == "BUYERS_AGENT" or agent_email is None):
+                agent_email = ae
+    return {"referral_email": (str(email).lower().strip() if email else None),
+            "referral_name": pick(full, "referralContactSourceName"),
+            "buyer_agent_email": (str(agent_email).lower().strip() if agent_email else None),
+            "lead_source": pick(full, "leadSource")}
 
 
 # ── normalization ────────────────────────────────────────────────────

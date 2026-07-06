@@ -18,6 +18,7 @@ Confirmed against the live schema (team 621):
 from __future__ import annotations
 
 import asyncio
+import re
 import datetime as dt
 from email.utils import parsedate_to_datetime
 
@@ -26,7 +27,9 @@ import httpx
 from ..config import settings
 
 GET_TEAM_CLIENTS = "/v1/team/get-team-clients"
+GET_TEAM_VENDORS = "/v1/team/get-team-vendors"
 SIDE = {"b": "buy", "s": "sell"}
+_CASH_RE = re.compile(r"cash|seller finance|no lender", re.I)
 
 
 def _auth() -> tuple[str, str]:
@@ -59,6 +62,14 @@ def _money(value) -> float | None:
         return None
 
 
+def _digits10(value) -> str | None:
+    """Last 10 digits of a phone (for cross-system matching), else None."""
+    if not value:
+        return None
+    d = "".join(ch for ch in str(value) if ch.isdigit())
+    return d[-10:] if len(d) >= 10 else None
+
+
 def _clip(value, n: int):
     """Clamp a string to a column's max length (Sisu free-text can be long)."""
     return value[:n] if isinstance(value, str) else value
@@ -85,6 +96,52 @@ async def _get_page(client: httpx.AsyncClient, page: int) -> dict:
         return r.json()
     r.raise_for_status()
     return r.json()
+
+
+async def get_team_vendors() -> list[dict]:
+    """The team's vendor directory (mortgage/title/warranty/… companies). Each has
+    vendor_id, name, vendor_type (M=mortgage, T=title, W=warranty, H=inspection,
+    I=insurance). Used to resolve which mortgage-vendor ids are Sympli."""
+    url = f"{settings.SISU_BASE_URL}{GET_TEAM_VENDORS}"
+    async with httpx.AsyncClient(auth=_auth(), timeout=60,
+                                 headers={"accept": "application/json"}) as c:
+        for attempt in range(4):
+            r = await c.post(url, json={})
+            if r.status_code in (429,) or (r.status_code >= 500 and attempt < 3):
+                await asyncio.sleep(2 ** attempt + 1)
+                continue
+            r.raise_for_status()
+            data = r.json()
+            return data.get("vendors") or data.get("data") or (data if isinstance(data, list) else [])
+    return []
+
+
+def resolve_vendor_config(vendors: list[dict], sympli_match: str = "sympli") -> dict:
+    """From the vendor directory, derive the ids the flywheel needs:
+      sympli_mortgage_vids — mortgage vendors whose name is Sympli (auto-maintained
+                             as LOs are added), so a ULRG deal picking one = captured
+      cash_vids            — cash / seller-finance mortgage rows (never financeable →
+                             excluded from the attach-rate denominator)
+      lender_names         — {vid: name} for EVERY mortgage vendor (competitor breakdown)
+    """
+    sympli, cash, lender_names = [], [], {}
+    for v in vendors:
+        vid = v.get("vendor_id")
+        if vid is None:
+            continue
+        name = (v.get("name") or "").strip()
+        low = name.lower()
+        is_mortgage = str(v.get("vendor_type") or "") == "M" or "mortgage" in low
+        if not is_mortgage:
+            continue
+        lender_names[str(vid)] = name
+        if sympli_match in low:
+            sympli.append(vid)
+        if _CASH_RE.search(low):
+            cash.append(vid)
+    return {"sympli_mortgage_vids": sorted(set(sympli)),
+            "cash_vids": sorted(set(cash)),
+            "lender_names": lender_names}
 
 
 async def fetch_all_clients(concurrency: int = 8, progress=None):
@@ -187,6 +244,13 @@ def map_client(c: dict) -> dict:
         "address": _clip(c.get("address_1"), 300),
         "buyer_name": _clip(buyer_names or seller_names or person or None, 200),
         "buyer_email": _clip(c.get("email"), 255),
+        # Attachment-flywheel signals: the mortgage vendor the agent selected (the
+        # authoritative capture signal), the co-borrower email, and the phone — extra
+        # keys to match a ULRG buyer to a funded Sympli loan.
+        "mortgage_vid": (int(c["mortgage_company_vid"])
+                         if str(c.get("mortgage_company_vid") or "").isdigit() else None),
+        "buyer_email2": _clip(c.get("second_contact_email"), 255),
+        "buyer_phone": _digits10(c.get("mobile_phone")),
         "agent_external_id": str(aid) if aid else None,
         "sisu_status_code": _clip(c.get("status_code"), 16),
         "contract_date": parse_dt(c.get("uc_dt")),

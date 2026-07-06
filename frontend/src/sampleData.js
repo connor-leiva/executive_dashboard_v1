@@ -194,6 +194,17 @@ const sampleData = {
     monthly_gap: (48 - 15) * 2100, // 69300
     annual_gap: (48 - 15) * 2100 * 12, // 831600
     zero_ref_agents: 8,
+    lost_to: [
+      { name: "UMortgage", count: 12 },
+      { name: "Intercap Lending", count: 8 },
+      { name: "First Colony Mortgage", count: 6 },
+      { name: "City Creek Mortgage", count: 4 },
+      { name: "Lender not recorded", count: 3 },
+    ],
+    sympli_referred: 19,
+    sympli_referred_linked: 15,
+    vendor_no_loan: 3,
+    referral_no_deal: 4,
     agents: [
       { name: "Sarah K.", refs: 9 },
       { name: "Mike R.", refs: 6 },

@@ -132,7 +132,19 @@ async def seed():
         #    (so the sync doesn't attempt them with placeholder creds).
         demo = settings.SEED_SAMPLE_OPS
         s.add(Integration(tenant_id=tenant.id, provider="sisu", business_id=ulrg.id,
-                          status="connected", last_synced_at=dt.datetime.utcnow()))
+                          status="connected", last_synced_at=dt.datetime.utcnow(),
+                          config={
+                              # Resolved from Sisu's vendor directory at sync time; seeded
+                              # here so the attachment flywheel renders locally. Sympli's
+                              # three mortgage-LO vendor ids + cash/no-lender + lender names.
+                              "sympli_mortgage_vids": [155743, 247597, 249290],
+                              "cash_vids": [12, 204025],
+                              "lender_names": {"155743": "Sympli Mortgage of Utah",
+                                               "125147": "UMortgage-Adam", "158205": "Intercap Lending",
+                                               "162203": "First Colony Mortgage", "38423": "City Creek-Jenna Kinard",
+                                               "12": "Cash-No Lender", "204025": "Seller Finance"},
+                              "referral_domains": ["liveutah.com"],
+                          }))
         s.add(Integration(tenant_id=tenant.id, provider="fub", business_id=ulrg.id,
                           status="connected" if demo else "disconnected"))
         for key, b in biz.items():
@@ -219,15 +231,31 @@ async def seed():
             await s.flush()
 
             # Closed transactions (38): GCI sums 420k, volume sums 14.2M, 24 distinct agents.
+            # Buy-side deals (19) carry a mortgage_vid so the attachment flywheel has a
+            # realistic mix: Sympli picks (A), competitors, and cash (excluded). Buyer
+            # emails/phones on the Sympli/no-vid ones line up with seeded Arive loans.
             gci_parts = _spread(420000, 38)
             price_parts = _spread(14_200_000, 38)
+            _COMP_VIDS = [125147, 158205, 162203, 38423]   # UMortgage/Intercap/First Colony/City Creek
+            jb = 0
             for i in range(38):
+                is_buy = bool(i % 2)
+                vid = phone = None
+                if is_buy:
+                    if jb < 8:            vid = 155743          # Sympli → captured (A)
+                    elif jb < 11:         vid = None            # blank → captured via email (C)
+                    elif jb < 15:         vid = _COMP_VIDS[(jb - 11) % 4]   # competitor → lost
+                    elif jb < 18:         vid = 12              # cash → excluded from denominator
+                    else:                 vid = None            # blank + no loan → lost (unknown)
+                    phone = f"801200{jb:04d}"
+                    jb += 1
                 s.add(Transaction(
                     tenant_id=tenant.id, business_id=ulrg.id, source="sisu",
-                    external_id=f"txn-closed-{i+1:03d}", side="buy" if i % 2 else "sell",
+                    external_id=f"txn-closed-{i+1:03d}", side="buy" if is_buy else "sell",
                     status="closed", gci=Decimal(gci_parts[i]), sale_price=Decimal(price_parts[i]),
                     address=f"{100+i} Main St", buyer_name=f"Buyer {i+1}",
                     buyer_email=f"buyer{i+1}@example.com",
+                    mortgage_vid=vid, buyer_phone=phone,
                     agent_id=agents[i % 24].id,
                     contract_date=mid, close_date=mid))
 
@@ -378,28 +406,40 @@ async def seed():
                           "contact_id": (f"bcguest-{i}" if guest else f"bcm-{i+1:03d}")})
 
             # ── Sympli (ARIVE) loan pipeline — representative loans so the Sympli
-            #    card + flywheel render locally. source="arive", kind="loan".
-            #    First 12 funded borrowers share ULRG buyer emails (the flywheel
-            #    join: ULRG buyers who financed with Sympli). ───────────────────
-            def _ar(i, status, seg, amount, occurred, borrower_email, purpose="Purchase"):
+            #    card + 3-signal flywheel render locally. source="arive", kind="loan".
+            #    Funded loans carry the referral source (Utah Life = @liveutah.com) and
+            #    borrower email/phone that line up with the ULRG buy-side closings. ──
+            def _ar(i, status, seg, amount, occurred, borrower_email, phone=None, referral=None):
+                meta = {"status": status, "segment": seg, "purpose": "Purchase",
+                        "mortgage_type": "Conventional" if i % 3 else "FHA",
+                        "lo_email": f"lo{(i % 3) + 1}@symplimortgage.com",
+                        "borrower_email": borrower_email, "borrower_phone": phone or f"801555{i:04d}",
+                        "property_state": "UT"}
+                if referral:
+                    meta.update(referral)
                 s.add(MetricRecord(
                     tenant_id=tenant.id, business_id=sympli.id, source="arive", kind="loan",
                     external_id=f"arive-{i:04d}", name=f"Borrower {i:03d}",
                     email=borrower_email, amount=Decimal(amount), status=status, segment=seg,
-                    occurred_on=occurred, source_url="https://app.myarive.com/",
-                    meta={"status": status, "segment": seg, "purpose": purpose,
-                          "mortgage_type": "Conventional" if i % 3 else "FHA",
-                          "lo_email": f"lo{(i % 3) + 1}@symplimortgage.com",
-                          "borrower_email": borrower_email, "borrower_phone": f"801555{i:04d}",
-                          "property_state": "UT"}))
+                    occurred_on=occurred, source_url="https://app.myarive.com/", meta=meta))
 
+            _ULRG_REF = {"referral_email": "grace.laubenthal@liveutah.com",
+                         "referral_name": "Grace Laubenthal",
+                         "buyer_agent_email": "grace.laubenthal@liveutah.com"}
+            # Funded (17): 9 tie back to a ULRG buyer (6 Sympli-vid + 3 matched-by-email),
+            # 4 are Utah-Life-referred with no matching ULRG deal (reconciliation gap),
+            # 4 came from other brokerages. Phones on the vid ones match the ULRG closings.
+            funded_specs = (
+                [(f"buyer{b}@example.com", _ULRG_REF, f"801200{(b // 2 - 1):04d}")
+                 for b in [2, 4, 6, 8, 10, 12, 18, 20, 22]]
+                + [(f"extra{k+1}@example.com", _ULRG_REF, None) for k in range(4)]
+                + [(f"other{k+1}@example.com", None, None) for k in range(4)])
+            fund_amts = _spread(6_800_000, len(funded_specs))
             _n = 0
-            fund_amts = _spread(7_300_000, 19)         # 19 funded this period, ~$7.3M
-            for j in range(19):
+            for idx, (email, ref, ph) in enumerate(funded_specs):
                 _n += 1
-                be = f"buyer{j+1}@example.com" if j < 12 else f"borrower{_n}@myarive.com"
-                st = "BROKER_CHECK_RECEIVED" if j % 5 == 0 else "LOAN_FUNDED"   # both are "funded"
-                _ar(_n, st, "funded", fund_amts[j], mid, be)
+                st = "BROKER_CHECK_RECEIVED" if idx % 5 == 0 else "LOAN_FUNDED"   # both "funded"
+                _ar(_n, st, "funded", fund_amts[idx], mid, email, phone=ph, referral=ref)
             for _ in range(41):                        # active pre-approvals
                 _n += 1
                 _ar(_n, "PREAPPROVED", "pipeline", 380000, mid, f"borrower{_n}@myarive.com")
