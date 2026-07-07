@@ -45,7 +45,7 @@ export function Login({ onLogin }) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
         .login-photo { position:absolute; top:0; right:0; bottom:0; width:48%;
-          background:url(/brand/photos/lady_motionblur.jpg) center/cover no-repeat;
+          background:url(/brand/photos/spring_pic_10.jpg) center 22%/cover no-repeat;
           -webkit-mask-image:linear-gradient(90deg, transparent 0%, #000 30%); mask-image:linear-gradient(90deg, transparent 0%, #000 30%); }
         @media (max-width:900px){ .login-photo{ display:none; } }
         .login-input:focus-visible, .login-btn:focus-visible { outline:2px solid ${T.teal}; outline-offset:2px; }
