@@ -371,7 +371,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             recs = [r for r in recs if ((r.meta or {}).get("lo_email") or "").lower() == lo.lower()]
         if source:
             recs = [r for r in recs if smap.get(r.id) == source]
-        recs.sort(key=lambda r: float(r.amount or 0), reverse=True)
+        recs.sort(key=lambda r: (smap.get(r.id) != "ULRG", -float(r.amount or 0)))   # ULRG first, then amount
 
         def money(n):
             return f"${float(n or 0):,.0f}"
@@ -439,9 +439,9 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             if key in ("funded_loans", "loan_volume"):
                 recs = [l for l in loans if l.segment == "funded"
                         and l.occurred_on and start <= l.occurred_on <= end]
-                recs.sort(key=lambda r: float(r.amount or 0), reverse=True)
                 from .metrics import _loan_source_map
                 smap = await _loan_source_map(s, tenant_id, recs)   # ULRG vs Other per loan
+                recs.sort(key=lambda r: (smap.get(r.id) != "ULRG", -float(r.amount or 0)))   # ULRG first
                 rows = [{"id": str(r.id), "name": lname(r),
                          "seg": ("ULRG" if smap.get(r.id) == "ULRG" else "OTHER"),
                          "l2": (r.meta or {}).get("purpose") or "Funded",

@@ -36,11 +36,13 @@ function SegChip({ seg }) {
 export default function AuditDrawer({ metricKey, business, agentId, lo, stage, source, period, onClose }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(false);
+  const [srcFilter, setSrcFilter] = useState("all");   // all | ULRG | OTHER (loan drawers)
 
   useEffect(() => {
     if (!metricKey) return;
     setD(null);
     setErr(false);
+    setSrcFilter("all");
     if (!API_BASE) return; // sample mode → show the note below
     const q = `/metrics/${metricKey}/detail?period=${period}`
       + (business ? `&business=${encodeURIComponent(business)}` : "")
@@ -60,6 +62,20 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
       : r.sale_price != null ? usd(r.sale_price)
         : r.gci != null ? usd(r.gci)
           : r.status;
+
+  // Loan drawers carry ULRG/OTHER source tags → offer an in-drawer source filter
+  // (only when the set is actually mixed; a source-filtered drill has just one kind).
+  const allRows = d?.rows || [];
+  const srcCount = { ULRG: allRows.filter((r) => r.seg === "ULRG").length,
+                     OTHER: allRows.filter((r) => r.seg === "OTHER").length };
+  const mixed = srcCount.ULRG > 0 && srcCount.OTHER > 0;
+  const shown = mixed && srcFilter !== "all" ? allRows.filter((r) => r.seg === srcFilter) : allRows;
+  const srcSeg = (k, on) => ({
+    fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none",
+    borderRadius: 6, padding: "4px 10px", background: on ? T.white : "transparent",
+    color: on ? (k === "ULRG" ? T.meadow : k === "OTHER" ? T.slate : T.teal) : T.muted,
+    boxShadow: on ? "0 1px 3px rgba(0,46,44,.12)" : "none",
+  });
 
   return (
     <>
@@ -94,10 +110,17 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
               {d.report_url && (
                 <a href={d.report_url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 12, fontSize: 12.5, fontWeight: 600, color: T.teal, textDecoration: "none" }}>Open the P&amp;L in QuickBooks ↗</a>
               )}
-              {d.count != null && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, margin: "16px 0 4px" }}>{d.count} record{d.count === 1 ? "" : "s"}</div>}
-              {d.rows.length === 0 && !d.report_url && <div style={{ ...muted, marginTop: 14 }}>No records for this period.</div>}
+              {mixed && (
+                <div style={{ display: "inline-flex", gap: 3, background: T.parchment, borderRadius: 8, padding: 3, marginTop: 16 }}>
+                  {[["all", `All ${allRows.length}`], ["ULRG", `ULRG ${srcCount.ULRG}`], ["OTHER", `Other ${srcCount.OTHER}`]].map(([k, label]) => (
+                    <button key={k} onClick={() => setSrcFilter(k)} style={srcSeg(k, srcFilter === k)}>{label}</button>
+                  ))}
+                </div>
+              )}
+              {d.count != null && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, margin: "16px 0 4px" }}>{shown.length}{mixed && srcFilter !== "all" ? ` of ${allRows.length}` : ""} record{shown.length === 1 ? "" : "s"}</div>}
+              {shown.length === 0 && !d.report_url && <div style={{ ...muted, marginTop: 14 }}>No records for this period.</div>}
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {d.rows.map((r) => {
+                {shown.map((r) => {
                   // Forum rows carry {seg, l2, r1, r2, tone}; other drills keep the
                   // financial shape. tone:"watch" → daffodil dot + amber value (never red).
                   const forum = r.seg !== undefined || r.l2 !== undefined || r.r1 !== undefined;
