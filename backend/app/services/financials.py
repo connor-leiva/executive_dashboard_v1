@@ -107,10 +107,51 @@ def _booked_rows(b):
                 {"l": "Net operating income", "v": b["noi"], "kind": "tot", "key": "noi"}]}
 
 
+def _jv_label(jv_share: float) -> str:
+    return f"Spring's JV share ({int(round(jv_share * 100))}%)"
+
+
+def _sympli_calc_rows(rev, lo_rate, opex_rate, jv_share, rev_label, commission_key):
+    """The reverse-engineered Sympli P&L on a commission-revenue base: LO comp (the
+    configurable cost of sale) → net commission (true margin) → operating costs →
+    NOI → Spring's JV share. Returns (rows, noi, spring_share)."""
+    lo = round(rev * lo_rate, 2)
+    net_comm = round(rev - lo, 2)
+    opex = round(rev * opex_rate, 2)
+    noi = round(net_comm - opex, 2)
+    share = round(noi * jv_share, 2)
+    rows = [{"l": rev_label, "v": round(rev, 2), "kind": "rev", "key": commission_key}]
+    if lo_rate:
+        rows.append({"l": "Loan officer comp", "v": -lo, "kind": "ded", "key": commission_key})
+    rows.append({"l": "Net commission", "v": net_comm, "kind": "sub"})
+    if opex_rate:
+        rows.append({"l": "Operating costs", "v": -opex, "kind": "ded", "est": True})
+    rows.append({"l": "Net operating income", "v": noi, "kind": "tot"})
+    rows.append({"l": _jv_label(jv_share), "v": share, "kind": "share"})
+    return rows, noi, share
+
+
+def _sympli_booked_rows(b, jv_share):
+    """Booked lens mirroring the calculated structure so Live (Arive) and Booked (QBO)
+    line up row-for-row. The QBO cost-of-sale line IS the LO comp; opex is everything
+    else; NOI × jv_share is Spring's cut — the same shape as the Live lens."""
+    noi = b["noi"]
+    return {"profit": noi, "units": None,
+            "flag": None if b["closed"] else "close_in_progress", "rows": [
+                {"l": "Commission revenue", "v": b["rev"], "kind": "rev", "key": "revenue"},
+                {"l": "Loan officer comp", "v": -b["cost"], "kind": "ded", "key": "cogs"},
+                {"l": "Net commission", "v": b["gross"], "kind": "sub", "key": "gross_profit"},
+                {"l": "Operating costs", "v": -b["opex"], "kind": "ded", "key": "opex"},
+                {"l": "Net operating income", "v": noi, "kind": "tot", "key": "noi"},
+                {"l": _jv_label(jv_share), "v": round(noi * jv_share, 2), "kind": "share"}]}
+
+
 async def _sympli_financials(s, tenant_id, business, period, start, end, is_current) -> dict:
-    """Sympli's CALCULATED financials from Arive funded loans (Utah-scoped): the
-    commission Sympli earned, before the LO payout split (Arive doesn't carry that —
-    it lands as a future 'cost of sale' line). Reconciles to the QuickBooks books."""
+    """Sympli's CALCULATED financials from Arive funded loans (Utah-scoped). The
+    commission Sympli books (net of loan-level cures) → the loan-officer split
+    (the configurable cost of sale, reverse-engineered from the QBO books at
+    ~55%) → operating costs (~29%) → NOI → Spring's 50% JV share. Reconciles to
+    the QuickBooks P&L (Booked lens), which mirrors the same structure."""
     from .metrics import _arive_states, _in_states
     states = await _arive_states(s, tenant_id)
     loans = [l for l in (await s.execute(select(MetricRecord).where(
@@ -130,46 +171,52 @@ async def _sympli_financials(s, tenant_id, business, period, start, end, is_curr
         except (TypeError, ValueError):
             return 0.0
 
+    # Commission revenue = net commission (gross less loan-level cures/reimbursements)
+    # — the figure that actually posts to QBO (ties to Mortgage Revenue within ~1%).
     gross = sum(em(l, "gross_revenue") for l in funded)
     net = sum(em(l, "net_revenue") for l in funded)
     if gross and not net:
         net = gross
-    direct = max(gross - net, 0.0)
+    rev = net
     n_funded = len(funded)
 
-    # Projection — if the current pipeline funds at the current average commission.
-    avg = gross / n_funded if n_funded else 0.0
+    lo_rate = float(business.lo_comp_rate) if business.lo_comp_rate is not None else 0.0
+    opex_rate = float(business.opex_rate) if business.opex_rate is not None else 0.0
+    jv_share = float(business.jv_share) if business.jv_share is not None else 1.0
+
+    # Projection — if the current near-funding pipeline funds at today's average commission.
+    avg = rev / n_funded if n_funded else 0.0
     n_pipe = len(pipeline)
-    ratio = (net / gross) if gross else 1.0
-    p_gross = gross + n_pipe * avg
-    p_net = round(p_gross * ratio, 2)
-    p_direct = max(p_gross - p_net, 0.0)
+    pending = round(n_pipe * avg, 2)
+    p_rev = round(rev + pending, 2)
+
+    live_rows, live_noi, _ = _sympli_calc_rows(
+        rev, lo_rate, opex_rate, jv_share, "Commission revenue", "sympli_commission")
+    proj_rows, proj_noi, _ = _sympli_calc_rows(
+        p_rev, lo_rate, opex_rate, jv_share, "Projected commission", "sympli_commission")
 
     b = await _booked_lens(s, tenant_id, business.id, period)
+    booked = _sympli_booked_rows(b, jv_share)
     return {
         "period": {"label": period.upper(), "start": start.isoformat(), "end": end.isoformat(),
                    "is_current": is_current},
         "expense_run_rate": 0.0, "expense_run_rate_source": "n/a",
         "expense_months": 1, "period_expenses": 0.0,
         "lenses": {
-            "live": {"profit": net, "units": n_funded, "tag": "Arive · funded loans",
+            "live": {"profit": live_noi, "units": n_funded, "tag": "Arive · funded loans",
                      "units_label": f"{n_funded} loans funded",
-                     "desc": "Commission Sympli earned on funded loans — before LO payouts.", "rows": [
-                {"l": "Commission revenue", "v": gross, "kind": "rev", "key": "sympli_commission"},
-                {"l": "Direct loan costs", "v": -direct, "kind": "ded", "key": "sympli_commission"},
-                {"l": "Net commission", "v": net, "kind": "tot", "key": "sympli_commission"}]},
-            "projection": {"profit": p_net, "units": n_funded + n_pipe, "closed_units": n_funded,
-                     "pending_units": n_pipe, "closed_gci": gross, "pending_gci": round(n_pipe * avg, 2),
-                     "gci": round(p_gross, 2), "tag": "Arive · if the pipeline funds",
+                     "desc": "Net operating income Sympli earned on funded loans, after the LO split.",
+                     "rows": live_rows},
+            "projection": {"profit": proj_noi, "units": n_funded + n_pipe, "closed_units": n_funded,
+                     "pending_units": n_pipe, "closed_gci": round(rev, 2), "pending_gci": pending,
+                     "gci": p_rev, "tag": "Arive · if the pipeline funds",
                      "units_label": f"{n_funded} funded · {n_pipe} in pipeline",
-                     "desc": "If the current pipeline funds at today's average commission.", "rows": [
-                {"l": "Projected commission", "v": round(p_gross, 2), "kind": "rev", "key": "sympli_commission"},
-                {"l": "Direct loan costs", "v": -p_direct, "kind": "ded", "key": "sympli_commission"},
-                {"l": "Net commission", "v": p_net, "kind": "tot", "key": "sympli_commission"}]},
-            "booked": {**_booked_rows(b), "tag": "QuickBooks", "desc": "Sympli's booked P&L for the period."},
+                     "desc": "If the current pipeline funds at today's average commission.",
+                     "rows": proj_rows},
+            "booked": {**booked, "tag": "QuickBooks", "desc": "Sympli's booked P&L for the period."},
         },
-        "reconciliation": {"sisu_closed": gross, "qbo_booked": b["rev"],
-                           "gap_gci": gross - b["rev"], "gap_profit": net - b["noi"],
+        "reconciliation": {"sisu_closed": round(rev, 2), "qbo_booked": b["rev"],
+                           "gap_gci": round(rev - b["rev"], 2), "gap_profit": round(live_noi - b["noi"], 2),
                            "source": "Arive", "metric": "in commissions"},
     }
 

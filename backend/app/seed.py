@@ -70,11 +70,17 @@ SYMPLI_CONFIG = {
 
 ULRG_CONFIG = {"trend": [49, 44, 52, 58, 55, 64, 72]}
 
+# Sympli's Booked P&L mirrors the reverse-engineered May QBO structure (scaled to
+# the demo's Arive commission ~$153K): Commission revenue → LO comp (~55%, the cost
+# of sale) → net commission → operating costs (~29%) → NOI → Spring's 50% share. It
+# reconciles to the calculated Live lens within ~1% (locked = books_closed).
 PL = {
     "ulrg": dict(revenue=420000, cogs=252000, gross_profit=168000, opex=96000, noi=72000, net_income=72000),
     "springb": dict(revenue=68000, cogs=31000, gross_profit=37000, opex=22000, noi=15000, net_income=15000),
-    "sympli": dict(revenue=82000, cogs=41000, gross_profit=41000, opex=19000, noi=22000, net_income=22000),
+    "sympli": dict(revenue=152000, cogs=83600, gross_profit=68400, opex=44080, noi=24320, net_income=24320),
 }
+# Businesses whose current-period books are already closed (locked reference).
+BOOKS_CLOSED = {"sympli"}
 
 
 async def _wipe(s, tid):
@@ -121,7 +127,8 @@ async def seed():
                           tag="Joint venture · 50% owned", status="opportunity", accent="#227175",
                           ink="#227175", is_jv=True, jv_share=Decimal("0.5"), sort_order=2,
                           config=SYMPLI_CONFIG,
-                          per_loan_share=Decimal(2100), capture_target=Decimal(60))
+                          per_loan_share=Decimal(2100), capture_target=Decimal(60),
+                          lo_comp_rate=Decimal("0.55"), opex_rate=Decimal("0.29"))
         s.add_all([ulrg, springb, sympli])
         await s.flush()
 
@@ -214,6 +221,7 @@ async def seed():
         for key, b in biz.items():
             s.add(PLSnapshot(tenant_id=tenant.id, business_id=b.id, period_start=cur_start,
                              period_end=cur_end, source="qbo", realm_id=f"realm-{key}",
+                             books_closed=(key in BOOKS_CLOSED),
                              **{k: Decimal(v) for k, v in PL[key].items()}))
             # Prior month ~7-8% lower so the hero MoM badge reflects real movement.
             s.add(PLSnapshot(tenant_id=tenant.id, business_id=b.id, period_start=prior_start,

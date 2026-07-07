@@ -10,7 +10,7 @@ import { SpringSignature } from "./Brand.jsx";
 const C = {
   ink: "#002E2C", body: "#334733", slate: "#4D6A4D", muted: "#89A989",
   hair: "#EAE1D6", page: "#F6F0E9", surface: "#FFFFFF",
-  meadow: "#61835E", teal: "#227175", evergreen: "#002E2C",
+  meadow: "#61835E", teal: "#227175", tealBg: "#E7F1F1", evergreen: "#002E2C",
   poppyDeep: "#D92B08", amber: "#6D5336", amberBg: "#FFF9D6",
   onDark: "#F3EEE7", onDarkMute: "#9CB0AB",
   dLive: "#B8CCB8", dProj: "#67A5AA", dBooked: "#E4D9BF",
@@ -37,7 +37,7 @@ function PL({ rows, onDrill }) {
     <div className="pl">
       {rows.map((r, i) => {
         const clickable = r.key && onDrill;
-        const cls = `plr ${r.kind === "tot" ? "tot" : ""} ${r.kind === "sub" ? "sub" : ""} ${r.kind === "ded" ? "ded" : ""} ${clickable ? "clk" : ""}`;
+        const cls = `plr ${r.kind === "tot" ? "tot" : ""} ${r.kind === "sub" ? "sub" : ""} ${r.kind === "ded" ? "ded" : ""} ${r.kind === "share" ? "share" : ""} ${clickable ? "clk" : ""}`;
         return (
           <div key={i} className={cls}
             onClick={clickable ? () => onDrill(r.key) : undefined}
@@ -267,6 +267,10 @@ const FIN_CSS = `
   .fin-root .plr.sub .pll, .fin-root .plr.sub .plv { font-weight:600; }
   .fin-root .plr.tot { border-top:2px solid ${C.ink}; margin-top:4px; padding-top:12px; }
   .fin-root .plr.tot .pll { font-weight:700; font-size:13px; } .fin-root .plr.tot .plv { font-weight:700; font-size:17px; }
+  .fin-root .plr.share { margin-top:8px; padding:9px 11px; border-radius:9px; background:${C.tealBg}; }
+  .fin-root .plr.share .pll { color:${C.teal}; font-weight:600; }
+  .fin-root .plr.share .pll::before { content:"↳ "; color:${C.teal}; opacity:.7; }
+  .fin-root .plr.share .plv { color:${C.teal}; font-weight:700; }
   .fin-root .plr.clk { cursor:pointer; margin:0 -10px; padding-left:10px; padding-right:10px; border-radius:8px; }
   .fin-root .plr.clk:hover { background:${C.page}; }
   .fin-root .plr.clk:focus-visible { outline:2px solid ${C.dProj}; outline-offset:-2px; }

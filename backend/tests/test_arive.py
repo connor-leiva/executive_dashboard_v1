@@ -75,25 +75,45 @@ async def test_sympli_kpis_and_flywheel():
 
 
 async def test_sympli_calculated_financials():
-    """The Sympli three-lens: Live = Arive commission (gross → direct costs → net),
-    reconciled to QBO booked. Arive-native cost of sale (LO split comes later)."""
+    """The Sympli three-lens: Live = Arive commission → the 55% LO split (cost of
+    sale) → net commission (true margin) → 29% operating costs → NOI → Spring's 50%
+    JV share. Booked (QBO) mirrors the same shape and reconciles within ~1%."""
     from app.services.financials import compute_financials
     async with SessionLocal() as s:
         t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
         sym = (await s.execute(select(Business).where(
             Business.tenant_id == t.id, Business.key == "sympli"))).scalar_one()
         f = await compute_financials(s, t.id, sym, "mtd")
+
     live = f["lenses"]["live"]
     rows = {r["l"]: r["v"] for r in live["rows"]}
     assert live["tag"] == "Arive · funded loans" and live["units"] == 14
-    assert rows["Commission revenue"] > 0                         # gross commission
-    assert rows["Net commission"] == live["profit"]              # hero = net commission
-    assert abs(rows["Commission revenue"] + rows["Direct loan costs"] - rows["Net commission"]) < 1
+    rev = rows["Commission revenue"]                              # net Arive commission
+    assert rev > 0
+    # LO comp is the configurable cost of sale (55%); net commission is the true margin.
+    assert rows["Loan officer comp"] == -round(rev * 0.55, 2)
+    assert rows["Net commission"] == round(rev - round(rev * 0.55, 2), 2)
+    assert rows["Operating costs"] == -round(rev * 0.29, 2)
+    # NOI is the hero, and Spring's JV share (50%) falls out the bottom (~8% of rev).
+    assert rows["Net operating income"] == live["profit"]
+    assert rows["Net operating income"] == round(rows["Net commission"] - round(rev * 0.29, 2), 2)
+    share = rows["Spring's JV share (50%)"]
+    assert share == round(live["profit"] * 0.5, 2)
+    assert abs(share - rev * 0.08) < rev * 0.005                  # ≈ 8% of commission
+
+    # Booked (QBO) lens mirrors the structure row-for-row — true side-by-side.
+    booked = f["lenses"]["booked"]
+    brows = {r["l"]: r["v"] for r in booked["rows"]}
+    assert brows["Commission revenue"] == 152000 and brows["Loan officer comp"] == -83600
+    assert brows["Net commission"] == 68400 and brows["Operating costs"] == -44080
+    assert booked["profit"] == 24320 and brows["Spring's JV share (50%)"] == 12160
+
     r = f["reconciliation"]
-    assert r["source"] == "Arive" and r["sisu_closed"] == rows["Commission revenue"]
-    assert r["qbo_booked"] == 82000 and r["gap_gci"] == rows["Commission revenue"] - 82000
-    # the LO-split hook: cost of sale is currently just the direct loan costs (~2%)
-    assert -rows["Direct loan costs"] < rows["Commission revenue"] * 0.05
+    assert r["source"] == "Arive" and r["metric"] == "in commissions"
+    assert r["sisu_closed"] == rev and r["qbo_booked"] == 152000
+    assert r["gap_gci"] == round(rev - 152000, 2)
+    assert r["gap_profit"] == round(live["profit"] - 24320, 2)
+    assert abs(r["gap_gci"]) < r["qbo_booked"] * 0.03            # Live vs Booked within ~1-3%
 
 
 async def test_loan_officers():
@@ -107,7 +127,7 @@ async def test_loan_officers():
     top = los[0]
     assert top.name == "Jared Browning" and top.funded == 10      # writes most of the volume
     assert los == sorted(los, key=lambda x: x.revenue, reverse=True)
-    assert round(sum(l.revenue for l in los)) == 156395           # reconciles to Commission revenue
+    assert round(sum(l.revenue for l in los)) == 156395           # gross production credit (before cures)
     assert all(0 <= l.pull_through <= 100 for l in los)
     assert top.avg_loan == round(top.volume / top.funded, 2)
 

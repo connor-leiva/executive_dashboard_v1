@@ -666,7 +666,7 @@ function AccountPage() {
 const SAMPLE_BUSINESSES = [
   { key: "ulrg", name: "ULRG + Team", tag: "Real estate", status: "healthy", accent: T.meadow, ink: "#4D6A4D", is_jv: false, jv_share: 1, watch_margin_below: null, per_loan_share: null, expense_run_rate_mode: "manual", expense_run_rate_manual: 96000, default_agent_split: 0.60 },
   { key: "springb", name: "Spring B", tag: "beCollective + The Forum", status: "watch", accent: T.poppy, ink: T.poppyText, is_jv: false, jv_share: 1, watch_margin_below: 25, per_loan_share: null },
-  { key: "sympli", name: "Sympli Mortgage", tag: "Joint venture · 50% owned", status: "opportunity", accent: T.teal, ink: T.teal, is_jv: true, jv_share: 0.5, watch_margin_below: null, per_loan_share: 2100 },
+  { key: "sympli", name: "Sympli Mortgage", tag: "Joint venture · 50% owned", status: "opportunity", accent: T.teal, ink: T.teal, is_jv: true, jv_share: 0.5, watch_margin_below: null, per_loan_share: 2100, lo_comp_rate: 0.55, opex_rate: 0.29 },
 ];
 
 function BusinessEditForm({ biz, onClose, onDone }) {
@@ -677,6 +677,8 @@ function BusinessEditForm({ biz, onClose, onDone }) {
     watch_margin_below: biz.watch_margin_below ?? "",
     per_loan_share: biz.per_loan_share ?? "",
     capture_target: biz.capture_target ?? "",
+    lo_comp_pct: biz.lo_comp_rate != null ? Math.round(biz.lo_comp_rate * 100) : "",
+    opex_pct: biz.opex_rate != null ? Math.round(biz.opex_rate * 100) : "",
     expense_run_rate_mode: biz.expense_run_rate_mode || "trailing_3mo",
     expense_run_rate_manual: biz.expense_run_rate_manual ?? "",
     agent_split_pct: biz.default_agent_split != null ? Math.round(biz.default_agent_split * 100) : "",
@@ -697,6 +699,8 @@ function BusinessEditForm({ biz, onClose, onDone }) {
         watch_margin_below: numOrNull(f.watch_margin_below),
         per_loan_share: numOrNull(f.per_loan_share),
         capture_target: numOrNull(f.capture_target),
+        lo_comp_rate: f.lo_comp_pct === "" ? null : Math.max(0, Math.min(100, Number(f.lo_comp_pct) || 0)) / 100,
+        opex_rate: f.opex_pct === "" ? null : Math.max(0, Math.min(100, Number(f.opex_pct) || 0)) / 100,
         expense_run_rate_mode: f.expense_run_rate_mode,
         expense_run_rate_manual: f.expense_run_rate_mode === "manual" ? numOrNull(f.expense_run_rate_manual) : null,
         default_agent_split: f.agent_split_pct === "" ? null : Math.max(0, Math.min(100, Number(f.agent_split_pct) || 0)) / 100,
@@ -760,6 +764,17 @@ function BusinessEditForm({ biz, onClose, onDone }) {
             <label style={label}>Revenue per funded loan ($) <span style={{ fontWeight: 400, color: T.muted }}>· prices the flywheel gap</span>
               <input style={field} type="number" step="50" value={f.per_loan_share} onChange={set("per_loan_share")} placeholder="Set to price the gap" />
             </label>
+            <div style={{ ...half, marginTop: 2 }}>
+              <label style={{ ...label, flex: 1 }}>LO comp (% of commission) <span style={{ fontWeight: 400, color: T.muted }}>· cost of sale</span>
+                <input style={field} type="number" step="1" value={f.lo_comp_pct} onChange={set("lo_comp_pct")} placeholder="e.g. 55" />
+              </label>
+              <label style={{ ...label, flex: 1 }}>Operating cost (% of commission)
+                <input style={field} type="number" step="1" value={f.opex_pct} onChange={set("opex_pct")} placeholder="e.g. 29" />
+              </label>
+            </div>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>
+              Reverse-engineered from the May P&L. Drives the calculated Live / Projection lenses down to Spring's JV share.
+            </div>
           </>
         )}
 

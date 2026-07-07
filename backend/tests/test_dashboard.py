@@ -57,8 +57,8 @@ async def test_login_and_dashboard_shape():
     # Financials (Phase 2) light up from the seeded P&L snapshots.
     assert ulrg["revenue"] == 420000
     assert ulrg["noi"] == 72000
-    assert d["portfolio"]["revenue"] == 570000      # full sum (matches mockup)
-    assert d["portfolio"]["noi"] == 109000
+    assert d["portfolio"]["revenue"] == 640000      # ulrg 420k + sympli 152k + spring b 68k
+    assert d["portfolio"]["noi"] == 111320           # 72k + sympli 24.32k + 15k
     assert d["portfolio"]["cash"] == 340000
 
     # Composition adds up and is ordered ulrg, sympli, forum (labeled "Spring B").
@@ -70,11 +70,11 @@ async def test_login_and_dashboard_shape():
     # Sympli is a JV — its P&L carries the "Spring's JV share" row.
     sympli_pl = {r["kind"]: r for r in d["areas"]["sympli"]["pl"]}
     assert "share" in sympli_pl
-    assert sympli_pl["share"]["value"] == 11000     # 50% of 22000 NOI
+    assert sympli_pl["share"]["value"] == 12160     # 50% of 24320 NOI
 
     # Scorecards present with the mockup labels + business_key for dot colors.
     labels = {s["label"]: s for s in d["scorecards"]}
-    assert labels["Combined Profit"]["value"] == "$109K"
+    assert labels["Combined Profit"]["value"] == "$111K"
     assert labels["Combined Profit"]["business_key"] == "portfolio"
     # Distinct union across programs: 70 Forum + 30 beCollective members, no double count.
     assert labels["Active Members"]["value"] == "100"

@@ -209,6 +209,8 @@ class BusinessUpdate(BaseModel):
     expense_run_rate_mode: str | None = None       # trailing_3mo | last_month | manual
     expense_run_rate_manual: float | None = None
     default_agent_split: float | None = None       # 0.60 = 60%
+    lo_comp_rate: float | None = None              # Sympli LO split (cost of sale), 0.55 = 55%
+    opex_rate: float | None = None                 # Sympli operating-cost ratio, 0.29 = 29%
 
 
 # ── three-lens financials ─────────────────────────────────────────

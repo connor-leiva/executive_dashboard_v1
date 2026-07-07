@@ -25,6 +25,8 @@ def _business_dict(b: Business) -> dict:
         "expense_run_rate_mode": b.expense_run_rate_mode or "trailing_3mo",
         "expense_run_rate_manual": float(b.expense_run_rate_manual) if b.expense_run_rate_manual is not None else None,
         "default_agent_split": float(b.default_agent_split) if b.default_agent_split is not None else None,
+        "lo_comp_rate": float(b.lo_comp_rate) if b.lo_comp_rate is not None else None,
+        "opex_rate": float(b.opex_rate) if b.opex_rate is not None else None,
     }
 
 
@@ -50,14 +52,15 @@ async def update_business(key: str, body: BusinessUpdate,
         raise HTTPException(400, f"status must be one of {sorted(_STATUSES)}")
 
     _NUMERIC = {"jv_share", "watch_margin_below", "per_loan_share", "capture_target",
-                "expense_run_rate_manual", "default_agent_split"}
+                "expense_run_rate_manual", "default_agent_split", "lo_comp_rate", "opex_rate"}
+    _FRACTION = {"jv_share", "default_agent_split", "lo_comp_rate", "opex_rate"}
     for name, val in fields.items():
         if name in _NUMERIC and val is not None:
             try:
                 val = Decimal(str(val))
             except (InvalidOperation, ValueError):
                 raise HTTPException(400, f"{name} must be a number")
-            if name in ("jv_share", "default_agent_split") and not (Decimal(0) <= val <= Decimal(1)):
+            if name in _FRACTION and not (Decimal(0) <= val <= Decimal(1)):
                 raise HTTPException(400, f"{name} must be between 0 and 1")
         setattr(b, name, val)
     await s.commit()

@@ -72,6 +72,11 @@ class Business(Base):
     expense_run_rate_mode: Mapped[str] = mapped_column(String(16), default="trailing_3mo")  # trailing_3mo|last_month|manual
     expense_run_rate_manual: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     default_agent_split: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)  # e.g. 0.60 fallback
+    # Sympli JV economics (reverse-engineered from the QBO P&L, tunable in Settings):
+    # the loan-officer split (cost of sale) and the operating-cost ratio, both as a
+    # fraction of commission revenue. Drive the calculated Live/Projection lenses.
+    lo_comp_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)   # 0.55 = 55%
+    opex_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)      # 0.29 = 29%
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     # Non-secret per-business config: sparkline trend, manual ops tiles, manual
     # funnel, and scorecard contributions (used until a live source connects).
