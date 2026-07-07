@@ -72,7 +72,8 @@ _PENDING_SRC = {"funded_loans": ("Arive", "Funded loans reaching the funded stag
 
 
 async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
-                        business: str | None = None, agent_id: str | None = None) -> dict:
+                        business: str | None = None, agent_id: str | None = None,
+                        lo: str | None = None) -> dict:
     start, end = _period_range(period)
     cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
 
@@ -364,13 +365,16 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             if key == "sympli_commission":
                 recs = [l for l in loans if l.segment == "funded"
                         and l.occurred_on and start <= l.occurred_on <= end]
+                if lo:                                  # scope to one loan officer
+                    recs = [r for r in recs if ((r.meta or {}).get("lo_email") or "").lower() == lo.lower()]
                 recs.sort(key=lambda r: float((r.meta or {}).get("gross_revenue") or 0), reverse=True)
                 rows = [{"id": str(r.id), "name": lname(r), "seg": "MTG",
                          "l2": f"loan {money(r.amount)}",
                          "r1": money((r.meta or {}).get("gross_revenue")),
                          "r2": f"net {money((r.meta or {}).get('net_revenue'))}",
                          "source_url": r.source_url} for r in recs]
-                return {"label": "Commission revenue", "source": "Arive",
+                who = (recs[0].meta or {}).get("lo_name") if (lo and recs) else None
+                return {"label": (f"{who} · commissions" if who else "Commission revenue"), "source": "Arive",
                         "computed_as": f"Lender-paid commission on funded loans, {span()} "
                                        "(gross; net = after direct loan costs).",
                         "count": len(rows), "rows": rows}

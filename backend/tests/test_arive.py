@@ -96,6 +96,22 @@ async def test_sympli_calculated_financials():
     assert -rows["Direct loan costs"] < rows["Commission revenue"] * 0.05
 
 
+async def test_loan_officers():
+    """Per-LO rollup on the Sympli area: funded / volume / gross commission, ranked,
+    reconciling to the commission total. Seed mirrors prod's concentration."""
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        d = await build_dashboard(s, t.id, "mtd")
+    los = d.areas["sympli"].loan_officers
+    assert len(los) == 3
+    top = los[0]
+    assert top.name == "Jared Browning" and top.funded == 10      # writes most of the volume
+    assert los == sorted(los, key=lambda x: x.revenue, reverse=True)
+    assert round(sum(l.revenue for l in los)) == 156395           # reconciles to Commission revenue
+    assert all(0 <= l.pull_through <= 100 for l in los)
+    assert top.avg_loan == round(top.volume / top.funded, 2)
+
+
 async def test_utah_state_filter():
     """The Arive LOS is multi-state; the dashboard shows Utah only. The 3 seeded TX
     loans exist as records but never reach the Sympli card. (Runs before the sync

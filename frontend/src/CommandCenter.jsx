@@ -405,6 +405,51 @@ function Overview({ data, onOpen, onDrill }) {
 
 /* ── area detail ───────────────────────────────────────────── */
 
+/* Per-LO performance — Sympli only. Each officer's funded / volume / avg / gross
+   commission / pull-through, drillable to their funded loans. */
+function LoanOfficers({ los, onDrill }) {
+  const maxRev = Math.max(...los.map((l) => l.revenue), 1);
+  const cell = (w) => ({ width: w, textAlign: "right", fontVariantNumeric: "tabular-nums" });
+  const head = { fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.muted };
+  return (
+    <Card>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <PanelLabel accent={T.teal}>Loan officers · this period</PanelLabel>
+        <Source name="Arive" />
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <div style={{ minWidth: 560 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 4px", borderBottom: `1px solid ${T.line}` }}>
+            <span style={{ ...head, flex: "1 1 130px", minWidth: 110 }}>Officer</span>
+            <span style={{ ...head, ...cell(48) }}>Funded</span>
+            <span style={{ ...head, ...cell(74) }}>Volume</span>
+            <span style={{ ...head, ...cell(74) }}>Avg loan</span>
+            <span style={{ ...head, flex: "1 1 130px", minWidth: 110, textAlign: "left" }}>Gross commission</span>
+            <span style={{ ...head, ...cell(64) }}>Pull-thru</span>
+          </div>
+          {los.map((lo) => (
+            <div key={lo.email} onClick={onDrill ? () => onDrill("sympli_commission", "sympli", null, lo.email) : undefined}
+              className={onDrill ? "cc-card" : undefined} title={onDrill ? `${lo.name}'s funded loans` : undefined}
+              style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 4px", margin: "0 -4px", borderRadius: 6, cursor: onDrill ? "pointer" : "default", borderBottom: `1px solid ${T.line}` }}>
+              <span style={{ flex: "1 1 130px", minWidth: 110, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lo.name}</span>
+              <span style={{ ...cell(48), fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink }}>{lo.funded}</span>
+              <span style={{ ...cell(74), fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate }}>{usd(lo.volume)}</span>
+              <span style={{ ...cell(74), fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate }}>{usd(lo.avg_loan)}</span>
+              <span style={{ flex: "1 1 130px", minWidth: 110, display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ flex: 1, height: 14, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
+                  <span style={{ display: "block", width: `${(lo.revenue / maxRev) * 100}%`, height: "100%", background: T.teal, borderRadius: 5 }} />
+                </span>
+                <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{usd(lo.revenue)}</span>
+              </span>
+              <span style={{ ...cell(64), fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: lo.pull_through >= 60 ? T.meadow : T.slate }}>{lo.pull_through}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function AreaDetail({ area, onDrill, period }) {
   const a = area;
   // Three-lens financials for ULRG (Sisu) and Sympli (Arive commissions vs booked).
@@ -435,6 +480,7 @@ function AreaDetail({ area, onDrill, period }) {
           {/* Three-lens financial view (Live / Projection / Booked) replaces the single P&L pane. */}
           <Financials businessKey={a.key} businessName={a.name} period={period} onDrill={onDrill} />
           {opsCard}
+          {a.loan_officers?.length > 0 && <LoanOfficers los={a.loan_officers} onDrill={onDrill} />}
         </>
       ) : (
         <div className="cc-twocol">
@@ -889,8 +935,8 @@ export default function CommandCenter() {
   const becollective = useBecollective(periodKey);
   const [view, setView] = useState("overview");
   const [refreshing, setRefreshing] = useState(false);
-  const [drill, setDrill] = useState(null);       // { key, business, agentId } for the audit drawer
-  const onDrill = (key, business, agentId) => setDrill(key ? { key, business, agentId } : null);
+  const [drill, setDrill] = useState(null);       // { key, business, agentId, lo } for the audit drawer
+  const onDrill = (key, business, agentId, lo) => setDrill(key ? { key, business, agentId, lo } : null);
   const user = useMe();
 
   const { areas, flywheel, sources, period } = data || {};
@@ -1043,7 +1089,7 @@ export default function CommandCenter() {
         </main>
       </div>
 
-      <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} period={periodKey} onClose={() => setDrill(null)} />
+      <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} period={periodKey} onClose={() => setDrill(null)} />
     </div>
   );
 }

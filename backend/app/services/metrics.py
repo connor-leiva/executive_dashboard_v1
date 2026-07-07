@@ -23,6 +23,7 @@ from ..models import Business, Transaction, Agent, Lead, PLSnapshot, CashSnapsho
 from ..schemas import (
     DashboardResponse, Portfolio, CompositionSeg, AreaPayload, PLRow,
     OpTile, FunnelRow, Scorecard, Flywheel, FlywheelAgent, FlywheelLender, SourceStatus,
+    LoanOfficer,
 )
 
 # Per-area source badges shown in the UI.
@@ -260,6 +261,44 @@ def _prior_range(period, start, end):
     except Exception:  # noqa: BLE001
         return None
     return None
+
+
+async def _arive_loan_officers(s, tenant_id, business_id, start, end) -> list[LoanOfficer]:
+    """Per-LO performance for Sympli (Utah): funded / volume / avg loan / gross
+    commission this period + all-time pull-through. Loans carry lo_email + lo_name."""
+    states = await _arive_states(s, tenant_id)
+    loans = [l for l in (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "arive", MetricRecord.kind == "loan"))).scalars().all()
+        if _in_states(l, states)]
+    by: dict = {}
+    for l in loans:
+        m = l.meta or {}
+        email = (m.get("lo_email") or "—").lower()
+        r = by.setdefault(email, {"name": None, "funded": 0, "volume": 0.0, "revenue": 0.0,
+                                  "funded_all": 0, "dead": 0})
+        r["name"] = r["name"] or m.get("lo_name")
+        if l.segment == "funded":
+            r["funded_all"] += 1
+            if l.occurred_on and start <= l.occurred_on <= end:
+                r["funded"] += 1
+                r["volume"] += float(l.amount or 0)
+                r["revenue"] += float(m.get("gross_revenue") or 0)
+        elif l.segment == "dead":
+            r["dead"] += 1
+    out = []
+    for email, r in by.items():
+        if r["funded"] <= 0:
+            continue                                   # only LOs active this period
+        decided = r["funded_all"] + r["dead"]
+        out.append(LoanOfficer(
+            email=email, name=(r["name"] or email.split("@")[0].title()),
+            funded=r["funded"], volume=r["volume"],
+            avg_loan=round(r["volume"] / r["funded"], 2) if r["funded"] else 0,
+            revenue=r["revenue"],
+            pull_through=round(r["funded_all"] / decided * 100) if decided else 0))
+    out.sort(key=lambda x: x.revenue, reverse=True)
+    return out
 
 
 async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
@@ -622,6 +661,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
 
     for b in businesses:
         cfg = b.config or {}
+        los = []                                       # per-LO performance (Sympli only)
 
         # Operational (Phase 1) — only ULRG has live transaction data.
         if b.key == "ulrg":
@@ -659,6 +699,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                         OpTile(label="Pull-through Rate", value=f"{ak['pull_through']}%", key="pull_through"),
                     ]
                     funnel = [FunnelRow(**f) for f in ak["funnel"]]
+                    los = await _arive_loan_officers(s, tenant_id, b.id, start, end)
                     sc["sympli_funded"] = str(ak["funded_count"])
                     sc["sympli_volume"] = _compact_usd(ak["funded_volume"]) if ak["funded_volume"] else None
                 else:                                      # not synced → seeded placeholders
@@ -717,6 +758,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             id=str(b.id), key=b.key, name=b.name, tag=tag, status=derive_status(b, margin),
             accent=b.accent, ink=b.ink, sources=_SOURCES.get(b.key, ["QuickBooks"]),
             revenue=rev, noi=noi, margin=margin, trend=_trend(b), pl=pl, ops=ops, funnel=funnel,
+            loan_officers=los,
         )
 
     # Spring B is one QBO entity but two views: split its area into The Forum

@@ -25,7 +25,7 @@ function SegChip({ seg }) {
 }
 
 /* Right-side drawer showing the records behind a KPI (the trust layer). */
-export default function AuditDrawer({ metricKey, business, agentId, period, onClose }) {
+export default function AuditDrawer({ metricKey, business, agentId, lo, period, onClose }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(false);
 
@@ -36,9 +36,10 @@ export default function AuditDrawer({ metricKey, business, agentId, period, onCl
     if (!API_BASE) return; // sample mode → show the note below
     const q = `/metrics/${metricKey}/detail?period=${period}`
       + (business ? `&business=${encodeURIComponent(business)}` : "")
-      + (agentId ? `&agent_id=${encodeURIComponent(agentId)}` : "");
+      + (agentId ? `&agent_id=${encodeURIComponent(agentId)}` : "")
+      + (lo ? `&lo=${encodeURIComponent(lo)}` : "");
     getJSON(q).then(setD).catch(() => setErr(true));
-  }, [metricKey, business, agentId, period]);
+  }, [metricKey, business, agentId, lo, period]);
 
   if (!metricKey) return null;
 

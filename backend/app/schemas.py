@@ -39,6 +39,16 @@ class FunnelRow(BaseModel):
     v: int
 
 
+class LoanOfficer(BaseModel):
+    email: str
+    name: str
+    funded: int           # loans funded this period
+    volume: float         # funded loan volume
+    avg_loan: float
+    revenue: float        # gross commission this period
+    pull_through: int     # funded / (funded + dead), % — all-time
+
+
 class AreaPayload(BaseModel):
     id: str
     key: str
@@ -55,6 +65,7 @@ class AreaPayload(BaseModel):
     pl: list[PLRow]            # empty until QBO connected
     ops: list[OpTile]
     funnel: list[FunnelRow] | None = None
+    loan_officers: list[LoanOfficer] = []   # Sympli only — per-LO performance
 
 
 class CompositionSeg(BaseModel):

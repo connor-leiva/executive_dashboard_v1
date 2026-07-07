@@ -521,7 +521,8 @@ async def sync_arive(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) 
             if d:
                 ref = arive.loan_referral(d)
                 econ = arive.loan_economics(d)      # gross/net revenue + comp for the financials
-                r["meta"].update({k: v for k, v in {**ref, **econ}.items() if v is not None})
+                lo_name = arive.pick(d, "loanOriginatorName")   # LO display name (per-LO section)
+                r["meta"].update({k: v for k, v in {**ref, **econ, "lo_name": lo_name}.items() if v is not None})
                 enriched += 1
         print(f"[arive] enriched {enriched}/{len(funded_rows)} funded loans (referral + economics)", flush=True)
     except Exception as e:  # noqa: BLE001 — referral enrichment optional

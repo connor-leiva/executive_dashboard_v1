@@ -182,6 +182,11 @@ const sampleData = {
         { label: "Locked", v: 23 },
         { label: "Funded", v: 19 },
       ],
+      loan_officers: [
+        { email: "jared@symplimortgage.com", name: "Jared Browning", funded: 13, volume: 6300000, avg_loan: 484615, revenue: 145000, pull_through: 91 },
+        { email: "nick@symplimortgage.com", name: "Nick Thompson", funded: 3, volume: 1150000, avg_loan: 383333, revenue: 26500, pull_through: 60 },
+        { email: "jan@symplimortgage.com", name: "Jan Coon", funded: 3, volume: 980000, avg_loan: 326667, revenue: 22400, pull_through: 55 },
+      ],
     },
   },
 

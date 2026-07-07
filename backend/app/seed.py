@@ -413,10 +413,15 @@ async def seed():
             #    card + 3-signal flywheel render locally. source="arive", kind="loan".
             #    Funded loans carry the referral source (Utah Life = @liveutah.com) and
             #    borrower email/phone that line up with the ULRG buy-side closings. ──
-            def _ar(i, status, seg, amount, occurred, borrower_email, phone=None, referral=None, state="UT"):
+            _LOS = [("jared@symplimortgage.com", "Jared Browning"),
+                    ("nick@symplimortgage.com", "Nick Thompson"),
+                    ("jan@symplimortgage.com", "Jan Coon")]
+
+            def _ar(i, status, seg, amount, occurred, borrower_email, phone=None, referral=None, state="UT", lo=None):
+                lo = lo or _LOS[i % 3]
                 meta = {"status": status, "segment": seg, "purpose": "Purchase",
                         "mortgage_type": "Conventional" if i % 3 else "FHA",
-                        "lo_email": f"lo{(i % 3) + 1}@symplimortgage.com",
+                        "lo_email": lo[0], "lo_name": lo[1],
                         "borrower_email": borrower_email, "borrower_phone": phone or f"801555{i:04d}",
                         "property_state": state}
                 if seg == "funded":     # loan-level commission economics (for the financials)
@@ -448,7 +453,9 @@ async def seed():
             for idx, (email, ref, ph) in enumerate(funded_specs):
                 _n += 1
                 st = "BROKER_CHECK_RECEIVED" if idx % 5 == 0 else "LOAN_FUNDED"   # both "funded"
-                _ar(_n, st, "funded", fund_amts[idx], mid, email, phone=ph, referral=ref)
+                # Concentration mirrors prod: Jared writes most; Nick/Jan a handful.
+                lo = _LOS[0] if idx < 10 else (_LOS[1] if idx < 12 else _LOS[2])
+                _ar(_n, st, "funded", fund_amts[idx], mid, email, phone=ph, referral=ref, lo=lo)
             for _ in range(41):                        # active pre-approvals
                 _n += 1
                 _ar(_n, "PREAPPROVED", "pipeline", 380000, mid, f"borrower{_n}@myarive.com")
