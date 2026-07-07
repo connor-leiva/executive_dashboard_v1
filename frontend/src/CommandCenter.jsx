@@ -216,6 +216,122 @@ function Bars({ rows, accent }) {
   );
 }
 
+/* Interactive loan pipeline (Sympli): a Total / By LO / By source toggle over a
+   pivot of the {stage, lo, source} cells. Every bar + cell drills to its loans,
+   which carry both the LO name and the ULRG/Other chip — so any view shows the
+   combination of both. */
+function StageBars({ stages, totals, accent, onCell }) {
+  const max = Math.max(...stages.map((s) => totals[s] || 0), 1);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+      {stages.map((s) => {
+        const v = totals[s] || 0;
+        const click = onCell && v ? () => onCell(s) : undefined;
+        return (
+          <div key={s} onClick={click} className={click ? "cc-card" : undefined}
+            role={click ? "button" : undefined}
+            style={{ display: "flex", alignItems: "center", gap: 12, cursor: click ? "pointer" : "default", borderRadius: 6, padding: "2px 4px", margin: "0 -4px" }}>
+            <span style={{ width: 108, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, textAlign: "right" }}>{s}</span>
+            <div style={{ flex: 1, height: 22, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
+              <div style={{ width: `${(v / max) * 100}%`, height: "100%", background: accent, opacity: 0.4 + 0.6 * (v / max), borderRadius: 5 }} />
+            </div>
+            <span style={{ width: 42, fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PivotMatrix({ stages, rows, dimLabel, onCell }) {
+  const th = { padding: "6px 9px", color: T.muted, fontWeight: 600, fontSize: 11, whiteSpace: "nowrap" };
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", fontFamily: "Inter,sans-serif" }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, textAlign: "left" }}>{dimLabel}</th>
+            {stages.map((s) => <th key={s} style={{ ...th, textAlign: "right" }}>{s}</th>)}
+            <th style={{ ...th, textAlign: "right", color: T.slate, fontWeight: 700 }}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key} style={{ borderTop: `1px solid ${T.line}` }}>
+              <td style={{ padding: "8px 9px", fontSize: 12.5, color: T.ink, fontWeight: 600, whiteSpace: "nowrap", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis" }} title={r.label}>{r.label}</td>
+              {stages.map((s) => {
+                const v = r.counts[s] || 0;
+                const click = onCell && v ? () => onCell(s, r) : undefined;
+                return (
+                  <td key={s} onClick={click} className={click ? "cc-pcell" : undefined}
+                    title={click ? `${r.label} · ${s}` : undefined}
+                    style={{ padding: "8px 9px", textAlign: "right", fontVariantNumeric: "tabular-nums", fontSize: 12.5,
+                      color: v ? (click ? T.teal : T.ink) : T.sprout, fontWeight: v ? 600 : 400, cursor: click ? "pointer" : "default", borderRadius: 5 }}>
+                    {v || "·"}
+                  </td>
+                );
+              })}
+              <td style={{ padding: "8px 9px", textAlign: "right", fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 700, color: T.slate, fontVariantNumeric: "tabular-nums" }}>{r.total}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LoanPipeline({ funnel, pipeline, accent, onDrill }) {
+  const [mode, setMode] = useState("total");
+  const stages = pipeline?.stages || funnel.map((f) => f.label);
+  const cells = pipeline?.cells || [];
+  const drill = (stage, opts) => onDrill && onDrill("loan_stage", "sympli", null, opts?.lo || null, { stage, ...(opts || {}) });
+
+  const totals = {};
+  funnel.forEach((f) => { totals[f.label] = f.v; });
+
+  const pivot = (dim) => {
+    const rows = {};
+    cells.forEach((c) => {
+      const k = dim === "lo" ? (c.lo || "—") : c.source;
+      const label = dim === "lo" ? (c.lo_name || c.lo || "Unassigned") : c.source;
+      const r = rows[k] || (rows[k] = { key: k, label, counts: {}, total: 0 });
+      r.counts[c.stage] = (r.counts[c.stage] || 0) + c.n;
+      r.total += c.n;
+    });
+    return Object.values(rows).sort((a, b) => b.total - a.total);
+  };
+
+  const MODES = [["total", "Total"], ["lo", "By loan officer"], ["source", "By source"]];
+  const seg = (on) => ({
+    fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+    border: "none", borderRadius: 6, padding: "5px 11px",
+    background: on ? T.white : "transparent", color: on ? T.teal : T.muted,
+    boxShadow: on ? "0 1px 3px rgba(0,46,44,.12)" : "none",
+  });
+
+  return (
+    <div>
+      <style>{`.cc-pcell:hover{ background:${T.meadowBg}; }`}</style>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <div style={{ display: "inline-flex", gap: 3, background: T.parchment, borderRadius: 8, padding: 3 }}>
+          {MODES.map(([m, label]) => (
+            <button key={m} onClick={() => setMode(m)} style={seg(mode === m)}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {mode === "total" && <StageBars stages={stages} totals={totals} accent={accent} onCell={(s) => drill(s)} />}
+      {mode === "lo" && (cells.length
+        ? <PivotMatrix stages={stages} rows={pivot("lo")} dimLabel="Loan officer" onCell={(s, r) => drill(s, { lo: r.key })} />
+        : <Empty />)}
+      {mode === "source" && (cells.length
+        ? <PivotMatrix stages={stages} rows={pivot("source")} dimLabel="Source" onCell={(s, r) => drill(s, { source: r.key })} />
+        : <Empty />)}
+    </div>
+  );
+}
+
+const Empty = () => <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, padding: "12px 0" }}>No pipeline detail available.</div>;
+
 /* ── overview ──────────────────────────────────────────────── */
 
 function CompositionBar({ composition }) {
@@ -501,7 +617,9 @@ function AreaDetail({ area, onDrill, period }) {
             <PanelLabel accent={a.accent}>{a.key === "sympli" ? "Loan pipeline" : "Lead-to-close funnel"}</PanelLabel>
             <Source name={a.key === "sympli" ? "Arive" : "Follow Up Boss · Sisu"} />
           </div>
-          <Bars rows={a.funnel} accent={a.accent} />
+          {a.key === "sympli" && a.loan_pipeline
+            ? <LoanPipeline funnel={a.funnel} pipeline={a.loan_pipeline} accent={a.accent} onDrill={onDrill} />
+            : <Bars rows={a.funnel} accent={a.accent} />}
         </Card>
       )}
     </div>
@@ -510,11 +628,17 @@ function AreaDetail({ area, onDrill, period }) {
 
 /* ── flywheel v2 (spec: flywheel-view-v2) ──────────────────────── */
 
-function ReconRow({ label, value, good, warn }) {
+function ReconRow({ label, value, good, warn, onClick }) {
   const color = warn ? T.poppyText : good ? "#4D6A4D" : T.ink;
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-      <span style={{ color: T.slate }}>{label}</span>
+    <div onClick={onClick} className={onClick ? "cc-card" : undefined}
+      role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+        cursor: onClick ? "pointer" : "default", borderRadius: 6, padding: onClick ? "3px 6px" : 0, margin: onClick ? "0 -6px" : 0 }}>
+      <span style={{ color: T.slate, display: "inline-flex", alignItems: "center", gap: 5 }}>
+        {label}{onClick && <Icon name="open" size={11} color={T.teal} style={{ verticalAlign: "-1px" }} />}
+      </span>
       <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600, color, fontVariantNumeric: "tabular-nums" }}>{warn ? `${value} ⚠` : value}</span>
     </div>
   );
@@ -757,10 +881,14 @@ function Flywheel({ flywheel, onDrill }) {
             <Card style={{ flex: "1 1 300px", minWidth: 280 }}>
               <PanelLabel accent={T.teal}>Cross-check with Sympli</PanelLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 11, fontFamily: "Inter,sans-serif", fontSize: 12.5 }}>
-                <ReconRow label="Sympli loans credited to Utah Life" value={fw.sympli_referred} />
-                <ReconRow label="…matched to a ULRG closing" value={fw.sympli_referred_linked} good />
-                {fw.vendor_no_loan > 0 && <ReconRow label="Picked Sympli, no loan found" value={fw.vendor_no_loan} warn />}
-                {fw.referral_no_deal > 0 && <ReconRow label="Sympli logged us, no ULRG deal" value={fw.referral_no_deal} warn />}
+                <ReconRow label="Sympli loans credited to Utah Life" value={fw.sympli_referred}
+                  onClick={drill ? () => drill("flywheel_sympli_referred", "sympli") : undefined} />
+                <ReconRow label="…matched to a ULRG closing" value={fw.sympli_referred_linked} good
+                  onClick={drill ? () => drill("flywheel_sympli_linked", "sympli") : undefined} />
+                {fw.vendor_no_loan > 0 && <ReconRow label="Picked Sympli, no loan found" value={fw.vendor_no_loan} warn
+                  onClick={drill ? () => drill("flywheel_vendor_no_loan", "sympli") : undefined} />}
+                {fw.referral_no_deal > 0 && <ReconRow label="Sympli logged us, no ULRG deal" value={fw.referral_no_deal} warn
+                  onClick={drill ? () => drill("flywheel_referral_no_deal", "sympli") : undefined} />}
               </div>
               <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
                 Triangulated from three signals — the agent's vendor pick, the borrower match, and Sympli's own referral record. Gaps are deals to reconcile.
@@ -935,8 +1063,8 @@ export default function CommandCenter() {
   const becollective = useBecollective(periodKey);
   const [view, setView] = useState("overview");
   const [refreshing, setRefreshing] = useState(false);
-  const [drill, setDrill] = useState(null);       // { key, business, agentId, lo } for the audit drawer
-  const onDrill = (key, business, agentId, lo) => setDrill(key ? { key, business, agentId, lo } : null);
+  const [drill, setDrill] = useState(null);       // { key, business, agentId, lo, stage, source } for the audit drawer
+  const onDrill = (key, business, agentId, lo, opts) => setDrill(key ? { key, business, agentId, lo, ...(opts || {}) } : null);
   const user = useMe();
 
   const { areas, flywheel, sources, period } = data || {};
@@ -1089,7 +1217,7 @@ export default function CommandCenter() {
         </main>
       </div>
 
-      <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} period={periodKey} onClose={() => setDrill(null)} />
+      <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} stage={drill?.stage} source={drill?.source} period={periodKey} onClose={() => setDrill(null)} />
     </div>
   );
 }

@@ -66,6 +66,7 @@ class AreaPayload(BaseModel):
     ops: list[OpTile]
     funnel: list[FunnelRow] | None = None
     loan_officers: list[LoanOfficer] = []   # Sympli only — per-LO performance
+    loan_pipeline: dict | None = None       # Sympli only — {stages, cells} pivot for the pipeline toggle
 
 
 class CompositionSeg(BaseModel):

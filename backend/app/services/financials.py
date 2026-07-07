@@ -151,7 +151,12 @@ async def _sympli_financials(s, tenant_id, business, period, start, end, is_curr
     commission Sympli books (net of loan-level cures) → the loan-officer split
     (the configurable cost of sale, reverse-engineered from the QBO books at
     ~55%) → operating costs (~29%) → NOI → Spring's 50% JV share. Reconciles to
-    the QuickBooks P&L (Booked lens), which mirrors the same structure."""
+    the QuickBooks P&L (Booked lens), which mirrors the same structure.
+
+    Two lenses only — Live vs Booked. There's no Projection: a loan sitting in
+    underwriting isn't tied to a specific month's revenue the way a Sisu deal's
+    expected-close-date is, so forecasting commission off pipeline status would be
+    misleading. Live is itself a calculation, but a grounded one (funded loans)."""
     from .metrics import _arive_states, _in_states
     states = await _arive_states(s, tenant_id)
     loans = [l for l in (await s.execute(select(MetricRecord).where(
@@ -159,11 +164,6 @@ async def _sympli_financials(s, tenant_id, business, period, start, end, is_curr
         MetricRecord.source == "arive", MetricRecord.kind == "loan"))).scalars().all()
         if _in_states(l, states)]
     funded = [l for l in loans if l.segment == "funded" and l.occurred_on and start <= l.occurred_on <= end]
-    # Projection counts loans NEAR funding (in underwriting → clear-to-close), not
-    # early preapprovals — those are too speculative to forecast commission on.
-    _NEAR = {"UNDERWRITING_SUBMITTED", "APPROVED_WITH_CONDITION", "RE_SUBMITTAL",
-             "CLEAR_TO_CLOSE", "DOCS_OUT", "DOCS_SIGNED"}
-    pipeline = [l for l in loans if l.segment == "pipeline" and (l.status or "").upper() in _NEAR]
 
     def em(l, k):
         try:
@@ -184,16 +184,8 @@ async def _sympli_financials(s, tenant_id, business, period, start, end, is_curr
     opex_rate = float(business.opex_rate) if business.opex_rate is not None else 0.0
     jv_share = float(business.jv_share) if business.jv_share is not None else 1.0
 
-    # Projection — if the current near-funding pipeline funds at today's average commission.
-    avg = rev / n_funded if n_funded else 0.0
-    n_pipe = len(pipeline)
-    pending = round(n_pipe * avg, 2)
-    p_rev = round(rev + pending, 2)
-
     live_rows, live_noi, _ = _sympli_calc_rows(
         rev, lo_rate, opex_rate, jv_share, "Commission revenue", "sympli_commission")
-    proj_rows, proj_noi, _ = _sympli_calc_rows(
-        p_rev, lo_rate, opex_rate, jv_share, "Projected commission", "sympli_commission")
 
     b = await _booked_lens(s, tenant_id, business.id, period)
     booked = _sympli_booked_rows(b, jv_share)
@@ -207,12 +199,6 @@ async def _sympli_financials(s, tenant_id, business, period, start, end, is_curr
                      "units_label": f"{n_funded} loans funded",
                      "desc": "Net operating income Sympli earned on funded loans, after the LO split.",
                      "rows": live_rows},
-            "projection": {"profit": proj_noi, "units": n_funded + n_pipe, "closed_units": n_funded,
-                     "pending_units": n_pipe, "closed_gci": round(rev, 2), "pending_gci": pending,
-                     "gci": p_rev, "tag": "Arive · if the pipeline funds",
-                     "units_label": f"{n_funded} funded · {n_pipe} in pipeline",
-                     "desc": "If the current pipeline funds at today's average commission.",
-                     "rows": proj_rows},
             "booked": {**booked, "tag": "QuickBooks", "desc": "Sympli's booked P&L for the period."},
         },
         "reconciliation": {"sisu_closed": round(rev, 2), "qbo_booked": b["rev"],

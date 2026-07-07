@@ -73,7 +73,8 @@ _PENDING_SRC = {"funded_loans": ("Arive", "Funded loans reaching the funded stag
 
 async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                         business: str | None = None, agent_id: str | None = None,
-                        lo: str | None = None) -> dict:
+                        lo: str | None = None, stage: str | None = None,
+                        source: str | None = None) -> dict:
     start, end = _period_range(period)
     cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
 
@@ -343,6 +344,62 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "computed_as": "beCollective members registered for the next event (guests excluded).",
                     "count": len(rows), "rows": rows}
 
+    # ── Sympli pipeline stage drill (a funnel bar / pivot cell → its loans) ──
+    if key == "loan_stage":
+        from .metrics import _arive_states, _in_states, _loan_source_map, _ARIVE_FUNNEL
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "sympli"))).scalar_one_or_none()
+        loans = []
+        if biz:
+            states = await _arive_states(s, tenant_id)
+            loans = [l for l in (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "arive", MetricRecord.kind == "loan"))).scalars().all()
+                if _in_states(l, states)]
+        status_to_stage = {code: lbl for lbl, codes in _ARIVE_FUNNEL for code in codes}
+
+        def stage_of(l):
+            if l.segment == "funded":
+                return "Funded" if (l.occurred_on and start <= l.occurred_on <= end) else None
+            if l.segment == "pipeline":
+                return status_to_stage.get((l.status or "").upper())
+            return None
+
+        smap = await _loan_source_map(s, tenant_id, loans)
+        recs = [l for l in loans if stage_of(l) == stage]
+        if lo:
+            recs = [r for r in recs if ((r.meta or {}).get("lo_email") or "").lower() == lo.lower()]
+        if source:
+            recs = [r for r in recs if smap.get(r.id) == source]
+        recs.sort(key=lambda r: float(r.amount or 0), reverse=True)
+
+        def money(n):
+            return f"${float(n or 0):,.0f}"
+
+        def lname(r):
+            return (r.name or "").strip().title() or r.email or r.external_id
+
+        def sub(r):
+            m = r.meta or {}
+            who = m.get("lo_name") or ((m.get("lo_email") or "").split("@")[0].replace(".", " ").title()) or None
+            what = ((r.status or "").replace("_", " ").title() if r.segment == "pipeline"
+                    else (m.get("purpose") or "Funded"))
+            return " · ".join(x for x in [who, what] if x)
+
+        rows = [{"id": str(r.id), "name": lname(r),
+                 "seg": ("ULRG" if smap.get(r.id) == "ULRG" else "OTHER"),
+                 "l2": sub(r), "r1": money(r.amount),
+                 "r2": r.occurred_on.strftime("%b %d") if (r.segment == "funded" and r.occurred_on) else None,
+                 "source_url": r.source_url} for r in recs]
+        scope = " · ".join(x for x in [stage or "Pipeline",
+                                       (lo.split("@")[0] if lo else None), source] if x)
+        return {"label": scope, "source": "Arive",
+                "computed_as": f"Loans at the {stage or 'selected'} stage"
+                               + (f" · loan officer {lo}" if lo else "")
+                               + (f" · {source}-sourced" if source else "")
+                               + f", {span()}.",
+                "count": len(rows), "rows": rows}
+
     # ── Sympli's ARIVE loan pipeline (the loans behind the funded/pipeline KPIs) ──
     if key in {"funded_loans", "loan_volume", "preapprovals", "in_underwriting", "sympli_commission"}:
         biz = (await s.execute(select(Business).where(
@@ -383,15 +440,20 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 recs = [l for l in loans if l.segment == "funded"
                         and l.occurred_on and start <= l.occurred_on <= end]
                 recs.sort(key=lambda r: float(r.amount or 0), reverse=True)
-                rows = [{"id": str(r.id), "name": lname(r), "seg": "MTG",
+                from .metrics import _loan_source_map
+                smap = await _loan_source_map(s, tenant_id, recs)   # ULRG vs Other per loan
+                rows = [{"id": str(r.id), "name": lname(r),
+                         "seg": ("ULRG" if smap.get(r.id) == "ULRG" else "OTHER"),
                          "l2": (r.meta or {}).get("purpose") or "Funded",
                          "r1": money(r.amount),
                          "r2": r.occurred_on.strftime("%b %d") if r.occurred_on else None,
                          "source_url": r.source_url} for r in recs]
+                n_ulrg = sum(1 for v in smap.values() if v == "ULRG")
                 label = "Loan Volume" if key == "loan_volume" else "Loans Funded"
                 return {"label": label, "source": "Arive",
-                        "computed_as": f"Loans reaching a funded status, {span()} "
-                                       "(funded once — post-funding milestones are the same loan).",
+                        "computed_as": f"Loans reaching a funded status, {span()} — "
+                                       f"{n_ulrg} ULRG-sourced, {len(recs) - n_ulrg} other "
+                                       "(sourced = Utah Life referral or borrower matches a ULRG closing).",
                         "count": len(rows), "rows": rows}
 
             codes = ({"PREAPPROVED", "QUALIFICATION"} if key == "preapprovals"
@@ -580,6 +642,111 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
         return {"label": "Zero-referral producing agents", "source": "Sisu × Arive",
                 "computed_as": f"Producing agents with no Sympli-financed closings — the call "
                                f"list, {span()}.", "count": len(rows), "rows": rows}
+
+    # ── flywheel cross-check: the loans/deals behind each reconciliation number ──
+    if key in {"flywheel_sympli_referred", "flywheel_sympli_linked",
+               "flywheel_referral_no_deal", "flywheel_vendor_no_loan"}:
+        from .metrics import _arive_states, _in_states
+        bmap = {b.key: b for b in (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id))).scalars().all()}
+        ulrg, sympli = bmap.get("ulrg"), bmap.get("sympli")
+        if not (ulrg and sympli):
+            return {"label": "Cross-check", "source": "Arive × Sisu", "rows": []}
+        sisu_integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
+        vcfg = (sisu_integ.config or {}) if sisu_integ else {}
+        sympli_vids = set(vcfg.get("sympli_mortgage_vids") or [])
+        cash_vids = set(vcfg.get("cash_vids") or [])
+        ref_domains = [d.lower().lstrip("@") for d in (vcfg.get("referral_domains") or ["liveutah.com"])]
+        states = await _arive_states(s, tenant_id)
+        funded = [f for f in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sympli.id,
+            MetricRecord.source == "arive", MetricRecord.kind == "loan",
+            MetricRecord.segment == "funded"))).scalars().all() if _in_states(f, states)]
+        loan_by_email, loan_by_phone = {}, {}
+        for f in funded:
+            m = f.meta or {}
+            for em in {(f.email or "").lower(), (m.get("borrower_email") or "").lower()}:
+                if em:
+                    loan_by_email.setdefault(em, f)
+            if m.get("borrower_phone"):
+                loan_by_phone.setdefault(str(m["borrower_phone"]), f)
+
+        def ref_is_ulrg(f):
+            m = f.meta or {}
+            for e in (m.get("referral_email"), m.get("buyer_agent_email")):
+                if e and any(str(e).lower().endswith(d) for d in ref_domains):
+                    return True
+            return False
+
+        buys = (await s.execute(select(Transaction).where(
+            Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
+            Transaction.status == "closed", Transaction.side == "buy",
+            Transaction.sale_price > 0, Transaction.close_date >= start,
+            Transaction.close_date <= end, Transaction.buyer_email.isnot(None)))).scalars().all()
+
+        def linked(t):
+            for em in {(t.buyer_email or "").lower(), (t.buyer_email2 or "").lower()}:
+                if em and em in loan_by_email:
+                    return loan_by_email[em]
+            if t.buyer_phone and t.buyer_phone in loan_by_phone:
+                return loan_by_phone[t.buyer_phone]
+            return None
+
+        # Which funded loans matched a ULRG closing this period (borrower link).
+        matched_ids = {ln.external_id for t in buys if (ln := linked(t))}
+
+        def money(n):
+            return f"${float(n or 0):,.0f}"
+
+        def lname(r):
+            return (r.name or "").strip().title() or r.email or r.external_id
+
+        # gap: ULRG agents who picked a Sympli vendor in Sisu but no funded loan lines up.
+        if key == "flywheel_vendor_no_loan":
+            fin = [t for t in buys if t.mortgage_vid not in cash_vids]
+            recs = [t for t in fin if t.mortgage_vid in sympli_vids and not linked(t)]
+            recs.sort(key=lambda t: float(t.sale_price or 0), reverse=True)
+            rows = [{"id": str(t.id), "name": (t.buyer_name or t.buyer_email or "Buyer").title(),
+                     "tone": "watch", "l2": "Picked Sympli in Sisu · no funded loan found",
+                     "r1": money(t.sale_price), "r2": t.address,
+                     "source_url": _sisu_url(t.external_id)} for t in recs]
+            return {"label": "Picked Sympli, no loan", "source": "Sisu × Arive",
+                    "computed_as": f"ULRG buyers whose agent chose a Sympli vendor, but no funded "
+                                   f"Sympli loan matches the borrower, {span()}. Reconcile these.",
+                    "count": len(rows), "rows": rows}
+
+        # the three loan-side numbers: referred, linked, and the no-deal gap.
+        in_period = [f for f in funded if f.occurred_on and start <= f.occurred_on <= end]
+        referred = [f for f in in_period if ref_is_ulrg(f)]
+        if key == "flywheel_sympli_linked":
+            recs = [f for f in referred if f.external_id in matched_ids]
+        elif key == "flywheel_referral_no_deal":
+            recs = [f for f in referred if f.external_id not in matched_ids]
+        else:
+            recs = referred
+        recs.sort(key=lambda r: float(r.amount or 0), reverse=True)
+
+        def _reftag(f):
+            nm = (f.meta or {}).get("referral_name")
+            hit = f.external_id in matched_ids
+            base = f"Utah Life: {nm}" if nm else "Utah Life referral"
+            return base + (" · matched a ULRG closing" if hit else " · no ULRG closing found")
+
+        warn = key == "flywheel_referral_no_deal"
+        rows = [{"id": str(f.id), "name": lname(f), "seg": ("ULRG" if f.external_id in matched_ids else None),
+                 "tone": "watch" if warn else None, "l2": _reftag(f),
+                 "r1": money(f.amount),
+                 "r2": f.occurred_on.strftime("%b %d") if f.occurred_on else None,
+                 "source_url": f.source_url} for f in recs]
+        label = {"flywheel_sympli_referred": "Credited to Utah Life",
+                 "flywheel_sympli_linked": "Utah Life · matched to a ULRG deal",
+                 "flywheel_referral_no_deal": "Utah Life referral, no ULRG deal"}[key]
+        how = {"flywheel_sympli_referred": "Funded Sympli loans whose Arive referral source is Utah Life",
+               "flywheel_sympli_linked": "…of those, the ones whose borrower matches a ULRG closing",
+               "flywheel_referral_no_deal": "…and the ones with NO matching ULRG closing — the gap to reconcile"}[key]
+        return {"label": label, "source": "Arive × Sisu",
+                "computed_as": f"{how}, {span()}.", "count": len(rows), "rows": rows}
 
     # ── three-lens financials (the Sisu deals behind the P&L rows) ──
     if key in ("fin_closed", "fin_projected"):

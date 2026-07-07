@@ -202,6 +202,46 @@ def _in_states(loan, states) -> bool:
     return ((loan.meta or {}).get("property_state") or "").upper() in states
 
 
+async def _loan_source_map(s, tenant_id, loans) -> dict:
+    """Per-loan ULRG attribution → {loan.id: 'ULRG' | 'Other'}. A loan is ULRG-sourced
+    when Utah Life referred it (Arive referral @liveutah.com) OR its borrower matches a
+    ULRG closing by email/phone. Powers the loan-drawer source chip + pipeline-by-source
+    view — the same three-signal logic as the flywheel, from the loan's point of view."""
+    bmap = {b.key: b for b in (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id))).scalars().all()}
+    ulrg = bmap.get("ulrg")
+    sisu_integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
+    vcfg = (sisu_integ.config or {}) if sisu_integ else {}
+    ref_domains = [d.lower().lstrip("@") for d in (vcfg.get("referral_domains") or ["liveutah.com"])]
+    ulrg_emails, ulrg_phones = set(), set()
+    if ulrg:
+        # Any ULRG buy-side deal (closed OR still under contract) — a loan in
+        # underwriting maps to a ULRG deal that hasn't closed yet, so don't restrict
+        # to closed here (that's the flywheel's denominator, a different question).
+        buys = (await s.execute(select(Transaction).where(
+            Transaction.tenant_id == tenant_id, Transaction.business_id == ulrg.id,
+            Transaction.side == "buy", Transaction.buyer_email.isnot(None)))).scalars().all()
+        for t in buys:
+            for em in ((t.buyer_email or "").lower(), (t.buyer_email2 or "").lower()):
+                if em:
+                    ulrg_emails.add(em)
+            if t.buyer_phone:
+                ulrg_phones.add(str(t.buyer_phone))
+
+    def is_ulrg(l) -> bool:
+        m = l.meta or {}
+        for e in (m.get("referral_email"), m.get("buyer_agent_email")):
+            if e and any(str(e).lower().endswith(d) for d in ref_domains):
+                return True
+        for em in ((l.email or "").lower(), (m.get("borrower_email") or "").lower()):
+            if em and em in ulrg_emails:
+                return True
+        return bool(m.get("borrower_phone") and str(m["borrower_phone"]) in ulrg_phones)
+
+    return {l.id: ("ULRG" if is_ulrg(l) else "Other") for l in loans}
+
+
 async def _arive_kpis(s, tenant_id, business_id, start, end, states=None) -> dict:
     """Sympli's ARIVE loan pipeline from metric_record (kind='loan', source='arive'),
     scoped to the dashboard's states (default Utah). Funded is period-scoped
@@ -299,6 +339,44 @@ async def _arive_loan_officers(s, tenant_id, business_id, start, end) -> list[Lo
             pull_through=round(r["funded_all"] / decided * 100) if decided else 0))
     out.sort(key=lambda x: x.revenue, reverse=True)
     return out
+
+
+async def _arive_pipeline_cells(s, tenant_id, business_id, start, end) -> dict:
+    """Pivot-ready loan pipeline (Utah-scoped): stage labels + aggregated cells
+    {stage, lo, lo_name, source, n}. Stages 1-4 are the current pipeline status
+    buckets, 'Funded' is period-funded — matching the funnel counts. The frontend
+    groups the cells by LO, by source (ULRG/Other), or both, and each cell drills."""
+    states = await _arive_states(s, tenant_id)
+    loans = [l for l in (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "arive", MetricRecord.kind == "loan"))).scalars().all()
+        if _in_states(l, states)]
+    stage_labels = [lbl for lbl, _ in _ARIVE_FUNNEL] + ["Funded"]
+    status_to_stage = {code: lbl for lbl, codes in _ARIVE_FUNNEL for code in codes}
+
+    def stage_of(l):
+        if l.segment == "funded":
+            return "Funded" if (l.occurred_on and start <= l.occurred_on <= end) else None
+        if l.segment == "pipeline":
+            return status_to_stage.get((l.status or "").upper())
+        return None                                    # dead loans aren't on the funnel
+
+    smap = await _loan_source_map(s, tenant_id, loans)
+    cells: dict = {}
+    lo_names: dict = {}
+    for l in loans:
+        stg = stage_of(l)
+        if not stg:
+            continue
+        m = l.meta or {}
+        lo = (m.get("lo_email") or "").lower() or "—"
+        lo_names.setdefault(lo, m.get("lo_name") or (lo.split("@")[0].replace(".", " ").title()
+                                                     if lo != "—" else "Unassigned"))
+        k = (stg, lo, smap.get(l.id, "Other"))
+        cells[k] = cells.get(k, 0) + 1
+    cell_list = [{"stage": stg, "lo": lo, "lo_name": lo_names.get(lo), "source": src, "n": n}
+                 for (stg, lo, src), n in cells.items()]
+    return {"stages": stage_labels, "cells": cell_list}
 
 
 async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
@@ -662,6 +740,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
     for b in businesses:
         cfg = b.config or {}
         los = []                                       # per-LO performance (Sympli only)
+        pipeline_cells = None                          # loan-pipeline pivot (Sympli only)
 
         # Operational (Phase 1) — only ULRG has live transaction data.
         if b.key == "ulrg":
@@ -700,6 +779,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                     ]
                     funnel = [FunnelRow(**f) for f in ak["funnel"]]
                     los = await _arive_loan_officers(s, tenant_id, b.id, start, end)
+                    pipeline_cells = await _arive_pipeline_cells(s, tenant_id, b.id, start, end)
                     sc["sympli_funded"] = str(ak["funded_count"])
                     sc["sympli_volume"] = _compact_usd(ak["funded_volume"]) if ak["funded_volume"] else None
                 else:                                      # not synced → seeded placeholders
@@ -758,7 +838,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             id=str(b.id), key=b.key, name=b.name, tag=tag, status=derive_status(b, margin),
             accent=b.accent, ink=b.ink, sources=_SOURCES.get(b.key, ["QuickBooks"]),
             revenue=rev, noi=noi, margin=margin, trend=_trend(b), pl=pl, ops=ops, funnel=funnel,
-            loan_officers=los,
+            loan_officers=los, loan_pipeline=pipeline_cells,
         )
 
     # Spring B is one QBO entity but two views: split its area into The Forum

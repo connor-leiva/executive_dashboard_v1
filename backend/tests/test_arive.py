@@ -132,6 +132,65 @@ async def test_loan_officers():
     assert top.avg_loan == round(top.volume / top.funded, 2)
 
 
+async def test_sympli_two_lens_only():
+    """Sympli's financials are Live vs Booked — no misleading Projection off pipeline
+    status (a loan in underwriting isn't tied to a month's revenue like a Sisu deal)."""
+    from app.services.financials import compute_financials
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        sym = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id, Business.key == "sympli"))).scalar_one()
+        f = await compute_financials(s, t.id, sym, "mtd")
+    assert set(f["lenses"].keys()) == {"live", "booked"}
+    # ULRG keeps all three — the component is lens-list-driven, not hard-coded.
+    ulrg = (await s.execute(select(Business).where(Business.key == "ulrg"))).scalar_one()
+    async with SessionLocal() as s2:
+        fu = await compute_financials(s2, t.id, ulrg, "mtd")
+    assert "projection" in fu["lenses"]
+
+
+async def test_sympli_loan_pipeline_pivot():
+    """The Sympli area carries a pivot-ready loan pipeline: stages + {stage, lo,
+    source} cells that sum back to the funnel counts, tagged ULRG / Other."""
+    from collections import defaultdict
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        d = await build_dashboard(s, t.id, "mtd")
+    lp = d.areas["sympli"].loan_pipeline
+    assert lp and lp["stages"][-1] == "Funded" and lp["cells"]
+    assert {c["source"] for c in lp["cells"]} <= {"ULRG", "Other"}
+    per_stage = defaultdict(int)
+    for c in lp["cells"]:
+        per_stage[c["stage"]] += c["n"]
+    for f in d.areas["sympli"].funnel:                     # cells reconcile to the funnel
+        assert per_stage.get(f.label, 0) == f.v
+    assert any(c["source"] == "ULRG" for c in lp["cells"])   # seed exercises a real mix
+
+
+async def test_loan_stage_and_crosscheck_drills():
+    """Pipeline stage drill (filterable by LO + source, ULRG/Other tagged) and the
+    flywheel cross-check drills reconcile to the flywheel's headline numbers."""
+    from app.services.lineage import metric_detail
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        funded = await metric_detail(s, t.id, "loan_stage", "mtd", business="sympli", stage="Funded")
+        assert funded["count"] == 14 and all(r["seg"] in ("ULRG", "OTHER") for r in funded["rows"])
+        u = await metric_detail(s, t.id, "loan_stage", "mtd", business="sympli", stage="Funded", source="ULRG")
+        o = await metric_detail(s, t.id, "loan_stage", "mtd", business="sympli", stage="Funded", source="Other")
+        assert u["count"] + o["count"] == 14 and u["count"] > 0
+        assert all(r["seg"] == "ULRG" for r in u["rows"]) and all(r["seg"] == "OTHER" for r in o["rows"])
+        # a stage further up the funnel resolves too (pipeline loans, not just funded)
+        uw = await metric_detail(s, t.id, "loan_stage", "mtd", business="sympli", stage="Underwriting")
+        assert uw["count"] >= 1
+
+        # Cross-check drills mirror fw.sympli_referred (10) / linked (6) / no_deal (4).
+        ref = await metric_detail(s, t.id, "flywheel_sympli_referred", "mtd", business="sympli")
+        lnk = await metric_detail(s, t.id, "flywheel_sympli_linked", "mtd", business="sympli")
+        nod = await metric_detail(s, t.id, "flywheel_referral_no_deal", "mtd", business="sympli")
+        assert ref["count"] == 10 and lnk["count"] == 6 and nod["count"] == 4
+        assert lnk["count"] + nod["count"] == ref["count"]
+
+
 async def test_utah_state_filter():
     """The Arive LOS is multi-state; the dashboard shows Utah only. The 3 seeded TX
     loans exist as records but never reach the Sympli card. (Runs before the sync

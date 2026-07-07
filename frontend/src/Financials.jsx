@@ -69,20 +69,23 @@ function SplitLine({ closed, pending, closedUnits, pendingUnits }) {
   );
 }
 
-function Trajectory({ lenses, active }) {
-  const projected = lenses.projection.profit || 0;
-  const pct = (v) => (projected > 0 ? Math.max(0, Math.min(100, (v / projected) * 100)) : 0);
-  const legend = [
-    { k: "booked", label: "Booked", v: lenses.booked.profit, dot: C.dBooked },
-    { k: "live", label: "Live", v: lenses.live.profit, dot: C.dLive },
-    { k: "projection", label: "Projected", v: projected, dot: C.dProj },
-  ];
+function Trajectory({ lenses, order, active }) {
+  const has = (k) => Boolean(lenses[k]);
+  // Ceiling = the projected profit when a Projection lens exists (ULRG); otherwise
+  // the largest available profit, so a two-lens Live-vs-Booked (Sympli) still scales.
+  const ceil = (has("projection") ? lenses.projection.profit || 0
+    : Math.max(...order.map((k) => lenses[k].profit || 0))) || 1;
+  const pct = (v) => Math.max(0, Math.min(100, (v / ceil) * 100));
+  const LEG = { booked: { label: "Booked", dot: C.dBooked }, live: { label: "Live", dot: C.dLive },
+                projection: { label: "Projected", dot: C.dProj } };
+  const legend = ["booked", "live", "projection"].filter(has)
+    .map((k) => ({ k, label: LEG[k].label, v: lenses[k].profit, dot: LEG[k].dot }));
   return (
     <div className="traj">
       <div className="traj-track">
-        <div className="traj-forecast" />
+        {has("projection") && <div className="traj-forecast" />}
         <div className="traj-live" style={{ width: `${pct(lenses.live.profit)}%` }} />
-        <div className="traj-tick" style={{ left: `${pct(lenses.booked.profit)}%` }} />
+        {has("booked") && <div className="traj-tick" style={{ left: `${pct(lenses.booked.profit)}%` }} />}
       </div>
       <div className="traj-legend">
         {legend.map((x) => (
@@ -123,6 +126,10 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
   const monthYear = new Date(`${data.period.start}T00:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" });
   const periodDesc = data.period.is_current ? "month to date" : (data.period.label || "").toLowerCase();
 
+  // Lens-list-driven: ULRG has all three, Sympli has Live + Booked (no Projection).
+  const order = ORDER.filter((k) => lenses[k]);
+  const act = order.includes(active) ? active : order[0];
+
   const disp = (k) => {
     const api = lenses[k];
     const p = PRES[k];
@@ -132,8 +139,8 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
     const flag = api.flag ? (FLAG_LABEL[api.flag] || api.flag) : null;
     return { ...p, ...api, unitsLabel: units, flagLabel: flag };
   };
-  const L = disp(active);
-  const P = disp("projection");
+  const L = disp(act);
+  const P = lenses.projection ? disp("projection") : null;
 
   return (
     <div className="mod">
@@ -146,7 +153,7 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
       {/* hero */}
       <div className="hero">
         <SpringSignature tone="light" height={42} aria-hidden style={{ position: "absolute", top: 14, right: 24, opacity: 0.12, pointerEvents: "none" }} />
-        <div className="feat" key={active}>
+        <div className="feat" key={act}>
           <div className="eyebrow" style={{ color: L.dAccent }}>
             <span className={`edot ${L.live ? "live" : ""}`} style={{ background: L.dAccent, color: L.dAccent }} />
             {L.name}<span className="etag">· {L.tag}</span>
@@ -155,13 +162,13 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
           <div className="hdesc">{L.desc}</div>
         </div>
 
-        <Trajectory lenses={lenses} active={active} />
+        <Trajectory lenses={lenses} order={order} active={act} />
 
-        <div className="sel">
-          {ORDER.map((k) => {
+        <div className="sel" style={{ gridTemplateColumns: `repeat(${order.length},1fr)` }}>
+          {order.map((k) => {
             const x = disp(k);
             return (
-              <button key={k} className={`seg ${active === k ? "on" : ""}`} style={{ "--da": x.dAccent }}
+              <button key={k} className={`seg ${act === k ? "on" : ""}`} style={{ "--da": x.dAccent }}
                 onClick={() => setActive(k)}>
                 <span className="seg-name">
                   <span className={`seg-dot ${x.live ? "live" : ""}`} style={{ background: x.dAccent, color: x.dAccent }} />
@@ -177,7 +184,7 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
 
       {/* focus card */}
       <div className="card">
-        <div className="fc-body" key={active}>
+        <div className="fc-body" key={act}>
           <div className="fc-head">
             <div>
               <div className="fc-label" style={{ color: L.accent }}>{L.name}</div>
@@ -188,7 +195,7 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
             ) : L.unitsLabel ? <span className="fc-units">{L.unitsLabel}</span> : null}
           </div>
 
-          {active === "projection" ? (
+          {act === "projection" && P ? (
             <>
               <PL rows={[P.rows[0]]} onDrill={drill} />
               <SplitLine closed={P.closed_gci} pending={P.pending_gci}
@@ -199,11 +206,11 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
             <PL rows={L.rows} onDrill={drill} />
           )}
 
-          {active === "live" && (
+          {act === "live" && (
             <div className="note">Ahead of the books. {recon.source || "Sisu"} sees <b>${fmt(recon.sisu_closed)}</b> {recon.metric || "closed"};
               {" "}<span className="gap">${fmt(recon.gap_gci)} not yet posted</span> to QuickBooks.</div>
           )}
-          {active === "booked" && (
+          {act === "booked" && (
             <div className="note">{recon.source || "Sisu"} shows <b>${fmt(recon.sisu_closed)}</b> {recon.metric || "closed"} · QuickBooks posted <b>${fmt(recon.qbo_booked)}</b> · <span className="gap">${fmt(recon.gap_gci)} not yet booked</span>. Final at month close.</div>
           )}
         </div>

@@ -14,6 +14,14 @@ function SegChip({ seg }) {
     <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
       color: T.teal, background: T.mist, borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0 }}>Loan</span>
   );
+  if (seg === "ULRG") return (
+    <span title="Sourced by ULRG — Utah Life referral or borrower matches a ULRG closing" style={{ fontFamily: "Poppins,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+      color: T.white, background: T.meadow, borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0 }}>ULRG</span>
+  );
+  if (seg === "OTHER") return (
+    <span title="Not attributable to ULRG" style={{ fontFamily: "Poppins,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+      color: T.muted, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 4, padding: "1px 6px", textTransform: "uppercase", flexShrink: 0 }}>Other</span>
+  );
   const f = seg === "F" || seg === "Forum";
   return (
     <span style={{
@@ -25,7 +33,7 @@ function SegChip({ seg }) {
 }
 
 /* Right-side drawer showing the records behind a KPI (the trust layer). */
-export default function AuditDrawer({ metricKey, business, agentId, lo, period, onClose }) {
+export default function AuditDrawer({ metricKey, business, agentId, lo, stage, source, period, onClose }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(false);
 
@@ -37,9 +45,11 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, period, 
     const q = `/metrics/${metricKey}/detail?period=${period}`
       + (business ? `&business=${encodeURIComponent(business)}` : "")
       + (agentId ? `&agent_id=${encodeURIComponent(agentId)}` : "")
-      + (lo ? `&lo=${encodeURIComponent(lo)}` : "");
+      + (lo ? `&lo=${encodeURIComponent(lo)}` : "")
+      + (stage ? `&stage=${encodeURIComponent(stage)}` : "")
+      + (source ? `&source=${encodeURIComponent(source)}` : "");
     getJSON(q).then(setD).catch(() => setErr(true));
-  }, [metricKey, business, agentId, lo, period]);
+  }, [metricKey, business, agentId, lo, stage, source, period]);
 
   if (!metricKey) return null;
 

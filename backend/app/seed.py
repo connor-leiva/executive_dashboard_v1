@@ -464,14 +464,18 @@ async def seed():
                 # Concentration mirrors prod: Jared writes most; Nick/Jan a handful.
                 lo = _LOS[0] if idx < 10 else (_LOS[1] if idx < 12 else _LOS[2])
                 _ar(_n, st, "funded", fund_amts[idx], mid, email, phone=ph, referral=ref, lo=lo)
-            for _ in range(41):                        # active pre-approvals
+            # A third of the live pipeline is Utah-Life-referred (ULRG-sourced) so the
+            # pipeline "by source" view shows a real mix, not all "other".
+            for i in range(41):                        # active pre-approvals
                 _n += 1
-                _ar(_n, "PREAPPROVED", "pipeline", 380000, mid, f"borrower{_n}@myarive.com")
+                _ar(_n, "PREAPPROVED", "pipeline", 380000, mid, f"borrower{_n}@myarive.com",
+                    referral=(_ULRG_REF if i % 3 == 0 else None))
             for k in range(23):                        # in underwriting / later pipeline
                 _n += 1
                 st = ["APPLICATION_INTAKE", "UNDERWRITING_SUBMITTED",
                       "APPROVED_WITH_CONDITION", "CLEAR_TO_CLOSE"][k % 4]
-                _ar(_n, st, "pipeline", 395000, mid, f"borrower{_n}@myarive.com")
+                _ar(_n, st, "pipeline", 395000, mid, f"borrower{_n}@myarive.com",
+                    referral=(_ULRG_REF if k % 3 == 0 else None))
             for _ in range(5):                         # adverse / withdrawn (dead)
                 _n += 1
                 _ar(_n, "ADVERSE", "dead", 360000, mid, f"borrower{_n}@myarive.com")
