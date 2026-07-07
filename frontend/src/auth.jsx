@@ -74,8 +74,7 @@ export function Login({ onLogin }) {
             </button>
           </form>
         </div>
-        <div style={{ textAlign: "center", marginTop: 16, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>A Spring company tool</div>
-        <div style={{ textAlign: "center", marginTop: 6, fontFamily: "Inter,sans-serif", fontSize: 11.5 }}>
+        <div style={{ textAlign: "center", marginTop: 16, fontFamily: "Inter,sans-serif", fontSize: 11.5 }}>
           <a href="/privacy.html" style={{ color: T.muted, textDecoration: "none" }}>Privacy Policy</a>
           <span style={{ color: T.muted, margin: "0 8px" }}>·</span>
           <a href="/eula.html" style={{ color: T.muted, textDecoration: "none" }}>Terms</a>
