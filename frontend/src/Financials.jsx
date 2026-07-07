@@ -126,9 +126,9 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
   const disp = (k) => {
     const api = lenses[k];
     const p = PRES[k];
-    let units = null;
-    if (k === "live") units = `${api.units} units closed`;
-    else if (k === "projection") units = `${api.units} units · ${api.pending_units} pending`;
+    let units = api.units_label || null;
+    if (!units && k === "live") units = `${api.units} units closed`;
+    else if (!units && k === "projection") units = `${api.units} units · ${api.pending_units} pending`;
     const flag = api.flag ? (FLAG_LABEL[api.flag] || api.flag) : null;
     return { ...p, ...api, unitsLabel: units, flagLabel: flag };
   };
@@ -200,11 +200,11 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
           )}
 
           {active === "live" && (
-            <div className="note">Ahead of the books. Sisu sees <b>${fmt(recon.sisu_closed)}</b> closed;
+            <div className="note">Ahead of the books. {recon.source || "Sisu"} sees <b>${fmt(recon.sisu_closed)}</b> {recon.metric || "closed"};
               {" "}<span className="gap">${fmt(recon.gap_gci)} not yet posted</span> to QuickBooks.</div>
           )}
           {active === "booked" && (
-            <div className="note">Sisu shows <b>${fmt(recon.sisu_closed)}</b> closed · QuickBooks posted <b>${fmt(recon.qbo_booked)}</b> · <span className="gap">${fmt(recon.gap_gci)} (${fmt(recon.gap_profit)} profit) not yet booked</span>. Final at month close.</div>
+            <div className="note">{recon.source || "Sisu"} shows <b>${fmt(recon.sisu_closed)}</b> {recon.metric || "closed"} · QuickBooks posted <b>${fmt(recon.qbo_booked)}</b> · <span className="gap">${fmt(recon.gap_gci)} not yet booked</span>. Final at month close.</div>
           )}
         </div>
       </div>

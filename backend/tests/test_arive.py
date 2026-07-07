@@ -74,6 +74,28 @@ async def test_sympli_kpis_and_flywheel():
     assert sc["Loans Funded"] == "14"
 
 
+async def test_sympli_calculated_financials():
+    """The Sympli three-lens: Live = Arive commission (gross → direct costs → net),
+    reconciled to QBO booked. Arive-native cost of sale (LO split comes later)."""
+    from app.services.financials import compute_financials
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        sym = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id, Business.key == "sympli"))).scalar_one()
+        f = await compute_financials(s, t.id, sym, "mtd")
+    live = f["lenses"]["live"]
+    rows = {r["l"]: r["v"] for r in live["rows"]}
+    assert live["tag"] == "Arive · funded loans" and live["units"] == 14
+    assert rows["Commission revenue"] > 0                         # gross commission
+    assert rows["Net commission"] == live["profit"]              # hero = net commission
+    assert abs(rows["Commission revenue"] + rows["Direct loan costs"] - rows["Net commission"]) < 1
+    r = f["reconciliation"]
+    assert r["source"] == "Arive" and r["sisu_closed"] == rows["Commission revenue"]
+    assert r["qbo_booked"] == 82000 and r["gap_gci"] == rows["Commission revenue"] - 82000
+    # the LO-split hook: cost of sale is currently just the direct loan costs (~2%)
+    assert -rows["Direct loan costs"] < rows["Commission revenue"] * 0.05
+
+
 async def test_utah_state_filter():
     """The Arive LOS is multi-state; the dashboard shows Utah only. The 3 seeded TX
     loans exist as records but never reach the Sympli card. (Runs before the sync

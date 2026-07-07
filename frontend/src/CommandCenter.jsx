@@ -407,7 +407,8 @@ function Overview({ data, onOpen, onDrill }) {
 
 function AreaDetail({ area, onDrill, period }) {
   const a = area;
-  const isUlrg = a.key === "ulrg";
+  // Three-lens financials for ULRG (Sisu) and Sympli (Arive commissions vs booked).
+  const hasThreeLens = a.key === "ulrg" || a.key === "sympli";
 
   const opsCard = (
     <Card style={{ flex: "1 1 340px", minWidth: 300 }}>
@@ -429,7 +430,7 @@ function AreaDetail({ area, onDrill, period }) {
         <Dot status={a.status} />
       </div>
 
-      {isUlrg ? (
+      {hasThreeLens ? (
         <>
           {/* Three-lens financial view (Live / Projection / Booked) replaces the single P&L pane. */}
           <Financials businessKey={a.key} businessName={a.name} period={period} onDrill={onDrill} />

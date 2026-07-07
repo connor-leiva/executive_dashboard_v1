@@ -343,7 +343,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "count": len(rows), "rows": rows}
 
     # ── Sympli's ARIVE loan pipeline (the loans behind the funded/pipeline KPIs) ──
-    if key in {"funded_loans", "loan_volume", "preapprovals", "in_underwriting"}:
+    if key in {"funded_loans", "loan_volume", "preapprovals", "in_underwriting", "sympli_commission"}:
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "sympli"))).scalar_one_or_none()
         from .metrics import _arive_states, _in_states
@@ -360,6 +360,20 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
 
             def lname(r):
                 return (r.name or "").strip().title() or r.email or r.external_id
+
+            if key == "sympli_commission":
+                recs = [l for l in loans if l.segment == "funded"
+                        and l.occurred_on and start <= l.occurred_on <= end]
+                recs.sort(key=lambda r: float((r.meta or {}).get("gross_revenue") or 0), reverse=True)
+                rows = [{"id": str(r.id), "name": lname(r), "seg": "MTG",
+                         "l2": f"loan {money(r.amount)}",
+                         "r1": money((r.meta or {}).get("gross_revenue")),
+                         "r2": f"net {money((r.meta or {}).get('net_revenue'))}",
+                         "source_url": r.source_url} for r in recs]
+                return {"label": "Commission revenue", "source": "Arive",
+                        "computed_as": f"Lender-paid commission on funded loans, {span()} "
+                                       "(gross; net = after direct loan costs).",
+                        "count": len(rows), "rows": rows}
 
             if key in ("funded_loans", "loan_volume"):
                 recs = [l for l in loans if l.segment == "funded"

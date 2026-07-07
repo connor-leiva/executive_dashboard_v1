@@ -13,7 +13,7 @@ import datetime as dt
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Transaction, PLSnapshot, Business
+from ..models import Transaction, PLSnapshot, Business, MetricRecord
 
 
 def _period(period: str) -> tuple[dt.date, dt.date, bool]:
@@ -84,8 +84,101 @@ async def _agg(s, tenant_id, bid, status, date_col, start, end) -> tuple[float, 
     return float(gci), float(comm), int(units)
 
 
+async def _booked_lens(s, tenant_id, business_id, period):
+    """The period's QuickBooks P&L snapshot as the Booked lens rows."""
+    from .metrics import _pl_period
+    pl_start, pl_end = _pl_period(period)
+    snap = (await s.execute(select(PLSnapshot).where(
+        PLSnapshot.tenant_id == tenant_id, PLSnapshot.business_id == business_id,
+        PLSnapshot.period_start == pl_start, PLSnapshot.period_end == pl_end))).scalar_one_or_none()
+    if snap:
+        return dict(rev=float(snap.revenue), cost=float(snap.cogs), gross=float(snap.gross_profit),
+                    opex=float(snap.opex), noi=float(snap.noi), closed=bool(snap.books_closed))
+    return dict(rev=0.0, cost=0.0, gross=0.0, opex=0.0, noi=0.0, closed=False)
+
+
+def _booked_rows(b):
+    return {"profit": b["noi"], "units": None,
+            "flag": None if b["closed"] else "close_in_progress", "rows": [
+                {"l": "Revenue", "v": b["rev"], "kind": "rev", "key": "revenue"},
+                {"l": "Cost of sale", "v": -b["cost"], "kind": "ded", "key": "cogs"},
+                {"l": "Gross profit", "v": b["gross"], "kind": "sub", "key": "gross_profit"},
+                {"l": "Operating expenses", "v": -b["opex"], "kind": "ded", "key": "opex"},
+                {"l": "Net operating income", "v": b["noi"], "kind": "tot", "key": "noi"}]}
+
+
+async def _sympli_financials(s, tenant_id, business, period, start, end, is_current) -> dict:
+    """Sympli's CALCULATED financials from Arive funded loans (Utah-scoped): the
+    commission Sympli earned, before the LO payout split (Arive doesn't carry that —
+    it lands as a future 'cost of sale' line). Reconciles to the QuickBooks books."""
+    from .metrics import _arive_states, _in_states
+    states = await _arive_states(s, tenant_id)
+    loans = [l for l in (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business.id,
+        MetricRecord.source == "arive", MetricRecord.kind == "loan"))).scalars().all()
+        if _in_states(l, states)]
+    funded = [l for l in loans if l.segment == "funded" and l.occurred_on and start <= l.occurred_on <= end]
+    # Projection counts loans NEAR funding (in underwriting → clear-to-close), not
+    # early preapprovals — those are too speculative to forecast commission on.
+    _NEAR = {"UNDERWRITING_SUBMITTED", "APPROVED_WITH_CONDITION", "RE_SUBMITTAL",
+             "CLEAR_TO_CLOSE", "DOCS_OUT", "DOCS_SIGNED"}
+    pipeline = [l for l in loans if l.segment == "pipeline" and (l.status or "").upper() in _NEAR]
+
+    def em(l, k):
+        try:
+            return float((l.meta or {}).get(k) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    gross = sum(em(l, "gross_revenue") for l in funded)
+    net = sum(em(l, "net_revenue") for l in funded)
+    if gross and not net:
+        net = gross
+    direct = max(gross - net, 0.0)
+    n_funded = len(funded)
+
+    # Projection — if the current pipeline funds at the current average commission.
+    avg = gross / n_funded if n_funded else 0.0
+    n_pipe = len(pipeline)
+    ratio = (net / gross) if gross else 1.0
+    p_gross = gross + n_pipe * avg
+    p_net = round(p_gross * ratio, 2)
+    p_direct = max(p_gross - p_net, 0.0)
+
+    b = await _booked_lens(s, tenant_id, business.id, period)
+    return {
+        "period": {"label": period.upper(), "start": start.isoformat(), "end": end.isoformat(),
+                   "is_current": is_current},
+        "expense_run_rate": 0.0, "expense_run_rate_source": "n/a",
+        "expense_months": 1, "period_expenses": 0.0,
+        "lenses": {
+            "live": {"profit": net, "units": n_funded, "tag": "Arive · funded loans",
+                     "units_label": f"{n_funded} loans funded",
+                     "desc": "Commission Sympli earned on funded loans — before LO payouts.", "rows": [
+                {"l": "Commission revenue", "v": gross, "kind": "rev", "key": "sympli_commission"},
+                {"l": "Direct loan costs", "v": -direct, "kind": "ded", "key": "sympli_commission"},
+                {"l": "Net commission", "v": net, "kind": "tot", "key": "sympli_commission"}]},
+            "projection": {"profit": p_net, "units": n_funded + n_pipe, "closed_units": n_funded,
+                     "pending_units": n_pipe, "closed_gci": gross, "pending_gci": round(n_pipe * avg, 2),
+                     "gci": round(p_gross, 2), "tag": "Arive · if the pipeline funds",
+                     "units_label": f"{n_funded} funded · {n_pipe} in pipeline",
+                     "desc": "If the current pipeline funds at today's average commission.", "rows": [
+                {"l": "Projected commission", "v": round(p_gross, 2), "kind": "rev", "key": "sympli_commission"},
+                {"l": "Direct loan costs", "v": -p_direct, "kind": "ded", "key": "sympli_commission"},
+                {"l": "Net commission", "v": p_net, "kind": "tot", "key": "sympli_commission"}]},
+            "booked": {**_booked_rows(b), "tag": "QuickBooks", "desc": "Sympli's booked P&L for the period."},
+        },
+        "reconciliation": {"sisu_closed": gross, "qbo_booked": b["rev"],
+                           "gap_gci": gross - b["rev"], "gap_profit": net - b["noi"],
+                           "source": "Arive", "metric": "in commissions"},
+    }
+
+
 async def compute_financials(s: AsyncSession, tenant_id, business: Business, period: str) -> dict:
     start, end, is_current = _period(period)
+    # Sympli's Live/Projection come from Arive loan commissions, not Sisu deals.
+    if business.key == "sympli":
+        return await _sympli_financials(s, tenant_id, business, period, start, end, is_current)
     proj_end = _projection_end(period, start, end)
     run_rate, rr_src = await expense_run_rate(s, tenant_id, business, end)
     months = _period_months(period, start, end)

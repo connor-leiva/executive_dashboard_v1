@@ -153,6 +153,25 @@ async def get_loans_detail(ids, client_id: str, secret: str, api_key: str,
     return out
 
 
+def _money(v):
+    try:
+        return round(float(str(v).replace("$", "").replace(",", "")), 2) if v not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def loan_economics(full: dict) -> dict:
+    """Revenue / comp on a funded loan (Lender-Paid comp = the commission Sympli
+    earns, not the LO's take-home split). netLoanRevenue = gross − direct loan costs
+    (reimbursements, tolerance cures). Used for the calculated Sympli financials."""
+    return {
+        "gross_revenue": _money(pick(full, "grossLoanRevenue", "totalLoanRevenue")),
+        "net_revenue": _money(pick(full, "netLoanRevenue")),
+        "compensation": _money(pick(full, "compensation")),
+        "comp_type": pick(full, "compensationType"),
+    }
+
+
 def loan_referral(full: dict) -> dict:
     """Referral source + buyer's real-estate agent from full loan detail — how we
     tell a loan came from a partner brokerage (e.g. Utah Life = @liveutah.com)."""

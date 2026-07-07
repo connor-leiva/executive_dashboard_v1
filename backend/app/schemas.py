@@ -238,6 +238,8 @@ class Reconciliation(BaseModel):
     qbo_booked: float
     gap_gci: float
     gap_profit: float
+    source: str | None = None      # "Sisu" (ULRG) | "Arive" (Sympli commissions)
+    metric: str | None = None      # "closed" | "in commissions"
 
 
 class FinancialsResponse(BaseModel):

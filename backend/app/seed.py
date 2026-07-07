@@ -419,6 +419,10 @@ async def seed():
                         "lo_email": f"lo{(i % 3) + 1}@symplimortgage.com",
                         "borrower_email": borrower_email, "borrower_phone": phone or f"801555{i:04d}",
                         "property_state": state}
+                if seg == "funded":     # loan-level commission economics (for the financials)
+                    gr = round(amount * 0.023)          # ~2.3% lender-paid comp
+                    meta.update({"gross_revenue": gr, "net_revenue": round(gr * 0.98),
+                                 "compensation": gr, "comp_type": "Lender"})
                 if referral:
                     meta.update(referral)
                 s.add(MetricRecord(
