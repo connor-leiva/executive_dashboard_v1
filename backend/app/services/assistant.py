@@ -182,24 +182,30 @@ async def ask(s, user: User, question: str, history: list[dict] | None = None, p
             max_tokens=settings.ASSISTANT_MAX_TOKENS,
             system=system,
             tools=[DRILL_TOOL],
+            # Extended thinking is on by default for this model and its thinking stream
+            # eats the output budget (it can burn the whole cap before emitting an answer).
+            # We don't need a visible reasoning trace for data Q&A — turn it off so the
+            # budget goes to tool calls + the answer.
+            thinking={"type": "disabled"},
             messages=messages,
         )
-        log.info("assistant step=%d stop=%s blocks=%s", step, resp.stop_reason,
+        tool_uses = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
+        log.info("assistant step=%d stop=%s out=%s blocks=%s", step, resp.stop_reason,
+                 getattr(resp.usage, "output_tokens", "?"),
                  [getattr(b, "type", "?") for b in resp.content])
 
-        if resp.stop_reason != "tool_use":
+        # A drill turn is defined by the PRESENCE of tool_use blocks, not stop_reason
+        # (a cut-off turn can carry tool_use with stop_reason=max_tokens).
+        if not tool_uses:
             text = _text_of(resp)
             if not text:
-                # No text came back (turn cut off at max_tokens, or it tried to drill again
-                # with nothing to say). Re-run once with tool_choice=none — keeps the tool
-                # definitions valid against the tool_use history but FORCES a text answer.
-                log.warning("assistant empty final stop=%s out_tokens=%s — forcing text",
+                log.warning("assistant empty final stop=%s out=%s — forcing text",
                             resp.stop_reason, getattr(resp.usage, "output_tokens", "?"))
                 retry = await client.messages.create(
                     model=settings.ASSISTANT_MODEL, max_tokens=settings.ASSISTANT_MAX_TOKENS,
-                    system=system, tools=[DRILL_TOOL], tool_choice={"type": "none"}, messages=messages)
+                    system=system, tools=[DRILL_TOOL], tool_choice={"type": "none"},
+                    thinking={"type": "disabled"}, messages=messages)
                 text = _text_of(retry)
-                log.warning("assistant retry stop=%s len=%d", retry.stop_reason, len(text))
             return {"answer": text or "I pulled the data but couldn't compose an answer — try rephrasing.",
                     "tabs_used": tabs, "tools_used": tools_used, "model": settings.ASSISTANT_MODEL}
 
@@ -221,6 +227,7 @@ async def ask(s, user: User, question: str, history: list[dict] | None = None, p
     log.warning("assistant hit MAX_TOOL_STEPS — forcing a final answer")
     final = await client.messages.create(
         model=settings.ASSISTANT_MODEL, max_tokens=settings.ASSISTANT_MAX_TOKENS,
-        system=system, tools=[DRILL_TOOL], tool_choice={"type": "none"}, messages=messages)
+        system=system, tools=[DRILL_TOOL], tool_choice={"type": "none"},
+        thinking={"type": "disabled"}, messages=messages)
     return {"answer": _text_of(final) or "I couldn't finish that lookup — try narrowing the question.",
             "tabs_used": tabs, "tools_used": tools_used, "model": settings.ASSISTANT_MODEL}
