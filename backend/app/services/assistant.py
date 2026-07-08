@@ -18,8 +18,9 @@ from ..config import settings
 from ..models import Tenant, User
 from ..services.becollective import build_becollective
 from ..services.forum import build_forum
+from ..services.lineage import metric_detail
 from ..services.metrics import build_dashboard
-from ..services.tabs import effective_tabs, tenant_tabs
+from ..services.tabs import effective_tabs, tab_for_metric, tenant_tabs
 
 log = logging.getLogger("app")
 
@@ -33,6 +34,34 @@ TAB_LEGEND = {
 }
 
 _client: AsyncAnthropic | None = None
+
+# The one tool: fetch the records behind a tile (what a user sees on click). Lets the
+# assistant name members, list transactions, and reconcile counts the summary can't.
+DRILL_TOOL = {
+    "name": "get_dashboard_detail",
+    "description": (
+        "Fetch the underlying records behind a dashboard tile — the same drill-down a user "
+        "gets by clicking a number (e.g. the member roster behind 'active_members', the "
+        "renewal book behind 'renewal_book', the transactions behind 'forum_payments' or "
+        "'units_closed'). Use this whenever the summary numbers can't answer the question — "
+        "to name specific members, list transactions, or RECONCILE two counts (e.g. which of "
+        "the 70 active members lack a membership: drill 'active_members' and 'forum_arr' or "
+        "'renewal_book' and compare the rosters). Pass metric_key exactly as it appears in a "
+        "'drill' field of the dashboard JSON."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "metric_key": {"type": "string", "description": "The tile/drill key, e.g. active_members, forum_arr, renewal_book, registered, monthly, unregistered, forum_payments, units_closed."},
+            "business": {"type": "string", "description": "Business key when relevant: springb (Forum/beCollective), ulrg, or sympli."},
+            "stream": {"type": "string", "description": "Optional filter for revenue-stream drills (memberships, event_tickets, sponsorships, invoices)."},
+            "stage": {"type": "string", "description": "Optional pipeline-stage filter."},
+            "source": {"type": "string", "description": "Optional lead-source filter."},
+        },
+        "required": ["metric_key"],
+    },
+}
+MAX_TOOL_STEPS = 5
 
 
 def enabled() -> bool:
@@ -96,9 +125,37 @@ def _system_prompt(ctx: dict, period: str) -> str:
         f"- State the period when relevant. The data covers period='{period}'.\n"
         f"- The user can only see these tabs: {', '.join(ctx['tabs'])}. Never reference anything outside them.\n"
         f"- Short markdown is fine (a bold number, a tight bullet list). No preamble like 'Based on the data'.\n\n"
+        f"TOOL — get_dashboard_detail: the JSON below is the summary only (tile numbers). To answer "
+        f"anything that needs the records BEHIND a tile — naming specific members, listing transactions, "
+        f"or reconciling two counts (e.g. 'who is in the 70 active members but has no membership' → drill "
+        f"'active_members' and 'forum_arr'/'renewal_book' and diff the rosters) — call the tool with the "
+        f"metric_key from the relevant 'drill' field. Prefer the summary for overview questions; drill only "
+        f"when the summary genuinely can't answer. You may call it more than once to compare rosters.\n\n"
         f"TAB LEGEND:\n{ctx['legend']}\n\n"
         f"DASHBOARD DATA (JSON):\n{data_json}\n"
     )
+
+
+async def _run_tool(s, user: User, allowed_tabs: list[str], period: str, inp: dict) -> dict:
+    """Execute a drill on the user's behalf — same permission gate as the tile itself,
+    so the assistant can't pull records for a tab the user can't see."""
+    key = (inp.get("metric_key") or "").strip()
+    business = inp.get("business") or None
+    if not key:
+        return {"error": "metric_key is required."}
+    tab = tab_for_metric(key, business)
+    if tab not in allowed_tabs:
+        return {"error": f"No access to '{key}' — it belongs to the {tab} tab, which this user can't see."}
+    try:
+        detail = await metric_detail(
+            s, user.tenant_id, key, period, business,
+            None, None, inp.get("stage"), inp.get("source"), inp.get("stream"))
+    except Exception as e:  # unknown key / builder error — tell the model, don't 500
+        return {"error": f"Couldn't fetch '{key}' ({type(e).__name__})."}
+    rows = detail.get("rows")
+    if isinstance(rows, list) and len(rows) > 300:   # bound the token cost
+        detail = {**detail, "rows": rows[:300], "rows_truncated_from": len(rows)}
+    return detail
 
 
 async def ask(s, user: User, question: str, history: list[dict] | None = None, period: str = "mtd") -> dict:
@@ -113,11 +170,33 @@ async def ask(s, user: User, question: str, history: list[dict] | None = None, p
             messages.append({"role": role, "content": content[:4000]})
     messages.append({"role": "user", "content": question.strip()[:2000]})
 
-    resp = await _get_client().messages.create(
-        model=settings.ASSISTANT_MODEL,
-        max_tokens=settings.ASSISTANT_MAX_TOKENS,
-        system=system,
-        messages=messages,
-    )
-    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
-    return {"answer": text, "tabs_used": tabs, "model": settings.ASSISTANT_MODEL}
+    client = _get_client()
+    tools_used: list[str] = []
+    for _ in range(MAX_TOOL_STEPS):
+        resp = await client.messages.create(
+            model=settings.ASSISTANT_MODEL,
+            max_tokens=settings.ASSISTANT_MAX_TOKENS,
+            system=system,
+            tools=[DRILL_TOOL],
+            messages=messages,
+        )
+        if resp.stop_reason != "tool_use":
+            text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
+            return {"answer": text, "tabs_used": tabs, "tools_used": tools_used, "model": settings.ASSISTANT_MODEL}
+
+        # replay the assistant turn (as plain dicts) + run each requested drill
+        assistant_content, results = [], []
+        for b in resp.content:
+            if b.type == "text":
+                assistant_content.append({"type": "text", "text": b.text})
+            elif b.type == "tool_use":
+                assistant_content.append({"type": "tool_use", "id": b.id, "name": b.name, "input": b.input})
+                tools_used.append(b.input.get("metric_key", "?"))
+                out = await _run_tool(s, user, tabs, period, b.input)
+                results.append({"type": "tool_result", "tool_use_id": b.id,
+                                "content": json.dumps(out, separators=(",", ":"), default=str)[:24000]})
+        messages.append({"role": "assistant", "content": assistant_content})
+        messages.append({"role": "user", "content": results})
+
+    return {"answer": "I couldn't finish that lookup — try narrowing the question.",
+            "tabs_used": tabs, "tools_used": tools_used, "model": settings.ASSISTANT_MODEL}
