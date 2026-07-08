@@ -7,11 +7,11 @@ export default {
   pl: null,
   kpis: [
     { key: "active_members", label: "Active Members", value: "70", sub: "Forum 26 · Inner Circle 44", drill: "active_members" },
-    { key: "forum_arr", label: "Forum ARR", value: "$1.2M", sub: "47 memberships", drill: "forum_arr" },
+    { key: "forum_arr", label: "Forum ARR", value: "$1.23M", sub: "47 memberships", drill: "forum_arr" },
     { key: "new_members", label: "New Members", value: "0", sub: "month to date" },
     { key: "renewals_due", label: "Renewals Due", value: "0", sub: "July", drill: "renewal_book" },
     { key: "registered", label: "Registered", value: "28", sub: "Park City, UT", drill: "registered" },
-    { key: "mrr", label: "MRR", value: "$31K", sub: "monthly subscriptions", drill: "monthly" },
+    { key: "mrr", label: "MRR", value: "$20K", sub: "monthly subscriptions", drill: "monthly" },
   ],
   deck: [
     { k: "pipeline", label: "Recruiting pipeline", hero: "138", hero_sub: "in the pipeline", salient: "15 in vip guest", tone: "good" },
@@ -56,6 +56,36 @@ export default {
       { label: "New", value: "+$158K" },
       { label: "Churned", value: "−$88K", soft: true },
       { label: "Today", value: "$1.2M", tot: true },
+    ],
+  },
+  // Cash & Billing (GHL Payments, Stripe-fed) — cash-basis real-time truth.
+  billing: {
+    available: true, basis: "cash",
+    span: { start: "2026-04-01", end: "2026-07-08" },
+    net_cash: 131743, gross: 141993, refunded: 10250,
+    failed_amount: 20000, failed_count: 2, past_due: 0,
+    monthly: [
+      { month: "Apr", net: 19500, mtd: false },
+      { month: "May", net: 84500, mtd: false },
+      { month: "Jun", net: 28600, mtd: false },
+      { month: "Jul", net: 9400, mtd: true },
+    ],
+    mrr: 20200, perpetual_count: 11,
+    installments: [{ name: "Q3 Cohort · 3-pay", amount: 1600, total: 3, collected: 1, final_date: "2026-07-12" }],
+    next30: {
+      amount: 4800, charges: 3,
+      schedule: [
+        { date: "2026-07-12", amount: 1600, who: "Q3 Cohort" },
+        { date: "2026-07-18", amount: 1650, who: "Marcus Tran" },
+        { date: "2026-07-25", amount: 1550, who: "Dana Whitfield" },
+      ],
+    },
+    arr_book: 1230000, run_rate: 242400,
+    streams: [
+      { key: "memberships", label: "Memberships", amount: 104000, pct: 79 },
+      { key: "event_tickets", label: "Event tickets", amount: 14500, pct: 11 },
+      { key: "sponsorships", label: "Sponsorships", amount: 10043, pct: 8 },
+      { key: "invoices", label: "Invoices", amount: 3200, pct: 2 },
     ],
   },
 };
