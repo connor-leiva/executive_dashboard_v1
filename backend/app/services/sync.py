@@ -299,22 +299,75 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     except Exception as e:  # noqa: BLE001 — opportunities scope optional
         print(f"[ghl] opportunities skipped: {e}", flush=True)
 
-    # 3) Subscriptions → MRR (best effort; needs a payments scope).
+    # 3) Payments (Stripe via GHL) → cash / failures / MRR. Best effort; needs the
+    #    payments scope. Transactions first (they feed installment counts), then the
+    #    enriched subscriptions. See spring-command-center-SPEC-forum-billing.md.
+    from .billing import classify_stream, classify_installment
+    stream_overrides = cfg.get("stream_overrides") or {}
+    installment_cfg = {"installment_plan_names": cfg.get("installment_plan_names") or []}
     try:
+        txns = await ghl.ghl_transactions(token, location_id)
+        pay_rows, sub_succeeded = [], {}
+        for t in txns:
+            status = ghl.txn_status(t)
+            sub_id = t.get("subscriptionId")
+            name = t.get("entitySourceName")
+            occurred = _parse_ghl_dt(t.get("createdAt"))
+            if status == "succeeded" and sub_id:
+                sub_succeeded[sub_id] = sub_succeeded.get(sub_id, 0) + 1
+            pay_rows.append(dict(
+                tenant_id=tenant_id, business_id=biz, source="ghl", kind="payment",
+                external_id=str(t.get("_id") or t.get("chargeId") or t.get("id")),
+                name=(t.get("contactName") or name or "Payment")[:200],
+                email=(t.get("contactEmail") or None),
+                amount=float(t.get("amount") or 0), status=status, occurred_on=occurred,
+                source_url=ghl.contact_url(location_id, t.get("contactId")),
+                meta={"stream": classify_stream(name, stream_overrides),
+                      "entity_source_name": name,
+                      "entity_source_type": t.get("entitySourceType"),
+                      "subscription_id": sub_id, "charge_id": t.get("chargeId"),
+                      "amount_refunded": float(t.get("amountRefunded") or 0),
+                      "contact_id": str(t.get("contactId") or "")}))
+        await _ghl_snapshot(s, tenant_id, biz, "payment", pay_rows)
+        n_records += len(pay_rows)
+        print(f"[ghl] {len(pay_rows)} payments "
+              f"({sum(1 for r in pay_rows if r['status'] == 'failed')} failed)", flush=True)
+
         subs = await ghl.get_subscriptions(token, location_id)
-        sub_rows = [dict(
-            tenant_id=tenant_id, business_id=biz, source="ghl", kind="subscription",
-            external_id=str(sub.get("_id") or sub.get("subscriptionId") or sub.get("id")),
-            name=(sub.get("contactName") or (sub.get("contact") or {}).get("name") or "Subscription")[:200],
-            email=(sub.get("contactEmail") or None),
-            amount=ghl.sub_monthly_amount(sub),
-            status="active" if ghl.sub_is_active(sub) else (sub.get("status") or "inactive").lower(),
-            meta={"raw_status": sub.get("status"), "contact_id": str(sub.get("contactId") or "")},
-        ) for sub in subs]
+        sub_rows = []
+        for sub in subs:
+            sid_stripe = sub.get("subscriptionId")
+            plan = sub.get("entitySourceName")
+            start_d, end_d = sub.get("subscriptionStartDate"), sub.get("subscriptionEndDate")
+            detail = {}
+            if sid_stripe or sub.get("_id"):
+                try:
+                    detail = await ghl.ghl_subscription_detail(token, location_id,
+                                                               sub.get("_id") or sid_stripe)
+                except Exception:  # noqa: BLE001 — detail optional
+                    detail = {}
+            interval = ghl.sub_interval(detail)
+            sub_type, inst_total = classify_installment(plan, start_d, end_d, installment_cfg)
+            sub_rows.append(dict(
+                tenant_id=tenant_id, business_id=biz, source="ghl", kind="subscription",
+                external_id=str(sub.get("_id") or sid_stripe or sub.get("id")),
+                name=(sub.get("contactName") or plan or "Subscription")[:200],
+                email=(sub.get("contactEmail") or None),
+                amount=ghl.sub_monthly_amount(sub),
+                status="active" if ghl.sub_is_active(sub) else (sub.get("status") or "inactive").lower(),
+                source_url=ghl.contact_url(location_id, sub.get("contactId")),
+                meta={"raw_status": sub.get("status"), "contact_id": str(sub.get("contactId") or ""),
+                      "plan_name": plan, "interval": interval,
+                      "start_date": (str(start_d)[:10] if start_d else None),
+                      "end_date": (str(end_d)[:10] if end_d else None),
+                      "sub_type": sub_type, "installments_total": inst_total,
+                      "installments_collected": sub_succeeded.get(sid_stripe, 0),
+                      "next_payment_date": None, "next_payment_amount": ghl.sub_monthly_amount(sub)}))
         await _ghl_snapshot(s, tenant_id, biz, "subscription", sub_rows)
         n_records += len(sub_rows)
         active_n = sum(1 for r in sub_rows if r["status"] == "active")
-        print(f"[ghl] {active_n}/{len(sub_rows)} active subscriptions", flush=True)
+        print(f"[ghl] {active_n}/{len(sub_rows)} active subscriptions "
+              f"({sum(1 for r in sub_rows if r['meta']['sub_type'] == 'installment')} installment)", flush=True)
 
         # 4) Payment type on memberships: monthly if the member has a live
         #    (active/past_due) subscription (match on contact), else PIF.

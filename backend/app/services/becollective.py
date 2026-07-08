@@ -30,7 +30,7 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
     biz = (await s.execute(select(Business).where(
         Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
     empty = {"status": "pending", "watch": {"count": 0, "items": []}, "members_total": 0, "pl": None,
-             "kpis": [], "deck": [], "funnel": None, "renewals": None, "event": None, "revq": None}
+             "kpis": [], "deck": [], "funnel": None, "renewals": None, "event": None, "billing": None}
     if not biz:
         return empty
     # beCollective has its own GHL integration row (its own location + token). Prefer
@@ -94,9 +94,9 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
     watch_items = []
     if event and event.get("behind_pace"):
         watch_items.append("behind_pace")
-    deck = F._deck(funnel, renewals, event, None, members_total, member_regs)
+    deck = F._deck(funnel, renewals, event, members_total, member_regs)
 
     return {"status": "watch" if watch_items else "healthy",
             "watch": {"count": len(watch_items), "items": watch_items},
             "members_total": members_total, "pl": None, "kpis": kpis, "deck": deck,
-            "funnel": funnel, "renewals": renewals, "event": event, "revq": None}
+            "funnel": funnel, "renewals": renewals, "event": event, "billing": None}

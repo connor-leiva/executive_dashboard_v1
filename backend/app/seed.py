@@ -335,13 +335,80 @@ async def seed():
                     meta={"renewal_month": mon, "renewal_status": _renew_status[i],
                           "payment": pay, "stage": "member", "contact_id": f"mem-{i+1:03d}"})
 
-            # Monthly subscriptions (drives MRR) — 16 active, 2 past due. Linked to
-            # the first members by contact so the roster's payment column joins.
-            for i in range(18):
+            # ── GHL Payments (Stripe-fed) — the Cash & Billing ledger. Live shape:
+            #    13 active subs (12 perpetual = $21,800 MRR + 1 "3 pay" installment
+            #    $8,800), 35 succeeded charges = $141,993 with $10,250 refunded →
+            #    net $131,743, 2 failed = $20,000, classified into streams. ──────
+            from .services.billing import classify_stream
+
+            _perp = [1700, 1700, 2000, 2000, 2000, 2000, 1600, 2450, 1000, 1000, 1850, 2500]  # Σ 21,800
+            _sub_next = mid + dt.timedelta(days=7)     # inside the next-30-day window
+            for i, amt in enumerate(_perp):
                 _mr(kind="subscription", external_id=f"sub-{i+1:03d}",
-                    name=f"Member {i+1:02d}", amount=Decimal(250),
-                    status="past_due" if i >= 16 else "active",
-                    segment="forum", meta={"contact_id": f"mem-{i+1:03d}"})
+                    name=f"Member {i+1:02d}", amount=Decimal(amt), status="active", segment="forum",
+                    source_url="https://app.gohighlevel.com/",
+                    meta={"contact_id": f"mem-{i+1:03d}", "plan_name": f"Subscription for Member {i+1:02d}",
+                          "interval": "month", "sub_type": "perpetual",
+                          "start_date": "2026-05-04", "end_date": None,
+                          "installments_total": None, "installments_collected": None,
+                          "next_payment_date": (_sub_next + dt.timedelta(days=i)).isoformat(),
+                          "next_payment_amount": amt})
+            _mr(kind="subscription", external_id="sub-013", name="Forum Membership 3 pay",
+                amount=Decimal(8800), status="active", segment="forum",
+                source_url="https://app.gohighlevel.com/",
+                meta={"contact_id": "mem-013", "plan_name": "Forum Membership 3 pay - 27k",
+                      "interval": "month", "sub_type": "installment",
+                      "start_date": "2026-06-22", "end_date": "2026-08-22",
+                      "installments_total": 3, "installments_collected": 2,
+                      "next_payment_date": (mid + dt.timedelta(days=5)).isoformat(),
+                      "next_payment_amount": 8800})
+
+            # Payments: (year, month, day, amount, plan_name). Streams classify from
+            # the plan name. A balancing row lands the succeeded total on $141,993.
+            _psucc = [
+                (4, 16, 5000, "Forum Sponsorship"), (4, 17, 5000, "Forum Sponsorship"),
+                (4, 23, 5000, "Forum Sponsorship"), (4, 15, 2499, "Forum VIP Guest Ticket"),
+                (4, 20, 1994, "The Forum Mastermind RSVP - Q2 Scottsdale 2026"),
+                (5, 3, 25000, "New Invoice"), (5, 4, 10000, "Subscription for Mark Dutton"),
+                (5, 3, 10000, "Subscription for Jennifer Fetterplace"),
+                (5, 4, 8500, "Subscription for Thomas Davis"), (5, 4, 8500, "Subscription for Jonathan Alfonso"),
+                (5, 4, 8000, "Manual Payment"), (5, 4, 2000, "Subscription for Cortni Sweeney"),
+                (5, 18, 2500, "Subscription for Kellie Revoir"), (5, 19, 2450, "Subscription for Jennifer Stickler"),
+                (5, 5, 2000, "Membership for 2 - Financed"), (5, 4, 1700, "Subscription for Katie Merrill"),
+                (5, 18, 1600, "Subscription for Will Tompkins"), (5, 21, 1850, "Subscription for Jillian Von ohlen"),
+                (6, 22, 8800, "Forum Membership 3 pay - 27k"), (6, 22, 8800, "Forum Membership 3 pay - 27k"),
+                (6, 2, 1000, "Subscription for Tyson Williams"), (6, 5, 2000, "Subscription for Renewal A"),
+                (6, 10, 2000, "Subscription for Renewal B"), (6, 14, 1700, "Subscription for Renewal C"),
+                (6, 20, 2500, "Subscription for Renewal D"), (6, 23, 2500, "Subscription for Renewal E"),
+                (7, 4, 1700, "Subscription for Thomas Davis"), (7, 5, 2000, "Subscription for Cortni Sweeney"),
+                (7, 4, 2000, "Subscription for Mark Dutton"), (7, 4, 1700, "Subscription for Jonathan Alfonso"),
+                (7, 6, 2000, "Subscription for Jennifer Fetterplace"),
+            ]
+            _ptotal = sum(a for _, _, a, _ in _psucc)
+            _psucc.append((7, 6, 141993 - _ptotal, "Subscription for Balance"))    # → exactly $141,993
+            _pn = 0
+            for mo, dy, amt, plan in _psucc:
+                _pn += 1
+                _mr(kind="payment", external_id=f"pay-{_pn:03d}", name=plan[:80], status="succeeded",
+                    amount=Decimal(amt), occurred_on=dt.date(2026, mo, dy),
+                    source_url="https://app.gohighlevel.com/",
+                    meta={"stream": classify_stream(plan), "entity_source_name": plan,
+                          "entity_source_type": "manual", "amount_refunded": 0})
+            # 2 refunded (full) in May + 2 failed in June (recovery list).
+            for amt, plan in [(6000, "Forum Sponsorship"), (4250, "The Forum VIP Guest Ticket")]:
+                _pn += 1
+                _mr(kind="payment", external_id=f"pay-{_pn:03d}", name=plan[:80], status="refunded",
+                    amount=Decimal(amt), occurred_on=dt.date(2026, 5, 6),
+                    source_url="https://app.gohighlevel.com/",
+                    meta={"stream": classify_stream(plan), "entity_source_name": plan,
+                          "entity_source_type": "manual", "amount_refunded": amt})
+            for amt, plan in [(10000, "Subscription for Lapsed Member"), (10000, "Membership for 2 - Financed")]:
+                _pn += 1
+                _mr(kind="payment", external_id=f"pay-{_pn:03d}", name=plan[:80], status="failed",
+                    amount=Decimal(amt), occurred_on=dt.date(2026, 6, 18),
+                    source_url="https://app.gohighlevel.com/",
+                    meta={"stream": classify_stream(plan), "entity_source_name": plan,
+                          "entity_source_type": "manual", "amount_refunded": 0})
 
             # Recruiting funnel (open Forum Main Sales Funnel opps by real stage —
             # collapsed into Applied/Appointment/VIP Guest/Contract sent/Onboarding;

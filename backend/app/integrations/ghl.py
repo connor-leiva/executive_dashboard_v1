@@ -139,6 +139,59 @@ async def get_subscriptions(token: str, location_id: str, max_pages: int | None 
     return out
 
 
+async def ghl_transactions(token: str, location_id: str, max_pages: int | None = None) -> list[dict]:
+    """All GHL/Stripe transactions (charges) for the location — the cash/failures
+    ledger. Same altId + altType=location contract as subscriptions (probe-verified)."""
+    out: list[dict] = []
+    params: dict = {"altId": location_id, "altType": "location", "limit": 100}
+    page = 0
+    async with httpx.AsyncClient(timeout=45) as c:
+        while True:
+            r = await c.get(f"{GHL_BASE}/payments/transactions", headers=_headers(token), params=params)
+            r.raise_for_status()
+            data = r.json()
+            rows = data.get("data") or data.get("transactions") or []
+            out.extend(rows)
+            page += 1
+            if len(rows) < 100 or (max_pages and page >= max_pages):
+                break
+            params["offset"] = len(out)
+    return out
+
+
+async def ghl_subscription_detail(token: str, location_id: str, sub_id: str) -> dict:
+    """A single subscription's detail — carries the recurring product (interval),
+    end date, and (via its snapshot) the next-payment date/amount the list omits."""
+    params = {"altId": location_id, "altType": "location"}
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get(f"{GHL_BASE}/payments/subscriptions/{sub_id}", headers=_headers(token), params=params)
+        if r.status_code != 200:
+            return {}
+        return r.json() or {}
+
+
+def txn_status(t: dict) -> str:
+    """Normalize a transaction to succeeded | failed | refunded (full)."""
+    s = (t.get("status") or "").lower()
+    if s in ("succeeded", "success", "paid"):
+        return "succeeded"
+    if s in ("failed", "declined"):
+        return "failed"
+    if s in ("refunded", "reversed"):
+        return "refunded"
+    return s or "unknown"
+
+
+def sub_interval(detail: dict) -> str | None:
+    """Recurring interval (month|year) from a subscription detail's recurringProduct."""
+    rp = detail.get("recurringProduct") or {}
+    if isinstance(rp, dict):
+        price = rp.get("price") if isinstance(rp.get("price"), dict) else {}
+        return (rp.get("interval") or rp.get("recurringInterval")
+                or price.get("interval") or price.get("recurringInterval"))
+    return None
+
+
 def sub_is_active(sub: dict) -> bool:
     return (sub.get("status") or "").lower() in ("active", "trialing")
 

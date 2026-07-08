@@ -69,10 +69,10 @@ async def test_becollective_payload():
     assert kpis["Financed"] == "1"              # one monthly/financed membership
     assert kpis["In Pipeline"] == "5"           # all open recruiting opps
 
-    # funnel groups (No-Show → footer, not a bar); revq omitted for the cohort model
+    # funnel groups (No-Show → footer, not a bar); billing omitted for the cohort model
     labels = [st["label"] for st in d["funnel"]["stages"]]
     assert labels == ["Applied", "Appointment", "Payment sent"]
-    assert d["revq"] is None
+    assert d["billing"] is None
     assert "event" in {c["k"] for c in d["deck"]}
 
 
@@ -82,4 +82,4 @@ async def test_forum_still_works():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as c:
         f = (await c.get("/api/v1/forum?period=mtd", headers={"Authorization": f"Bearer {token}"})).json()
-    assert f["members_total"] == 70 and "revq" in f       # Forum numbers intact
+    assert f["members_total"] == 70 and "billing" in f    # Forum numbers intact

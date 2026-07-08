@@ -74,7 +74,7 @@ _PENDING_SRC = {"funded_loans": ("Arive", "Funded loans reaching the funded stag
 async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                         business: str | None = None, agent_id: str | None = None,
                         lo: str | None = None, stage: str | None = None,
-                        source: str | None = None) -> dict:
+                        source: str | None = None, stream: str | None = None) -> dict:
     start, end = _period_range(period)
     cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
 
@@ -343,6 +343,108 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             return {"label": "Registered", "source": "Go High Level",
                     "computed_as": "beCollective members registered for the next event (guests excluded).",
                     "count": len(rows), "rows": rows}
+
+    # ── The Forum · Cash & Billing drills (GHL Payments) ──
+    if key in {"forum_payments", "forum_failed_payments", "forum_mrr_subs",
+               "forum_installments", "forum_next30", "forum_streams"}:
+        from .billing import is_perpetual, sub_monthly, STREAM_LABELS
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+
+        async def frecs(kind):
+            if not biz:
+                return []
+            return (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind == kind))).scalars().all()
+
+        def money(n):
+            return f"${float(n or 0):,.0f}"
+
+        def nm(r):
+            return (r.name or "").strip() or r.email or r.external_id
+
+        def dlabel(d):
+            return d.strftime("%b %d") if d else None
+
+        if key in ("forum_payments", "forum_streams"):
+            pays = await frecs("payment")
+            if key == "forum_streams" and stream:
+                pays = [p for p in pays if (p.meta or {}).get("stream") == stream]
+            pays = [p for p in pays if p.occurred_on]
+            pays.sort(key=lambda p: (p.occurred_on or dt.date.min), reverse=True)
+            rows = [{"id": str(p.id), "name": nm(p),
+                     "tone": "watch" if p.status == "failed" else None,
+                     "l2": " · ".join(x for x in [STREAM_LABELS.get((p.meta or {}).get("stream"), (p.meta or {}).get("stream")),
+                                                  (p.status if p.status != "succeeded" else None)] if x),
+                     "r1": money(p.amount), "r2": dlabel(p.occurred_on),
+                     "source_url": p.source_url} for p in pays]
+            if key == "forum_streams":
+                lbl = STREAM_LABELS.get(stream, (stream or "").title() or "Revenue by stream")
+                return {"label": lbl, "source": "GHL Payments",
+                        "computed_as": f"Succeeded Stripe charges classified as {lbl} (net of refunds; all recorded payments).",
+                        "count": len(rows), "rows": rows}
+            return {"label": "All transactions", "source": "GHL Payments",
+                    "computed_as": "Every Stripe charge on record — succeeded, failed, refunded.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "forum_failed_payments":
+            pays = [p for p in await frecs("payment") if p.status == "failed"]
+            pays.sort(key=lambda p: float(p.amount or 0), reverse=True)
+            rows = [{"id": str(p.id), "name": nm(p), "tone": "watch",
+                     "l2": "Failed charge · " + (dlabel(p.occurred_on) or ""),
+                     "r1": money(p.amount), "source_url": p.source_url} for p in pays]
+            for x in await frecs("subscription"):
+                if x.status == "past_due":
+                    rows.append({"id": str(x.id), "name": nm(x), "tone": "watch",
+                                 "l2": "Subscription past due", "r1": money(x.amount) + "/mo",
+                                 "source_url": x.source_url})
+            return {"label": "Recovery list", "source": "GHL Payments",
+                    "computed_as": "Failed charges + past-due subscriptions to recover.",
+                    "count": len(rows), "rows": rows}
+
+        subs = await frecs("subscription")
+        active = [x for x in subs if x.status == "active"]
+        if key == "forum_mrr_subs":
+            perp = sorted([x for x in active if is_perpetual(x)],
+                          key=lambda x: sub_monthly(x), reverse=True)
+            rows = [{"id": str(x.id), "name": nm(x), "l2": "Monthly subscription",
+                     "r1": money(sub_monthly(x)) + "/mo", "source_url": x.source_url} for x in perp]
+            return {"label": "Perpetual subscriptions", "source": "GHL Payments",
+                    "computed_as": "Active recurring memberships (installment plans excluded) — the MRR base.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "forum_installments":
+            inst = [x for x in active if not is_perpetual(x)]
+            rows = [{"id": str(x.id), "name": (x.meta or {}).get("plan_name") or nm(x),
+                     "l2": f"{(x.meta or {}).get('installments_collected', 0)} of "
+                           f"{(x.meta or {}).get('installments_total') or '?'} collected",
+                     "r1": money(sub_monthly(x)), "r2": f"final {(x.meta or {}).get('end_date') or '—'}",
+                     "source_url": x.source_url} for x in inst]
+            return {"label": "Installment plans", "source": "GHL Payments",
+                    "computed_as": "Finite N-pay plans — collection progress (kept out of MRR).",
+                    "count": len(rows), "rows": rows}
+
+        # forum_next30 — the forward-billing schedule.
+        today = dt.date.today()
+        horizon = today + dt.timedelta(days=30)
+        sched = []
+        for x in active:
+            d = None
+            nd = (x.meta or {}).get("next_payment_date")
+            try:
+                d = dt.date.fromisoformat(str(nd)[:10]) if nd else None
+            except (ValueError, TypeError):
+                d = None
+            amt = float((x.meta or {}).get("next_payment_amount") or 0) or sub_monthly(x)
+            if d and today <= d <= horizon and amt:
+                sched.append((d, amt, nm(x), "installment" if not is_perpetual(x) else "subscription", x.source_url))
+        sched.sort(key=lambda r: r[0])
+        rows = [{"id": f"n{i}", "name": who, "l2": note, "r1": money(amt), "r2": dlabel(d),
+                 "source_url": url} for i, (d, amt, who, note, url) in enumerate(sched)]
+        return {"label": "Next 30 days", "source": "GHL Payments",
+                "computed_as": "Scheduled charges (subscriptions + installment finals) in the next 30 days.",
+                "count": len(rows), "rows": rows}
 
     # ── Sympli pipeline stage drill (a funnel bar / pivot cell → its loans) ──
     if key == "loan_stage":

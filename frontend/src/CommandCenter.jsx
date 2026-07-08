@@ -1217,7 +1217,7 @@ export default function CommandCenter() {
         </main>
       </div>
 
-      <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} stage={drill?.stage} source={drill?.source} period={periodKey} onClose={() => setDrill(null)} />
+      <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} stage={drill?.stage} source={drill?.source} stream={drill?.stream} period={periodKey} onClose={() => setDrill(null)} />
     </div>
   );
 }

@@ -91,17 +91,22 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     funnel = await _funnel(s, base, cfg)
     renewals = _renewals(memberships, seg_by_contact)
     event = _event(cfg, members_total, member_regs, guests)
-    revq = await _revq(s, base, memberships, arr, tenant_id, biz.id)
 
-    # ── watch signals (only real ones: past-due payments + event pace) ──
+    # ── Cash & Billing (GHL Payments, Stripe-fed) — supersedes Revenue Quality ──
+    from .billing import compute_billing
+    payments = await records("payment")
+    subs_all = await records("subscription")
+    billing = compute_billing(payments, subs_all, arr, start, end, dt.date.today())
+
+    # ── watch signals (only real ones: failed/past-due payments + event pace) ──
     watch_items = []
-    if revq and revq.get("past_due") and revq["past_due"]["count"] > 0:
-        watch_items.append("pastdue")
+    if billing.get("available") and (billing.get("failed_count") or billing.get("past_due")):
+        watch_items.append("payments")
     if event and event.get("behind_pace"):
         watch_items.append("behind_pace")
 
-    # ── deep-dive deck (collapsed summaries) ──
-    deck = _deck(funnel, renewals, event, revq, members_total, k["registered"])
+    # ── deep-dive deck (Recruiting · Renewals · Event readiness — revq retired) ──
+    deck = _deck(funnel, renewals, event, members_total, k["registered"])
 
     return {
         "status": "watch" if watch_items else "healthy",
@@ -109,7 +114,7 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
         "members_total": members_total,
         "pl": None,                       # shared springb P&L is rendered by the dashboard payload
         "kpis": kpis, "deck": deck, "funnel": funnel,
-        "renewals": renewals, "event": event, "revq": revq,
+        "renewals": renewals, "event": event, "billing": billing,
     }
 
 
@@ -263,7 +268,7 @@ async def _revq(s, base, memberships, arr, tenant_id, business_id) -> dict | Non
     return out
 
 
-def _deck(funnel, renewals, event, revq, members_total, registered) -> list[dict]:
+def _deck(funnel, renewals, event, members_total, registered) -> list[dict]:
     deck = []
     if funnel:
         last = funnel["stages"][-1] if funnel["stages"] else {"v": 0, "label": "pipeline"}
@@ -284,12 +289,4 @@ def _deck(funnel, renewals, event, revq, members_total, registered) -> list[dict
                      "hero_sub": "days out",
                      "salient": f"{event['unregistered']} unregistered" + (" · behind pace" if event["behind_pace"] else ""),
                      "tone": "watch" if (pct < 50 and event["unregistered"] > 0) else "good"})
-    if revq and revq.get("pif") and revq.get("monthly"):
-        total = revq["pif"]["count"] + revq["monthly"]["count"]
-        pifpct = round(revq["pif"]["count"] / total * 100) if total else 0
-        pd = revq.get("past_due")
-        deck.append({"k": "revq", "label": "Revenue quality",
-                     "hero": f"{pifpct}%", "hero_sub": "paid in full",
-                     "salient": (f"{pd['count']} past due · {pd['value']}" if pd and pd["count"] else "on track"),
-                     "tone": "watch" if (pd and pd["count"]) else "good"})
     return deck

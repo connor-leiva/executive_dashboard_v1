@@ -10,7 +10,10 @@ venv/
 .env.local
 .env.*.local
 .probe.env
+*probe*.env
 ghl_audit*.json
+ghl_payments_audit.json
+*_audit*.json
 *.db
 *.sqlite3
 .DS_Store

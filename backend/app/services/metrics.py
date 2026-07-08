@@ -164,8 +164,12 @@ async def _forum_kpis(s, tenant_id, business_id, start, end) -> dict:
     new_members = await _count(*_base("onboarded"),
                                MetricRecord.occurred_on >= start, MetricRecord.occurred_on <= end)
     registered = await _count(*_base("registration"))
-    mrr = float((await s.execute(select(func.coalesce(func.sum(MetricRecord.amount), 0))
-                 .where(*_base("subscription"), MetricRecord.status == "active"))).scalar() or 0)
+    # True MRR = active PERPETUAL subscriptions only (installment plans excluded) —
+    # one source, shared with the Cash & Billing block (billing.mrr_of).
+    from .billing import mrr_of
+    active_subs = (await s.execute(select(MetricRecord).where(
+        *_base("subscription"), MetricRecord.status == "active"))).scalars().all()
+    mrr = mrr_of(active_subs)
 
     integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == tenant_id, Integration.business_id == business_id,

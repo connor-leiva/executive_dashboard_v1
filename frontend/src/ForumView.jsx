@@ -381,6 +381,15 @@ const FORUM_CSS = `
   .fv-link:hover { filter: brightness(0.97); }
   .fv-row1 { display: grid; grid-template-columns: minmax(0,5fr) minmax(0,7fr); gap: 18px; align-items: stretch; }
   .fv-ops { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .fv-btiles { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 10px; }
+  @media (max-width: 980px) { .fv-btiles { grid-template-columns: repeat(3, minmax(0,1fr)); } .fv-cols { grid-template-columns: 1fr !important; } }
+  @media (max-width: 600px) { .fv-btiles { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  .fv-colhead { font-family: Poppins,sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: ${T.slate}; margin-bottom: 8px; }
+  .fv-brow { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; font-family: Inter,sans-serif; font-size: 12.5px; color: ${T.secondary}; border-top: 1px solid ${T.page}; }
+  .fv-brow b { font-family: Poppins,sans-serif; font-weight: 600; color: ${T.ink}; font-variant-numeric: tabular-nums; }
+  .fd-card.on, .fd-card.off { background: ${T.white}; border: 1px solid ${T.line}; border-radius: 12px 12px 0 0; padding: 13px 15px 15px; }
+  .fd-card.off { border-radius: 12px; background: ${T.parchment}; }
+  .fd-card.off:hover { background: ${T.white}; }
   .fd-deck { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
   .fd-card { transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
   .fd-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,46,44,.10); }
@@ -402,13 +411,217 @@ const FORUM_CSS = `
   }
 `;
 
-/* The four canonical deck slots — a missing section shows dimmed, not hidden. */
+/* The three canonical deck slots — a missing section shows dimmed, not hidden.
+   (Revenue Quality retired — superseded by the Cash & Billing section below.) */
 const DECK_SLOTS = [
   { k: "pipeline", label: "Recruiting pipeline", need: "needs a sales pipeline configured" },
   { k: "renewals", label: "Renewals · next 90 days", need: "needs the renewals pipeline" },
   { k: "event", label: "Next event", need: "needs event config" },
-  { k: "revq", label: "Revenue quality", need: "needs a payments scope" },
 ];
+
+/* ── Cash & Billing (GHL Payments, Stripe-fed) — spec: forum-billing, Appendix A.
+   Zero poppy: daffodil is the single action highlight, meadow positive, evergreen
+   structure. Data-driven from data.billing; drills reuse the audit drawer. ── */
+const kc = (n) => {
+  const a = Math.abs(n || 0);
+  if (a >= 1_000_000) return "$" + (a / 1_000_000).toFixed(2) + "M";
+  if (a >= 1000) return "$" + (a / 1000).toFixed(a >= 100_000 ? 0 : 1) + "K";
+  return "$" + Math.round(a);
+};
+const STREAM_COLORS = [T.evergreen, T.meadow, T.teal, T.sprout, T.muted];
+
+function BillTile({ label, value, sub, flag, onClick }) {
+  return (
+    <div onClick={onClick} className={onClick ? "fv-tile" : undefined}
+      role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+      style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 15px", cursor: onClick ? "pointer" : "default" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 9 }}>
+        {flag && <span style={{ width: 7, height: 7, borderRadius: 99, background: T.daffodil, boxShadow: `0 0 0 1px ${T.line}` }} />}
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, fontWeight: 500 }}>{label}</span>
+        {onClick && <span style={{ marginLeft: "auto", color: T.muted, fontSize: 12 }}>↗</span>}
+      </div>
+      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>{sub}</div>
+    </div>
+  );
+}
+
+function CashFlowPanel({ b, onOpen }) {
+  const months = b.monthly || [];
+  const max = Math.max(...months.map((m) => m.net), 1);
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 18, height: 130, padding: "6px 2px 0" }}>
+        {months.map((m) => (
+          <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{kc(m.net)}</span>
+            <div style={{ width: "100%", maxWidth: 84, height: `${Math.max(2, (m.net / max) * 88)}px`, background: m.mtd ? T.sprout : T.meadow, borderRadius: "6px 6px 0 0" }} />
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{m.month}{m.mtd ? " · MTD" : ""}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10, borderTop: `1px solid ${T.line}`, marginTop: 16, paddingTop: 13, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>
+        <span>{usd(b.gross)} collected − {usd(b.refunded)} refunded = <b style={{ color: T.ink }}>{usd(b.net_cash)} net</b>
+          {b.failed_amount > 0 && <span style={{ color: T.amber }}> · {usd(b.failed_amount)} failed (not counted)</span>}</span>
+        <span onClick={() => onOpen("forum_payments")} style={{ color: T.meadow, fontWeight: 600, cursor: "pointer" }}>View all transactions ↗</span>
+      </div>
+    </div>
+  );
+}
+
+function RecurringPanel({ b, onOpen }) {
+  const inst = (b.installments || [])[0];
+  const fwd = (b.next30?.schedule || []).slice(0, 3);
+  return (
+    <div className="fv-cols" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 26 }}>
+      <div>
+        <div className="fv-colhead">Perpetual · true MRR</div>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 700, color: T.ink }}>{usd(b.mrr)}<span style={{ fontSize: 13, color: T.muted, fontWeight: 500 }}>/mo</span></div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, marginTop: 8 }}>{b.perpetual_count} perpetual subscriptions</div>
+        <div onClick={() => onOpen("forum_mrr_subs")} style={{ color: T.meadow, fontWeight: 600, cursor: "pointer", fontSize: 11.5, marginTop: 8 }}>View all {b.perpetual_count} subscriptions ↗</div>
+      </div>
+      <div>
+        <div className="fv-colhead">Installment · kept out of MRR</div>
+        {inst ? (
+          <>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{inst.name}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+              {[...Array(inst.total || 0)].map((_, i) => (
+                <span key={i} style={{ flex: 1, height: 8, borderRadius: 4, background: i < (inst.collected || 0) ? T.meadow : T.parchment, border: `1px solid ${i < (inst.collected || 0) ? T.meadow : T.line}` }} />
+              ))}
+            </div>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 8 }}>
+              {usd(inst.amount)} × {inst.total} · {inst.collected} collected · final {inst.final_date || "—"}
+            </div>
+          </>
+        ) : <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>No installment plans.</div>}
+        <div className="fv-colhead" style={{ marginTop: 18 }}>Forward billing · next 30 days</div>
+        {fwd.map((r, i) => (
+          <div key={i} className="fv-brow"><span style={{ flex: 1 }}>{new Date(`${r.date}T00:00:00`).toLocaleString("en-US", { month: "short", day: "numeric" })}</span><span style={{ color: T.muted }}>{r.who}</span><b>{usd(r.amount)}</b></div>
+        ))}
+        <div onClick={() => onOpen("forum_next30")} style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.meadow, fontWeight: 600, cursor: "pointer", paddingTop: 7 }}>
+          {usd(b.next30?.amount || 0)} across {b.next30?.charges || 0} charges ↗
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ArrBridgePanel({ b, onOpen }) {
+  const pct = b.arr_book ? Math.round((b.run_rate / b.arr_book) * 100) : 0;
+  return (
+    <div>
+      {[["Renewal book", b.arr_book, T.evergreen, 100], ["Monthly run-rate", b.run_rate, T.meadow, pct]].map(([label, val, col, w]) => (
+        <div key={label} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 0" }}>
+          <span style={{ width: 128, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>{label}</span>
+          <div style={{ flex: 1, height: 16, background: T.parchment, borderRadius: 6, overflow: "hidden" }}><div style={{ width: `${w}%`, height: "100%", background: col, borderRadius: 6 }} /></div>
+          <b style={{ width: 96, textAlign: "right", fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{usd(val)}</b>
+        </div>
+      ))}
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, lineHeight: 1.55, borderTop: `1px solid ${T.line}`, marginTop: 14, paddingTop: 13 }}>
+        The <b style={{ color: T.ink }}>{usd(b.arr_book - b.run_rate)}</b> gap is PIF and financed-annual members who aren't on monthly billing — expected, and why the renewal book is the headline while run-rate is only the billing slice. <span onClick={() => onOpen("renewal_book")} style={{ color: T.meadow, fontWeight: 600, cursor: "pointer" }}>memberships ↗</span>
+      </div>
+    </div>
+  );
+}
+
+function StreamsPanel({ b, onOpen }) {
+  const streams = b.streams || [];
+  const total = streams.reduce((a, x) => a + x.amount, 0) || 1;
+  return (
+    <div>
+      <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", gap: 2, marginBottom: 14 }}>
+        {streams.map((x, i) => <div key={x.key} style={{ width: `${(x.amount / total) * 100}%`, background: STREAM_COLORS[i % STREAM_COLORS.length], minWidth: 8 }} />)}
+      </div>
+      {streams.map((x, i) => (
+        <div key={x.key} onClick={() => onOpen("forum_streams", { stream: x.key })} className="fv-brow" style={{ cursor: "pointer" }}>
+          <span style={{ flex: 1, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: STREAM_COLORS[i % STREAM_COLORS.length] }} />{x.label}
+          </span>
+          <span style={{ color: T.muted }}>{x.pct}%</span><b>{usd(x.amount)}</b>
+        </div>
+      ))}
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 12 }}>Classified from Stripe plan names · sums to net cash {usd(total)}</div>
+    </div>
+  );
+}
+
+function CashBilling({ billing, onOpen }) {
+  const b = billing;
+  const [sel, setSel] = useState("cash");
+  if (!b) return null;
+  if (!b.available) {
+    return (
+      <Card>
+        <PanelLabel>Cash &amp; Billing</PanelLabel>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, padding: "10px 0 4px" }}>
+          Payments data lights up when the Go High Level connection has the Payments read scope.
+        </div>
+      </Card>
+    );
+  }
+  const inst = (b.installments || [])[0];
+  const spanStart = b.span?.start ? new Date(`${b.span.start}T00:00:00`).toLocaleString("en-US", { month: "short" }) : "";
+  const tiles = [
+    { label: "Net cash collected", value: kc(b.net_cash), sub: `since ${spanStart} · ${kc(b.refunded)} refunded`, key: "forum_payments" },
+    { label: "MRR · true recurring", value: kc(b.mrr), sub: `${b.perpetual_count} perpetual subs`, key: "forum_mrr_subs" },
+    { label: "Installment income", value: inst ? `${kc(inst.amount)}/mo` : "—", sub: inst ? `1 plan · ${inst.collected} of ${inst.total} collected` : "none", key: "forum_installments" },
+    { label: "ARR · renewal book", value: kc(b.arr_book), sub: `run-rate ${kc(b.run_rate)}`, key: "renewal_book" },
+    { label: "Failed payments", value: kc(b.failed_amount), sub: `${b.failed_count} charges · ${b.past_due} past-due`, flag: true, key: "forum_failed_payments" },
+    { label: "Next 30 days", value: kc(b.next30?.amount || 0), sub: `${b.next30?.charges || 0} scheduled charges`, key: "forum_next30" },
+  ];
+  const DECK = [
+    { key: "cash", name: "Cash flow", stat: kc(b.net_cash), line: "gross − refunds = net", C: CashFlowPanel },
+    { key: "recurring", name: "Recurring & installments", stat: `${kc(b.mrr)}/mo`, line: "installments kept out of MRR", C: RecurringPanel },
+    { key: "arr", name: "ARR bridge", stat: kc(b.arr_book), line: `book vs ${kc(b.run_rate)} run-rate`, C: ArrBridgePanel },
+    { key: "streams", name: "Revenue by stream", stat: `${(b.streams || []).length} streams`, line: "dues · tickets · sponsorships", C: StreamsPanel },
+  ];
+  const active = DECK.find((d) => d.key === sel) || DECK[0];
+  const showFlag = b.failed_count > 0 || b.past_due > 0;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "2px 2px 3px" }}>
+        <span style={{ width: 5, height: 18, borderRadius: 3, background: T.meadow }} />
+        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 17, fontWeight: 600, letterSpacing: "-.01em", color: T.ink }}>Cash &amp; Billing</span>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>Stripe via Go High Level</span>
+        <span style={{ flex: 1 }} />
+        <span style={{ display: "flex", gap: 6 }}><Source name="GHL Payments" /><Source name="Stripe" /></span>
+      </div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, margin: "0 0 14px 20px" }}>Cash basis · reconciles to QuickBooks as the Booked lens when connected</div>
+
+      {showFlag && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: T.daffodilBg, borderRadius: 7, padding: "5px 11px", fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.amber }}>
+            <span style={{ width: 7, height: 7, borderRadius: 99, background: T.daffodil }} />
+            {b.failed_count} failed charge{b.failed_count === 1 ? "" : "s"} · {usd(b.failed_amount)} to recover
+          </span>
+          <button onClick={() => onOpen("forum_failed_payments")} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "5px 11px", cursor: "pointer", fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.slate }}>View recovery list ↗</button>
+          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>{b.past_due} subscriptions past-due</span>
+        </div>
+      )}
+
+      <div className="fv-btiles">
+        {tiles.map((t) => <BillTile key={t.label} label={t.label} value={t.value} sub={t.sub}
+          flag={t.flag} onClick={() => onOpen(t.key, t.opts)} />)}
+      </div>
+
+      <div className="fd-deck" style={{ marginTop: 16 }}>
+        {DECK.map((d) => (
+          <button key={d.key} onClick={() => setSel(d.key)} className={`fd-card ${sel === d.key ? "on" : "off"}`} style={{ textAlign: "left", cursor: "pointer" }}>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, color: T.slate, textTransform: "uppercase", letterSpacing: ".07em" }}>{d.name}</div>
+            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 20, fontWeight: 700, color: T.ink, marginTop: 6 }}>{d.stat}</div>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, marginTop: 4 }}>{d.line}</div>
+          </button>
+        ))}
+      </div>
+      <Card style={{ borderRadius: "0 0 14px 14px", marginTop: -1 }}>
+        <div className="fd-body" key={sel}><active.C b={b} onOpen={onOpen} /></div>
+      </Card>
+    </div>
+  );
+}
 
 /* beCollective is a cohort program: recruiting funnel + next event (no monthly
    renewals, no subscription revenue-quality). */
@@ -438,7 +651,7 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
   subtitle = "Mastermind", deckSlots = DECK_SLOTS, drillBusiness = "springb" }) {
   const [sel, setSel] = useState(null);
   if (!data) return null;
-  const onOpen = (key) => onDrill && onDrill(key, drillBusiness);
+  const onOpen = (key, opts) => onDrill && onDrill(key, drillBusiness, null, null, opts);
   const meta = sel ? DETAIL_META[sel] : null;
   const watchCount = data.watch?.count || 0;
   const deck = data.deck || [];
@@ -522,6 +735,9 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
           )}
         </div>
       )}
+
+      {/* Cash & Billing (Stripe via GHL) — below the deck (The Forum only) */}
+      {data.billing && <CashBilling billing={data.billing} onOpen={onOpen} />}
     </div>
   );
 }

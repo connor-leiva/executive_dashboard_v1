@@ -119,7 +119,7 @@ async def test_forum_payload_shape():
     await _seed_forum()
     d = await _get_forum()
     assert set(d) >= {"status", "watch", "members_total", "kpis", "deck",
-                      "funnel", "renewals", "event", "revq"}
+                      "funnel", "renewals", "event", "billing"}
     assert d["members_total"] == 5
 
     kpis = {k["label"]: k for k in d["kpis"]}
@@ -129,8 +129,8 @@ async def test_forum_payload_shape():
     assert kpis["Registered"]["value"] == "3"          # members only, guest excluded
     assert kpis["MRR"]["value"] == "$750"
 
-    # deck has one card per available deep dive
-    assert {c["k"] for c in d["deck"]} == {"pipeline", "renewals", "event", "revq"}
+    # deck has one card per available deep dive (Revenue Quality retired → 3 cards)
+    assert {c["k"] for c in d["deck"]} == {"pipeline", "renewals", "event"}
 
 
 async def test_forum_invariants():
@@ -145,20 +145,10 @@ async def test_forum_invariants():
     assert "mix" not in sm                               # health status removed
     assert all("status" not in r for r in d["renewals"]["rows"])
 
-    # payment mix: pif + monthly == membership count, and their $ == ARR
-    revq = d["revq"]
-    assert revq["pif"]["count"] + revq["monthly"]["count"] == 5
-    assert round(revq["pif"]["value"] + revq["monthly"]["value"]) == 12750
-    assert revq["past_due"]["count"] == 1
-
     # event: registered + unregistered accounting
     ev = d["event"]
     assert ev["registered"] == 3 and ev["guests"] == 1
     assert ev["unregistered"] == d["members_total"] - ev["registered"]
-
-    # ARR bridge reconciles: start + new − churned == today
-    bridge = {b["label"]: b["value"] for b in revq["bridge"]}
-    assert set(bridge) == {"Jan 1", "New", "Churned", "Today"}
 
     # funnel: raw stages collapsed into the clean groups, in order
     positions = [st["label"] for st in d["funnel"]["stages"]]
@@ -179,24 +169,6 @@ async def test_forum_drills():
         assert past["count"] == 1
         unreg = (await c.get("/api/v1/metrics/unregistered/detail?business=springb", headers=H)).json()
         assert unreg["count"] == 2                       # IC1, IC2 have no registration
-
-
-async def test_arr_bridge_omitted_without_churn():
-    # Churn lives in "offboarded" tags today, not lost renewals opps. With no
-    # membership_lost records the ARR bridge is omitted (never a flat, misleading
-    # line) per the spec's "omit if inputs incomplete" rule.
-    await _seed_forum()
-    from app.db import SessionLocal
-    from app.models import Business, MetricRecord
-    from sqlalchemy import select, delete
-    async with SessionLocal() as s:
-        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(MetricRecord).where(
-            MetricRecord.business_id == biz.id, MetricRecord.source == "ghl",
-            MetricRecord.kind == "membership_lost"))
-        await s.commit()
-    d = await _get_forum()
-    assert "bridge" not in d["revq"]
 
 
 async def test_recruiting_funnel_grouping():
@@ -312,4 +284,4 @@ async def test_forum_fallbacks():
     d = await _get_forum()
     assert d["funnel"] is None
     assert d["event"] is None
-    assert {c["k"] for c in d["deck"]} == {"renewals", "revq"}
+    assert {c["k"] for c in d["deck"]} == {"renewals"}   # Revenue Quality retired

@@ -51,8 +51,9 @@ async def metric_detail_ep(
     lo: str | None = Query(None),
     stage: str | None = Query(None),
     source: str | None = Query(None),
+    stream: str | None = Query(None),
     user: User = Depends(current_user),
     s: AsyncSession = Depends(get_session),
 ):
     """The records behind a KPI + a plain-English 'computed_as' + source links."""
-    return await metric_detail(s, user.tenant_id, key, period, business, agent_id, lo, stage, source)
+    return await metric_detail(s, user.tenant_id, key, period, business, agent_id, lo, stage, source, stream)
