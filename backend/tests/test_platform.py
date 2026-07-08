@@ -215,6 +215,20 @@ async def test_cross_tenant_token_and_object_isolation():
         assert (await c.post(f"/api/v1/users/{b_user_id}/disable", headers=_H(owner))).status_code == 404
 
 
+# ── regression: invite link points at the host the admin is using ───
+async def test_invite_link_uses_request_origin():
+    """The invite/reset link must be built from the admin's Origin (a live host),
+    not a stored primary-domain row that may not be serving the app yet (a dead
+    custom domain there just loads a broken page for the invitee)."""
+    owner = await _owner_token()
+    async with _client() as c:
+        r = await c.post("/api/v1/users/invite",
+                         headers={**_H(owner), "origin": "https://springb.acumyn.io"},
+                         json={"email": "originlink@x.com", "role": "member", "tab_access": ["forum"]})
+    assert r.status_code == 200
+    assert r.json()["invite_url"].startswith("https://springb.acumyn.io/accept-invite?token=")
+
+
 # ── regression: invite must survive >1 primary domain (prod) ─────────
 async def test_invite_survives_multiple_primary_domains():
     """A tenant with several domains flagged primary (e.g. an app host + an api

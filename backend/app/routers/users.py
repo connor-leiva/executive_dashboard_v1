@@ -1,7 +1,7 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +47,17 @@ async def _primary_host(s, tenant_id) -> str:
     return f"{t.slug}.acumyn.io"
 
 
+async def _link_base(request: Request, s, tenant_id) -> str:
+    """Base URL for invite/reset links. Prefer the origin the admin is actually
+    using — that host is, by definition, serving a working frontend — over the
+    stored primary-domain row, which may be a custom domain that isn't live yet
+    (a dead link there just loads a broken page for the invitee)."""
+    origin = (request.headers.get("origin") or "").rstrip("/")
+    if origin:
+        return origin
+    return f"https://{await _primary_host(s, tenant_id)}"
+
+
 async def _get_target(s, tenant_id, user_id) -> User:
     u = (await s.execute(select(User).where(
         User.id == user_id, User.tenant_id == tenant_id))).scalar_one_or_none()
@@ -79,7 +90,8 @@ async def tenant_tab_vocab(user: User = Depends(require_role("owner", "admin")),
 
 
 @router.post("/users/invite")
-async def invite_user(body: InviteRequest, user: User = Depends(require_role("owner", "admin")),
+async def invite_user(body: InviteRequest, request: Request,
+                      user: User = Depends(require_role("owner", "admin")),
                       s: AsyncSession = Depends(get_session)):
     email = body.email.strip().lower()
     if not email or "@" not in email:
@@ -101,13 +113,14 @@ async def invite_user(body: InviteRequest, user: User = Depends(require_role("ow
     await s.flush()
     audit(s, user.tenant_id, user.id, "user.invited", "user", u.id, {"role": body.role})
     await s.commit()
-    host = await _primary_host(s, user.tenant_id)
+    base = await _link_base(request, s, user.tenant_id)
     return {"user": _user_out(u, all_tabs),
-            "invite_url": f"https://{host}/accept-invite?token={raw}"}
+            "invite_url": f"{base}/accept-invite?token={raw}"}
 
 
 @router.post("/users/{user_id}/resend-invite")
-async def resend_invite(user_id: uuid.UUID, user: User = Depends(require_role("owner", "admin")),
+async def resend_invite(user_id: uuid.UUID, request: Request,
+                        user: User = Depends(require_role("owner", "admin")),
                         s: AsyncSession = Depends(get_session)):
     u = await _get_target(s, user.tenant_id, user_id)
     assert_can_manage(user, u)
@@ -119,8 +132,8 @@ async def resend_invite(user_id: uuid.UUID, user: User = Depends(require_role("o
     u.action_token_expires = _now() + dt.timedelta(days=INVITE_DAYS)
     audit(s, user.tenant_id, user.id, "user.reinvited", "user", u.id)
     await s.commit()
-    host = await _primary_host(s, user.tenant_id)
-    return {"invite_url": f"https://{host}/accept-invite?token={raw}"}
+    base = await _link_base(request, s, user.tenant_id)
+    return {"invite_url": f"{base}/accept-invite?token={raw}"}
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
@@ -179,7 +192,8 @@ async def enable_user(user_id: uuid.UUID, user: User = Depends(require_role("own
 
 
 @router.post("/users/{user_id}/reset-link")
-async def reset_link(user_id: uuid.UUID, user: User = Depends(require_role("owner", "admin")),
+async def reset_link(user_id: uuid.UUID, request: Request,
+                     user: User = Depends(require_role("owner", "admin")),
                      s: AsyncSession = Depends(get_session)):
     u = await _get_target(s, user.tenant_id, user_id)
     assert_can_manage(user, u)
@@ -189,5 +203,5 @@ async def reset_link(user_id: uuid.UUID, user: User = Depends(require_role("owne
     u.action_token_expires = _now() + dt.timedelta(hours=RESET_HOURS)
     audit(s, user.tenant_id, user.id, "user.reset_link", "user", u.id)
     await s.commit()
-    host = await _primary_host(s, user.tenant_id)
-    return {"reset_url": f"https://{host}/reset-password?token={raw}"}
+    base = await _link_base(request, s, user.tenant_id)
+    return {"reset_url": f"{base}/reset-password?token={raw}"}
