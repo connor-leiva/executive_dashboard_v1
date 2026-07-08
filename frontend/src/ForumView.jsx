@@ -4,15 +4,17 @@ import { T, usd, signed } from "./theme.js";
 /* ──────────────────────────────────────────────────────────────
    The Forum — focused business view.
 
-   Restructured from three stacked "systems" (P&L + ops tiles, a
-   deep-dive deck, and a separate Cash & Billing block with its own
-   tiles + deck) into ONE governed hierarchy:
-     1. Executive summary — one band of ≤6 headline numbers, always
-        visible. The only thing an exec must read.
+   Restructured from three stacked "systems" (a deep-dive deck and a
+   separate Cash & Billing block, each with its own tiles + deck) into
+   one governed hierarchy:
+     0. Financial · P&L + operational tiles — the standing block at the
+        top, kept consistent with every other tab.
+     1. Executive summary — one band of ≤6 headline numbers. The
+        distilled cross-system read (cash, MRR, ARR, renewals, event).
      2. Watch strip — the single daffodil action, when present.
-     3. Collapsible SECTIONS (Members & Growth · Cash & Billing ·
-        Financial & P&L), each opening to a selector→focus deck.
-        Progressive disclosure replaces the wall of ~20 numbers.
+     3. Collapsible SECTIONS (Members & Growth · Cash & Billing), each
+        opening to a selector→focus deck. Progressive disclosure
+        replaces the wall of ~20 numbers.
 
    Color rules unchanged: evergreen = structure, meadow = positive,
    DAFFODIL = the one "attention today" highlight, amber = watch text.
@@ -632,8 +634,7 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
 
   // default section open state (derived from data on first render; user toggles
   // override). One section leads: the one with the watch item, else Members.
-  // P&L starts collapsed — the exec band + cash truth lead; booked P&L is deeper.
-  const defaults = { members: !moneyWatch, money: !!moneyWatch, pl: false };
+  const defaults = { members: !moneyWatch, money: !!moneyWatch };
   const open = openState || defaults;
   const toggle = (id) => setOpenState({ ...open, [id]: !open[id] });
 
@@ -648,7 +649,28 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
         <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted }}>{subtitle} · {data.members_total} members</span>
       </div>
 
-      {/* 1 — executive summary: the only thing an exec must read */}
+      {/* Financial · P&L (+ operational leading indicators) — standing block at the
+          top, consistent with every other tab. */}
+      <div className="fv-pl">
+        <Card style={{ display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <PanelLabel>Financial · P&amp;L</PanelLabel>
+            <Source name="QuickBooks" />
+          </div>
+          <PLMini area={area} />
+        </Card>
+        <Card>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <PanelLabel>Operational · leading indicators</PanelLabel>
+            <Source name="Go High Level" />
+          </div>
+          <div className="fv-ops">
+            {(data.kpis || []).map((d, i) => <KpiTile key={i} d={d} onOpen={onOpen} />)}
+          </div>
+        </Card>
+      </div>
+
+      {/* Executive summary — the ≤6 must-read numbers */}
       <ExecSummary cells={cells} onOpen={onOpen} />
 
       {/* 2 — the single action */}
@@ -673,23 +695,6 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
           <SectionDeck items={moneyItems(b, onOpen)} />
         </Section>
       )}
-
-      <Section title="Financial · P&L" source="QuickBooks"
-               summary={area?.pl?.length ? "Booked P&L by class" : "Awaiting QuickBooks · cash truth above"}
-               open={!!open.pl} onToggle={() => toggle("pl")}>
-        <div className="fv-pl">
-          <Card style={{ display: "flex", flexDirection: "column" }}>
-            <PanelLabel>Financial · P&amp;L</PanelLabel>
-            <PLMini area={area} />
-          </Card>
-          <Card>
-            <PanelLabel>Operational · leading indicators</PanelLabel>
-            <div className="fv-ops">
-              {(data.kpis || []).map((d, i) => <KpiTile key={i} d={d} onOpen={onOpen} />)}
-            </div>
-          </Card>
-        </div>
-      </Section>
     </div>
   );
 }
