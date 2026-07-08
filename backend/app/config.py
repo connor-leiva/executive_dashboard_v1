@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # worker
     SYNC_INTERVAL_MINUTES: int = 30
 
+    # Dashboard assistant (Claude). Set ANTHROPIC_API_KEY to enable the "Ask" panel;
+    # the key stays server-side and is never sent to the browser. Model + budget are
+    # overridable without a code change.
+    ANTHROPIC_API_KEY: str = ""
+    ASSISTANT_MODEL: str = "claude-sonnet-5"
+    ASSISTANT_MAX_TOKENS: int = 1200
+
     # Single-tenant fallback: when a request Host doesn't match a `domain` row,
     # resolve to this tenant slug. Safe while there is one tenant (Spring); set
     # SINGLE_TENANT_FALLBACK=false once real multitenancy + custom domains land.
