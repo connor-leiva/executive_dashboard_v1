@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     # overridable without a code change.
     ANTHROPIC_API_KEY: str = ""
     ASSISTANT_MODEL: str = "claude-sonnet-5"
-    ASSISTANT_MAX_TOKENS: int = 1200
+    ASSISTANT_MAX_TOKENS: int = 2048
 
     # Single-tenant fallback: when a request Host doesn't match a `domain` row,
     # resolve to this tenant slug. Safe while there is one tenant (Spring); set

@@ -75,6 +75,10 @@ def _get_client() -> AsyncAnthropic:
     return _client
 
 
+def _text_of(resp) -> str:
+    return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
+
+
 def _scope_dashboard(d, tabs):
     """Same filtering the /dashboard endpoint applies for members — keep only granted
     areas; null portfolio/scorecards/flywheel unless granted."""
@@ -172,7 +176,7 @@ async def ask(s, user: User, question: str, history: list[dict] | None = None, p
 
     client = _get_client()
     tools_used: list[str] = []
-    for _ in range(MAX_TOOL_STEPS):
+    for step in range(MAX_TOOL_STEPS):
         resp = await client.messages.create(
             model=settings.ASSISTANT_MODEL,
             max_tokens=settings.ASSISTANT_MAX_TOKENS,
@@ -180,9 +184,22 @@ async def ask(s, user: User, question: str, history: list[dict] | None = None, p
             tools=[DRILL_TOOL],
             messages=messages,
         )
+        log.info("assistant step=%d stop=%s blocks=%s", step, resp.stop_reason,
+                 [getattr(b, "type", "?") for b in resp.content])
+
         if resp.stop_reason != "tool_use":
-            text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
-            return {"answer": text, "tabs_used": tabs, "tools_used": tools_used, "model": settings.ASSISTANT_MODEL}
+            text = _text_of(resp)
+            if not text:
+                # No text came back (e.g. the turn was cut off at max_tokens). Re-run once
+                # on the same history so the model answers the last turn. Keep tools passed
+                # (the history contains tool_use blocks) and DON'T append another user turn.
+                log.warning("assistant empty final (stop=%s) — retrying once", resp.stop_reason)
+                retry = await client.messages.create(
+                    model=settings.ASSISTANT_MODEL, max_tokens=settings.ASSISTANT_MAX_TOKENS,
+                    system=system, tools=[DRILL_TOOL], messages=messages)
+                text = _text_of(retry)
+            return {"answer": text or "I pulled the data but couldn't compose an answer — try rephrasing.",
+                    "tabs_used": tabs, "tools_used": tools_used, "model": settings.ASSISTANT_MODEL}
 
         # replay the assistant turn (as plain dicts) + run each requested drill
         assistant_content, results = [], []
@@ -198,5 +215,10 @@ async def ask(s, user: User, question: str, history: list[dict] | None = None, p
         messages.append({"role": "assistant", "content": assistant_content})
         messages.append({"role": "user", "content": results})
 
-    return {"answer": "I couldn't finish that lookup — try narrowing the question.",
+    # Ran out of tool steps — one more call (tools kept) to answer with what it has.
+    log.warning("assistant hit MAX_TOOL_STEPS — forcing a final answer")
+    final = await client.messages.create(
+        model=settings.ASSISTANT_MODEL, max_tokens=settings.ASSISTANT_MAX_TOKENS,
+        system=system, tools=[DRILL_TOOL], messages=messages)
+    return {"answer": _text_of(final) or "I couldn't finish that lookup — try narrowing the question.",
             "tabs_used": tabs, "tools_used": tools_used, "model": settings.ASSISTANT_MODEL}
