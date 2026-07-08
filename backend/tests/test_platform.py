@@ -213,3 +213,22 @@ async def test_cross_tenant_token_and_object_isolation():
         async with SessionLocal() as s:
             b_user_id = str((await s.execute(select(User).where(User.email == "b_owner@x.com"))).scalar_one().id)
         assert (await c.post(f"/api/v1/users/{b_user_id}/disable", headers=_H(owner))).status_code == 404
+
+
+# ── regression: invite must survive >1 primary domain (prod) ─────────
+async def test_invite_survives_multiple_primary_domains():
+    """A tenant with several domains flagged primary (e.g. an app host + an api
+    host) must not 500 the invite. _primary_host used scalar_one_or_none(), which
+    raised MultipleResultsFound — after the user was already committed — and the
+    bare exception bypassed CORS so the browser only saw a generic failure."""
+    from app.routers.users import _primary_host
+    sb = await _springb()
+    async with SessionLocal() as s:
+        s.add(Domain(tenant_id=sb.id, hostname="api.springb.test", is_primary=True))
+        await s.commit()
+        host = await _primary_host(s, sb.id)   # must not raise
+        # clean up so the extra domain can't perturb host resolution elsewhere
+        dup = (await s.execute(select(Domain).where(Domain.hostname == "api.springb.test"))).scalar_one()
+        await s.delete(dup)
+        await s.commit()
+    assert host and "." in host

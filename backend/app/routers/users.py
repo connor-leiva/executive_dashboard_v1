@@ -35,8 +35,12 @@ def _user_out(u: User, all_tabs: list[str]) -> UserOut:
 
 
 async def _primary_host(s, tenant_id) -> str:
-    d = (await s.execute(select(Domain).where(
-        Domain.tenant_id == tenant_id, Domain.is_primary == True))).scalar_one_or_none()  # noqa: E712
+    # Pick the primary domain, but tolerate a tenant that has several domains
+    # flagged primary (real setups often add both an app host and an api host):
+    # order primary-first and take one, rather than scalar_one_or_none() which
+    # RAISES on >1 row and would 500 the whole invite after the user is committed.
+    d = (await s.execute(select(Domain).where(Domain.tenant_id == tenant_id)
+                         .order_by(Domain.is_primary.desc()))).scalars().first()
     if d:
         return d.hostname
     t = (await s.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one()
