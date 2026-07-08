@@ -190,14 +190,16 @@ async def ask(s, user: User, question: str, history: list[dict] | None = None, p
         if resp.stop_reason != "tool_use":
             text = _text_of(resp)
             if not text:
-                # No text came back (e.g. the turn was cut off at max_tokens). Re-run once
-                # on the same history so the model answers the last turn. Keep tools passed
-                # (the history contains tool_use blocks) and DON'T append another user turn.
-                log.warning("assistant empty final (stop=%s) — retrying once", resp.stop_reason)
+                # No text came back (turn cut off at max_tokens, or it tried to drill again
+                # with nothing to say). Re-run once with tool_choice=none — keeps the tool
+                # definitions valid against the tool_use history but FORCES a text answer.
+                log.warning("assistant empty final stop=%s out_tokens=%s — forcing text",
+                            resp.stop_reason, getattr(resp.usage, "output_tokens", "?"))
                 retry = await client.messages.create(
                     model=settings.ASSISTANT_MODEL, max_tokens=settings.ASSISTANT_MAX_TOKENS,
-                    system=system, tools=[DRILL_TOOL], messages=messages)
+                    system=system, tools=[DRILL_TOOL], tool_choice={"type": "none"}, messages=messages)
                 text = _text_of(retry)
+                log.warning("assistant retry stop=%s len=%d", retry.stop_reason, len(text))
             return {"answer": text or "I pulled the data but couldn't compose an answer — try rephrasing.",
                     "tabs_used": tabs, "tools_used": tools_used, "model": settings.ASSISTANT_MODEL}
 
@@ -215,10 +217,10 @@ async def ask(s, user: User, question: str, history: list[dict] | None = None, p
         messages.append({"role": "assistant", "content": assistant_content})
         messages.append({"role": "user", "content": results})
 
-    # Ran out of tool steps — one more call (tools kept) to answer with what it has.
+    # Ran out of tool steps — force a text answer (tool_choice=none) with what it has.
     log.warning("assistant hit MAX_TOOL_STEPS — forcing a final answer")
     final = await client.messages.create(
         model=settings.ASSISTANT_MODEL, max_tokens=settings.ASSISTANT_MAX_TOKENS,
-        system=system, tools=[DRILL_TOOL], messages=messages)
+        system=system, tools=[DRILL_TOOL], tool_choice={"type": "none"}, messages=messages)
     return {"answer": _text_of(final) or "I couldn't finish that lookup — try narrowing the question.",
             "tabs_used": tabs, "tools_used": tools_used, "model": settings.ASSISTANT_MODEL}
