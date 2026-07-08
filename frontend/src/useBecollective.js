@@ -23,7 +23,7 @@ export function useBecollective(period = "mtd") {
       .then((d) => { if (alive) { setData(d); setUsingSample(false); } })
       .catch((e) => {
         if (!alive) return;
-        if (e && (e.status === 401 || e.status === 403)) {
+        if (e && e.status === 401) {   // bad/expired session — 403 (no tab access) is not a logout
           localStorage.removeItem("cc_token");
           window.location.reload();
           return;

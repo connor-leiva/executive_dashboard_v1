@@ -10,6 +10,9 @@ from .models import Domain, Tenant
 
 _current_tenant: ContextVar[uuid.UUID | None] = ContextVar("current_tenant", default=None)
 
+# Slugs no tenant may claim (they name platform hosts under acumyn.io).
+RESERVED_SLUGS = {"api", "www", "app", "admin", "staging", "auth", "static", "assets"}
+
 
 def current_tenant_id() -> uuid.UUID:
     tid = _current_tenant.get()
@@ -35,6 +38,15 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
         if row:
             _current_tenant.set(row.tenant_id)
             return row.tenant_id
+        # Wildcard: {slug}.acumyn.io → the tenant with that slug (custom domains above
+        # still win). Reserved slugs never resolve to a tenant.
+        if host.endswith(".acumyn.io"):
+            slug = host[:-len(".acumyn.io")]
+            if slug and slug not in RESERVED_SLUGS:
+                t = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
+                if t:
+                    _current_tenant.set(t.id)
+                    return t.id
         # Single-tenant fallback: when the Host doesn't match a domain row, resolve
         # to the seeded tenant slug. Enabled in dev, and in prod while there is one
         # tenant (so Railway subdomains work before custom domains are wired).

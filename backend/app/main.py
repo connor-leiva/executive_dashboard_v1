@@ -7,7 +7,7 @@ from .config import settings
 from .db import engine
 from .models import Base
 from .tenancy import resolve_tenant
-from .routers import auth, dashboard, businesses, integrations
+from .routers import auth, dashboard, businesses, integrations, users
 
 
 @asynccontextmanager
@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router, prefix="/api/v1")
     app.include_router(businesses.router, prefix="/api/v1")
     app.include_router(integrations.router, prefix="/api/v1")
+    app.include_router(users.router, prefix="/api/v1")
 
     @app.get("/health")
     async def health():

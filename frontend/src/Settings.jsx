@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, NavLink, Link } from "react-router-dom";
 import { T, PROVIDER_NAME, relativeTime } from "./theme.js";
-import { getJSON, postJSON, putJSON } from "./api.js";
+import { getJSON, postJSON, putJSON, patchJSON } from "./api.js";
 import { Icon } from "./Brand.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -43,13 +43,19 @@ function ensureProviders(rows) {
 
 /* ── shell ─────────────────────────────────────────────────── */
 
-const SUBNAV = [
-  { to: "/settings/integrations", label: "Integrations" },
-  { to: "/settings/account", label: "Account" },
-  { to: "/settings/businesses", label: "Businesses" },
-];
+// Members get a lone Account entry; owners/admins get the full management set.
+function subnavFor(role) {
+  if (role === "member") return [{ to: "/settings/account", label: "Account" }];
+  return [
+    { to: "/settings/integrations", label: "Integrations" },
+    { to: "/settings/users", label: "Team" },
+    { to: "/settings/businesses", label: "Businesses" },
+    { to: "/settings/account", label: "Account" },
+  ];
+}
 
-function SettingsShell({ children }) {
+function SettingsShell({ children, role }) {
+  const SUBNAV = subnavFor(role);
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
       <style>{`
@@ -844,16 +850,250 @@ function BusinessesPage() {
   );
 }
 
+/* ── Team (users, roles, tab grants) ───────────────────────── */
+
+const TAB_META = {
+  portfolio: { label: "Portfolio", dot: T.evergreen }, ulrg: { label: "ULRG", dot: T.meadow },
+  forum: { label: "The Forum", dot: T.daffodil }, becollective: { label: "beCollective", dot: T.petal },
+  sympli: { label: "Sympli", dot: T.teal }, flywheel: { label: "Flywheel", dot: T.poppy },
+};
+const ROLE_COLOR = { owner: T.evergreen, admin: T.meadow, member: T.slate };
+
+function CopyLink({ url }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+      <input readOnly value={url} onFocus={(e) => e.target.select()} style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px" }} />
+      <button onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={btn("primary")}>{copied ? "Copied" : "Copy"}</button>
+    </div>
+  );
+}
+
+function TabDots({ user }) {
+  if (user.all_tabs) return <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>All tabs</span>;
+  return (
+    <span style={{ display: "inline-flex", gap: 5, flexWrap: "wrap" }}>
+      {(user.tabs || []).map((t) => (
+        <span key={t} title={TAB_META[t]?.label || t} style={{ width: 9, height: 9, borderRadius: 2, background: TAB_META[t]?.dot || T.muted }} />
+      ))}
+    </span>
+  );
+}
+
+function Pill({ text, color, bg }) {
+  return <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color, background: bg, borderRadius: 5, padding: "2px 7px" }}>{text}</span>;
+}
+
+function InviteModal({ tabs, onClose, onInvited }) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("member");
+  const [grants, setGrants] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [err, setErr] = useState(null);
+  const grantable = tabs.filter((t) => t !== "portfolio" || true);   // all grantable; portfolio is a grant too
+  const toggle = (t) => setGrants((g) => (g.includes(t) ? g.filter((x) => x !== t) : [...g, t]));
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const r = await postJSON("/users/invite", { email: email.trim(), role, tab_access: role === "member" ? grants : null });
+      setResult(r);
+      onInvited();
+    } catch (x) {
+      setErr(x.status === 409 ? "That email already has an account here." : "Couldn't send the invite — check the values.");
+    } finally { setBusy(false); }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)", maxHeight: "88vh", overflowY: "auto" }}>
+        {result ? (
+          <>
+            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Invite ready</div>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, marginTop: 4 }}>Send <b style={{ color: T.ink }}>{result.user.email}</b> this link. It works once and expires in 7 days.</div>
+            <CopyLink url={result.invite_url} />
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={onClose} style={btn("primary")}>Done</button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={submit}>
+            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Invite a teammate</div>
+            <label style={label}>Email<input style={field} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+            <label style={label}>Role
+              <select style={field} value={role} onChange={(e) => setRole(e.target.value)}>
+                <option value="member">Member — sees only granted tabs</option>
+                <option value="admin">Admin — manages members + integrations</option>
+              </select>
+            </label>
+            {role === "member" && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate }}>Tabs they can see</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 8 }}>
+                  {tabs.map((t) => (
+                    <label key={t} style={{ display: "flex", alignItems: "center", gap: 9, fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink }}>
+                      <input type="checkbox" checked={grants.includes(t)} onChange={() => toggle(t)} />
+                      <span style={{ width: 9, height: 9, borderRadius: 2, background: TAB_META[t]?.dot || T.muted }} />
+                      {TAB_META[t]?.label || t}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+              <button type="submit" disabled={busy || (role === "member" && !grants.length)} style={(busy || (role === "member" && !grants.length)) ? btn("disabled") : btn("primary")}>{busy ? "Inviting…" : "Send invite"}</button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UserRow({ u, me, tabs, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [role, setRole] = useState(u.role);
+  const [grants, setGrants] = useState(u.all_tabs ? [] : (u.tabs || []));
+  const [link, setLink] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const isSelf = me && u.id === me.id;
+  const canManage = me && (me.role === "owner" || (me.role === "admin" && u.role === "member"));
+  const editable = canManage && !isSelf;
+  const toggle = (t) => setGrants((g) => (g.includes(t) ? g.filter((x) => x !== t) : [...g, t]));
+
+  async function save() {
+    setBusy(true);
+    try { await patchJSON(`/users/${u.id}`, { role, tab_access: role === "member" ? grants : null }); onChanged(); setOpen(false); }
+    finally { setBusy(false); }
+  }
+  async function toggleStatus() {
+    setBusy(true);
+    try { await postJSON(`/users/${u.id}/${u.status === "disabled" ? "enable" : "disable"}`); onChanged(); }
+    catch { /* invariant blocked (last owner) */ } finally { setBusy(false); }
+  }
+  async function copyInvite() { const r = await postJSON(`/users/${u.id}/resend-invite`); setLink(r.invite_url); }
+  async function copyReset() { const r = await postJSON(`/users/${u.id}/reset-link`); setLink(r.reset_url); }
+
+  return (
+    <div style={{ borderTop: `1px solid ${T.line}` }}>
+      <div onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 4px", cursor: "pointer" }}>
+        <span style={{ width: 32, height: 32, borderRadius: 8, background: T.parchment, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 700, color: T.slate, flexShrink: 0 }}>{(u.name || u.email || "?").slice(0, 1).toUpperCase()}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{u.name}{isSelf && <span style={{ color: T.muted, fontWeight: 400 }}> · you</span>}</div>
+          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</div>
+        </div>
+        <Pill text={u.role} color={ROLE_COLOR[u.role]} bg={u.role === "owner" ? T.meadowBg : T.parchment} />
+        <span style={{ width: 90 }}><TabDots user={u} /></span>
+        {u.status !== "active" && <Pill text={u.status} color={u.status === "invited" ? T.daffodilText : T.muted} bg={u.status === "invited" ? T.daffodilBg : T.parchment} />}
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, width: 84, textAlign: "right" }}>{u.last_login_at ? relativeTime(u.last_login_at) : "—"}</span>
+      </div>
+      {open && (
+        <div style={{ padding: "4px 4px 16px 48px" }}>
+          {editable ? (
+            <>
+              <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <label style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate }}>Role
+                  <select value={role} onChange={(e) => setRole(e.target.value)} style={{ display: "block", marginTop: 5, fontFamily: "Inter,sans-serif", fontSize: 13, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px", background: T.white }}>
+                    {me.role === "owner" && <option value="owner">Owner</option>}
+                    <option value="admin">Admin</option>
+                    <option value="member">Member</option>
+                  </select>
+                </label>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate }}>Tabs</div>
+                  {role === "member" ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 6 }}>
+                      {tabs.map((t) => (
+                        <label key={t} style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink }}>
+                          <input type="checkbox" checked={grants.includes(t)} onChange={() => toggle(t)} />{TAB_META[t]?.label || t}
+                        </label>
+                      ))}
+                    </div>
+                  ) : <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 6 }}>All tabs (owner/admin)</div>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
+                <button onClick={save} disabled={busy || (role === "member" && !grants.length)} style={btn("primary")}>Save</button>
+                {u.status === "invited" ? <button onClick={copyInvite} style={btn()}>Copy invite link</button> : <button onClick={copyReset} style={btn()}>Copy reset link</button>}
+                <span style={{ flex: 1 }} />
+                <button onClick={toggleStatus} disabled={busy} style={btn("danger")}>{u.status === "disabled" ? "Enable" : "Disable"}</button>
+              </div>
+              {link && <CopyLink url={link} />}
+            </>
+          ) : (
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>{isSelf ? "Manage your own name and password on the Account page." : "You can't manage this user."}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UsersPage() {
+  const [users, setUsers] = useState(null);
+  const [tabs, setTabs] = useState([]);
+  const [me, setMe] = useState(null);
+  const [inviting, setInviting] = useState(false);
+  const live = Boolean(API_BASE);
+
+  function load() {
+    if (!live) { setUsers([]); return; }
+    Promise.all([getJSON("/users"), getJSON("/tenant/tabs"), getJSON("/me")])
+      .then(([u, t, m]) => { setUsers(u); setTabs(t.tabs); setMe(m); })
+      .catch(() => setUsers([]));
+  }
+  useEffect(load, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
+        <div>
+          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: T.muted }}>Settings · Users</div>
+          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 20, fontWeight: 600, color: T.ink, marginTop: 3 }}>Team</div>
+          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, marginTop: 3 }}>Invite teammates and control exactly which tabs each one sees.</div>
+        </div>
+        <button onClick={() => setInviting(true)} style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.white, background: T.poppy, border: "none", borderRadius: 9, padding: "9px 16px", cursor: "pointer", flexShrink: 0 }}>Invite user</button>
+      </div>
+      <Card>
+        {!users ? <div style={{ color: T.muted, fontSize: 13 }}>Loading…</div>
+          : users.length === 0 ? <div style={{ color: T.muted, fontSize: 13 }}>No users yet.</div>
+            : users.map((u) => <UserRow key={u.id} u={u} me={me} tabs={tabs} onChanged={load} />)}
+      </Card>
+      {inviting && <InviteModal tabs={tabs} onClose={() => setInviting(false)} onInvited={load} />}
+    </>
+  );
+}
+
 /* ── routes ────────────────────────────────────────────────── */
 
 export default function Settings() {
+  const [role, setRole] = useState(null);
+  useEffect(() => {
+    if (!API_BASE) { setRole("owner"); return; }
+    getJSON("/me").then((m) => setRole(m.role)).catch(() => setRole("member"));
+  }, []);
+  // Wait for the role before mounting routes — else the catch-all redirect fires
+  // with isAdmin=false and bounces a deep-link to /settings/users away.
+  if (role === null) {
+    return <SettingsShell role={null}><Card><div style={{ color: T.muted, fontSize: 13 }}>Loading…</div></Card></SettingsShell>;
+  }
+  const isAdmin = role === "owner" || role === "admin";
+  const home = isAdmin ? "/settings/integrations" : "/settings/account";
   return (
-    <SettingsShell>
+    <SettingsShell role={role}>
       <Routes>
-        <Route path="integrations" element={<IntegrationsPage />} />
         <Route path="account" element={<AccountPage />} />
-        <Route path="businesses" element={<BusinessesPage />} />
-        <Route path="*" element={<Navigate to="/settings/integrations" replace />} />
+        {isAdmin && <Route path="integrations" element={<IntegrationsPage />} />}
+        {isAdmin && <Route path="users" element={<UsersPage />} />}
+        {isAdmin && <Route path="businesses" element={<BusinessesPage />} />}
+        <Route path="*" element={<Navigate to={home} replace />} />
       </Routes>
     </SettingsShell>
   );

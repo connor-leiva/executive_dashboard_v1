@@ -16,7 +16,49 @@ class MeResponse(BaseModel):
     email: str
     name: str
     role: str
+    status: str
     tenant: str
+    tabs: list[str] = []          # effective nav tabs, in order
+
+
+# ── multi-user platform (accounts, roles, tab grants) ──────────────
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class AcceptInviteRequest(BaseModel):
+    token: str
+    name: str
+    password: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class InviteRequest(BaseModel):
+    email: str
+    role: str                     # admin | member (owner via script/other owner)
+    tab_access: list[str] | None = None
+
+
+class UserUpdate(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    tab_access: list[str] | None = None
+
+
+class UserOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    role: str
+    status: str                   # active | invited | disabled
+    tabs: list[str] = []          # effective tabs (["*"] semantics handled by frontend for owner/admin)
+    all_tabs: bool = False        # owner/admin implicitly see everything
+    last_login_at: str | None = None
 
 
 # ── dashboard (mirrors the mockup) ────────────────────────────────

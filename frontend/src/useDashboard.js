@@ -39,9 +39,10 @@ export function useDashboard(period = "mtd") {
       })
       .catch((e) => {
         if (!alive) return;
-        if (e && (e.status === 401 || e.status === 403)) {
-          // Token no longer valid (e.g. after a re-seed changed the tenant) →
-          // clear it and reload so the app shows the login screen.
+        if (e && e.status === 401) {
+          // Session invalid/expired (bad token, token_version bumped, re-seed) →
+          // clear it and reload to the login screen. A 403 is a real permission
+          // signal (a tab a member lacks), never a logout.
           localStorage.removeItem("cc_token");
           window.location.reload();
           return;

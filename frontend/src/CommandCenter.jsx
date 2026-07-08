@@ -1055,6 +1055,8 @@ const NAV = [
   { k: "sympli", label: "Sympli Mortgage", dot: T.teal },
   { k: "flywheel", label: "Referral Flywheel", dot: T.poppy, divide: true },
 ];
+// nav key → permission tab (the Portfolio nav item is keyed "overview")
+const navTab = (k) => (k === "overview" ? "portfolio" : k);
 
 export default function CommandCenter() {
   const [periodKey, setPeriodKey] = useState("mtd");
@@ -1066,6 +1068,19 @@ export default function CommandCenter() {
   const [drill, setDrill] = useState(null);       // { key, business, agentId, lo, stage, source } for the audit drawer
   const onDrill = (key, business, agentId, lo, opts) => setDrill(key ? { key, business, agentId, lo, ...(opts || {}) } : null);
   const user = useMe();
+
+  // Tab-permission gating: the rail renders only the user's granted tabs, and a
+  // deep-link / stale view to an ungranted tab redirects to the first one they have.
+  // null = offline/unknown (no /me) → show all (dev fallback).
+  const myTabs = user && user.tabs ? user.tabs : null;
+  const navItems = myTabs ? NAV.filter((n) => myTabs.includes(navTab(n.k))) : NAV;
+  useEffect(() => {
+    if (!myTabs || !myTabs.length) return;
+    if (!myTabs.includes(navTab(view))) {
+      const first = NAV.find((n) => myTabs.includes(navTab(n.k)));
+      if (first) setView(first.k);
+    }
+  }, [myTabs, view]);
 
   const { areas, flywheel, sources, period } = data || {};
   const busy = loading && !data;
@@ -1137,7 +1152,7 @@ export default function CommandCenter() {
             <SpringSignature tone="light" height={30} />
             <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 6, textTransform: "uppercase" }}>Command Center</div>
           </div>
-          {NAV.map((n) => {
+          {navItems.map((n) => {
             const active = activeView === n.k;
             return (
               <button key={n.k} className="cc-nav" onClick={() => setView(n.k)} style={{

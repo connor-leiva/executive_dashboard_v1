@@ -4,6 +4,7 @@ import { T } from "./theme.js";
 import { login, hasToken } from "./api.js";
 import CommandCenter from "./CommandCenter.jsx";
 import Settings from "./Settings.jsx";
+import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
 import { SpringSignature } from "./Brand.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -93,15 +94,21 @@ export function App() {
   const [authed, setAuthed] = useState(hasToken());
   const needsLogin = Boolean(API_BASE) && !authed;
 
-  if (needsLogin) {
-    return <Login onLogin={() => setAuthed(true)} />;
-  }
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<CommandCenter />} />
-        <Route path="/settings/*" element={<Settings />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Public onboarding — always reachable, even before login */}
+        <Route path="/accept-invite" element={<AcceptInvite onDone={() => setAuthed(true)} />} />
+        <Route path="/reset-password" element={<ResetPassword onDone={() => setAuthed(true)} />} />
+        {needsLogin ? (
+          <Route path="*" element={<Login onLogin={() => setAuthed(true)} />} />
+        ) : (
+          <>
+            <Route path="/" element={<CommandCenter />} />
+            <Route path="/settings/*" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </>
+        )}
       </Routes>
     </BrowserRouter>
   );

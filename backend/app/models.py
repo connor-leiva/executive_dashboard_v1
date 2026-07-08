@@ -42,11 +42,35 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
     email: Mapped[str] = mapped_column(String(255))
-    password_hash: Mapped[str] = mapped_column(String(255))
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)   # null while invited
     name: Mapped[str] = mapped_column(String(200))
-    role: Mapped[str] = mapped_column(String(32), default="owner")   # owner | admin | viewer
+    role: Mapped[str] = mapped_column(String(32), default="owner")   # owner | admin | member
+    # ── multi-user platform (accounts, roles, tab grants) ──
+    status: Mapped[str] = mapped_column(String(16), default="active")       # active | invited | disabled
+    tab_access: Mapped[list | None] = mapped_column(JSONType, nullable=True)  # member grants; NULL for owner/admin
+    token_version: Mapped[int] = mapped_column(Integer, default=0)          # bump to revoke all outstanding tokens
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    action_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)     # sha256 of invite/reset token
+    action_token_purpose: Mapped[str | None] = mapped_column(String(16), nullable=True)  # invite | reset
+    action_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint("tenant_id", "email", name="uq_user_tenant_email"),)
+
+
+class AuditLog(Base):
+    """Every user-management + integration mutation, for the sell-to-teams trail."""
+    __tablename__ = "audit_log"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(48))       # user.invited | user.role_changed | integration.connected …
+    target_type: Mapped[str | None] = mapped_column(String(24), nullable=True)   # user | integration | business
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    detail: Mapped[dict | None] = mapped_column(JSONType, nullable=True)          # {"from": "member", "to": "admin"}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Business(Base):

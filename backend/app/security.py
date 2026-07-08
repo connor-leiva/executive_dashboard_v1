@@ -1,4 +1,6 @@
 import datetime as dt
+import hashlib
+import secrets
 import uuid
 
 import bcrypt
@@ -6,6 +8,8 @@ from jose import jwt
 from cryptography.fernet import Fernet
 
 from .config import settings
+
+MIN_PASSWORD_LEN = 10
 
 _fernet = Fernet(settings.FERNET_KEY.encode())
 ALGO = "HS256"
@@ -23,10 +27,11 @@ def verify_pw(p: str, h: str) -> bool:
         return False
 
 
-def make_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
+def make_token(user_id: uuid.UUID, tenant_id: uuid.UUID, ver: int = 0) -> str:
     payload = {
         "sub": str(user_id),
         "tid": str(tenant_id),
+        "ver": ver,                    # token_version — bumping it revokes outstanding tokens
         "exp": dt.datetime.utcnow() + dt.timedelta(days=7),
     }
     return jwt.encode(payload, settings.APP_SECRET, algorithm=ALGO)
@@ -34,6 +39,16 @@ def make_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
 
 def read_token(token: str) -> dict:
     return jwt.decode(token, settings.APP_SECRET, algorithms=[ALGO])
+
+
+def new_action_token() -> tuple[str, str]:
+    """(raw urlsafe token returned once, sha256 hash stored). For invites + resets."""
+    raw = secrets.token_urlsafe(32)
+    return raw, hashlib.sha256(raw.encode()).hexdigest()
+
+
+def hash_action_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def enc(s: str) -> str:

@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_session, SessionLocal
-from ..deps import current_user
+from ..deps import current_user, require_role
 from ..models import User, Integration, Business, SyncRun
+from ..services.audit import audit
 from ..security import enc, dec, make_token, read_token
 from ..integrations import qbo
 from ..services.sync import run_all, run_one
@@ -22,13 +23,13 @@ router = APIRouter(tags=["integrations"])
 
 
 @router.get("/settings/integrations", response_model=IntegrationsOut)
-async def settings_integrations(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+async def settings_integrations(user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):
     """Grouped, status-aware source list for the Settings › Integrations page."""
     return await build_integrations_view(s, user.tenant_id)
 
 
 @router.get("/integrations/qbo/connect")
-async def qbo_connect(business_key: str, user: User = Depends(current_user),
+async def qbo_connect(business_key: str, user: User = Depends(require_role("owner", "admin")),
                       s: AsyncSession = Depends(get_session)):
     # Pack tenant+business into signed state so the callback (no Host tenant) can resolve.
     # Return the URL as JSON (not a redirect): the SPA fetches this with the auth
@@ -90,7 +91,7 @@ async def _run_one_job(tenant_id, integ_id, period):
 
 @router.post("/sync/all")
 async def sync_all(bg: BackgroundTasks, period: str = Query("mtd"),
-                   user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+                   user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):
     """Refresh every source. Returns immediately; poll GET /sync/status/{job_id}."""
     run = SyncRun(tenant_id=user.tenant_id, provider="all", status="running")
     s.add(run)
@@ -100,7 +101,7 @@ async def sync_all(bg: BackgroundTasks, period: str = Query("mtd"),
 
 
 @router.get("/sync/status/{job_id}")
-async def sync_status(job_id: uuid.UUID, user: User = Depends(current_user),
+async def sync_status(job_id: uuid.UUID, user: User = Depends(require_role("owner", "admin")),
                       s: AsyncSession = Depends(get_session)):
     run = (await s.execute(select(SyncRun).where(
         SyncRun.id == job_id, SyncRun.tenant_id == user.tenant_id))).scalar_one_or_none()
@@ -113,7 +114,7 @@ async def sync_status(job_id: uuid.UUID, user: User = Depends(current_user),
 
 @router.post("/integrations/{integ_id}/sync")
 async def sync_one(integ_id: uuid.UUID, bg: BackgroundTasks, period: str = Query("mtd"),
-                   user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+                   user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):
     integ = (await s.execute(select(Integration).where(
         Integration.id == integ_id, Integration.tenant_id == user.tenant_id))).scalar_one_or_none()
     if not integ:
@@ -123,7 +124,7 @@ async def sync_one(integ_id: uuid.UUID, bg: BackgroundTasks, period: str = Query
 
 
 @router.post("/integrations")
-async def create_integration(body: dict, user: User = Depends(current_user),
+async def create_integration(body: dict, user: User = Depends(require_role("owner", "admin")),
                              s: AsyncSession = Depends(get_session)):
     """Create/update a token-based integration (Go High Level, Arive). Body:
     {provider, business_key, token, config}. Token is encrypted at rest."""
@@ -178,12 +179,15 @@ async def create_integration(body: dict, user: User = Depends(current_user),
     integ.last_error = None
     if integ.id is None:
         s.add(integ)
+    await s.flush()
+    audit(s, user.tenant_id, user.id, "integration.connected", "integration", integ.id,
+          {"provider": provider, "business": biz.key})
     await s.commit()
     return {"id": str(integ.id)}
 
 
 @router.post("/integrations/{integ_id}/disconnect")
-async def disconnect(integ_id: uuid.UUID, user: User = Depends(current_user),
+async def disconnect(integ_id: uuid.UUID, user: User = Depends(require_role("owner", "admin")),
                      s: AsyncSession = Depends(get_session)):
     integ = (await s.execute(select(Integration).where(
         Integration.id == integ_id, Integration.tenant_id == user.tenant_id))).scalar_one_or_none()
@@ -194,5 +198,7 @@ async def disconnect(integ_id: uuid.UUID, user: User = Depends(current_user),
     integ.access_token_enc = None
     integ.refresh_token_enc = None
     integ.last_error = None
+    audit(s, user.tenant_id, user.id, "integration.disconnected", "integration", integ.id,
+          {"provider": integ.provider})
     await s.commit()
     return {"ok": True}

@@ -56,6 +56,42 @@ export async function login(email, password) {
   return token;
 }
 
+export async function patchJSON(path, body) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${API}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = new Error(`${res.status} ${await res.text()}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
+// Public endpoints (accept-invite / reset-password) — no auth header, and surface
+// the server's error message so expired-link guidance reaches the user.
+export async function postPublic(path, body) {
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.detail || `${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+export function setToken(token) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
 }

@@ -2,15 +2,31 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
-from ..deps import current_user
+from ..deps import current_user, require_tab, assert_tab
 from ..models import User
 from ..schemas import DashboardResponse
 from ..services.metrics import build_dashboard
 from ..services.lineage import metric_detail
 from ..services.forum import build_forum
 from ..services.becollective import build_becollective
+from ..services.tabs import tenant_tabs, effective_tabs, tab_for_metric
 
 router = APIRouter(tags=["dashboard"])
+
+
+def _filter_dashboard(d: DashboardResponse, tabs: list[str]) -> DashboardResponse:
+    """Strip the payload to the user's granted tabs (§2.4). Authorization is enforced
+    in the DATA, not just the nav — a member without a tab never receives its numbers."""
+    tabset = set(tabs)
+    d.areas = {k: v for k, v in d.areas.items() if k in tabset}
+    if "portfolio" not in tabset:
+        d.portfolio = d.portfolio.model_copy(update={
+            "revenue": None, "noi": None, "margin": None, "mom": None, "cash": None, "composition": []})
+        d.scorecards = []
+    if "flywheel" not in tabset:
+        from ..schemas import Flywheel
+        d.flywheel = Flywheel(available=False)
+    return d
 
 
 @router.get("/dashboard", response_model=DashboardResponse)
@@ -19,23 +35,27 @@ async def dashboard(
     user: User = Depends(current_user),
     s: AsyncSession = Depends(get_session),
 ):
-    return await build_dashboard(s, user.tenant_id, period)
+    d = await build_dashboard(s, user.tenant_id, period)
+    if user.role in ("owner", "admin"):
+        return d
+    tabs = effective_tabs(user, await tenant_tabs(s, user.tenant_id))
+    return _filter_dashboard(d, tabs)
 
 
 @router.get("/forum")
 async def forum(
     period: str = Query("mtd"),
-    user: User = Depends(current_user),
+    user: User = Depends(require_tab("forum")),
     s: AsyncSession = Depends(get_session),
 ):
-    """The Forum focused view — KPIs, deep-dive deck, funnel, renewals, event, revenue quality."""
+    """The Forum focused view — KPIs, deep-dive deck, funnel, renewals, event, cash & billing."""
     return await build_forum(s, user.tenant_id, period)
 
 
 @router.get("/becollective")
 async def becollective(
     period: str = Query("mtd"),
-    user: User = Depends(current_user),
+    user: User = Depends(require_tab("becollective")),
     s: AsyncSession = Depends(get_session),
 ):
     """beCollective focused view — cohort program (mirrors the Forum's shape)."""
@@ -55,5 +75,8 @@ async def metric_detail_ep(
     user: User = Depends(current_user),
     s: AsyncSession = Depends(get_session),
 ):
-    """The records behind a KPI + a plain-English 'computed_as' + source links."""
+    """The records behind a KPI + a plain-English 'computed_as' + source links.
+    A drill inherits its tile's permission (§2.5) — a member can't reach forum_payments
+    detail without the forum tab, even by guessing the URL."""
+    await assert_tab(user, s, tab_for_metric(key, business))
     return await metric_detail(s, user.tenant_id, key, period, business, agent_id, lo, stage, source, stream)

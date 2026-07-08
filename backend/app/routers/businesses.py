@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
-from ..deps import current_user
+from ..deps import current_user, require_role, assert_tab
 from ..models import User, Business, Integration, PLSnapshot
 from ..schemas import IntegrationStatus, BusinessUpdate, FinancialsResponse
 from ..services.financials import compute_financials, _period
@@ -31,7 +31,7 @@ def _business_dict(b: Business) -> dict:
 
 
 @router.get("/businesses")
-async def list_businesses(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+async def list_businesses(user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):
     rows = (await s.execute(
         select(Business).where(Business.tenant_id == user.tenant_id).order_by(Business.sort_order)
     )).scalars().all()
@@ -40,7 +40,7 @@ async def list_businesses(user: User = Depends(current_user), s: AsyncSession = 
 
 @router.put("/businesses/{key}")
 async def update_business(key: str, body: BusinessUpdate,
-                          user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+                          user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):
     """Edit a business's brand + health config. Partial: only provided fields change."""
     b = (await s.execute(select(Business).where(
         Business.tenant_id == user.tenant_id, Business.key == key))).scalar_one_or_none()
@@ -71,6 +71,7 @@ async def update_business(key: str, body: BusinessUpdate,
 async def business_financials(key: str, period: str = Query("mtd"),
                               user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     """Three-lens financials (Live / Projection / Booked) + reconciliation."""
+    await assert_tab(user, s, key)                 # the financial view key IS the tab key
     b = (await s.execute(select(Business).where(
         Business.tenant_id == user.tenant_id, Business.key == key))).scalar_one_or_none()
     if not b:
@@ -80,7 +81,7 @@ async def business_financials(key: str, period: str = Query("mtd"),
 
 @router.put("/businesses/{key}/periods/{period}/close")
 async def close_books(key: str, period: str,
-                      user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+                      user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):
     """Mark the period's books closed — clears the Booked lens's 'close in progress' flag."""
     b = (await s.execute(select(Business).where(
         Business.tenant_id == user.tenant_id, Business.key == key))).scalar_one_or_none()
@@ -99,7 +100,7 @@ async def close_books(key: str, period: str,
 
 
 @router.get("/integrations", response_model=list[IntegrationStatus])
-async def list_integrations(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+async def list_integrations(user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):
     integs = (await s.execute(
         select(Integration).where(Integration.tenant_id == user.tenant_id)
     )).scalars().all()
