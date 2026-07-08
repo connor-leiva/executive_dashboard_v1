@@ -884,14 +884,14 @@ function Pill({ text, color, bg }) {
   return <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color, background: bg, borderRadius: 5, padding: "2px 7px" }}>{text}</span>;
 }
 
-function InviteModal({ tabs, onClose, onInvited }) {
+function InviteModal({ tabs, me, onClose, onInvited }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("member");
   const [grants, setGrants] = useState([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
-  const grantable = tabs.filter((t) => t !== "portfolio" || true);   // all grantable; portfolio is a grant too
+  const canGrantAdmin = me?.role === "owner";   // only an owner can create an admin
   const toggle = (t) => setGrants((g) => (g.includes(t) ? g.filter((x) => x !== t) : [...g, t]));
 
   async function submit(e) {
@@ -902,7 +902,14 @@ function InviteModal({ tabs, onClose, onInvited }) {
       setResult(r);
       onInvited();
     } catch (x) {
-      setErr(x.status === 409 ? "That email already has an account here." : "Couldn't send the invite — check the values.");
+      if (x.status === 401) {   // dead/stale session — bounce to login rather than showing a form error
+        localStorage.removeItem("cc_token");
+        window.location.reload();
+        return;
+      }
+      // Surface the server's real reason (e.g. "A user with that email already
+      // exists"), falling back to a friendly line for a network error.
+      setErr(x.detail || "Couldn't send the invite — please try again.");
     } finally { setBusy(false); }
   }
 
@@ -928,7 +935,7 @@ function InviteModal({ tabs, onClose, onInvited }) {
             <label style={label}>Role
               <select style={field} value={role} onChange={(e) => setRole(e.target.value)}>
                 <option value="member">Member — sees only granted tabs</option>
-                <option value="admin">Admin — manages members + integrations</option>
+                {canGrantAdmin && <option value="admin">Admin — manages members + integrations</option>}
               </select>
             </label>
             {role === "member" && (
@@ -963,15 +970,19 @@ function UserRow({ u, me, tabs, onChanged }) {
   const [grants, setGrants] = useState(u.all_tabs ? [] : (u.tabs || []));
   const [link, setLink] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
   const isSelf = me && u.id === me.id;
   const canManage = me && (me.role === "owner" || (me.role === "admin" && u.role === "member"));
   const editable = canManage && !isSelf;
   const toggle = (t) => setGrants((g) => (g.includes(t) ? g.filter((x) => x !== t) : [...g, t]));
 
   async function save() {
-    setBusy(true);
+    setBusy(true); setErr(null);
     try { await patchJSON(`/users/${u.id}`, { role, tab_access: role === "member" ? grants : null }); onChanged(); setOpen(false); }
-    finally { setBusy(false); }
+    catch (x) {
+      if (x.status === 401) { localStorage.removeItem("cc_token"); window.location.reload(); return; }
+      setErr(x.detail || "Couldn't save — please try again.");
+    } finally { setBusy(false); }
   }
   async function toggleStatus() {
     setBusy(true);
@@ -1002,7 +1013,7 @@ function UserRow({ u, me, tabs, onChanged }) {
                 <label style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate }}>Role
                   <select value={role} onChange={(e) => setRole(e.target.value)} style={{ display: "block", marginTop: 5, fontFamily: "Inter,sans-serif", fontSize: 13, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px", background: T.white }}>
                     {me.role === "owner" && <option value="owner">Owner</option>}
-                    <option value="admin">Admin</option>
+                    {me.role === "owner" && <option value="admin">Admin</option>}
                     <option value="member">Member</option>
                   </select>
                 </label>
@@ -1025,6 +1036,7 @@ function UserRow({ u, me, tabs, onChanged }) {
                 <span style={{ flex: 1 }} />
                 <button onClick={toggleStatus} disabled={busy} style={btn("danger")}>{u.status === "disabled" ? "Enable" : "Disable"}</button>
               </div>
+              {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 10 }}>{err}</div>}
               {link && <CopyLink url={link} />}
             </>
           ) : (
@@ -1066,7 +1078,7 @@ function UsersPage() {
           : users.length === 0 ? <div style={{ color: T.muted, fontSize: 13 }}>No users yet.</div>
             : users.map((u) => <UserRow key={u.id} u={u} me={me} tabs={tabs} onChanged={load} />)}
       </Card>
-      {inviting && <InviteModal tabs={tabs} onClose={() => setInviting(false)} onInvited={load} />}
+      {inviting && <InviteModal tabs={tabs} me={me} onClose={() => setInviting(false)} onInvited={load} />}
     </>
   );
 }

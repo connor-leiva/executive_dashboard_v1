@@ -1,16 +1,25 @@
 const API = import.meta.env.VITE_API_BASE; // e.g. https://api.springb.com/api/v1
 const TOKEN_KEY = "cc_token";
 
+// Turn a non-2xx response into an Error carrying both the HTTP status and the
+// server's `detail` string, so callers can show the real reason ("A user with
+// that email already exists") instead of a generic message.
+async function throwFor(res) {
+  const raw = await res.text();
+  let detail = raw;
+  try { detail = JSON.parse(raw).detail ?? raw; } catch { /* not JSON */ }
+  const err = new Error(`${res.status} ${detail}`);
+  err.status = res.status;
+  err.detail = detail;
+  throw err;
+}
+
 export async function getJSON(path) {
   const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${API}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) {
-    const err = new Error(`${res.status} ${await res.text()}`);
-    err.status = res.status;
-    throw err;
-  }
+  if (!res.ok) await throwFor(res);
   return res.json();
 }
 
@@ -21,11 +30,7 @@ export async function postJSON(path, body) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) {
-    const err = new Error(`${res.status} ${await res.text()}`);
-    err.status = res.status;
-    throw err;
-  }
+  if (!res.ok) await throwFor(res);
   return res.json();
 }
 
@@ -36,11 +41,7 @@ export async function putJSON(path, body) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) {
-    const err = new Error(`${res.status} ${await res.text()}`);
-    err.status = res.status;
-    throw err;
-  }
+  if (!res.ok) await throwFor(res);
   return res.json();
 }
 

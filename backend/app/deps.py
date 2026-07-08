@@ -23,8 +23,13 @@ async def current_user(
     except Exception:
         raise HTTPException(401, "Invalid token")
     tid = current_tenant_id()
+    # A token whose tenant doesn't match the resolved host isn't a permission
+    # problem — it's an invalid session for this realm (a stale token left over
+    # after a reseed, or a token minted for another tenant). Return 401, like the
+    # other session failures below, so the client clears it and re-authenticates
+    # instead of reading it as 403 "you lack access" and showing a cryptic error.
     if payload.get("tid") != str(tid):
-        raise HTTPException(403, "Token/tenant mismatch")
+        raise HTTPException(401, "Session invalid for this tenant")
     user = (await s.execute(
         select(User).where(User.id == uuid.UUID(payload["sub"]), User.tenant_id == tid)
     )).scalar_one_or_none()

@@ -1,0 +1,3 @@
+
+# Test-isolated database (created by tests/conftest.py)
+test_command_center.db*

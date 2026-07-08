@@ -203,9 +203,10 @@ async def test_cross_tenant_token_and_object_isolation():
         b_token = make_token(bu.id, tb, 0)
     owner = await _owner_token()   # springb owner
     async with _client() as c:
-        # A springb token used against tenant B's host → 403 (tid mismatch)
+        # A springb token used against tenant B's host → 401 (invalid session for
+        # this realm; the client should re-authenticate, not read it as a 403).
         r = await c.get("/api/v1/me", headers=_H(owner, host="tenantb.testhost"))
-        assert r.status_code == 403
+        assert r.status_code == 401
         # B's own token on B's host works
         assert (await c.get("/api/v1/me", headers=_H(b_token, host="tenantb.testhost"))).status_code == 200
         # springb owner probing a tenant-B user id → 404 (no existence leak)
