@@ -302,7 +302,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     # 3) Payments (Stripe via GHL) → cash / failures / MRR. Best effort; needs the
     #    payments scope. Transactions first (they feed installment counts), then the
     #    enriched subscriptions. See spring-command-center-SPEC-forum-billing.md.
-    from .billing import classify_stream, classify_installment
+    from .billing import classify_stream, classify_installment, next_charge_date
     stream_overrides = cfg.get("stream_overrides") or {}
     installment_cfg = {"installment_plan_names": cfg.get("installment_plan_names") or []}
     try:
@@ -348,6 +348,9 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                     detail = {}
             interval = ghl.sub_interval(detail)
             sub_type, inst_total = classify_installment(plan, start_d, end_d, installment_cfg)
+            # GHL's list omits the upcoming-payment date; derive it from the billing
+            # cadence (start date + interval) so forward-billing / next-30 isn't $0.
+            npd = next_charge_date(start_d, interval, dt.date.today()) if ghl.sub_is_active(sub) else None
             sub_rows.append(dict(
                 tenant_id=tenant_id, business_id=biz, source="ghl", kind="subscription",
                 external_id=str(sub.get("_id") or sid_stripe or sub.get("id")),
@@ -362,7 +365,8 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                       "end_date": (str(end_d)[:10] if end_d else None),
                       "sub_type": sub_type, "installments_total": inst_total,
                       "installments_collected": sub_succeeded.get(sid_stripe, 0),
-                      "next_payment_date": None, "next_payment_amount": ghl.sub_monthly_amount(sub)}))
+                      "next_payment_date": (npd.isoformat() if npd else None),
+                      "next_payment_amount": ghl.sub_monthly_amount(sub)}))
         await _ghl_snapshot(s, tenant_id, biz, "subscription", sub_rows)
         n_records += len(sub_rows)
         active_n = sum(1 for r in sub_rows if r["status"] == "active")

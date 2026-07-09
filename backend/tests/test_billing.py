@@ -8,7 +8,8 @@ from sqlalchemy import select
 from app.seed import seed
 from app.db import SessionLocal
 from app.models import Tenant, Business
-from app.services.billing import classify_stream, classify_installment, compute_billing, mrr_of
+from app.services.billing import (classify_stream, classify_installment, compute_billing, mrr_of,
+                                   next_charge_date, project_charges)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -79,6 +80,43 @@ async def test_arr_book_reused_and_next30():
     b = f["billing"]
     assert b["arr_book"] > 0                                        # renewal book reused, not recomputed
     assert b["next30"]["charges"] >= 1 and b["next30"]["amount"] > 0
+
+
+# ── forward-looking projection (pure) ───────────────────────────────
+def test_next_charge_date_cadence():
+    import datetime as dt
+    # monthly anniversary strictly after `after`
+    assert next_charge_date("2026-05-04", "month", dt.date(2026, 7, 8)) == dt.date(2026, 8, 4)
+    # annual cadence rolls to next year
+    assert next_charge_date("2026-01-15", "year", dt.date(2026, 7, 8)) == dt.date(2027, 1, 15)
+    assert next_charge_date(None, "month", dt.date(2026, 7, 8)) is None
+
+
+def test_project_charges_and_installment_cap():
+    import datetime as dt
+    from types import SimpleNamespace
+    today = dt.date(2026, 7, 8)
+    perp = SimpleNamespace(status="active", amount=100, name="Perp",
+                           meta={"interval": "month", "sub_type": "perpetual", "start_date": "2026-05-04"})
+    inst = SimpleNamespace(status="active", amount=200, name="3pay",
+                           meta={"interval": "month", "sub_type": "installment", "start_date": "2026-06-22",
+                                 "installments_total": 3, "installments_collected": 1})
+    ended = SimpleNamespace(status="canceled", amount=999, name="Dead", meta={"interval": "month", "start_date": "2026-01-01"})
+    charges = project_charges([perp, inst, ended], today, dt.date(2026, 12, 31))
+    perp_c = [c for c in charges if c["note"] == "subscription"]
+    inst_c = [c for c in charges if c["note"] == "installment"]
+    assert len(perp_c) == 5 and all(c["amount"] == 100 for c in perp_c)   # Aug–Dec
+    assert len(inst_c) == 2                                                # remaining = 3 − 1
+    assert all(c["amount"] == 999 for c in charges if c["who"] == "Dead") or True  # canceled excluded
+    assert not any(c["who"] == "Dead" for c in charges)
+
+
+async def test_full_year_monthly_and_forecast():
+    b = (await _billing())["billing"]
+    assert len(b["monthly"]) == 12                                        # full calendar year
+    assert all(set(m) >= {"month", "net", "mtd", "projected"} for m in b["monthly"])
+    assert {"next_30", "next_90", "rest_of_year"} <= set(b["forecast"])
+    assert b["forecast"]["next_90"] >= b["forecast"]["next_30"] > 0
 
 
 async def test_availability_false_when_no_payments():

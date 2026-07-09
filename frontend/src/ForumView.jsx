@@ -344,22 +344,44 @@ const STREAM_COLORS = [T.evergreen, T.meadow, T.teal, T.sprout, T.muted];
 function CashFlowPanel({ b, onOpen }) {
   const months = b.monthly || [];
   const max = Math.max(...months.map((m) => m.net), 1);
+  const fc = b.forecast || {};
+  const hasProjected = months.some((m) => m.projected);
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 18, height: 130, padding: "6px 2px 0" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 132, padding: "8px 2px 0" }}>
         {months.map((m) => (
-          <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{kc(m.net)}</span>
-            <div style={{ width: "100%", maxWidth: 84, height: `${Math.max(2, (m.net / max) * 88)}px`, background: m.mtd ? T.sprout : T.meadow, borderRadius: "6px 6px 0 0" }} />
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{m.month}{m.mtd ? " · MTD" : ""}</span>
+          <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 600, color: m.projected ? T.muted : T.ink, fontVariantNumeric: "tabular-nums", minHeight: 12 }}>{m.net ? kc(m.net) : ""}</span>
+            <div title={`${m.month}${m.projected ? " · projected" : m.mtd ? " · month to date" : ""}: ${usd(m.net)}`}
+              style={{
+                width: "100%", maxWidth: 40, height: `${Math.max(m.net ? 3 : 0, (m.net / max) * 84)}px`, borderRadius: "5px 5px 0 0",
+                background: m.projected ? T.meadowBg : m.mtd ? T.sprout : T.meadow,
+                border: m.projected ? `1px dashed ${T.meadow}` : "none", boxSizing: "border-box",
+              }} />
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, color: m.mtd ? T.ink : T.muted, fontWeight: m.mtd ? 600 : 400 }}>{m.month}</span>
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10, borderTop: `1px solid ${T.line}`, marginTop: 16, paddingTop: 13, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>
+
+      {hasProjected && (
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10, fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, flexWrap: "wrap" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: T.meadow }} />Actual</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: T.meadowBg, border: `1px dashed ${T.meadow}`, boxSizing: "border-box" }} />Projected from active subscriptions</span>
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10, borderTop: `1px solid ${T.line}`, marginTop: 12, paddingTop: 13, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>
         <span>{usd(b.gross)} collected − {usd(b.refunded)} refunded = <b style={{ color: T.ink }}>{usd(b.net_cash)} net</b>
           {b.failed_amount > 0 && <span style={{ color: T.amber }}> · {usd(b.failed_amount)} failed (not counted)</span>}</span>
         <span onClick={() => onOpen("forum_payments")} style={{ color: T.meadow, fontWeight: 600, cursor: "pointer" }}>View all transactions ↗</span>
       </div>
+
+      {(fc.next_90 > 0 || fc.rest_of_year > 0) && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10, marginTop: 8, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>
+          <span>Projected inflow · <b style={{ color: T.ink }}>{kc(fc.next_30 || 0)}</b> next 30d · <b style={{ color: T.ink }}>{kc(fc.next_90 || 0)}</b> next 90d · <b style={{ color: T.ink }}>{kc(fc.rest_of_year || 0)}</b> rest of year</span>
+          <span onClick={() => onOpen("forum_next30")} style={{ color: T.meadow, fontWeight: 600, cursor: "pointer" }}>Upcoming charges ↗</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -629,8 +651,8 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
   } else if (data.event?.unregistered > 0) {
     action = { label: `${data.event.unregistered} not registered for ${data.event.where || "the next event"}`, cta: "The call list", drill: "unregistered" };
   }
+  // (unregistered count is already on the Next event exec tile — don't repeat it here)
   if (b && b.past_due > 0) ctx.push(`${b.past_due} subscription${b.past_due === 1 ? "" : "s"} past-due`);
-  if (data.event?.unregistered > 0 && action?.drill !== "unregistered") ctx.push(`${data.event.unregistered} unregistered for the next event`);
 
   // default section open state (derived from data on first render; user toggles
   // override). One section leads: the one with the watch item, else Members.

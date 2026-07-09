@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from calendar import monthrange
 from collections import defaultdict
+
+_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 # Stream labels (Section 2.1) — display names live on the frontend.
 STREAM_LABELS = {"memberships": "Memberships", "event_tickets": "Event tickets",
@@ -77,6 +80,65 @@ def is_perpetual(sub) -> bool:
     return (sub.meta or {}).get("sub_type") != "installment"
 
 
+def _interval_months(interval: str | None) -> int:
+    return 12 if ("year" in (interval or "").lower() or "annual" in (interval or "").lower()) else 1
+
+
+def _add_months(d: dt.date, n: int) -> dt.date:
+    m = d.month - 1 + n
+    y = d.year + m // 12
+    m = m % 12 + 1
+    return dt.date(y, m, min(d.day, monthrange(y, m)[1]))
+
+
+def next_charge_date(start_date, interval, after: dt.date) -> dt.date | None:
+    """Next recurring charge strictly after `after`, from `start_date` at the sub's
+    cadence (monthly/annual anniversary). None if the start date is unknown."""
+    start = _pdate(start_date)
+    if not start:
+        return None
+    step = _interval_months(interval)
+    d, guard = start, 0
+    while d <= after and guard < 600:
+        d = _add_months(d, step)
+        guard += 1
+    return d
+
+
+def project_charges(subs, today: dt.date, until: dt.date) -> list[dict]:
+    """Projected future charges for ACTIVE subs, today→`until`, at each sub's cadence
+    — capped by end_date and remaining installments. Prefers a stored next_payment_date,
+    else derives the schedule from start_date + interval. Pure + testable."""
+    out: list[dict] = []
+    for x in subs:
+        if x.status != "active":
+            continue
+        meta = x.meta or {}
+        step = _interval_months(meta.get("interval"))
+        per_charge = round(sub_monthly(x) * (12 if step == 12 else 1), 2)
+        if per_charge <= 0:
+            continue
+        end = _pdate(meta.get("end_date"))
+        remaining = None
+        if not is_perpetual(x) and meta.get("installments_total"):
+            remaining = max(0, int(meta["installments_total"]) - int(meta.get("installments_collected") or 0))
+        d = _pdate(meta.get("next_payment_date"))
+        if not d or d <= today:
+            d = next_charge_date(meta.get("start_date"), meta.get("interval"), today)
+        kind = "installment" if not is_perpetual(x) else "subscription"
+        count = 0
+        while d and d <= until:
+            if end and d > end:
+                break
+            if remaining is not None and count >= remaining:
+                break
+            out.append({"date": d.isoformat(), "amount": per_charge, "who": x.name, "note": kind})
+            d = _add_months(d, step)
+            count += 1
+    out.sort(key=lambda r: r["date"])
+    return out
+
+
 def mrr_of(subs) -> float:
     """True MRR = active perpetual subscriptions only (installments excluded).
     THE single MRR source — top-row tile and billing block both call this."""
@@ -110,7 +172,8 @@ def compute_billing(payments, subs, arr_book: float,
     failed = [p for p in payments if (p.status or "") == "failed"]
     failed_amount = round(sum(_num(p.amount) for p in failed), 2)
 
-    # Monthly cash-flow trend over the FULL span (net per month), chronological.
+    # Monthly cash-flow trend — the FULL calendar year: actual net per month through
+    # today, then projected inflow (from active subscriptions) for the months ahead.
     by_month: dict = defaultdict(float)
     for p in payments:
         if not p.occurred_on:
@@ -119,10 +182,23 @@ def compute_billing(payments, subs, arr_book: float,
         if (p.status or "") == "succeeded":
             by_month[key] += _num(p.amount)
         by_month[key] -= _num((p.meta or {}).get("amount_refunded"))
-    _MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    monthly = [{"month": _MON[m - 1], "net": round(v, 2),
-                "mtd": (y, m) == (today.year, today.month)}
-               for (y, m), v in sorted(by_month.items())]
+
+    active = [x for x in subs if x.status == "active"]
+    proj_by_month: dict = defaultdict(float)
+    for c in project_charges(active, today, dt.date(today.year, 12, 31)):
+        d = dt.date.fromisoformat(c["date"])
+        proj_by_month[(d.year, d.month)] += c["amount"]
+
+    monthly = []
+    for m in range(1, 13):
+        key = (today.year, m)
+        future = m > today.month
+        monthly.append({
+            "month": _MON[m - 1],
+            "net": round(proj_by_month.get(key, 0) if future else by_month.get(key, 0), 2),
+            "mtd": m == today.month,
+            "projected": future,
+        })
 
     # Streams over the same span as `monthly` (net of refunds; Σ == net over span).
     stream_val: dict = defaultdict(float)
@@ -139,7 +215,6 @@ def compute_billing(payments, subs, arr_book: float,
                for s in order if round(stream_val.get(s, 0), 2) != 0]
 
     # Subscriptions: perpetual MRR (single source) + installment objects.
-    active = [x for x in subs if x.status == "active"]
     mrr = mrr_of(active)
     perpetual = [x for x in active if is_perpetual(x)]
     installments = [{
@@ -152,19 +227,17 @@ def compute_billing(payments, subs, arr_book: float,
 
     past_due = sum(1 for x in subs if x.status == "past_due")
 
-    # Forward billing — next 30 days (both types; installment finals included).
-    horizon = today + dt.timedelta(days=30)
-    schedule = []
-    for x in active:
-        d = _pdate((x.meta or {}).get("next_payment_date"))
-        amt = _num((x.meta or {}).get("next_payment_amount")) or sub_monthly(x)
-        if d and today <= d <= horizon and amt:
-            note = "installment" if not is_perpetual(x) else "subscription"
-            schedule.append({"date": d.isoformat(), "amount": round(amt, 2),
-                             "who": x.name, "note": note})
-    schedule.sort(key=lambda r: r["date"])
-    next30 = {"amount": round(sum(r["amount"] for r in schedule), 2),
-              "charges": len(schedule), "schedule": schedule}
+    # Forward billing — projected charges over the next 30 and 90 days, plus the
+    # remaining-year total, all derived from each active sub's billing cadence.
+    sched30 = project_charges(active, today, today + dt.timedelta(days=30))
+    sched90 = project_charges(active, today, today + dt.timedelta(days=90))
+    next30 = {"amount": round(sum(r["amount"] for r in sched30), 2),
+              "charges": len(sched30), "schedule": sched30}
+    forecast = {
+        "next_30": next30["amount"],
+        "next_90": round(sum(r["amount"] for r in sched90), 2),
+        "rest_of_year": round(sum(m["net"] for m in monthly if m["projected"]), 2),
+    }
 
     return {
         "available": True, "basis": "cash",
@@ -175,6 +248,7 @@ def compute_billing(payments, subs, arr_book: float,
         "mrr": mrr, "perpetual_count": len(perpetual),
         "installments": installments,
         "next30": next30,
+        "forecast": forecast,
         "arr_book": round(float(arr_book or 0), 2), "run_rate": round(mrr * 12, 2),
         "streams": streams,
     }
