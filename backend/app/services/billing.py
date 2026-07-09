@@ -190,16 +190,23 @@ def compute_billing(payments, subs, arr_book: float,
         d = dt.date.fromisoformat(c["date"])
         proj_by_month[(d.year, d.month)] += c["amount"]
 
+    # Each month splits into `actual` (cash already collected) + `projected` (charges
+    # still scheduled). Past = all actual; future = all projected; the CURRENT month
+    # carries BOTH — collected-so-far plus what's still set to bill this month — so its
+    # bar reflects the full expected month, not just a mid-month partial.
     monthly = []
     for m in range(1, 13):
         key = (today.year, m)
-        future = m > today.month
+        if m < today.month:
+            actual, projected = round(by_month.get(key, 0), 2), 0.0
+        elif m == today.month:
+            actual, projected = round(by_month.get(key, 0), 2), round(proj_by_month.get(key, 0), 2)
+        else:
+            actual, projected = 0.0, round(proj_by_month.get(key, 0), 2)
         monthly.append({
-            "month": _MON[m - 1],
-            "ym": f"{today.year}-{m:02d}",
-            "net": round(proj_by_month.get(key, 0) if future else by_month.get(key, 0), 2),
-            "mtd": m == today.month,
-            "projected": future,
+            "month": _MON[m - 1], "ym": f"{today.year}-{m:02d}",
+            "actual": actual, "projected": projected, "net": round(actual + projected, 2),
+            "mtd": m == today.month, "is_projected": m > today.month,
         })
 
     # Streams over the same span as `monthly` (net of refunds; Σ == net over span).
@@ -238,7 +245,7 @@ def compute_billing(payments, subs, arr_book: float,
     forecast = {
         "next_30": next30["amount"],
         "next_90": round(sum(r["amount"] for r in sched90), 2),
-        "rest_of_year": round(sum(m["net"] for m in monthly if m["projected"]), 2),
+        "rest_of_year": round(sum(m["projected"] for m in monthly), 2),   # incl. rest of this month
     }
 
     return {

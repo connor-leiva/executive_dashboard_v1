@@ -349,19 +349,26 @@ function CashFlowPanel({ b, onOpen }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 140, padding: "8px 2px 0" }}>
-        {months.map((m) => (
-          <button key={m.month} className="fv-cfbar" onClick={() => onOpen("forum_cashflow", { month: m.ym })}
-            title={`${m.month}${m.projected ? " · projected" : m.mtd ? " · month to date" : ""}: ${usd(m.net)} — click for records`}
-            style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer" }}>
-            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 600, color: m.projected ? T.muted : T.ink, fontVariantNumeric: "tabular-nums", minHeight: 12 }}>{m.net ? kc(m.net) : ""}</span>
-            <span className="fv-cffill" style={{
-              width: "100%", maxWidth: 40, height: `${Math.max(m.net ? 3 : 0, (m.net / max) * 84)}px`, borderRadius: "5px 5px 0 0",
-              background: m.projected ? T.meadowBg : m.mtd ? T.sprout : T.meadow,
-              border: m.projected ? `1px dashed ${T.meadow}` : "none", boxSizing: "border-box", transition: "filter .12s ease",
-            }} />
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, color: m.mtd ? T.ink : T.muted, fontWeight: m.mtd ? 600 : 400 }}>{m.month}</span>
-          </button>
-        ))}
+        {months.map((m) => {
+          const totalH = Math.max(m.net ? 3 : 0, (m.net / max) * 84);
+          const actH = m.net ? (m.actual / m.net) * totalH : 0;
+          const projH = m.net ? (m.projected / m.net) * totalH : 0;
+          const tip = m.mtd
+            ? `${m.month}: ${usd(m.actual)} collected + ${usd(m.projected)} scheduled = ${usd(m.net)} expected — click for records`
+            : m.is_projected ? `${m.month} · projected: ${usd(m.net)} — click for records`
+              : `${m.month}: ${usd(m.net)} collected — click for records`;
+          return (
+            <button key={m.month} className="fv-cfbar" onClick={() => onOpen("forum_cashflow", { month: m.ym })} title={tip}
+              style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 600, color: m.is_projected ? T.muted : T.ink, fontVariantNumeric: "tabular-nums", minHeight: 12 }}>{m.net ? kc(m.net) : ""}</span>
+              <span className="fv-cffill" style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", width: "100%", maxWidth: 40, height: `${totalH}px`, transition: "filter .12s ease" }}>
+                {projH > 0 && <span style={{ height: `${projH}px`, background: T.meadowBg, border: `1px dashed ${T.meadow}`, borderBottom: actH > 0 ? "none" : `1px dashed ${T.meadow}`, borderRadius: "5px 5px 0 0", boxSizing: "border-box" }} />}
+                {actH > 0 && <span style={{ height: `${actH}px`, background: T.meadow, borderRadius: projH > 0 ? "0" : "5px 5px 0 0" }} />}
+              </span>
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, color: m.mtd ? T.ink : T.muted, fontWeight: m.mtd ? 600 : 400 }}>{m.month}</span>
+            </button>
+          );
+        })}
       </div>
 
       {hasProjected && (

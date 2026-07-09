@@ -114,7 +114,12 @@ def test_project_charges_and_installment_cap():
 async def test_full_year_monthly_and_forecast():
     b = (await _billing())["billing"]
     assert len(b["monthly"]) == 12                                        # full calendar year
-    assert all(set(m) >= {"month", "net", "mtd", "projected"} for m in b["monthly"])
+    assert all(set(m) >= {"month", "ym", "actual", "projected", "net", "mtd", "is_projected"} for m in b["monthly"])
+    # every bar's net is its actual + projected split
+    assert all(round(m["actual"] + m["projected"], 2) == m["net"] for m in b["monthly"])
+    # the current (mtd) month carries BOTH collected + still-scheduled
+    cur = next(m for m in b["monthly"] if m["mtd"])
+    assert cur["actual"] >= 0 and cur["projected"] >= 0 and not cur["is_projected"]
     assert {"next_30", "next_90", "rest_of_year"} <= set(b["forecast"])
     assert b["forecast"]["next_90"] >= b["forecast"]["next_30"] > 0
 
