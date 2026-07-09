@@ -72,6 +72,7 @@ async def metric_detail_ep(
     stage: str | None = Query(None),
     source: str | None = Query(None),
     stream: str | None = Query(None),
+    month: str | None = Query(None),
     user: User = Depends(current_user),
     s: AsyncSession = Depends(get_session),
 ):
@@ -79,4 +80,4 @@ async def metric_detail_ep(
     A drill inherits its tile's permission (§2.5) — a member can't reach forum_payments
     detail without the forum tab, even by guessing the URL."""
     await assert_tab(user, s, tab_for_metric(key, business))
-    return await metric_detail(s, user.tenant_id, key, period, business, agent_id, lo, stage, source, stream)
+    return await metric_detail(s, user.tenant_id, key, period, business, agent_id, lo, stage, source, stream, month)

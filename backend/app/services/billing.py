@@ -132,7 +132,8 @@ def project_charges(subs, today: dt.date, until: dt.date) -> list[dict]:
                 break
             if remaining is not None and count >= remaining:
                 break
-            out.append({"date": d.isoformat(), "amount": per_charge, "who": x.name, "note": kind})
+            out.append({"date": d.isoformat(), "amount": per_charge, "who": x.name, "note": kind,
+                        "source_url": getattr(x, "source_url", None)})
             d = _add_months(d, step)
             count += 1
     out.sort(key=lambda r: r["date"])
@@ -195,6 +196,7 @@ def compute_billing(payments, subs, arr_book: float,
         future = m > today.month
         monthly.append({
             "month": _MON[m - 1],
+            "ym": f"{today.year}-{m:02d}",
             "net": round(proj_by_month.get(key, 0) if future else by_month.get(key, 0), 2),
             "mtd": m == today.month,
             "projected": future,

@@ -348,18 +348,19 @@ function CashFlowPanel({ b, onOpen }) {
   const hasProjected = months.some((m) => m.projected);
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 132, padding: "8px 2px 0" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 140, padding: "8px 2px 0" }}>
         {months.map((m) => (
-          <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          <button key={m.month} className="fv-cfbar" onClick={() => onOpen("forum_cashflow", { month: m.ym })}
+            title={`${m.month}${m.projected ? " · projected" : m.mtd ? " · month to date" : ""}: ${usd(m.net)} — click for records`}
+            style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer" }}>
             <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 600, color: m.projected ? T.muted : T.ink, fontVariantNumeric: "tabular-nums", minHeight: 12 }}>{m.net ? kc(m.net) : ""}</span>
-            <div title={`${m.month}${m.projected ? " · projected" : m.mtd ? " · month to date" : ""}: ${usd(m.net)}`}
-              style={{
-                width: "100%", maxWidth: 40, height: `${Math.max(m.net ? 3 : 0, (m.net / max) * 84)}px`, borderRadius: "5px 5px 0 0",
-                background: m.projected ? T.meadowBg : m.mtd ? T.sprout : T.meadow,
-                border: m.projected ? `1px dashed ${T.meadow}` : "none", boxSizing: "border-box",
-              }} />
+            <span className="fv-cffill" style={{
+              width: "100%", maxWidth: 40, height: `${Math.max(m.net ? 3 : 0, (m.net / max) * 84)}px`, borderRadius: "5px 5px 0 0",
+              background: m.projected ? T.meadowBg : m.mtd ? T.sprout : T.meadow,
+              border: m.projected ? `1px dashed ${T.meadow}` : "none", boxSizing: "border-box", transition: "filter .12s ease",
+            }} />
             <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, color: m.mtd ? T.ink : T.muted, fontWeight: m.mtd ? 600 : 400 }}>{m.month}</span>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -531,6 +532,8 @@ function execCells(data) {
 const FORUM_CSS = `
   .fv-tile { transition: transform .15s ease, box-shadow .15s ease; }
   .fv-tile:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(0,46,44,.10); }
+  .fv-cfbar:hover .fv-cffill { filter: brightness(0.92); }
+  .fv-cfbar:focus-visible { outline: 2px solid ${T.teal}; outline-offset: 2px; border-radius: 5px; }
   .fv-link:hover { filter: brightness(0.97); }
   .fv-ops { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .fv-colhead { font-family: Poppins,sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: ${T.slate}; margin-bottom: 8px; }

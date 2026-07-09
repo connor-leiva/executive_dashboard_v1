@@ -74,7 +74,8 @@ _PENDING_SRC = {"funded_loans": ("Arive", "Funded loans reaching the funded stag
 async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                         business: str | None = None, agent_id: str | None = None,
                         lo: str | None = None, stage: str | None = None,
-                        source: str | None = None, stream: str | None = None) -> dict:
+                        source: str | None = None, stream: str | None = None,
+                        month: str | None = None) -> dict:
     start, end = _period_range(period)
     cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
 
@@ -346,8 +347,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
 
     # ── The Forum · Cash & Billing drills (GHL Payments) ──
     if key in {"forum_payments", "forum_failed_payments", "forum_mrr_subs",
-               "forum_installments", "forum_next30", "forum_streams"}:
-        from .billing import is_perpetual, sub_monthly, STREAM_LABELS
+               "forum_installments", "forum_next30", "forum_streams", "forum_cashflow"}:
+        from .billing import is_perpetual, sub_monthly, project_charges, STREAM_LABELS
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
 
@@ -425,25 +426,47 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "computed_as": "Finite N-pay plans — collection progress (kept out of MRR).",
                     "count": len(rows), "rows": rows}
 
-        # forum_next30 — the forward-billing schedule.
         today = dt.date.today()
-        horizon = today + dt.timedelta(days=30)
-        sched = []
-        for x in active:
-            d = None
-            nd = (x.meta or {}).get("next_payment_date")
+
+        # forum_cashflow — a clicked cash-flow month bar. Past/current month → the
+        # actual transactions; a future month → the projected charges (same source
+        # as the chart, so drawer and bar always agree).
+        if key == "forum_cashflow":
             try:
-                d = dt.date.fromisoformat(str(nd)[:10]) if nd else None
-            except (ValueError, TypeError):
-                d = None
-            amt = float((x.meta or {}).get("next_payment_amount") or 0) or sub_monthly(x)
-            if d and today <= d <= horizon and amt:
-                sched.append((d, amt, nm(x), "installment" if not is_perpetual(x) else "subscription", x.source_url))
-        sched.sort(key=lambda r: r[0])
-        rows = [{"id": f"n{i}", "name": who, "l2": note, "r1": money(amt), "r2": dlabel(d),
-                 "source_url": url} for i, (d, amt, who, note, url) in enumerate(sched)]
+                y, mo = int(str(month)[:4]), int(str(month)[5:7])
+            except (TypeError, ValueError):
+                y, mo = today.year, today.month
+            mname = dt.date(y, mo, 1).strftime("%B %Y")
+            if (y, mo) <= (today.year, today.month):
+                pays = [p for p in await frecs("payment")
+                        if p.occurred_on and (p.occurred_on.year, p.occurred_on.month) == (y, mo)]
+                pays.sort(key=lambda p: (p.occurred_on or dt.date.min), reverse=True)
+                rows = [{"id": str(p.id), "name": nm(p),
+                         "tone": "watch" if p.status == "failed" else None,
+                         "l2": " · ".join(x for x in [STREAM_LABELS.get((p.meta or {}).get("stream"), (p.meta or {}).get("stream")),
+                                                      (p.status if p.status != "succeeded" else None)] if x),
+                         "r1": money(p.amount), "r2": dlabel(p.occurred_on),
+                         "source_url": p.source_url} for p in pays]
+                return {"label": f"{mname} · cash collected", "source": "GHL Payments",
+                        "computed_as": f"Stripe charges recorded in {mname} (net of refunds).",
+                        "count": len(rows), "rows": rows}
+            last = dt.date(y + mo // 12, mo % 12 + 1, 1) - dt.timedelta(days=1)
+            sched = [c for c in project_charges(active, today, last) if c["date"][:7] == f"{y}-{mo:02d}"]
+            rows = [{"id": f"p{i}", "name": c["who"], "l2": c["note"] + " · projected",
+                     "r1": money(c["amount"]), "r2": dlabel(dt.date.fromisoformat(c["date"])),
+                     "source_url": c.get("source_url")} for i, c in enumerate(sched)]
+            return {"label": f"{mname} · projected inflow", "source": "GHL Payments",
+                    "computed_as": f"Expected charges in {mname}, projected from each active subscription's billing cadence.",
+                    "count": len(rows), "rows": rows}
+
+        # forum_next30 — the forward-billing schedule (SAME projection as the chart,
+        # so the drawer never disagrees with the cash-flow footer).
+        sched = project_charges(active, today, today + dt.timedelta(days=30))
+        rows = [{"id": f"n{i}", "name": c["who"], "l2": c["note"], "r1": money(c["amount"]),
+                 "r2": dlabel(dt.date.fromisoformat(c["date"])), "source_url": c.get("source_url")}
+                for i, c in enumerate(sched)]
         return {"label": "Next 30 days", "source": "GHL Payments",
-                "computed_as": "Scheduled charges (subscriptions + installment finals) in the next 30 days.",
+                "computed_as": "Scheduled charges (subscriptions + installment finals) in the next 30 days, projected from billing cadence.",
                 "count": len(rows), "rows": rows}
 
     # ── Sympli pipeline stage drill (a funnel bar / pivot cell → its loans) ──

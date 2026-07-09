@@ -33,7 +33,7 @@ function SegChip({ seg }) {
 }
 
 /* Right-side drawer showing the records behind a KPI (the trust layer). */
-export default function AuditDrawer({ metricKey, business, agentId, lo, stage, source, stream, period, onClose }) {
+export default function AuditDrawer({ metricKey, business, agentId, lo, stage, source, stream, month, period, onClose }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(false);
   const [srcFilter, setSrcFilter] = useState("all");   // all | ULRG | OTHER (loan drawers)
@@ -50,9 +50,10 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
       + (lo ? `&lo=${encodeURIComponent(lo)}` : "")
       + (stage ? `&stage=${encodeURIComponent(stage)}` : "")
       + (source ? `&source=${encodeURIComponent(source)}` : "")
-      + (stream ? `&stream=${encodeURIComponent(stream)}` : "");
+      + (stream ? `&stream=${encodeURIComponent(stream)}` : "")
+      + (month ? `&month=${encodeURIComponent(month)}` : "");
     getJSON(q).then(setD).catch(() => setErr(true));
-  }, [metricKey, business, agentId, lo, stage, source, stream, period]);
+  }, [metricKey, business, agentId, lo, stage, source, stream, month, period]);
 
   if (!metricKey) return null;
 
