@@ -172,6 +172,7 @@ def compute_billing(payments, subs, arr_book: float,
     net_cash = round(gross - refunded, 2)
     failed = [p for p in payments if (p.status or "") == "failed"]
     failed_amount = round(sum(_num(p.amount) for p in failed), 2)
+    txn_count = len(payments)
 
     # Monthly cash-flow trend — the FULL calendar year: actual net per month through
     # today, then projected inflow (from active subscriptions) for the months ahead.
@@ -251,7 +252,7 @@ def compute_billing(payments, subs, arr_book: float,
     return {
         "available": True, "basis": "cash",
         "span": {"start": span_start.isoformat(), "end": today.isoformat()},
-        "net_cash": net_cash, "gross": gross, "refunded": refunded,
+        "net_cash": net_cash, "gross": gross, "refunded": refunded, "txn_count": txn_count,
         "failed_amount": failed_amount, "failed_count": len(failed), "past_due": past_due,
         "monthly": monthly,
         "mrr": mrr, "perpetual_count": len(perpetual),

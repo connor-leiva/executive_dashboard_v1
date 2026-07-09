@@ -1114,10 +1114,10 @@ export default function CommandCenter() {
   else if (error && !data) content = <ErrorState onRetry={retry} />;
   else if (activeView === "overview") content = <Overview data={data} onOpen={setView} onDrill={onDrill} />;
   else if (activeView === "forum") content = forum.data
-    ? <ForumView data={forum.data} area={areas?.forum} onDrill={onDrill} />
+    ? <ForumView key="forum" data={forum.data} area={areas?.forum} onDrill={onDrill} />
     : <SkeletonDashboard />;
   else if (activeView === "becollective") content = becollective.data
-    ? <ForumView data={becollective.data} area={areas?.becollective} onDrill={onDrill}
+    ? <ForumView key="becollective" data={becollective.data} area={areas?.becollective} onDrill={onDrill}
         title="beCollective" subtitle="Community" deckSlots={BC_DECK_SLOTS} drillBusiness="springb" />
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
