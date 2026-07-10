@@ -50,30 +50,44 @@ def test_dashboard_url_uses_payment_intent():
 
 
 # ── cross-source dedupe ─────────────────────────────────────────────
-def _p(email, amount, day, source="ghl"):
-    return SimpleNamespace(email=email, amount=amount, occurred_on=dt.date(2026, 7, day), source=source)
+def _p(email, amount, day, source="ghl", charge_id=None):
+    return SimpleNamespace(email=email, amount=amount, occurred_on=dt.date(2026, 7, day),
+                           source=source, meta=({"charge_id": charge_id} if charge_id else {}))
 
 
-def test_dedupe_suppresses_the_ghl_backfill_copy():
+def test_backfill_copy_suppressed_even_with_wrong_date():
+    # The backfill copy is id-less and dated the import day (day 30); its legacy twin is
+    # dated the real charge day (day 8). Matched by payer+amount, ignoring date.
     legacy = [_p("a@x.com", 2000, 8, "stripe_legacy")]
-    ghl = [_p("a@x.com", 2000, 8, "ghl")]                    # the imported copy of the same charge
+    ghl = [_p("a@x.com", 2000, 30, "ghl")]                   # no charge_id → treated as backfill
     merged, suppressed = merge_payment_sources(ghl, legacy)
     assert suppressed == 1
     assert len(merged) == 1 and merged[0].source == "stripe_legacy"
 
 
-def test_native_ghl_charge_survives():
+def test_idless_ghl_with_no_legacy_twin_is_kept():
+    # A GHL-only payment (manual / non-Stripe / other channel) legacy doesn't have —
+    # must NEVER be dropped (legacy is not the complete history).
     legacy = [_p("a@x.com", 2000, 8, "stripe_legacy")]
-    ghl = [_p("b@x.com", 500, 8, "ghl")]                     # unrelated new-sub-account charge
+    ghl = [_p("b@x.com", 500, 8, "ghl")]                     # no legacy twin
+    merged, suppressed = merge_payment_sources(ghl, legacy)
+    assert suppressed == 0 and len(merged) == 2
+
+
+def test_id_bearing_ghl_charge_always_survives():
+    # A native new-account charge carries a charge id; even if it happens to share
+    # payer+amount with a legacy charge (different Stripe accounts), it's kept.
+    legacy = [_p("a@x.com", 2000, 8, "stripe_legacy")]
+    ghl = [_p("a@x.com", 2000, 8, "ghl", charge_id="pi_native")]
     merged, suppressed = merge_payment_sources(ghl, legacy)
     assert suppressed == 0 and len(merged) == 2
 
 
 def test_dedupe_is_one_to_one_not_greedy():
-    # One legacy charge, but TWO same-key GHL rows (one backfill copy + one genuine
-    # same-day/same-amount native charge). Only one GHL row is folded away.
+    # One legacy charge, two id-less GHL rows with the same payer+amount → only one folded
+    # away; the second is kept (could be a genuine second payment).
     legacy = [_p("a@x.com", 2000, 8, "stripe_legacy")]
-    ghl = [_p("a@x.com", 2000, 8, "ghl"), _p("a@x.com", 2000, 8, "ghl")]
+    ghl = [_p("a@x.com", 2000, 8, "ghl"), _p("a@x.com", 2000, 30, "ghl")]
     merged, suppressed = merge_payment_sources(ghl, legacy)
     assert suppressed == 1 and len(merged) == 2
 

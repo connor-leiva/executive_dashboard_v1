@@ -255,28 +255,39 @@ def _pay_key(p) -> tuple:
     return (email, amt, d)
 
 
-def merge_payment_sources(ghl_payments, legacy_payments) -> tuple[list, int]:
-    """Merge the GHL payment feed with the legacy-Stripe feed, keeping each real
-    charge once.
+def _pay_key_loose(p) -> tuple:
+    """Payer + whole-dollar amount, IGNORING date — to match a CSV-backfill row (whose
+    date is the import day, not the real charge date) to its legacy twin."""
+    email = (getattr(p, "email", None) or "").strip().lower()
+    return (email, round(_num(getattr(p, "amount", 0))))
 
-    Legacy Stripe is the AUTHORITATIVE, id-bearing source for the original account's
-    charges. The CSV backfill copied many of those same charges into GHL as opaque
-    manual rows (the import template has no charge-id column), so a GHL row that
-    matches a legacy charge on (email, whole-dollar amount, date) is that same money
-    — drop the GHL copy, keep the legacy one. Matching is one-to-one (budgeted by a
-    Counter) so a native new-sub-account charge that merely happens to share those
-    three fields with a legacy charge still survives once the legacy twins are used
-    up. Returns (merged_payments, suppressed_count) — suppressed is logged, never
-    silent."""
-    budget = Counter(_pay_key(p) for p in legacy_payments)
+
+def _has_charge_id(p) -> bool:
+    return bool((getattr(p, "meta", None) or {}).get("charge_id"))
+
+
+def merge_payment_sources(ghl_payments, legacy_payments) -> tuple[list, int]:
+    """Merge the GHL payment feed with the legacy-Stripe feed, keeping each real charge
+    once — WITHOUT assuming legacy Stripe is the complete history.
+
+    Legacy Stripe is authoritative for the ORIGINAL account's charges. The CSV backfill
+    copied many of them into GHL with NO charge id and the WRONG date (the import day),
+    so an id-LESS GHL row that matches a legacy charge on (payer, whole-$ amount) —
+    ignoring date — is that same charge: drop it, keep legacy's real date (one-to-one,
+    budgeted by a Counter). An id-less GHL row with NO legacy twin is a genuinely
+    GHL-only payment (a manual / non-Stripe / other-channel entry) and is KEPT — we
+    never delete money just because legacy Stripe doesn't have it. Id-BEARING GHL rows
+    (native new-account charges) are always kept. Returns (merged, suppressed)."""
+    budget = Counter(_pay_key_loose(p) for p in legacy_payments)
     merged = list(legacy_payments)
     suppressed = 0
     for g in ghl_payments:
-        k = _pay_key(g)
-        if budget.get(k, 0) > 0:
-            budget[k] -= 1
-            suppressed += 1
-            continue
+        if not _has_charge_id(g):
+            k = _pay_key_loose(g)
+            if budget.get(k, 0) > 0:
+                budget[k] -= 1
+                suppressed += 1
+                continue
         merged.append(g)
     return merged, suppressed
 

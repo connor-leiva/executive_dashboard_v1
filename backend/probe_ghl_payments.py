@@ -167,6 +167,13 @@ def main():
                         ("amount", "status", "entitySourceType", "entityType",
                          "paymentProviderType", "createdAt", "subscriptionId", "chargeId", "currency")}
                        for t in txns[:5]],
+            # FULL raw of a few charge-id-LESS transactions (the CSV imports) so we can
+            # find which field holds the REAL payment date vs the import-day createdAt.
+            # PII (contact snapshot/email/name) masked; nested objects kept as-is.
+            "imported_samples_full": [
+                {k: ("<masked>" if k in ("contactSnapshot", "contactName", "email", "contactId") else v)
+                 for k, v in t.items()}
+                for t in [x for x in txns if not x.get("chargeId")][:4]],
         }
         print(f"    succeeded {len(succ)} · failed {len(failed)} · "
               f"cash ${report['transactions']['amount_sum_succeeded']:,.0f}", flush=True)
