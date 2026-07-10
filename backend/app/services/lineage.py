@@ -348,7 +348,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     # ── The Forum · Cash & Billing drills (GHL Payments) ──
     if key in {"forum_payments", "forum_failed_payments", "forum_mrr_subs",
                "forum_installments", "forum_next30", "forum_streams", "forum_cashflow"}:
-        from .billing import is_perpetual, sub_monthly, project_charges, STREAM_LABELS, merge_payment_sources
+        from .billing import (is_perpetual, sub_monthly, project_charges, project_renewals,
+                              STREAM_LABELS, merge_payment_sources)
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
 
@@ -373,6 +374,30 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 return ghl
             merged, _ = merge_payment_sources(ghl, legacy)
             return merged
+
+        async def fsubs():
+            """Subscriptions behind the MRR / projection drills = GHL + legacy, so the
+            drawers match the chart (which merges both)."""
+            ghl = await frecs("subscription")
+            if not biz:
+                return list(ghl)
+            legacy = (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "stripe_legacy", MetricRecord.kind == "subscription"))).scalars().all()
+            return list(ghl) + list(legacy)
+
+        async def frenewals(active_subs):
+            """PIF renewal lump sums (same rule as build_forum) so the projected drills
+            include the annual/PIF members the subscription cadence can't see."""
+            if not biz:
+                return []
+            members = (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind == "member",
+                MetricRecord.status == "active"))).scalars().all()
+            active_emails = {(x.email or "").lower() for x in active_subs if x.status == "active" and x.email}
+            elig = [m for m in members if (m.email or "").lower() not in active_emails]
+            return project_renewals(elig, dt.date.today(), dt.date(dt.date.today().year, 12, 31))
 
         def money(n):
             return f"${float(n or 0):,.0f}"
@@ -416,7 +441,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             rows = [{"id": str(p.id), "name": nm(p), "tone": "watch",
                      "l2": "Failed charge · " + (dlabel(p.occurred_on) or ""),
                      "r1": money(p.amount), "source_url": p.source_url} for p in pays]
-            for x in await frecs("subscription"):
+            for x in await fsubs():
                 if x.status == "past_due":
                     rows.append({"id": str(x.id), "name": nm(x), "tone": "watch",
                                  "l2": "Subscription past due", "r1": money(x.amount) + "/mo",
@@ -425,7 +450,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "computed_as": "Failed charges + past-due subscriptions to recover.",
                     "count": len(rows), "rows": rows}
 
-        subs = await frecs("subscription")
+        subs = await fsubs()
         active = [x for x in subs if x.status == "active"]
         if key == "forum_mrr_subs":
             perp = sorted([x for x in active if is_perpetual(x)],
@@ -472,22 +497,26 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                         "computed_as": f"Stripe charges recorded in {mname} (net of refunds; GHL + legacy).",
                         "count": len(rows), "rows": rows}
             last = dt.date(y + mo // 12, mo % 12 + 1, 1) - dt.timedelta(days=1)
-            sched = [c for c in project_charges(active, today, last) if c["date"][:7] == f"{y}-{mo:02d}"]
+            sched = [c for c in project_charges(active, today, last) + await frenewals(subs)
+                     if c["date"][:7] == f"{y}-{mo:02d}"]
+            sched.sort(key=lambda c: c["date"])
             rows = [{"id": f"p{i}", "name": c["who"], "l2": c["note"] + " · projected",
                      "r1": money(c["amount"]), "r2": dlabel(dt.date.fromisoformat(c["date"])),
                      "source_url": c.get("source_url")} for i, c in enumerate(sched)]
             return {"label": f"{mname} · projected inflow", "source": "GHL Payments",
-                    "computed_as": f"Expected charges in {mname}, projected from each active subscription's billing cadence.",
+                    "computed_as": f"Expected charges in {mname}: active subscriptions (billing cadence) + PIF member renewals.",
                     "count": len(rows), "rows": rows}
 
         # forum_next30 — the forward-billing schedule (SAME projection as the chart,
         # so the drawer never disagrees with the cash-flow footer).
-        sched = project_charges(active, today, today + dt.timedelta(days=30))
+        d30 = today + dt.timedelta(days=30)
+        sched = project_charges(active, today, d30) + [c for c in await frenewals(subs) if c["date"] <= d30.isoformat()]
+        sched.sort(key=lambda c: c["date"])
         rows = [{"id": f"n{i}", "name": c["who"], "l2": c["note"], "r1": money(c["amount"]),
                  "r2": dlabel(dt.date.fromisoformat(c["date"])), "source_url": c.get("source_url")}
                 for i, c in enumerate(sched)]
         return {"label": "Next 30 days", "source": "GHL Payments",
-                "computed_as": "Scheduled charges (subscriptions + installment finals) in the next 30 days, projected from billing cadence.",
+                "computed_as": "Scheduled charges in the next 30 days: subscriptions + installment finals + PIF renewals.",
                 "count": len(rows), "rows": rows}
 
     # ── Sympli pipeline stage drill (a funnel bar / pivot cell → its loans) ──

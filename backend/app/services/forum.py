@@ -113,7 +113,16 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
         print(f"[forum] merged {len(legacy)} legacy Stripe charges "
               f"({suppressed} GHL backfill copies suppressed)", flush=True)
     subs_all += list(await legacy_recs("subscription"))
-    billing = compute_billing(payments, subs_all, arr, start, end, dt.date.today())
+
+    # PIF renewal projection: paid-in-full members have no monthly subscription, so
+    # project their annual renewal lump from the GHL membership fields (renewal date +
+    # total cost) — excluding anyone already covered by an active sub (no double-count).
+    from .billing import project_renewals
+    active_sub_emails = {(x.email or "").lower() for x in subs_all if x.status == "active" and x.email}
+    renewal_members = [m for m in member_recs if (m.email or "").lower() not in active_sub_emails]
+    today = dt.date.today()
+    extra = project_renewals(renewal_members, today, dt.date(today.year, 12, 31))
+    billing = compute_billing(payments, subs_all, arr, start, end, today, extra_projected=extra)
 
     # ── watch signals (only real ones: failed/past-due payments + event pace) ──
     watch_items = []

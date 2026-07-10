@@ -27,6 +27,89 @@ def _parse_ghl_dt(v) -> dt.date | None:
         return None
 
 
+def _parse_any_date(v) -> dt.date | None:
+    """A GHL custom-field date value → date. Handles ISO / epoch-ms (via _parse_ghl_dt)
+    plus the human formats GHL date pickers emit (MM/DD/YYYY, 'Jan 5, 2026', …)."""
+    if v in (None, "", []):
+        return None
+    d = _parse_ghl_dt(v)
+    if d:
+        return d
+    sv = str(v).strip()
+    for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y/%m/%d", "%d/%m/%Y", "%b %d, %Y", "%B %d, %Y"):
+        try:
+            return dt.datetime.strptime(sv, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_money(v) -> float | None:
+    if v in (None, "", []):
+        return None
+    try:
+        return round(float(str(v).replace("$", "").replace(",", "").strip()), 2)
+    except (ValueError, TypeError):
+        return None
+
+
+def _membership_field_ids(defs: list[dict], cfg: dict) -> dict:
+    """Map our semantic membership keys → GHL custom-field ids by matching the field
+    NAME (case-insensitive keyword), with config override cfg['membership_fields']
+    (semantic_key → field name or id). Degrades to {} when nothing matches, so the
+    projection simply falls back to subscriptions."""
+    override = {k: str(v).strip().lower() for k, v in (cfg.get("membership_fields") or {}).items()}
+    by_name = {}
+    ids = set()
+    for d in defs:
+        nm = (d.get("name") or "").strip().lower()
+        if nm:
+            by_name.setdefault(nm, d.get("id"))
+        ids.add(d.get("id"))
+
+    def pick(key, kws, prefer=None):
+        ov = override.get(key)
+        if ov:
+            return by_name.get(ov) or (ov if ov in ids else None)
+        for require in ([True, False] if prefer else [False]):
+            for d in defs:
+                nm = (d.get("name") or "").lower()
+                if any(kw in nm for kw in kws) and (not require or prefer in nm):
+                    return d.get("id")
+        return None
+
+    out = {}
+    for key, kws, prefer in [
+        ("renewal_date", ["renewal"], "date"),
+        ("enrollment_date", ["enroll"], "date"),
+        ("total_cost", ["total", "cost", "amount"], "member"),
+        ("payment_plan", ["payment plan", "pay plan", "plan type", "payment type", "membership plan"], None),
+    ]:
+        fid = pick(key, kws, prefer)
+        if fid:
+            out[key] = fid
+    return out
+
+
+def _read_membership(values: dict, field_ids: dict) -> dict:
+    """A contact's custom-field values (id→value) → the semantic membership record."""
+    from .billing import normalize_payment_plan
+    out = {}
+    rd = _parse_any_date(values.get(field_ids.get("renewal_date")))
+    ed = _parse_any_date(values.get(field_ids.get("enrollment_date")))
+    tc = _parse_money(values.get(field_ids.get("total_cost")))
+    pp = normalize_payment_plan(values.get(field_ids.get("payment_plan")))
+    if rd:
+        out["renewal_date"] = rd.isoformat()
+    if ed:
+        out["enrollment_date"] = ed.isoformat()
+    if tc is not None:
+        out["total_cost"] = tc
+    if pp:
+        out["payment"] = pp
+    return out
+
+
 async def _valid_access_token(s: AsyncSession, integ: Integration) -> str:
     now = dt.datetime.now(dt.timezone.utc)                 # tz-aware
     exp = integ.token_expires_at
@@ -229,6 +312,16 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     # 1) Contacts → members (tag union, segmented) + event registrations (tag).
     #    A registration whose contact is NOT a member is a guest (prospect seat).
     contacts = await ghl.get_contacts(token, location_id)
+    # Membership detail (populated from ClickUp): map the location's custom fields once,
+    # then read each member's renewal date / enrollment date / total cost / payment plan.
+    field_ids = {}
+    try:
+        field_ids = _membership_field_ids(await ghl.get_custom_fields(token, location_id), cfg)
+    except Exception as e:  # noqa: BLE001 — custom fields optional; never fail the sync
+        print(f"[ghl] custom fields skipped: {e}", flush=True)
+    if field_ids:
+        print(f"[ghl] membership fields mapped: {sorted(field_ids)}", flush=True)
+
     members, regs = [], []
     for c in contacts:
         tset = set(ghl.contact_tags(c))
@@ -239,12 +332,17 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                     email=(c.get("email") or None),
                     source_url=ghl.contact_url(location_id, c.get("id")))
         if is_member:
+            detail = _read_membership(ghl.contact_custom_values(c), field_ids) if field_ids else {}
             members.append({**base, "kind": "member", "status": "active",
-                            "segment": ghl.member_segment(tset, forum_tags, ic_tags)})
+                            "segment": ghl.member_segment(tset, forum_tags, ic_tags),
+                            "meta": {"membership": detail}})
         if event_tag and event_tag in tset:
             regs.append({**base, "kind": "registration", "status": "registered",
                          "meta": {"event_tag": event_tag, "guest": not is_member, "contact_id": cid}})
     await _ghl_snapshot(s, tenant_id, biz, "member", members)
+    # contact_id → payment plan from the field, to drive the membership payment mix below.
+    plan_by_contact = {m["external_id"]: (m["meta"]["membership"].get("payment"))
+                       for m in members if (m["meta"]["membership"] or {}).get("payment")}
     await _ghl_snapshot(s, tenant_id, biz, "registration", regs)
     n_records = len(members) + len(regs)
     print(f"[ghl] {len(members)} members, {len(regs)} registered for '{event_tag}' "
@@ -380,16 +478,19 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         mrs = (await s.execute(select(MetricRecord).where(
             MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
             MetricRecord.source == "ghl", MetricRecord.kind == "membership"))).scalars().all()
-        matched = 0
+        matched, from_field = 0, 0
         for m in mrs:
             meta = dict(m.meta or {})
+            # Prefer the ClickUp-sourced payment-plan field; else infer from a live sub.
+            field_plan = plan_by_contact.get(meta.get("contact_id"))
             is_monthly = meta.get("contact_id") in payers
-            meta["payment"] = "monthly" if is_monthly else "pif"
+            meta["payment"] = field_plan or ("monthly" if is_monthly else "pif")
             m.meta = meta
-            matched += 1 if is_monthly else 0
+            from_field += 1 if field_plan else 0
+            matched += 1 if meta["payment"] in ("monthly", "financed") else 0
         await s.commit()
-        print(f"[ghl] payment type: {matched}/{len(mrs)} memberships monthly "
-              f"({len(payers)} live sub payers)", flush=True)
+        print(f"[ghl] payment type: {matched}/{len(mrs)} recurring "
+              f"({from_field} from the plan field, {len(payers)} live sub payers)", flush=True)
     except Exception as e:  # noqa: BLE001 — scope/endpoint optional
         print(f"[ghl] subscriptions skipped: {e}", flush=True)
 

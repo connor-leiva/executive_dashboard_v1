@@ -50,6 +50,27 @@ def contact_tags(c: dict) -> list[str]:
     return [str(t).strip().lower() for t in (c.get("tags") or [])]
 
 
+async def get_custom_fields(token: str, location_id: str) -> list[dict]:
+    """Custom-field DEFINITIONS for the location: [{id, name, dataType, fieldKey}].
+    Lets us map a contact's customFields (id → value) to the named membership fields
+    the team populated from ClickUp (renewal date, enrollment date, total cost, plan)."""
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get(f"{GHL_BASE}/locations/{location_id}/customFields", headers=_headers(token))
+        if r.status_code != 200:
+            return []
+        return (r.json() or {}).get("customFields") or []
+
+
+def contact_custom_values(contact: dict) -> dict:
+    """{field_id: value} for a contact's populated custom fields (blanks dropped)."""
+    out: dict = {}
+    for f in (contact.get("customFields") or []):
+        v = f.get("value")
+        if v not in (None, "", []):
+            out[f.get("id")] = v
+    return out
+
+
 def contact_name(c: dict) -> str:
     name = " ".join(p for p in [c.get("firstName"), c.get("lastName")] if p).strip()
     return name or c.get("contactName") or c.get("name") or c.get("email") or str(c.get("id"))

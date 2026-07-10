@@ -188,6 +188,51 @@ def mrr_of(subs) -> float:
                      if x.status == "active" and is_perpetual(x)), 2)
 
 
+def normalize_payment_plan(v) -> str | None:
+    """A GHL 'payment plan' custom-field value → pif | monthly | financed | None.
+    PIF renews as an annual lump; monthly/financed bill via a subscription."""
+    d = str(v or "").strip().lower()
+    if not d:
+        return None
+    if "pif" in d or "paid in full" in d or d == "full" or "one time" in d or "one-time" in d:
+        return "pif"
+    if "financ" in d:
+        return "financed"
+    if "month" in d:
+        return "monthly"
+    return None
+
+
+def project_renewals(members, today: dt.date, until: dt.date) -> list[dict]:
+    """Projected annual renewal lump sums for PIF members — the paid-in-full members
+    who have NO monthly subscription, so `project_charges` can't see them. Driven by
+    the GHL membership fields (renewal date + total cost, populated from ClickUp).
+    `members` are MetricRecord-like objects whose `meta['membership']` carries
+    {payment, renewal_date, total_cost}. Recurs on the yearly anniversary; a past
+    renewal date rolls forward to the next one. The caller passes only members not
+    already covered by an active subscription (no double-count). Pure + testable."""
+    out: list[dict] = []
+    for m in members:
+        mem = (getattr(m, "meta", None) or {}).get("membership") or {}
+        if mem.get("payment") != "pif":
+            continue
+        amt = _num(mem.get("total_cost"))
+        d = _pdate(mem.get("renewal_date"))
+        if amt <= 0 or not d:
+            continue
+        guard = 0
+        while d <= today and guard < 25:          # roll a past renewal to the next anniversary
+            d = _add_months(d, 12)
+            guard += 1
+        while d and d <= until:
+            out.append({"date": d.isoformat(), "amount": round(amt, 2),
+                        "who": getattr(m, "name", None) or "Member", "note": "renewal",
+                        "source_url": getattr(m, "source_url", None)})
+            d = _add_months(d, 12)
+    out.sort(key=lambda r: r["date"])
+    return out
+
+
 def _num(v) -> float:
     try:
         return float(v or 0)
@@ -232,11 +277,16 @@ def merge_payment_sources(ghl_payments, legacy_payments) -> tuple[list, int]:
 
 
 def compute_billing(payments, subs, arr_book: float,
-                    period_start: dt.date, period_end: dt.date, today: dt.date) -> dict:
+                    period_start: dt.date, period_end: dt.date, today: dt.date,
+                    extra_projected: list[dict] | None = None) -> dict:
     """Assemble the Forum billing block from `payment` + enriched `subscription`
-    records (Section 4). `available` is False when there are no payment rows."""
+    records (Section 4). `extra_projected` are non-subscription future charges (PIF
+    renewal lump sums from the GHL membership fields) folded into the forward
+    projection only — never MRR. `available` is False when there are no payment rows."""
     if not payments:
         return {"available": False}
+    extra_future = [c for c in (extra_projected or [])
+                    if dt.date.fromisoformat(c["date"]) > today]
 
     dated = [p for p in payments if p.occurred_on]
     span_start = min((p.occurred_on for p in dated), default=period_start)
@@ -264,9 +314,10 @@ def compute_billing(payments, subs, arr_book: float,
 
     active = [x for x in subs if x.status == "active"]
     proj_by_month: dict = defaultdict(float)
-    for c in project_charges(active, today, dt.date(today.year, 12, 31)):
+    for c in project_charges(active, today, dt.date(today.year, 12, 31)) + extra_future:
         d = dt.date.fromisoformat(c["date"])
-        proj_by_month[(d.year, d.month)] += c["amount"]
+        if d <= dt.date(today.year, 12, 31):
+            proj_by_month[(d.year, d.month)] += c["amount"]
 
     # Each month splits into `actual` (cash already collected) + `projected` (charges
     # still scheduled). Past = all actual; future = all projected; the CURRENT month
@@ -316,8 +367,11 @@ def compute_billing(payments, subs, arr_book: float,
 
     # Forward billing — projected charges over the next 30 and 90 days, plus the
     # remaining-year total, all derived from each active sub's billing cadence.
-    sched30 = project_charges(active, today, today + dt.timedelta(days=30))
-    sched90 = project_charges(active, today, today + dt.timedelta(days=90))
+    d30, d90 = today + dt.timedelta(days=30), today + dt.timedelta(days=90)
+    sched30 = project_charges(active, today, d30) + [c for c in extra_future if dt.date.fromisoformat(c["date"]) <= d30]
+    sched90 = project_charges(active, today, d90) + [c for c in extra_future if dt.date.fromisoformat(c["date"]) <= d90]
+    sched30.sort(key=lambda r: r["date"])
+    sched90.sort(key=lambda r: r["date"])
     next30 = {"amount": round(sum(r["amount"] for r in sched30), 2),
               "charges": len(sched30), "schedule": sched30}
     forecast = {
