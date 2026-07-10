@@ -372,7 +372,10 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 MetricRecord.source == "stripe_legacy", MetricRecord.kind == "payment"))).scalars().all()
             if not legacy:
                 return ghl
-            merged, _ = merge_payment_sources(ghl, legacy)
+            # Drop the mis-dated CSV backfill (no Stripe charge id); legacy Stripe is the
+            # authority for those, with real dates. Keep native (charge-id-bearing) rows.
+            native = [p for p in ghl if (p.meta or {}).get("charge_id")]
+            merged, _ = merge_payment_sources(native, legacy)
             return merged
 
         async def fsubs():

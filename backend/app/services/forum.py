@@ -109,9 +109,15 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     # Legacy subscribers aren't in the new-GHL subs (that's the gap) → subs are additive.
     legacy = await legacy_recs("payment")
     if legacy:
-        payments, suppressed = merge_payment_sources(payments, legacy)
-        print(f"[forum] merged {len(legacy)} legacy Stripe charges "
-              f"({suppressed} GHL backfill copies suppressed)", flush=True)
+        # The CSV backfill copied legacy charges into GHL with NO Stripe charge id and the
+        # WRONG date (the import day) — drop those from the dashboard and let legacy Stripe
+        # (real dates) be the authority. Native new-sub-account charges carry a charge id
+        # and are kept; the backfill still lives in GHL for contact history.
+        native = [p for p in payments if (p.meta or {}).get("charge_id")]
+        dropped = len(payments) - len(native)
+        payments, suppressed = merge_payment_sources(native, legacy)
+        print(f"[forum] legacy merge: {len(legacy)} legacy charges · dropped {dropped} "
+              f"mis-dated GHL backfill rows · {suppressed} deduped", flush=True)
     subs_all += list(await legacy_recs("subscription"))
 
     # PIF renewal projection: paid-in-full members have no monthly subscription, so

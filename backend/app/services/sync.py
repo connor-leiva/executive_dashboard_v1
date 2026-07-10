@@ -738,7 +738,10 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
             off_roster += 1
             continue
         desc = stripe_legacy.charge_description(ch)
-        include, segment = forum_offering(desc, cfg)      # drop members' non-Forum purchases
+        # recurring (subscription-linked) or membership-sized charges are memberships even
+        # when the description is thin; drop only members' small non-Forum one-offs.
+        include, segment = forum_offering(desc, cfg, amount=stripe_legacy.charge_amount(ch),
+                                          recurring=bool(ch.get("invoice")))
         if not include:
             off_forum += 1
             continue

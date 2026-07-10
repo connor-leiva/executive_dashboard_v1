@@ -92,9 +92,14 @@ def test_forum_offering_rules():
     assert forum_offering("Event Ticket") == (False, None)                   # the $7 tickets
     assert forum_offering("The Forum VIP Ticket") == (True, "forum")         # a Forum event IS kept
     assert forum_offering("Buyer Mastery Course") == (False, None)
-    assert forum_offering("Some Random Charge") == (False, None)             # ambiguous one-off → out
+    assert forum_offering("Some Random Charge") == (False, None)             # small ambiguous one-off → out
     # a recurring subscription for a roster member is a membership even if thinly named
     assert forum_offering("Standard Plan", is_subscription=True) == (True, "inner_circle")
+    # thin description but recurring or membership-sized → a membership (not dropped)
+    assert forum_offering("Subscription update", recurring=True) == (True, "inner_circle")
+    assert forum_offering("Some Random Charge", amount=2000) == (True, "inner_circle")
+    assert forum_offering("Tiny one-off", amount=25) == (False, None)        # small → out
+    assert forum_offering("The Edge Intensive", amount=5000) == (False, None)  # denylisted beats size
 
 
 def test_forum_offering_config_overrides():
@@ -305,3 +310,37 @@ async def test_legacy_subscriptions_lift_mrr(monkeypatch):
 
         lifted = (await build_forum(s, t.id, "ytd"))["billing"]["mrr"]
         assert lifted == base_mrr + 2500.0                     # legacy dues now in MRR
+
+
+async def test_backfill_ghl_rows_dropped_for_legacy():
+    """The CSV-backfill GHL rows (no charge id, dated the import day) are dropped once
+    legacy Stripe is present; the charge shows once, on its real legacy date."""
+    from sqlalchemy import select
+    from app.seed import seed
+    from app.db import SessionLocal
+    from app.models import Tenant, Business, MetricRecord
+    from app.services.lineage import metric_detail
+
+    await seed()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id, Business.key == "springb"))).scalar_one()
+        today = dt.date.today()
+        # the mis-dated GHL backfill copy (no charge_id, dated the import day)
+        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="ghl", kind="payment",
+                           external_id="ghl_bf", name="Backfill Person", email="bf@forum.com",
+                           amount=9999, status="succeeded", occurred_on=today,
+                           meta={"stream": "memberships", "amount_refunded": 0}))
+        # the real legacy Stripe charge (charge_id + correct earlier date)
+        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="stripe_legacy", kind="payment",
+                           external_id="ch_bf", name="Backfill Person", email="bf@forum.com",
+                           amount=9999, status="succeeded", occurred_on=dt.date(2026, 2, 10),
+                           source_url="https://dashboard.stripe.com/payments/pi_bf",
+                           meta={"stream": "memberships", "amount_refunded": 0,
+                                 "charge_id": "ch_bf", "legacy": True}))
+        await s.commit()
+
+        allt = await metric_detail(s, t.id, "forum_payments", "ytd", business="springb")
+        bf = [r for r in allt["rows"] if r["name"] == "Backfill Person"]
+        assert len(bf) == 1 and bf[0]["r2"] == "Feb 10"        # once, on the real legacy date

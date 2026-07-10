@@ -49,7 +49,8 @@ _NON_FORUM_DEFAULT = [
 ]
 
 
-def forum_offering(description, config=None, is_subscription=False) -> tuple[bool, str | None]:
+def forum_offering(description, config=None, is_subscription=False,
+                   amount=0.0, recurring=False) -> tuple[bool, str | None]:
     """Is a legacy Stripe charge/subscription a FORUM or INNER CIRCLE offering — vs a
     Forum member's OTHER purchases through the same account?
 
@@ -57,10 +58,12 @@ def forum_offering(description, config=None, is_subscription=False) -> tuple[boo
     it is Inner Circle; small event tickets ($7) and non-membership products (courses,
     The Edge, beCollective) are not the Forum. Returns (include, segment).
 
-    Ambiguous one-off charges default to NOT Forum (so a member's course/product doesn't
-    inflate Forum cash); a recurring subscription for a roster member defaults to Inner
-    Circle (it's a membership even when the plan name is thin — don't drop real MRR).
-    Tunable: config['non_forum_keywords'] (deny), config['forum_keywords'] (extra Forum)."""
+    Descriptions on legacy charges are often thin ("Subscription update"), so a charge
+    from a roster member that is RECURRING (subscription-linked) or membership-SIZED
+    (≥ membership_min_amount, default $500) is treated as a membership — only a small
+    one-off with no membership signal is dropped. A denylisted product is never Forum,
+    whatever the amount. Tunable: config['non_forum_keywords'], ['forum_keywords'],
+    ['membership_min_amount']."""
     config = config or {}
     d = (description or "").lower()
     if any(k.lower() in d for k in (config.get("non_forum_keywords") or _NON_FORUM_DEFAULT)):
@@ -76,9 +79,11 @@ def forum_offering(description, config=None, is_subscription=False) -> tuple[boo
     if any(w in d for w in ("membership", "dues", "financed", "pif", "payment plan",
                             "2 pay", "3 pay", "4 pay", "installment")):
         return (True, "inner_circle")              # a membership charge with no 'Forum'
-    if is_subscription:
-        return (True, "inner_circle")              # any recurring sub for a member = membership
-    return (False, None)                           # ambiguous one-off → not Forum revenue
+    min_amt = config.get("membership_min_amount")
+    min_amt = 500.0 if min_amt is None else float(min_amt)
+    if is_subscription or recurring or float(amount or 0) >= min_amt:
+        return (True, "inner_circle")              # recurring / membership-sized → a membership
+    return (False, None)                           # small ambiguous one-off → not Forum revenue
 
 
 def _pdate(v) -> dt.date | None:
