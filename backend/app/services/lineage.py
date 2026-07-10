@@ -476,37 +476,51 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
 
         today = dt.date.today()
 
-        # forum_cashflow — a clicked cash-flow month bar. Past/current month → the
-        # actual transactions; a future month → the projected charges (same source
-        # as the chart, so drawer and bar always agree).
+        # forum_cashflow — a clicked cash-flow month bar. Shows COLLECTED (succeeded
+        # charges; failed excluded to keep the cash view clean) AND SCHEDULED (projected
+        # charges still to bill) so the drawer mirrors the bar's "collected + scheduled".
         if key == "forum_cashflow":
             try:
                 y, mo = int(str(month)[:4]), int(str(month)[5:7])
             except (TypeError, ValueError):
                 y, mo = today.year, today.month
             mname = dt.date(y, mo, 1).strftime("%B %Y")
+            month_end = dt.date(y + mo // 12, mo % 12 + 1, 1) - dt.timedelta(days=1)
+            is_past = (y, mo) < (today.year, today.month)
+            is_current = (y, mo) == (today.year, today.month)
+
+            rows, collected_sum, scheduled_sum = [], 0.0, 0.0
             if (y, mo) <= (today.year, today.month):
                 pays = [p for p in await fpayments()
-                        if p.occurred_on and (p.occurred_on.year, p.occurred_on.month) == (y, mo)]
+                        if p.occurred_on and (p.occurred_on.year, p.occurred_on.month) == (y, mo)
+                        and p.status == "succeeded"]                       # failed excluded
                 pays.sort(key=lambda p: (p.occurred_on or dt.date.min), reverse=True)
-                rows = [{"id": str(p.id), "name": nm(p),
-                         "tone": "watch" if p.status == "failed" else None,
-                         "l2": " · ".join(x for x in [desc_of(p),
-                                                      (p.status if p.status != "succeeded" else None)] if x),
-                         "r1": money(p.amount), "r2": dlabel(p.occurred_on),
-                         "source_url": p.source_url} for p in pays]
-                return {"label": f"{mname} · cash collected", "source": "Stripe payments",
-                        "computed_as": f"Stripe charges recorded in {mname} (net of refunds; GHL + legacy).",
-                        "count": len(rows), "rows": rows}
-            last = dt.date(y + mo // 12, mo % 12 + 1, 1) - dt.timedelta(days=1)
-            sched = [c for c in project_charges(active, today, last) + await frenewals(subs)
-                     if c["date"][:7] == f"{y}-{mo:02d}"]
-            sched.sort(key=lambda c: c["date"])
-            rows = [{"id": f"p{i}", "name": c["who"], "l2": c["note"] + " · projected",
-                     "r1": money(c["amount"]), "r2": dlabel(dt.date.fromisoformat(c["date"])),
-                     "source_url": c.get("source_url")} for i, c in enumerate(sched)]
-            return {"label": f"{mname} · projected inflow", "source": "GHL Payments",
-                    "computed_as": f"Expected charges in {mname}: active subscriptions (billing cadence) + PIF member renewals.",
+                collected_sum = sum(float(p.amount or 0) for p in pays)
+                rows += [{"id": str(p.id), "name": nm(p),
+                          "l2": " · ".join(x for x in [desc_of(p), "collected"] if x),
+                          "r1": money(p.amount), "r2": dlabel(p.occurred_on),
+                          "source_url": p.source_url} for p in pays]
+            if (y, mo) >= (today.year, today.month):
+                sched = [c for c in project_charges(active, today, month_end) + await frenewals(subs)
+                         if c["date"][:7] == f"{y}-{mo:02d}"]
+                sched.sort(key=lambda c: c["date"])
+                scheduled_sum = sum(c["amount"] for c in sched)
+                rows += [{"id": f"s{i}", "name": c["who"], "tone": "projected",
+                          "l2": " · ".join(x for x in [c.get("note"), "scheduled"] if x),
+                          "r1": money(c["amount"]), "r2": dlabel(dt.date.fromisoformat(c["date"])),
+                          "source_url": c.get("source_url")} for i, c in enumerate(sched)]
+
+            if is_past:
+                label = f"{mname} · cash collected"
+                how = f"Succeeded charges recorded in {mname} (net of refunds; GHL + legacy)."
+            elif is_current:
+                label = f"{mname} · collected + scheduled"
+                how = (f"{money(collected_sum)} collected so far + {money(scheduled_sum)} still scheduled "
+                       f"= {money(collected_sum + scheduled_sum)} expected this month.")
+            else:
+                label = f"{mname} · projected inflow"
+                how = f"Charges expected in {mname}: active subscriptions (billing cadence) + PIF member renewals."
+            return {"label": label, "source": "Stripe payments", "computed_as": how,
                     "count": len(rows), "rows": rows}
 
         # forum_next30 — the forward-billing schedule (SAME projection as the chart,

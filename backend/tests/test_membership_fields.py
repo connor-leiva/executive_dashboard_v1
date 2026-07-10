@@ -116,3 +116,44 @@ async def test_build_forum_includes_pif_renewal():
 
         lifted = (await build_forum(s, t.id, "ytd"))["billing"]["forecast"]["rest_of_year"]
         assert lifted == base + 30000
+
+
+async def test_cashflow_current_month_shows_collected_and_scheduled():
+    """The clicked current-month drawer excludes failed charges and shows both what's
+    been collected AND what's still scheduled (subs + PIF renewals)."""
+    from app.seed import seed
+    from app.db import SessionLocal
+    from app.models import Tenant, Business, MetricRecord
+    from app.services.lineage import metric_detail
+
+    await seed()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id, Business.key == "springb"))).scalar_one()
+        today = dt.date.today()
+        ym = f"{today.year}-{today.month:02d}"
+        # collected (succeeded) this month
+        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="stripe_legacy", kind="payment",
+                           external_id="ok1", name="Paid Member", email="paid@forum.com", amount=2000,
+                           status="succeeded", occurred_on=today.replace(day=1),
+                           meta={"stream": "memberships", "amount_refunded": 0, "charge_id": "ch_ok1"}))
+        # a FAILED charge this month — must be excluded from the cash drawer
+        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="stripe_legacy", kind="payment",
+                           external_id="fail1", name="Failed Member", email="fail@forum.com", amount=2000,
+                           status="failed", occurred_on=today.replace(day=1),
+                           meta={"stream": "memberships", "amount_refunded": 0, "charge_id": "ch_fail1"}))
+        # a PIF member renewing later this month → scheduled
+        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="ghl", kind="member",
+                           external_id="pifm", name="PIF Member", email="pifm@forum.com", status="active",
+                           meta={"membership": {"payment": "pif",
+                                                "renewal_date": today.replace(day=min(today.day + 8, 28)).isoformat(),
+                                                "total_cost": 30000}}))
+        await s.commit()
+
+        d = await metric_detail(s, t.id, "forum_cashflow", "ytd", business="springb", month=ym)
+        names = [r["name"] for r in d["rows"]]
+        assert "Paid Member" in names and "Failed Member" not in names   # collected, failed excluded
+        assert "collected + scheduled" in d["label"]
+        sched = [r for r in d["rows"] if r.get("tone") == "projected"]
+        assert any(r["name"] == "PIF Member" and r["r1"] == "$30,000" for r in sched)

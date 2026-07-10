@@ -127,6 +127,7 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
                   // financial shape. tone:"watch" → daffodil dot + amber value (never red).
                   const forum = r.seg !== undefined || r.l2 !== undefined || r.r1 !== undefined;
                   const watch = r.tone === "watch";
+                  const projected = r.tone === "projected";   // scheduled / not yet collected
                   return (
                     <li key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${T.line}` }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -134,13 +135,14 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
                           <span style={{ fontSize: 13, color: T.ink, fontWeight: forum ? 600 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
                           {r.seg && <SegChip seg={r.seg} />}
                           {watch && <span aria-hidden style={{ width: 6, height: 6, borderRadius: 99, background: T.daffodil, border: `1.5px solid ${T.amber}`, flexShrink: 0 }} />}
+                          {projected && <span aria-hidden title="Scheduled — not yet collected" style={{ width: 6, height: 6, borderRadius: 99, background: "transparent", border: `1.5px dashed ${T.meadow}`, flexShrink: 0 }} />}
                         </div>
                         {forum
                           ? (r.l2 && <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{r.l2}</div>)
                           : ((r.close_date || r.address || r.side || r.company_dollar != null) && <div style={{ fontSize: 11, color: T.muted }}>{[r.close_date, r.address, r.side, r.company_dollar != null ? `net ${usd(r.company_dollar)}` : null].filter(Boolean).join(" · ")}</div>)}
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: watch ? T.amber : T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{forum ? r.r1 : amountFor(r)}</div>
+                        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: watch ? T.amber : projected ? T.slate : T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{forum ? r.r1 : amountFor(r)}</div>
                         {forum && r.r2 && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>{r.r2}</div>}
                       </div>
                       {r.source_url && <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in the source system" style={{ fontSize: 14, color: T.teal, textDecoration: "none" }}>↗</a>}
