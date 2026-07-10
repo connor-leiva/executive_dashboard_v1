@@ -180,6 +180,31 @@ async def ghl_transactions(token: str, location_id: str, max_pages: int | None =
     return out
 
 
+async def get_invoices(token: str, location_id: str, max_pages: int | None = None) -> list[dict]:
+    """All invoices for the location (altId/altType) — carry `invoiceItems` (the real
+    line-item labels) that a transaction references by entitySourceId. Read-only."""
+    out: list[dict] = []
+    params: dict = {"altId": location_id, "altType": "location", "limit": 100, "offset": 0}
+    page = 0
+    async with httpx.AsyncClient(timeout=45) as c:
+        while True:
+            r = await c.get(f"{GHL_BASE}/invoices/", headers=_headers(token), params=params)
+            r.raise_for_status()
+            data = r.json()
+            rows = data.get("invoices") or data.get("data") or []
+            out.extend(rows)
+            page += 1
+            if len(rows) < 100 or (max_pages and page >= max_pages):
+                break
+            params["offset"] += 100
+    return out
+
+
+def invoice_items(inv: dict) -> list[str]:
+    return [it.get("name") or it.get("description") for it in (inv.get("invoiceItems") or [])
+            if isinstance(it, dict) and (it.get("name") or it.get("description"))]
+
+
 async def ghl_subscription_detail(token: str, location_id: str, sub_id: str) -> dict:
     """A single subscription's detail — carries the recurring product (interval),
     end date, and (via its snapshot) the next-payment date/amount the list omits."""

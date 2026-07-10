@@ -320,6 +320,60 @@ function StripeLegacyConnectForm({ row, onClose, onDone }) {
   );
 }
 
+/* ── Old GHL connect form (read-only token + location id) ────── */
+
+function GhlLegacyConnectForm({ row, onClose, onDone }) {
+  const editing = row.status === "connected" || row.status === "error";
+  const cfg = row.config || {};
+  const [token, setToken] = useState("");
+  const [locationId, setLocationId] = useState(cfg.location_id || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await postJSON("/integrations", {
+        provider: "ghl_legacy", business_key: row.business_key || "springb",
+        token: token.trim() || undefined,   // blank on edit = keep the current token
+        config: { ...cfg, location_id: locationId.trim() },
+      });
+      onDone();
+    } catch {
+      setErr("Couldn't save — check the token (needs Invoices + Payments read) and the location id.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Old GHL" : "Connect Old GHL"}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
+          The old Spring B GHL location (where the legacy Stripe is wired). A <b>read-only</b> Private Integration Token with <b>Invoices: Read</b>, <b>Payments/Transactions: Read</b>, <b>Contacts: Read</b>. Supplies the real label for each legacy charge; stored encrypted.
+        </div>
+        <label style={label}>Private Integration Token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current token</span>}
+          <input style={field} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : ""} required={!editing} />
+        </label>
+        <label style={label}>Location ID <span style={{ fontWeight: 400, color: T.muted }}>· from the old-location GHL URL</span>
+          <input style={field} value={locationId} onChange={(e) => setLocationId(e.target.value)} required />
+        </label>
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ── Legacy Stripe → GHL delta-import panel (generate + watermark) ── */
 
 function LegacyDeltaPanel({ live }) {
@@ -596,6 +650,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
                 {(s.provider === "ghl" || s.provider === "ghl_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit configuration</SBtn>}
                 {s.provider === "arive" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update credentials</SBtn>}
                 {s.provider === "stripe_legacy" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update key</SBtn>}
+                {s.provider === "ghl_legacy" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit connection</SBtn>}
                 <span style={{ flex: 1 }} />
                 {s.integration_id && <button className="si-danger" disabled={!live} onClick={() => onDisconnect(s)}>Disconnect {s.name}</button>}
               </div>
@@ -607,7 +662,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
   );
 }
 
-const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar", stripe_legacy: "St" };
+const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar", stripe_legacy: "St", ghl_legacy: "GL" };
 const DESC = {
   qbo: () => "Financial source of truth · one connection per entity",
   sisu: () => "Real estate production — transactions, agents, GCI",
@@ -616,6 +671,7 @@ const DESC = {
   ghl_bc: () => "beCollective — its own GHL location; members, cohort onboarding, events",
   arive: () => "Uses your Arive API key · lights up Sympli's pipeline and the referral flywheel",
   stripe_legacy: () => "Spring's original Stripe · read-only. Backfills legacy Forum dues the new sub-account never sees, and feeds the GHL delta-import file",
+  ghl_legacy: () => "Old Spring B GHL · read-only. Labels each legacy Stripe charge (join by charge id) so the classifier knows what it's for",
 };
 const SAMPLE_VIEW = {
   healthy: 3, total: 7, next_sync_in_min: 14,
@@ -632,6 +688,7 @@ const SAMPLE_VIEW = {
     { provider: "ghl_bc", name: "Go High Level · beCollective", mono: "bC", status: "ok", fresh: "Synced 1 hour ago", feeds: ["becollective"], provides: ["Members", "Onboarding", "Events"], last_run: "Last run · 30 members · 25 memberships · 1.9s", integration_id: "gb1", config: {}, config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] },
     { provider: "arive", name: "Arive", mono: "Ar", status: "disconnected", feeds: [], provides: ["Loans", "Pipeline"], business_key: "sympli" },
     { provider: "stripe_legacy", name: "Legacy Stripe · The Forum", mono: "St", status: "disconnected", feeds: [], provides: ["Legacy charges", "Recurring dues"], business_key: "springb" },
+    { provider: "ghl_legacy", name: "Old GHL · Charge labels", mono: "GL", status: "disconnected", feeds: [], provides: ["Charge labels", "Invoice line items"], business_key: "springb" },
   ],
 };
 
@@ -681,6 +738,8 @@ function IntegrationsPage() {
       return setConnecting({ provider: "arive", name: s.name, config: s.config || {}, business_key: s.business_key || "sympli", status: "disconnected" });
     if (s.provider === "stripe_legacy")
       return setConnecting({ provider: "stripe_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
+    if (s.provider === "ghl_legacy")
+      return setConnecting({ provider: "ghl_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
   }
   const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || (s.provider === "arive" ? "sympli" : "springb"), status: "connected" });
   const reconnectEntity = (e) => qboConnect(e.business_key);
@@ -751,6 +810,9 @@ function IntegrationsPage() {
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "stripe_legacy"
         ? <StripeLegacyConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : connecting.provider === "ghl_legacy"
+        ? <GhlLegacyConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />
         : <GhlConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />)}

@@ -43,9 +43,10 @@ def classify_stream(name: str | None, overrides: dict | None = None) -> str:
 # Offerings a Forum member may ALSO buy through the same legacy Stripe account, but
 # which are NOT Forum revenue. Tunable via config['non_forum_keywords'].
 _NON_FORUM_DEFAULT = [
+    "spring break",                          # a separate company/event, not the Forum (Connor)
     "the edge", "va in 30", "virtual assistant", "becollective", "be collective",
     "collective", "bootcamp", "playbook", "vault", "buyer mastery", "agent attraction",
-    "operator", "blueprint", "abundance", "shadow", "just in time", "justintime",
+    "operator", "blueprint", "abundance", "shadow", "just in time", "justintime", "justin time",
 ]
 
 
@@ -76,8 +77,8 @@ def forum_offering(description, config=None, is_subscription=False,
         return (True, "forum")
     if ic:
         return (True, "inner_circle")
-    if any(w in d for w in ("membership", "dues", "financed", "pif", "payment plan",
-                            "2 pay", "3 pay", "4 pay", "installment")):
+    if any(w in d for w in ("membership", "subscription for", "dues", "financed", "pif",
+                            "payment plan", "2 pay", "3 pay", "4 pay", "installment")):
         return (True, "inner_circle")              # a membership charge with no 'Forum'
     min_amt = config.get("membership_min_amount")
     min_amt = 500.0 if min_amt is None else float(min_amt)

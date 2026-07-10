@@ -771,6 +771,11 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     since = cfg.get("sync_since_epoch")
     tz = _tz(settings.STRIPE_TIMEZONE or "UTC")   # Stripe account tz (Connor's = UTC),
     #   matching Stripe's own display AND the CSV-import copy so the two collapse in dedupe
+    # Rich label per Stripe charge id, from the old Spring B GHL (what each charge is FOR).
+    pi_label = {ext: nm for ext, nm in (await s.execute(select(
+        MetricRecord.external_id, MetricRecord.name).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
+        MetricRecord.source == "ghl_legacy", MetricRecord.kind == "label"))).all()}
 
     # ── charges → payment records (roster member AND a Forum/IC offering) ──
     charges = await stripe_legacy.list_charges(key, created_gt=since)
@@ -780,9 +785,10 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
         if not email or email in exclude or email not in roster:
             off_roster += 1
             continue
-        desc = stripe_legacy.charge_description(ch)
-        # recurring (subscription-linked) or membership-sized charges are memberships even
-        # when the description is thin; drop only members' small non-Forum one-offs.
+        # Prefer the old-GHL label (what the charge is actually for) over Stripe's thin
+        # description — that's what lets us drop Spring Break, keep Forum sponsorships, etc.
+        pi = stripe_legacy.payment_intent(ch)
+        desc = (pi and pi_label.get(pi)) or stripe_legacy.charge_description(ch)
         include, segment = forum_offering(desc, cfg, amount=stripe_legacy.charge_amount(ch),
                                           recurring=bool(ch.get("invoice")))
         if not include:
@@ -853,6 +859,46 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     return len(rows) + len(sub_rows)
 
 
+async def sync_ghl_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    """Old Spring B GHL (where the legacy Stripe is wired) — read-only. Builds a
+    `pi_ charge id -> real label` map so the legacy-Stripe sync can name + classify each
+    charge by what it's actually FOR. The label is the transaction's entitySourceName,
+    resolved to the invoice's line item for invoice-type charges (e.g. 'Spring Break
+    Special Event Sponsorship' instead of 'Other'). Stored as source='ghl_legacy',
+    kind='label', external_id = the pi_ id."""
+    cfg = integ.config or {}
+    location_id = cfg.get("location_id")
+    token = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not (location_id and token):
+        raise ValueError("Old GHL needs a token and location_id in config.")
+    biz = integ.business_id
+
+    invoices = await ghl.get_invoices(token, location_id)
+    inv_label = {}
+    for iv in invoices:
+        items = ghl.invoice_items(iv)
+        inv_label[str(iv.get("_id"))] = "; ".join(items) or (iv.get("name") or iv.get("title") or "")
+
+    txns = await ghl.ghl_transactions(token, location_id)
+    by_pi = {}
+    for t in txns:
+        pi = t.get("chargeId")
+        if not pi or not str(pi).startswith(("pi_", "ch_")):
+            continue
+        est, name = t.get("entitySourceType"), (t.get("entitySourceName") or "")
+        label = (inv_label.get(str(t.get("entitySourceId"))) or name) if est == "invoice" else name
+        if not label:
+            continue
+        by_pi[str(pi)] = dict(
+            tenant_id=tenant_id, business_id=biz, source="ghl_legacy", kind="label",
+            external_id=str(pi), name=label[:200],
+            meta={"entity_source_type": est, "entity_source_name": name})
+    rows = list(by_pi.values())
+    await _metric_snapshot(s, tenant_id, biz, "ghl_legacy", "label", rows)
+    print(f"[ghl_legacy] {len(rows)} pi_->label from {len(txns)} txns + {len(invoices)} invoices", flush=True)
+    return len(rows)
+
+
 # Every period the dashboard can toggle to needs its own snapshot.
 _QBO_PERIODS = ("mtd", "qtd", "ytd", "last_month")
 
@@ -904,6 +950,8 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
             records = await sync_arive(s, tenant_id, integ)
         elif integ.provider == "stripe_legacy":
             records = await sync_stripe_legacy(s, tenant_id, integ)
+        elif integ.provider == "ghl_legacy":
+            records = await sync_ghl_legacy(s, tenant_id, integ)
         elif integ.provider == "qbo":
             records = await sync_qbo_pl(s, tenant_id, integ)   # syncs all periods itself
         run.status, run.finished_at = "ok", dt.datetime.utcnow()

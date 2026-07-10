@@ -146,6 +146,10 @@ def test_forum_offering_rules():
     assert forum_offering("Some Random Charge", amount=2000) == (True, "inner_circle")
     assert forum_offering("Tiny one-off", amount=25) == (False, None)        # small → out
     assert forum_offering("The Edge Intensive", amount=5000) == (False, None)  # denylisted beats size
+    # old-GHL labels + policy: Spring Break is a separate company (out), Forum sponsorships in
+    assert forum_offering("Spring Break Special Event Sponsorship", amount=15000) == (False, None)
+    assert forum_offering("The Forum Sponsorship - 5K", amount=5000) == (True, "forum")
+    assert forum_offering("Subscription for Ed Kaminsky", amount=2000) == (True, "inner_circle")
 
 
 def test_forum_offering_config_overrides():
@@ -356,6 +360,70 @@ async def test_legacy_subscriptions_lift_mrr(monkeypatch):
 
         lifted = (await build_forum(s, t.id, "ytd"))["billing"]["mrr"]
         assert lifted == base_mrr + 2500.0                     # legacy dues now in MRR
+
+
+async def test_old_ghl_label_drives_classification(monkeypatch):
+    """The old Spring B GHL supplies each charge's real label (join by pi_). A Spring
+    Break sponsorship charge — thin in Stripe ('Payment for invoice 000061') — gets the
+    label 'Spring Break Special Event Sponsorship' and is then EXCLUDED (separate co)."""
+    from sqlalchemy import select
+    from app.seed import seed
+    from app.db import SessionLocal
+    from app.models import Tenant, Business, Integration, MetricRecord
+    from app.security import enc
+    from app.services import sync as sync_mod
+    from app.integrations import ghl as ghl_mod, stripe_legacy as sl_mod
+
+    await seed()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id, Business.key == "springb"))).scalar_one()
+        member = "sponsor@forum.com"
+        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="ghl", kind="member",
+                           external_id="rs_sp", email=member, status="active"))
+        s.add(Integration(tenant_id=t.id, provider="ghl_legacy", business_id=biz.id, status="connected",
+                          access_token_enc=enc("tok"), config={"location_id": "OLDLOC"}))
+        s.add(Integration(tenant_id=t.id, provider="stripe_legacy", business_id=biz.id, status="connected",
+                          access_token_enc=enc("rk")))
+        await s.commit()
+
+        async def fake_invoices(token, location_id, max_pages=None):
+            return [{"_id": "inv1", "name": "Sponsorship Invoice",
+                     "invoiceItems": [{"name": "Spring Break Special Event Sponsorship"}]}]
+
+        async def fake_txns(token, location_id, max_pages=None):
+            return [{"chargeId": "pi_SP", "entitySourceType": "invoice", "entitySourceId": "inv1",
+                     "entitySourceName": "Sponsorship Invoice", "amount": 15000}]
+        monkeypatch.setattr(ghl_mod, "get_invoices", fake_invoices)
+        monkeypatch.setattr(ghl_mod, "ghl_transactions", fake_txns)
+
+        gl = (await s.execute(select(Integration).where(
+            Integration.tenant_id == t.id, Integration.provider == "ghl_legacy"))).scalar_one()
+        await sync_mod.sync_ghl_legacy(s, t.id, gl)
+        label = (await s.execute(select(MetricRecord.name).where(
+            MetricRecord.tenant_id == t.id, MetricRecord.source == "ghl_legacy",
+            MetricRecord.kind == "label", MetricRecord.external_id == "pi_SP"))).scalar_one()
+        assert label == "Spring Break Special Event Sponsorship"
+
+        async def fake_charges(key, created_gt=None, max_pages=None):
+            return [{"id": "ch_SP", "payment_intent": "pi_SP", "amount": 1500000, "amount_refunded": 0,
+                     "status": "succeeded", "created": 1770000000, "currency": "usd",
+                     "description": "Payment for invoice 000061",
+                     "billing_details": {"email": member, "name": "Shaun Farr"}}]
+
+        async def fake_subs(key, max_pages=None):
+            return []
+        monkeypatch.setattr(sl_mod, "list_charges", fake_charges)
+        monkeypatch.setattr(sl_mod, "list_subscriptions", fake_subs)
+
+        sl = (await s.execute(select(Integration).where(
+            Integration.tenant_id == t.id, Integration.provider == "stripe_legacy"))).scalar_one()
+        await sync_mod.sync_stripe_legacy(s, t.id, sl)
+        pays = (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == t.id, MetricRecord.source == "stripe_legacy",
+            MetricRecord.kind == "payment"))).scalars().all()
+        assert pays == []          # the Spring Break sponsorship is excluded via the old-GHL label
 
 
 async def test_backfill_ghl_rows_dropped_for_legacy():
