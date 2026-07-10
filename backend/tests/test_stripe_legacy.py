@@ -177,3 +177,35 @@ async def test_sync_stripe_legacy_filters_to_roster(monkeypatch):
         assert r.email == member_email.strip().lower() and float(r.amount) == 2500.0
         assert r.meta["stream"] == "memberships" and r.meta["legacy"] is True
         assert r.meta["charge_id"] == "ch_match" and r.meta["charged_at"]
+
+
+async def test_cashflow_drill_shows_legacy_only_month():
+    """The bug: clicking a pre-sub-account month showed '0 records' because the drill
+    read GHL only, while the chart bar included the merged legacy charge. Now the drill
+    merges the same way."""
+    from sqlalchemy import select
+    from app.seed import seed
+    from app.db import SessionLocal
+    from app.models import Tenant, Business, MetricRecord
+    from app.services.lineage import metric_detail
+
+    await seed()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id, Business.key == "springb"))).scalar_one()
+        # A legacy charge in January — before the 4-month-old sub-account existed (no GHL rows).
+        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="stripe_legacy", kind="payment",
+                           external_id="ch_jan1", name="Legacy Member", email="jan@forum.com",
+                           amount=2000, status="succeeded", occurred_on=dt.date(2026, 1, 15),
+                           source_url="https://dashboard.stripe.com/payments/pi_jan1",
+                           meta={"stream": "memberships", "charged_at": "2026-01-15T12:00:00+00:00",
+                                 "amount_refunded": 0, "charge_id": "ch_jan1", "legacy": True}))
+        await s.commit()
+
+        jan = await metric_detail(s, t.id, "forum_cashflow", "ytd", business="springb", month="2026-01")
+        assert jan["count"] >= 1 and jan["source"] == "Stripe payments"
+        assert any(r["name"] == "Legacy Member" and r["r1"] == "$2,000" for r in jan["rows"])
+        # And it surfaces in the all-transactions drill too.
+        allt = await metric_detail(s, t.id, "forum_payments", "ytd", business="springb")
+        assert any(r["name"] == "Legacy Member" for r in allt["rows"])

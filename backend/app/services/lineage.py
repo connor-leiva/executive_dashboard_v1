@@ -348,7 +348,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     # ── The Forum · Cash & Billing drills (GHL Payments) ──
     if key in {"forum_payments", "forum_failed_payments", "forum_mrr_subs",
                "forum_installments", "forum_next30", "forum_streams", "forum_cashflow"}:
-        from .billing import is_perpetual, sub_monthly, project_charges, STREAM_LABELS
+        from .billing import is_perpetual, sub_monthly, project_charges, STREAM_LABELS, merge_payment_sources
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
 
@@ -358,6 +358,21 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             return (await s.execute(select(MetricRecord).where(
                 MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
                 MetricRecord.source == "ghl", MetricRecord.kind == kind))).scalars().all()
+
+        async def fpayments():
+            """The payment rows behind the cash drills = the GHL feed MERGED with the
+            legacy-Stripe feed (same dedupe as build_forum), so the drawer always
+            matches the chart — e.g. a pre-sub-account month is all legacy, not empty."""
+            ghl = await frecs("payment")
+            if not biz:
+                return []
+            legacy = (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "stripe_legacy", MetricRecord.kind == "payment"))).scalars().all()
+            if not legacy:
+                return ghl
+            merged, _ = merge_payment_sources(ghl, legacy)
+            return merged
 
         def money(n):
             return f"${float(n or 0):,.0f}"
@@ -369,7 +384,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             return d.strftime("%b %d") if d else None
 
         if key in ("forum_payments", "forum_streams"):
-            pays = await frecs("payment")
+            pays = await fpayments()
             if key == "forum_streams" and stream:
                 pays = [p for p in pays if (p.meta or {}).get("stream") == stream]
             pays = [p for p in pays if p.occurred_on]
@@ -382,15 +397,15 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                      "source_url": p.source_url} for p in pays]
             if key == "forum_streams":
                 lbl = STREAM_LABELS.get(stream, (stream or "").title() or "Revenue by stream")
-                return {"label": lbl, "source": "GHL Payments",
-                        "computed_as": f"Succeeded Stripe charges classified as {lbl} (net of refunds; all recorded payments).",
+                return {"label": lbl, "source": "Stripe payments",
+                        "computed_as": f"Succeeded Stripe charges classified as {lbl} (net of refunds; all recorded payments, GHL + legacy).",
                         "count": len(rows), "rows": rows}
-            return {"label": "All transactions", "source": "GHL Payments",
-                    "computed_as": "Every Stripe charge on record — succeeded, failed, refunded.",
+            return {"label": "All transactions", "source": "Stripe payments",
+                    "computed_as": "Every Stripe charge on record — succeeded, failed, refunded — across GHL and the legacy account.",
                     "count": len(rows), "rows": rows}
 
         if key == "forum_failed_payments":
-            pays = [p for p in await frecs("payment") if p.status == "failed"]
+            pays = [p for p in await fpayments() if p.status == "failed"]
             pays.sort(key=lambda p: float(p.amount or 0), reverse=True)
             rows = [{"id": str(p.id), "name": nm(p), "tone": "watch",
                      "l2": "Failed charge · " + (dlabel(p.occurred_on) or ""),
@@ -400,7 +415,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     rows.append({"id": str(x.id), "name": nm(x), "tone": "watch",
                                  "l2": "Subscription past due", "r1": money(x.amount) + "/mo",
                                  "source_url": x.source_url})
-            return {"label": "Recovery list", "source": "GHL Payments",
+            return {"label": "Recovery list", "source": "Stripe payments",
                     "computed_as": "Failed charges + past-due subscriptions to recover.",
                     "count": len(rows), "rows": rows}
 
@@ -438,7 +453,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 y, mo = today.year, today.month
             mname = dt.date(y, mo, 1).strftime("%B %Y")
             if (y, mo) <= (today.year, today.month):
-                pays = [p for p in await frecs("payment")
+                pays = [p for p in await fpayments()
                         if p.occurred_on and (p.occurred_on.year, p.occurred_on.month) == (y, mo)]
                 pays.sort(key=lambda p: (p.occurred_on or dt.date.min), reverse=True)
                 rows = [{"id": str(p.id), "name": nm(p),
@@ -447,8 +462,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                                                       (p.status if p.status != "succeeded" else None)] if x),
                          "r1": money(p.amount), "r2": dlabel(p.occurred_on),
                          "source_url": p.source_url} for p in pays]
-                return {"label": f"{mname} · cash collected", "source": "GHL Payments",
-                        "computed_as": f"Stripe charges recorded in {mname} (net of refunds).",
+                return {"label": f"{mname} · cash collected", "source": "Stripe payments",
+                        "computed_as": f"Stripe charges recorded in {mname} (net of refunds; GHL + legacy).",
                         "count": len(rows), "rows": rows}
             last = dt.date(y + mo // 12, mo % 12 + 1, 1) - dt.timedelta(days=1)
             sched = [c for c in project_charges(active, today, last) if c["date"][:7] == f"{y}-{mo:02d}"]
