@@ -270,6 +270,118 @@ function AriveConnectForm({ row, onClose, onDone }) {
   );
 }
 
+/* ── Legacy Stripe connect form (one read-only key) ──────────── */
+
+function StripeLegacyConnectForm({ row, onClose, onDone }) {
+  const editing = row.status === "connected" || row.status === "error";
+  const cfg = row.config || {};
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await postJSON("/integrations", {
+        provider: "stripe_legacy", business_key: row.business_key || "springb",
+        token: key.trim() || undefined,   // blank on edit = keep the current key
+        config: cfg,
+      });
+      onDone();
+    } catch {
+      setErr("Stripe rejected that key. Use a read-only restricted key (Charges: read, Customers: read).");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Legacy Stripe" : "Connect Legacy Stripe"}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
+          Spring's original Stripe account. Create a <b>restricted key</b> in Stripe (Developers → API keys → Create restricted key) with <b>Charges: Read</b> and <b>Customers: Read</b> — nothing else. Stored encrypted; we never write to Stripe.
+        </div>
+        <label style={label}>Read-only restricted key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
+          <input style={field} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : "rk_live_…"} required={!editing} />
+        </label>
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Verifying…" : editing ? "Save changes" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ── Legacy Stripe → GHL delta-import panel (generate + watermark) ── */
+
+function LegacyDeltaPanel({ live }) {
+  const [d, setD] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  function load() {
+    if (!live) { setD({ connected: true, pending_count: 3, through: "2026-07-09", total_forum_charges: 261 }); return; }
+    getJSON("/integrations/stripe_legacy/delta").then(setD).catch(() => setD(null));
+  }
+  useEffect(load, []);
+
+  async function download() {
+    if (!live) return;
+    setBusy(true); setMsg(null);
+    try {
+      const token = localStorage.getItem("cc_token");
+      const r = await fetch(`${API_BASE}/integrations/stripe_legacy/delta.csv`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error();
+      const blob = new Blob([await r.text()], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `forum_legacy_delta_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      setMsg("Downloaded. Import it in GHL (don't open it in Excel first), then mark it imported.");
+    } catch { setMsg("Download failed — try Sync now, then retry."); } finally { setBusy(false); }
+  }
+
+  async function markImported() {
+    if (!live) return;
+    if (!window.confirm("Mark these as imported? The next file will only include charges after them.")) return;
+    setBusy(true); setMsg(null);
+    try { const r = await postJSON("/integrations/stripe_legacy/delta/mark-imported"); setMsg(`Marked ${r.marked} imported · watermark now ${r.through || "—"}.`); load(); }
+    catch { setMsg("Couldn't update the watermark."); } finally { setBusy(false); }
+  }
+
+  if (!d) return null;
+  const pending = d.pending_count || 0;
+  return (
+    <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.parchment, padding: "13px 15px", marginTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Icon name="open" size={13} color={T.evergreen} />
+        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>GHL import file</span>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{d.total_forum_charges || 0} legacy charges synced</span>
+      </div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, marginTop: 6, lineHeight: 1.5 }}>
+        {pending > 0
+          ? <><b style={{ color: T.ink }}>{pending}</b> new charge{pending === 1 ? "" : "s"} to import{d.through ? <> since {d.through}</> : ""}. GHL has no import API, so download the file and upload it in GHL manually — the dashboard already counts these; this just keeps GHL contacts current.</>
+          : <>Up to date — no new charges to import{d.through ? <> since {d.through}</> : ""}.</>}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 11 }}>
+        <SBtn small icon="open" disabled={!live || busy || pending === 0} onClick={download}>{busy ? "Working…" : "Download file"}</SBtn>
+        <SBtn small icon="check_circled" disabled={!live || busy || pending === 0} onClick={markImported}>Mark imported</SBtn>
+      </div>
+      {msg && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 9 }}>{msg}</div>}
+    </div>
+  );
+}
+
 /* ── QuickBooks: connect each entity to its own QBO company ──── */
 
 function QuickBooksConnect({ live }) {
@@ -471,6 +583,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
               <span style={{ flex: 1 }} />
               {s.last_run && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: s.status === "stale" ? T.daffodilText : T.muted }}>{s.last_run}</span>}
             </div>
+            {!dis && s.provider === "stripe_legacy" && <LegacyDeltaPanel live={live} />}
             {dis ? (
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14 }}>
                 <SBtn kind="primary" icon="open" disabled={!live} onClick={() => onConnect(s)}>Connect {s.name}</SBtn>
@@ -482,6 +595,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
                 {s.entities?.length > 0 && <SBtn small icon="open" disabled={!live} onClick={() => onConnect(s)}>Connect another entity</SBtn>}
                 {(s.provider === "ghl" || s.provider === "ghl_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit configuration</SBtn>}
                 {s.provider === "arive" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update credentials</SBtn>}
+                {s.provider === "stripe_legacy" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update key</SBtn>}
                 <span style={{ flex: 1 }} />
                 {s.integration_id && <button className="si-danger" disabled={!live} onClick={() => onDisconnect(s)}>Disconnect {s.name}</button>}
               </div>
@@ -493,7 +607,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
   );
 }
 
-const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar" };
+const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar", stripe_legacy: "St" };
 const DESC = {
   qbo: () => "Financial source of truth · one connection per entity",
   sisu: () => "Real estate production — transactions, agents, GCI",
@@ -501,9 +615,10 @@ const DESC = {
   ghl: () => "The Forum — members, renewals, subscriptions, events",
   ghl_bc: () => "beCollective — its own GHL location; members, cohort onboarding, events",
   arive: () => "Uses your Arive API key · lights up Sympli's pipeline and the referral flywheel",
+  stripe_legacy: () => "Spring's original Stripe · read-only. Backfills legacy Forum dues the new sub-account never sees, and feeds the GHL delta-import file",
 };
 const SAMPLE_VIEW = {
-  healthy: 3, total: 6, next_sync_in_min: 14,
+  healthy: 3, total: 7, next_sync_in_min: 14,
   sources: [
     { provider: "qbo", name: "QuickBooks", mono: "QB", status: "attention", status_note: "1 of 3 entities needs reconnect", feeds: ["ulrg", "springb", "sympli"], provides: ["Profit & Loss", "Balance Sheet"], last_run: "Last run · 2 entities · 4.2s",
       entities: [
@@ -516,6 +631,7 @@ const SAMPLE_VIEW = {
     { provider: "ghl", name: "Go High Level · The Forum", mono: "GH", status: "ok", fresh: "Synced 1 hour ago", feeds: ["forum"], provides: ["Members", "Subscriptions", "Events"], last_run: "Last run · 142 members · 38 subscriptions · 2.4s", integration_id: "g1", config: {}, config_summary: [["Location ID", "LqK4…f82"], ["Member tags", "5 tags"], ["Next event", "Park City, UT"]] },
     { provider: "ghl_bc", name: "Go High Level · beCollective", mono: "bC", status: "ok", fresh: "Synced 1 hour ago", feeds: ["becollective"], provides: ["Members", "Onboarding", "Events"], last_run: "Last run · 30 members · 25 memberships · 1.9s", integration_id: "gb1", config: {}, config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] },
     { provider: "arive", name: "Arive", mono: "Ar", status: "disconnected", feeds: [], provides: ["Loans", "Pipeline"], business_key: "sympli" },
+    { provider: "stripe_legacy", name: "Legacy Stripe · The Forum", mono: "St", status: "disconnected", feeds: [], provides: ["Legacy charges", "Recurring dues"], business_key: "springb" },
   ],
 };
 
@@ -563,6 +679,8 @@ function IntegrationsPage() {
       return setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
     if (s.provider === "arive")
       return setConnecting({ provider: "arive", name: s.name, config: s.config || {}, business_key: s.business_key || "sympli", status: "disconnected" });
+    if (s.provider === "stripe_legacy")
+      return setConnecting({ provider: "stripe_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
   }
   const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || (s.provider === "arive" ? "sympli" : "springb"), status: "connected" });
   const reconnectEntity = (e) => qboConnect(e.business_key);
@@ -630,6 +748,9 @@ function IntegrationsPage() {
 
       {connecting && (connecting.provider === "arive"
         ? <AriveConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : connecting.provider === "stripe_legacy"
+        ? <StripeLegacyConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />
         : <GhlConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />)}

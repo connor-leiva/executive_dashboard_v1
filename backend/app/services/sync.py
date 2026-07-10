@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Integration, Transaction, Agent, Lead, PLSnapshot, SyncRun, MetricRecord
 from ..security import enc, dec
-from ..integrations import fub, sisu, qbo, ghl, arive
+from ..integrations import fub, sisu, qbo, ghl, arive, stripe_legacy
 
 
 def _parse_ghl_dt(v) -> dt.date | None:
@@ -592,6 +592,71 @@ async def sync_arive(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) 
     return len(rows)
 
 
+async def _forum_roster_emails(s: AsyncSession, tenant_id, business_id) -> set[str]:
+    """The set of emails we already know are Forum, from the GHL sync — members and
+    everyone the GHL feed has a payment/subscription/renewal for (incl. the CSV
+    backfill's contacts). This is the deterministic filter for legacy Stripe: import
+    a legacy charge only if it belongs to someone on the Forum roster, mirroring the
+    validated backfill ('only members from the export')."""
+    rows = (await s.execute(select(MetricRecord.email).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl",
+        MetricRecord.kind.in_(("member", "payment", "subscription", "membership"))))).all()
+    return {em.strip().lower() for (em,) in rows if em}
+
+
+async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    """Snapshot Forum charges from Spring's ORIGINAL Stripe account (the one still
+    wired to the old Spring B GHL location). Those legacy recurring dues never reach
+    the new Forum sub-account, so we read them read-only and write them as
+    source='stripe_legacy' payment records — the SAME shape as the GHL payment feed,
+    filtered to the Forum roster. build_forum merges + dedupes them against the GHL
+    feed (the CSV-backfill copies) so each charge is counted exactly once.
+
+    Config (integ.config): sync_since_epoch (cap the pull; default = full history),
+    extra_forum_emails / exclude_emails (roster overrides), stream_overrides."""
+    from .billing import classify_stream
+    key = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not key:
+        raise ValueError("Legacy Stripe needs a read-only API key.")
+    biz = integ.business_id
+    cfg = integ.config or {}
+
+    roster = await _forum_roster_emails(s, tenant_id, biz)
+    roster |= {str(e).strip().lower() for e in (cfg.get("extra_forum_emails") or [])}
+    exclude = {str(e).strip().lower() for e in (cfg.get("exclude_emails") or [])}
+    stream_overrides = cfg.get("stream_overrides") or {}
+    since = cfg.get("sync_since_epoch")
+
+    charges = await stripe_legacy.list_charges(key, created_gt=since)
+    rows, skipped = [], 0
+    for ch in charges:
+        email = stripe_legacy.charge_email(ch)
+        if not email or email in exclude or email not in roster:
+            skipped += 1
+            continue
+        desc = stripe_legacy.charge_description(ch)
+        cdt = stripe_legacy.charge_datetime(ch)
+        rows.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="stripe_legacy", kind="payment",
+            external_id=str(ch.get("id")),
+            name=(stripe_legacy.charge_name(ch) or email)[:200], email=email,
+            amount=stripe_legacy.charge_amount(ch), status=stripe_legacy.charge_status(ch),
+            occurred_on=stripe_legacy.charge_date(ch), source_url=stripe_legacy.dashboard_url(ch),
+            meta={"stream": classify_stream(desc, stream_overrides),
+                  "entity_source_name": desc or None,
+                  "amount_refunded": stripe_legacy.charge_refunded(ch),
+                  "charge_id": ch.get("id"), "payment_intent": stripe_legacy.payment_intent(ch),
+                  "currency": ch.get("currency"), "legacy": True,
+                  "charged_at": cdt.isoformat() if cdt else None,
+                  "contact": stripe_legacy.charge_contact(ch)}))
+    await _metric_snapshot(s, tenant_id, biz, "stripe_legacy", "payment", rows)
+    matched = len(rows)
+    print(f"[stripe_legacy] {matched} Forum charges of {len(charges)} pulled "
+          f"({skipped} non-roster skipped · roster={len(roster)})", flush=True)
+    return matched
+
+
 # Every period the dashboard can toggle to needs its own snapshot.
 _QBO_PERIODS = ("mtd", "qtd", "ytd", "last_month")
 
@@ -641,6 +706,8 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
             records = await sync_becollective_ghl(s, tenant_id, integ)
         elif integ.provider == "arive":
             records = await sync_arive(s, tenant_id, integ)
+        elif integ.provider == "stripe_legacy":
+            records = await sync_stripe_legacy(s, tenant_id, integ)
         elif integ.provider == "qbo":
             records = await sync_qbo_pl(s, tenant_id, integ)   # syncs all periods itself
         run.status, run.finished_at = "ok", dt.datetime.utcnow()

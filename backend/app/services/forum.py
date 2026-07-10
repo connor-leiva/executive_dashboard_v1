@@ -93,9 +93,19 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     event = _event(cfg, members_total, member_regs, guests)
 
     # ── Cash & Billing (GHL Payments, Stripe-fed) — supersedes Revenue Quality ──
-    from .billing import compute_billing
+    from .billing import compute_billing, merge_payment_sources
     payments = await records("payment")
     subs_all = await records("subscription")
+    # Legacy Stripe backfill: the original account's Forum charges still bill outside
+    # the new sub-account. Merge them in, deduping the CSV-backfill copies already in
+    # the GHL feed (source-authoritative on the legacy side) so nothing double-counts.
+    legacy = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+        MetricRecord.source == "stripe_legacy", MetricRecord.kind == "payment"))).scalars().all()
+    if legacy:
+        payments, suppressed = merge_payment_sources(payments, legacy)
+        print(f"[forum] merged {len(legacy)} legacy Stripe charges "
+              f"({suppressed} GHL backfill copies suppressed)", flush=True)
     billing = compute_billing(payments, subs_all, arr, start, end, dt.date.today())
 
     # ── watch signals (only real ones: failed/past-due payments + event pace) ──

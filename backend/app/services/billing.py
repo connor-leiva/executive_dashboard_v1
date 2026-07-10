@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from calendar import monthrange
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 _MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -152,6 +152,42 @@ def _num(v) -> float:
         return float(v or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _pay_key(p) -> tuple:
+    """Identity of a charge for cross-source dedupe: (email, whole-dollar amount,
+    date). Whole dollars because the GHL CSV import rounded, and a same-day same-
+    amount same-payer collision is the money we mean to fold together."""
+    email = (getattr(p, "email", None) or "").strip().lower()
+    amt = round(_num(getattr(p, "amount", 0)))
+    d = p.occurred_on.isoformat() if getattr(p, "occurred_on", None) else ""
+    return (email, amt, d)
+
+
+def merge_payment_sources(ghl_payments, legacy_payments) -> tuple[list, int]:
+    """Merge the GHL payment feed with the legacy-Stripe feed, keeping each real
+    charge once.
+
+    Legacy Stripe is the AUTHORITATIVE, id-bearing source for the original account's
+    charges. The CSV backfill copied many of those same charges into GHL as opaque
+    manual rows (the import template has no charge-id column), so a GHL row that
+    matches a legacy charge on (email, whole-dollar amount, date) is that same money
+    — drop the GHL copy, keep the legacy one. Matching is one-to-one (budgeted by a
+    Counter) so a native new-sub-account charge that merely happens to share those
+    three fields with a legacy charge still survives once the legacy twins are used
+    up. Returns (merged_payments, suppressed_count) — suppressed is logged, never
+    silent."""
+    budget = Counter(_pay_key(p) for p in legacy_payments)
+    merged = list(legacy_payments)
+    suppressed = 0
+    for g in ghl_payments:
+        k = _pay_key(g)
+        if budget.get(k, 0) > 0:
+            budget[k] -= 1
+            suppressed += 1
+            continue
+        merged.append(g)
+    return merged, suppressed
 
 
 def compute_billing(payments, subs, arr_book: float,

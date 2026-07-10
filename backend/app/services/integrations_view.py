@@ -15,7 +15,7 @@ from ..models import Integration, Business, SyncRun
 from ..schemas import EntityRow, SourceOut, IntegrationsOut
 
 # Provider order + static metadata (matches the settings mockup).
-ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "arive"]
+ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "arive", "stripe_legacy"]
 META = {
     "qbo": {"name": "QuickBooks", "provides": ["Profit & Loss", "Balance Sheet"], "feeds": ["ulrg", "springb", "sympli"],
             "desc": "Financial source of truth · one connection per entity"},
@@ -29,8 +29,13 @@ META = {
                "desc": "beCollective — its own GHL location; members, cohort onboarding, events"},
     "arive": {"name": "Arive", "provides": ["Loans", "Pipeline"], "feeds": ["sympli"],
               "desc": "Lights up Sympli's pipeline and the referral flywheel"},
+    "stripe_legacy": {"name": "Legacy Stripe · The Forum", "provides": ["Legacy charges", "Recurring dues"],
+                      "feeds": ["forum"],
+                      "desc": "Spring's original Stripe account — legacy Forum dues still billing outside "
+                              "the new sub-account. Read-only; also feeds the GHL delta-import CSV"},
 }
-CONNECTABLE = {"ghl": "springb", "ghl_bc": "springb", "arive": "sympli"}   # offered even without a row
+# Offered even without a row (connectable). stripe_legacy attaches to the springb business.
+CONNECTABLE = {"ghl": "springb", "ghl_bc": "springb", "arive": "sympli", "stripe_legacy": "springb"}
 
 
 def _aware(ts: dt.datetime) -> dt.datetime:

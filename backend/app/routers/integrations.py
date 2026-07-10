@@ -2,7 +2,7 @@ import uuid
 import json
 import datetime as dt
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,10 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db import get_session, SessionLocal
 from ..deps import current_user, require_role
-from ..models import User, Integration, Business, SyncRun
+from ..models import User, Integration, Business, SyncRun, MetricRecord
 from ..services.audit import audit
 from ..security import enc, dec, make_token, read_token
-from ..integrations import qbo
+from ..integrations import qbo, stripe_legacy
+from ..services import legacy_export
 from ..services.sync import run_all, run_one
 from ..services.metrics import _period_range
 from ..services.integrations_view import build_integrations_view
@@ -129,7 +130,7 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
     """Create/update a token-based integration (Go High Level, Arive). Body:
     {provider, business_key, token, config}. Token is encrypted at rest."""
     provider = (body.get("provider") or "").strip()
-    if provider not in ("ghl", "ghl_bc", "arive"):
+    if provider not in ("ghl", "ghl_bc", "arive", "stripe_legacy"):
         raise HTTPException(400, "Unsupported provider")
     biz = (await s.execute(select(Business).where(
         Business.tenant_id == user.tenant_id, Business.key == body.get("business_key")))).scalar_one_or_none()
@@ -165,6 +166,15 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
             s.add(integ)
         await s.commit()
         return {"id": str(integ.id)}
+
+    # Legacy Stripe: validate the read-only key up front (a bad/mis-scoped key should
+    # fail the connect, not silently no-op at the next sync).
+    if provider == "stripe_legacy" and body.get("token"):
+        try:
+            await stripe_legacy.ping(body["token"].strip())
+        except Exception:  # noqa: BLE001 — surface as a clean 400
+            raise HTTPException(400, "Stripe rejected that key. Use a read-only "
+                                     "restricted key (Charges: read, Customers: read).")
 
     new = integ is None or not integ.access_token_enc
     if new and not body.get("token"):
@@ -202,3 +212,79 @@ async def disconnect(integ_id: uuid.UUID, user: User = Depends(require_role("own
           {"provider": integ.provider})
     await s.commit()
     return {"ok": True}
+
+
+# ── Legacy Stripe → GHL delta CSV (generate-only; GHL has no transaction-write API) ──
+async def _stripe_legacy_integ(s: AsyncSession, tenant_id):
+    return (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "stripe_legacy"))).scalar_one_or_none()
+
+
+def _legacy_watermark(integ: Integration) -> dt.date | None:
+    v = (integ.config or {}).get("delta_through")
+    try:
+        return dt.date.fromisoformat(v) if v else None
+    except (ValueError, TypeError):
+        return None
+
+
+async def _legacy_payments(s: AsyncSession, integ: Integration):
+    return (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == integ.tenant_id, MetricRecord.business_id == integ.business_id,
+        MetricRecord.source == "stripe_legacy", MetricRecord.kind == "payment"))).scalars().all()
+
+
+@router.get("/integrations/stripe_legacy/delta")
+async def legacy_delta_status(user: User = Depends(require_role("owner", "admin")),
+                              s: AsyncSession = Depends(get_session)):
+    """How many net-new legacy Forum charges are waiting to be imported into GHL —
+    powers the Settings reminder."""
+    integ = await _stripe_legacy_integ(s, user.tenant_id)
+    if not integ:
+        raise HTTPException(404, "Legacy Stripe is not connected.")
+    recs = await _legacy_payments(s, integ)
+    through = _legacy_watermark(integ)
+    pend = legacy_export.pending(recs, through)
+    return {"connected": integ.status == "connected",
+            "total_forum_charges": len(recs),
+            "through": through.isoformat() if through else None,
+            "pending_count": len(pend),
+            "pending_through": (max(r.occurred_on for r in pend).isoformat() if pend else None),
+            "last_synced_at": integ.last_synced_at.isoformat() if integ.last_synced_at else None}
+
+
+@router.get("/integrations/stripe_legacy/delta.csv")
+async def legacy_delta_csv(user: User = Depends(require_role("owner", "admin")),
+                           s: AsyncSession = Depends(get_session)):
+    """Download the ready-to-import GHL CSV of net-new legacy Forum charges. Idempotent
+    (does not advance the watermark) — import it in GHL, then POST …/delta/mark-imported."""
+    integ = await _stripe_legacy_integ(s, user.tenant_id)
+    if not integ:
+        raise HTTPException(404, "Legacy Stripe is not connected.")
+    recs = await _legacy_payments(s, integ)
+    text, n, _ = legacy_export.build_csv(recs, _legacy_watermark(integ))
+    fname = f"forum_legacy_delta_{dt.date.today().isoformat()}.csv"
+    return Response(content=text, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Row-Count": str(n)})
+
+
+@router.post("/integrations/stripe_legacy/delta/mark-imported")
+async def legacy_mark_imported(user: User = Depends(require_role("owner", "admin")),
+                               s: AsyncSession = Depends(get_session)):
+    """Advance the watermark past the charges just downloaded, so the next delta is
+    only what's new after them. Call this only after the GHL upload succeeds."""
+    integ = await _stripe_legacy_integ(s, user.tenant_id)
+    if not integ:
+        raise HTTPException(404, "Legacy Stripe is not connected.")
+    recs = await _legacy_payments(s, integ)
+    through = _legacy_watermark(integ)
+    _, n, new_wm = legacy_export.build_csv(recs, through)
+    if new_wm:
+        cfg = dict(integ.config or {})
+        cfg["delta_through"] = new_wm.isoformat()
+        integ.config = cfg
+        audit(s, user.tenant_id, user.id, "integration.legacy_delta_imported", "integration", integ.id,
+              {"through": new_wm.isoformat(), "rows": n})
+        await s.commit()
+    return {"ok": True, "marked": n,
+            "through": new_wm.isoformat() if new_wm else (through.isoformat() if through else None)}
