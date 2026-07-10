@@ -61,6 +61,19 @@ def test_local_date_resolves_in_business_timezone():
     assert _local_date(None, denver) is None and _local_date("nope", denver) is None
 
 
+def test_stripe_utc_and_ghl_denver_resolve_a_midnight_charge_the_same():
+    """A near-midnight charge: legacy Stripe (account tz = UTC) and GHL (location tz =
+    Denver) each resolve to their own system's date — Feb 15 for Stripe, Feb 14 in raw
+    Denver. Reading legacy-Stripe in UTC is what makes the dashboard match Stripe."""
+    from zoneinfo import ZoneInfo
+    from app.services.sync import _local_date, _tz
+    from app.config import settings
+    denise = "2026-02-15T01:15:00+00:00"                          # the Denise Klein case
+    assert _local_date(denise, _tz(settings.STRIPE_TIMEZONE)) == dt.date(2026, 2, 15)   # legacy Stripe = UTC
+    assert _local_date(denise, ZoneInfo("America/Denver")) == dt.date(2026, 2, 14)      # raw Denver
+    assert settings.STRIPE_TIMEZONE == "UTC"
+
+
 # ── cross-source dedupe ─────────────────────────────────────────────
 def _p(email, amount, day, source="ghl", charge_id=None, imported=False):
     return SimpleNamespace(email=email, amount=amount, occurred_on=dt.date(2026, 7, day),

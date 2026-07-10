@@ -67,11 +67,14 @@ class Settings(BaseSettings):
     # worker
     SYNC_INTERVAL_MINUTES: int = 30
 
-    # The timezone GHL/Stripe transactions are recorded + displayed in. GHL stores UTC
-    # but shows the location's local date; reading UTC made the dashboard a day ahead of
-    # GHL for early-UTC-morning charges (and broke the date-based dedupe). Payment dates
-    # are resolved in this tz so the dashboard agrees with GHL and dedupe aligns.
+    # GHL location timezone — GHL stores UTC but records/displays the location's local
+    # date, so GHL transaction dates (createdAt/fulfilledAt) resolve here.
     BILLING_TIMEZONE: str = "America/Denver"
+    # Legacy Stripe ACCOUNT timezone — Stripe renders charge dates in the account's tz
+    # (Connor's is UTC), so legacy-Stripe `created` resolves here. Matching each source
+    # to its own system's tz makes the dashboard agree with both AND lines the two copies
+    # of a charge onto the same day so the dedupe collapses them.
+    STRIPE_TIMEZONE: str = "UTC"
 
     # Dashboard assistant (Claude). Set ANTHROPIC_API_KEY to enable the "Ask" panel;
     # the key stays server-side and is never sent to the browser. Model + budget are

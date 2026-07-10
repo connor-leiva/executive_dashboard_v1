@@ -17,14 +17,16 @@ from ..security import enc, dec
 from ..integrations import fub, sisu, qbo, ghl, arive, stripe_legacy
 
 
-def _biz_tz() -> dt.tzinfo:
-    """The timezone GHL/Stripe record + display transactions in (settings.BILLING_TIMEZONE,
-    default America/Denver). Payment dates resolve here so the dashboard agrees with GHL's
-    displayed date and charges from GHL + legacy Stripe land on the same day (dedupe)."""
+def _tz(name: str) -> dt.tzinfo:
     try:
-        return ZoneInfo(settings.BILLING_TIMEZONE or "America/Denver")
+        return ZoneInfo(name or "UTC")
     except Exception:  # noqa: BLE001 — unknown tz name → UTC
         return dt.timezone.utc
+
+
+def _biz_tz() -> dt.tzinfo:
+    """GHL location timezone (its createdAt/fulfilledAt display in this tz)."""
+    return _tz(settings.BILLING_TIMEZONE or "America/Denver")
 
 
 def _local_date(value, tz: dt.tzinfo) -> dt.date | None:
@@ -767,7 +769,8 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     exclude = {str(e).strip().lower() for e in (cfg.get("exclude_emails") or [])}
     stream_overrides = cfg.get("stream_overrides") or {}
     since = cfg.get("sync_since_epoch")
-    tz = _biz_tz()   # same tz as the GHL sync → the same charge lands on the same day
+    tz = _tz(settings.STRIPE_TIMEZONE or "UTC")   # Stripe account tz (Connor's = UTC),
+    #   matching Stripe's own display AND the CSV-import copy so the two collapse in dedupe
 
     # ── charges → payment records (roster member AND a Forum/IC offering) ──
     charges = await stripe_legacy.list_charges(key, created_gt=since)
