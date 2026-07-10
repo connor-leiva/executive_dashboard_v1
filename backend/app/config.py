@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     # worker
     SYNC_INTERVAL_MINUTES: int = 30
 
+    # The timezone GHL/Stripe transactions are recorded + displayed in. GHL stores UTC
+    # but shows the location's local date; reading UTC made the dashboard a day ahead of
+    # GHL for early-UTC-morning charges (and broke the date-based dedupe). Payment dates
+    # are resolved in this tz so the dashboard agrees with GHL and dedupe aligns.
+    BILLING_TIMEZONE: str = "America/Denver"
+
     # Dashboard assistant (Claude). Set ANTHROPIC_API_KEY to enable the "Ask" panel;
     # the key stays server-side and is never sent to the browser. Model + budget are
     # overridable without a code change.

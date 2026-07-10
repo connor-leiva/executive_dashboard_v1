@@ -5,14 +5,46 @@ call. Upserts target Postgres (prod); the worker does not run against SQLite.
 import datetime as dt
 import uuid
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, delete, insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..models import Integration, Transaction, Agent, Lead, PLSnapshot, SyncRun, MetricRecord
 from ..security import enc, dec
 from ..integrations import fub, sisu, qbo, ghl, arive, stripe_legacy
+
+
+def _biz_tz() -> dt.tzinfo:
+    """The timezone GHL/Stripe record + display transactions in (settings.BILLING_TIMEZONE,
+    default America/Denver). Payment dates resolve here so the dashboard agrees with GHL's
+    displayed date and charges from GHL + legacy Stripe land on the same day (dedupe)."""
+    try:
+        return ZoneInfo(settings.BILLING_TIMEZONE or "America/Denver")
+    except Exception:  # noqa: BLE001 — unknown tz name → UTC
+        return dt.timezone.utc
+
+
+def _local_date(value, tz: dt.tzinfo) -> dt.date | None:
+    """A timestamp (ISO string, epoch-ms, or epoch-seconds) → calendar date in `tz`.
+    GHL stores UTC; taking the UTC date put the dashboard a day ahead of GHL for
+    early-morning charges — converting to the business tz fixes the day AND the dedupe."""
+    if value in (None, "", []):
+        return None
+    try:
+        if isinstance(value, (int, float)) or (isinstance(value, str) and str(value).isdigit()):
+            v = int(value)
+            secs = v / 1000 if v > 10_000_000_000 else v          # GHL ms vs Stripe seconds
+            d = dt.datetime.fromtimestamp(secs, dt.timezone.utc)
+        else:
+            d = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=dt.timezone.utc)
+        return d.astimezone(tz).date()
+    except (ValueError, OverflowError, OSError, TypeError):
+        return None
 
 
 def _parse_ghl_dt(v) -> dt.date | None:
@@ -403,6 +435,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     from .billing import classify_stream, classify_installment, next_charge_date
     stream_overrides = cfg.get("stream_overrides") or {}
     installment_cfg = {"installment_plan_names": cfg.get("installment_plan_names") or []}
+    tz = _biz_tz()
     try:
         txns = await ghl.ghl_transactions(token, location_id)
         pay_rows, sub_succeeded = [], {}
@@ -412,9 +445,10 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
             name = t.get("entitySourceName")
             # CSV-imported transactions (entitySourceSubType='imported_csv') carry the
             # IMPORT DAY in createdAt; their REAL payment date is `fulfilledAt`. Native
-            # Stripe rows use createdAt. Everything stays date-based off the true date.
+            # Stripe rows use createdAt. Resolve in the business tz so the day matches GHL.
             imported = (t.get("entitySourceSubType") == "imported_csv") or (t.get("entityType") == "external")
-            occurred = (_parse_ghl_dt(t.get("fulfilledAt")) if imported else None) or _parse_ghl_dt(t.get("createdAt"))
+            raw = t.get("fulfilledAt") if imported else t.get("createdAt")
+            occurred = _local_date(raw, tz) or _local_date(t.get("createdAt"), tz)
             if status == "succeeded" and sub_id:
                 sub_succeeded[sub_id] = sub_succeeded.get(sub_id, 0) + 1
             pay_rows.append(dict(
@@ -733,6 +767,7 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     exclude = {str(e).strip().lower() for e in (cfg.get("exclude_emails") or [])}
     stream_overrides = cfg.get("stream_overrides") or {}
     since = cfg.get("sync_since_epoch")
+    tz = _biz_tz()   # same tz as the GHL sync → the same charge lands on the same day
 
     # ── charges → payment records (roster member AND a Forum/IC offering) ──
     charges = await stripe_legacy.list_charges(key, created_gt=since)
@@ -756,7 +791,7 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
             external_id=str(ch.get("id")),
             name=(stripe_legacy.charge_name(ch) or email)[:200], email=email,
             amount=stripe_legacy.charge_amount(ch), status=stripe_legacy.charge_status(ch),
-            occurred_on=stripe_legacy.charge_date(ch), source_url=stripe_legacy.dashboard_url(ch),
+            occurred_on=_local_date(ch.get("created"), tz), source_url=stripe_legacy.dashboard_url(ch),
             segment=segment,
             meta={"stream": classify_stream(desc, stream_overrides),
                   "entity_source_name": desc or None, "segment": segment,

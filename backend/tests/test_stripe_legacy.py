@@ -49,6 +49,18 @@ def test_dashboard_url_uses_payment_intent():
     assert sl.dashboard_url(_charge(payment_intent=None, id="ch_2")).endswith("/payments/ch_2")
 
 
+def test_local_date_resolves_in_business_timezone():
+    from zoneinfo import ZoneInfo
+    from app.services.sync import _local_date
+    denver = ZoneInfo("America/Denver")
+    # early-UTC-morning → the PREVIOUS day in Denver (the Feb 11→Feb 10 duplicate case)
+    assert _local_date("2026-02-11T03:38:00.000Z", denver) == dt.date(2026, 2, 10)
+    assert _local_date("2026-02-11T14:01:00.000Z", denver) == dt.date(2026, 2, 11)   # afternoon, no shift
+    assert _local_date(1770780000, denver) is not None            # Stripe epoch-seconds
+    assert _local_date("1770780000000", denver) is not None       # GHL epoch-ms
+    assert _local_date(None, denver) is None and _local_date("nope", denver) is None
+
+
 # ── cross-source dedupe ─────────────────────────────────────────────
 def _p(email, amount, day, source="ghl", charge_id=None, imported=False):
     return SimpleNamespace(email=email, amount=amount, occurred_on=dt.date(2026, 7, day),
