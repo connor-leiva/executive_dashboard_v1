@@ -615,7 +615,7 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
 
     Config (integ.config): sync_since_epoch (cap the pull; default = full history),
     extra_forum_emails / exclude_emails (roster overrides), stream_overrides."""
-    from .billing import classify_stream
+    from .billing import classify_stream, forum_offering, classify_installment
     key = dec(integ.access_token_enc) if integ.access_token_enc else None
     if not key:
         raise ValueError("Legacy Stripe needs a read-only API key.")
@@ -628,14 +628,19 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     stream_overrides = cfg.get("stream_overrides") or {}
     since = cfg.get("sync_since_epoch")
 
+    # ── charges → payment records (roster member AND a Forum/IC offering) ──
     charges = await stripe_legacy.list_charges(key, created_gt=since)
-    rows, skipped = [], 0
+    rows, off_roster, off_forum = [], 0, 0
     for ch in charges:
         email = stripe_legacy.charge_email(ch)
         if not email or email in exclude or email not in roster:
-            skipped += 1
+            off_roster += 1
             continue
         desc = stripe_legacy.charge_description(ch)
+        include, segment = forum_offering(desc, cfg)      # drop members' non-Forum purchases
+        if not include:
+            off_forum += 1
+            continue
         cdt = stripe_legacy.charge_datetime(ch)
         rows.append(dict(
             tenant_id=tenant_id, business_id=biz, source="stripe_legacy", kind="payment",
@@ -643,18 +648,62 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
             name=(stripe_legacy.charge_name(ch) or email)[:200], email=email,
             amount=stripe_legacy.charge_amount(ch), status=stripe_legacy.charge_status(ch),
             occurred_on=stripe_legacy.charge_date(ch), source_url=stripe_legacy.dashboard_url(ch),
+            segment=segment,
             meta={"stream": classify_stream(desc, stream_overrides),
-                  "entity_source_name": desc or None,
+                  "entity_source_name": desc or None, "segment": segment,
                   "amount_refunded": stripe_legacy.charge_refunded(ch),
                   "charge_id": ch.get("id"), "payment_intent": stripe_legacy.payment_intent(ch),
                   "currency": ch.get("currency"), "legacy": True,
                   "charged_at": cdt.isoformat() if cdt else None,
                   "contact": stripe_legacy.charge_contact(ch)}))
     await _metric_snapshot(s, tenant_id, biz, "stripe_legacy", "payment", rows)
-    matched = len(rows)
-    print(f"[stripe_legacy] {matched} Forum charges of {len(charges)} pulled "
-          f"({skipped} non-roster skipped · roster={len(roster)})", flush=True)
-    return matched
+    print(f"[stripe_legacy] {len(rows)} Forum charges of {len(charges)} "
+          f"({off_roster} off-roster · {off_forum} non-Forum offerings skipped · roster={len(roster)})",
+          flush=True)
+
+    # ── subscriptions → the legacy recurring book, so MRR + forward projection stop
+    #    understating the legacy dues the new sub-account never received. Read-only. ──
+    sub_rows, sub_skipped = [], 0
+    try:
+        subs = await stripe_legacy.list_subscriptions(key)
+    except Exception as e:  # noqa: BLE001 — needs Subscriptions:read; degrade, don't fail the charge sync
+        subs = []
+        print(f"[stripe_legacy] subscriptions skipped ({e}) — grant Subscriptions:read on the key", flush=True)
+    for sub in subs:
+        email = stripe_legacy.sub_email(sub)
+        if not email or email in exclude or email not in roster:
+            sub_skipped += 1
+            continue
+        plan = stripe_legacy.sub_plan_name(sub) or ""
+        include, segment = forum_offering(plan, cfg, is_subscription=True)
+        if not include:
+            sub_skipped += 1
+            continue
+        start, end = stripe_legacy.sub_start_date(sub), stripe_legacy.sub_end_date(sub)
+        status = stripe_legacy.sub_status(sub)
+        amount = stripe_legacy.sub_amount(sub)
+        sub_type, inst_total = classify_installment(
+            plan, start.isoformat() if start else None, end.isoformat() if end else None, {})
+        npd = stripe_legacy.sub_next_charge(sub) if status == "active" else None
+        sub_rows.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="stripe_legacy", kind="subscription",
+            external_id=str(sub.get("id")),
+            name=(stripe_legacy.sub_customer_name(sub) or plan or email)[:200], email=email,
+            amount=amount, status=status, segment=segment,
+            source_url=stripe_legacy.sub_dashboard_url(sub),
+            meta={"plan_name": plan or None, "interval": stripe_legacy.sub_interval(sub),
+                  "start_date": start.isoformat() if start else None,
+                  "end_date": end.isoformat() if end else None,
+                  "sub_type": sub_type, "installments_total": inst_total,
+                  "installments_collected": None,
+                  "next_payment_date": npd.isoformat() if npd else None,
+                  "next_payment_amount": amount, "legacy": True, "segment": segment}))
+    await _metric_snapshot(s, tenant_id, biz, "stripe_legacy", "subscription", sub_rows)
+    active_n = sum(1 for r in sub_rows if r["status"] == "active")
+    print(f"[stripe_legacy] {active_n}/{len(sub_rows)} active legacy subscriptions "
+          f"({sub_skipped} skipped)", flush=True)
+
+    return len(rows) + len(sub_rows)
 
 
 # Every period the dashboard can toggle to needs its own snapshot.

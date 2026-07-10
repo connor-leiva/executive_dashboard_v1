@@ -383,6 +383,12 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
         def dlabel(d):
             return d.strftime("%b %d") if d else None
 
+        def desc_of(p):
+            """The real Stripe description (self-explanatory: 'The Forum – Monthly'),
+            falling back to the classified stream when a charge carries none."""
+            meta = p.meta or {}
+            return meta.get("entity_source_name") or STREAM_LABELS.get(meta.get("stream"), meta.get("stream"))
+
         if key in ("forum_payments", "forum_streams"):
             pays = await fpayments()
             if key == "forum_streams" and stream:
@@ -391,7 +397,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             pays.sort(key=lambda p: (p.occurred_on or dt.date.min), reverse=True)
             rows = [{"id": str(p.id), "name": nm(p),
                      "tone": "watch" if p.status == "failed" else None,
-                     "l2": " · ".join(x for x in [STREAM_LABELS.get((p.meta or {}).get("stream"), (p.meta or {}).get("stream")),
+                     "l2": " · ".join(x for x in [desc_of(p),
                                                   (p.status if p.status != "succeeded" else None)] if x),
                      "r1": money(p.amount), "r2": dlabel(p.occurred_on),
                      "source_url": p.source_url} for p in pays]
@@ -458,7 +464,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 pays.sort(key=lambda p: (p.occurred_on or dt.date.min), reverse=True)
                 rows = [{"id": str(p.id), "name": nm(p),
                          "tone": "watch" if p.status == "failed" else None,
-                         "l2": " · ".join(x for x in [STREAM_LABELS.get((p.meta or {}).get("stream"), (p.meta or {}).get("stream")),
+                         "l2": " · ".join(x for x in [desc_of(p),
                                                       (p.status if p.status != "succeeded" else None)] if x),
                          "r1": money(p.amount), "r2": dlabel(p.occurred_on),
                          "source_url": p.source_url} for p in pays]

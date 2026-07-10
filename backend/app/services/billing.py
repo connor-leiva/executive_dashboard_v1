@@ -40,6 +40,47 @@ def classify_stream(name: str | None, overrides: dict | None = None) -> str:
     return "other"
 
 
+# Offerings a Forum member may ALSO buy through the same legacy Stripe account, but
+# which are NOT Forum revenue. Tunable via config['non_forum_keywords'].
+_NON_FORUM_DEFAULT = [
+    "the edge", "va in 30", "virtual assistant", "becollective", "be collective",
+    "collective", "bootcamp", "playbook", "vault", "buyer mastery", "agent attraction",
+    "operator", "blueprint", "abundance", "shadow", "just in time", "justintime",
+]
+
+
+def forum_offering(description, config=None, is_subscription=False) -> tuple[bool, str | None]:
+    """Is a legacy Stripe charge/subscription a FORUM or INNER CIRCLE offering — vs a
+    Forum member's OTHER purchases through the same account?
+
+    Connor's rule: 'Forum' shows up in the description; a membership/dues charge WITHOUT
+    it is Inner Circle; small event tickets ($7) and non-membership products (courses,
+    The Edge, beCollective) are not the Forum. Returns (include, segment).
+
+    Ambiguous one-off charges default to NOT Forum (so a member's course/product doesn't
+    inflate Forum cash); a recurring subscription for a roster member defaults to Inner
+    Circle (it's a membership even when the plan name is thin — don't drop real MRR).
+    Tunable: config['non_forum_keywords'] (deny), config['forum_keywords'] (extra Forum)."""
+    config = config or {}
+    d = (description or "").lower()
+    if any(k.lower() in d for k in (config.get("non_forum_keywords") or _NON_FORUM_DEFAULT)):
+        return (False, None)
+    forum = ("forum" in d) or any(k.lower() in d for k in (config.get("forum_keywords") or []))
+    ic = ("inner circle" in d) or ("innercircle" in d)
+    if any(w in d for w in ("ticket", "rsvp", "vip", " guest")) and not forum:
+        return (False, None)                       # the $7 (non-Forum) event tickets
+    if forum:
+        return (True, "forum")
+    if ic:
+        return (True, "inner_circle")
+    if any(w in d for w in ("membership", "dues", "financed", "pif", "payment plan",
+                            "2 pay", "3 pay", "4 pay", "installment")):
+        return (True, "inner_circle")              # a membership charge with no 'Forum'
+    if is_subscription:
+        return (True, "inner_circle")              # any recurring sub for a member = membership
+    return (False, None)                           # ambiguous one-off → not Forum revenue
+
+
 def _pdate(v) -> dt.date | None:
     if not v:
         return None

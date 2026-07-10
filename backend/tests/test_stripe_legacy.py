@@ -6,7 +6,7 @@ import datetime as dt
 from types import SimpleNamespace
 
 from app.integrations import stripe_legacy as sl
-from app.services.billing import merge_payment_sources, _pay_key
+from app.services.billing import merge_payment_sources, _pay_key, forum_offering
 from app.services import legacy_export as le
 
 
@@ -80,6 +80,49 @@ def test_dedupe_is_one_to_one_not_greedy():
 
 def test_dedupe_key_rounds_whole_dollars_and_lowercases():
     assert _pay_key(_p("A@X.com", 2000.4, 8)) == _pay_key(_p("a@x.com", 1999.6, 8))
+
+
+# ── Forum-vs-non-Forum offering classifier (Connor's description rule) ────
+def test_forum_offering_rules():
+    assert forum_offering("The Forum – Monthly Dues") == (True, "forum")
+    assert forum_offering("Inner Circle Monthly") == (True, "inner_circle")
+    assert forum_offering("Membership Financed") == (True, "inner_circle")   # no 'Forum' → IC
+    assert forum_offering("The Edge Monthly") == (False, None)               # denylisted product
+    assert forum_offering("beCollective Cohort") == (False, None)
+    assert forum_offering("Event Ticket") == (False, None)                   # the $7 tickets
+    assert forum_offering("The Forum VIP Ticket") == (True, "forum")         # a Forum event IS kept
+    assert forum_offering("Buyer Mastery Course") == (False, None)
+    assert forum_offering("Some Random Charge") == (False, None)             # ambiguous one-off → out
+    # a recurring subscription for a roster member is a membership even if thinly named
+    assert forum_offering("Standard Plan", is_subscription=True) == (True, "inner_circle")
+
+
+def test_forum_offering_config_overrides():
+    assert forum_offering("Widget", {"forum_keywords": ["widget"]}) == (True, "forum")
+    assert forum_offering("The Forum Dues", {"non_forum_keywords": ["forum"]}) == (False, None)
+
+
+# ── subscription accessors ──────────────────────────────────────────
+def _sub(**kw):
+    base = {"id": "sub_1", "status": "active", "start_date": 1735689600,  # 2025-01-01
+            "current_period_end": 1793000000, "cancel_at": None,
+            "customer": {"email": "M@Forum.com", "name": "Dues Member"},
+            "items": {"data": [{"quantity": 1, "price": {"unit_amount": 250000,
+                      "recurring": {"interval": "month"}, "product": {"name": "The Forum Monthly"}}}]}}
+    base.update(kw)
+    return base
+
+
+def test_sub_accessors():
+    assert sl.sub_amount(_sub()) == 2500.0                    # cents → dollars, ×quantity
+    assert sl.sub_interval(_sub()) == "month"
+    assert sl.sub_email(_sub()) == "m@forum.com"
+    assert sl.sub_plan_name(_sub()) == "The Forum Monthly"
+    assert sl.sub_status(_sub(status="active")) == "active"
+    assert sl.sub_status(_sub(status="past_due")) == "past_due"
+    assert sl.sub_status(_sub(status="canceled")) == "canceled"
+    assert sl.sub_start_date(_sub()) == dt.date(2025, 1, 1)
+    assert sl.sub_end_date(_sub(cancel_at=None)) is None
 
 
 # ── GHL delta CSV format (the proven leading-space / zero-padded / no-seconds shape) ─
@@ -165,7 +208,10 @@ async def test_sync_stripe_legacy_filters_to_roster(monkeypatch):
                  "status": "succeeded", "created": 1751990400, "description": "Some Other Product",
                  "payment_intent": "pi_s", "billing_details": {"email": "stranger@nowhere.com", "name": "X"}},
             ]
+        async def fake_list_subs(key, max_pages=None):
+            return []
         monkeypatch.setattr(sl_mod, "list_charges", fake_list_charges)
+        monkeypatch.setattr(sl_mod, "list_subscriptions", fake_list_subs)
 
         n = await sync_mod.sync_stripe_legacy(s, t.id, integ)
         assert n == 1                                          # stranger filtered out
@@ -209,3 +255,53 @@ async def test_cashflow_drill_shows_legacy_only_month():
         # And it surfaces in the all-transactions drill too.
         allt = await metric_detail(s, t.id, "forum_payments", "ytd", business="springb")
         assert any(r["name"] == "Legacy Member" for r in allt["rows"])
+
+
+async def test_legacy_subscriptions_lift_mrr(monkeypatch):
+    """The legacy recurring dues live only in the old account; pulling them from Stripe
+    must raise MRR (previously understated to the ~13 new-sub-account subs only)."""
+    from sqlalchemy import select
+    from app.seed import seed
+    from app.db import SessionLocal
+    from app.models import Tenant, Business, Integration, MetricRecord
+    from app.security import enc
+    from app.services import sync as sync_mod
+    from app.integrations import stripe_legacy as sl_mod
+    from app.services.forum import build_forum
+
+    await seed()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id, Business.key == "springb"))).scalar_one()
+        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="ghl", kind="member",
+                           external_id="rs_dues", email="dues@forum.com", status="active"))
+        integ = Integration(tenant_id=t.id, provider="stripe_legacy", business_id=biz.id,
+                            status="connected", access_token_enc=enc("rk_test"))
+        s.add(integ)
+        await s.commit()
+
+        base_mrr = (await build_forum(s, t.id, "ytd"))["billing"]["mrr"]
+
+        async def fake_charges(key, created_gt=None, max_pages=None):
+            return []
+
+        async def fake_subs(key, max_pages=None):
+            return [{
+                "id": "sub_legacy1", "status": "active", "start_date": 1735689600,
+                "current_period_end": 1793000000, "cancel_at": None,
+                "customer": {"email": "dues@forum.com", "name": "Dues Member"},
+                "items": {"data": [{"quantity": 1, "price": {"unit_amount": 250000,
+                          "recurring": {"interval": "month"}, "product": {"name": "The Forum Monthly"}}}]}}]
+        monkeypatch.setattr(sl_mod, "list_charges", fake_charges)
+        monkeypatch.setattr(sl_mod, "list_subscriptions", fake_subs)
+
+        n = await sync_mod.sync_stripe_legacy(s, t.id, integ)
+        assert n == 1                                          # 0 charges + 1 subscription
+        subs = (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == t.id, MetricRecord.source == "stripe_legacy",
+            MetricRecord.kind == "subscription"))).scalars().all()
+        assert len(subs) == 1 and subs[0].segment == "forum" and float(subs[0].amount) == 2500.0
+
+        lifted = (await build_forum(s, t.id, "ytd"))["billing"]["mrr"]
+        assert lifted == base_mrr + 2500.0                     # legacy dues now in MRR

@@ -173,8 +173,8 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
         try:
             await stripe_legacy.ping(body["token"].strip())
         except Exception:  # noqa: BLE001 — surface as a clean 400
-            raise HTTPException(400, "Stripe rejected that key. Use a read-only "
-                                     "restricted key (Charges: read, Customers: read).")
+            raise HTTPException(400, "Stripe rejected that key. Use a read-only restricted "
+                                     "key (Charges: read, Customers: read, Subscriptions: read).")
 
     new = integ is None or not integ.access_token_enc
     if new and not body.get("token"):

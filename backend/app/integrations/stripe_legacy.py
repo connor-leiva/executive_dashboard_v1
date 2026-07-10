@@ -67,6 +67,34 @@ async def ping(key: str) -> bool:
         return True
 
 
+async def list_subscriptions(key: str, max_pages: int | None = None) -> list[dict]:
+    """All subscriptions (any status) with customer + price + product expanded — the
+    legacy recurring dues that never reached the new sub-account, so MRR and the cash
+    projection can include them. Read-only (Subscriptions: read)."""
+    out: list[dict] = []
+    base = [("limit", "100"), ("status", "all"), ("expand[]", "data.customer"),
+            ("expand[]", "data.items.data.price.product")]
+    starting_after: str | None = None
+    page = 0
+    async with httpx.AsyncClient(timeout=45) as c:
+        while True:
+            params = list(base)
+            if starting_after:
+                params.append(("starting_after", starting_after))
+            r = await c.get(f"{STRIPE_BASE}/subscriptions", headers=_headers(key), params=params)
+            r.raise_for_status()
+            data = r.json()
+            rows = data.get("data") or []
+            out.extend(rows)
+            page += 1
+            if not data.get("has_more") or not rows or (max_pages and page >= max_pages):
+                break
+            starting_after = rows[-1].get("id")
+            if not starting_after:
+                break
+    return out
+
+
 # ── accessors: normalize a Stripe charge to the fields the sync/billing want ──
 def _cust(ch: dict) -> dict:
     c = ch.get("customer")
@@ -144,3 +172,86 @@ def dashboard_url(ch: dict) -> str:
     """Deep link to the payment in the Stripe dashboard (for the audit drawer)."""
     ref = payment_intent(ch) or ch.get("id") or ""
     return f"https://dashboard.stripe.com/payments/{ref}" if ref else "https://dashboard.stripe.com/payments"
+
+
+# ── subscription accessors ──────────────────────────────────────────
+def _epoch_date(ts) -> dt.date | None:
+    try:
+        return dt.datetime.fromtimestamp(int(ts), dt.timezone.utc).date() if ts else None
+    except (ValueError, OverflowError, OSError, TypeError):
+        return None
+
+
+def _sub_items(sub: dict) -> list:
+    return ((sub.get("items") or {}).get("data")) or []
+
+
+def sub_email(sub: dict) -> str | None:
+    c = sub.get("customer")
+    return ((c.get("email") if isinstance(c, dict) else None) or "").strip().lower() or None
+
+
+def sub_customer_name(sub: dict) -> str | None:
+    c = sub.get("customer")
+    return ((c.get("name") if isinstance(c, dict) else None) or "").strip() or None
+
+
+def sub_amount(sub: dict) -> float:
+    """The per-interval charge amount in dollars (sum of items; cents→dollars). NOT
+    monthly-normalized — billing.sub_monthly divides annual plans by 12 from `interval`."""
+    total = 0.0
+    for it in _sub_items(sub):
+        price = it.get("price") or {}
+        ua = price.get("unit_amount")
+        if ua is None and price.get("unit_amount_decimal") is not None:
+            try:
+                ua = float(price["unit_amount_decimal"])
+            except (TypeError, ValueError):
+                ua = 0
+        total += (ua or 0) * (it.get("quantity") or 1)
+    return round(total / 100.0, 2)
+
+
+def sub_interval(sub: dict) -> str:
+    for it in _sub_items(sub):
+        rec = (it.get("price") or {}).get("recurring") or {}
+        if rec.get("interval"):
+            return rec["interval"]
+    return "month"
+
+
+def sub_plan_name(sub: dict) -> str | None:
+    for it in _sub_items(sub):
+        price = it.get("price") or {}
+        prod = price.get("product")
+        name = prod.get("name") if isinstance(prod, dict) else None
+        if name or price.get("nickname"):
+            return (name or price.get("nickname"))
+    return None
+
+
+def sub_status(sub: dict) -> str:
+    s = (sub.get("status") or "").lower()
+    if s in ("active", "trialing"):
+        return "active"
+    if s == "past_due":
+        return "past_due"
+    return s or "inactive"
+
+
+def sub_start_date(sub: dict) -> dt.date | None:
+    return _epoch_date(sub.get("start_date") or sub.get("created"))
+
+
+def sub_next_charge(sub: dict) -> dt.date | None:
+    return _epoch_date(sub.get("current_period_end"))
+
+
+def sub_end_date(sub: dict) -> dt.date | None:
+    """A finite end (cancel_at) → marks an installment/termed plan, not perpetual MRR."""
+    return _epoch_date(sub.get("cancel_at"))
+
+
+def sub_dashboard_url(sub: dict) -> str:
+    sid = sub.get("id") or ""
+    return f"https://dashboard.stripe.com/subscriptions/{sid}" if sid else "https://dashboard.stripe.com/subscriptions"

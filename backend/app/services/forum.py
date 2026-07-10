@@ -95,17 +95,24 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     # ── Cash & Billing (GHL Payments, Stripe-fed) — supersedes Revenue Quality ──
     from .billing import compute_billing, merge_payment_sources
     payments = await records("payment")
-    subs_all = await records("subscription")
+    subs_all = list(await records("subscription"))
+
+    async def legacy_recs(kind):
+        return (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+            MetricRecord.source == "stripe_legacy", MetricRecord.kind == kind))).scalars().all()
+
     # Legacy Stripe backfill: the original account's Forum charges still bill outside
-    # the new sub-account. Merge them in, deduping the CSV-backfill copies already in
-    # the GHL feed (source-authoritative on the legacy side) so nothing double-counts.
-    legacy = (await s.execute(select(MetricRecord).where(
-        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
-        MetricRecord.source == "stripe_legacy", MetricRecord.kind == "payment"))).scalars().all()
+    # the new sub-account. Merge charges (deduping the CSV-backfill copies already in
+    # the GHL feed so nothing double-counts) and ADD the legacy subscriptions to the
+    # recurring book so MRR + the forward projection stop understating legacy dues.
+    # Legacy subscribers aren't in the new-GHL subs (that's the gap) → subs are additive.
+    legacy = await legacy_recs("payment")
     if legacy:
         payments, suppressed = merge_payment_sources(payments, legacy)
         print(f"[forum] merged {len(legacy)} legacy Stripe charges "
               f"({suppressed} GHL backfill copies suppressed)", flush=True)
+    subs_all += list(await legacy_recs("subscription"))
     billing = compute_billing(payments, subs_all, arr, start, end, dt.date.today())
 
     # ── watch signals (only real ones: failed/past-due payments + event pace) ──
