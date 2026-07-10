@@ -410,7 +410,11 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
             status = ghl.txn_status(t)
             sub_id = t.get("subscriptionId")
             name = t.get("entitySourceName")
-            occurred = _parse_ghl_dt(t.get("createdAt"))
+            # CSV-imported transactions (entitySourceSubType='imported_csv') carry the
+            # IMPORT DAY in createdAt; their REAL payment date is `fulfilledAt`. Native
+            # Stripe rows use createdAt. Everything stays date-based off the true date.
+            imported = (t.get("entitySourceSubType") == "imported_csv") or (t.get("entityType") == "external")
+            occurred = (_parse_ghl_dt(t.get("fulfilledAt")) if imported else None) or _parse_ghl_dt(t.get("createdAt"))
             if status == "succeeded" and sub_id:
                 sub_succeeded[sub_id] = sub_succeeded.get(sub_id, 0) + 1
             pay_rows.append(dict(
@@ -423,6 +427,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                 meta={"stream": classify_stream(name, stream_overrides),
                       "entity_source_name": name,
                       "entity_source_type": t.get("entitySourceType"),
+                      "imported": imported,
                       "subscription_id": sub_id, "charge_id": t.get("chargeId"),
                       "amount_refunded": float(t.get("amountRefunded") or 0),
                       "contact_id": str(t.get("contactId") or "")}))

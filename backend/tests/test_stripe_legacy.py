@@ -50,44 +50,51 @@ def test_dashboard_url_uses_payment_intent():
 
 
 # ── cross-source dedupe ─────────────────────────────────────────────
-def _p(email, amount, day, source="ghl", charge_id=None):
+def _p(email, amount, day, source="ghl", charge_id=None, imported=False):
     return SimpleNamespace(email=email, amount=amount, occurred_on=dt.date(2026, 7, day),
-                           source=source, meta=({"charge_id": charge_id} if charge_id else {}))
+                           source=source, meta={"charge_id": charge_id, "imported": imported})
 
 
-def test_backfill_copy_suppressed_even_with_wrong_date():
-    # The backfill copy is id-less and dated the import day (day 30); its legacy twin is
-    # dated the real charge day (day 8). Matched by payer+amount, ignoring date.
+def test_imported_copy_suppressed_by_matching_date():
+    # The imported row now carries its REAL date (from fulfilledAt) = the legacy date,
+    # so it matches on (payer, amount, DATE) and folds away — everything stays date-based.
     legacy = [_p("a@x.com", 2000, 8, "stripe_legacy")]
-    ghl = [_p("a@x.com", 2000, 30, "ghl")]                   # no charge_id → treated as backfill
+    ghl = [_p("a@x.com", 2000, 8, "ghl", imported=True)]
     merged, suppressed = merge_payment_sources(ghl, legacy)
     assert suppressed == 1
     assert len(merged) == 1 and merged[0].source == "stripe_legacy"
 
 
-def test_idless_ghl_with_no_legacy_twin_is_kept():
-    # A GHL-only payment (manual / non-Stripe / other channel) legacy doesn't have —
-    # must NEVER be dropped (legacy is not the complete history).
+def test_imported_row_on_a_different_date_is_not_suppressed():
+    # Date matters: a same-payer/amount imported row on another day is a different charge.
     legacy = [_p("a@x.com", 2000, 8, "stripe_legacy")]
-    ghl = [_p("b@x.com", 500, 8, "ghl")]                     # no legacy twin
+    ghl = [_p("a@x.com", 2000, 9, "ghl", imported=True)]
     merged, suppressed = merge_payment_sources(ghl, legacy)
     assert suppressed == 0 and len(merged) == 2
 
 
-def test_id_bearing_ghl_charge_always_survives():
-    # A native new-account charge carries a charge id; even if it happens to share
-    # payer+amount with a legacy charge (different Stripe accounts), it's kept.
+def test_imported_with_no_legacy_twin_is_kept():
+    # An imported charge legacy isn't pulling — kept (legacy is not the whole history).
     legacy = [_p("a@x.com", 2000, 8, "stripe_legacy")]
-    ghl = [_p("a@x.com", 2000, 8, "ghl", charge_id="pi_native")]
+    ghl = [_p("b@x.com", 500, 8, "ghl", imported=True)]
     merged, suppressed = merge_payment_sources(ghl, legacy)
     assert suppressed == 0 and len(merged) == 2
+
+
+def test_native_and_manual_ghl_rows_always_survive():
+    # A native new-account charge (charge id) and a genuine non-imported manual entry are
+    # both kept even when they share payer+amount+date with a legacy charge.
+    legacy = [_p("a@x.com", 2000, 8, "stripe_legacy")]
+    ghl = [_p("a@x.com", 2000, 8, "ghl", charge_id="pi_native"),   # native
+           _p("a@x.com", 2000, 8, "ghl", imported=False)]          # manual GHL-only
+    merged, suppressed = merge_payment_sources(ghl, legacy)
+    assert suppressed == 0 and len(merged) == 3
 
 
 def test_dedupe_is_one_to_one_not_greedy():
-    # One legacy charge, two id-less GHL rows with the same payer+amount → only one folded
-    # away; the second is kept (could be a genuine second payment).
+    # One legacy charge, two same-key imported rows → only one folds away.
     legacy = [_p("a@x.com", 2000, 8, "stripe_legacy")]
-    ghl = [_p("a@x.com", 2000, 8, "ghl"), _p("a@x.com", 2000, 30, "ghl")]
+    ghl = [_p("a@x.com", 2000, 8, "ghl", imported=True), _p("a@x.com", 2000, 8, "ghl", imported=True)]
     merged, suppressed = merge_payment_sources(ghl, legacy)
     assert suppressed == 1 and len(merged) == 2
 
@@ -340,13 +347,13 @@ async def test_backfill_ghl_rows_dropped_for_legacy():
         t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == t.id, Business.key == "springb"))).scalar_one()
-        today = dt.date.today()
-        # the mis-dated GHL backfill copy (no charge_id, dated the import day)
+        # the imported GHL backfill row, now carrying its REAL date (from fulfilledAt)
+        # and the imported flag — matches its legacy twin on payer+amount+date.
         s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="ghl", kind="payment",
                            external_id="ghl_bf", name="Backfill Person", email="bf@forum.com",
-                           amount=9999, status="succeeded", occurred_on=today,
-                           meta={"stream": "memberships", "amount_refunded": 0}))
-        # the real legacy Stripe charge (charge_id + correct earlier date)
+                           amount=9999, status="succeeded", occurred_on=dt.date(2026, 2, 10),
+                           meta={"stream": "memberships", "amount_refunded": 0, "imported": True}))
+        # the real legacy Stripe charge (charge_id + same date)
         s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="stripe_legacy", kind="payment",
                            external_id="ch_bf", name="Backfill Person", email="bf@forum.com",
                            amount=9999, status="succeeded", occurred_on=dt.date(2026, 2, 10),
@@ -357,4 +364,4 @@ async def test_backfill_ghl_rows_dropped_for_legacy():
 
         allt = await metric_detail(s, t.id, "forum_payments", "ytd", business="springb")
         bf = [r for r in allt["rows"] if r["name"] == "Backfill Person"]
-        assert len(bf) == 1 and bf[0]["r2"] == "Feb 10"        # once, on the real legacy date
+        assert len(bf) == 1 and bf[0]["r2"] == "Feb 10"        # once, on the real date

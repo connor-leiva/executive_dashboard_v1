@@ -255,15 +255,10 @@ def _pay_key(p) -> tuple:
     return (email, amt, d)
 
 
-def _pay_key_loose(p) -> tuple:
-    """Payer + whole-dollar amount, IGNORING date — to match a CSV-backfill row (whose
-    date is the import day, not the real charge date) to its legacy twin."""
-    email = (getattr(p, "email", None) or "").strip().lower()
-    return (email, round(_num(getattr(p, "amount", 0))))
-
-
-def _has_charge_id(p) -> bool:
-    return bool((getattr(p, "meta", None) or {}).get("charge_id"))
+def _is_imported(p) -> bool:
+    """A CSV-backfilled GHL transaction (entitySourceSubType='imported_csv'). Its real
+    payment date is read from fulfilledAt at sync time, so it can be matched on date."""
+    return bool((getattr(p, "meta", None) or {}).get("imported"))
 
 
 def merge_payment_sources(ghl_payments, legacy_payments) -> tuple[list, int]:
@@ -271,19 +266,18 @@ def merge_payment_sources(ghl_payments, legacy_payments) -> tuple[list, int]:
     once — WITHOUT assuming legacy Stripe is the complete history.
 
     Legacy Stripe is authoritative for the ORIGINAL account's charges. The CSV backfill
-    copied many of them into GHL with NO charge id and the WRONG date (the import day),
-    so an id-LESS GHL row that matches a legacy charge on (payer, whole-$ amount) —
-    ignoring date — is that same charge: drop it, keep legacy's real date (one-to-one,
-    budgeted by a Counter). An id-less GHL row with NO legacy twin is a genuinely
-    GHL-only payment (a manual / non-Stripe / other-channel entry) and is KEPT — we
-    never delete money just because legacy Stripe doesn't have it. Id-BEARING GHL rows
-    (native new-account charges) are always kept. Returns (merged, suppressed)."""
-    budget = Counter(_pay_key_loose(p) for p in legacy_payments)
+    copied them into GHL (marked 'imported'); now that each imported row's REAL date is
+    read from fulfilledAt, an imported row that matches a legacy charge on (payer,
+    whole-$ amount, DATE) is that same charge — drop it, keep legacy's (one-to-one,
+    Counter-budgeted). An imported row with NO legacy twin is KEPT (a charge legacy
+    isn't pulling), and every NON-imported row — native new-account charges (charge id)
+    and genuine manual GHL entries — is always kept. Everything stays date-based."""
+    budget = Counter(_pay_key(p) for p in legacy_payments)
     merged = list(legacy_payments)
     suppressed = 0
     for g in ghl_payments:
-        if not _has_charge_id(g):
-            k = _pay_key_loose(g)
+        if _is_imported(g):
+            k = _pay_key(g)
             if budget.get(k, 0) > 0:
                 budget[k] -= 1
                 suppressed += 1
