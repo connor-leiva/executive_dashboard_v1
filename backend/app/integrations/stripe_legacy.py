@@ -168,6 +168,12 @@ def payment_intent(ch: dict) -> str | None:
     return pi if isinstance(pi, str) else (pi or {}).get("id") if isinstance(pi, dict) else None
 
 
+def invoice_id(ch: dict) -> str | None:
+    """GHL writes the invoice id (its GHL _id) into the charge metadata — a direct,
+    deterministic link to the invoice line item, no transaction hop needed."""
+    return ((ch.get("metadata") or {}).get("invoiceId") or "").strip() or None
+
+
 def dashboard_url(ch: dict) -> str:
     """Deep link to the payment in the Stripe dashboard (for the audit drawer)."""
     ref = payment_intent(ch) or ch.get("id") or ""

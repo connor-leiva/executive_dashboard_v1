@@ -771,11 +771,15 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     since = cfg.get("sync_since_epoch")
     tz = _tz(settings.STRIPE_TIMEZONE or "UTC")   # Stripe account tz (Connor's = UTC),
     #   matching Stripe's own display AND the CSV-import copy so the two collapse in dedupe
-    # Rich label per Stripe charge id, from the old Spring B GHL (what each charge is FOR).
-    pi_label = {ext: nm for ext, nm in (await s.execute(select(
-        MetricRecord.external_id, MetricRecord.name).where(
-        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
-        MetricRecord.source == "ghl_legacy", MetricRecord.kind == "label"))).all()}
+    # Rich labels from the old Spring B GHL (what each charge is FOR): by GHL invoice id
+    # (the charge's metadata.invoiceId — deterministic) and by Stripe charge id (txn hop).
+    async def _ghl_map(kind):
+        return {ext: nm for ext, nm in (await s.execute(select(
+            MetricRecord.external_id, MetricRecord.name).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
+            MetricRecord.source == "ghl_legacy", MetricRecord.kind == kind))).all()}
+    inv_label = await _ghl_map("invoice")
+    pi_label = await _ghl_map("label")
 
     # ── charges → payment records (roster member AND a Forum/IC offering) ──
     charges = await stripe_legacy.list_charges(key, created_gt=since)
@@ -787,8 +791,10 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
             continue
         # Prefer the old-GHL label (what the charge is actually for) over Stripe's thin
         # description — that's what lets us drop Spring Break, keep Forum sponsorships, etc.
-        pi = stripe_legacy.payment_intent(ch)
-        desc = (pi and pi_label.get(pi)) or stripe_legacy.charge_description(ch)
+        # invoice id (charge metadata) is the deterministic join; the pi_ txn hop is fallback.
+        inv_id, pi = stripe_legacy.invoice_id(ch), stripe_legacy.payment_intent(ch)
+        desc = ((inv_id and inv_label.get(inv_id)) or (pi and pi_label.get(pi))
+                or stripe_legacy.charge_description(ch))
         include, segment = forum_offering(desc, cfg, amount=stripe_legacy.charge_amount(ch),
                                           recurring=bool(ch.get("invoice")))
         if not include:
@@ -874,10 +880,16 @@ async def sync_ghl_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integrat
     biz = integ.business_id
 
     invoices = await ghl.get_invoices(token, location_id)
-    inv_label = {}
+    inv_label, inv_by_id = {}, {}
     for iv in invoices:
-        items = ghl.invoice_items(iv)
-        inv_label[str(iv.get("_id"))] = "; ".join(items) or (iv.get("name") or iv.get("title") or "")
+        _id = str(iv.get("_id") or "")
+        label = "; ".join(ghl.invoice_items(iv)) or (iv.get("name") or iv.get("title") or "")
+        inv_label[_id] = label
+        if _id and label:
+            inv_by_id[_id] = dict(
+                tenant_id=tenant_id, business_id=biz, source="ghl_legacy", kind="invoice",
+                external_id=_id, name=label[:200],
+                meta={"invoice_number": str(iv.get("invoiceNumberPrefix") or "") + str(iv.get("invoiceNumber") or "")})
 
     txns = await ghl.ghl_transactions(token, location_id)
     by_pi = {}
@@ -895,8 +907,10 @@ async def sync_ghl_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integrat
             meta={"entity_source_type": est, "entity_source_name": name})
     rows = list(by_pi.values())
     await _metric_snapshot(s, tenant_id, biz, "ghl_legacy", "label", rows)
-    print(f"[ghl_legacy] {len(rows)} pi_->label from {len(txns)} txns + {len(invoices)} invoices", flush=True)
-    return len(rows)
+    await _metric_snapshot(s, tenant_id, biz, "ghl_legacy", "invoice", list(inv_by_id.values()))
+    print(f"[ghl_legacy] {len(rows)} pi_->label + {len(inv_by_id)} invoice labels "
+          f"(from {len(txns)} txns, {len(invoices)} invoices)", flush=True)
+    return len(rows) + len(inv_by_id)
 
 
 # Every period the dashboard can toggle to needs its own snapshot.

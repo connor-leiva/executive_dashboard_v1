@@ -426,6 +426,68 @@ async def test_old_ghl_label_drives_classification(monkeypatch):
         assert pays == []          # the Spring Break sponsorship is excluded via the old-GHL label
 
 
+async def test_charge_metadata_invoice_id_labels_when_txn_hop_is_missing(monkeypatch):
+    """The Vija case: no matching old-GHL transaction (the txn hop breaks), but the Stripe
+    charge carries metadata.invoiceId — so we join straight to the invoice line item and
+    still exclude the Spring Break sponsorship."""
+    from sqlalchemy import select
+    from app.seed import seed
+    from app.db import SessionLocal
+    from app.models import Tenant, Business, Integration, MetricRecord
+    from app.security import enc
+    from app.services import sync as sync_mod
+    from app.integrations import ghl as ghl_mod, stripe_legacy as sl_mod
+
+    await seed()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id, Business.key == "springb"))).scalar_one()
+        member = "vija@vija.com"
+        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="ghl", kind="member",
+                           external_id="rs_vija", email=member, status="active"))
+        s.add(Integration(tenant_id=t.id, provider="ghl_legacy", business_id=biz.id, status="connected",
+                          access_token_enc=enc("tok"), config={"location_id": "OLDLOC"}))
+        s.add(Integration(tenant_id=t.id, provider="stripe_legacy", business_id=biz.id, status="connected",
+                          access_token_enc=enc("rk")))
+        await s.commit()
+
+        async def fake_invoices(token, location_id, max_pages=None):
+            return [{"_id": "6995fc4250e63cef69074534", "name": "Special Event Sponsor",
+                     "invoiceItems": [{"name": "Spring Break Special Event Sponsorship"}]}]
+
+        async def fake_txns(token, location_id, max_pages=None):
+            return []                                   # the txn hop is empty for this charge
+        monkeypatch.setattr(ghl_mod, "get_invoices", fake_invoices)
+        monkeypatch.setattr(ghl_mod, "ghl_transactions", fake_txns)
+        gl = (await s.execute(select(Integration).where(
+            Integration.tenant_id == t.id, Integration.provider == "ghl_legacy"))).scalar_one()
+        await sync_mod.sync_ghl_legacy(s, t.id, gl)
+        inv_label = (await s.execute(select(MetricRecord.name).where(
+            MetricRecord.tenant_id == t.id, MetricRecord.source == "ghl_legacy",
+            MetricRecord.kind == "invoice", MetricRecord.external_id == "6995fc4250e63cef69074534"))).scalar_one()
+        assert inv_label == "Spring Break Special Event Sponsorship"
+
+        async def fake_charges(key, created_gt=None, max_pages=None):
+            return [{"id": "ch_V", "payment_intent": "pi_V", "amount": 1500000, "amount_refunded": 0,
+                     "status": "succeeded", "created": 1770000000, "currency": "usd",
+                     "description": "Payment for invoice 000073",
+                     "metadata": {"invoiceId": "6995fc4250e63cef69074534", "invoiceNumber": "000073"},
+                     "billing_details": {"email": member, "name": "Vija Williams"}}]
+
+        async def fake_subs(key, max_pages=None):
+            return []
+        monkeypatch.setattr(sl_mod, "list_charges", fake_charges)
+        monkeypatch.setattr(sl_mod, "list_subscriptions", fake_subs)
+        sl = (await s.execute(select(Integration).where(
+            Integration.tenant_id == t.id, Integration.provider == "stripe_legacy"))).scalar_one()
+        await sync_mod.sync_stripe_legacy(s, t.id, sl)
+        pays = (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == t.id, MetricRecord.source == "stripe_legacy",
+            MetricRecord.kind == "payment"))).scalars().all()
+        assert pays == []          # excluded via the charge's metadata.invoiceId → invoice line item
+
+
 async def test_backfill_ghl_rows_dropped_for_legacy():
     """The CSV-backfill GHL rows (no charge id, dated the import day) are dropped once
     legacy Stripe is present; the charge shows once, on its real legacy date."""
