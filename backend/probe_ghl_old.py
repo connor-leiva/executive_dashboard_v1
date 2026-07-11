@@ -111,13 +111,24 @@ if invs:
                     "email": mask((i.get("contactDetails") or {}).get("email")),
                     "externalTransactions": i.get("externalTransactions")} for i in invs[:6]],
     }
-    # The Shaun-style case: sponsorship invoices — do they carry items + a charge link?
+    # The Shaun/Vija case: sponsorship invoices — trace each to its transaction so we can
+    # see whether the txn-hop (entitySourceId==invoice _id) AND the charge id line up.
+    txn_by_srcid = {}
+    for t in (txns or []):
+        if t.get("entitySourceId"):
+            txn_by_srcid.setdefault(str(t.get("entitySourceId")), t)
     spon = [i for i in invs if "sponsor" in (json.dumps(item_names(i)) + str(i.get("name") or "")).lower()]
-    report["sponsorship_examples"] = [
-        {"invoiceNumber": str(i.get("invoiceNumberPrefix") or "") + str(i.get("invoiceNumber") or ""),
-         "name": i.get("name") or i.get("title"), "items": item_names(i),
-         "total": i.get("total"), "email": mask((i.get("contactDetails") or {}).get("email")),
-         "externalTransactions": i.get("externalTransactions")} for i in spon[:5]]
+    ex = []
+    for i in spon[:8]:
+        _id = str(i.get("_id") or "")
+        lt = txn_by_srcid.get(_id)
+        ex.append({"invoiceNumber": str(i.get("invoiceNumberPrefix") or "") + str(i.get("invoiceNumber") or ""),
+                   "invoice_id": _id, "name": i.get("name") or i.get("title"), "items": item_names(i),
+                   "total": i.get("total"), "email": mask((i.get("contactDetails") or {}).get("email")),
+                   "linked_txn": None if not lt else {
+                       "chargeId": lt.get("chargeId"), "entitySourceType": lt.get("entitySourceType"),
+                       "entitySourceName": lt.get("entitySourceName"), "amount": lt.get("amount")}})
+    report["sponsorship_examples"] = ex
     print(f"   sponsorship-style invoices: {len(spon)}", flush=True)
 
 with open(os.path.join(HERE, "ghl_old_audit.json"), "w", encoding="utf-8") as f:

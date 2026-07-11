@@ -786,15 +786,17 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     rows, off_roster, off_forum = [], 0, 0
     for ch in charges:
         email = stripe_legacy.charge_email(ch)
-        if not email or email in exclude or email not in roster:
+        # The old-GHL label (what the charge is actually FOR) is the primary signal:
+        # invoice id (charge metadata) is the deterministic join, the pi_ txn hop the fallback.
+        inv_id, pi = stripe_legacy.invoice_id(ch), stripe_legacy.payment_intent(ch)
+        label = (inv_id and inv_label.get(inv_id)) or (pi and pi_label.get(pi))
+        # A labeled charge classifies by its label, ROSTER-INDEPENDENT — Stripe customer
+        # emails don't always match the roster (e.g. an invoice paid from a different
+        # address). Only UNLABELED charges keep the roster as a "is this a Forum person" gate.
+        if (email in exclude) or (not label and (not email or email not in roster)):
             off_roster += 1
             continue
-        # Prefer the old-GHL label (what the charge is actually for) over Stripe's thin
-        # description — that's what lets us drop Spring Break, keep Forum sponsorships, etc.
-        # invoice id (charge metadata) is the deterministic join; the pi_ txn hop is fallback.
-        inv_id, pi = stripe_legacy.invoice_id(ch), stripe_legacy.payment_intent(ch)
-        desc = ((inv_id and inv_label.get(inv_id)) or (pi and pi_label.get(pi))
-                or stripe_legacy.charge_description(ch))
+        desc = label or stripe_legacy.charge_description(ch)
         include, segment = forum_offering(desc, cfg, amount=stripe_legacy.charge_amount(ch),
                                           recurring=bool(ch.get("invoice")))
         if not include:

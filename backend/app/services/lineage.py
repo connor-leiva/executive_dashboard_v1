@@ -372,9 +372,10 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 MetricRecord.source == "stripe_legacy", MetricRecord.kind == "payment"))).scalars().all()
             if not legacy:
                 return ghl
-            # Fold in legacy Stripe; merge suppresses only the id-less backfill copies
-            # legacy actually covers (matched by payer+amount) and keeps GHL-only rows.
-            merged, _ = merge_payment_sources(ghl, legacy)
+            # Drop the redundant CSV-imported backfill copies (legacy Stripe is the
+            # authoritative, classified source); keep native new-account charges.
+            native = [p for p in ghl if not (p.meta or {}).get("imported")]
+            merged, _ = merge_payment_sources(native, legacy)
             return merged
 
         async def fsubs():
