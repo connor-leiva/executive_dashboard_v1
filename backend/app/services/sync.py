@@ -140,10 +140,13 @@ def _clean_str(v) -> str | None:
 
 
 def _member_type(v: str | None) -> str | None:
-    """Normalize the CRM 'Member Type' label → 'primary' | 'add_on' (raw kept too)."""
+    """Normalize the CRM 'Member Type' RADIO label → 'primary' | 'add_on' | 'admin'
+    (raw kept too). Live options are Primary Member / Add-On Member / Admin."""
     d = (v or "").lower()
     if not d:
         return None
+    if "admin" in d:                                      # staff seat, not a paying member
+        return "admin"
     if "add" in d or "secondary" in d or "spouse" in d:   # Add-On / Secondary / Spouse
         return "add_on"
     if "primary" in d or "main" in d:
@@ -380,11 +383,11 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
 
     biz = integ.business_id
 
-    # 1) Contacts → members (tag union, segmented) + event registrations (tag).
+    # 1) Contacts → members + event registrations (tag).
     #    A registration whose contact is NOT a member is a guest (prospect seat).
     contacts = await ghl.get_contacts(token, location_id)
-    # Membership detail (populated from ClickUp): map the location's custom fields once,
-    # then read each member's renewal date / enrollment date / total cost / payment plan.
+    # Map the location's custom fields once, then read each contact's membership detail
+    # (member type / renewal / enrollment / cost / plan / brokerage / Stripe account).
     field_ids = {}
     try:
         field_ids = _membership_field_ids(await ghl.get_custom_fields(token, location_id), cfg)
@@ -393,18 +396,30 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     if field_ids:
         print(f"[ghl] membership fields mapped: {sorted(field_ids)}", flush=True)
 
+    # GHL is the definitive source of truth for the roster: a member is a contact typed
+    # in the CRM "Member Type" field (Primary / Add-On / Admin). Admins are staff — kept
+    # as records (status='admin') so they surface in the roster drawer, but excluded from
+    # every active-member count. Tags no longer *define* membership (they were noisy —
+    # cohort/guest tags leaked in and tag-less members were missed); they still segment
+    # Forum vs Inner Circle. Falls back to the tag union only if the field isn't mapped.
+    typed = bool(field_ids.get("member_type"))
     members, regs = [], []
+    n_admin = 0
     for c in contacts:
         tset = set(ghl.contact_tags(c))
-        is_member = bool(tset & member_tags)
         cid = str(c.get("id"))
         base = dict(tenant_id=tenant_id, business_id=biz, source="ghl",
                     external_id=cid, name=ghl.contact_name(c)[:200],
                     email=(c.get("email") or None),
                     source_url=ghl.contact_url(location_id, c.get("id")))
+        detail = _read_membership(ghl.contact_custom_values(c), field_ids) if field_ids else {}
+        kind = detail.get("member_kind")                 # primary | add_on | admin | None
+        is_member = kind in ("primary", "add_on", "admin") if typed else bool(tset & member_tags)
         if is_member:
-            detail = _read_membership(ghl.contact_custom_values(c), field_ids) if field_ids else {}
-            members.append({**base, "kind": "member", "status": "active",
+            if kind == "admin":
+                n_admin += 1
+            members.append({**base, "kind": "member",
+                            "status": "admin" if kind == "admin" else "active",
                             "segment": ghl.member_segment(tset, forum_tags, ic_tags),
                             "meta": {"membership": detail}})
         if event_tag and event_tag in tset:
@@ -416,8 +431,9 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                        for m in members if (m["meta"]["membership"] or {}).get("payment")}
     await _ghl_snapshot(s, tenant_id, biz, "registration", regs)
     n_records = len(members) + len(regs)
-    print(f"[ghl] {len(members)} members, {len(regs)} registered for '{event_tag}' "
-          f"(from {len(contacts)} contacts)", flush=True)
+    print(f"[ghl] {len(members) - n_admin} members (+{n_admin} admin) via "
+          f"{'Member Type field' if typed else 'membership tags'}, {len(regs)} registered "
+          f"for '{event_tag}' (from {len(contacts)} contacts)", flush=True)
 
     # 2) Opportunities → memberships (renewals pipeline) + onboarded (sales funnel).
     try:

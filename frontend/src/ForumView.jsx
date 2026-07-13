@@ -407,7 +407,8 @@ function membersItems(data, open, onOpen, deckSlots) {
           <Row a="The Forum" b={`${split[0]} members`} v={arr ? `${arr.value} book` : ""} />
           <Row a="Inner Circle" b={`${split[1]} members`} v="incl. above" />
         </> : <Row a="Members" b={am?.sub || ""} v={arr?.value || ""} />}
-        {rs.primary != null && <Row a="Composition" b={`${rs.primary} primary · ${rs.add_on} add-on`} v="" />}
+        {rs.primary != null && <Row a="Composition" b={[`${rs.primary} primary`, `${rs.add_on} add-on`,
+          rs.admin ? `${rs.admin} admin` : null, rs.unspecified ? `${rs.unspecified} unset` : null].filter(Boolean).join(" · ")} v="" />}
         <div style={{ marginTop: 10 }}><Drill onClick={() => onOpen("forum_roster")}>View all {data.members_total} members</Drill></div>
       </div>
       <div>

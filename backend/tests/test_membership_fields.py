@@ -80,8 +80,23 @@ def test_read_membership_richer_fields():
     assert out["member_type"] == "Add-On Member" and out["member_kind"] == "add_on"
     assert out["status"] == "Active" and out["brokerage"] == "eXp Realty"
     assert out["stripe_account"] == "Legacy SB Account"
-    # a primary label normalizes to 'primary'
+    # a primary label normalizes to 'primary'; Admin is its own kind
     assert _read_membership({"mt": "Primary Member"}, {"member_type": "mt"})["member_kind"] == "primary"
+    assert _read_membership({"mt": "Admin"}, {"member_type": "mt"})["member_kind"] == "admin"
+
+
+def test_roster_summary_counts_admins_separately():
+    """Members (primary/add-on) are counted; admins are a separate staff list excluded
+    from the member total; a stray unrecognized kind is `unspecified`, never primary."""
+    from app.services.forum import _roster_summary
+    from types import SimpleNamespace
+    def m(kind):
+        return SimpleNamespace(meta={"membership": ({"member_kind": kind} if kind else {})})
+    members = [m("primary"), m("primary"), m("add_on"), m(None), m("bogus")]
+    admins = [m("admin"), m("admin")]
+    s = _roster_summary(members, admins, 3, 3)
+    assert s["primary"] == 2 and s["add_on"] == 1 and s["admin"] == 2
+    assert s["unspecified"] == 2 and s["total"] == 5    # members only; admins excluded
 
 
 # ── PIF renewal projection ──────────────────────────────────────────

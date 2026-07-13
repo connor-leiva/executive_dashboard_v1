@@ -188,30 +188,32 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "count": len(rows), "rows": rows}
 
         if key == "forum_roster":
-            # The rich roster view — every active member with their CRM membership
-            # detail (program, type, plan, amount, enrollment + renewal, brokerage).
-            recs = sorted(members_all, key=lambda m: (0 if m.segment == "forum" else 1, m.name or ""))
+            # The rich roster view — every member with their CRM membership detail
+            # (program, type, plan, amount, enrollment + renewal, brokerage). Admins
+            # (status='admin') are included so they show in their own group, but kept
+            # out of the member totals / payment mix / book (they're staff, not members).
+            recs = (await s.execute(q("member").where(
+                MetricRecord.status.in_(["active", "admin"])))).scalars().all()
+            recs = sorted(recs, key=lambda m: (0 if m.segment == "forum" else 1, m.name or ""))
             rows, mix = [], {"monthly": 0, "pif": 0, "financed": 0}
-            prim = addon = 0
+            comp = {"primary": 0, "add_on": 0, "admin": 0, "unspecified": 0}
             for m in recs:
                 mem = (m.meta or {}).get("membership") or {}
                 ms = ms_by_contact.get(m.external_id)
                 amount = mem.get("total_cost")
                 if amount is None and ms is not None and ms.amount is not None:
                     amount = float(ms.amount)
-                pay = mem.get("payment")
-                if pay in mix:
-                    mix[pay] += 1
                 kind = mem.get("member_kind")
-                if kind == "add_on":
-                    addon += 1
-                else:
-                    prim += 1
+                comp[kind if kind in comp else "unspecified"] += 1
+                if kind != "admin":                       # payment mix is members only
+                    pay = mem.get("payment")
+                    if pay in mix:
+                        mix[pay] += 1
                 rows.append({
                     "id": str(m.id), "name": title_name(m), "seg": seg_of(m.segment),
                     "kind": kind, "member_type": mem.get("member_type"),
                     "status": mem.get("status") or "Active",
-                    "payment": pay, "amount": amount,
+                    "payment": mem.get("payment"), "amount": amount,
                     "enrolled": mem.get("enrollment_date"),
                     "renews": mem.get("renewal_date") or renews_of(ms),
                     "brokerage": mem.get("brokerage"),
@@ -219,16 +221,20 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "event": is_registered(m.external_id, m.name),
                     "source_url": m.source_url,
                 })
+            mrows = [r for r in rows if r["kind"] != "admin"]     # member seats only
             summary = {
-                "total": len(rows),
-                "forum": sum(1 for r in rows if r["seg"] == "F"),
-                "inner_circle": sum(1 for r in rows if r["seg"] == "IC"),
-                "primary": prim, "add_on": addon, "payment_mix": mix,
-                "book": round(sum(float(r["amount"] or 0) for r in rows), 2),
+                "total": len(mrows),
+                "forum": sum(1 for r in mrows if r["seg"] == "F"),
+                "inner_circle": sum(1 for r in mrows if r["seg"] == "IC"),
+                "primary": comp["primary"], "add_on": comp["add_on"],
+                "admin": comp["admin"], "unspecified": comp["unspecified"],
+                "payment_mix": mix,
+                "book": round(sum(float(r["amount"] or 0) for r in mrows), 2),
             }
             return {"label": "The Forum · Roster", "source": "Go High Level", "view": "roster",
-                    "computed_as": ("Every active member with their CRM membership detail — program, "
-                                    "member type, payment plan, contract value, enrollment and renewal."),
+                    "computed_as": ("Every member with their CRM membership detail — program, member "
+                                    "type, payment plan, contract value, enrollment and renewal. "
+                                    "Admins are staff, listed separately and excluded from the totals."),
                     "count": len(rows), "rows": rows, "summary": summary}
 
         if key == "forum_arr":

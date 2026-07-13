@@ -6,15 +6,15 @@ export default {
   members_total: 70,
   roster: {
     total: 70, forum: 26, inner_circle: 44,
-    primary: 62, add_on: 8,
+    primary: 62, add_on: 8, admin: 2,
     payment_mix: { monthly: 22, pif: 40, financed: 8 },
   },
   roster_detail: {
     summary: {
-      total: 70, forum: 26, inner_circle: 44, primary: 62, add_on: 8,
+      total: 70, forum: 26, inner_circle: 44, primary: 62, add_on: 8, admin: 2,
       payment_mix: { monthly: 22, pif: 40, financed: 8 }, book: 1284000,
     },
-    count: 70,
+    count: 72,
     rows: [
       { id: "r1", name: "Marcus Tran", seg: "F", kind: "primary", member_type: "Primary Member", status: "Active", payment: "pif", amount: 30000, enrolled: "2024-02-10", renews: "2026-08-10", brokerage: "eXp Realty", stripe_account: "Legacy SB Account", event: true, source_url: "https://app.gohighlevel.com/" },
       { id: "r2", name: "Jordan Pierce", seg: "F", kind: "primary", member_type: "Primary Member", status: "Active", payment: "monthly", amount: 30000, enrolled: "2024-05-22", renews: "2026-08-22", brokerage: "Compass", stripe_account: "Forum Sub-Account", event: true, source_url: "https://app.gohighlevel.com/" },
@@ -34,6 +34,8 @@ export default {
       { id: "r16", name: "Nathan Cole", seg: "IC", kind: "primary", member_type: "Primary Member", status: "Active", payment: "financed", amount: 6000, enrolled: "2025-01-08", renews: "2026-11-08", brokerage: "The Agency", stripe_account: "Forum Sub-Account", event: false, source_url: "https://app.gohighlevel.com/" },
       { id: "r17", name: "Bianca Rossi", seg: "IC", kind: "primary", member_type: "Primary Member", status: "Active", payment: "pif", amount: 6000, enrolled: "2024-07-16", renews: "2026-08-16", brokerage: null, stripe_account: "Legacy SB Account", event: true, source_url: "https://app.gohighlevel.com/" },
       { id: "r18", name: "Wesley Hunt", seg: "IC", kind: "primary", member_type: "Primary Member", status: "Active", payment: "pif", amount: 6000, enrolled: "2023-11-21", renews: "2026-12-21", brokerage: "Keller Williams", stripe_account: "Legacy SB Account", event: false, source_url: "https://app.gohighlevel.com/" },
+      { id: "r19", name: "Spring Ops", seg: "F", kind: "admin", member_type: "Admin", status: "Active", payment: null, amount: 0, enrolled: null, renews: null, brokerage: null, stripe_account: null, event: false, source_url: "https://app.gohighlevel.com/" },
+      { id: "r20", name: "Taylor Reed", seg: "IC", kind: "admin", member_type: "Admin", status: "Active", payment: null, amount: 0, enrolled: null, renews: null, brokerage: null, stripe_account: null, event: false, source_url: "https://app.gohighlevel.com/" },
     ],
   },
   pl: null,

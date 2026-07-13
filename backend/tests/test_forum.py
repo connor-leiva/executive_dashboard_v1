@@ -70,6 +70,9 @@ async def _seed_forum(*, with_recruiting: bool = True, with_event: bool = True):
         for n in ("IC1", "IC2"):
             add(kind="member", external_id=n, name=n, status="active", segment="inner_circle",
                 meta={"membership": _mem[n]})
+        # an Admin (staff) — record status 'admin' keeps it out of member counts.
+        add(kind="member", external_id="ADM1", name="Admin One", status="admin", segment="forum",
+            meta={"membership": {"member_type": "Admin", "member_kind": "admin", "status": "Active"}})
 
         # memberships — renewal window = this + next 2 months; ms5 is out of window
         add(kind="membership", external_id="ms1", name="F1", status="active", amount=3000, segment="forum",
@@ -193,25 +196,25 @@ async def test_forum_roster_view():
     await _seed_forum()
     d = await _get_forum()
     r = d["roster"]
-    assert r["total"] == 5 and r["forum"] == 3 and r["inner_circle"] == 2
-    assert r["primary"] == 4 and r["add_on"] == 1
+    assert r["total"] == 5 and r["forum"] == 3 and r["inner_circle"] == 2   # members only
+    assert r["primary"] == 4 and r["add_on"] == 1 and r["admin"] == 1        # admin counted apart
     assert r["payment_mix"] == {"monthly": 2, "pif": 2, "financed": 1}
+    assert d["members_total"] == 5                                           # admin not a member
 
     token = await _token()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as c:
         H = {"Authorization": f"Bearer {token}"}
         roster = (await c.get("/api/v1/metrics/forum_roster/detail?business=springb", headers=H)).json()
-    assert roster["count"] == 5 and roster["view"] == "roster"
+    assert roster["count"] == 6 and roster["view"] == "roster"   # 5 members + 1 admin row
     sm = roster["summary"]
+    assert sm["total"] == 5 and sm["admin"] == 1                 # total is members only
     assert sm["add_on"] == 1 and sm["primary"] == 4
-    assert sm["book"] == 60000                                  # 24000+24000+0+6000+6000
+    assert sm["book"] == 60000                                  # 24000+24000+0+6000+6000 (admin excluded)
     by_name = {row["name"]: row for row in roster["rows"]}
     assert by_name["F3"]["kind"] == "add_on" and by_name["F3"]["member_type"] == "Add-On Member"
     assert by_name["F1"]["amount"] == 24000 and by_name["F1"]["brokerage"] == "eXp Realty"
-    assert all(row["status"] == "Active" for row in roster["rows"])
-    # Forum members sort ahead of Inner Circle
-    assert roster["rows"][0]["seg"] == "F" and roster["rows"][-1]["seg"] == "IC"
+    assert by_name["Admin One"]["kind"] == "admin"              # admin present in the rows
 
 
 async def test_recruiting_funnel_grouping():

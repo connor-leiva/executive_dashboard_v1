@@ -86,11 +86,16 @@ export default function RosterDrawer({ business, period, onClose }) {
   const mix = sm.payment_mix || {};
   const filtered = useMemo(() => {
     const t = qtext.trim().toLowerCase();
-    return rows.filter((r) => (prog === "all" || r.seg === prog)
-      && (!t || (r.name || "").toLowerCase().includes(t) || (r.brokerage || "").toLowerCase().includes(t)));
-  }, [rows, prog, qtext]);
+    return rows.filter((r) => !t || (r.name || "").toLowerCase().includes(t) || (r.brokerage || "").toLowerCase().includes(t));
+  }, [rows, qtext]);
 
-  const groups = prog === "IC" ? ["IC"] : prog === "F" ? ["F"] : ["F", "IC"];
+  // Admins are staff seats — shown as their own group, kept out of the Forum/IC lists.
+  const isAdmin = (r) => r.kind === "admin";
+  const inScope = filtered.filter((r) =>
+    prog === "all" ? true : prog === "ADMIN" ? isAdmin(r) : (r.seg === prog && !isAdmin(r)));
+  const groups = prog === "ADMIN" ? ["ADMIN"] : prog === "IC" ? ["IC"] : prog === "F" ? ["F"] : ["F", "IC", "ADMIN"];
+  const inGroup = (r, g) => (g === "ADMIN" ? isAdmin(r) : (r.seg === g && !isAdmin(r)));
+  const GROUP_LABEL = { F: "The Forum", IC: "Inner Circle", ADMIN: "Admins" };
   const tab = (k, on) => ({
     fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none",
     borderRadius: 7, padding: "6px 12px", background: on ? T.white : "transparent",
@@ -127,7 +132,9 @@ export default function RosterDrawer({ business, period, onClose }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 18, marginTop: 16 }}>
             <Stat label="Members"><span style={{ fontSize: 22 }}>{sm.total ?? rows.length}</span></Stat>
             <Stat label="Program">{sm.forum ?? 0} Forum<span style={{ color: T.muted, fontWeight: 500 }}>·</span>{sm.inner_circle ?? 0} IC</Stat>
-            <Stat label="Composition">{sm.primary ?? 0} primary<span style={{ color: T.muted, fontWeight: 500 }}>·</span>{sm.add_on ?? 0} add-on</Stat>
+            <Stat label="Composition">
+              <span style={{ fontSize: 13 }}>{sm.primary ?? 0} primary<span style={{ color: T.muted }}> · </span>{sm.add_on ?? 0} add-on{sm.admin ? <><span style={{ color: T.muted }}> · </span>{sm.admin} admin</> : null}{sm.unspecified ? <span style={{ color: T.muted }}> · {sm.unspecified} unset</span> : null}</span>
+            </Stat>
             <Stat label="Payment mix">
               <span style={{ fontSize: 13 }}>{mix.monthly || 0} Monthly<span style={{ color: T.muted }}> · </span>{mix.pif || 0} PIF<span style={{ color: T.muted }}> · </span>{mix.financed || 0} Financed</span>
             </Stat>
@@ -138,7 +145,7 @@ export default function RosterDrawer({ business, period, onClose }) {
         {/* Controls — program tabs + quick find */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 24px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap" }}>
           <div style={{ display: "inline-flex", gap: 3, background: T.parchment, borderRadius: 9, padding: 3 }}>
-            {[["all", "All"], ["F", "The Forum"], ["IC", "Inner Circle"]].map(([k, label]) => (
+            {[["all", "All"], ["F", "The Forum"], ["IC", "Inner Circle"], ...(sm.admin ? [["ADMIN", "Admins"]] : [])].map(([k, label]) => (
               <button key={k} onClick={() => setProg(k)} style={tab(k, prog === k)}>{label}</button>
             ))}
           </div>
@@ -146,7 +153,7 @@ export default function RosterDrawer({ business, period, onClose }) {
             style={{ flex: 1, minWidth: 160, fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink,
               background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", outline: "none" }} />
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>
-            {filtered.length} shown{subset ? ` · sample of ${sm.total}` : ""}
+            {inScope.length} shown{subset ? ` · sample of ${sm.total}` : ""}
           </span>
         </div>
 
@@ -176,14 +183,14 @@ export default function RosterDrawer({ business, period, onClose }) {
                   </tr>
                 </thead>
                 {groups.map((g) => {
-                  const gr = filtered.filter((r) => r.seg === g);
+                  const gr = inScope.filter((r) => inGroup(r, g));
                   if (!gr.length) return null;
                   return (
                     <tbody key={g}>
                       <tr>
                         <td colSpan={6} style={{ padding: "12px 24px 6px", fontFamily: "Poppins,sans-serif",
                           fontSize: 12, fontWeight: 600, color: T.slate, background: T.page }}>
-                          {g === "F" ? "The Forum" : "Inner Circle"}
+                          {GROUP_LABEL[g]}
                           <span style={{ color: T.muted, fontWeight: 500 }}> · {gr.length}</span>
                         </td>
                       </tr>
@@ -201,6 +208,10 @@ export default function RosterDrawer({ business, period, onClose }) {
                                   {r.kind === "add_on" && (
                                     <span style={{ fontFamily: "Inter,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em",
                                       color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 4, padding: "1px 5px", textTransform: "uppercase" }}>Add-on</span>
+                                  )}
+                                  {r.kind === "admin" && (
+                                    <span style={{ fontFamily: "Inter,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em",
+                                      color: T.teal, background: T.mist, borderRadius: 4, padding: "1px 5px", textTransform: "uppercase" }}>Admin</span>
                                   )}
                                 </div>
                                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

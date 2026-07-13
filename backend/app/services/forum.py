@@ -86,9 +86,10 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     memberships = await records("membership")
     # Memberships live in the (Forum) renewals pipeline and carry no segment;
     # recover it by joining to the member roster on contact id.
-    member_recs = await records("member", MetricRecord.status == "active")
+    member_recs = await records("member", MetricRecord.status == "active")   # primary + add-on
+    admin_recs = await records("member", MetricRecord.status == "admin")     # staff, not members
     seg_by_contact = {m.external_id: m.segment for m in member_recs}
-    roster = _roster_summary(member_recs, forum_n, ic_n)
+    roster = _roster_summary(member_recs, admin_recs, forum_n, ic_n)
     funnel = await _funnel(s, base, cfg)
     renewals = _renewals(memberships, seg_by_contact)
     event = _event(cfg, members_total, member_regs, guests)
@@ -153,25 +154,26 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     }
 
 
-def _roster_summary(members, forum_n, ic_n) -> dict:
-    """Composition of the active roster for the Members & Growth panel: program split,
-    primary vs add-on members, and the monthly/PIF/financed payment mix — all read from
-    the GHL membership custom fields (blanks default to primary/unspecified)."""
-    prim = addon = 0
+def _roster_summary(members, admins, forum_n, ic_n) -> dict:
+    """Composition of the active roster for the Members & Growth panel. `members` are the
+    real member seats (Member Type primary/add-on); `admins` are staff, counted separately
+    and excluded from the member total. Program split + primary/add-on + the monthly/PIF/
+    financed payment mix, all from the GHL Member Type / Payment Plan fields (`unspecified`
+    only arises in the degraded tag-fallback path)."""
+    comp = {"primary": 0, "add_on": 0, "unspecified": 0}
     mix = {"monthly": 0, "pif": 0, "financed": 0}
     for m in members:
         mem = (m.meta or {}).get("membership") or {}
-        if mem.get("member_kind") == "add_on":
-            addon += 1
-        else:
-            prim += 1                      # unspecified defaults to a primary seat
+        kind = mem.get("member_kind")
+        comp[kind if kind in ("primary", "add_on") else "unspecified"] += 1
         pay = mem.get("payment")
         if pay in mix:
             mix[pay] += 1
     return {
-        "total": len(members),
+        "total": len(members),                 # members only — admins excluded
         "forum": forum_n, "inner_circle": ic_n,
-        "primary": prim, "add_on": addon,
+        "primary": comp["primary"], "add_on": comp["add_on"],
+        "admin": len(admins), "unspecified": comp["unspecified"],
         "payment_mix": mix,
     }
 
