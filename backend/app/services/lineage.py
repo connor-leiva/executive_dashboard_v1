@@ -195,7 +195,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             recs = (await s.execute(q("member").where(
                 MetricRecord.status.in_(["active", "admin"])))).scalars().all()
             recs = sorted(recs, key=lambda m: (0 if m.segment == "forum" else 1, m.name or ""))
-            rows, mix = [], {"monthly": 0, "pif": 0, "financed": 0}
+            rows, mix = [], {"monthly": 0, "quarterly": 0, "pif": 0, "installments": 0}
             comp = {"primary": 0, "add_on": 0, "admin": 0, "unspecified": 0}
             for m in recs:
                 mem = (m.meta or {}).get("membership") or {}

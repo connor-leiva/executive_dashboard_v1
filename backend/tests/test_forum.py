@@ -59,9 +59,9 @@ async def _seed_forum(*, with_recruiting: bool = True, with_event: bool = True):
                    "status": "Active", "total_cost": 24000, "stripe_account": "Forum Sub-Account"},
             "F3": {"member_type": "Add-On Member", "member_kind": "add_on", "payment": "pif",
                    "status": "Active", "total_cost": 0, "stripe_account": "Legacy SB Account"},
-            "IC1": {"member_type": "Primary Member", "member_kind": "primary", "payment": "financed",
+            "IC1": {"member_type": "Primary Member", "member_kind": "primary", "payment": "installments",
                     "status": "Active", "total_cost": 6000, "brokerage": "Compass"},
-            "IC2": {"member_type": "Primary Member", "member_kind": "primary", "payment": "monthly",
+            "IC2": {"member_type": "Primary Member", "member_kind": "primary", "payment": "quarterly",
                     "status": "Active", "total_cost": 6000},
         }
         for n in ("F1", "F2", "F3"):
@@ -198,7 +198,7 @@ async def test_forum_roster_view():
     r = d["roster"]
     assert r["total"] == 5 and r["forum"] == 3 and r["inner_circle"] == 2   # members only
     assert r["primary"] == 4 and r["add_on"] == 1 and r["admin"] == 1        # admin counted apart
-    assert r["payment_mix"] == {"monthly": 2, "pif": 2, "financed": 1}
+    assert r["payment_mix"] == {"monthly": 1, "quarterly": 1, "pif": 2, "installments": 1}
     assert d["members_total"] == 5                                           # admin not a member
 
     token = await _token()

@@ -321,7 +321,8 @@ async def seed():
             for i in range(70):
                 ic = i >= 48
                 addon = (i % 9 == 8)                               # ~1 in 9 is an add-on seat
-                pay = "monthly" if i % 3 == 0 else ("financed" if i % 5 == 0 else "pif")
+                pay = ("monthly" if i % 3 == 0 else "installments" if i % 5 == 0
+                       else "quarterly" if i % 7 == 0 else "pif")
                 cost = 0 if addon else (6000 if ic else 24000)
                 enroll = dt.date(2025, (i % 12) + 1, min((i % 27) + 1, 28))
                 renew = dt.date(2026, (i % 12) + 1, min((i % 27) + 1, 28))

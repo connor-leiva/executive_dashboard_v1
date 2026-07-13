@@ -10,9 +10,10 @@ const API_BASE = import.meta.env.VITE_API_BASE;
    list of amounts. Fed by the forum_roster drill (rows + summary). */
 
 const PLAN = {
-  pif: { label: "Paid in full", fg: T.teal, bg: T.mist },
   monthly: { label: "Monthly", fg: T.meadowInk, bg: T.meadowBg },
-  financed: { label: "Financed", fg: T.amber, bg: T.daffodilBg },
+  quarterly: { label: "Quarterly", fg: T.secondary, bg: T.sprout },
+  pif: { label: "Paid in full", fg: T.teal, bg: T.mist },
+  installments: { label: "Installments", fg: T.amber, bg: T.daffodilBg },
 };
 
 const compact = (n) => {
@@ -136,7 +137,7 @@ export default function RosterDrawer({ business, period, onClose }) {
               <span style={{ fontSize: 13 }}>{sm.primary ?? 0} primary<span style={{ color: T.muted }}> · </span>{sm.add_on ?? 0} add-on{sm.admin ? <><span style={{ color: T.muted }}> · </span>{sm.admin} admin</> : null}{sm.unspecified ? <span style={{ color: T.muted }}> · {sm.unspecified} unset</span> : null}</span>
             </Stat>
             <Stat label="Payment mix">
-              <span style={{ fontSize: 13 }}>{mix.monthly || 0} Monthly<span style={{ color: T.muted }}> · </span>{mix.pif || 0} PIF<span style={{ color: T.muted }}> · </span>{mix.financed || 0} Financed</span>
+              <span style={{ fontSize: 13 }}>{mix.monthly || 0} Monthly<span style={{ color: T.muted }}> · </span>{mix.quarterly || 0} Qtr<span style={{ color: T.muted }}> · </span>{mix.pif || 0} PIF<span style={{ color: T.muted }}> · </span>{mix.installments || 0} Inst</span>
             </Stat>
             <Stat label="Membership value">{compact(sm.book)}</Stat>
           </div>

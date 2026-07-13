@@ -158,10 +158,10 @@ def _roster_summary(members, admins, forum_n, ic_n) -> dict:
     """Composition of the active roster for the Members & Growth panel. `members` are the
     real member seats (Member Type primary/add-on); `admins` are staff, counted separately
     and excluded from the member total. Program split + primary/add-on + the monthly/PIF/
-    financed payment mix, all from the GHL Member Type / Payment Plan fields (`unspecified`
-    only arises in the degraded tag-fallback path)."""
+    payment mix (monthly / quarterly / PIF / installments), all from the GHL Member Type /
+    Payment Plan fields (`unspecified` only arises in the degraded tag-fallback path)."""
     comp = {"primary": 0, "add_on": 0, "unspecified": 0}
-    mix = {"monthly": 0, "pif": 0, "financed": 0}
+    mix = {"monthly": 0, "quarterly": 0, "pif": 0, "installments": 0}
     for m in members:
         mem = (m.meta or {}).get("membership") or {}
         kind = mem.get("member_kind")

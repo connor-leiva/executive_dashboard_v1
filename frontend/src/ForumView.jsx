@@ -397,7 +397,7 @@ function membersItems(data, open, onOpen, deckSlots) {
   const renD = (data.kpis || []).find((x) => x.key === "renewals_due");
   const rs = data.roster || {};
   const mix = rs.payment_mix || {};
-  const mixTot = (mix.monthly || 0) + (mix.pif || 0) + (mix.financed || 0) || 1;
+  const mixTot = (mix.monthly || 0) + (mix.quarterly || 0) + (mix.pif || 0) + (mix.installments || 0) || 1;
   const mpct = (n) => `${((n || 0) / mixTot) * 100}%`;
   items.push({ key: "roster", icon: A.users, name: "Roster", stat: String(data.members_total ?? "—"), line: am?.sub || "members", accent: C.meadow, render: () => (
     <div className="cols">
@@ -412,17 +412,19 @@ function membersItems(data, open, onOpen, deckSlots) {
         <div style={{ marginTop: 10 }}><Drill onClick={() => onOpen("forum_roster")}>View all {data.members_total} members</Drill></div>
       </div>
       <div>
-        {(mix.pif || mix.monthly || mix.financed) ? <>
+        {(mix.pif || mix.monthly || mix.quarterly || mix.installments) ? <>
           <div className="colhead">Payment Mix</div>
           <div className="stack">
             {mix.pif > 0 && <div className="stack-seg" style={{ width: mpct(mix.pif), background: C.evergreen }} title={`${mix.pif} paid in full`} />}
             {mix.monthly > 0 && <div className="stack-seg" style={{ width: mpct(mix.monthly), background: C.meadow }} title={`${mix.monthly} monthly`} />}
-            {mix.financed > 0 && <div className="stack-seg" style={{ width: mpct(mix.financed), background: C.sprout }} title={`${mix.financed} financed`} />}
+            {mix.quarterly > 0 && <div className="stack-seg" style={{ width: mpct(mix.quarterly), background: C.sprout }} title={`${mix.quarterly} quarterly`} />}
+            {mix.installments > 0 && <div className="stack-seg" style={{ width: mpct(mix.installments), background: C.mistDeep }} title={`${mix.installments} installments`} />}
           </div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted, marginBottom: 4 }}>
             <Dot c={C.evergreen} t={`${mix.pif || 0} PIF`} />
             <Dot c={C.meadow} t={`${mix.monthly || 0} Monthly`} />
-            <Dot c={C.sprout} t={`${mix.financed || 0} Financed`} />
+            {mix.quarterly > 0 && <Dot c={C.sprout} t={`${mix.quarterly} Quarterly`} />}
+            {mix.installments > 0 && <Dot c={C.mistDeep} t={`${mix.installments} Installments`} />}
           </div>
         </> : null}
         <div className="colhead" style={{ marginTop: 10 }}>Movement · MTD</div>

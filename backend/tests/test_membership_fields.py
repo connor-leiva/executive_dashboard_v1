@@ -13,10 +13,16 @@ from app.services.sync import _parse_any_date, _parse_money, _membership_field_i
 
 # ── payment-plan normalization ──────────────────────────────────────
 def test_normalize_payment_plan():
+    # the live GHL dropdown options
+    assert normalize_payment_plan("Monthly") == "monthly"
+    assert normalize_payment_plan("Annually (PIF)") == "pif"
+    assert normalize_payment_plan("Quarterly") == "quarterly"
+    assert normalize_payment_plan("Installments (3)") == "installments"
+    assert normalize_payment_plan("Installments (Other)") == "installments"
+    # tolerant of legacy / free-text phrasings
     assert normalize_payment_plan("PIF") == "pif"
     assert normalize_payment_plan("Paid in Full") == "pif"
-    assert normalize_payment_plan("Monthly") == "monthly"
-    assert normalize_payment_plan("Financed - 12 months") == "financed"
+    assert normalize_payment_plan("Financed - 12 months") == "installments"
     assert normalize_payment_plan("") is None
     assert normalize_payment_plan("mystery") is None
 

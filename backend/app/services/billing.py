@@ -195,15 +195,19 @@ def mrr_of(subs) -> float:
 
 
 def normalize_payment_plan(v) -> str | None:
-    """A GHL 'payment plan' custom-field value → pif | monthly | financed | None.
-    PIF renews as an annual lump; monthly/financed bill via a subscription."""
+    """A GHL 'Payment Plan' custom-field value → pif | monthly | quarterly | installments
+    | None. Live dropdown options: Monthly, Annually (PIF), Quarterly, Installments (3),
+    Installments (Other). PIF renews as an annual lump (no subscription — projected via
+    project_renewals); monthly / quarterly / installments all bill through a subscription."""
     d = str(v or "").strip().lower()
     if not d:
         return None
-    if "pif" in d or "paid in full" in d or d == "full" or "one time" in d or "one-time" in d:
+    if "pif" in d or "paid in full" in d or "annual" in d or d == "full" or "one time" in d or "one-time" in d:
         return "pif"
-    if "financ" in d:
-        return "financed"
+    if "installment" in d or "financ" in d:
+        return "installments"
+    if "quarter" in d:
+        return "quarterly"
     if "month" in d:
         return "monthly"
     return None
