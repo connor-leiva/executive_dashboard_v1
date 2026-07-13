@@ -6,6 +6,7 @@ import { useForum } from "./useForum.js";
 import { useBecollective } from "./useBecollective.js";
 import { getJSON, postJSON } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
+import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
 import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
 import Assistant from "./Assistant.jsx";
@@ -1233,7 +1234,9 @@ export default function CommandCenter() {
         </main>
       </div>
 
-      <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} stage={drill?.stage} source={drill?.source} stream={drill?.stream} month={drill?.month} period={periodKey} onClose={() => setDrill(null)} />
+      {drill?.key === "forum_roster"
+        ? <RosterDrawer business={drill?.business} period={periodKey} onClose={() => setDrill(null)} />
+        : <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} stage={drill?.stage} source={drill?.source} stream={drill?.stream} month={drill?.month} period={periodKey} onClose={() => setDrill(null)} />}
 
       <Assistant period={periodKey} />
     </div>

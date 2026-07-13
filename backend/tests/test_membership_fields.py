@@ -60,6 +60,30 @@ def test_read_membership():
         "renewal_date": "2026-09-15", "total_cost": 27000.0, "payment": "pif"}
 
 
+def test_membership_field_ids_richer_fields():
+    defs = [
+        {"id": "mt", "name": "Member Type"},
+        {"id": "st", "name": "Membership Status"},
+        {"id": "bk", "name": "Brokerage Affiliation"},
+        {"id": "sa", "name": "Stripe Account"},
+    ]
+    m = _membership_field_ids(defs, {})
+    assert m["member_type"] == "mt" and m["status"] == "st"
+    assert m["brokerage"] == "bk" and m["stripe_account"] == "sa"
+
+
+def test_read_membership_richer_fields():
+    field_ids = {"member_type": "mt", "status": "st", "brokerage": "bk", "stripe_account": "sa"}
+    values = {"mt": "Add-On Member", "st": "Active",
+              "bk": "eXp Realty", "sa": ["Legacy SB Account"]}   # multi-select → first
+    out = _read_membership(values, field_ids)
+    assert out["member_type"] == "Add-On Member" and out["member_kind"] == "add_on"
+    assert out["status"] == "Active" and out["brokerage"] == "eXp Realty"
+    assert out["stripe_account"] == "Legacy SB Account"
+    # a primary label normalizes to 'primary'
+    assert _read_membership({"mt": "Primary Member"}, {"member_type": "mt"})["member_kind"] == "primary"
+
+
 # ── PIF renewal projection ──────────────────────────────────────────
 def _mem(payment, renewal, cost, name="M"):
     return SimpleNamespace(name=name, source_url=None,

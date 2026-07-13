@@ -40,8 +40,8 @@ def effective_tabs(user, all_tabs: list[str]) -> list[str]:
 # ── lineage metric key → owning tab (drill-down enforcement, §2.5) ──
 _ULRG = {"units_closed", "gci", "volume", "avg_price", "pending", "active_listings",
          "agents_producing", "fin_closed", "fin_projected", "fin_expenses"}
-_FORUM = {"active_members", "forum_arr", "renewals_due", "new_members", "registered",
-          "mrr", "renewal_book", "monthly", "pastdue", "unregistered",
+_FORUM = {"active_members", "forum_roster", "forum_arr", "renewals_due", "new_members",
+          "registered", "mrr", "renewal_book", "monthly", "pastdue", "unregistered",
           "forum_payments", "forum_failed_payments", "forum_mrr_subs",
           "forum_installments", "forum_next30", "forum_streams"}
 _BC = {"bc_members", "bc_arr", "bc_registered", "bc_financed", "bc_monthly"}

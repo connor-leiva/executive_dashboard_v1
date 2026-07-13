@@ -128,8 +128,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 "count": len(rows), "rows": rows}
 
     # ── The Forum (Go High Level) drill-downs ──
-    if key in {"active_members", "forum_arr", "renewals_due", "new_members", "registered",
-               "mrr", "renewal_book", "monthly", "pastdue", "unregistered"}:
+    if key in {"active_members", "forum_roster", "forum_arr", "renewals_due", "new_members",
+               "registered", "mrr", "renewal_book", "monthly", "pastdue", "unregistered"}:
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
         if not biz:
@@ -186,6 +186,50 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             return {"label": "Active Members", "source": "Go High Level",
                     "computed_as": "Distinct contacts carrying any official membership tag (The Forum + Inner Circle).",
                     "count": len(rows), "rows": rows}
+
+        if key == "forum_roster":
+            # The rich roster view — every active member with their CRM membership
+            # detail (program, type, plan, amount, enrollment + renewal, brokerage).
+            recs = sorted(members_all, key=lambda m: (0 if m.segment == "forum" else 1, m.name or ""))
+            rows, mix = [], {"monthly": 0, "pif": 0, "financed": 0}
+            prim = addon = 0
+            for m in recs:
+                mem = (m.meta or {}).get("membership") or {}
+                ms = ms_by_contact.get(m.external_id)
+                amount = mem.get("total_cost")
+                if amount is None and ms is not None and ms.amount is not None:
+                    amount = float(ms.amount)
+                pay = mem.get("payment")
+                if pay in mix:
+                    mix[pay] += 1
+                kind = mem.get("member_kind")
+                if kind == "add_on":
+                    addon += 1
+                else:
+                    prim += 1
+                rows.append({
+                    "id": str(m.id), "name": title_name(m), "seg": seg_of(m.segment),
+                    "kind": kind, "member_type": mem.get("member_type"),
+                    "status": mem.get("status") or "Active",
+                    "payment": pay, "amount": amount,
+                    "enrolled": mem.get("enrollment_date"),
+                    "renews": mem.get("renewal_date") or renews_of(ms),
+                    "brokerage": mem.get("brokerage"),
+                    "stripe_account": mem.get("stripe_account"),
+                    "event": is_registered(m.external_id, m.name),
+                    "source_url": m.source_url,
+                })
+            summary = {
+                "total": len(rows),
+                "forum": sum(1 for r in rows if r["seg"] == "F"),
+                "inner_circle": sum(1 for r in rows if r["seg"] == "IC"),
+                "primary": prim, "add_on": addon, "payment_mix": mix,
+                "book": round(sum(float(r["amount"] or 0) for r in rows), 2),
+            }
+            return {"label": "The Forum · Roster", "source": "Go High Level", "view": "roster",
+                    "computed_as": ("Every active member with their CRM membership detail — program, "
+                                    "member type, payment plan, contract value, enrollment and renewal."),
+                    "count": len(rows), "rows": rows, "summary": summary}
 
         if key == "forum_arr":
             recs = sorted(ms_all, key=lambda m: -float(m.amount or 0))

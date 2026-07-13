@@ -49,11 +49,27 @@ async def _seed_forum(*, with_recruiting: bool = True, with_event: bool = True):
         def add(**kw):
             s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl", **kw))
 
-        # members — names double as the registration match key
+        # members — names double as the registration match key; each carries the CRM
+        # membership detail (type / plan / value / brokerage) for the roster view.
+        _mem = {
+            "F1": {"member_type": "Primary Member", "member_kind": "primary", "payment": "monthly",
+                   "status": "Active", "total_cost": 24000, "brokerage": "eXp Realty",
+                   "stripe_account": "Legacy SB Account"},
+            "F2": {"member_type": "Primary Member", "member_kind": "primary", "payment": "pif",
+                   "status": "Active", "total_cost": 24000, "stripe_account": "Forum Sub-Account"},
+            "F3": {"member_type": "Add-On Member", "member_kind": "add_on", "payment": "pif",
+                   "status": "Active", "total_cost": 0, "stripe_account": "Legacy SB Account"},
+            "IC1": {"member_type": "Primary Member", "member_kind": "primary", "payment": "financed",
+                    "status": "Active", "total_cost": 6000, "brokerage": "Compass"},
+            "IC2": {"member_type": "Primary Member", "member_kind": "primary", "payment": "monthly",
+                    "status": "Active", "total_cost": 6000},
+        }
         for n in ("F1", "F2", "F3"):
-            add(kind="member", external_id=n, name=n, status="active", segment="forum")
+            add(kind="member", external_id=n, name=n, status="active", segment="forum",
+                meta={"membership": _mem[n]})
         for n in ("IC1", "IC2"):
-            add(kind="member", external_id=n, name=n, status="active", segment="inner_circle")
+            add(kind="member", external_id=n, name=n, status="active", segment="inner_circle",
+                meta={"membership": _mem[n]})
 
         # memberships — renewal window = this + next 2 months; ms5 is out of window
         add(kind="membership", external_id="ms1", name="F1", status="active", amount=3000, segment="forum",
@@ -169,6 +185,33 @@ async def test_forum_drills():
         assert past["count"] == 1
         unreg = (await c.get("/api/v1/metrics/unregistered/detail?business=springb", headers=H)).json()
         assert unreg["count"] == 2                       # IC1, IC2 have no registration
+
+
+async def test_forum_roster_view():
+    """The roster summary in the payload + the rich forum_roster drill both reflect the
+    CRM membership detail (program split, primary/add-on, payment mix, contract value)."""
+    await _seed_forum()
+    d = await _get_forum()
+    r = d["roster"]
+    assert r["total"] == 5 and r["forum"] == 3 and r["inner_circle"] == 2
+    assert r["primary"] == 4 and r["add_on"] == 1
+    assert r["payment_mix"] == {"monthly": 2, "pif": 2, "financed": 1}
+
+    token = await _token()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        H = {"Authorization": f"Bearer {token}"}
+        roster = (await c.get("/api/v1/metrics/forum_roster/detail?business=springb", headers=H)).json()
+    assert roster["count"] == 5 and roster["view"] == "roster"
+    sm = roster["summary"]
+    assert sm["add_on"] == 1 and sm["primary"] == 4
+    assert sm["book"] == 60000                                  # 24000+24000+0+6000+6000
+    by_name = {row["name"]: row for row in roster["rows"]}
+    assert by_name["F3"]["kind"] == "add_on" and by_name["F3"]["member_type"] == "Add-On Member"
+    assert by_name["F1"]["amount"] == 24000 and by_name["F1"]["brokerage"] == "eXp Realty"
+    assert all(row["status"] == "Active" for row in roster["rows"])
+    # Forum members sort ahead of Inner Circle
+    assert roster["rows"][0]["seg"] == "F" and roster["rows"][-1]["seg"] == "IC"
 
 
 async def test_recruiting_funnel_grouping():

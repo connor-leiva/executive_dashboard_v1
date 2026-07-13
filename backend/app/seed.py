@@ -312,13 +312,31 @@ async def seed():
 
             _MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-            # 70 active members: 48 Forum, 22 Inner Circle.
+            # 70 active members: 48 Forum, 22 Inner Circle — each carrying the CRM
+            # "Membership Details" (member type, plan, contract value, enrollment +
+            # renewal, brokerage, Stripe account) that drives the rich roster view.
+            _brokers = ["eXp Realty", "Keller Williams", "Compass", "Real Broker",
+                        "The Agency", None, "RE/MAX", None]
+            _stripe_acct = ["Legacy SB Account", "Forum Sub-Account"]
             for i in range(70):
                 ic = i >= 48
+                addon = (i % 9 == 8)                               # ~1 in 9 is an add-on seat
+                pay = "monthly" if i % 3 == 0 else ("financed" if i % 5 == 0 else "pif")
+                cost = 0 if addon else (6000 if ic else 24000)
+                enroll = dt.date(2025, (i % 12) + 1, min((i % 27) + 1, 28))
+                renew = dt.date(2026, (i % 12) + 1, min((i % 27) + 1, 28))
+                mem = {"member_type": "Add-On Member" if addon else "Primary Member",
+                       "member_kind": "add_on" if addon else "primary",
+                       "status": "Active", "payment": pay, "total_cost": cost,
+                       "enrollment_date": enroll.isoformat(), "renewal_date": renew.isoformat(),
+                       "stripe_account": _stripe_acct[i % 2]}
+                brk = _brokers[i % len(_brokers)]
+                if brk:
+                    mem["brokerage"] = brk
                 _mr(kind="member", external_id=f"mem-{i+1:03d}",
                     name=f"Member {i+1:02d}", status="active",
                     segment="inner_circle" if ic else "forum",
-                    source_url="https://app.gohighlevel.com/")
+                    source_url="https://app.gohighlevel.com/", meta={"membership": mem})
 
             # Memberships (billable) — renewal month, status, payment, amount.
             # 47 memberships; renewal months spread; a handful at-risk/talking.

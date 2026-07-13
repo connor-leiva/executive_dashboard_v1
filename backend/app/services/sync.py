@@ -118,11 +118,37 @@ def _membership_field_ids(defs: list[dict], cfg: dict) -> dict:
         ("enrollment_date", ["enroll"], "date"),
         ("total_cost", ["total", "cost", "amount"], "member"),
         ("payment_plan", ["payment plan", "pay plan", "plan type", "payment type", "membership plan"], None),
+        # Richer CRM "Membership Details" fields for the roster view.
+        ("member_type", ["member type", "membership type"], None),
+        ("status", ["status"], "member"),           # prefer a "member/membership status" field
+        ("brokerage", ["brokerage", "affiliation"], None),
+        ("stripe_account", ["stripe account", "stripe acct"], None),
     ]:
         fid = pick(key, kws, prefer)
         if fid:
             out[key] = fid
     return out
+
+
+def _clean_str(v) -> str | None:
+    """A GHL custom-field value → a trimmed string (first element of a multi-select),
+    or None when blank."""
+    if isinstance(v, (list, tuple)):
+        v = v[0] if v else None
+    s = str(v if v is not None else "").strip()
+    return s or None
+
+
+def _member_type(v: str | None) -> str | None:
+    """Normalize the CRM 'Member Type' label → 'primary' | 'add_on' (raw kept too)."""
+    d = (v or "").lower()
+    if not d:
+        return None
+    if "add" in d or "secondary" in d or "spouse" in d:   # Add-On / Secondary / Spouse
+        return "add_on"
+    if "primary" in d or "main" in d:
+        return "primary"
+    return None
 
 
 def _read_membership(values: dict, field_ids: dict) -> dict:
@@ -141,6 +167,17 @@ def _read_membership(values: dict, field_ids: dict) -> dict:
         out["total_cost"] = tc
     if pp:
         out["payment"] = pp
+    # Richer roster fields — kept as trimmed labels, blanks dropped.
+    mt = _clean_str(values.get(field_ids.get("member_type")))
+    if mt:
+        out["member_type"] = mt
+        norm = _member_type(mt)
+        if norm:
+            out["member_kind"] = norm            # primary | add_on
+    for key in ("status", "brokerage", "stripe_account"):
+        val = _clean_str(values.get(field_ids.get(key)))
+        if val:
+            out[key] = val
     return out
 
 

@@ -140,6 +140,10 @@ function Bar({ label, pct, val, open, from = C.meadow, to = C.sprout, track = C.
 const Row = ({ a, b, v }) => (
   <div className="row"><span>{a}</span><span style={{ color: C.muted }}>{b}</span><b>{v}</b></div>
 );
+const Dot = ({ c, t }) => (
+  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+    <span style={{ width: 8, height: 8, borderRadius: 3, background: c, flexShrink: 0 }} />{t}</span>
+);
 function Drill({ children, onClick }) {
   return <span className="drill" role="button" tabIndex={0} onClick={onClick}
     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onClick && onClick())}>
@@ -391,6 +395,10 @@ function membersItems(data, open, onOpen, deckSlots) {
   const split = twoInts(am?.sub);
   const newM = (data.kpis || []).find((x) => x.key === "new_members" || x.key === "bc_new_members");
   const renD = (data.kpis || []).find((x) => x.key === "renewals_due");
+  const rs = data.roster || {};
+  const mix = rs.payment_mix || {};
+  const mixTot = (mix.monthly || 0) + (mix.pif || 0) + (mix.financed || 0) || 1;
+  const mpct = (n) => `${((n || 0) / mixTot) * 100}%`;
   items.push({ key: "roster", icon: A.users, name: "Roster", stat: String(data.members_total ?? "—"), line: am?.sub || "members", accent: C.meadow, render: () => (
     <div className="cols">
       <div>
@@ -399,13 +407,26 @@ function membersItems(data, open, onOpen, deckSlots) {
           <Row a="The Forum" b={`${split[0]} members`} v={arr ? `${arr.value} book` : ""} />
           <Row a="Inner Circle" b={`${split[1]} members`} v="incl. above" />
         </> : <Row a="Members" b={am?.sub || ""} v={arr?.value || ""} />}
-        <div style={{ marginTop: 8 }}><Drill onClick={() => onOpen(am?.drill || "active_members")}>View all {data.members_total} members</Drill></div>
+        {rs.primary != null && <Row a="Composition" b={`${rs.primary} primary · ${rs.add_on} add-on`} v="" />}
+        <div style={{ marginTop: 10 }}><Drill onClick={() => onOpen("forum_roster")}>View all {data.members_total} members</Drill></div>
       </div>
       <div>
-        <div className="colhead">Movement · MTD</div>
+        {(mix.pif || mix.monthly || mix.financed) ? <>
+          <div className="colhead">Payment Mix</div>
+          <div className="stack">
+            {mix.pif > 0 && <div className="stack-seg" style={{ width: mpct(mix.pif), background: C.evergreen }} title={`${mix.pif} paid in full`} />}
+            {mix.monthly > 0 && <div className="stack-seg" style={{ width: mpct(mix.monthly), background: C.meadow }} title={`${mix.monthly} monthly`} />}
+            {mix.financed > 0 && <div className="stack-seg" style={{ width: mpct(mix.financed), background: C.sprout }} title={`${mix.financed} financed`} />}
+          </div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted, marginBottom: 4 }}>
+            <Dot c={C.evergreen} t={`${mix.pif || 0} PIF`} />
+            <Dot c={C.meadow} t={`${mix.monthly || 0} Monthly`} />
+            <Dot c={C.sprout} t={`${mix.financed || 0} Financed`} />
+          </div>
+        </> : null}
+        <div className="colhead" style={{ marginTop: 10 }}>Movement · MTD</div>
         <Row a="New Members" b="joined" v={newM?.value ?? "0"} />
         {renD && <Row a="Renewals Due" b="this month" v={renD.value} />}
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.muted, marginTop: 8 }}>{data.deck?.find((x) => x.k === "pipeline")?.salient || "Leading indicators for the program."}</div>
       </div>
     </div>) });
 

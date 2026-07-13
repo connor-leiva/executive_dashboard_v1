@@ -88,6 +88,7 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     # recover it by joining to the member roster on contact id.
     member_recs = await records("member", MetricRecord.status == "active")
     seg_by_contact = {m.external_id: m.segment for m in member_recs}
+    roster = _roster_summary(member_recs, forum_n, ic_n)
     funnel = await _funnel(s, base, cfg)
     renewals = _renewals(memberships, seg_by_contact)
     event = _event(cfg, members_total, member_regs, guests)
@@ -145,9 +146,33 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
         "status": "watch" if watch_items else "healthy",
         "watch": {"count": len(watch_items), "items": watch_items},
         "members_total": members_total,
+        "roster": roster,
         "pl": None,                       # shared springb P&L is rendered by the dashboard payload
         "kpis": kpis, "deck": deck, "funnel": funnel,
         "renewals": renewals, "event": event, "billing": billing,
+    }
+
+
+def _roster_summary(members, forum_n, ic_n) -> dict:
+    """Composition of the active roster for the Members & Growth panel: program split,
+    primary vs add-on members, and the monthly/PIF/financed payment mix — all read from
+    the GHL membership custom fields (blanks default to primary/unspecified)."""
+    prim = addon = 0
+    mix = {"monthly": 0, "pif": 0, "financed": 0}
+    for m in members:
+        mem = (m.meta or {}).get("membership") or {}
+        if mem.get("member_kind") == "add_on":
+            addon += 1
+        else:
+            prim += 1                      # unspecified defaults to a primary seat
+        pay = mem.get("payment")
+        if pay in mix:
+            mix[pay] += 1
+    return {
+        "total": len(members),
+        "forum": forum_n, "inner_circle": ic_n,
+        "primary": prim, "add_on": addon,
+        "payment_mix": mix,
     }
 
 
