@@ -498,7 +498,7 @@ function moneyItems(b, open, onOpen) {
   const scolors = [C.evergreen, C.meadow, C.mistDeep, C.sprout, C.muted];
   const arrPct = b.arr_book ? Math.round((b.run_rate / b.arr_book) * 100) : 0;
   return [
-    { key: "cash", icon: A.cash, name: "Cash Flow", stat: kc(b.net_cash), line: "full year + forecast", accent: C.meadow, render: () => <CashFlowPanel b={b} open={open} onOpen={onOpen} /> },
+    { key: "cash", icon: A.cash, name: "Cash Flow", stat: kc(b.full_year), line: "full year + forecast", accent: C.meadow, render: () => <CashFlowPanel b={b} open={open} onOpen={onOpen} /> },
     { key: "recurring", icon: A.reload, name: "Recurring", stat: `${kc(b.mrr)}/mo`, line: "installments apart", accent: C.meadow, render: () => (
       <div className="cols">
         <div><div className="colhead">Perpetual · True MRR</div>

@@ -124,6 +124,29 @@ async def test_full_year_monthly_and_forecast():
     assert b["forecast"]["next_90"] >= b["forecast"]["next_30"] > 0
 
 
+def test_headline_is_year_scoped_and_full_year_equals_columns():
+    """The Cash & Billing headline is strictly THIS year: pre-year legacy charges are
+    excluded from gross/net_cash/txn_count/streams, and `full_year` (the tile) equals
+    the sum of the monthly columns — not a lifetime total."""
+    import datetime as dt
+    from types import SimpleNamespace
+    today = dt.date(2026, 7, 13)
+    def pay(d, amt, status="succeeded", refunded=0.0, stream="other"):
+        return SimpleNamespace(occurred_on=dt.date.fromisoformat(d), amount=amt, status=status,
+                               meta={"amount_refunded": refunded, "stream": stream})
+    payments = [
+        pay("2025-06-01", 5000, stream="memberships"),        # prior year → excluded
+        pay("2026-01-15", 1000, stream="memberships"),
+        pay("2026-07-05", 2000, refunded=200, stream="sponsorships"),
+    ]
+    b = compute_billing(payments, [], 0, dt.date(2026, 1, 1), dt.date(2026, 12, 31), today)
+    assert b["gross"] == 3000 and b["refunded"] == 200 and b["net_cash"] == 2800   # 2025 dropped
+    assert b["txn_count"] == 2                                                      # this year only
+    assert round(sum(s["amount"] for s in b["streams"]), 2) == b["net_cash"]        # streams == YTD net
+    assert b["full_year"] == round(sum(m["net"] for m in b["monthly"]), 2)          # tile == columns
+    assert b["span"]["start"] == "2026-01-01"
+
+
 async def test_availability_false_when_no_payments():
     # compute_billing with no payment rows → not available (degraded state)
     import datetime as dt

@@ -299,18 +299,22 @@ def compute_billing(payments, subs, arr_book: float,
     extra_future = [c for c in (extra_projected or [])
                     if dt.date.fromisoformat(c["date"]) > today]
 
+    year = today.year
     dated = [p for p in payments if p.occurred_on]
-    span_start = min((p.occurred_on for p in dated), default=period_start)
-    succ = [p for p in payments if (p.status or "") == "succeeded"]
+    span_start = dt.date(year, 1, 1)
 
-    # Tile numbers cover the full payments span (the section is a stable cash
-    # overview, like MRR/ARR — point-in-time, not period-scoped by the selector).
+    # The Cash & Billing section is strictly THIS calendar year — headline, footer,
+    # streams and the monthly chart all describe the current year, never lifetime.
+    # (Legacy Stripe carries years of pre-2026 charges; folding those into the tile
+    # made it read ~2x the sum of the visible columns.)
+    this_year = [p for p in dated if p.occurred_on.year == year]
+    succ = [p for p in this_year if (p.status or "") == "succeeded"]
     gross = round(sum(_num(p.amount) for p in succ), 2)
-    refunded = round(sum(_num((p.meta or {}).get("amount_refunded")) for p in payments), 2)
-    net_cash = round(gross - refunded, 2)
-    failed = [p for p in payments if (p.status or "") == "failed"]
+    refunded = round(sum(_num((p.meta or {}).get("amount_refunded")) for p in this_year), 2)
+    net_cash = round(gross - refunded, 2)          # actual YTD net collected
+    failed = [p for p in this_year if (p.status or "") == "failed"]
     failed_amount = round(sum(_num(p.amount) for p in failed), 2)
-    txn_count = len(payments)
+    txn_count = len(this_year)
 
     # Monthly cash-flow trend — the FULL calendar year: actual net per month through
     # today, then projected inflow (from active subscriptions) for the months ahead.
@@ -349,9 +353,14 @@ def compute_billing(payments, subs, arr_book: float,
             "mtd": m == today.month, "is_projected": m > today.month,
         })
 
-    # Streams over the same span as `monthly` (net of refunds; Σ == net over span).
+    # Full-year cash: actual collected YTD + everything still scheduled to bill by
+    # Dec 31 — the number the "full year + forecast" tile shows, and exactly the sum
+    # of the monthly columns.
+    full_year = round(sum(m["net"] for m in monthly), 2)
+
+    # Streams over this year's actual cash (net of refunds; Σ == net_cash YTD).
     stream_val: dict = defaultdict(float)
-    for p in payments:
+    for p in this_year:
         st = (p.meta or {}).get("stream") or "other"
         if (p.status or "") == "succeeded":
             stream_val[st] += _num(p.amount)
@@ -394,7 +403,8 @@ def compute_billing(payments, subs, arr_book: float,
     return {
         "available": True, "basis": "cash",
         "span": {"start": span_start.isoformat(), "end": today.isoformat()},
-        "net_cash": net_cash, "gross": gross, "refunded": refunded, "txn_count": txn_count,
+        "net_cash": net_cash, "full_year": full_year,
+        "gross": gross, "refunded": refunded, "txn_count": txn_count,
         "failed_amount": failed_amount, "failed_count": len(failed), "past_due": past_due,
         "monthly": monthly,
         "mrr": mrr, "perpetual_count": len(perpetual),
