@@ -195,6 +195,41 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             recs = (await s.execute(q("member").where(
                 MetricRecord.status.in_(["active", "admin"])))).scalars().all()
             recs = sorted(recs, key=lambda m: (0 if m.segment == "forum" else 1, m.name or ""))
+
+            # Last payment = most recent succeeded charge by email (GHL + legacy Stripe,
+            # backfill copies dropped). Next payment = the member's active subscription's
+            # upcoming charge (by contact id, then email); PIF members have no sub, so
+            # their next payment is the annual renewal (renewal date + total cost).
+            from .billing import merge_payment_sources
+
+            async def _src(src, kind):
+                return (await s.execute(select(MetricRecord).where(
+                    MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                    MetricRecord.source == src, MetricRecord.kind == kind))).scalars().all()
+
+            ghl_pay = await _src("ghl", "payment")
+            legacy_pay = await _src("stripe_legacy", "payment")
+            native = [p for p in ghl_pay if not (p.meta or {}).get("imported")]
+            pays = merge_payment_sources(native, legacy_pay)[0] if legacy_pay else native
+            last_by_email: dict = {}
+            for p in pays:
+                if (p.status or "") != "succeeded" or not p.occurred_on:
+                    continue
+                em = (p.email or "").strip().lower()
+                if em and (em not in last_by_email or p.occurred_on > last_by_email[em].occurred_on):
+                    last_by_email[em] = p
+            subs = list(await _src("ghl", "subscription")) + list(await _src("stripe_legacy", "subscription"))
+            sub_by_contact, sub_by_email = {}, {}
+            for x in subs:
+                if x.status != "active":
+                    continue
+                cid = (x.meta or {}).get("contact_id")
+                if cid:
+                    sub_by_contact.setdefault(str(cid), x)
+                em = (x.email or "").strip().lower()
+                if em:
+                    sub_by_email.setdefault(em, x)
+
             rows, mix = [], {"monthly": 0, "quarterly": 0, "pif": 0, "installments": 0}
             comp = {"primary": 0, "add_on": 0, "admin": 0, "unspecified": 0}
             for m in recs:
@@ -209,11 +244,25 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     pay = mem.get("payment")
                     if pay in mix:
                         mix[pay] += 1
+                em = (m.email or "").strip().lower()
+                lp = last_by_email.get(em) if em else None
+                last_payment = ({"date": lp.occurred_on.isoformat(), "amount": float(lp.amount or 0)}
+                                if lp else None)
+                sub = sub_by_contact.get(m.external_id) or (sub_by_email.get(em) if em else None)
+                if sub is not None and (sub.meta or {}).get("next_payment_date"):
+                    npa = (sub.meta or {}).get("next_payment_amount")
+                    next_payment = {"date": (sub.meta or {})["next_payment_date"],
+                                    "amount": float(npa) if npa is not None else None}
+                elif mem.get("payment") == "pif" and mem.get("renewal_date"):
+                    next_payment = {"date": mem.get("renewal_date"), "amount": mem.get("total_cost")}
+                else:
+                    next_payment = None
                 rows.append({
                     "id": str(m.id), "name": title_name(m), "seg": seg_of(m.segment),
                     "kind": kind, "member_type": mem.get("member_type"),
                     "status": mem.get("status") or "Active",
                     "payment": mem.get("payment"), "amount": amount,
+                    "last_payment": last_payment, "next_payment": next_payment,
                     "enrolled": mem.get("enrollment_date"),
                     "renews": mem.get("renewal_date") or renews_of(ms),
                     "brokerage": mem.get("brokerage"),

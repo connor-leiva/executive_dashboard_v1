@@ -56,6 +56,32 @@ function Plan({ payment }) {
   );
 }
 
+/* a payment cell — amount over date (last / next payment) */
+function PayCell({ p }) {
+  if (!p || (!p.amount && !p.date)) return <span style={{ color: T.muted }}>—</span>;
+  return (
+    <div style={{ whiteSpace: "nowrap" }}>
+      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>
+        {p.amount ? usd(p.amount) : "—"}
+      </div>
+      <div style={{ fontSize: 10.5, color: T.muted }}>{fmtDate(p.date)}</div>
+    </div>
+  );
+}
+
+/* sort key per column; blanks always sort last regardless of direction */
+const PLAN_ORDER = { monthly: 0, quarterly: 1, pif: 2, installments: 3 };
+const SORT_KEYS = {
+  member: (r) => (r.name || "").toLowerCase(),
+  plan: (r) => (r.payment in PLAN_ORDER ? PLAN_ORDER[r.payment] : null),
+  value: (r) => (r.amount || 0),
+  last: (r) => (r.last_payment && r.last_payment.date) || "",
+  next: (r) => (r.next_payment && r.next_payment.date) || "",
+  enrolled: (r) => r.enrolled || "",
+  renews: (r) => r.renews || "",
+};
+const _blank = (v) => v === "" || v === null || v === undefined;
+
 /* one stat cell in the summary band */
 function Stat({ label, children }) {
   return (
@@ -68,14 +94,57 @@ function Stat({ label, children }) {
   );
 }
 
+const TAG = { fontFamily: "Inter,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em",
+  borderRadius: 4, padding: "1px 5px", textTransform: "uppercase", flexShrink: 0 };
+const td = { padding: "11px 14px", verticalAlign: "middle" };
+const dcell = { ...td, fontSize: 12.5, color: T.slate, whiteSpace: "nowrap" };
+
+/* one member row — shared by the grouped and the sorted (flat) views. Staff (admins)
+   drop the Forum/IC program chip; they carry the Admin tag instead. */
+function MemberRow({ r }) {
+  return (
+    <tr className="roster-row" style={{ borderTop: `1px solid ${T.line}` }}>
+      <td style={{ ...td, padding: "11px 14px 11px 24px", minWidth: 210 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+          <span style={{ width: 32, height: 32, borderRadius: 99, flexShrink: 0, background: T.meadowBg,
+            color: T.meadowInk, fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700,
+            display: "flex", alignItems: "center", justifyContent: "center" }}>{initials(r.name)}</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
+              {r.kind !== "admin" && <Seg seg={r.seg} />}
+              {r.kind === "add_on" && <span style={{ ...TAG, color: T.slate, background: T.parchment, border: `1px solid ${T.line}` }}>Add-on</span>}
+              {r.kind === "admin" && <span style={{ ...TAG, color: T.teal, background: T.mist }}>Admin</span>}
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {[r.brokerage, r.stripe_account].filter(Boolean).join(" · ") || "—"}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td style={td}><Plan payment={r.payment} /></td>
+      <td style={{ ...td, textAlign: "right", fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600,
+        color: r.amount ? T.ink : T.muted, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{r.amount ? usd(r.amount) : "—"}</td>
+      <td style={td}><PayCell p={r.last_payment} /></td>
+      <td style={td}><PayCell p={r.next_payment} /></td>
+      <td style={dcell}>{fmtDate(r.enrolled)}</td>
+      <td style={dcell}>{fmtDate(r.renews)}</td>
+      <td style={{ ...td, padding: "11px 24px 11px 14px", textAlign: "right" }}>
+        {r.source_url && <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in Go High Level" style={{ fontSize: 14, color: T.teal, textDecoration: "none" }}>↗</a>}
+      </td>
+    </tr>
+  );
+}
+
 export default function RosterDrawer({ business, period, onClose }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(false);
-  const [prog, setProg] = useState("all");     // all | F | IC
+  const [prog, setProg] = useState("all");     // all | F | IC | ADMIN
   const [qtext, setQ] = useState("");
+  const [sort, setSort] = useState(null);       // { col, dir } | null (null = grouped)
 
   useEffect(() => {
-    setD(null); setErr(false); setProg("all"); setQ("");
+    setD(null); setErr(false); setProg("all"); setQ(""); setSort(null);
     if (!API_BASE) { setD(sampleForum.roster_detail); return; }
     const q = `/metrics/forum_roster/detail?period=${period}`
       + (business ? `&business=${encodeURIComponent(business)}` : "");
@@ -85,9 +154,13 @@ export default function RosterDrawer({ business, period, onClose }) {
   const rows = d?.rows || [];
   const sm = d?.summary || {};
   const mix = sm.payment_mix || {};
+  // Free-text filter matches across every column that carries text — name, brokerage,
+  // Stripe account, member type, plan, program — so typing "quarterly" or "eXp" filters.
   const filtered = useMemo(() => {
     const t = qtext.trim().toLowerCase();
-    return rows.filter((r) => !t || (r.name || "").toLowerCase().includes(t) || (r.brokerage || "").toLowerCase().includes(t));
+    if (!t) return rows;
+    return rows.filter((r) => [r.name, r.brokerage, r.stripe_account, r.member_type, r.payment,
+      r.seg === "F" ? "forum" : "inner circle"].some((v) => (v || "").toString().toLowerCase().includes(t)));
   }, [rows, qtext]);
 
   // Admins are staff seats — shown as their own group, kept out of the Forum/IC lists.
@@ -97,14 +170,39 @@ export default function RosterDrawer({ business, period, onClose }) {
   const groups = prog === "ADMIN" ? ["ADMIN"] : prog === "IC" ? ["IC"] : prog === "F" ? ["F"] : ["F", "IC", "ADMIN"];
   const inGroup = (r, g) => (g === "ADMIN" ? isAdmin(r) : (r.seg === g && !isAdmin(r)));
   const GROUP_LABEL = { F: "The Forum", IC: "Inner Circle", ADMIN: "Admins" };
+
+  // Sorting flattens the grouping (a sort spans the whole scope); clicking a header
+  // toggles asc→desc→off (back to the grouped view). Blanks always sort last.
+  const toggleSort = (col) => setSort((s) =>
+    !s || s.col !== col ? { col, dir: "asc" } : s.dir === "asc" ? { col, dir: "desc" } : null);
+  const sorted = useMemo(() => {
+    if (!sort) return null;
+    const key = SORT_KEYS[sort.col]; const dir = sort.dir === "asc" ? 1 : -1;
+    return [...inScope].sort((a, b) => {
+      const ka = key(a), kb = key(b);
+      if (_blank(ka) && _blank(kb)) return 0;
+      if (_blank(ka)) return 1;
+      if (_blank(kb)) return -1;
+      return (ka < kb ? -1 : ka > kb ? 1 : 0) * dir;
+    });
+  }, [inScope, sort]);
+
   const tab = (k, on) => ({
     fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none",
     borderRadius: 7, padding: "6px 12px", background: on ? T.white : "transparent",
     color: on ? T.ink : T.muted, boxShadow: on ? "0 1px 3px rgba(0,46,44,.12)" : "none",
   });
-  const th = { fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-    textTransform: "uppercase", color: T.muted, textAlign: "left", padding: "0 14px 8px", whiteSpace: "nowrap" };
   const subset = sm.total != null && rows.length < sm.total;
+  const th = { fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+    textTransform: "uppercase", color: T.muted, textAlign: "left", whiteSpace: "nowrap",
+    padding: "14px 14px 12px", position: "sticky", top: 0, background: T.white,
+    borderBottom: `1px solid ${T.line}`, zIndex: 2 };
+  const Th = ({ col, label, align = "left", pad }) => (
+    <th onClick={col ? () => toggleSort(col) : undefined}
+      style={{ ...th, textAlign: align, cursor: col ? "pointer" : "default", userSelect: "none", ...(pad || {}) }}>
+      {label}<span style={{ color: T.meadow }}>{col && sort && sort.col === col ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</span>
+    </th>
+  );
 
   return (
     <>
@@ -150,7 +248,7 @@ export default function RosterDrawer({ business, period, onClose }) {
               <button key={k} onClick={() => setProg(k)} style={tab(k, prog === k)}>{label}</button>
             ))}
           </div>
-          <input value={qtext} onChange={(e) => setQ(e.target.value)} placeholder="Find a member or brokerage…"
+          <input value={qtext} onChange={(e) => setQ(e.target.value)} placeholder="Find by name, plan, brokerage…"
             style={{ flex: 1, minWidth: 160, fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink,
               background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", outline: "none" }} />
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>
@@ -168,70 +266,38 @@ export default function RosterDrawer({ business, period, onClose }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 24 }}>
               {[0, 1, 2, 3, 4, 5].map((i) => <span key={i} className="cc-skel" style={{ height: 46, borderRadius: 8 }} />)}
             </div>
-          ) : filtered.length === 0 ? (
+          ) : inScope.length === 0 ? (
             <div style={{ padding: 24, color: T.muted, fontSize: 13 }}>No members match.</div>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", minWidth: 720, borderCollapse: "collapse" }}>
+              <table style={{ width: "100%", minWidth: 1000, borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th style={{ ...th, paddingLeft: 24 }}>Member</th>
-                    <th style={th}>Plan</th>
-                    <th style={{ ...th, textAlign: "right" }}>Value</th>
-                    <th style={th}>Enrolled</th>
-                    <th style={th}>Renews</th>
-                    <th style={{ ...th, paddingRight: 24 }}></th>
+                    <Th col="member" label="Member" pad={{ paddingLeft: 24 }} />
+                    <Th col="plan" label="Plan" />
+                    <Th col="value" label="Value" align="right" />
+                    <Th col="last" label="Last payment" />
+                    <Th col="next" label="Next payment" />
+                    <Th col="enrolled" label="Enrolled" />
+                    <Th col="renews" label="Renews" />
+                    <Th label="" pad={{ paddingRight: 24 }} />
                   </tr>
                 </thead>
-                {groups.map((g) => {
+                {sorted ? (
+                  <tbody>{sorted.map((r) => <MemberRow key={r.id} r={r} />)}</tbody>
+                ) : groups.map((g) => {
                   const gr = inScope.filter((r) => inGroup(r, g));
                   if (!gr.length) return null;
                   return (
                     <tbody key={g}>
                       <tr>
-                        <td colSpan={6} style={{ padding: "12px 24px 6px", fontFamily: "Poppins,sans-serif",
+                        <td colSpan={8} style={{ padding: "14px 24px 6px", fontFamily: "Poppins,sans-serif",
                           fontSize: 12, fontWeight: 600, color: T.slate, background: T.page }}>
                           {GROUP_LABEL[g]}
                           <span style={{ color: T.muted, fontWeight: 500 }}> · {gr.length}</span>
                         </td>
                       </tr>
-                      {gr.map((r) => (
-                        <tr key={r.id} className="roster-row" style={{ borderTop: `1px solid ${T.line}` }}>
-                          <td style={{ padding: "11px 14px 11px 24px", minWidth: 220 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                              <span style={{ width: 32, height: 32, borderRadius: 99, flexShrink: 0, background: T.meadowBg,
-                                color: T.meadowInk, fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700,
-                                display: "flex", alignItems: "center", justifyContent: "center" }}>{initials(r.name)}</span>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                                  <span style={{ fontSize: 13.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
-                                  <Seg seg={r.seg} />
-                                  {r.kind === "add_on" && (
-                                    <span style={{ fontFamily: "Inter,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em",
-                                      color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 4, padding: "1px 5px", textTransform: "uppercase" }}>Add-on</span>
-                                  )}
-                                  {r.kind === "admin" && (
-                                    <span style={{ fontFamily: "Inter,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em",
-                                      color: T.teal, background: T.mist, borderRadius: 4, padding: "1px 5px", textTransform: "uppercase" }}>Admin</span>
-                                  )}
-                                </div>
-                                <div style={{ fontSize: 11, color: T.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  {[r.brokerage, r.stripe_account].filter(Boolean).join(" · ") || "—"}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: "11px 14px" }}><Plan payment={r.payment} /></td>
-                          <td style={{ padding: "11px 14px", textAlign: "right", fontFamily: "Poppins,sans-serif",
-                            fontSize: 13, fontWeight: 600, color: r.amount ? T.ink : T.muted, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                            {r.amount ? usd(r.amount) : "—"}</td>
-                          <td style={{ padding: "11px 14px", fontSize: 12.5, color: T.slate, whiteSpace: "nowrap" }}>{fmtDate(r.enrolled)}</td>
-                          <td style={{ padding: "11px 14px", fontSize: 12.5, color: T.slate, whiteSpace: "nowrap" }}>{fmtDate(r.renews)}</td>
-                          <td style={{ padding: "11px 24px 11px 14px", textAlign: "right" }}>
-                            {r.source_url && <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in Go High Level" style={{ fontSize: 14, color: T.teal, textDecoration: "none" }}>↗</a>}
-                          </td>
-                        </tr>
-                      ))}
+                      {gr.map((r) => <MemberRow key={r.id} r={r} />)}
                     </tbody>
                   );
                 })}
