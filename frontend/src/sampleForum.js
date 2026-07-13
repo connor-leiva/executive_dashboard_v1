@@ -62,8 +62,8 @@ export default {
   billing: {
     available: true, basis: "cash",
     span: { start: "2026-04-01", end: "2026-07-08" },
-    net_cash: 131743, gross: 141993, refunded: 10250, txn_count: 39,
-    failed_amount: 20000, failed_count: 2, past_due: 0,
+    net_cash: 131743, full_year: 263400, gross: 141993, refunded: 10250, txn_count: 39,
+    failed_amount: 20000, failed_count: 2, past_due: 1, past_due_amount: 1800,
     monthly: [
       { month: "Jan", ym: "2026-01", actual: 0, projected: 0, net: 0, mtd: false, is_projected: false },
       { month: "Feb", ym: "2026-02", actual: 0, projected: 0, net: 0, mtd: false, is_projected: false },

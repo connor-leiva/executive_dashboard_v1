@@ -362,6 +362,16 @@ async def seed():
                       "installments_total": 3, "installments_collected": 2,
                       "next_payment_date": (mid + dt.timedelta(days=5)).isoformat(),
                       "next_payment_amount": 8800})
+            # One subscription whose card is failing → past due (excluded from MRR;
+            # drives the separate past-due recovery flag).
+            _mr(kind="subscription", external_id="sub-014", name="Lapsed Member",
+                amount=Decimal(1800), status="past_due", segment="forum",
+                source_url="https://app.gohighlevel.com/",
+                meta={"contact_id": "mem-014", "plan_name": "Subscription for Lapsed Member",
+                      "interval": "month", "sub_type": "perpetual",
+                      "start_date": "2026-03-01", "end_date": None,
+                      "installments_total": None, "installments_collected": None,
+                      "next_payment_date": None, "next_payment_amount": 1800})
 
             # Payments: (year, month, day, amount, plan_name). Streams classify from
             # the plan name. A balancing row lands the succeeded total on $141,993.
@@ -394,7 +404,9 @@ async def seed():
                     source_url="https://app.gohighlevel.com/",
                     meta={"stream": classify_stream(plan), "entity_source_name": plan,
                           "entity_source_type": "manual", "amount_refunded": 0})
-            # 2 refunded (full) in May + 2 failed in June (recovery list).
+            # 2 refunded (full) in May + 2 failed THIS month (the MTD recovery list —
+            # dated to the current month so the month-to-date failed-charge flag stays
+            # populated whenever the seed runs).
             for amt, plan in [(6000, "Forum Sponsorship"), (4250, "The Forum VIP Guest Ticket")]:
                 _pn += 1
                 _mr(kind="payment", external_id=f"pay-{_pn:03d}", name=plan[:80], status="refunded",
@@ -402,10 +414,11 @@ async def seed():
                     source_url="https://app.gohighlevel.com/",
                     meta={"stream": classify_stream(plan), "entity_source_name": plan,
                           "entity_source_type": "manual", "amount_refunded": amt})
+            _failed_on = dt.date.today().replace(day=1)
             for amt, plan in [(10000, "Subscription for Lapsed Member"), (10000, "Membership for 2 - Financed")]:
                 _pn += 1
                 _mr(kind="payment", external_id=f"pay-{_pn:03d}", name=plan[:80], status="failed",
-                    amount=Decimal(amt), occurred_on=dt.date(2026, 6, 18),
+                    amount=Decimal(amt), occurred_on=_failed_on,
                     source_url="https://app.gohighlevel.com/",
                     meta={"stream": classify_stream(plan), "entity_source_name": plan,
                           "entity_source_type": "manual", "amount_refunded": 0})

@@ -439,18 +439,17 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "count": len(rows), "rows": rows}
 
         if key == "forum_failed_payments":
-            pays = [p for p in await fpayments() if p.status == "failed"]
+            today = dt.date.today()
+            pays = [p for p in await fpayments()
+                    if p.status == "failed" and p.occurred_on
+                    and (p.occurred_on.year, p.occurred_on.month) == (today.year, today.month)]
             pays.sort(key=lambda p: float(p.amount or 0), reverse=True)
             rows = [{"id": str(p.id), "name": nm(p), "tone": "watch",
                      "l2": "Failed charge · " + (dlabel(p.occurred_on) or ""),
                      "r1": money(p.amount), "source_url": p.source_url} for p in pays]
-            for x in await fsubs():
-                if x.status == "past_due":
-                    rows.append({"id": str(x.id), "name": nm(x), "tone": "watch",
-                                 "l2": "Subscription past due", "r1": money(x.amount) + "/mo",
-                                 "source_url": x.source_url})
-            return {"label": "Recovery list", "source": "Stripe payments",
-                    "computed_as": "Failed charges + past-due subscriptions to recover.",
+            return {"label": "Failed charges · this month", "source": "Stripe payments",
+                    "computed_as": ("Card charges that failed this month — the recent list to inspect. "
+                                    "Past-due subscriptions are tracked as a separate flag."),
                     "count": len(rows), "rows": rows}
 
         subs = await fsubs()

@@ -298,10 +298,9 @@ function OpsPulse({ data, onOpen }) {
 
 /* ── Watch Strip — the single action ────────────────────────────── */
 function WatchStrip({ b, data, onOpen }) {
-  const failed = b && b.failed_count > 0;
-  const ctx = [];
-  if (b && b.past_due > 0) ctx.push(`${b.past_due} subscription${b.past_due === 1 ? "" : "s"} past-due`);
-  if (!failed && !ctx.length) {
+  const failed = b && b.failed_count > 0;         // month-to-date card failures
+  const pastDue = b && b.past_due > 0;            // subscriptions stuck past due
+  if (!failed && !pastDue) {
     // no money action: fall back to the event call-list if it's behind
     if (data.event?.unregistered > 0) {
       return (
@@ -320,9 +319,18 @@ function WatchStrip({ b, data, onOpen }) {
   }
   return (
     <div className="watchstrip">
-      {failed && <span className="flag"><span className="flag-dot" /><Icon src={A.warn} size={13} color={C.flagText} />{b.failed_count} failed charge{b.failed_count === 1 ? "" : "s"} · {usd(b.failed_amount)} to recover</span>}
-      {failed && <button className="ghost lift" onClick={() => onOpen("forum_failed_payments")}>View Recovery List<Icon src={A.open} size={11} color="currentColor" /></button>}
-      {ctx.length > 0 && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.muted }}>{ctx.join(" · ")}</span>}
+      {failed && (
+        <span className="watchpair">
+          <span className="flag"><span className="flag-dot" /><Icon src={A.warn} size={13} color={C.flagText} />{b.failed_count} failed charge{b.failed_count === 1 ? "" : "s"} this month · {usd(b.failed_amount)} to recover</span>
+          <button className="ghost lift" onClick={() => onOpen("forum_failed_payments")}>Review failed charges<Icon src={A.open} size={11} color="currentColor" /></button>
+        </span>
+      )}
+      {pastDue && (
+        <span className="watchpair">
+          <span className="flag"><span className="flag-dot" /><Icon src={A.warn} size={13} color={C.flagText} />{b.past_due} subscription{b.past_due === 1 ? "" : "s"} past-due{b.past_due_amount ? ` · ${usd(b.past_due_amount)}/mo to recover` : ""}</span>
+          <button className="ghost lift" onClick={() => onOpen("pastdue")}>Review past-due<Icon src={A.open} size={11} color="currentColor" /></button>
+        </span>
+      )}
     </div>
   );
 }
@@ -634,7 +642,8 @@ const CSS = `
   .ptile-v { font-family:Poppins,sans-serif; font-size:27px; font-weight:700; color:${C.ink}; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
   .ptile-s { font-family:Inter,sans-serif; font-size:10.5px; color:${C.muted}; margin-top:3px; }
 
-  .watchstrip { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+  .watchstrip { display:flex; align-items:center; gap:12px 16px; flex-wrap:wrap; margin-bottom:20px; }
+  .watchpair { display:inline-flex; align-items:center; gap:10px; }
   .flag { display:inline-flex; align-items:center; gap:8px; background:${C.flagBg}; border-radius:9px; padding:7px 13px; font-family:Inter,sans-serif; font-size:12px; font-weight:600; color:${C.flagText}; box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 1px 2px rgba(181,121,42,.12); }
   .flag-dot { width:7px; height:7px; border-radius:99px; background:${C.flagDot}; box-shadow:0 0 0 3px ${C.flagDot}44; animation:breathe 2s ease-in-out infinite; }
   .ghost { display:inline-flex; align-items:center; gap:6px; background:${C.surface}; border:1px solid ${C.hair}; border-radius:9px; padding:6px 12px; cursor:pointer; font-family:Poppins,sans-serif; font-size:11.5px; font-weight:600; color:${C.slate}; box-shadow:var(--sh-rest), var(--hl); }
@@ -794,7 +803,7 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
           <div className="enter" style={{ animationDelay: "270ms" }}>
             <Section icon={A.cash} tint={C.meadow} title="Cash & Billing"
                      summary={`${kc(b.net_cash)} collected · ${kc(b.mrr)} MRR · ${kc(b.arr_book)} ARR`}
-                     watch={moneyWatch ? `${b.failed_count || b.past_due} to recover` : null}
+                     watch={moneyWatch ? `${(b.failed_count || 0) + (b.past_due || 0)} to recover` : null}
                      live sub="Cash basis · Stripe via Go High Level · reconciles to QuickBooks as the Booked lens when connected"
                      open={!!open.money} onToggle={() => toggle("money")}>
               <Deck items={moneyItems(b, !!open.money, onOpen)} />

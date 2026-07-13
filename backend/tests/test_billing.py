@@ -55,7 +55,8 @@ async def test_cash_math_and_invariants():
     b = f["billing"]
     assert b["available"] is True
     assert b["gross"] == 141993 and b["refunded"] == 10250 and b["net_cash"] == 131743
-    assert b["failed_count"] == 2 and b["failed_amount"] == 20000
+    assert b["failed_count"] == 2 and b["failed_amount"] == 20000    # month-to-date failures
+    assert b["past_due"] == 1 and b["past_due_amount"] == 1800        # separate standing flag
     # net = gross − refunded; failed excluded
     assert round(b["gross"] - b["refunded"], 2) == b["net_cash"]
     # streams reconcile to net cash (the invariant)
@@ -160,6 +161,9 @@ async def test_forum_lineage_drills():
         t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
         failed = await metric_detail(s, t.id, "forum_failed_payments", "ytd", business="springb")
         assert failed["count"] == 2 and all(r["tone"] == "watch" for r in failed["rows"])
+        # past-due subscriptions are their own recovery flag, not folded into failed charges
+        pastdue = await metric_detail(s, t.id, "pastdue", "ytd", business="springb")
+        assert pastdue["count"] == 1 and all(r["tone"] == "watch" for r in pastdue["rows"])
         mrr_subs = await metric_detail(s, t.id, "forum_mrr_subs", "ytd", business="springb")
         assert mrr_subs["count"] == 12
         inst = await metric_detail(s, t.id, "forum_installments", "ytd", business="springb")

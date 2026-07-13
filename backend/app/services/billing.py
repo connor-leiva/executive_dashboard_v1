@@ -312,9 +312,15 @@ def compute_billing(payments, subs, arr_book: float,
     gross = round(sum(_num(p.amount) for p in succ), 2)
     refunded = round(sum(_num((p.meta or {}).get("amount_refunded")) for p in this_year), 2)
     net_cash = round(gross - refunded, 2)          # actual YTD net collected
-    failed = [p for p in this_year if (p.status or "") == "failed"]
-    failed_amount = round(sum(_num(p.amount) for p in failed), 2)
     txn_count = len(this_year)
+
+    # Failed charges are a MONTH-TO-DATE action list: the recent card failures still
+    # worth chasing THIS month — not a lifetime pile of every charge that ever bounced
+    # (a member whose card failed eight months running is not eight things to do today).
+    # Past-due subscriptions are a separate flag (below): a standing state, not an event.
+    this_month = [p for p in this_year if p.occurred_on.month == today.month]
+    failed = [p for p in this_month if (p.status or "") == "failed"]
+    failed_amount = round(sum(_num(p.amount) for p in failed), 2)
 
     # Monthly cash-flow trend — the FULL calendar year: actual net per month through
     # today, then projected inflow (from active subscriptions) for the months ahead.
@@ -383,7 +389,9 @@ def compute_billing(payments, subs, arr_book: float,
         "final_date": (x.meta or {}).get("end_date") or (x.meta or {}).get("next_payment_date"),
     } for x in active if not is_perpetual(x)]
 
-    past_due = sum(1 for x in subs if x.status == "past_due")
+    past = [x for x in subs if x.status == "past_due"]
+    past_due = len(past)
+    past_due_amount = round(sum(_num(x.amount) for x in past), 2)
 
     # Forward billing — projected charges over the next 30 and 90 days, plus the
     # remaining-year total, all derived from each active sub's billing cadence.
@@ -405,7 +413,8 @@ def compute_billing(payments, subs, arr_book: float,
         "span": {"start": span_start.isoformat(), "end": today.isoformat()},
         "net_cash": net_cash, "full_year": full_year,
         "gross": gross, "refunded": refunded, "txn_count": txn_count,
-        "failed_amount": failed_amount, "failed_count": len(failed), "past_due": past_due,
+        "failed_amount": failed_amount, "failed_count": len(failed),
+        "past_due": past_due, "past_due_amount": past_due_amount,
         "monthly": monthly,
         "mrr": mrr, "perpetual_count": len(perpetual),
         "installments": installments,
