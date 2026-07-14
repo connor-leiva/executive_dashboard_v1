@@ -392,23 +392,21 @@ function membersItems(data, open, onOpen, deckSlots) {
   // Roster — always
   const am = (data.kpis || []).find((x) => x.key === "active_members" || x.key === "bc_members");
   const arr = (data.kpis || []).find((x) => x.key === "forum_arr" || x.key === "bc_arr");
-  const split = twoInts(am?.sub);
   const newM = (data.kpis || []).find((x) => x.key === "new_members" || x.key === "bc_new_members");
   const renD = (data.kpis || []).find((x) => x.key === "renewals_due");
   const rs = data.roster || {};
   const mix = rs.payment_mix || {};
   const mixTot = (mix.monthly || 0) + (mix.quarterly || 0) + (mix.pif || 0) + (mix.installments || 0) || 1;
   const mpct = (n) => `${((n || 0) / mixTot) * 100}%`;
-  items.push({ key: "roster", icon: A.users, name: "Roster", stat: String(data.members_total ?? "—"), line: am?.sub || "members", accent: C.meadow, render: () => (
+  const compLine = rs.primary != null ? [`${rs.primary} primary`, `${rs.add_on} add-on`,
+    rs.admin ? `${rs.admin} admin` : null, rs.unspecified ? `${rs.unspecified} unset` : null].filter(Boolean).join(" · ") : null;
+  items.push({ key: "roster", icon: A.users, name: "Roster", stat: String(data.members_total ?? "—"), line: compLine || "active members", accent: C.meadow, render: () => (
     <div className="cols">
       <div>
-        <div className="colhead">By Program</div>
-        {split ? <>
-          <Row a="The Forum" b={`${split[0]} members`} v={arr ? `${arr.value} book` : ""} />
-          <Row a="Inner Circle" b={`${split[1]} members`} v="incl. above" />
-        </> : <Row a="Members" b={am?.sub || ""} v={arr?.value || ""} />}
-        {rs.primary != null && <Row a="Composition" b={[`${rs.primary} primary`, `${rs.add_on} add-on`,
-          rs.admin ? `${rs.admin} admin` : null, rs.unspecified ? `${rs.unspecified} unset` : null].filter(Boolean).join(" · ")} v="" />}
+        <div className="colhead">Composition</div>
+        {compLine
+          ? <Row a="Members" b={compLine} v={arr ? `${arr.value} book` : ""} />
+          : <Row a="Members" b="active" v={arr?.value || ""} />}
         <div style={{ marginTop: 10 }}><Drill onClick={() => onOpen("forum_roster")}>View all {data.members_total} members</Drill></div>
       </div>
       <div>

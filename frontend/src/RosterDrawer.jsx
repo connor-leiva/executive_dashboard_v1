@@ -56,14 +56,18 @@ function Plan({ payment }) {
   );
 }
 
-/* a payment cell — amount over date (last / next payment) */
+/* a payment cell — amount over date (last / next payment). The amount links into the
+   source system (Stripe charge / GHL subscription / renewal) when a url is available. */
 function PayCell({ p }) {
   if (!p || (!p.amount && !p.date)) return <span style={{ color: T.muted }}>—</span>;
+  const amt = p.amount ? usd(p.amount) : "—";
+  const amtStyle = { fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, fontVariantNumeric: "tabular-nums" };
   return (
     <div style={{ whiteSpace: "nowrap" }}>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>
-        {p.amount ? usd(p.amount) : "—"}
-      </div>
+      {p.url
+        ? <a href={p.url} target="_blank" rel="noreferrer" title="Open in the source system"
+            style={{ ...amtStyle, color: T.teal, textDecoration: "none" }}>{amt} ↗</a>
+        : <span style={{ ...amtStyle, color: T.ink }}>{amt}</span>}
       <div style={{ fontSize: 10.5, color: T.muted }}>{fmtDate(p.date)}</div>
     </div>
   );
@@ -81,6 +85,45 @@ const SORT_KEYS = {
   renews: (r) => r.renews || "",
 };
 const _blank = (v) => v === "" || v === null || v === undefined;
+
+/* ── per-column filtering ──────────────────────────────────────────
+   Each header is both a sort control and a filter: categorical columns get a
+   value dropdown, dates get a relative-range dropdown, and Member is free text. */
+const isISO = (v) => /^\d{4}-\d{2}-\d{2}/.test(v || "");
+const _iso = (d) => d.toISOString().slice(0, 10);
+const shiftISO = (days) => { const d = new Date(); d.setDate(d.getDate() + days); return _iso(d); };
+
+const PLAN_OPTS = [["", "Plan: any"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["pif", "PIF"], ["installments", "Installments"]];
+const VALUE_OPTS = [["", "Value: any"], ["lt10", "< $10k"], ["10to25", "$10k–$25k"], ["gte25", "≥ $25k"]];
+const FUTURE_OPTS = [["", "Any date"], ["30", "Next 30 days"], ["90", "Next 90 days"], ["year", "This year"], ["overdue", "Overdue"], ["none", "No date"]];
+const PAST_OPTS = [["", "Any date"], ["30", "Last 30 days"], ["90", "Last 90 days"], ["year", "This year"], ["none", "No date"]];
+
+const COLUMNS = [
+  { key: "member", label: "Member", type: "text", get: (r) => r.name, pad: { paddingLeft: 24 } },
+  { key: "plan", label: "Plan", type: "plan", get: (r) => r.payment },
+  { key: "value", label: "Value", type: "value", get: (r) => r.amount, align: "right" },
+  { key: "last", label: "Last payment", type: "date", dir: "past", get: (r) => r.last_payment && r.last_payment.date },
+  { key: "next", label: "Next payment", type: "date", dir: "future", get: (r) => r.next_payment && r.next_payment.date },
+  { key: "enrolled", label: "Enrolled", type: "date", dir: "past", get: (r) => r.enrolled },
+  { key: "renews", label: "Renews", type: "date", dir: "future", get: (r) => r.renews },
+];
+
+function passCol(r, c, f) {
+  if (!f) return true;
+  const v = c.get(r);
+  if (c.type === "text") return (v || "").toLowerCase().includes(f.toLowerCase());
+  if (c.type === "plan") return (v || "") === f;
+  if (c.type === "value") { const n = v || 0; return f === "lt10" ? n < 10000 : f === "10to25" ? (n >= 10000 && n < 25000) : n >= 25000; }
+  // date
+  const d = isISO(v) ? v.slice(0, 10) : null;
+  if (f === "none") return !d;
+  if (!d) return false;
+  const t = _iso(new Date());
+  if (f === "year") return d.slice(0, 4) === t.slice(0, 4);
+  if (f === "overdue") return d < t;
+  if (c.dir === "future") return f === "30" ? (d >= t && d <= shiftISO(30)) : (d >= t && d <= shiftISO(90));
+  return f === "30" ? (d <= t && d >= shiftISO(-30)) : (d <= t && d >= shiftISO(-90));
+}
 
 /* one stat cell in the summary band */
 function Stat({ label, children }) {
@@ -142,9 +185,10 @@ export default function RosterDrawer({ business, period, onClose }) {
   const [prog, setProg] = useState("all");     // all | F | IC | ADMIN
   const [qtext, setQ] = useState("");
   const [sort, setSort] = useState(null);       // { col, dir } | null (null = grouped)
+  const [filters, setFilters] = useState({});   // { [colKey]: value }
 
   useEffect(() => {
-    setD(null); setErr(false); setProg("all"); setQ(""); setSort(null);
+    setD(null); setErr(false); setProg("all"); setQ(""); setSort(null); setFilters({});
     if (!API_BASE) { setD(sampleForum.roster_detail); return; }
     const q = `/metrics/forum_roster/detail?period=${period}`
       + (business ? `&business=${encodeURIComponent(business)}` : "");
@@ -154,14 +198,15 @@ export default function RosterDrawer({ business, period, onClose }) {
   const rows = d?.rows || [];
   const sm = d?.summary || {};
   const mix = sm.payment_mix || {};
-  // Free-text filter matches across every column that carries text — name, brokerage,
-  // Stripe account, member type, plan, program — so typing "quarterly" or "eXp" filters.
+  const activeFilters = Object.values(filters).filter(Boolean).length;
+  // Global quick-find (name / brokerage / plan / …) AND every active per-column filter.
   const filtered = useMemo(() => {
     const t = qtext.trim().toLowerCase();
-    if (!t) return rows;
-    return rows.filter((r) => [r.name, r.brokerage, r.stripe_account, r.member_type, r.payment,
-      r.seg === "F" ? "forum" : "inner circle"].some((v) => (v || "").toString().toLowerCase().includes(t)));
-  }, [rows, qtext]);
+    return rows.filter((r) =>
+      (!t || [r.name, r.brokerage, r.stripe_account, r.member_type, r.payment,
+        r.seg === "F" ? "forum" : "inner circle"].some((v) => (v || "").toString().toLowerCase().includes(t)))
+      && COLUMNS.every((c) => passCol(r, c, filters[c.key])));
+  }, [rows, qtext, filters]);
 
   // Admins are staff seats — shown as their own group, kept out of the Forum/IC lists.
   const isAdmin = (r) => r.kind === "admin";
@@ -193,16 +238,35 @@ export default function RosterDrawer({ business, period, onClose }) {
     color: on ? T.ink : T.muted, boxShadow: on ? "0 1px 3px rgba(0,46,44,.12)" : "none",
   });
   const subset = sm.total != null && rows.length < sm.total;
-  const th = { fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-    textTransform: "uppercase", color: T.muted, textAlign: "left", whiteSpace: "nowrap",
-    padding: "14px 14px 12px", position: "sticky", top: 0, background: T.white,
-    borderBottom: `1px solid ${T.line}`, zIndex: 2 };
-  const Th = ({ col, label, align = "left", pad }) => (
-    <th onClick={col ? () => toggleSort(col) : undefined}
-      style={{ ...th, textAlign: align, cursor: col ? "pointer" : "default", userSelect: "none", ...(pad || {}) }}>
-      {label}<span style={{ color: T.meadow }}>{col && sort && sort.col === col ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</span>
-    </th>
-  );
+  const setFilter = (col, v) => setFilters((f) => ({ ...f, [col]: v }));
+  const th = { padding: "12px 14px", position: "sticky", top: 0, background: T.white,
+    borderBottom: `1px solid ${T.line}`, zIndex: 2, verticalAlign: "top" };
+  const fieldSt = (on) => ({ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: on ? T.ink : T.muted,
+    background: T.white, border: `1px solid ${on ? T.meadow : T.line}`, borderRadius: 6, padding: "3px 6px",
+    outline: "none", maxWidth: 128, cursor: "pointer" });
+  // A header = a sortable label + an inline filter (dropdown, or text for Member).
+  const HeaderCell = ({ c }) => {
+    const on = !!filters[c.key];
+    const opts = c.type === "plan" ? PLAN_OPTS : c.type === "value" ? VALUE_OPTS
+      : c.dir === "future" ? FUTURE_OPTS : PAST_OPTS;
+    return (
+      <th style={{ ...th, ...(c.pad || {}) }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: c.align === "right" ? "flex-end" : "flex-start" }}>
+          <span onClick={() => toggleSort(c.key)} title="Sort"
+            style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+              textTransform: "uppercase", color: T.muted, whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}>
+            {c.label}<span style={{ color: T.meadow }}>{sort && sort.col === c.key ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</span>
+          </span>
+          {c.type === "text"
+            ? <input value={filters[c.key] || ""} onChange={(e) => setFilter(c.key, e.target.value)}
+                placeholder="filter…" style={{ ...fieldSt(on), width: 110, cursor: "text", textTransform: "none" }} />
+            : <select value={filters[c.key] || ""} onChange={(e) => setFilter(c.key, e.target.value)} style={fieldSt(on)}>
+                {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>}
+        </div>
+      </th>
+    );
+  };
 
   return (
     <>
@@ -230,7 +294,6 @@ export default function RosterDrawer({ business, period, onClose }) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 18, marginTop: 16 }}>
             <Stat label="Members"><span style={{ fontSize: 22 }}>{sm.total ?? rows.length}</span></Stat>
-            <Stat label="Program">{sm.forum ?? 0} Forum<span style={{ color: T.muted, fontWeight: 500 }}>·</span>{sm.inner_circle ?? 0} IC</Stat>
             <Stat label="Composition">
               <span style={{ fontSize: 13 }}>{sm.primary ?? 0} primary<span style={{ color: T.muted }}> · </span>{sm.add_on ?? 0} add-on{sm.admin ? <><span style={{ color: T.muted }}> · </span>{sm.admin} admin</> : null}{sm.unspecified ? <span style={{ color: T.muted }}> · {sm.unspecified} unset</span> : null}</span>
             </Stat>
@@ -251,6 +314,12 @@ export default function RosterDrawer({ business, period, onClose }) {
           <input value={qtext} onChange={(e) => setQ(e.target.value)} placeholder="Find by name, plan, brokerage…"
             style={{ flex: 1, minWidth: 160, fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink,
               background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", outline: "none" }} />
+          {activeFilters > 0 && (
+            <button onClick={() => setFilters({})} style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600,
+              color: T.meadow, background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+              Clear {activeFilters} filter{activeFilters === 1 ? "" : "s"} ✕
+            </button>
+          )}
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>
             {inScope.length} shown{subset ? ` · sample of ${sm.total}` : ""}
           </span>
@@ -273,14 +342,8 @@ export default function RosterDrawer({ business, period, onClose }) {
               <table style={{ width: "100%", minWidth: 1000, borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <Th col="member" label="Member" pad={{ paddingLeft: 24 }} />
-                    <Th col="plan" label="Plan" />
-                    <Th col="value" label="Value" align="right" />
-                    <Th col="last" label="Last payment" />
-                    <Th col="next" label="Next payment" />
-                    <Th col="enrolled" label="Enrolled" />
-                    <Th col="renews" label="Renews" />
-                    <Th label="" pad={{ paddingRight: 24 }} />
+                    {COLUMNS.map((c) => <HeaderCell key={c.key} c={c} />)}
+                    <th style={{ ...th, paddingRight: 24 }} />
                   </tr>
                 </thead>
                 {sorted ? (

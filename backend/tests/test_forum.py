@@ -73,9 +73,10 @@ async def _seed_forum(*, with_recruiting: bool = True, with_event: bool = True):
         # an Admin (staff) — record status 'admin' keeps it out of member counts.
         add(kind="member", external_id="ADM1", name="Admin One", status="admin", segment="forum",
             meta={"membership": {"member_type": "Admin", "member_kind": "admin", "status": "Active"}})
-        # F1's most-recent succeeded charge → last payment on the roster
+        # F1's most-recent succeeded charge → last payment on the roster (links to Stripe)
         add(kind="payment", external_id="pay-f1", name="F1", email="f1@forum.test", amount=2500,
-            status="succeeded", occurred_on=today - dt.timedelta(days=5), meta={"stream": "memberships"})
+            status="succeeded", occurred_on=today - dt.timedelta(days=5),
+            source_url="https://dashboard.stripe.com/payments/pi_f1", meta={"stream": "memberships"})
 
         # memberships — renewal window = this + next 2 months; ms5 is out of window
         add(kind="membership", external_id="ms1", name="F1", status="active", amount=3000, segment="forum",
@@ -220,8 +221,10 @@ async def test_forum_roster_view():
     assert by_name["F3"]["kind"] == "add_on" and by_name["F3"]["member_type"] == "Add-On Member"
     assert by_name["F1"]["amount"] == 24000 and by_name["F1"]["brokerage"] == "eXp Realty"
     assert by_name["Admin One"]["kind"] == "admin"              # admin present in the rows
-    # last payment (most recent succeeded charge by email) + next payment (from the sub)
+    # last payment (most recent succeeded charge by email) + next payment (from the sub),
+    # each carrying a source_url the drawer turns into a hyperlink
     assert by_name["F1"]["last_payment"]["amount"] == 2500
+    assert by_name["F1"]["last_payment"]["url"] == "https://dashboard.stripe.com/payments/pi_f1"
     assert by_name["Ic2"]["next_payment"]["amount"] == 500      # IC2 title-cased → "Ic2"
 
 

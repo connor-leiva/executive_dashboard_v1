@@ -67,10 +67,17 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     guests = sum(1 for r in all_regs if (r.meta or {}).get("guest"))
     member_regs = len(all_regs) - guests
 
+    # Roster composition (members = primary + add-on; admins are staff, counted apart) —
+    # computed up-front so the Active Members tile summarizes composition, not the
+    # Forum/Inner-Circle program split (which is a filter, not a headline metric).
+    member_recs = await records("member", MetricRecord.status == "active")   # primary + add-on
+    admin_recs = await records("member", MetricRecord.status == "admin")     # staff, not members
+    roster = _roster_summary(member_recs, admin_recs, forum_n, ic_n)
+
     # ── KPI tiles (mirror the operational panel) ──
     kpis = [
         {"key": "active_members", "label": "Active Members", "value": str(members_total),
-         "sub": f"Forum {forum_n} · Inner Circle {ic_n}", "drill": "active_members"},
+         "sub": f"{roster['primary']} primary · {roster['add_on']} add-on", "drill": "active_members"},
         {"key": "forum_arr", "label": "Forum ARR", "value": _usd(arr) if arr else "—",
          "sub": f"{k['memberships']} memberships", "drill": "forum_arr"},
         {"key": "new_members", "label": "New Members", "value": str(k["new_members"]),
@@ -86,10 +93,7 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     memberships = await records("membership")
     # Memberships live in the (Forum) renewals pipeline and carry no segment;
     # recover it by joining to the member roster on contact id.
-    member_recs = await records("member", MetricRecord.status == "active")   # primary + add-on
-    admin_recs = await records("member", MetricRecord.status == "admin")     # staff, not members
     seg_by_contact = {m.external_id: m.segment for m in member_recs}
-    roster = _roster_summary(member_recs, admin_recs, forum_n, ic_n)
     funnel = await _funnel(s, base, cfg)
     renewals = _renewals(memberships, seg_by_contact)
     event = _event(cfg, members_total, member_regs, guests)

@@ -246,15 +246,17 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                         mix[pay] += 1
                 em = (m.email or "").strip().lower()
                 lp = last_by_email.get(em) if em else None
-                last_payment = ({"date": lp.occurred_on.isoformat(), "amount": float(lp.amount or 0)}
-                                if lp else None)
+                last_payment = ({"date": lp.occurred_on.isoformat(), "amount": float(lp.amount or 0),
+                                 "url": lp.source_url} if lp else None)
                 sub = sub_by_contact.get(m.external_id) or (sub_by_email.get(em) if em else None)
                 if sub is not None and (sub.meta or {}).get("next_payment_date"):
                     npa = (sub.meta or {}).get("next_payment_amount")
                     next_payment = {"date": (sub.meta or {})["next_payment_date"],
-                                    "amount": float(npa) if npa is not None else None}
+                                    "amount": float(npa) if npa is not None else None,
+                                    "url": sub.source_url}
                 elif mem.get("payment") == "pif" and mem.get("renewal_date"):
-                    next_payment = {"date": mem.get("renewal_date"), "amount": mem.get("total_cost")}
+                    next_payment = {"date": mem.get("renewal_date"), "amount": mem.get("total_cost"),
+                                    "url": (ms.source_url if ms else None) or m.source_url}
                 else:
                     next_payment = None
                 rows.append({
