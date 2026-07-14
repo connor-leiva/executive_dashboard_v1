@@ -730,6 +730,27 @@ const CSS = `
   .drill { display:inline-flex; align-items:center; gap:4px; color:${C.meadow}; font-weight:600; cursor:pointer; font-size:12px; }
   .drill:hover { text-decoration:underline; }
 
+  /* operational-refinement (v9) motion + hover */
+  @keyframes fvGrowX { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+  @keyframes fvGrowY { from { transform:scaleY(0); } to { transform:scaleY(1); } }
+  .fe .fvGrow { animation:fvGrowX .7s cubic-bezier(.22,1,.36,1) both; }
+  .fe .fvGrowY { animation:fvGrowY .7s cubic-bezier(.22,1,.36,1) both; }
+  .fe .fvRow { transition:background .15s ease; }
+  .fe .fvRow:hover { background:${C.parchment}; }
+  .fe .ptile { transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+  .fe .ptile:hover { transform:translateY(-2px); box-shadow:0 8px 22px rgba(0,46,44,.09); border-color:${C.sprout}; }
+  .fe .oproster { transition:filter .15s ease; }
+  .fe .oproster:hover { filter:brightness(1.12); }
+  .opgrid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  .opgrowgrid { display:grid; grid-template-columns:minmax(0,1fr) 208px; gap:16px; align-items:stretch; }
+  .opfacts { display:grid; grid-template-columns:1.05fr 1fr; gap:22px; align-items:start; }
+  .opmotions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; }
+  .opcb { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:16px; }
+  @media (max-width: 900px) {
+    .opgrid4 { grid-template-columns:repeat(2,1fr); }
+    .opgrowgrid, .opfacts, .opmotions, .opcb { grid-template-columns:1fr; }
+  }
+
   @keyframes drawline { from { stroke-dashoffset:1; } to { stroke-dashoffset:0; } }
   @keyframes areaIn { from { opacity:0; } to { opacity:1; } }
   .spark-line { stroke-dasharray:1; stroke-dashoffset:0; animation:drawline 1s cubic-bezier(.4,0,.2,1) both; }
@@ -749,6 +770,418 @@ const CSS = `
 /* deck slot registries — what the Members deck can show per program */
 const DECK_SLOTS = [{ k: "pipeline" }, { k: "renewals" }, { k: "event" }];
 export const BC_DECK_SLOTS = [{ k: "pipeline" }, { k: "event" }];
+
+/* ══ Operational Refinement (v9) — layout ported from SPEC-forum-operational,
+   styled to the existing Forum identity (same C tokens, Poppins/Inter, tabular
+   figures). Color law: zero poppy; meadow = calm, amber = needs-attention,
+   daffodil = the one action marker, evergreen = structure. ═══════════════ */
+const PLAN_LABEL = { pif: "PIF", monthly: "Monthly", quarterly: "Quarterly", installments: "Installments" };
+const PLAN_DOT = { pif: C.evergreen, monthly: C.meadow, quarterly: C.sprout, installments: C.mistDeep };
+
+function Ic({ name, size = 16, color = "currentColor", sw = 1.7 }) {
+  const p = {
+    members: <><path d="M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1" /><circle cx="9" cy="7" r="3.4" /><path d="M22 19v-1a4 4 0 0 0-3-3.87" /><path d="M16 3.3a4 4 0 0 1 0 7.4" /></>,
+    growth: <><polyline points="3 17 9 11 13 15 21 6" /><polyline points="15 6 21 6 21 12" /></>,
+    renew: <><path d="M3.5 12a8.5 8.5 0 0 1 14.5-6L21 8.5" /><polyline points="21 3 21 8.5 15.5 8.5" /><path d="M20.5 12a8.5 8.5 0 0 1-14.5 6L3 15.5" /><polyline points="3 21 3 15.5 8.5 15.5" /></>,
+    event: <><path d="M21 10.5c0 6.6-9 12.5-9 12.5S3 17.1 3 10.5a9 9 0 0 1 18 0Z" /><circle cx="12" cy="10.2" r="2.7" /></>,
+    ext: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10.5" y1="13.5" x2="21" y2="3" /></>,
+    alert: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><line x1="12" y1="9" x2="12" y2="13.5" /><line x1="12" y1="17" x2="12.01" y2="17" /></>,
+    up: <><line x1="12" y1="19" x2="12" y2="6" /><polyline points="6 12 12 6 18 12" /></>,
+    resign: <><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" /></>,
+    arrow: <><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></>,
+  }[name];
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, display: "block" }}>{p}</svg>;
+}
+function IcChip({ name, tint = C.slate, size = 28, icon = 14, bg }) {
+  return <span style={{ width: size, height: size, borderRadius: 9, background: bg || "rgba(97,131,94,.10)", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Ic name={name} size={icon} color={tint} /></span>;
+}
+function opSpark(data, w, h, pad = 3) {
+  const min = Math.min(...data), max = Math.max(...data), span = max - min || 1;
+  const x = (i) => pad + (i / (data.length - 1)) * (w - 2 * pad);
+  const y = (v) => h - pad - ((v - min) / span) * (h - 2 * pad);
+  const line = data.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+  return { line, area: `${line} L${x(data.length - 1).toFixed(1)} ${h} L${x(0).toFixed(1)} ${h} Z`, lx: x(data.length - 1), ly: y(data[data.length - 1]) };
+}
+function OpSpark({ data, w = 104, h = 38, color = C.meadow }) {
+  if (!data || data.length < 2) return null;
+  const { line, area, lx, ly } = opSpark(data, w, h);
+  const id = "os" + color.replace(/[^a-z0-9]/gi, "");
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={color} stopOpacity="0.16" /><stop offset="1" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+      <path d={area} fill={`url(#${id})`} />
+      <path className="spark-line" d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={lx} cy={ly} r="2.6" fill={color} />
+    </svg>
+  );
+}
+function OpFunnel({ stages, color = C.evergreen, w = 112 }) {
+  const max = Math.max(...stages, 1);
+  return <div style={{ display: "flex", flexDirection: "column", gap: 4, width: w }}>{stages.map((v, i) => <div key={i} className="fvGrow" style={{ height: 6, borderRadius: 3, width: `${Math.max(14, (v / max) * 100)}%`, background: color, opacity: 1 - i * 0.17, transformOrigin: "left" }} title={`${v}`} />)}</div>;
+}
+function DuoBar({ auto, needsYou, h = 9 }) {
+  const tot = auto + needsYou || 1;
+  return (
+    <div style={{ display: "flex", height: h, borderRadius: 99, overflow: "hidden", background: C.hair }}>
+      <div className="fvGrow" style={{ width: `${(auto / tot) * 100}%`, background: C.meadow, transformOrigin: "left" }} title="auto-renews" />
+      <div className="fvGrow" style={{ width: `${(needsYou / tot) * 100}%`, background: C.amber, transformOrigin: "left" }} title="needs a touch" />
+    </div>
+  );
+}
+function OpRing({ pct, size = 48, sw = 5, color = C.meadow }) {
+  const r = (size - sw) / 2, c = 2 * Math.PI * r;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.hair} strokeWidth={sw} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} transform={`rotate(-90 ${size / 2} ${size / 2})`} style={{ transition: "stroke-dashoffset .9s cubic-bezier(.22,1,.36,1)" }} />
+      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle" style={{ fontFamily: "Poppins,sans-serif", fontSize: size * 0.28, fontWeight: 600, fill: C.ink }}>{pct}%</text>
+    </svg>
+  );
+}
+const opBig = { fontFamily: "Poppins,sans-serif", fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1 };
+function PulseTile({ children, onClick }) {
+  return <div onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={(e) => onClick && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onClick())} className="ptile" style={{ background: C.surface, border: `1px solid ${C.hair}`, borderRadius: 15, padding: "15px 16px 14px", cursor: onClick ? "pointer" : "default", display: "flex", flexDirection: "column", gap: 11, minWidth: 0 }}>{children}</div>;
+}
+function TileHead({ icon, tint, label, link }) {
+  return <div style={{ display: "flex", alignItems: "center", gap: 9 }}><IcChip name={icon} tint={tint} size={28} icon={14} /><span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: C.slate }}>{label}</span>{link && <span style={{ marginLeft: "auto", opacity: .5 }}><Ic name="ext" size={13} color={C.muted} /></span>}</div>;
+}
+function PulseStrip({ pulse, onOpen }) {
+  const m = pulse.members, pp = pulse.pipeline, rn = pulse.renewals, ev = pulse.event;
+  return (
+    <div className="opgrid4">
+      <PulseTile onClick={() => onOpen("forum_roster")}>
+        <TileHead icon="members" tint={C.meadow} label="Active Members" link />
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ ...opBig, fontSize: 34 }}>{m.value}</span>
+            {m.delta ? <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 700, color: m.delta >= 0 ? C.meadow : C.amber }}><Ic name="up" size={11} color={m.delta >= 0 ? C.meadow : C.amber} sw={2.4} />{Math.abs(m.delta)}</span> : null}
+          </div>
+          {m.spark && m.spark.length > 1 && <OpSpark data={m.spark} w={104} h={38} color={C.meadow} />}
+        </div>
+      </PulseTile>
+
+      <PulseTile onClick={pp ? () => onOpen("registered") : undefined}>
+        <TileHead icon="growth" tint={C.evergreen} label="Recruiting Pipeline" />
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12 }}>
+          <span style={{ ...opBig, fontSize: 34 }}>{pp ? pp.value : "—"}</span>
+          {pp && <OpFunnel stages={pp.stages} color={C.evergreen} w={112} />}
+        </div>
+      </PulseTile>
+
+      <PulseTile>
+        <TileHead icon="renew" tint={C.meadow} label="Renewals · 90d" />
+        <div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 9 }}>
+            <span style={{ ...opBig, fontSize: 30 }}>{kc(rn.book)}</span>
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted }}>{rn.count} due</span>
+          </div>
+          <DuoBar auto={rn.auto} needsYou={rn.needsYou} />
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 8 }}>
+            <span style={{ width: 6, height: 6, borderRadius: 99, background: C.flagDot, border: `1px solid ${C.amber}` }} />
+            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{kc(rn.needsYou)}</span>
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted }}>needs a touch</span>
+          </div>
+        </div>
+      </PulseTile>
+
+      <PulseTile>
+        <TileHead icon="event" tint={C.evergreen} label="Event Readiness" />
+        {ev ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}><span style={{ ...opBig, fontSize: 34 }}>{ev.days != null ? ev.days : "—"}</span>{ev.days != null && <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 17, fontWeight: 500, color: C.muted }}>d</span>}</div>
+            <OpRing pct={ev.pct} size={48} />
+          </div>
+        ) : <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted }}>No event configured.</div>}
+      </PulseTile>
+    </div>
+  );
+}
+function ActionRowV9({ action, onOpen }) {
+  if (!action || !action.failed) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "9px 14px", borderRadius: 10, background: C.flagBg, border: "1px solid rgba(181,121,42,.22)" }}>
+        <span style={{ width: 7, height: 7, borderRadius: 99, background: C.flagDot, border: `1px solid ${C.amber}` }} /><Ic name="alert" size={14} color={C.amber} />
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: C.flagText }}><strong style={{ fontWeight: 700 }}>{action.failed} failed charge{action.failed === 1 ? "" : "s"}</strong> this month · {kc(action.recover)} to recover</span>
+      </div>
+      <button onClick={() => onOpen("forum_failed_payments")} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 15px", borderRadius: 10, background: C.surface, border: `1px solid ${C.hair}`, fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}>Review failed charges <Ic name="ext" size={13} color={C.slate} /></button>
+    </div>
+  );
+}
+
+/* ── Growth ── */
+function GrowthChart({ g }) {
+  const { months, total, joined, lost } = g;
+  const N = total.length;
+  if (!N) return null;
+  const x = (i) => 20 + i * (580 / (N - 1 || 1));
+  const lo = Math.min(...total) - 1, hi = Math.max(...total) + 1;
+  const yT = (v) => 112 - ((v - lo) / (hi - lo || 1)) * 92;
+  const line = total.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${yT(v).toFixed(1)}`).join(" ");
+  const area = `${line} L${x(N - 1).toFixed(1)} 120 L${x(0).toFixed(1)} 120 Z`;
+  const maxJ = Math.max(...joined, 1), maxL = Math.max(...lost, 1), axis = 172;
+  return (
+    <svg width="100%" viewBox="0 0 620 210" preserveAspectRatio="xMidYMid meet" style={{ display: "block", width: "100%", maxHeight: 220 }}>
+      <defs><linearGradient id="opggrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={C.meadow} stopOpacity=".18" /><stop offset="1" stopColor={C.meadow} stopOpacity="0" /></linearGradient></defs>
+      <line x1="20" y1="120" x2="600" y2="120" stroke={C.hair} strokeWidth="1" />
+      <path className="spark-area" d={area} fill="url(#opggrad)" />
+      <path d={line} fill="none" stroke={C.meadow} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={x(N - 1)} cy={yT(total[N - 1])} r="3.6" fill={C.meadow} />
+      <text x={x(N - 1)} y={yT(total[N - 1]) - 10} textAnchor="middle" style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, fill: C.ink }}>{total[N - 1]}</text>
+      <text x={x(0)} y={yT(total[0]) - 9} textAnchor="middle" style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fill: C.muted }}>{total[0]}</text>
+      <line x1="20" y1={axis} x2="600" y2={axis} stroke={C.hair} strokeWidth="1" />
+      {joined.map((v, i) => <rect key={"j" + i} x={x(i) - 6} y={axis - (v / maxJ) * 28} width="12" height={(v / maxJ) * 28} rx="2" fill={C.meadow} />)}
+      {lost.map((v, i) => v > 0 ? <rect key={"l" + i} x={x(i) - 6} y={axis} width="12" height={(v / maxL) * 15} rx="2" fill={C.amber} /> : null)}
+      {months.map((mo, i) => <text key={mo + i} x={x(i)} y="202" textAnchor="middle" style={{ fontFamily: "Inter,sans-serif", fontSize: 8.5, fill: i === N - 1 ? C.slate : C.muted, fontWeight: i === N - 1 ? 600 : 400 }}>{mo}</text>)}
+    </svg>
+  );
+}
+function GKpi({ label, value, valColor = C.ink, sub }) {
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "12px 15px", border: `1px solid ${C.hair}`, borderRadius: 12, background: C.parchment }}>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.muted }}>{label}</div>
+      <div style={{ ...opBig, fontSize: 24, color: valColor, marginTop: 4 }}>{value}</div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted, marginTop: 3 }}>{sub}</div>
+    </div>
+  );
+}
+function GrowthBlock({ g }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: C.muted }}>Growth</span>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>active members · trailing 12 months</span>
+      </div>
+      <div className="opgrowgrid">
+        <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: "12px 14px 6px", display: "flex", flexDirection: "column" }}>
+          <GrowthChart g={g} />
+          <div style={{ display: "flex", gap: 14, justifyContent: "center", marginTop: 4 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "Inter,sans-serif", fontSize: 10, color: C.slate }}><span style={{ width: 8, height: 8, borderRadius: 2, background: C.meadow }} />joined</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "Inter,sans-serif", fontSize: 10, color: C.slate }}><span style={{ width: 8, height: 8, borderRadius: 2, background: C.amber }} />lost</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <GKpi label="Net new · MTD" value={`${g.netMTD >= 0 ? "+" : ""}${g.netMTD}`} valColor={g.netMTD >= 0 ? C.meadow : C.amber} sub={`${g.joinedMTD} joined · ${g.lostMTD} lost`} />
+          <GKpi label="Growth · 12 mo" value={`${g.net12 >= 0 ? "+" : ""}${g.net12}`} valColor={g.net12 >= 0 ? C.meadow : C.amber} sub={`${g.ratePct >= 0 ? "+" : ""}${g.ratePct}% · ${g.joined12} joined`} />
+          <GKpi label="Retention · 12 mo" value={`${g.retentionPct}%`} sub={`${g.lost12} members lapsed`} />
+        </div>
+      </div>
+    </div>
+  );
+}
+function PayMixMini({ pay }) {
+  const tot = pay.pif + pay.monthly + pay.quarterly + pay.installments || 1;
+  const segs = [["PIF", pay.pif, PLAN_DOT.pif], ["Monthly", pay.monthly, PLAN_DOT.monthly], ["Quarterly", pay.quarterly, PLAN_DOT.quarterly], ["Installments", pay.installments, PLAN_DOT.installments]];
+  return (
+    <div>
+      <div style={{ display: "flex", height: 8, borderRadius: 99, overflow: "hidden", background: C.hair, marginBottom: 8 }}>
+        {segs.map(([k, v, c]) => v > 0 && <div key={k} className="fvGrow" style={{ width: `${(v / tot) * 100}%`, background: c, transformOrigin: "left" }} title={`${v} ${k}`} />)}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 11px" }}>
+        {segs.map(([k, v, c]) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "Inter,sans-serif", fontSize: 10, color: C.slate }}><span style={{ width: 6, height: 6, borderRadius: 2, background: c }} />{v} {k}</span>)}
+      </div>
+    </div>
+  );
+}
+const RENEW_STATE = {
+  auto: { label: "Auto-renews", dot: C.meadow, val: C.ink, tone: "calm" },
+  resign: { label: "Needs re-sign", dot: C.flagDot, val: C.amber, tone: "act", icon: "resign" },
+  failing: { label: "Payment failing", dot: C.flagDot, val: C.amber, tone: "act", icon: "alert" },
+};
+function RenewalRow({ r }) {
+  const m = RENEW_STATE[r.state] || RENEW_STATE.auto;
+  return (
+    <div className="fvRow" style={{ display: "grid", gridTemplateColumns: "1fr auto 150px 22px", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: `1px solid ${C.hair}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <span style={{ width: 7, height: 7, borderRadius: 99, background: m.dot, border: m.tone === "act" ? `1px solid ${C.amber}` : "none", flexShrink: 0 }} />
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
+        {r.first && <span title="First renewal, higher churn risk" style={{ fontFamily: "Inter,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: ".03em", color: C.amber, background: C.flagBg, borderRadius: 4, padding: "1px 5px" }}>1ST</span>}
+      </div>
+      <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: m.val, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{kc(r.v)}</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 6, justifySelf: "start" }}>
+        {m.icon ? <Ic name={m.icon} size={12} color={C.amber} /> : <span style={{ width: 12 }} />}
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: m.tone === "act" ? C.amber : C.muted }}>{m.label}</span>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>· {r.date}</span>
+      </span>
+      {r.source_url ? <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in Go High Level" style={{ justifySelf: "end", opacity: .55 }}><Ic name="ext" size={13} color={C.slate} /></a> : <span />}
+    </div>
+  );
+}
+function RenewalQueue({ rn }) {
+  const [tab, setTab] = useState("all");
+  const rank = { failing: 0, resign: 1, auto: 2 };
+  const rows = (rn.rows || []).filter((r) => tab === "all" ? true : tab === "act" ? r.state !== "auto" : r.state === "auto").sort((a, b) => rank[a.state] - rank[b.state] || b.v - a.v);
+  const nAct = (rn.rows || []).filter((r) => r.state !== "auto").length;
+  const nAuto = (rn.rows || []).length - nAct;
+  const chip = (k, label, count, c) => {
+    const on = tab === k;
+    return <button onClick={() => setTab(k)} style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 7, padding: "4px 10px", border: `1px solid ${on ? c : C.hair}`, background: on ? "rgba(97,131,94,.08)" : C.surface, color: on ? C.ink : C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>{k !== "all" && <span style={{ width: 6, height: 6, borderRadius: 2, background: c }} />}{label}<span style={{ color: C.muted }}>{count}</span></button>;
+  };
+  return (
+    <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, overflow: "hidden" }}>
+      <div style={{ padding: "15px 16px 14px" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+          <div>
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700, letterSpacing: ".02em", color: C.ink }}>Renewals · Next 90 Days</span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5 }}>
+              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 26, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{kc(rn.book)}</span>
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.muted }}>across {rn.count} members</span>
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted, marginBottom: 3 }}>needs a manual touch</div>
+            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{kc(rn.needsYou)}</div>
+          </div>
+        </div>
+        <DuoBar auto={rn.auto} needsYou={rn.needsYou} />
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>
+          <span><span style={{ color: C.meadow, fontWeight: 600 }}>{kc(rn.auto)}</span> auto-renews</span>
+          <span style={{ color: C.amber, fontWeight: 600 }}>{rn.resigns} re-signs · {rn.failing} failing</span>
+        </div>
+        <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
+          {chip("all", "All", (rn.rows || []).length, C.slate)}
+          {chip("act", "Needs a touch", nAct, C.amber)}
+          {chip("auto", "Auto-renews", nAuto, C.meadow)}
+        </div>
+      </div>
+      <div>{rows.length ? rows.map((r, i) => <RenewalRow key={r.name + i} r={r} />) : <div style={{ padding: "18px", textAlign: "center", fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted, borderTop: `1px solid ${C.hair}` }}>None in this view.</div>}</div>
+    </div>
+  );
+}
+function FunnelStat({ label, value, sub, accent }) {
+  return (
+    <div style={{ flex: 1 }}>
+      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 600, color: accent ? C.meadow : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 600, color: C.slate, marginTop: 2 }}>{label}</div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 9.5, color: C.muted }}>{sub}</div>
+    </div>
+  );
+}
+function RecruitingPanel({ r }) {
+  const max = (r.stages[0] && r.stages[0].n) || 1;
+  return (
+    <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: "15px 16px 16px", display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ marginBottom: 6 }}>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700, letterSpacing: ".02em", color: C.ink }}>Recruiting · Pipeline</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5 }}>
+          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 26, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{r.total}</span>
+          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.muted }}>in pipeline</span>
+        </div>
+      </div>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 16, padding: "6px 0" }}>
+        {r.stages.map((s, i) => {
+          const last = i === r.stages.length - 1;
+          const prev = i > 0 ? r.stages[i - 1].n : null;
+          const conv = prev ? Math.round((s.n / prev) * 100) : null;
+          return (
+            <div key={s.label} style={{ display: "grid", gridTemplateColumns: "84px 1fr 64px", alignItems: "center", gap: 10 }}>
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.slate, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</span>
+              <div style={{ height: 22, borderRadius: 6, background: C.hair, overflow: "hidden" }}>
+                <div className="fvGrow" style={{ width: `${Math.max(7, (s.n / max) * 100)}%`, height: "100%", background: last ? C.meadow : C.evergreen, opacity: last ? 1 : 1 - i * 0.14, transformOrigin: "left" }} title={`${s.n}`} />
+              </div>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 6, justifyContent: "flex-end" }}>
+                <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{s.n}</span>
+                {conv != null && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, color: C.muted }}>{conv}%</span>}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 4, paddingTop: 14, borderTop: `1px solid ${C.hair}` }}>
+        <FunnelStat label="VIP guests" value={r.vipGuests} sub="event-invited" />
+        <FunnelStat label="Committed" value={r.committed} sub="verbal / applied" />
+        <FunnelStat label="Expected" value={`~${r.expected}`} sub="est. likely to join" accent />
+      </div>
+    </div>
+  );
+}
+function RenewalCalendar({ cal }) {
+  const max = Math.max(...cal.map((c) => c.v), 1);
+  return (
+    <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: "14px 16px 12px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700, color: C.ink }}>Renewal Calendar</span>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>book by month · 6 mo</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${cal.length}, 1fr)`, gap: 8, alignItems: "end", height: 92 }}>
+        {cal.map((c, i) => {
+          const win = i < 3;
+          return (
+            <div key={c.m + i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: "100%", justifyContent: "flex-end" }}>
+              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 600, color: win ? C.ink : C.muted, fontVariantNumeric: "tabular-nums" }}>{c.v ? kc(c.v) : ""}</span>
+              <div className="fvGrowY" style={{ width: "72%", height: `${Math.max(6, (c.v / max) * 66)}px`, borderRadius: "4px 4px 0 0", background: win ? C.meadow : C.sprout, transformOrigin: "bottom" }} title={`${c.m}: ${kc(c.v)}`} />
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: win ? C.slate : C.muted, fontWeight: win ? 600 : 400 }}>{c.m}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 10, fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}><span style={{ color: C.meadow, fontWeight: 600 }}>Shaded</span> = inside the 90-day window.</div>
+    </div>
+  );
+}
+function RecoverPanel({ recover, action, onOpen }) {
+  return (
+    <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: "15px 16px" }}>
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700, color: C.ink }}>Money to Recover</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5 }}>
+          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{kc(action.recover)}</span>
+          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted }}>{action.failed} failed charge{action.failed === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+      <div style={{ borderTop: `1px solid ${C.hair}` }}>
+        {(recover || []).map((r, i) => (
+          <div key={r.name + i} className="fvRow" style={{ display: "grid", gridTemplateColumns: "1fr auto auto 22px", alignItems: "center", gap: 10, padding: "9px 4px", borderBottom: `1px solid ${C.hair}` }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 6, height: 6, borderRadius: 99, background: C.flagDot, border: `1px solid ${C.amber}` }} />
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: C.ink }}>{r.name}</span>
+            </span>
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>{r.attempts} tr{r.attempts === 1 ? "y" : "ies"}</span>
+            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{usd(r.amt)}</span>
+            {r.source_url ? <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in Go High Level" style={{ justifySelf: "end", opacity: .55 }}><Ic name="ext" size={12} color={C.slate} /></a> : <span />}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+const OpCtxLabel = ({ children }) => <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: C.muted, marginBottom: 9 }}>{children}</div>;
+function MembersGrowthBody({ mg, recruiting, onOpen }) {
+  const pay = mg.pay || {};
+  return (
+    <div>
+      {mg.growth && <GrowthBlock g={mg.growth} />}
+      <div className="opfacts" style={{ paddingBottom: 20, borderBottom: `1px solid ${C.hair}`, marginBottom: 20 }}>
+        <div>
+          <OpCtxLabel>Membership Mix</OpCtxLabel>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 18, marginBottom: 11 }}>
+            <span><span style={{ ...opBig, fontSize: 30 }}>{mg.primary}</span><span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: C.slate, marginLeft: 6 }}>primary</span></span>
+            <span><span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 600, color: C.slate, fontVariantNumeric: "tabular-nums" }}>{mg.addOn}</span><span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted, marginLeft: 6 }}>add-on</span></span>
+          </div>
+          <div style={{ display: "flex", height: 9, borderRadius: 99, overflow: "hidden", background: C.hair, marginBottom: 9 }}>
+            <div className="fvGrow" style={{ width: `${(mg.primary / (mg.primary + mg.addOn || 1)) * 100}%`, background: C.meadow, transformOrigin: "left" }} title={`${mg.primary} primary`} />
+            <div className="fvGrow" style={{ width: `${(mg.addOn / (mg.primary + mg.addOn || 1)) * 100}%`, background: C.sprout, transformOrigin: "left" }} title={`${mg.addOn} add-on`} />
+          </div>
+          {mg.tenure && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>{mg.tenure.avg} mo avg tenure{mg.tenure.first ? <> · <span style={{ color: C.amber, fontWeight: 600 }}>{mg.tenure.first}</span> at first renewal, watch closely</> : null}</div>}
+        </div>
+        <div>
+          <OpCtxLabel>Payment Cadence</OpCtxLabel>
+          <PayMixMini pay={pay} />
+          {pay.lump ? <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.slate, marginTop: 9, lineHeight: 1.4 }}>
+            <span style={{ fontFamily: "Poppins,sans-serif", fontWeight: 600, color: C.ink }}>{kc(pay.lump)}</span> ({pay.lumpPct}%) is PIF: no auto-renew, so every one is a manual re-sign each year.
+          </div> : null}
+        </div>
+      </div>
+      <div className="opmotions">
+        <RenewalQueue rn={mg.renewals || { rows: [], book: 0, count: 0, auto: 0, needsYou: 0, resigns: 0, failing: 0 }} />
+        {recruiting ? <RecruitingPanel r={recruiting} /> : <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: 16, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted }}>Recruiting pipeline not available.</div>}
+      </div>
+      <button onClick={() => onOpen("forum_roster")} className="oproster" style={{ marginTop: 16, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 9, padding: "14px", borderRadius: 12, background: C.evergreen, border: "none", cursor: "pointer", fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: C.heroText }}>
+        Open full roster <Ic name="arrow" size={15} color={C.heroText} />
+      </button>
+    </div>
+  );
+}
 
 /* ── Program view ───────────────────────────────────────────────── */
 export default function ForumView({ data, area, onDrill, title = "The Forum",
@@ -776,6 +1209,15 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
   const membersSummary = [`${data.members_total} active`,
     pipelineTotal != null ? `${pipelineTotal} recruiting` : null,
     renewalCount != null ? `${renewalCount} renewals due` : null].filter(Boolean).join(" · ");
+
+  // Forum carries the v9 operational payload (pulse/mg/recruiting); beCollective does
+  // not, so it keeps the existing OpsPulse + deck rendering. Every new block degrades.
+  const hasOps = !!data.pulse;
+  const g12 = data.mg?.growth?.ratePct;
+  const mgSummary = data.mg
+    ? [`${data.mg.active} active`, g12 != null ? `${g12 >= 0 ? "+" : ""}${g12}% / 12 mo` : null,
+       data.mg.renewals?.needsYou ? `${kc(data.mg.renewals.needsYou)} renewals need a touch` : null].filter(Boolean).join(" · ")
+    : membersSummary;
 
   const defaults = { members: true, money: !!b };
   const open = openState || defaults;
@@ -807,16 +1249,22 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
         </div>
 
         {/* operational pulse */}
-        <div className="enter" style={{ animationDelay: "90ms" }}><OpsPulse data={data} onOpen={onOpen} /></div>
+        <div className="enter" style={{ animationDelay: "90ms" }}>
+          {hasOps ? <PulseStrip pulse={data.pulse} onOpen={onOpen} /> : <OpsPulse data={data} onOpen={onOpen} />}
+        </div>
 
-        {/* watch strip */}
-        <div className="enter" style={{ animationDelay: "150ms" }}><WatchStrip b={b} data={data} onOpen={onOpen} /></div>
+        {/* single action row (failed charges) / watch strip */}
+        <div className="enter" style={{ animationDelay: "150ms" }}>
+          {hasOps ? <ActionRowV9 action={data.action} onOpen={onOpen} /> : <WatchStrip b={b} data={data} onOpen={onOpen} />}
+        </div>
 
         {/* members & growth */}
         <div className="enter" style={{ animationDelay: "210ms" }}>
-          <Section icon={A.users} tint={C.meadow} title="Members & Growth" summary={membersSummary}
+          <Section icon={A.users} tint={C.meadow} title="Members & Growth" summary={mgSummary}
                    open={!!open.members} onToggle={() => toggle("members")}>
-            <Deck items={membersItems(data, !!open.members, onOpen, deckSlots)} />
+            {data.mg
+              ? <MembersGrowthBody mg={data.mg} recruiting={data.recruiting} onOpen={onOpen} />
+              : <Deck items={membersItems(data, !!open.members, onOpen, deckSlots)} />}
           </Section>
         </div>
 
@@ -829,6 +1277,12 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
                      live sub="Cash basis · Stripe via Go High Level · reconciles to QuickBooks as the Booked lens when connected"
                      open={!!open.money} onToggle={() => toggle("money")}>
               <Deck items={moneyItems(b, !!open.money, onOpen)} />
+              {(data.mg?.calendar?.length || (data.recover && data.recover.length)) ? (
+                <div className="opcb" style={{ marginTop: 16 }}>
+                  {data.mg?.calendar?.length ? <RenewalCalendar cal={data.mg.calendar} /> : <span />}
+                  {data.recover && data.recover.length ? <RecoverPanel recover={data.recover} action={data.action} onOpen={onOpen} /> : <span />}
+                </div>
+              ) : null}
             </Section>
           </div>
         )}

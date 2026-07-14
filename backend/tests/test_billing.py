@@ -50,6 +50,29 @@ async def _billing():
     return f
 
 
+async def test_operational_payload_invariants():
+    """The v9 operational-refinement blocks (mg / pulse / recruiting / action / recover)
+    satisfy the spec's reconciliation invariants (§9)."""
+    f = await _billing()
+    mg, pulse, action, recover = f["mg"], f["pulse"], f["action"], f["recover"]
+    assert mg["primary"] + mg["addOn"] == mg["active"]                          # 1
+    pay = mg["pay"]
+    assert pay["pif"] + pay["monthly"] + pay["quarterly"] + pay["installments"] == mg["primary"]  # 2
+    assert pay["lumpPct"] == (round(pay["lump"] / mg["book"] * 100) if mg["book"] else 0)          # 3
+    rn = mg["renewals"]
+    assert rn["auto"] + rn["needsYou"] == rn["book"] and len(rn["rows"]) == rn["count"]            # 4
+    states = [r["state"] for r in rn["rows"]]                                                      # 5
+    assert states.count("auto") + states.count("resign") + states.count("failing") == rn["count"]
+    g = mg["growth"]                                                                               # 6/7
+    assert g["total"][-1] == mg["active"] and g["net12"] == g["joined12"] - g["lost12"]
+    assert pulse["members"]["spark"] == g["total"][-6:] and pulse["members"]["value"] == mg["active"]
+    assert pulse["renewals"]["book"] == rn["book"] and pulse["renewals"]["needsYou"] == rn["needsYou"]  # 8
+    assert action["recover"] == round(sum(r["amt"] for r in recover)) and action["failed"] == len(recover)  # 9
+    # failing renewals are a subset of the recover list (invariant 10) — by name
+    failing = {r["name"] for r in rn["rows"] if r["state"] == "failing"}
+    assert failing <= {r["name"] for r in recover} or not failing
+
+
 async def test_cash_math_and_invariants():
     f = await _billing()
     b = f["billing"]

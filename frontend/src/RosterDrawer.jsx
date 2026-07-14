@@ -73,56 +73,117 @@ function PayCell({ p }) {
   );
 }
 
-/* sort key per column; blanks always sort last regardless of direction */
-const PLAN_ORDER = { monthly: 0, quarterly: 1, pif: 2, installments: 3 };
-const SORT_KEYS = {
-  member: (r) => (r.name || "").toLowerCase(),
-  plan: (r) => (r.payment in PLAN_ORDER ? PLAN_ORDER[r.payment] : null),
-  value: (r) => (r.amount || 0),
-  last: (r) => (r.last_payment && r.last_payment.date) || "",
-  next: (r) => (r.next_payment && r.next_payment.date) || "",
-  enrolled: (r) => r.enrolled || "",
-  renews: (r) => r.renews || "",
+/* ── header filtering: funnel-popover, multi-select, chips (spec §4.7) ──────
+   Each header is a label + a funnel button; the funnel opens a fixed-positioned
+   popover (never clipped by table overflow) with sort + a column-typed filter.
+   No native <select> — custom checkboxes / radios. */
+const PLAN_DOT = { pif: T.evergreen, monthly: T.meadow, quarterly: T.sprout, installments: T.mistDeep };
+const PLAN_SHORT = { pif: "PIF", monthly: "Monthly", quarterly: "Quarterly", installments: "Installments" };
+const PLAN_ORD = { monthly: 0, quarterly: 1, installments: 2, pif: 3 };
+const RCOLS = [
+  { key: "member", label: "Member", type: "text" },
+  { key: "plan", label: "Plan", type: "set", opts: [["pif", "PIF"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["installments", "Installments"]] },
+  { key: "value", label: "Value", type: "bucket", align: "right", opts: [["u10", "Under $10k"], ["mid", "$10k – $25k"], ["o25", "$25k or more"]] },
+  { key: "last", label: "Last payment", type: "date", dir: "past" },
+  { key: "next", label: "Next payment", type: "date", dir: "future" },
+  { key: "enrolled", label: "Enrolled", type: "date", dir: "past" },
+  { key: "renews", label: "Renews", type: "date", dir: "future" },
+];
+const DATE_OPTS = {
+  future: [["30", "Next 30 days"], ["90", "Next 90 days"], ["overdue", "Overdue"], ["none", "No date"]],
+  past: [["30", "Last 30 days"], ["90", "Last 90 days"], ["year", "This year"], ["none", "No date"]],
 };
-const _blank = (v) => v === "" || v === null || v === undefined;
-
-/* ── per-column filtering ──────────────────────────────────────────
-   Each header is both a sort control and a filter: categorical columns get a
-   value dropdown, dates get a relative-range dropdown, and Member is free text. */
 const isISO = (v) => /^\d{4}-\d{2}-\d{2}/.test(v || "");
 const _iso = (d) => d.toISOString().slice(0, 10);
 const shiftISO = (days) => { const d = new Date(); d.setDate(d.getDate() + days); return _iso(d); };
-
-const PLAN_OPTS = [["", "Plan: any"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["pif", "PIF"], ["installments", "Installments"]];
-const VALUE_OPTS = [["", "Value: any"], ["lt10", "< $10k"], ["10to25", "$10k–$25k"], ["gte25", "≥ $25k"]];
-const FUTURE_OPTS = [["", "Any date"], ["30", "Next 30 days"], ["90", "Next 90 days"], ["year", "This year"], ["overdue", "Overdue"], ["none", "No date"]];
-const PAST_OPTS = [["", "Any date"], ["30", "Last 30 days"], ["90", "Last 90 days"], ["year", "This year"], ["none", "No date"]];
-
-const COLUMNS = [
-  { key: "member", label: "Member", type: "text", get: (r) => r.name, pad: { paddingLeft: 24 } },
-  { key: "plan", label: "Plan", type: "plan", get: (r) => r.payment },
-  { key: "value", label: "Value", type: "value", get: (r) => r.amount, align: "right" },
-  { key: "last", label: "Last payment", type: "date", dir: "past", get: (r) => r.last_payment && r.last_payment.date },
-  { key: "next", label: "Next payment", type: "date", dir: "future", get: (r) => r.next_payment && r.next_payment.date },
-  { key: "enrolled", label: "Enrolled", type: "date", dir: "past", get: (r) => r.enrolled },
-  { key: "renews", label: "Renews", type: "date", dir: "future", get: (r) => r.renews },
-];
-
-function passCol(r, c, f) {
-  if (!f) return true;
-  const v = c.get(r);
-  if (c.type === "text") return (v || "").toLowerCase().includes(f.toLowerCase());
-  if (c.type === "plan") return (v || "") === f;
-  if (c.type === "value") { const n = v || 0; return f === "lt10" ? n < 10000 : f === "10to25" ? (n >= 10000 && n < 25000) : n >= 25000; }
-  // date
-  const d = isISO(v) ? v.slice(0, 10) : null;
+const bucketOf = (v) => ((v || 0) < 10000 ? "u10" : (v || 0) < 25000 ? "mid" : "o25");
+const dateOf = (r, key) => key === "last" ? (r.last_payment && r.last_payment.date)
+  : key === "next" ? (r.next_payment && r.next_payment.date) : key === "enrolled" ? r.enrolled : r.renews;
+const sortVal = (r, key) => key === "member" ? (r.name || "").toLowerCase()
+  : key === "plan" ? (PLAN_ORD[r.payment] ?? 9) : key === "value" ? (r.amount || 0) : (dateOf(r, key) || "");
+const filterActive = (col, filters) => {
+  const f = filters[col.key];
+  return (col.type === "set" || col.type === "bucket") ? (f && f.length > 0) : !!f;
+};
+function passDate(iso, f, dir) {
+  const d = isISO(iso) ? iso.slice(0, 10) : null;
   if (f === "none") return !d;
   if (!d) return false;
   const t = _iso(new Date());
   if (f === "year") return d.slice(0, 4) === t.slice(0, 4);
   if (f === "overdue") return d < t;
-  if (c.dir === "future") return f === "30" ? (d >= t && d <= shiftISO(30)) : (d >= t && d <= shiftISO(90));
+  if (dir === "future") return f === "30" ? (d >= t && d <= shiftISO(30)) : (d >= t && d <= shiftISO(90));
   return f === "30" ? (d <= t && d >= shiftISO(-30)) : (d <= t && d >= shiftISO(-90));
+}
+const linkBtn = { fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.meadow, background: "transparent", border: "none", cursor: "pointer", padding: "2px 4px" };
+
+function DrIc({ name, size = 13, color = "currentColor", sw = 1.8 }) {
+  const p = {
+    funnel: <path d="M3 4.5h18l-7 8.2V19l-4 2v-8.3l-7-8.2Z" />,
+    check: <polyline points="20 6 9 17 4 12" />,
+    close: <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>,
+    search: <><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></>,
+  }[name];
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0 }}>{p}</svg>;
+}
+function Checkbox({ on, onClick, label, dot }) {
+  return (
+    <button onClick={onClick} className="roster-opt" style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "6px 8px", background: "transparent", border: "none", cursor: "pointer", borderRadius: 7, textAlign: "left" }}>
+      <span style={{ width: 16, height: 16, borderRadius: 5, border: `1.5px solid ${on ? T.meadow : T.line}`, background: on ? T.meadow : T.white, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on && <DrIc name="check" size={11} color="#fff" sw={2.6} />}</span>
+      {dot && <span style={{ width: 8, height: 8, borderRadius: 2, background: dot }} />}
+      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.body || T.ink }}>{label}</span>
+    </button>
+  );
+}
+function Radio({ on, onClick, label }) {
+  return (
+    <button onClick={onClick} className="roster-opt" style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "6px 8px", background: "transparent", border: "none", cursor: "pointer", borderRadius: 7, textAlign: "left" }}>
+      <span style={{ width: 15, height: 15, borderRadius: 99, border: `1.5px solid ${on ? T.meadow : T.line}`, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on && <span style={{ width: 7, height: 7, borderRadius: 99, background: T.meadow }} />}</span>
+      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.body || T.ink }}>{label}</span>
+    </button>
+  );
+}
+function FunnelMenu({ col, pos, filters, setFilters, sort, setSort, onClose }) {
+  const left = Math.min(pos.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 226);
+  const setF = (v) => setFilters((f) => ({ ...f, [col.key]: v }));
+  const toggleSet = (val) => { const cur = filters[col.key] || []; setF(cur.includes(val) ? cur.filter((x) => x !== val) : [...cur, val]); };
+  const sortRow = (loLbl, hiLbl) => (
+    <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+      {[["asc", loLbl], ["desc", hiLbl]].map(([dd, lbl]) => {
+        const on = sort && sort.col === col.key && sort.dir === dd;
+        return <button key={dd} onClick={() => setSort(on ? null : { col: col.key, dir: dd })} style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 7, padding: "6px 8px", border: `1px solid ${on ? T.meadow : T.line}`, background: on ? "rgba(97,131,94,.08)" : T.white, color: on ? T.ink : T.slate }}>{lbl}</button>;
+      })}
+    </div>
+  );
+  let body;
+  if (col.type === "text") {
+    body = <input autoFocus value={filters[col.key] || ""} onChange={(e) => setF(e.target.value)} placeholder="Contains…" style={{ width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 12, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, outline: "none", color: T.ink }} />;
+  } else if (col.type === "set" || col.type === "bucket") {
+    const cur = filters[col.key] || [];
+    body = (<>
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "0 2px 6px" }}>
+        <button onClick={() => setF(col.opts.map((o) => o[0]))} style={linkBtn}>Select all</button>
+        <button onClick={() => setF([])} style={linkBtn}>Clear</button>
+      </div>
+      {col.opts.map(([v, l]) => <Checkbox key={v} on={cur.includes(v)} onClick={() => toggleSet(v)} label={l} dot={col.type === "set" ? PLAN_DOT[v] : undefined} />)}
+    </>);
+  } else {
+    const cur = filters[col.key] || "";
+    body = (<>
+      <Radio on={!cur} onClick={() => setF("")} label="Any date" />
+      {DATE_OPTS[col.dir].map(([v, l]) => <Radio key={v} on={cur === v} onClick={() => setF(v)} label={l} />)}
+    </>);
+  }
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60 }} />
+      <div style={{ position: "fixed", top: pos.y, left, width: 210, zIndex: 61, background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, boxShadow: "0 16px 42px rgba(0,46,44,.20)", padding: 10 }}>
+        {sortRow(col.type === "text" ? "A → Z" : "Low → High", col.type === "text" ? "Z → A" : "High → Low")}
+        <div style={{ height: 1, background: T.line, margin: "2px 0 8px" }} />
+        <div style={{ maxHeight: 220, overflowY: "auto" }}>{body}</div>
+      </div>
+    </>
+  );
 }
 
 /* one stat cell in the summary band */
@@ -160,7 +221,7 @@ function MemberRow({ r }) {
               {r.kind === "admin" && <span style={{ ...TAG, color: T.teal, background: T.mist }}>Admin</span>}
             </div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {[r.brokerage, r.stripe_account].filter(Boolean).join(" · ") || "—"}
+              {r.stripe_account || "—"}
             </div>
           </div>
         </div>
@@ -185,10 +246,11 @@ export default function RosterDrawer({ business, period, onClose }) {
   const [prog, setProg] = useState("all");     // all | F | IC | ADMIN
   const [qtext, setQ] = useState("");
   const [sort, setSort] = useState(null);       // { col, dir } | null (null = grouped)
-  const [filters, setFilters] = useState({});   // { [colKey]: value }
+  const [filters, setFilters] = useState({ plan: [], value: [] });
+  const [menu, setMenu] = useState(null);       // { col, x, y } — open funnel popover
 
   useEffect(() => {
-    setD(null); setErr(false); setProg("all"); setQ(""); setSort(null); setFilters({});
+    setD(null); setErr(false); setProg("all"); setQ(""); setSort(null); setFilters({ plan: [], value: [] }); setMenu(null);
     if (!API_BASE) { setD(sampleForum.roster_detail); return; }
     const q = `/metrics/forum_roster/detail?period=${period}`
       + (business ? `&business=${encodeURIComponent(business)}` : "");
@@ -198,36 +260,36 @@ export default function RosterDrawer({ business, period, onClose }) {
   const rows = d?.rows || [];
   const sm = d?.summary || {};
   const mix = sm.payment_mix || {};
-  const activeFilters = Object.values(filters).filter(Boolean).length;
-  // Global quick-find (name / brokerage / plan / …) AND every active per-column filter.
+  const activeCols = RCOLS.filter((c) => filterActive(c, filters));
+  // Quick-find (name / plan / stripe) AND every active per-column filter.
   const filtered = useMemo(() => {
     const t = qtext.trim().toLowerCase();
-    return rows.filter((r) =>
-      (!t || [r.name, r.brokerage, r.stripe_account, r.member_type, r.payment,
-        r.seg === "F" ? "forum" : "inner circle"].some((v) => (v || "").toString().toLowerCase().includes(t)))
-      && COLUMNS.every((c) => passCol(r, c, filters[c.key])));
+    return rows.filter((r) => {
+      if (t && ![r.name, r.stripe_account, r.member_type, r.payment].some((v) => (v || "").toString().toLowerCase().includes(t))) return false;
+      if (filters.member && !(r.name || "").toLowerCase().includes(filters.member.toLowerCase())) return false;
+      if (filters.plan.length && !filters.plan.includes(r.payment)) return false;
+      if (filters.value.length && !filters.value.includes(bucketOf(r.amount))) return false;
+      for (const c of RCOLS) if (c.type === "date" && filters[c.key] && !passDate(dateOf(r, c.key), filters[c.key], c.dir)) return false;
+      return true;
+    });
   }, [rows, qtext, filters]);
 
   // Admins are staff seats — shown as their own group, kept out of the Forum/IC lists.
   const isAdmin = (r) => r.kind === "admin";
   const inScope = filtered.filter((r) =>
-    prog === "all" ? true : prog === "ADMIN" ? isAdmin(r) : (r.seg === prog && !isAdmin(r)));
-  const groups = prog === "ADMIN" ? ["ADMIN"] : prog === "IC" ? ["IC"] : prog === "F" ? ["F"] : ["F", "IC", "ADMIN"];
+    prog === "all" ? !isAdmin(r) : prog === "ADMIN" ? isAdmin(r) : (r.seg === prog && !isAdmin(r)));
+  const groups = prog === "ADMIN" ? ["ADMIN"] : prog === "IC" ? ["IC"] : prog === "F" ? ["F"] : ["F", "IC"];
   const inGroup = (r, g) => (g === "ADMIN" ? isAdmin(r) : (r.seg === g && !isAdmin(r)));
   const GROUP_LABEL = { F: "The Forum", IC: "Inner Circle", ADMIN: "Admins" };
 
-  // Sorting flattens the grouping (a sort spans the whole scope); clicking a header
-  // toggles asc→desc→off (back to the grouped view). Blanks always sort last.
-  const toggleSort = (col) => setSort((s) =>
-    !s || s.col !== col ? { col, dir: "asc" } : s.dir === "asc" ? { col, dir: "desc" } : null);
   const sorted = useMemo(() => {
     if (!sort) return null;
-    const key = SORT_KEYS[sort.col]; const dir = sort.dir === "asc" ? 1 : -1;
+    const dir = sort.dir === "asc" ? 1 : -1;
     return [...inScope].sort((a, b) => {
-      const ka = key(a), kb = key(b);
-      if (_blank(ka) && _blank(kb)) return 0;
-      if (_blank(ka)) return 1;
-      if (_blank(kb)) return -1;
+      const ka = sortVal(a, sort.col), kb = sortVal(b, sort.col);
+      if (ka === "" && kb === "") return 0;
+      if (ka === "") return 1;
+      if (kb === "") return -1;
       return (ka < kb ? -1 : ka > kb ? 1 : 0) * dir;
     });
   }, [inScope, sort]);
@@ -238,34 +300,17 @@ export default function RosterDrawer({ business, period, onClose }) {
     color: on ? T.ink : T.muted, boxShadow: on ? "0 1px 3px rgba(0,46,44,.12)" : "none",
   });
   const subset = sm.total != null && rows.length < sm.total;
-  const setFilter = (col, v) => setFilters((f) => ({ ...f, [col]: v }));
-  const th = { padding: "12px 14px", position: "sticky", top: 0, background: T.white,
-    borderBottom: `1px solid ${T.line}`, zIndex: 2, verticalAlign: "top" };
-  const fieldSt = (on) => ({ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: on ? T.ink : T.muted,
-    background: T.white, border: `1px solid ${on ? T.meadow : T.line}`, borderRadius: 6, padding: "3px 6px",
-    outline: "none", maxWidth: 128, cursor: "pointer" });
-  // A header = a sortable label + an inline filter (dropdown, or text for Member).
-  const HeaderCell = ({ c }) => {
-    const on = !!filters[c.key];
-    const opts = c.type === "plan" ? PLAN_OPTS : c.type === "value" ? VALUE_OPTS
-      : c.dir === "future" ? FUTURE_OPTS : PAST_OPTS;
-    return (
-      <th style={{ ...th, ...(c.pad || {}) }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: c.align === "right" ? "flex-end" : "flex-start" }}>
-          <span onClick={() => toggleSort(c.key)} title="Sort"
-            style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-              textTransform: "uppercase", color: T.muted, whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}>
-            {c.label}<span style={{ color: T.meadow }}>{sort && sort.col === c.key ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</span>
-          </span>
-          {c.type === "text"
-            ? <input value={filters[c.key] || ""} onChange={(e) => setFilter(c.key, e.target.value)}
-                placeholder="filter…" style={{ ...fieldSt(on), width: 110, cursor: "text", textTransform: "none" }} />
-            : <select value={filters[c.key] || ""} onChange={(e) => setFilter(c.key, e.target.value)} style={fieldSt(on)}>
-                {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>}
-        </div>
-      </th>
-    );
+  const openMenu = (col, e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu(menu && menu.col === col.key ? null : { col: col.key, x: r.left, y: r.bottom + 6 }); };
+  const clearCol = (key) => setFilters((f) => ({ ...f, [key]: (key === "plan" || key === "value") ? [] : "" }));
+  const th = { padding: "0 14px", position: "sticky", top: 0, background: T.white,
+    borderBottom: `1px solid ${T.line}`, zIndex: 2 };
+  // Active-filter chip text per column.
+  const chipText = (c) => {
+    const f = filters[c.key];
+    if (c.type === "set") return `${c.label}: ` + f.map((v) => PLAN_SHORT[v]).join(", ");
+    if (c.type === "bucket") return `${c.label}: ` + f.map((v) => c.opts.find((o) => o[0] === v)[1]).join(", ");
+    if (c.type === "date") return `${c.label}: ` + (DATE_OPTS[c.dir].find((o) => o[0] === f) || ["", "No date"])[1];
+    return `${c.label}: "${f}"`;
   };
 
   return (
@@ -274,6 +319,7 @@ export default function RosterDrawer({ business, period, onClose }) {
         @keyframes rosterIn { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
         .roster-aside { animation: rosterIn .32s cubic-bezier(.22,1,.36,1) both; }
         .roster-row:hover { background: ${T.parchment}; }
+        .roster-opt:hover { background: ${T.parchment}; }
         @media (prefers-reduced-motion: reduce) { .roster-aside { animation: none; } }
       `}</style>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 40 }} />
@@ -311,19 +357,27 @@ export default function RosterDrawer({ business, period, onClose }) {
               <button key={k} onClick={() => setProg(k)} style={tab(k, prog === k)}>{label}</button>
             ))}
           </div>
-          <input value={qtext} onChange={(e) => setQ(e.target.value)} placeholder="Find by name, plan, brokerage…"
-            style={{ flex: 1, minWidth: 160, fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink,
-              background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", outline: "none" }} />
-          {activeFilters > 0 && (
-            <button onClick={() => setFilters({})} style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600,
-              color: T.meadow, background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-              Clear {activeFilters} filter{activeFilters === 1 ? "" : "s"} ✕
-            </button>
-          )}
+          <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", opacity: .5 }}><DrIc name="search" size={14} color={T.slate} /></span>
+            <input value={qtext} onChange={(e) => setQ(e.target.value)} placeholder="Search members…"
+              style={{ width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink,
+                background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px 8px 32px", outline: "none" }} />
+          </div>
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>
             {inScope.length} shown{subset ? ` · sample of ${sm.total}` : ""}
           </span>
         </div>
+        {activeCols.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "10px 24px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap", background: T.parchment }}>
+            {activeCols.map((c) => (
+              <span key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, color: T.ink, background: "rgba(97,131,94,.10)", border: `1px solid ${T.meadow}`, borderRadius: 7, padding: "4px 6px 4px 9px" }}>
+                {chipText(c)}
+                <button onClick={() => clearCol(c.key)} aria-label="Remove filter" style={{ background: "transparent", border: "none", cursor: "pointer", opacity: .6, display: "inline-flex" }}><DrIc name="close" size={11} color={T.slate} sw={2.2} /></button>
+              </span>
+            ))}
+            <button onClick={() => setFilters({ plan: [], value: [] })} style={{ ...linkBtn, color: T.slate }}>Clear all</button>
+          </div>
+        )}
 
         {/* Roster table — grouped by program. minWidth:0 lets this flex child shrink
             below the table's 720px min-width so the overflow-x wrapper actually clips
@@ -342,7 +396,20 @@ export default function RosterDrawer({ business, period, onClose }) {
               <table style={{ width: "100%", minWidth: 1000, borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {COLUMNS.map((c) => <HeaderCell key={c.key} c={c} />)}
+                    {RCOLS.map((c, i) => {
+                      const on = filterActive(c, filters);
+                      const isSorted = sort && sort.col === c.key;
+                      return (
+                        <th key={c.key} style={{ ...th, ...(i === 0 ? { paddingLeft: 24 } : {}) }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "13px 0", justifyContent: c.align === "right" ? "flex-end" : "flex-start" }}>
+                            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: on || isSorted ? T.ink : T.muted, whiteSpace: "nowrap" }}>{c.label}{isSorted ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}</span>
+                            <button onClick={(e) => openMenu(c, e)} title="Sort & filter" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, cursor: "pointer", background: on ? T.meadow : "transparent", border: `1px solid ${on ? T.meadow : T.line}` }}>
+                              <DrIc name="funnel" size={12} color={on ? "#fff" : T.slate} sw={1.9} />
+                            </button>
+                          </div>
+                        </th>
+                      );
+                    })}
                     <th style={{ ...th, paddingRight: 24 }} />
                   </tr>
                 </thead>
@@ -369,6 +436,7 @@ export default function RosterDrawer({ business, period, onClose }) {
           )}
         </div>
       </aside>
+      {menu && <FunnelMenu col={RCOLS.find((c) => c.key === menu.col)} pos={menu} filters={filters} setFilters={setFilters} sort={sort} setSort={setSort} onClose={() => setMenu(null)} />}
     </>
   );
 }

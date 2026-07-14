@@ -39,6 +39,55 @@ export default {
     ],
   },
   pl: null,
+  // ── operational refinement (v9) — sample, tuned to reconcile per spec §9 ──
+  pulse: {
+    members: { value: 70, delta: 2, spark: [63, 64, 65, 67, 68, 70] },
+    pipeline: { value: 160, stages: [160, 92, 38, 12] },
+    renewals: { book: 192000, count: 8, auto: 72000, needsYou: 120000 },
+    event: { days: 75, pct: 40, reg: 28, of: 70 },
+  },
+  action: { failed: 2, recover: 20000 },
+  recover: [
+    { name: "Lena Park", amt: 10000, plan: "Monthly", attempts: 2, source_url: "https://dashboard.stripe.com/payments/pi_lena" },
+    { name: "Derek Fontaine", amt: 10000, plan: "Monthly", attempts: 1, source_url: "https://dashboard.stripe.com/payments/pi_derek" },
+  ],
+  recruiting: {
+    total: 160, vipGuests: 38, committed: 12, expected: 8, close_rate_estimate: true,
+    stages: [
+      { label: "Prospects", n: 160 }, { label: "Engaged", n: 92 },
+      { label: "VIP Guest", n: 38 }, { label: "Committed", n: 12 },
+    ],
+  },
+  mg: {
+    active: 70, primary: 62, addOn: 8, admin: 2, book: 1284000,
+    growth: {
+      months: ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"],
+      total: [55, 56, 57, 59, 60, 61, 63, 64, 65, 67, 68, 70],
+      joined: [3, 2, 2, 3, 2, 2, 3, 2, 2, 3, 2, 3],
+      lost: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      netMTD: 2, joinedMTD: 3, lostMTD: 1,
+      net12: 17, joined12: 29, lost12: 12, ratePct: 32, retentionPct: 85,
+    },
+    pay: { pif: 35, monthly: 20, quarterly: 4, installments: 3, lump: 735000, lumpPct: 57 },
+    tenure: { avg: 14, first: 2 },
+    renewals: {
+      book: 192000, count: 8, auto: 72000, needsYou: 120000, resigns: 3, failing: 2,
+      rows: [
+        { name: "Lena Park", seg: "Forum", plan: "monthly", v: 24000, date: "Aug 5", state: "failing", first: false, source_url: "https://app.gohighlevel.com/" },
+        { name: "Derek Fontaine", seg: "Forum", plan: "monthly", v: 24000, date: "Aug 12", state: "failing", first: false, source_url: "https://app.gohighlevel.com/" },
+        { name: "Sarah Chen", seg: "Forum", plan: "pif", v: 24000, date: "Aug 20", state: "resign", first: true, source_url: "https://app.gohighlevel.com/" },
+        { name: "Amara Okafor", seg: "Forum", plan: "pif", v: 24000, date: "Aug 28", state: "resign", first: true, source_url: "https://app.gohighlevel.com/" },
+        { name: "Dana Ortiz", seg: "Forum", plan: "pif", v: 24000, date: "Sep 15", state: "resign", first: false, source_url: "https://app.gohighlevel.com/" },
+        { name: "Marcus Webb", seg: "Forum", plan: "monthly", v: 24000, date: "Aug 28", state: "auto", first: false, source_url: "https://app.gohighlevel.com/" },
+        { name: "Tomas Reyes", seg: "Forum", plan: "quarterly", v: 24000, date: "Sep 2", state: "auto", first: false, source_url: "https://app.gohighlevel.com/" },
+        { name: "Chloe Vance", seg: "Inner Circle", plan: "installments", v: 24000, date: "Sep 10", state: "auto", first: false, source_url: "https://app.gohighlevel.com/" },
+      ],
+    },
+    calendar: [
+      { m: "Jul", v: 24000 }, { m: "Aug", v: 120000 }, { m: "Sep", v: 72000 },
+      { m: "Oct", v: 48000 }, { m: "Nov", v: 36000 }, { m: "Dec", v: 60000 },
+    ],
+  },
   kpis: [
     { key: "active_members", label: "Active Members", value: "70", sub: "62 primary · 8 add-on", drill: "active_members" },
     { key: "forum_arr", label: "Forum ARR", value: "$1.23M", sub: "47 memberships", drill: "forum_arr" },

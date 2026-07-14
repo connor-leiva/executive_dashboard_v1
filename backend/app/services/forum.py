@@ -147,6 +147,33 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     # ── deep-dive deck (Recruiting · Renewals · Event readiness — revq retired) ──
     deck = _deck(funnel, renewals, event, members_total, k["registered"])
 
+    # ── Operational Refinement payload (v9) — everything below is aggregation over
+    # records already synced. Each block degrades to None/[] when its inputs are missing.
+    lost_recs = await records("membership_lost")
+    book_total = round(sum(_num((m.meta or {}).get("membership", {}).get("total_cost")) for m in member_recs))
+    growth = _growth(member_recs, lost_recs, today)
+    pay_mix = _pay_mix(member_recs, book_total)
+    tenure = _tenure(member_recs, today)
+    renew = _renewal_states(member_recs, subs_all, today)
+    calendar = _calendar(member_recs, today)
+    recover_list = _recover(payments, member_recs, today)
+    recruiting = _recruiting(funnel, guests, cfg)
+    action = {"failed": len(recover_list), "recover": round(sum(r["amt"] for r in recover_list))}
+
+    mg = {"active": members_total, "primary": roster["primary"], "addOn": roster["add_on"],
+          "admin": roster["admin"], "book": book_total, "growth": growth, "pay": pay_mix,
+          "tenure": tenure, "renewals": renew, "calendar": calendar}
+    ev_pct = round(event["registered"] / event["members"] * 100) if (event and event["members"]) else 0
+    pulse = {
+        "members": {"value": growth["total"][-1], "delta": growth["netMTD"], "spark": growth["total"][-6:]},
+        "pipeline": ({"value": recruiting["total"], "stages": [s["n"] for s in recruiting["stages"]]}
+                     if recruiting else None),
+        "renewals": {"book": renew["book"], "count": renew["count"],
+                     "auto": renew["auto"], "needsYou": renew["needsYou"]},
+        "event": ({"days": event["days_out"], "pct": ev_pct,
+                   "reg": event["registered"], "of": event["members"]} if event else None),
+    }
+
     return {
         "status": "watch" if watch_items else "healthy",
         "watch": {"count": len(watch_items), "items": watch_items},
@@ -155,6 +182,8 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
         "pl": None,                       # shared springb P&L is rendered by the dashboard payload
         "kpis": kpis, "deck": deck, "funnel": funnel,
         "renewals": renewals, "event": event, "billing": billing,
+        # operational refinement (v9)
+        "mg": mg, "pulse": pulse, "recruiting": recruiting, "action": action, "recover": recover_list,
     }
 
 
@@ -180,6 +209,202 @@ def _roster_summary(members, admins, forum_n, ic_n) -> dict:
         "admin": len(admins), "unspecified": comp["unspecified"],
         "payment_mix": mix,
     }
+
+
+# ── Operational Refinement helpers (v9 spec §6) ──────────────────────
+PLAN_LABEL = {"pif": "PIF", "monthly": "Monthly", "quarterly": "Quarterly", "installments": "Installments"}
+
+
+def _num(v) -> float:
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _pdate(v):
+    try:
+        return dt.date.fromisoformat(str(v)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _months_between(a: dt.date, b: dt.date) -> int:
+    return (b.year - a.year) * 12 + (b.month - a.month)
+
+
+def _fmt_md(d: dt.date) -> str:
+    return f"{_MONTHS[d.month - 1]} {d.day}"
+
+
+def _mem_of(m) -> dict:
+    return (m.meta or {}).get("membership") or {}
+
+
+def _growth(member_recs, lost_recs, today) -> dict:
+    """12-month member-count trajectory (§6.2). Cumulative from monthly joined/lost so
+    the series reconciles exactly to today's active count (invariant 6/7). Joined comes
+    from current members' enrollment dates; lost from membership_lost records."""
+    def month_end(yy, mm):
+        return (dt.date(yy, mm + 1, 1) - dt.timedelta(days=1)) if mm < 12 else dt.date(yy, 12, 31)
+    seq = []
+    for i in range(11, -1, -1):
+        mm, yy = today.month - i, today.year
+        while mm <= 0:
+            mm += 12
+            yy -= 1
+        seq.append((yy, mm))
+    labels = [_MONTHS[mm - 1] for _, mm in seq]
+    enrolls = [_pdate(_mem_of(m).get("enrollment_date")) for m in member_recs]
+    lost_dates = [l.occurred_on for l in lost_recs if l.occurred_on]
+    joined, lost = [], []
+    for yy, mm in seq:
+        ms, me = dt.date(yy, mm, 1), month_end(yy, mm)
+        joined.append(sum(1 for e in enrolls if e and ms <= e <= me))
+        lost.append(sum(1 for d in lost_dates if ms <= d <= me))
+    joined12, lost12 = sum(joined), sum(lost)
+    net12 = joined12 - lost12
+    active_now = len(member_recs)
+    base = active_now - net12                 # count at the window's start
+    total, run = [], base
+    for i in range(12):
+        run += joined[i] - lost[i]
+        total.append(max(0, run))
+    rate = round(net12 / base * 100) if base else 0
+    retention = round((1 - lost12 / (base + joined12)) * 100) if (base + joined12) else 100
+    return {"months": labels, "total": total, "joined": joined, "lost": lost,
+            "netMTD": joined[-1] - lost[-1], "joinedMTD": joined[-1], "lostMTD": lost[-1],
+            "net12": net12, "joined12": joined12, "lost12": lost12,
+            "ratePct": rate, "retentionPct": retention}
+
+
+def _pay_mix(member_recs, book_total) -> dict:
+    """Plan mix over the primaries (add-ons carry no plan, invariant 2) + PIF lump (§4.3)."""
+    mix = {"pif": 0, "monthly": 0, "quarterly": 0, "installments": 0}
+    lump = 0.0
+    for m in member_recs:
+        mem = _mem_of(m)
+        if mem.get("member_kind") != "primary":
+            continue
+        pay = mem.get("payment")
+        if pay in mix:
+            mix[pay] += 1
+        if pay == "pif":
+            lump += _num(mem.get("total_cost"))
+    return {**mix, "lump": round(lump), "lumpPct": round(lump / book_total * 100) if book_total else 0}
+
+
+def _tenure(member_recs, today) -> dict:
+    """Mean months since enrollment + count whose next renewal is a first cycle (§4.3)."""
+    months, first = [], 0
+    for m in member_recs:
+        mem = _mem_of(m)
+        ed, rd = _pdate(mem.get("enrollment_date")), _pdate(mem.get("renewal_date"))
+        if ed:
+            months.append(_months_between(ed, today))
+        if ed and rd and 0 < _months_between(ed, rd) <= 13:
+            first += 1
+    return {"avg": round(sum(months) / len(months)) if months else 0, "first": first}
+
+
+def _renewal_states(member_recs, subs, today) -> dict:
+    """Renewals in [today, +90d] with payment-derived state (§6.1): failing (past-due/
+    failed sub or charge), resign (no active sub — PIF/lapsed, manual re-sign), or auto
+    (on a live recurring sub). Matches subs by contact_id, then email."""
+    end = today + dt.timedelta(days=90)
+    by_contact, by_email = {}, {}
+    for x in subs:
+        cid = (x.meta or {}).get("contact_id")
+        if cid:
+            by_contact.setdefault(str(cid), set()).add(x.status)
+        em = (x.email or "").strip().lower()
+        if em:
+            by_email.setdefault(em, set()).add(x.status)
+    rows, book, auto, needs, n_resign, n_failing = [], 0.0, 0.0, 0.0, 0, 0
+    for m in member_recs:
+        mem = _mem_of(m)
+        rd = _pdate(mem.get("renewal_date"))
+        if not rd or not (today <= rd <= end):
+            continue
+        statuses = by_contact.get(m.external_id) or by_email.get((m.email or "").strip().lower()) or set()
+        if statuses & {"past_due", "failed"}:
+            state = "failing"
+            n_failing += 1
+        elif "active" not in statuses:
+            state = "resign"
+            n_resign += 1
+        else:
+            state = "auto"
+        val = _num(mem.get("total_cost"))
+        ed = _pdate(mem.get("enrollment_date"))
+        book += val
+        if state == "auto":
+            auto += val
+        else:
+            needs += val
+        rows.append({"name": (m.name or "").title() or m.external_id,
+                     "seg": "IC" if m.segment == "inner_circle" else "Forum",
+                     "plan": mem.get("payment"), "v": round(val), "date": _fmt_md(rd),
+                     "state": state, "first": bool(ed and 0 < _months_between(ed, rd) <= 13),
+                     "source_url": m.source_url})
+    rank = {"failing": 0, "resign": 1, "auto": 2}
+    rows.sort(key=lambda r: (rank[r["state"]], -r["v"]))
+    return {"book": round(book), "count": len(rows), "auto": round(auto), "needsYou": round(needs),
+            "resigns": n_resign, "failing": n_failing, "rows": rows}
+
+
+def _calendar(member_recs, today) -> list[dict]:
+    """Forward renewal value for the next 6 months (§6.4)."""
+    out = []
+    for i in range(6):
+        mm, yy = today.month + i, today.year
+        while mm > 12:
+            mm -= 12
+            yy += 1
+        v = sum(_num(_mem_of(m).get("total_cost")) for m in member_recs
+                if (lambda rd: rd and rd.year == yy and rd.month == mm)(_pdate(_mem_of(m).get("renewal_date"))))
+        out.append({"m": _MONTHS[mm - 1], "v": round(v)})
+    return out
+
+
+def _recover(payments, member_recs, today) -> list[dict]:
+    """Money-to-recover list: this-month failed charges grouped per member (§6.4).
+    action.recover/failed derive from this so they reconcile (invariants 9/10)."""
+    plan_by_email = {(m.email or "").strip().lower(): _mem_of(m).get("payment")
+                     for m in member_recs if m.email}
+    by_key: dict = {}
+    for p in payments:
+        if (p.status or "") != "failed" or not p.occurred_on:
+            continue
+        if (p.occurred_on.year, p.occurred_on.month) != (today.year, today.month):
+            continue
+        em = (p.email or "").strip().lower()
+        key = em or (p.name or "")
+        rec = by_key.setdefault(key, {"name": (p.name or "").title() or "Member", "amt": 0.0,
+                                      "plan": None, "attempts": 0, "source_url": p.source_url})
+        rec["amt"] += _num(p.amount)
+        rec["attempts"] += 1
+        pl = plan_by_email.get(em)
+        if pl:
+            rec["plan"] = PLAN_LABEL.get(pl, pl.title())
+    rows = sorted(by_key.values(), key=lambda r: -r["amt"])
+    for r in rows:
+        r["amt"] = round(r["amt"])
+    return rows
+
+
+def _recruiting(funnel, guests, cfg) -> dict | None:
+    """Recruiting funnel (§6.3) off the existing grouped funnel. `expected` is an
+    estimate (close_rate, configurable) and is labeled as such in the UI."""
+    if not funnel or not funnel.get("stages"):
+        return None
+    stages = [{"label": s["label"], "n": s["v"]} for s in funnel["stages"]]
+    total = sum(s["n"] for s in stages)
+    vip = next((s["n"] for s in stages if "vip" in s["label"].lower()), guests or 0)
+    committed = stages[-1]["n"] if stages else 0
+    close_rate = float(cfg.get("recruiting_close_rate", 0.65))
+    return {"total": total, "stages": stages, "vipGuests": vip, "committed": committed,
+            "expected": round(committed * close_rate), "close_rate_estimate": True}
 
 
 def _period_label(period: str) -> str:
