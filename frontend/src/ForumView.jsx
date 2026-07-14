@@ -1253,8 +1253,9 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
           {hasOps ? <PulseStrip pulse={data.pulse} onOpen={onOpen} /> : <OpsPulse data={data} onOpen={onOpen} />}
         </div>
 
-        {/* single action row (failed charges) / watch strip */}
-        <div className="enter" style={{ animationDelay: "150ms" }}>
+        {/* single action row (failed charges) / watch strip — the row itself carried no
+            vertical rhythm, so it sat flush between the pulse and the section (smushed) */}
+        <div className="enter" style={hasOps ? { animationDelay: "150ms", margin: "14px 0 16px" } : { animationDelay: "150ms" }}>
           {hasOps ? <ActionRowV9 action={data.action} onOpen={onOpen} /> : <WatchStrip b={b} data={data} onOpen={onOpen} />}
         </div>
 
