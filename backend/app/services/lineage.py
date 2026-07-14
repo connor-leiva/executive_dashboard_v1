@@ -544,7 +544,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             pays = [p for p in await fpayments()
                     if p.status == "failed" and p.occurred_on
                     and (p.occurred_on.year, p.occurred_on.month) == (today.year, today.month)]
-            pays.sort(key=lambda p: float(p.amount or 0), reverse=True)
+            pays.sort(key=lambda p: p.occurred_on, reverse=True)   # most recent first
             rows = [{"id": str(p.id), "name": nm(p), "tone": "watch",
                      "l2": "Failed charge · " + (dlabel(p.occurred_on) or ""),
                      "r1": money(p.amount), "source_url": p.source_url} for p in pays]

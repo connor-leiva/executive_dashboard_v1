@@ -50,6 +50,24 @@ async def _billing():
     return f
 
 
+def test_recover_collapses_retries():
+    """Retries of one charge are one recoverable amount, not the sum of attempts —
+    a $2,000 dues charge that failed 4 times is $2,000 to recover (with 4 tries)."""
+    import datetime as dt
+    from types import SimpleNamespace
+    from app.services.forum import _recover
+    today = dt.date(2026, 7, 14)
+    def pay(day, amt):
+        return SimpleNamespace(status="failed", amount=amt, name="Monica Benavides",
+                               email="m@x.com", occurred_on=dt.date(2026, 7, day), source_url="u")
+    rows = _recover([pay(1, 2000), pay(3, 2000), pay(6, 2000), pay(14, 2000)], [], today)
+    assert len(rows) == 1
+    assert rows[0]["amt"] == 2000 and rows[0]["attempts"] == 4      # collapsed, NOT 8000
+    # two genuinely-distinct charges for one member still sum
+    rows2 = _recover([pay(2, 2000), pay(3, 2000), pay(5, 500)], [], today)
+    assert rows2[0]["amt"] == 2500 and rows2[0]["attempts"] == 3
+
+
 async def test_operational_payload_invariants():
     """The v9 operational-refinement blocks (mg / pulse / recruiting / action / recover)
     satisfy the spec's reconciliation invariants (§9)."""

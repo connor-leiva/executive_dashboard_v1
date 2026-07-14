@@ -46,10 +46,10 @@ export default {
     renewals: { book: 192000, count: 8, auto: 72000, needsYou: 120000 },
     event: { days: 75, pct: 40, reg: 28, of: 70 },
   },
-  action: { failed: 2, recover: 20000 },
+  action: { failed: 2, recover: 4000 },
   recover: [
-    { name: "Lena Park", amt: 10000, plan: "Monthly", attempts: 2, source_url: "https://dashboard.stripe.com/payments/pi_lena" },
-    { name: "Derek Fontaine", amt: 10000, plan: "Monthly", attempts: 1, source_url: "https://dashboard.stripe.com/payments/pi_derek" },
+    { name: "Lena Park", amt: 2000, plan: "Monthly", attempts: 3, source_url: "https://dashboard.stripe.com/payments/pi_lena" },
+    { name: "Derek Fontaine", amt: 2000, plan: "Monthly", attempts: 1, source_url: "https://dashboard.stripe.com/payments/pi_derek" },
   ],
   recruiting: {
     total: 160, vipGuests: 38, committed: 12, expected: 8, close_rate_estimate: true,

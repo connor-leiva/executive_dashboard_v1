@@ -1277,12 +1277,17 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
                      live sub="Cash basis · Stripe via Go High Level · reconciles to QuickBooks as the Booked lens when connected"
                      open={!!open.money} onToggle={() => toggle("money")}>
               <Deck items={moneyItems(b, !!open.money, onOpen)} />
-              {(data.mg?.calendar?.length || (data.recover && data.recover.length)) ? (
-                <div className="opcb" style={{ marginTop: 16 }}>
-                  {data.mg?.calendar?.length ? <RenewalCalendar cal={data.mg.calendar} /> : <span />}
-                  {data.recover && data.recover.length ? <RecoverPanel recover={data.recover} action={data.action} onOpen={onOpen} /> : <span />}
-                </div>
-              ) : null}
+              {(() => {
+                const cal = data.mg?.calendar?.length ? <RenewalCalendar cal={data.mg.calendar} /> : null;
+                const rec = data.recover && data.recover.length
+                  ? <RecoverPanel recover={data.recover} action={data.action} onOpen={onOpen} /> : null;
+                if (!cal && !rec) return null;
+                // Two cells only when both are present; a lone panel spans the full width
+                // (otherwise it's squished into the narrow right column).
+                return cal && rec
+                  ? <div className="opcb" style={{ marginTop: 16 }}>{cal}{rec}</div>
+                  : <div style={{ marginTop: 16 }}>{cal || rec}</div>;
+              })()}
             </Section>
           </div>
         )}

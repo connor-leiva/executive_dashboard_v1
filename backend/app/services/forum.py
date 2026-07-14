@@ -369,7 +369,11 @@ def _calendar(member_recs, today) -> list[dict]:
 
 def _recover(payments, member_recs, today) -> list[dict]:
     """Money-to-recover list: this-month failed charges grouped per member (§6.4).
-    action.recover/failed derive from this so they reconcile (invariants 9/10)."""
+    Retries of the SAME charge (same amount) collapse to one recoverable amount — the
+    money at risk is the charge, not the sum of its failed attempts (a $2,000 dues
+    charge that failed 4 times is $2,000 to recover, not $8,000). `attempts` counts the
+    retries; the link points at the most-recent one. action.recover/failed derive from
+    this so they reconcile (invariants 9/10)."""
     plan_by_email = {(m.email or "").strip().lower(): _mem_of(m).get("payment")
                      for m in member_recs if m.email}
     by_key: dict = {}
@@ -380,16 +384,20 @@ def _recover(payments, member_recs, today) -> list[dict]:
             continue
         em = (p.email or "").strip().lower()
         key = em or (p.name or "")
-        rec = by_key.setdefault(key, {"name": (p.name or "").title() or "Member", "amt": 0.0,
-                                      "plan": None, "attempts": 0, "source_url": p.source_url})
-        rec["amt"] += _num(p.amount)
+        rec = by_key.setdefault(key, {"name": (p.name or "").title() or "Member", "charges": {},
+                                      "plan": None, "attempts": 0, "source_url": p.source_url,
+                                      "last": p.occurred_on})
+        amt = round(_num(p.amount), 2)
+        rec["charges"][amt] = rec["charges"].get(amt, 0) + 1     # distinct charges by amount
         rec["attempts"] += 1
+        if p.occurred_on >= rec["last"]:                          # link to the latest attempt
+            rec["last"], rec["source_url"] = p.occurred_on, p.source_url
         pl = plan_by_email.get(em)
         if pl:
             rec["plan"] = PLAN_LABEL.get(pl, pl.title())
-    rows = sorted(by_key.values(), key=lambda r: -r["amt"])
-    for r in rows:
-        r["amt"] = round(r["amt"])
+    rows = [{"name": r["name"], "amt": round(sum(r["charges"].keys())), "attempts": r["attempts"],
+             "plan": r["plan"], "source_url": r["source_url"]} for r in by_key.values()]
+    rows.sort(key=lambda r: -r["amt"])
     return rows
 
 
