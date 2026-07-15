@@ -256,3 +256,26 @@ async def test_ic_onboarding_surfaces_but_does_not_block_close():
                     await s.execute(delete(ICLink).where(ICLink.from_business_id == row.id))
                     await s.execute(delete(Business).where(Business.id == row.id))
             await s.commit()
+
+
+async def test_springb_reroute_moves_pl_off_forum():
+    """Re-routing the operational holder (springb) moves its QBO P&L to the chosen page
+    and leaves the forum financial empty — the forum operational view still renders."""
+    from app.services.metrics import build_dashboard
+
+    async with SessionLocal() as s:
+        tid = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one().id
+        sb = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        orig = sb.display_tab
+        sb.display_tab = "becollective"
+        await s.commit()
+    try:
+        async with SessionLocal() as s:
+            areas = (await build_dashboard(s, tid, "mtd")).model_dump()["areas"]
+            assert areas["forum"]["revenue"] is None          # financial moved off forum
+            assert areas["becollective"]["revenue"] == 68000  # springb's P&L now here
+    finally:
+        async with SessionLocal() as s:
+            sb = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+            sb.display_tab = orig
+            await s.commit()

@@ -568,14 +568,122 @@ function SBtn({ kind = "ghost", small, icon, children, onClick, disabled, title 
   );
 }
 
-function EntityRow({ e, live, busy, onSync, onReconnect }) {
+/* ── QBO entity: create (name → destination page → connect) or edit / re-route ── */
+const ROUTABLE_LABELS = { forum: "The Forum", becollective: "beCollective", ulrg: "ULRG + Team", sympli: "Sympli Mortgage" };
+const NON_ROUTABLE = new Set(["portfolio", "flywheel", "books"]);
+const routableLabel = (k) => ROUTABLE_LABELS[k] || k.charAt(0).toUpperCase() + k.slice(1);
+
+function QboEntityForm({ mode, entity, onClose, onDone }) {
+  const editing = mode === "edit";
+  const [name, setName] = useState(editing ? entity.business_name : "");
+  const [dest, setDest] = useState(editing ? (entity.display_tab || entity.business_key) : "");
+  const [kind, setKind] = useState("membership");
+  const [books, setBooks] = useState(editing ? entity.books_enabled !== false : true);
+  const [inPortfolio, setInPortfolio] = useState(true);
+  const [backfill, setBackfill] = useState("");
+  const [tabs, setTabs] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    getJSON("/tenant/tabs")
+      .then((t) => setTabs((t.tabs || []).filter((x) => !NON_ROUTABLE.has(x))))
+      .catch(() => {});
+  }, []);
+  // in edit mode, make sure the entity's current page is a selectable option
+  const options = tabs.includes(dest) || !dest ? tabs : [dest, ...tabs];
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const display_tab = dest === "__new__" ? "" : dest;   // "" → backend gives it its own page
+      if (editing) {
+        await patchJSON(`/integrations/qbo/entities/${entity.business_key}`, {
+          display_tab, include_in_portfolio: inPortfolio, books_enabled: books,
+          name: name.trim() || undefined });
+        onDone();
+      } else {
+        const { business_key } = await postJSON("/integrations/qbo/entities", {
+          name: name.trim(), display_tab, kind, books_enabled: books,
+          include_in_portfolio: inPortfolio, books_backfill_start: backfill || undefined });
+        const { url } = await getJSON(`/integrations/qbo/connect?business_key=${encodeURIComponent(business_key)}`);
+        window.location.href = url;   // hand off to Intuit's consent screen
+      }
+    } catch {
+      setErr("Couldn't save — check the details and try again.");
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const check = { display: "flex", alignItems: "center", gap: 8, marginTop: 14, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 430, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? `Edit ${entity.business_name}` : "Connect a QuickBooks entity"}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
+          {editing ? "Change where this entity's P&L shows and whether it feeds Books. Its ledger keys don't move."
+                   : "Name it, pick which page its P&L shows on, then authorize in QuickBooks."}
+        </div>
+        <label style={label}>Entity name
+          <input style={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. The Forum" required />
+        </label>
+        <label style={label}>Show its P&amp;L on
+          <select style={field} value={dest} onChange={(e) => setDest(e.target.value)}>
+            <option value="">Its own new page</option>
+            {options.map((t) => <option key={t} value={t}>{routableLabel(t)}</option>)}
+          </select>
+        </label>
+        {!editing && (
+          <label style={label}>Entity type
+            <select style={field} value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="membership">Membership / coaching (Booked P&amp;L)</option>
+              <option value="holding">Holding company</option>
+              <option value="real_estate">Real estate brokerage</option>
+              <option value="commission_jv">Commission JV</option>
+            </select>
+          </label>
+        )}
+        <label style={check}>
+          <input type="checkbox" checked={books} onChange={(e) => setBooks(e.target.checked)} />
+          Feed this entity into Acumyn Books (approval queue, close)
+        </label>
+        <label style={check}>
+          <input type="checkbox" checked={inPortfolio} onChange={(e) => setInPortfolio(e.target.checked)} />
+          Include in portfolio totals
+        </label>
+        {!editing && (
+          <label style={label}>Backfill transactions from <span style={{ fontWeight: 400, color: T.muted }}>· optional (default: Jan 1)</span>
+            <input style={field} type="date" value={backfill} onChange={(e) => setBackfill(e.target.value)} />
+          </label>
+        )}
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>
+            {busy ? "Saving…" : editing ? "Save changes" : "Continue to QuickBooks"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function EntityRow({ e, live, busy, onSync, onReconnect, onEditEntity, onDisconnectEntity }) {
   const err = e.state === "error";
   const meta = e.realm_id ? `Realm ${e.realm_id}` : "";
+  const routesTo = e.display_tab && e.display_tab !== e.business_key ? routableLabel(e.display_tab) : null;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.line}` }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.line}`, flexWrap: "wrap" }}>
       <span style={{ width: 8, height: 8, borderRadius: 2, background: BIZ_DOT[e.business_key] || T.muted, flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{e.business_name}</div>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+          {e.business_name}
+          {routesTo && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>→ {routesTo}</span>}
+          {e.books_enabled === false && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>Books off</span>}
+        </div>
         <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: err ? T.poppyText : T.muted, marginTop: 2, display: "flex", alignItems: "center", gap: 5 }}>
           <Icon name={err ? "warning" : "check_circled"} size={11} color={err ? T.poppyText : T.meadow} />
           {err ? (e.detail || "Re-authorize to resume syncing") : (e.last_synced_at ? `Synced ${relativeTime(e.last_synced_at)}` : "Not synced")}
@@ -585,11 +693,13 @@ function EntityRow({ e, live, busy, onSync, onReconnect }) {
       {err
         ? <SBtn kind="primary" small icon="sync" disabled={!live} onClick={() => onReconnect(e)}>Reconnect</SBtn>
         : <SBtn small icon="sync" disabled={!live || busy === e.integration_id} onClick={() => onSync(e.integration_id)}>{busy === e.integration_id ? "Syncing…" : "Sync now"}</SBtn>}
+      {onEditEntity && <SBtn small icon="tune" disabled={!live} onClick={() => onEditEntity(e)}>Edit</SBtn>}
+      {onDisconnectEntity && <button className="si-danger" disabled={!live} onClick={() => onDisconnectEntity(e)}>Disconnect</button>}
     </div>
   );
 }
 
-function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisconnect, onConnect, onEdit }) {
+function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisconnect, onConnect, onEdit, onEditEntity, onDisconnectEntity }) {
   const dis = s.status === "disconnected";
   const collapsedLine = s.status === "attention" ? s.status_note
     : dis ? s.desc(s) : s.fresh;
@@ -618,7 +728,9 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
             <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, paddingBottom: 12 }}>{s.desc(s)}</div>
             {s.entities?.length > 0 && (
               <div style={{ marginBottom: 4 }}>
-                {s.entities.map((e) => <EntityRow key={e.integration_id} e={e} live={live} busy={busy} onSync={onSync} onReconnect={onReconnect} />)}
+                {s.entities.map((e) => <EntityRow key={e.integration_id} e={e} live={live} busy={busy} onSync={onSync} onReconnect={onReconnect}
+                  onEditEntity={s.provider === "qbo" ? onEditEntity : undefined}
+                  onDisconnectEntity={s.provider === "qbo" ? onDisconnectEntity : undefined} />)}
               </div>
             )}
             {s.config_summary?.length > 0 && (
@@ -731,7 +843,7 @@ function IntegrationsPage() {
     try { await postJSON(`/integrations/${s.integration_id}/disconnect`); } finally { setBusy(null); load(); }
   }
   function connectSource(s) {
-    if (s.provider === "qbo") return qboConnect(s.entities?.[0]?.business_key || "ulrg");
+    if (s.provider === "qbo") return setConnecting({ provider: "qbo", mode: "create" });
     if (s.provider === "ghl" || s.provider === "ghl_bc")
       return setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
     if (s.provider === "arive")
@@ -742,6 +854,12 @@ function IntegrationsPage() {
       return setConnecting({ provider: "ghl_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
   }
   const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || (s.provider === "arive" ? "sympli" : "springb"), status: "connected" });
+  const editEntity = (e) => setConnecting({ provider: "qbo", mode: "edit", entity: e });
+  async function disconnectEntity(e) {
+    if (!window.confirm(`Disconnect ${e.business_name}? Its tokens are removed; synced history stays (delete the entity to remove it entirely).`)) return;
+    setBusy(e.integration_id);
+    try { await postJSON(`/integrations/${e.integration_id}/disconnect`); } finally { setBusy(null); load(); }
+  }
   const reconnectEntity = (e) => qboConnect(e.business_key);
 
   if (error) return <Card title="Integrations"><div style={{ color: T.muted, fontSize: 13 }}>Couldn't load integrations.</div></Card>;
@@ -798,14 +916,18 @@ function IntegrationsPage() {
       {view.sources.map((s) => (
         <SourceCard key={s.provider} s={s} open={!!open[s.provider]} onToggle={() => toggle(s.provider)}
           live={live} busy={busy} onSync={syncOne} onReconnect={reconnectEntity}
-          onDisconnect={disconnectSource} onConnect={connectSource} onEdit={editConfig} />
+          onDisconnect={disconnectSource} onConnect={connectSource} onEdit={editConfig}
+          onEditEntity={editEntity} onDisconnectEntity={disconnectEntity} />
       ))}
 
       <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, padding: "8px 2px" }}>
         Auto-sync runs every 30 minutes. Disconnecting removes stored tokens; historical data already synced stays in the dashboard.
       </div>
 
-      {connecting && (connecting.provider === "arive"
+      {connecting && (connecting.provider === "qbo"
+        ? <QboEntityForm mode={connecting.mode} entity={connecting.entity} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : connecting.provider === "arive"
         ? <AriveConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "stripe_legacy"

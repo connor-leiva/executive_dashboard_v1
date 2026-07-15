@@ -1077,7 +1077,17 @@ export default function CommandCenter() {
   // deep-link / stale view to an ungranted tab redirects to the first one they have.
   // null = offline/unknown (no /me) → show all (dev fallback).
   const myTabs = user && user.tabs ? user.tabs : null;
-  const navItems = myTabs ? NAV.filter((n) => myTabs.includes(navTab(n.k))) : NAV;
+  const baseNav = myTabs ? NAV.filter((n) => myTabs.includes(navTab(n.k))) : NAV;
+  // Financial pages a QBO entity was routed to that aren't in the built-in NAV
+  // (e.g. a new coaching page) — render them data-driven, before the flywheel divider.
+  const KNOWN_TABS = new Set(NAV.map((n) => navTab(n.k)));
+  const extraNav = Object.values((data && data.areas) || {})
+    .filter((a) => a && !KNOWN_TABS.has(a.key) && (!myTabs || myTabs.includes(a.key)))
+    .map((a) => ({ k: a.key, label: a.name, dot: a.accent || T.mist }));
+  const fwIdx = baseNav.findIndex((n) => n.k === "flywheel");
+  const navItems = extraNav.length === 0 ? baseNav
+    : fwIdx >= 0 ? [...baseNav.slice(0, fwIdx), ...extraNav, ...baseNav.slice(fwIdx)]
+    : [...baseNav, ...extraNav];
   useEffect(() => {
     if (!myTabs || !myTabs.length) return;
     if (!myTabs.includes(navTab(view))) {
@@ -1126,6 +1136,7 @@ export default function CommandCenter() {
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
   else if (activeView === "books") content = <Books period={periodKey} role={user?.role} />;
+  else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
 
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>

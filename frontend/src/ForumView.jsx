@@ -182,16 +182,14 @@ function PnlCard({ area, billing }) {
     </div>
   );
 }
-function ConnectQbo({ area }) {
-  const businessId = area?.id || area?.key || "springb";
-  const href = API_BASE ? `${API_BASE}/integrations/qbo/connect?business_id=${businessId}` : null;
+function ConnectQbo() {
+  // Connecting/routing a QBO entity lives in Settings › Integrations (the self-service
+  // flow); this just points there rather than hitting the auth'd connect endpoint raw.
   return (
-    <a href={href || undefined} aria-disabled={href ? undefined : true} style={{
+    <a href="/settings/integrations" style={{
       display: "inline-block", marginTop: 12, fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600,
-      color: href ? C.heroText : C.muted, background: href ? C.evergreen : "rgba(0,46,44,0.28)",
-      borderRadius: 9, padding: "9px 15px", textDecoration: "none",
-      pointerEvents: href ? "auto" : "none", cursor: href ? "pointer" : "not-allowed",
-    }}>Connect QuickBooks</a>
+      color: C.heroText, background: C.evergreen, borderRadius: 9, padding: "9px 15px", textDecoration: "none",
+    }}>Connect in Settings</a>
   );
 }
 
