@@ -44,6 +44,23 @@ async def _biz_map(s, tenant_id) -> dict[str, Business]:
         Business.tenant_id == tenant_id))).scalars().all()}
 
 
+async def _books_entities(s, tenant_id) -> list[dict]:
+    """The entities that participate in Books — businesses with a QuickBooks integration
+    and Books enabled — so the P&L entity selector reflects what Integrations connected /
+    routed (not a hardcoded list). Ordered by the business sort order."""
+    rows = (await s.execute(
+        select(Business).join(Integration, Integration.business_id == Business.id)
+        .where(Business.tenant_id == tenant_id, Integration.provider == "qbo")
+        .order_by(Business.sort_order))).scalars().all()
+    out, seen = [], set()
+    for b in rows:
+        if b.id in seen or not (b.config or {}).get("books_enabled", True):
+            continue
+        seen.add(b.id)
+        out.append({"key": b.key, "name": b.name})
+    return out
+
+
 # ── Rail + invariant (SPEC 4.1 / Part 7 #1) ──────────────────────────────────
 async def _rail(s, tenant_id, mstart, mend) -> dict:
     """Scan-pipeline counts for the calendar month. `captured` partitions exactly into
@@ -257,7 +274,8 @@ async def build_books_pl(s, tenant_id, business="all", period="mtd") -> dict:
     totals = await _totals(ps, pe)
     totals["prior"] = await _totals(pv_s, pv_e)
     out = {"business": business, "period_label": _period_label(ps, pe),
-           "totals": totals, "revenue": _flat("income"), "cos": _flat("cogs"), "opex": _opex()}
+           "totals": totals, "revenue": _flat("income"), "cos": _flat("cogs"), "opex": _opex(),
+           "entities": await _books_entities(s, tenant_id)}
 
     if business == "sympli":
         b = bmap.get("sympli")

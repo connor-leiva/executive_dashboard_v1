@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useBooksPL } from "./useBooks.js";
 import { Card, Eyebrow, Delta, Pill, StatePanel, font, usd, signed, T } from "./ui.jsx";
 
-const TABS = [["all", "Consolidated"], ["ulrg", "ULRG + Team"], ["springb", "Spring B"], ["sympli", "Sympli"]];
+// Fallback entity tabs for the sample/offline view; live data supplies the real list
+// (whatever Integrations has connected/routed), so this stays in sync automatically.
+const DEFAULT_ENTITIES = [["ulrg", "ULRG + Team"], ["springb", "Spring B"], ["sympli", "Sympli"]];
 
 function PLRow({ label, v, pv, kind, inverse, indent }) {
   const tot = kind === "tot", sub = kind === "sub", head = kind === "head";
@@ -34,11 +36,13 @@ export default function BooksPL({ period = "mtd" }) {
   const { data, loading, error, retry } = useBooksPL(business, period);
   const t = data?.totals || {};
   const prior = t.prior || {};
+  const entTabs = data?.entities ? data.entities.map((e) => [e.key, e.name]) : DEFAULT_ENTITIES;
+  const tabs = [["all", "Consolidated"], ...entTabs];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        {TABS.map(([k, l]) => (
+        {tabs.map(([k, l]) => (
           <button key={k} onClick={() => setBusiness(k)} style={{ fontFamily: font.head, fontSize: 12.5,
             fontWeight: 600, color: business === k ? T.onDark : T.slate,
             background: business === k ? T.evergreen : T.white,
@@ -75,7 +79,7 @@ export default function BooksPL({ period = "mtd" }) {
 
             <Card style={{ maxWidth: 800 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                <Eyebrow>{TABS.find(([k]) => k === business)?.[1]} · profit & loss</Eyebrow>
+                <Eyebrow>{tabs.find(([k]) => k === business)?.[1]} · profit & loss</Eyebrow>
                 <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>Δ vs prior month · click a category</span>
               </div>
 

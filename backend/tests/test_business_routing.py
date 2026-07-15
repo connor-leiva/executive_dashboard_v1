@@ -12,7 +12,7 @@ from sqlalchemy import select, delete
 
 from app.seed import seed
 from app.db import SessionLocal
-from app.models import Tenant, Business, PLSnapshot, User, BookTxn, PLLine, ICLink
+from app.models import Tenant, Business, PLSnapshot, User, BookTxn, PLLine, ICLink, Integration
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -278,4 +278,34 @@ async def test_springb_reroute_moves_pl_off_forum():
         async with SessionLocal() as s:
             sb = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
             sb.display_tab = orig
+            await s.commit()
+
+
+async def test_books_pl_entities_reflect_connected_qbo():
+    """The Books P&L entity selector is data-driven: a routed entity with a QBO
+    integration + Books enabled appears; a Books-disabled one does not."""
+    from app.services.books import build_books_pl
+
+    async with SessionLocal() as s:
+        tid = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one().id
+        on = Business(tenant_id=tid, key="forumqbo", name="The Forum QBO", tag="x", kind="membership",
+                      display_tab="forum", sort_order=40, config={"books_enabled": True})
+        off = Business(tenant_id=tid, key="offqbo", name="Off QBO", tag="x", kind="membership",
+                       display_tab="offqbo", sort_order=41, config={"books_enabled": False})
+        s.add_all([on, off])
+        await s.flush()
+        ids = [on.id, off.id]
+        s.add(Integration(tenant_id=tid, provider="qbo", business_id=on.id, status="connected", realm_id="RF"))
+        s.add(Integration(tenant_id=tid, provider="qbo", business_id=off.id, status="connected", realm_id="RO"))
+        await s.commit()
+    try:
+        async with SessionLocal() as s:
+            keys = {e["key"] for e in (await build_books_pl(s, tid, "all", "mtd"))["entities"]}
+            assert "forumqbo" in keys      # books-enabled routed entity shows as a tab
+            assert "offqbo" not in keys     # books-disabled entity is excluded
+    finally:
+        async with SessionLocal() as s:
+            for bid in ids:
+                await s.execute(delete(Integration).where(Integration.business_id == bid))
+                await s.execute(delete(Business).where(Business.id == bid))
             await s.commit()
