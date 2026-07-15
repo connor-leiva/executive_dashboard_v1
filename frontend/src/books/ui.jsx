@@ -1,9 +1,13 @@
-/* Shared Books UI primitives — reuse the dashboard's theme tokens and card idiom. */
+/* Shared Books UI primitives — port of the acumyn-books-v2 mockup's kit, mapped onto the
+   live dashboard theme tokens (theme.js). */
 import { T, usd } from "../theme.js";
 
+export const signed = (n) => (n < 0 ? `(${usd(n)})` : usd(n));
+export const font = { head: "Poppins,sans-serif", body: "Inter,sans-serif" };
+
 export const ENTITY = {
-  ulrg: { label: "ULRG", dot: T.meadow },
-  sympli: { label: "Sympli", dot: T.teal },
+  ulrg: { label: "ULRG + Team", dot: T.meadow },
+  sympli: { label: "Sympli Mortgage", dot: T.teal },
   springb: { label: "Spring B", dot: T.daffodil },
   forum: { label: "The Forum", dot: T.daffodil },
   becollective: { label: "beCollective", dot: T.petal },
@@ -16,30 +20,43 @@ export const CHAR_LABEL = {
   contribution: "Capital contribution", shared_expense: "Shared expense",
   rent: "Rent", payroll_alloc: "Payroll allocation",
 };
+export const CHAR_BY_LABEL = Object.fromEntries(
+  Object.entries(CHAR_LABEL).map(([k, v]) => [v, k]));
 
-export const font = { head: "Poppins,sans-serif", body: "Inter,sans-serif" };
-
-export function Card({ children, style }) {
+export function Eyebrow({ children, onDark }) {
   return (
-    <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14,
-                  padding: 22, ...style }}>{children}</div>
+    <span style={{ fontFamily: font.head, fontSize: 11, fontWeight: 700, letterSpacing: "0.12em",
+                   textTransform: "uppercase", color: onDark ? T.onDarkMute : T.secondary }}>{children}</span>
   );
 }
 
-export function Eyebrow({ children }) {
+export function Card({ children, style, onClick, className }) {
   return (
-    <div style={{ fontFamily: font.body, fontSize: 11, fontWeight: 700, letterSpacing: 0.8,
-                  textTransform: "uppercase", color: T.muted, marginBottom: 10 }}>{children}</div>
+    <div onClick={onClick} className={className} style={{ background: T.white, border: `1px solid ${T.line}`,
+      borderRadius: 14, padding: 22, ...style }}>{children}</div>
   );
 }
 
 export function EntityChip({ k }) {
   const e = ent(k);
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: font.body,
-                   fontSize: 12, fontWeight: 600, color: T.secondary }}>
-      <span style={{ width: 7, height: 7, borderRadius: 9, background: e.dot }} />{e.label}
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <span style={{ width: 8, height: 8, borderRadius: 2, background: e.dot }} />
+      <span style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 600, color: T.secondary }}>{e.label}</span>
     </span>
+  );
+}
+
+/* delta chip — favorable direction flips for money-out (expense/cost) lines via `inverse`. */
+export function Delta({ v, pv, inverse }) {
+  if (pv === undefined || pv === null || pv === 0) return null;
+  const pct = ((v - pv) / Math.abs(pv)) * 100;
+  if (Math.abs(pct) < 0.5) return <span style={{ fontFamily: font.body, fontSize: 10.5, color: T.muted }}>flat</span>;
+  const up = pct > 0;
+  const good = inverse ? !up : up;
+  return (
+    <span style={{ fontFamily: font.body, fontSize: 10.5, fontWeight: 700, color: good ? T.meadowInk : T.poppyText }}>
+      {up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}%</span>
   );
 }
 
@@ -51,32 +68,23 @@ export function Pill({ tone = "muted", children }) {
   const t = TONES[tone] || TONES.muted;
   return (
     <span style={{ fontFamily: font.body, fontSize: 11, fontWeight: 700, borderRadius: 999,
-                   padding: "3px 9px", background: t.bg, color: t.fg, whiteSpace: "nowrap" }}>{children}</span>
+                   padding: "3px 10px", background: t.bg, color: t.fg, whiteSpace: "nowrap" }}>{children}</span>
   );
 }
 
-/* MoM delta. For expense/cost lines pass invert so a decrease reads as good. */
-export function Delta({ v, pv, invert = false }) {
-  if (pv === undefined || pv === null || pv === 0) return <span style={{ color: T.muted, fontSize: 11 }}>—</span>;
-  const pct = Math.round(((v - pv) / Math.abs(pv)) * 100);
-  if (pct === 0) return <span style={{ color: T.muted, fontSize: 11 }}>flat</span>;
-  const up = pct > 0;
-  const good = invert ? !up : up;
-  return (
-    <span style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 700,
-                   color: good ? T.meadowInk : T.poppyText }}>
-      {up ? "▲" : "▼"} {Math.abs(pct)}%
-    </span>
-  );
-}
+/* The evergreen "on dark" surface the mockup uses for the rail, review, and IC hero. */
+export const DARK = {
+  background: T.evergreen,
+  backgroundImage: "repeating-linear-gradient(90deg, rgba(255,255,255,0.045) 0px, rgba(255,255,255,0.045) 1.5px, rgba(255,255,255,0) 1.5px, rgba(255,255,255,0) 13px)",
+};
 
-/* Loading skeleton / error+retry / empty — the three data states, one place. */
+/* loading skeleton / error+retry / empty — the three data states. */
 export function StatePanel({ loading, error, retry, empty, emptyTitle, emptyMsg, children }) {
   if (loading) {
     return (
       <div style={{ display: "grid", gap: 16 }}>
         {[0, 1, 2].map((i) => (
-          <div key={i} style={{ height: i === 0 ? 120 : 200, borderRadius: 14,
+          <div key={i} style={{ height: i === 0 ? 150 : 200, borderRadius: 14,
                                 background: `linear-gradient(90deg,${T.white},${T.parchment},${T.white})`,
                                 border: `1px solid ${T.line}` }} />
         ))}
@@ -86,25 +94,22 @@ export function StatePanel({ loading, error, retry, empty, emptyTitle, emptyMsg,
   if (error) {
     return (
       <Card style={{ textAlign: "center", padding: 40 }}>
-        <div style={{ fontFamily: font.body, fontSize: 13, color: T.secondary }}>
-          Couldn't load this view.</div>
-        <button onClick={retry} style={{ marginTop: 12, fontFamily: font.body, fontSize: 12.5,
-          fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`,
-          borderRadius: 8, padding: "6px 14px", cursor: "pointer" }}>Retry</button>
+        <div style={{ fontFamily: font.body, fontSize: 13, color: T.secondary }}>Couldn't load this view.</div>
+        <button onClick={retry} style={{ marginTop: 12, fontFamily: font.body, fontSize: 12.5, fontWeight: 600,
+          color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8,
+          padding: "6px 14px", cursor: "pointer" }}>Retry</button>
       </Card>
     );
   }
   if (empty) {
     return (
       <Card style={{ textAlign: "center", padding: 44 }}>
-        <div style={{ fontFamily: font.head, fontSize: 15, fontWeight: 600, color: T.ink }}>
-          {emptyTitle || "Nothing here yet"}</div>
-        <div style={{ fontFamily: font.body, fontSize: 13, color: T.muted, marginTop: 6 }}>
-          {emptyMsg}</div>
+        <div style={{ fontFamily: font.head, fontSize: 15, fontWeight: 600, color: T.ink }}>{emptyTitle || "Nothing here yet"}</div>
+        <div style={{ fontFamily: font.body, fontSize: 13, color: T.muted, marginTop: 6 }}>{emptyMsg}</div>
       </Card>
     );
   }
   return children;
 }
 
-export { usd };
+export { usd, T };

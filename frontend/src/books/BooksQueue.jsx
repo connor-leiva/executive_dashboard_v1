@@ -1,123 +1,125 @@
-/* Books · Queue — the bookkeeper's seat. Approve / recategorize / escalate each txn;
-   CFO characterizes intercompany escalations. Every action is recorded server-side. */
+/* Books · Queue — the bookkeeper's seat. Rows expand to Claude's reasoning + the actions
+   (approve / change category / escalate). CFO characterizes intercompany escalations. */
 import { useState } from "react";
-import { T } from "../theme.js";
 import { postJSON } from "../api";
 import { useBooksQueue } from "./useBooks.js";
-import { Card, Eyebrow, Pill, StatePanel, EntityChip, CHAR_LABEL, font, usd } from "./ui.jsx";
+import { Card, Eyebrow, Pill, StatePanel, EntityChip, ENTITY, CHAR_BY_LABEL, font, usd, T } from "./ui.jsx";
 
 const API = import.meta.env.VITE_API_BASE;
-const FLAG_LABEL = { over_band: "Unusual amount", first_vendor: "New vendor",
-  possible_1099: "Possible 1099", anomaly: "Anomaly", multi_line: "Split txn", intercompany: "Intercompany" };
+const FLAG_LABEL = { over_band: "Unusual amount", first_vendor: "New vendor", possible_1099: "Possible 1099",
+  anomaly: "Anomaly", multi_line: "Split txn", intercompany: "Intercompany" };
 
-async function mutate(path, body) {          // no-op in offline/sample mode
-  if (!API) return;
-  await postJSON(path, body || {});
-}
+async function mutate(path, body) { if (API) await postJSON(path, body || {}); }
+const flagsOf = (f) => Object.keys(f || {}).filter((k) => f[k]);
 
 function actionBtn(kind) {
-  const base = { fontFamily: font.body, fontSize: 12, fontWeight: 600, borderRadius: 8,
-                 padding: "6px 12px", cursor: "pointer" };
-  if (kind === "primary") return { ...base, color: T.onDark, background: T.evergreen, border: "none" };
-  return { ...base, color: T.slate, background: T.parchment, border: `1px solid ${T.line}` };
+  const base = { fontFamily: font.head, fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "8px 16px", cursor: "pointer" };
+  if (kind === "primary") return { ...base, color: T.white, background: T.meadow, border: "none" };
+  if (kind === "danger") return { ...base, color: T.poppyText, background: T.white, border: `1px solid ${T.line}` };
+  return { ...base, color: T.slate, background: T.white, border: `1px solid ${T.line}` };
 }
 
-function StatCard({ label, value }) {
+function StatCard({ label, value, color }) {
   return (
-    <Card style={{ flex: 1, minWidth: 140, padding: 16 }}>
-      <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>{label}</div>
-      <div style={{ fontFamily: font.head, fontSize: 24, fontWeight: 700, color: T.ink, marginTop: 3 }}>{value}</div>
+    <Card style={{ padding: "15px 17px" }}>
+      <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary, marginBottom: 7 }}>{label}</div>
+      <div style={{ fontFamily: font.head, fontSize: 23, fontWeight: 700, color: color || T.ink, fontVariantNumeric: "tabular-nums" }}>{value}</div>
     </Card>
   );
 }
 
-function QueueRow({ row, onDone }) {
+function QueueRow({ tx, open, onToggle, onDone }) {
   const [editing, setEditing] = useState(false);
-  const [cat, setCat] = useState(row.suggest || "");
+  const [cat, setCat] = useState(tx.suggest || "");
   const [busy, setBusy] = useState(false);
-
-  const run = async (fn) => { setBusy(true); try { await fn(); onDone(row.id); } finally { setBusy(false); } };
-
+  const run = async (fn) => { setBusy(true); try { await fn(); onDone(tx.id); } finally { setBusy(false); } };
   return (
-    <div style={{ padding: "14px 0", borderBottom: `1px solid ${T.line}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ minWidth: 220, flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: font.head, fontSize: 14.5, fontWeight: 600, color: T.ink }}>{row.vendor}</span>
-            <EntityChip k={row.entity} />
-            <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>{row.date} · {row.source}</span>
+    <div style={{ borderTop: `1px solid ${T.line}` }}>
+      <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14,
+        padding: "13px 4px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+        <span style={{ width: 44, fontFamily: font.body, fontSize: 11.5, color: T.muted, flexShrink: 0 }}>{tx.date}</span>
+        <span style={{ width: 132, flexShrink: 0 }}><EntityChip k={tx.entity} /></span>
+        <span style={{ flex: 1, fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink }}>{tx.vendor}</span>
+        {tx.suggest && <span style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 600, color: T.teal,
+          background: T.mist, borderRadius: 6, padding: "3px 9px", flexShrink: 0 }}>{tx.suggest}{tx.conf ? ` · ${tx.conf}` : ""}</span>}
+        <span style={{ width: 82, textAlign: "right", fontFamily: font.head, fontSize: 13.5, fontWeight: 600,
+          color: T.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{usd(tx.amount)}</span>
+        <span style={{ color: T.muted, fontSize: 12, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ background: T.parchment, borderRadius: 10, padding: "14px 16px", margin: "0 0 13px" }}>
+          {tx.reason && (
+            <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.secondary, lineHeight: 1.55 }}>
+              <span style={{ fontWeight: 700, color: T.ink }}>Claude's read: </span>{tx.reason}</div>
+          )}
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 7, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>Source: {tx.source}</span>
+            {flagsOf(tx.flags).map((k) => <Pill key={k} tone="warn">{FLAG_LABEL[k] || k}</Pill>)}
           </div>
-          <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.tertiary, marginTop: 5 }}>
-            Suggested: <strong style={{ color: T.secondary }}>{row.suggest || "—"}</strong>
-            {row.conf && <> · {row.conf} confidence</>}
-          </div>
-          {row.reason && <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 3 }}>{row.reason}</div>}
-          {row.flags && Object.keys(row.flags).some((k) => row.flags[k]) && (
-            <div style={{ display: "flex", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
-              {Object.keys(row.flags).filter((k) => row.flags[k]).map((k) => (
-                <Pill key={k} tone="warn">{FLAG_LABEL[k] || k}</Pill>
-              ))}
+          {editing ? (
+            <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap" }}>
+              <input value={cat} onChange={(e) => setCat(e.target.value)} placeholder="Account name"
+                style={{ flex: 1, minWidth: 200, fontFamily: font.body, fontSize: 13, color: T.ink, background: T.white,
+                  border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 11px" }} />
+              <button disabled={busy || !cat.trim()} style={actionBtn("primary")}
+                onClick={() => run(() => mutate(`/books/txn/${tx.id}/recategorize`, { category: cat.trim() }))}>Save</button>
+              <button style={actionBtn()} onClick={() => setEditing(false)}>Cancel</button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap" }}>
+              <button disabled={busy} style={actionBtn("primary")}
+                onClick={() => run(() => mutate(`/books/txn/${tx.id}/approve`))}>
+                Approve{tx.suggest ? ` as ${tx.suggest}` : ""}</button>
+              <button disabled={busy} style={actionBtn()} onClick={() => setEditing(true)}>Change category</button>
+              <button disabled={busy} style={actionBtn("danger")}
+                onClick={() => run(() => mutate(`/books/txn/${tx.id}/escalate`))}>Escalate to Connor</button>
             </div>
           )}
-        </div>
-        <div style={{ fontFamily: font.head, fontSize: 16, fontWeight: 700,
-                      color: row.amount < 0 ? T.ink : T.meadowInk, whiteSpace: "nowrap" }}>
-          {row.amount < 0 ? "(" + usd(row.amount) + ")" : usd(row.amount)}</div>
-      </div>
-
-      {editing ? (
-        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-          <input value={cat} onChange={(e) => setCat(e.target.value)} placeholder="Account name"
-            style={{ flex: 1, minWidth: 200, fontFamily: font.body, fontSize: 13, color: T.ink,
-                     background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px" }} />
-          <button disabled={busy || !cat.trim()} style={actionBtn("primary")}
-            onClick={() => run(() => mutate(`/books/txn/${row.id}/recategorize`, { category: cat.trim() }))}>
-            Save as “{cat.trim().slice(0, 24)}”</button>
-          <button style={actionBtn()} onClick={() => setEditing(false)}>Cancel</button>
-        </div>
-      ) : (
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <button disabled={busy} style={actionBtn("primary")}
-            onClick={() => run(() => mutate(`/books/txn/${row.id}/approve`))}>
-            Approve{row.suggest ? ` as ${row.suggest.slice(0, 22)}` : ""}</button>
-          <button disabled={busy} style={actionBtn()} onClick={() => setEditing(true)}>Recategorize</button>
-          <button disabled={busy} style={actionBtn()}
-            onClick={() => run(() => mutate(`/books/txn/${row.id}/escalate`))}>Escalate</button>
         </div>
       )}
     </div>
   );
 }
 
-function EscRow({ row, isCFO, onDone }) {
-  const [char, setChar] = useState("loan");
+function EscRow({ e, open, onToggle, onDone, isCFO }) {
   const [busy, setBusy] = useState(false);
-  const run = async () => { setBusy(true); try {
-    await mutate(`/books/ic/${row.id}/characterize`, { characterization: char }); onDone(row.id);
-  } finally { setBusy(false); } };
+  const resolve = async (label) => {
+    setBusy(true);
+    try { await mutate(`/books/ic/${e.id}/characterize`, { characterization: CHAR_BY_LABEL[label] || "loan" }); onDone(e.id); }
+    finally { setBusy(false); }
+  };
   return (
-    <div style={{ padding: "14px 0", borderBottom: `1px solid ${T.line}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontFamily: font.head, fontSize: 14.5, fontWeight: 600, color: T.ink }}>{row.label}</div>
-          <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 3 }}>{row.date} · {row.reason}</div>
+    <div style={{ borderTop: `1px solid ${T.line}` }}>
+      <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14,
+        padding: "13px 4px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+        <span style={{ width: 44, fontFamily: font.body, fontSize: 11.5, color: T.muted, flexShrink: 0 }}>{e.date}</span>
+        <span style={{ width: 9, height: 9, borderRadius: 99, background: T.poppy, flexShrink: 0 }} />
+        <span style={{ flex: 1, fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink }}>{e.label}</span>
+        <span style={{ fontFamily: font.body, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+          textTransform: "uppercase", color: T.poppyText, flexShrink: 0 }}>Intercompany · off-policy</span>
+        <span style={{ width: 82, textAlign: "right", fontFamily: font.head, fontSize: 13.5, fontWeight: 600,
+          color: T.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{usd(e.amount)}</span>
+        <span style={{ color: T.muted, fontSize: 12, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ background: T.parchment, borderRadius: 10, padding: "14px 16px", margin: "0 0 13px" }}>
+          <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.secondary, lineHeight: 1.55 }}>
+            <span style={{ fontWeight: 700, color: T.ink }}>Why it stopped: </span>{e.reason}</div>
+          {e.tax_note && <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.daffodilText, background: T.daffodilBg,
+            borderRadius: 7, padding: "7px 11px", marginTop: 10, lineHeight: 1.5 }}>{e.tax_note}</div>}
+          {isCFO ? (
+            <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap" }}>
+              {(e.options || []).map((o, i) => (
+                <button key={i} disabled={busy} onClick={() => resolve(o)} style={{ fontFamily: font.head, fontSize: 12.5,
+                  fontWeight: 600, color: i === 0 ? T.white : T.slate, background: i === 0 ? T.evergreen : T.white,
+                  border: i === 0 ? "none" : `1px solid ${T.line}`, borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>{o}</button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.muted, marginTop: 12 }}>
+              Awaiting CFO characterization — this is Connor's call.</div>
+          )}
         </div>
-        <div style={{ fontFamily: font.head, fontSize: 16, fontWeight: 700, color: T.poppyText }}>{usd(row.amount)}</div>
-      </div>
-      <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.daffodilText, background: T.daffodilBg,
-                    borderRadius: 8, padding: "7px 10px", marginTop: 8 }}>{row.tax_note}</div>
-      {isCFO ? (
-        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-          <select value={char} onChange={(e) => setChar(e.target.value)} style={{ fontFamily: font.body,
-            fontSize: 12.5, color: T.ink, background: T.white, border: `1px solid ${T.line}`,
-            borderRadius: 8, padding: "7px 10px" }}>
-            {Object.keys(CHAR_LABEL).map((k) => <option key={k} value={k}>{CHAR_LABEL[k]}</option>)}
-          </select>
-          <button disabled={busy} style={actionBtn("primary")} onClick={run}>Characterize</button>
-        </div>
-      ) : (
-        <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 8 }}>
-          Awaiting CFO characterization.</div>
       )}
     </div>
   );
@@ -125,35 +127,59 @@ function EscRow({ row, isCFO, onDone }) {
 
 export default function BooksQueue({ isCFO = false }) {
   const { data, loading, error, retry } = useBooksQueue();
+  const [tab, setTab] = useState("queue");
+  const [filter, setFilter] = useState("all");
+  const [openId, setOpenId] = useState(null);
   const [done, setDone] = useState(() => new Set());
-  const mark = (id) => setDone((d) => new Set(d).add(id));
+  const mark = (id) => { setDone((d) => new Set(d).add(id)); setOpenId(null); };
 
-  const approvals = (data?.approvals || []).filter((r) => !done.has(r.id));
+  const approvals = (data?.approvals || []).filter((r) => !done.has(r.id) && (filter === "all" || r.entity === filter));
   const escalations = (data?.escalations || []).filter((r) => !done.has(r.id));
 
   return (
     <StatePanel loading={loading} error={error} retry={retry}>
       {data && (
-        <div style={{ display: "grid", gap: 16 }}>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <StatCard label="Awaiting approval" value={data.stats?.awaiting ?? approvals.length} />
-            <StatCard label="Escalated to CFO" value={data.stats?.escalated ?? escalations.length} />
-            <StatCard label="Approved this week" value={data.stats?.approved_7d ?? 0} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14 }}>
+            <StatCard label="Awaiting approval" value={data.stats?.awaiting ?? approvals.length}
+              color={(data.stats?.awaiting ?? approvals.length) ? T.daffodilText : T.meadowInk} />
+            <StatCard label="Escalated to CFO" value={data.stats?.escalated ?? escalations.length}
+              color={(data.stats?.escalated ?? escalations.length) ? T.poppyText : T.meadowInk} />
+            <StatCard label="Approved this week" value={data.stats?.approved_7d ?? 0} color={T.meadowInk} />
           </div>
 
-          <Card>
-            <Eyebrow>Awaiting approval</Eyebrow>
-            {approvals.length === 0
-              ? <div style={{ fontFamily: font.body, fontSize: 13, color: T.muted, padding: "10px 0" }}>All clear — nothing waiting.</div>
-              : approvals.map((r) => <QueueRow key={r.id} row={r} onDone={mark} />)}
-          </Card>
+          <Card style={{ padding: "18px 22px 10px" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
+              {[["queue", `Approval queue · ${approvals.length}`], ["esc", `Escalations · ${escalations.length}`]].map(([k, l]) => (
+                <button key={k} onClick={() => setTab(k)} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                  color: tab === k ? T.ink : T.muted, background: tab === k ? T.parchment : "transparent", border: "none",
+                  borderBottom: tab === k ? `2px solid ${k === "esc" ? T.poppy : T.daffodilText}` : "2px solid transparent",
+                  borderRadius: "8px 8px 0 0", padding: "8px 14px", cursor: "pointer" }}>{l}</button>
+              ))}
+              <span style={{ flex: 1 }} />
+              {tab === "queue" && [["all", "All"], ...Object.entries(ENTITY).filter(([k]) => ["ulrg", "springb", "sympli"].includes(k)).map(([k, e]) => [k, e.label])].map(([k, l]) => (
+                <button key={k} onClick={() => setFilter(k)} style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 600,
+                  color: filter === k ? T.ink : T.muted, background: filter === k ? T.parchment : "transparent",
+                  border: `1px solid ${filter === k ? T.line : "transparent"}`, borderRadius: 99, padding: "5px 12px", cursor: "pointer" }}>{l}</button>
+              ))}
+            </div>
 
-          {escalations.length > 0 && (
-            <Card>
-              <Eyebrow>Escalations · CFO decision</Eyebrow>
-              {escalations.map((r) => <EscRow key={r.id} row={r} isCFO={isCFO} onDone={mark} />)}
-            </Card>
-          )}
+            {tab === "queue" && (approvals.length ? approvals.map((tx) => (
+              <QueueRow key={tx.id} tx={tx} open={openId === tx.id}
+                onToggle={() => setOpenId(openId === tx.id ? null : tx.id)} onDone={mark} />
+            )) : (
+              <div style={{ fontFamily: font.body, fontSize: 13, color: T.meadowInk, fontWeight: 600, padding: "26px 4px", borderTop: `1px solid ${T.line}` }}>
+                ✓ Queue clear — everything's approved and posted.</div>
+            ))}
+
+            {tab === "esc" && (escalations.length ? escalations.map((e) => (
+              <EscRow key={e.id} e={e} open={openId === e.id} isCFO={isCFO}
+                onToggle={() => setOpenId(openId === e.id ? null : e.id)} onDone={mark} />
+            )) : (
+              <div style={{ fontFamily: font.body, fontSize: 13, color: T.meadowInk, fontWeight: 600, padding: "26px 4px", borderTop: `1px solid ${T.line}` }}>
+                ✓ No escalations — intercompany is clean.</div>
+            ))}
+          </Card>
         </div>
       )}
     </StatePanel>

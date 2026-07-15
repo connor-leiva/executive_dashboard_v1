@@ -9,6 +9,7 @@ import AuditDrawer from "./AuditDrawer.jsx";
 import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
 import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
+import Books from "./books/Books.jsx";
 import Assistant from "./Assistant.jsx";
 import { SpringSignature, ribbedHero, Icon } from "./Brand.jsx";
 
@@ -993,12 +994,6 @@ function UserMenu({ user }) {
               <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{user?.name || "Account"}</div>
               {user?.email && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{user.email}</div>}
             </div>
-            {(!user?.tabs || user.tabs.includes("books")) && (
-              <Link to="/books" onClick={() => setOpen(false)} style={{
-                display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: T.ink,
-                textDecoration: "none", borderRadius: 6, padding: "8px 10px", marginTop: 4,
-              }}><span style={{ width: 15, display: "inline-flex", justifyContent: "center", color: T.meadow, fontSize: 11 }}>◆</span>Books</Link>
-            )}
             <Link to="/settings/integrations" onClick={() => setOpen(false)} style={{
               display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: T.ink,
               textDecoration: "none", borderRadius: 6, padding: "8px 10px", marginTop: 4,
@@ -1062,6 +1057,7 @@ const NAV = [
   { k: "becollective", label: "beCollective", dot: T.petal },
   { k: "sympli", label: "Sympli Mortgage", dot: T.teal },
   { k: "flywheel", label: "Referral Flywheel", dot: T.poppy, divide: true },
+  { k: "books", label: "Books", dot: T.mist },
 ];
 // nav key → permission tab (the Portfolio nav item is keyed "overview")
 const navTab = (k) => (k === "overview" ? "portfolio" : k);
@@ -1129,6 +1125,7 @@ export default function CommandCenter() {
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
+  else if (activeView === "books") content = <Books period={periodKey} role={user?.role} />;
 
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>

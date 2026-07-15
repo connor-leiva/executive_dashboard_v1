@@ -1,83 +1,53 @@
-/* Books — the bookkeeping module shell. Mounted at /books/* (mirrors Settings): a header
-   + sub-nav + nested Routes for Home / P&L / Queue / Intercompany. */
-import { useEffect, useState } from "react";
-import { Routes, Route, Navigate, NavLink, Link } from "react-router-dom";
-import { T } from "../theme.js";
-import { getJSON } from "../api";
-import { font } from "./ui.jsx";
+/* Books — the bookkeeping module, rendered as a Command Center view (a side-nav tab).
+   Header + sub-nav + the active page, all internal state (mirrors the mockup). */
+import { useState } from "react";
+import { useBooksHome } from "./useBooks.js";
 import BooksHome from "./BooksHome.jsx";
 import BooksPL from "./BooksPL.jsx";
 import BooksQueue from "./BooksQueue.jsx";
 import BooksIC from "./BooksIC.jsx";
+import { font, T } from "./ui.jsx";
 
-const API = import.meta.env.VITE_API_BASE;
-const PERIODS = [["mtd", "This month"], ["qtd", "Quarter"], ["ytd", "Year"], ["last_month", "Last month"]];
-const SUBNAV = [["/books", "Home", true], ["/books/pl", "P&L"], ["/books/queue", "Queue"], ["/books/intercompany", "Intercompany"]];
+const PAGE_TITLE = { home: null, pl: "Profit & loss", queue: "Approval queue", ic: "Intercompany" };
 
-function PeriodSelector({ period, setPeriod }) {
+function SubNav({ page, setPage, counts }) {
+  const items = [["home", "Home"], ["pl", "P&L"],
+    ["queue", `Queue${counts.queue ? ` · ${counts.queue}` : ""}`],
+    ["ic", `Intercompany${counts.ic ? ` · ${counts.ic}` : ""}`]];
   return (
-    <div style={{ display: "inline-flex", gap: 3, background: T.white, border: `1px solid ${T.line}`,
-                  borderRadius: 9, padding: 3 }}>
-      {PERIODS.map(([k, label]) => (
-        <button key={k} onClick={() => setPeriod(k)} style={{ fontFamily: font.body, fontSize: 12,
-          fontWeight: 600, cursor: "pointer", borderRadius: 7, padding: "5px 10px", border: "none",
-          color: period === k ? T.ink : T.muted, background: period === k ? T.parchment : "transparent" }}>
-          {label}</button>
+    <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
+      {items.map(([k, l]) => (
+        <button key={k} onClick={() => setPage(k)} style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
+          color: page === k ? T.ink : T.muted, background: "transparent", border: "none",
+          borderBottom: page === k ? `2.5px solid ${T.meadow}` : "2.5px solid transparent",
+          padding: "9px 15px 11px", cursor: "pointer", marginBottom: -1 }}>{l}</button>
       ))}
     </div>
   );
 }
 
-function Shell({ period, setPeriod, children }) {
+export default function Books({ period = "mtd", role }) {
+  const [page, setPage] = useState("home");
+  const home = useBooksHome(period);
+  const isCFO = !role || role === "owner" || role === "admin";
+  const counts = {
+    queue: home.data?.tiles?.queue?.count || 0,
+    ic: home.data?.tiles?.ic?.open || 0,
+  };
   return (
-    <div style={{ minHeight: "100vh", background: T.parchment }}>
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "26px 24px 60px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <Link to="/" style={{ fontFamily: font.body, fontSize: 12.5, color: T.muted, textDecoration: "none" }}>
-              ← Command Center</Link>
-            <div style={{ fontFamily: font.head, fontSize: 25, fontWeight: 700, color: T.ink, marginTop: 4 }}>
-              Acumyn Books</div>
-            <div style={{ fontFamily: font.body, fontSize: 13, color: T.muted, marginTop: 2 }}>
-              The books, run — captured, categorized, approved, closed.</div>
-          </div>
-          <PeriodSelector period={period} setPeriod={setPeriod} />
-        </div>
-
-        <div style={{ display: "flex", gap: 6, margin: "20px 0 22px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap" }}>
-          {SUBNAV.map(([to, label, end]) => (
-            <NavLink key={to} to={to} end={end} style={({ isActive }) => ({
-              fontFamily: font.body, fontSize: 13.5, fontWeight: isActive ? 700 : 500,
-              color: isActive ? T.ink : T.slate, textDecoration: "none", padding: "8px 12px",
-              borderBottom: `2px solid ${isActive ? T.evergreen : "transparent"}`, marginBottom: -1 })}>
-              {label}</NavLink>
-          ))}
-        </div>
-
-        {children}
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
+        <span style={{ width: 5, height: 28, borderRadius: 3, background: T.meadow }} />
+        <span style={{ fontFamily: font.head, fontSize: 22, fontWeight: 600, color: T.ink }}>
+          Books{PAGE_TITLE[page] && <span style={{ color: T.muted, fontWeight: 500 }}> / {PAGE_TITLE[page]}</span>}</span>
       </div>
+
+      <SubNav page={page} setPage={setPage} counts={counts} />
+
+      {page === "home" && <BooksHome home={home} go={setPage} isCFO={isCFO} />}
+      {page === "pl" && <BooksPL period={period} />}
+      {page === "queue" && <BooksQueue isCFO={isCFO} />}
+      {page === "ic" && <BooksIC isCFO={isCFO} />}
     </div>
-  );
-}
-
-export default function Books() {
-  const [role, setRole] = useState(API ? null : "owner");
-  const [period, setPeriod] = useState("mtd");
-  useEffect(() => {
-    if (!API) return;
-    getJSON("/me").then((m) => setRole(m.role)).catch(() => setRole("member"));
-  }, []);
-  const isCFO = role === "owner" || role === "admin";
-
-  return (
-    <Shell period={period} setPeriod={setPeriod}>
-      <Routes>
-        <Route index element={<BooksHome period={period} />} />
-        <Route path="pl" element={<BooksPL period={period} />} />
-        <Route path="queue" element={<BooksQueue isCFO={isCFO} />} />
-        <Route path="intercompany" element={<BooksIC isCFO={isCFO} />} />
-        <Route path="*" element={<Navigate to="/books" replace />} />
-      </Routes>
-    </Shell>
   );
 }
