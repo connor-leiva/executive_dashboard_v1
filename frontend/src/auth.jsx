@@ -4,6 +4,7 @@ import { T } from "./theme.js";
 import { login, hasToken } from "./api.js";
 import CommandCenter from "./CommandCenter.jsx";
 import Settings from "./Settings.jsx";
+import Books from "./books/Books.jsx";
 import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
 import { SpringSignature } from "./Brand.jsx";
 
@@ -106,6 +107,7 @@ export function App() {
           <>
             <Route path="/" element={<CommandCenter />} />
             <Route path="/settings/*" element={<Settings />} />
+            <Route path="/books/*" element={<Books />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </>
         )}

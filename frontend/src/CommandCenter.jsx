@@ -993,6 +993,12 @@ function UserMenu({ user }) {
               <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{user?.name || "Account"}</div>
               {user?.email && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{user.email}</div>}
             </div>
+            {(!user?.tabs || user.tabs.includes("books")) && (
+              <Link to="/books" onClick={() => setOpen(false)} style={{
+                display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: T.ink,
+                textDecoration: "none", borderRadius: 6, padding: "8px 10px", marginTop: 4,
+              }}><span style={{ width: 15, display: "inline-flex", justifyContent: "center", color: T.meadow, fontSize: 11 }}>◆</span>Books</Link>
+            )}
             <Link to="/settings/integrations" onClick={() => setOpen(false)} style={{
               display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: T.ink,
               textDecoration: "none", borderRadius: 6, padding: "8px 10px", marginTop: 4,
