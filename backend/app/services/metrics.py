@@ -883,6 +883,16 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             sources=["Go High Level"], revenue=None, noi=None, margin=None,
             trend=sb.trend, pl=[], ops=[], funnel=None)
 
+        # Springb's own P&L defaults to the forum view (above). If it's been re-routed
+        # to another page, move its financial there and leave forum's financial empty
+        # (the operational forum view stays). Default (forum) path is untouched.
+        fin_tab = (sbiz.display_tab if sbiz else None) or "forum"
+        if fin_tab != "forum" and fin_tab in areas and sb.revenue is not None:
+            areas[fin_tab] = areas[fin_tab].model_copy(update={
+                "revenue": sb.revenue, "noi": sb.noi, "margin": sb.margin, "pl": sb.pl})
+            areas["forum"] = areas["forum"].model_copy(update={
+                "revenue": None, "noi": None, "margin": None, "pl": []})
+
     # Route a financial entity (a QBO account connected to another page) onto its
     # display_tab area: merge its P&L into that page, or open the page if brand-new.
     # The operational holder (springb) is already split above — its area is popped, so
