@@ -207,11 +207,34 @@ async def _sympli_financials(s, tenant_id, business, period, start, end, is_curr
     }
 
 
+async def _membership_financials(s, tenant_id, business, period, start, end, is_current) -> dict:
+    """A membership / holding entity (The Forum, beCollective, a coaching co) keeps its
+    books in QuickBooks and has no Sisu deal pipeline or Arive loan lens — so Live and
+    Projection don't apply. The QBO Booked P&L is the whole story; render it alone rather
+    than a nonsensical real-estate view off zero transactions."""
+    b = await _booked_lens(s, tenant_id, business.id, period)
+    booked = _booked_rows(b)
+    return {
+        "period": {"label": period.upper(), "start": start.isoformat(), "end": end.isoformat(),
+                   "is_current": is_current},
+        "expense_run_rate": 0.0, "expense_run_rate_source": "n/a",
+        "expense_months": 1, "period_expenses": 0.0,
+        "lenses": {
+            "booked": {**booked, "tag": "QuickBooks",
+                       "desc": f"{business.name}'s booked P&L for the period."},
+        },
+        "reconciliation": None,
+    }
+
+
 async def compute_financials(s: AsyncSession, tenant_id, business: Business, period: str) -> dict:
     start, end, is_current = _period(period)
     # Sympli's Live/Projection come from Arive loan commissions, not Sisu deals.
     if business.key == "sympli":
         return await _sympli_financials(s, tenant_id, business, period, start, end, is_current)
+    # Membership / holding entities are Booked-only (no deal or loan pipeline).
+    if business.kind in ("membership", "holding"):
+        return await _membership_financials(s, tenant_id, business, period, start, end, is_current)
     proj_end = _projection_end(period, start, end)
     run_rate, rr_src = await expense_run_rate(s, tenant_id, business, end)
     months = _period_months(period, start, end)

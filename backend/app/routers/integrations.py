@@ -2,15 +2,18 @@ import uuid
 import json
 import datetime as dt
 
+import re
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_session, SessionLocal
 from ..deps import current_user, require_role
-from ..models import User, Integration, Business, SyncRun, MetricRecord
+from ..models import (User, Integration, Business, SyncRun, MetricRecord,
+                      PLSnapshot, PLLine, BookTxn, ICLink, ClosePeriod)
 from ..services.audit import audit
 from ..security import enc, dec, make_token, read_token
 from ..integrations import qbo, stripe_legacy
@@ -196,8 +199,25 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
     return {"id": str(integ.id)}
 
 
+async def _cleanup_books_for_business(s: AsyncSession, tenant_id, business_id, purge: bool):
+    """When a QBO entity is disconnected/removed, clear its OPEN (non-tied) intercompany
+    links so they stop counting as blocking the close. With purge=True, also delete its
+    ledger / P&L / close rows (history is otherwise retained, matching the UI copy)."""
+    await s.execute(delete(ICLink).where(
+        ICLink.tenant_id == tenant_id, ICLink.status != "tied",
+        (ICLink.from_business_id == business_id) | (ICLink.to_business_id == business_id)))
+    if purge:
+        for model in (BookTxn, PLLine, PLSnapshot, ClosePeriod):
+            await s.execute(delete(model).where(
+                model.tenant_id == tenant_id, model.business_id == business_id))
+        await s.execute(delete(ICLink).where(
+            ICLink.tenant_id == tenant_id,
+            (ICLink.from_business_id == business_id) | (ICLink.to_business_id == business_id)))
+
+
 @router.post("/integrations/{integ_id}/disconnect")
-async def disconnect(integ_id: uuid.UUID, user: User = Depends(require_role("owner", "admin")),
+async def disconnect(integ_id: uuid.UUID, purge: bool = Query(False),
+                     user: User = Depends(require_role("owner", "admin")),
                      s: AsyncSession = Depends(get_session)):
     integ = (await s.execute(select(Integration).where(
         Integration.id == integ_id, Integration.tenant_id == user.tenant_id))).scalar_one_or_none()
@@ -208,8 +228,123 @@ async def disconnect(integ_id: uuid.UUID, user: User = Depends(require_role("own
     integ.access_token_enc = None
     integ.refresh_token_enc = None
     integ.last_error = None
+    if integ.provider == "qbo":
+        await _cleanup_books_for_business(s, user.tenant_id, integ.business_id, purge)
     audit(s, user.tenant_id, user.id, "integration.disconnected", "integration", integ.id,
-          {"provider": integ.provider})
+          {"provider": integ.provider, "purged": purge})
+    await s.commit()
+    return {"ok": True, "purged": purge}
+
+
+# ── QBO entity lifecycle (self-service: create / re-route / remove) ──────────
+_KINDS = ("real_estate", "commission_jv", "membership", "holding")
+
+
+def _slugify(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
+    return (slug or "entity")[:28]
+
+
+async def _unique_key(s: AsyncSession, tenant_id, base: str) -> str:
+    key, i = base, 1
+    while (await s.execute(select(Business.id).where(
+            Business.tenant_id == tenant_id, Business.key == key))).scalar_one_or_none():
+        key, i = f"{base}_{i}"[:32], i + 1
+    return key
+
+
+@router.post("/integrations/qbo/entities")
+async def create_qbo_entity(body: dict, user: User = Depends(require_role("owner", "admin")),
+                            s: AsyncSession = Depends(get_session)):
+    """Create a routable QBO entity (a Business row) so the user can then connect its
+    QuickBooks company and pick which page its P&L renders on. Returns the new
+    business_key; the SPA follows with GET /integrations/qbo/connect?business_key=."""
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "A name is required.")
+    kind = body.get("kind") or "membership"
+    if kind not in _KINDS:
+        raise HTTPException(400, "Unknown entity kind.")
+    key = await _unique_key(s, user.tenant_id, _slugify(name))
+    destination = (body.get("display_tab") or "").strip() or key   # route to a page; default = own page
+    max_so = (await s.execute(select(func.coalesce(func.max(Business.sort_order), 0)).where(
+        Business.tenant_id == user.tenant_id))).scalar() or 0
+    cfg = {"books_enabled": bool(body.get("books_enabled", True)), "books_onboarding": True}
+    if body.get("books_backfill_start"):
+        cfg["books_backfill_start"] = str(body["books_backfill_start"])
+    biz = Business(
+        tenant_id=user.tenant_id, key=key, name=name, tag=(body.get("tag") or "QuickBooks entity"),
+        kind=kind, display_tab=destination, include_in_portfolio=bool(body.get("include_in_portfolio", True)),
+        accent=(body.get("accent") or "#227175"), ink=(body.get("ink") or "#227175"),
+        sort_order=max_so + 1, config=cfg)
+    s.add(biz)
+    await s.flush()
+    audit(s, user.tenant_id, user.id, "qbo_entity.created", "business", biz.id,
+          {"key": key, "display_tab": destination, "kind": kind})
+    await s.commit()
+    return {"business_key": key, "display_tab": destination}
+
+
+@router.patch("/integrations/qbo/entities/{business_key}")
+async def update_qbo_entity(business_key: str, body: dict,
+                            user: User = Depends(require_role("owner", "admin")),
+                            s: AsyncSession = Depends(get_session)):
+    """Edit / re-route a QBO entity. Changes ONLY presentation + routing (display_tab,
+    portfolio inclusion, brand, Books toggle) — never business_id/realm, so its already-
+    synced ledger rows stay correctly keyed (a business_id move would strand BookTxns)."""
+    biz = (await s.execute(select(Business).where(
+        Business.tenant_id == user.tenant_id, Business.key == business_key))).scalar_one_or_none()
+    if not biz:
+        raise HTTPException(404, "Unknown entity")
+    if body.get("name"):
+        biz.name = body["name"].strip()
+    if body.get("tag"):
+        biz.tag = body["tag"].strip()
+    for c in ("accent", "ink"):
+        if body.get(c):
+            setattr(biz, c, body[c])
+    if "display_tab" in body:
+        biz.display_tab = (body["display_tab"] or "").strip() or biz.key
+    if "include_in_portfolio" in body:
+        biz.include_in_portfolio = bool(body["include_in_portfolio"])
+    if "kind" in body:
+        if body["kind"] not in _KINDS:
+            raise HTTPException(400, "Unknown entity kind.")
+        biz.kind = body["kind"]
+    if any(k in body for k in ("books_enabled", "books_onboarding", "books_backfill_start")):
+        cfg = dict(biz.config or {})
+        for k in ("books_enabled", "books_onboarding"):
+            if k in body:
+                cfg[k] = bool(body[k])
+        if "books_backfill_start" in body:
+            cfg["books_backfill_start"] = str(body["books_backfill_start"]) or None
+        biz.config = cfg
+    audit(s, user.tenant_id, user.id, "qbo_entity.updated", "business", biz.id,
+          {"key": biz.key, "display_tab": biz.display_tab, "include_in_portfolio": biz.include_in_portfolio})
+    await s.commit()
+    return {"ok": True}
+
+
+@router.delete("/integrations/qbo/entities/{business_key}")
+async def delete_qbo_entity(business_key: str, user: User = Depends(require_role("owner", "admin")),
+                            s: AsyncSession = Depends(get_session)):
+    """Remove a QBO entity entirely: its Business row, its QBO Integration, and all of
+    its ledger / P&L / intercompany rows. The three seeded core businesses are protected."""
+    if business_key in ("ulrg", "springb", "sympli"):
+        raise HTTPException(400, "Core businesses can't be removed here.")
+    biz = (await s.execute(select(Business).where(
+        Business.tenant_id == user.tenant_id, Business.key == business_key))).scalar_one_or_none()
+    if not biz:
+        raise HTTPException(404, "Unknown entity")
+    bid = biz.id
+    integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == user.tenant_id, Integration.provider == "qbo",
+        Integration.business_id == bid))).scalar_one_or_none()
+    await _cleanup_books_for_business(s, user.tenant_id, bid, purge=True)
+    if integ:
+        await s.delete(integ)
+    await s.delete(biz)
+    audit(s, user.tenant_id, user.id, "qbo_entity.deleted", "business", bid, {"key": business_key})
     await s.commit()
     return {"ok": True}
 

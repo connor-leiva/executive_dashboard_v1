@@ -593,13 +593,16 @@ async def _funnel(s, tenant_id, business_id, start, end) -> list[FunnelRow]:
 
 
 async def _mom(s, tenant_id, current_rev: float) -> float | None:
-    """Portfolio revenue % change vs the prior month, from PLSnapshots."""
+    """Portfolio revenue % change vs the prior month, from PLSnapshots (portfolio
+    entities only, so it matches the gated current_rev)."""
     prior_start, prior_end = _period_range("last_month")
     prior = (await s.execute(
-        select(func.coalesce(func.sum(PLSnapshot.revenue), 0)).where(
+        select(func.coalesce(func.sum(PLSnapshot.revenue), 0))
+        .join(Business, Business.id == PLSnapshot.business_id).where(
             PLSnapshot.tenant_id == tenant_id,
             PLSnapshot.period_start == prior_start,
-            PLSnapshot.period_end == prior_end)
+            PLSnapshot.period_end == prior_end,
+            Business.include_in_portfolio.is_(True))
     )).scalar() or 0
     prior = float(prior)
     if not prior:
@@ -831,8 +834,9 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             rev, noi = float(pl_row.revenue), float(pl_row.noi)
             margin = round(noi / rev * 100) if rev else 0
             pl = _pl_rows(pl_row, b)
-            portfolio_rev += rev
-            portfolio_noi += noi
+            if b.include_in_portfolio:      # operational-only holders don't roll up (avoids double-count)
+                portfolio_rev += rev
+                portfolio_noi += noi
         else:
             rev = noi = margin = None
             pl = []
@@ -879,16 +883,46 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             sources=["Go High Level"], revenue=None, noi=None, margin=None,
             trend=sb.trend, pl=[], ops=[], funnel=None)
 
-    # Composition (only when financials are present).
+    # Route a financial entity (a QBO account connected to another page) onto its
+    # display_tab area: merge its P&L into that page, or open the page if brand-new.
+    # The operational holder (springb) is already split above — its area is popped, so
+    # this loop skips it (src is None); own-key businesses stay where they are.
+    for b in businesses:
+        tab = b.display_tab or b.key
+        if tab == b.key:
+            continue
+        src = areas.pop(b.key, None)
+        if src is None:
+            continue
+        dst = areas.get(tab)
+        if dst is None:                                 # routed to a brand-new page
+            areas[tab] = src.model_copy(update={"key": tab})
+        elif src.revenue is not None:                   # merge financials into the existing page
+            rev = (dst.revenue or 0.0) + src.revenue
+            noi = (dst.noi or 0.0) + (src.noi or 0.0)
+            areas[tab] = dst.model_copy(update={
+                "revenue": rev or None, "noi": noi or None,
+                "margin": round(noi / rev * 100) if rev else None,
+                "pl": (dst.pl or []) + (src.pl or [])})
+
+    # Composition — one segment per portfolio page (largest first). Dedupe by page so
+    # several entities routed to one page count once; the first (by sort_order) names it.
     composition: list[CompositionSeg] = []
     if have_financials and portfolio_rev:
-        order = [k for k in ("ulrg", "sympli", "forum") if k in areas]
-        for k in order:
-            a = areas[k]
-            if a.revenue:
-                composition.append(CompositionSeg(
-                    key=k, name="Spring B" if k == "forum" else a.name, revenue=a.revenue,
-                    pct=round(a.revenue / portfolio_rev * 100, 1), accent=a.accent))
+        segs, seen = [], set()
+        for b in businesses:
+            tab = b.display_tab or b.key
+            if not b.include_in_portfolio or tab in seen:
+                continue
+            a = areas.get(tab)
+            if a and a.revenue:
+                seen.add(tab)
+                segs.append((b, a))
+        segs.sort(key=lambda ba: ba[1].revenue, reverse=True)
+        composition = [CompositionSeg(
+            key=a.key, name=b.name, revenue=a.revenue,
+            pct=round(a.revenue / portfolio_rev * 100, 1), accent=a.accent)
+            for b, a in segs]
 
     portfolio_margin = round(portfolio_noi / portfolio_rev * 100) if portfolio_rev else 0
     mom = await _mom(s, tenant_id, portfolio_rev) if (period == "mtd" and portfolio_rev) else None

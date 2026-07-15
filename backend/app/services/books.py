@@ -134,11 +134,18 @@ async def build_books_home(s, tenant_id, period="mtd", today=None) -> dict:
     q_count = (await s.execute(select(func.count(BookTxn.id)).where(
         BookTxn.tenant_id == tenant_id, BookTxn.scan_state == "needs_approval"))).scalar_one()
 
-    # IC tile — open (untied) links
+    # IC tile — open (untied) links. A newly-connected entity (books_onboarding) still
+    # shows its escalations, but they don't count as blocking the close until the CFO has
+    # activated the real intercompany rules for it (avoids a fresh realm freezing close).
     open_links = (await s.execute(select(ICLink).where(
         ICLink.tenant_id == tenant_id, ICLink.status.in_(_OPEN_IC))
         .order_by(ICLink.amount.desc()))).scalars().all()
-    blocking = any(l.status in ("unmatched", "escalated") for l in open_links)
+    onboarding_ids = {b.id for b in (await _biz_map(s, tenant_id)).values()
+                      if (b.config or {}).get("books_onboarding")}
+    blocking = any(l.status in ("unmatched", "escalated")
+                   and l.from_business_id not in onboarding_ids
+                   and l.to_business_id not in onboarding_ids
+                   for l in open_links)
 
     rv = await _latest_review(s, tenant_id, ps)
     close = await _close_tiles(s, tenant_id, ps)

@@ -199,6 +199,8 @@ class EntityRow(BaseModel):
     last_synced_at: str | None = None
     realm_id: str | None = None
     detail: str | None = None     # e.g. "Token expired Jun 29"
+    display_tab: str | None = None   # the page this entity's P&L routes to (for the edit UI)
+    books_enabled: bool = True       # whether it flows into the Books module
 
 
 class SourceOut(BaseModel):
