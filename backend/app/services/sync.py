@@ -1047,6 +1047,9 @@ async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, peri
         Integration.status.in_(("connected", "error"))))).scalars().all()
     for integ in integs:
         await _sync_integration(s, tenant_id, integ, period_start, period_end)
+    if any(i.provider == "qbo" for i in integs):       # Books deterministic scan after txn sync
+        from .books_scan import run_scan
+        await run_scan(s, tenant_id)
 
 
 async def run_one(s: AsyncSession, tenant_id: uuid.UUID, integ_id, period_start: str, period_end: str):
@@ -1054,3 +1057,6 @@ async def run_one(s: AsyncSession, tenant_id: uuid.UUID, integ_id, period_start:
         Integration.id == integ_id, Integration.tenant_id == tenant_id))).scalar_one_or_none()
     if integ:
         await _sync_integration(s, tenant_id, integ, period_start, period_end)
+        if integ.provider == "qbo":
+            from .books_scan import run_scan
+            await run_scan(s, tenant_id)
