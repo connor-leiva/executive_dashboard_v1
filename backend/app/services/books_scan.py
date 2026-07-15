@@ -12,13 +12,15 @@ Writes ONLY to Acumyn tables (book_txn, ic_link) — never to QuickBooks. Two pa
 Pass 3 (Claude, the ambiguous remainder) is Step 4 and leaves rows 'pending' here.
 """
 import datetime as dt
+import json
 from collections import Counter
 from decimal import Decimal
 
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import BookTxn, ICLink, ICRule, Business
+from ..config import settings
+from ..models import BookTxn, PLLine, ICLink, ICRule, Business
 
 _HISTORY_STATES = ("cleared", "approved", "posted")
 IC_CHARACTERIZATIONS = {"loan", "distribution", "contribution", "shared_expense", "rent", "payroll_alloc"}
@@ -219,7 +221,191 @@ async def run_scan(s: AsyncSession, tenant_id, today=None) -> dict:
     print(f"books_scan deterministic seen={len(pending)} cleared={tally['cleared']} "
           f"needs_approval={tally['needs_approval']} escalated={tally['escalated']} "
           f"pending={tally['pending']}", flush=True)
+
+    if _claude_enabled():                               # Pass 3: the ambiguous remainder
+        c = await run_claude_pass(s, tenant_id, today, history_idx=history_idx)
+        tally["cleared"] += c["cleared"]
+        tally["needs_approval"] += c["needs_approval"]
+        tally["pending"] -= (c["cleared"] + c["needs_approval"])
     return tally
+
+
+# ── Pass 3: Claude categorization of the ambiguous remainder (SPEC 3.3) ────────
+# Behind config (BOOKS_SCAN_CLAUDE_ENABLED + a key). Claude suggests a category from the
+# business chart of accounts and flags anomalies; it NEVER posts to QuickBooks and never
+# has the last word — every output routes to `cleared` (only when it confirms the existing
+# category with high confidence) or `needs_approval` (a human decides). This module imports
+# nothing from the QBO write path (Part 7 invariant #6).
+_client_obj = None
+
+
+def _claude_enabled() -> bool:
+    return bool(settings.ANTHROPIC_API_KEY) and settings.BOOKS_SCAN_CLAUDE_ENABLED
+
+
+def _client():
+    global _client_obj
+    if _client_obj is None:
+        from anthropic import AsyncAnthropic
+        _client_obj = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    return _client_obj
+
+
+def _text_of(resp) -> str:
+    return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
+
+
+async def _coa_for(s, tenant_id, business_id) -> list[dict]:
+    """The categorization universe for a business — its P&L accounts (name + section as
+    type), from the synced PLLine detail. Claude may only suggest from this list."""
+    rows = (await s.execute(select(PLLine.label, PLLine.section).where(
+        PLLine.tenant_id == tenant_id, PLLine.business_id == business_id).distinct())).all()
+    return [{"account": label, "type": section} for label, section in rows]
+
+
+def _history_digest(history_idx, batch) -> list[dict]:
+    """payee -> (modal category, count, amount band) for the payees in this batch."""
+    out, seen = [], set()
+    for t in batch:
+        key = (t.business_id, _norm(t.payee))
+        if not t.payee or key in seen:
+            continue
+        seen.add(key)
+        rows = history_idx.get(key, [])
+        labels = [r.account_label for r in rows if r.account_label]
+        if not labels:
+            continue
+        amts = [abs(float(r.amount)) for r in rows]
+        out.append({"payee": t.payee, "modal_category": Counter(labels).most_common(1)[0][0],
+                    "count": len(rows), "amount_band": [round(min(amts), 2), round(max(amts), 2)]})
+    return out
+
+
+def _scan_system_prompt(biz, coa, digest) -> str:
+    name = biz.name if biz else "the business"
+    return (
+        f"You are a bookkeeping assistant categorizing transactions for {name}. Suggest a "
+        f"category for each transaction, choosing ONLY from this chart of accounts (never "
+        f"invent an account):\n{json.dumps(coa, separators=(',', ':'))}\n\n"
+        f"Vendor history (payee -> the category it is usually booked to, count, amount band):\n"
+        f"{json.dumps(digest, separators=(',', ':'))}\n\n"
+        f"For each transaction in the user's JSON array, return a JSON array (and NOTHING "
+        f"else) of objects: {{\"id\", \"category\" (from the chart above), \"confidence\" "
+        f"(0-1), \"reason\" (one short sentence), \"flags\": {{\"anomaly\", \"first_vendor\", "
+        f"\"over_band\", \"possible_1099\"}}}}. Set a flag true only when it applies: "
+        f"first_vendor (payee not in the history), over_band (amount far outside the vendor's "
+        f"band), possible_1099 (a contractor paid by ACH/check), anomaly (anything else off). "
+        f"Prefer the vendor's historical category when one exists; keep current_category when "
+        f"it already looks right. Strict JSON only, exactly one object per input id."
+    )
+
+
+def _parse_scan_json(text: str) -> dict:
+    """Defensively parse the model's JSON array into {id: item}. A malformed response
+    yields {} (every txn then falls back to needs_approval)."""
+    if not text:
+        return {}
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        if t[:4].lower() == "json":
+            t = t[4:]
+    try:
+        arr = json.loads(t[t.index("["):t.rindex("]") + 1])
+    except (ValueError, json.JSONDecodeError):
+        return {}
+    return {str(it["id"]): it for it in arr
+            if isinstance(it, dict) and it.get("id") is not None}
+
+
+def _route_batch(batch, parsed) -> tuple[int, int]:
+    """Apply the model's suggestions. Clear ONLY when confidence >= threshold AND the
+    suggested category equals the txn's current account_label AND no anomaly flags — else
+    needs_approval. Malformed/missing item -> needs_approval, suggestion=None."""
+    thr = settings.BOOKS_CONF_THRESHOLD
+    cleared = needs = 0
+    for t in batch:
+        item = parsed.get(str(t.id))
+        if not isinstance(item, dict) or "category" not in item:
+            t.scan_state, t.suggestion = "needs_approval", None
+            needs += 1
+            continue
+        try:
+            conf = float(item.get("confidence") or 0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        cat = item.get("category")
+        flags = item.get("flags") if isinstance(item.get("flags"), dict) else {}
+        anomaly = any(bool(v) for v in flags.values())
+        t.suggestion = {"category": cat, "account_qbo_id": None, "confidence": conf,
+                        "reason": item.get("reason") or ""}
+        set_flags = {k: True for k, v in flags.items() if v}
+        if set_flags:
+            t.flags = {**(t.flags or {}), **set_flags}
+        if conf >= thr and cat == (t.account_label or "") and not anomaly:
+            t.scan_state = "cleared"
+            cleared += 1
+        else:
+            t.scan_state = "needs_approval"
+            needs += 1
+    return cleared, needs
+
+
+async def _claude_call(client, model, system, user) -> str:
+    """The single network seam (tests monkeypatch this). Returns the model's raw text."""
+    resp = await client.messages.create(
+        model=model, max_tokens=settings.BOOKS_SCAN_MAX_TOKENS, system=system,
+        thinking={"type": "disabled"}, messages=[{"role": "user", "content": user}])
+    return _text_of(resp)
+
+
+async def run_claude_pass(s: AsyncSession, tenant_id, today=None, history_idx=None) -> dict:
+    """Send the still-pending remainder to Claude in per-business batches and route the
+    results. No-op (skipped) unless a key is set AND BOOKS_SCAN_CLAUDE_ENABLED."""
+    if not _claude_enabled():
+        return {"skipped": True, "cleared": 0, "needs_approval": 0}
+    today = today or dt.date.today()
+    if history_idx is None:
+        history_idx = await _load_history_index(s, tenant_id, today)
+    businesses = {b.id: b for b in (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id))).scalars().all()}
+    pending = (await s.execute(select(BookTxn).where(
+        BookTxn.tenant_id == tenant_id, BookTxn.scan_state == "pending")
+        .order_by(BookTxn.txn_date.asc(), BookTxn.id.asc()))).scalars().all()
+    if not pending:
+        return {"skipped": False, "cleared": 0, "needs_approval": 0}
+
+    by_biz: dict = {}
+    for t in pending:
+        by_biz.setdefault(t.business_id, []).append(t)
+
+    client, model = _client(), (settings.BOOKS_SCAN_MODEL or settings.ASSISTANT_MODEL)
+    batch_size = settings.BOOKS_SCAN_BATCH
+    totals = {"skipped": False, "cleared": 0, "needs_approval": 0}
+    for bid, txns in by_biz.items():
+        biz = businesses.get(bid)
+        coa = await _coa_for(s, tenant_id, bid)
+        for i in range(0, len(txns), batch_size):
+            batch = txns[i:i + batch_size]
+            system = _scan_system_prompt(biz, coa, _history_digest(history_idx, batch))
+            user = json.dumps([{
+                "id": str(t.id), "date": t.txn_date.isoformat() if t.txn_date else None,
+                "payee": t.payee, "memo": t.memo, "amount": float(t.amount),
+                "bank_account": t.bank_account_label, "current_category": t.account_label,
+            } for t in batch], separators=(",", ":"))
+            try:
+                text = await _claude_call(client, model, system, user)
+                parsed = _parse_scan_json(text)
+            except Exception as e:  # noqa: BLE001 — a failed batch -> all needs_approval
+                print(f"[books_scan] claude batch failed: {e}", flush=True)
+                parsed = {}
+            c, n = _route_batch(batch, parsed)
+            totals["cleared"] += c
+            totals["needs_approval"] += n
+            print(f"books_scan business={biz.key if biz else bid} batch={len(batch)} "
+                  f"cleared={c} needs_approval={n} escalated=0", flush=True)
+    await s.commit()
+    return totals
 
 
 # ── ICRule CRUD + placeholder seed (SPEC 3.4 / Part 11 #3) ────────────────────

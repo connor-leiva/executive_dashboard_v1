@@ -83,6 +83,17 @@ class Settings(BaseSettings):
     ASSISTANT_MODEL: str = "claude-sonnet-5"
     ASSISTANT_MAX_TOKENS: int = 2048
 
+    # Books scan — Pass 3 (Claude categorization of the ambiguous remainder). Reuses
+    # ANTHROPIC_API_KEY but is OFF by default: flip BOOKS_SCAN_CLAUDE_ENABLED on only after
+    # watching a week of live batches in the logs (SPEC Part 10 Step 4). BOOKS_SCAN_MODEL
+    # falls back to ASSISTANT_MODEL when blank. Claude NEVER posts to QuickBooks.
+    BOOKS_SCAN_CLAUDE_ENABLED: bool = False
+    BOOKS_SCAN_MODEL: str = ""
+    BOOKS_SCAN_BATCH: int = 20
+    BOOKS_SCAN_MAX_TOKENS: int = 4096
+    BOOKS_CONF_THRESHOLD: float = 0.9
+    BOOKS_WRITEBACK_ENABLED: bool = False
+
     # Single-tenant fallback: when a request Host doesn't match a `domain` row,
     # resolve to this tenant slug. Safe while there is one tenant (Spring); set
     # SINGLE_TENANT_FALLBACK=false once real multitenancy + custom domains land.

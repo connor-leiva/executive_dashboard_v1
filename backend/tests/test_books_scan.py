@@ -5,6 +5,7 @@ run_scan, assert states + ICLinks. Distinct payees/amounts/realms per test keep 
 shared session isolated. (Pass 3 / Claude is Step 4, not covered here.)
 """
 import datetime as dt
+import json
 from decimal import Decimal
 
 import pytest
@@ -12,7 +13,9 @@ from sqlalchemy import select
 
 from app.seed import seed
 from app.db import SessionLocal
+from app.config import settings
 from app.models import Tenant, Business, BookTxn, ICLink
+from app.services import books_scan
 from app.services.books_scan import run_scan, create_ic_rule, seed_ic_rules
 
 TODAY = dt.date(2026, 6, 30)
@@ -147,6 +150,74 @@ async def test_seed_ic_rules_is_inactive_and_idempotent():
     async with SessionLocal() as s:
         again = await seed_ic_rules(s, tid)
         assert again == []                                                  # idempotent by label
+
+
+# ── Pass 3: Claude categorization (network seam monkeypatched) ────────────────
+def _enable_claude(monkeypatch, call):
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(settings, "BOOKS_SCAN_CLAUDE_ENABLED", True)
+    monkeypatch.setattr(books_scan, "_client", lambda: object())     # never really called
+    monkeypatch.setattr(books_scan, "_claude_call", call)
+
+
+async def test_claude_pass_routes_by_threshold(monkeypatch):
+    tid, biz = await _ctx()
+    async with SessionLocal() as s:
+        s.add(_txn(tid, biz["ulrg"], "r-ulrg", "Purchase", "cl_ok", 120.0, dt.date(2026, 6, 14),
+                   payee="Cleared Vendor", account_label="Marketing - Software"))
+        s.add(_txn(tid, biz["ulrg"], "r-ulrg", "Purchase", "cl_low", 55.0, dt.date(2026, 6, 14),
+                   payee="LowConf Vendor", account_label="Office Supplies"))
+        s.add(_txn(tid, biz["ulrg"], "r-ulrg", "Purchase", "cl_recat", 88.0, dt.date(2026, 6, 14),
+                   payee="Recat Vendor", account_label="Meals"))
+        await s.commit()
+    canned = {                                          # keyed by payee (ids are runtime UUIDs)
+        "Cleared Vendor": {"category": "Marketing - Software", "confidence": 0.95},  # confirms -> clear
+        "LowConf Vendor": {"category": "Office Supplies", "confidence": 0.5},         # below thr
+        "Recat Vendor": {"category": "Travel", "confidence": 0.99},                   # != current
+    }
+
+    async def fake_call(client, model, system, user):
+        return json.dumps([{"id": it["id"], "reason": "x", "flags": {}, **canned[it["payee"]]}
+                           for it in json.loads(user) if it["payee"] in canned])
+
+    _enable_claude(monkeypatch, fake_call)
+    async with SessionLocal() as s:
+        res = await books_scan.run_claude_pass(s, tid, today=TODAY)
+    assert (await _get("cl_ok")).scan_state == "cleared"          # high conf + confirms category
+    assert (await _get("cl_low")).scan_state == "needs_approval"  # confidence below threshold
+    assert (await _get("cl_recat")).scan_state == "needs_approval"  # recategorization -> human
+    assert res["cleared"] == 1 and res["needs_approval"] == 2
+
+
+async def test_claude_malformed_item_falls_back_to_needs_approval(monkeypatch):
+    tid, biz = await _ctx()
+    async with SessionLocal() as s:
+        s.add(_txn(tid, biz["ulrg"], "r-ulrg", "Purchase", "cl_bad", 42.0, dt.date(2026, 6, 15),
+                   payee="Garbage Vendor", account_label="Office Supplies"))
+        await s.commit()
+
+    async def bad_call(client, model, system, user):
+        return "sorry, I can't help with that"          # not JSON -> parse yields {}
+
+    _enable_claude(monkeypatch, bad_call)
+    async with SessionLocal() as s:
+        await books_scan.run_claude_pass(s, tid, today=TODAY)
+    row = await _get("cl_bad")
+    assert row.scan_state == "needs_approval" and row.suggestion is None
+
+
+async def test_claude_pass_skipped_when_disabled(monkeypatch):
+    tid, biz = await _ctx()
+    async with SessionLocal() as s:
+        s.add(_txn(tid, biz["ulrg"], "r-ulrg", "Purchase", "cl_skip", 30.0, dt.date(2026, 6, 16),
+                   payee="Skip Vendor", account_label="Office Supplies"))
+        await s.commit()
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")           # no key -> disabled
+    monkeypatch.setattr(settings, "BOOKS_SCAN_CLAUDE_ENABLED", True)
+    async with SessionLocal() as s:
+        res = await books_scan.run_claude_pass(s, tid, today=TODAY)
+    assert res["skipped"] is True
+    assert (await _get("cl_skip")).scan_state == "pending"           # untouched
 
 
 # run_scan pinned to a deterministic "today" so the 12-month history window is stable
