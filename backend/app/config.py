@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     QBO_ENV: str = "production"
     QBO_REDIRECT_URI: str = "http://localhost:8000/api/v1/integrations/qbo/callback"
     APP_PUBLIC_URL: str = "http://localhost:5173"  # where the QBO callback redirects back to
+    # Base for QuickBooks Online transaction deep links (Books "open in QuickBooks").
+    # Opens in the user's active QBO company; the route is derived from the txn type.
+    QBO_APP_BASE: str = "https://app.qbo.intuit.com/app"
 
     # Sisu (real estate production — team-wide clients feed, Basic auth)
     SISU_USERNAME: str = ""

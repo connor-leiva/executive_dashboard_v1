@@ -64,32 +64,46 @@ export const samplePL = {
                       prior: { revenue: 198000, gross_profit: 90000, opex: 58000, noi: 32000 } } },
 };
 
+const QBO = (route, id) => `https://app.qbo.intuit.com/app/${route}?txnId=${id}`;
+
 export const sampleQueue = {
   stats: { awaiting: 14, escalated: 2, approved_7d: 61 },
   approvals: [
     { id: "s1", entity: "ulrg", date: "Jul 11", vendor: "Canva Teams", amount: -389,
-      suggest: "Marketing - Software", conf: "92%", reason: "Matches 4 prior charges categorized here.",
-      source: "AMEX", flags: {} },
+      qbo_type: "Purchase", memo: "Canva Teams annual - design subscription", current_category: "Marketing - Software",
+      bank_account: "Delta SkyMiles (AMEX)", suggest: "Marketing - Software", conf: "92%",
+      reason: "Matches 4 prior charges categorized here.", source: "AMEX", flags: {}, qbo_url: QBO("expense", "1041") },
     { id: "s2", entity: "ulrg", date: "Jul 10", vendor: "Realty.com", amount: -7300,
-      suggest: "62130 Internet Lead Generation", conf: "88%", reason: "Recurring lead-gen vendor.",
-      source: "AMEX", flags: { over_band: true } },
+      qbo_type: "Purchase", memo: "Realty.com - lead package Q3", current_category: "62130 Internet Lead Generation",
+      bank_account: "Delta SkyMiles (AMEX)", suggest: "62130 Internet Lead Generation", conf: "88%",
+      reason: "Recurring lead-gen vendor, but 3x the usual amount.", source: "AMEX", flags: { over_band: true }, qbo_url: QBO("expense", "1042") },
     { id: "s3", entity: "sympli", date: "Jul 9", vendor: "New Vendor LLC", amount: -1240,
-      suggest: "68200 Office Supplies", conf: "61%", reason: "First time seeing this vendor.",
-      source: "Bank feed", flags: { first_vendor: true } },
+      qbo_type: "Bill", memo: "Invoice #4471", current_category: "Uncategorized Expense",
+      bank_account: null, suggest: "68200 Office Supplies", conf: "61%",
+      reason: "First time seeing this vendor.", source: "Bank feed", flags: { first_vendor: true }, qbo_url: QBO("bill", "1043") },
   ],
   escalations: [
-    { id: "e1", kind: "ic", date: "Jul 7", amount: 15000,
-      label: "ULRG -> Sympli transfer", reason: "No covering policy rule, or over the monthly cap.",
+    { id: "e1", kind: "ic", date: "Jun 2", amount: 42712,
+      label: "Zions Operating - transfer", reason: "One-sided — no matching counterpart found in another entity.",
       options: ["Loan (due-to / due-from)", "Distribution", "Capital contribution", "Shared expense", "Rent", "Payroll allocation"],
-      tax_note: "Characterization affects basis and taxes; the CFO decides." },
+      tax_note: "Characterization affects basis and taxes; the CFO decides.",
+      txns: [{ entity: "springb", qbo_type: "Transfer", date: "Jun 2", amount: 42712, payee: null,
+        memo: "Owner draw to holding acct", account: null, bank_account: "Zions Operating *3251",
+        source: "Bank feed", qbo_url: QBO("transfer", "2087") }] },
   ],
 };
 
 export const sampleIC = {
   pairs: [
-    { id: "p1", from: "ulrg", to: "sympli", amount: 15000, date: "2026-07-07", status: "escalated", characterization: null },
-    { id: "p2", from: "sympli", to: "springb", amount: 3050, date: "2026-07-03", status: "auto_tied", characterization: "shared_expense" },
-    { id: "p3", from: "ulrg", to: "springb", amount: 6000, date: "2026-06-30", status: "tied", characterization: "rent" },
+    { id: "p1", from: "ulrg", to: "sympli", amount: 15000, date: "2026-07-07", status: "escalated", characterization: null,
+      txns: [{ entity: "ulrg", qbo_type: "Transfer", date: "Jul 7", amount: 15000, payee: null,
+        memo: "Marketing co-op advance", account: null, bank_account: "Operating Checking", qbo_url: QBO("transfer", "2091") }] },
+    { id: "p2", from: "sympli", to: "springb", amount: 3050, date: "2026-07-03", status: "auto_tied", characterization: "shared_expense",
+      txns: [{ entity: "sympli", qbo_type: "Transfer", date: "Jul 3", amount: 3050, payee: null,
+        memo: "Co-op marketing", account: null, bank_account: "Sympli Operating", qbo_url: QBO("transfer", "2092") }] },
+    { id: "p3", from: "ulrg", to: "springb", amount: 6000, date: "2026-06-30", status: "tied", characterization: "rent",
+      txns: [{ entity: "ulrg", qbo_type: "JournalEntry", date: "Jun 30", amount: 6000, payee: null,
+        memo: "June office rent", account: "63100 Rent/Desk Fees", bank_account: null, qbo_url: QBO("journal", "2093") }] },
   ],
   rules: [
     { id: "r1", label: "Office rent to holding LLC", characterization: "rent", from: "ulrg", to: null, monthly_cap: null, active: false },

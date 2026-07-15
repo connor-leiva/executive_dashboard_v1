@@ -182,6 +182,37 @@ async def test_characterize_requires_cfo_and_flips_both_sides():
             assert t.scan_state == "approved" and t.decision["action"] == "ic_characterized"
 
 
+async def test_queue_detail_and_qbo_links():
+    tid, biz = await _ids()
+    async with SessionLocal() as s:
+        a = _txn(tid, biz["ulrg"], "qd_appr", "needs_approval", payee="Canva", label="Marketing - Software")
+        a.memo, a.bank_account_label = "annual subscription", "Delta SkyMiles (AMEX)"
+        tr = _txn(tid, biz["springb"], "qd_tr", "escalated", amount=42712)
+        tr.qbo_type, tr.payee, tr.memo, tr.bank_account_label = "Transfer", None, "owner draw to holding", "Zions Operating *3251"
+        s.add_all([a, tr])
+        await s.commit()
+        link = ICLink(tenant_id=tid, from_business_id=biz["springb"], to_business_id=biz["springb"],
+                      from_txn_id=tr.id, amount=Decimal("42712"), occurred_on=dt.date.today(), status="unmatched")
+        s.add(link)
+        await s.commit()
+        link_id = str(link.id)
+
+    tok = await _owner_token()
+    async with _client() as c:
+        q = (await c.get("/api/v1/books/queue", headers=_H(tok))).json()
+
+    appr = next(a for a in q["approvals"] if a.get("qbo_url") and "qd_appr" in a["qbo_url"])
+    assert appr["qbo_type"] == "Purchase" and appr["memo"] == "annual subscription"
+    assert appr["current_category"] == "Marketing - Software"
+    assert appr["qbo_url"].endswith("/expense?txnId=qd_appr")     # QuickBooks deep link
+
+    esc = next(e for e in q["escalations"] if e["id"] == link_id)
+    assert esc["txns"] and esc["txns"][0]["memo"] == "owner draw to holding"
+    assert esc["txns"][0]["bank_account"] == "Zions Operating *3251"
+    assert esc["txns"][0]["qbo_url"].endswith("/transfer?txnId=qd_tr")
+    assert "->" not in esc["label"] and "Zions" in esc["label"]    # one-sided: no "springb -> springb"
+
+
 async def _txn_id(qid):
     async with SessionLocal() as s:
         return (await s.execute(select(BookTxn.id).where(BookTxn.qbo_id == qid))).scalar_one()

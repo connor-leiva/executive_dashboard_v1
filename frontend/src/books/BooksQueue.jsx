@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { postJSON } from "../api";
 import { useBooksQueue } from "./useBooks.js";
-import { Card, Eyebrow, Pill, StatePanel, EntityChip, ENTITY, CHAR_BY_LABEL, font, usd, T } from "./ui.jsx";
+import { Card, Eyebrow, Pill, StatePanel, EntityChip, Field, QboLink, ENTITY, CHAR_BY_LABEL, font, usd, T } from "./ui.jsx";
 
 const API = import.meta.env.VITE_API_BASE;
 const FLAG_LABEL = { over_band: "Unusual amount", first_vendor: "New vendor", possible_1099: "Possible 1099",
@@ -56,6 +56,13 @@ function QueueRow({ tx, open, onToggle, onDone }) {
             <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>Source: {tx.source}</span>
             {flagsOf(tx.flags).map((k) => <Pill key={k} tone="warn">{FLAG_LABEL[k] || k}</Pill>)}
           </div>
+          <div style={{ display: "grid", gap: 4, marginTop: 10 }}>
+            <Field label="Type" value={tx.qbo_type} />
+            <Field label="Memo" value={tx.memo} />
+            <Field label="Currently on" value={tx.current_category} />
+            <Field label="Paid from" value={tx.bank_account} />
+          </div>
+          {tx.qbo_url && <div style={{ marginTop: 9 }}><QboLink url={tx.qbo_url} entity={tx.entity} /></div>}
           {editing ? (
             <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap" }}>
               <input value={cat} onChange={(e) => setCat(e.target.value)} placeholder="Account name"
@@ -105,6 +112,24 @@ function EscRow({ e, open, onToggle, onDone, isCFO }) {
         <div style={{ background: T.parchment, borderRadius: 10, padding: "14px 16px", margin: "0 0 13px" }}>
           <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.secondary, lineHeight: 1.55 }}>
             <span style={{ fontWeight: 700, color: T.ink }}>Why it stopped: </span>{e.reason}</div>
+          {(e.txns || []).map((t, i) => (
+            <div key={i} style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 9, padding: "10px 12px", marginTop: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <EntityChip k={t.entity} />
+                  <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>{t.qbo_type} · {t.date}</span>
+                </span>
+                <span style={{ fontFamily: font.head, fontSize: 13, fontWeight: 700, color: T.ink }}>{usd(t.amount)}</span>
+              </div>
+              <div style={{ display: "grid", gap: 4 }}>
+                <Field label="Payee" value={t.payee} />
+                <Field label="Memo" value={t.memo} />
+                <Field label="Account" value={t.account} />
+                <Field label="Bank/card" value={t.bank_account} />
+              </div>
+              {t.qbo_url && <div style={{ marginTop: 8 }}><QboLink url={t.qbo_url} entity={t.entity} /></div>}
+            </div>
+          ))}
           {e.tax_note && <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.daffodilText, background: T.daffodilBg,
             borderRadius: 7, padding: "7px 11px", marginTop: 10, lineHeight: 1.5 }}>{e.tax_note}</div>}
           {isCFO ? (

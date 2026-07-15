@@ -170,6 +170,23 @@ def deposits_to_deals(deposits: list) -> list[dict]:
     return deals
 
 
+# ── Deep link to a transaction in the QuickBooks Online UI ──
+# The route depends on the entity type; the link opens in the user's currently-active QBO
+# company (Intuit's txn URLs carry no realm, so surface the entity name alongside it).
+_QBO_TXN_ROUTE = {
+    "Purchase": "expense", "Bill": "bill", "BillPayment": "billpayment",
+    "Deposit": "deposit", "Transfer": "transfer", "JournalEntry": "journal",
+    "Check": "check", "CreditCardCredit": "creditcardcredit", "SalesReceipt": "salesreceipt",
+}
+
+
+def app_txn_url(qbo_type: str, qbo_id: str) -> str | None:
+    route = _QBO_TXN_ROUTE.get(qbo_type)
+    if not route or not qbo_id:
+        return None
+    return f"{settings.QBO_APP_BASE.rstrip('/')}/{route}?txnId={qbo_id}"
+
+
 # ── Books additions (SPEC-books-module Part 2.1): transaction-level pull ──
 # Same client style — httpx, 429 backoff honoring Retry-After, minorversion=75 pinned.
 async def cdc(realm_id: str, access_token: str, entities: str, changed_since_iso: str) -> dict:

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { postJSON, patchJSON } from "../api";
 import { useBooksIC } from "./useBooks.js";
-import { Card, Eyebrow, StatePanel, EntityChip, CHAR_LABEL, DARK, font, usd, T } from "./ui.jsx";
+import { Card, Eyebrow, StatePanel, EntityChip, QboLink, CHAR_LABEL, DARK, font, usd, T } from "./ui.jsx";
 
 const API = import.meta.env.VITE_API_BASE;
 const STATUS = {
@@ -62,6 +62,8 @@ export default function BooksIC({ isCFO = false }) {
                         <div style={{ fontFamily: font.body, fontSize: 11.5, marginTop: 4,
                           color: s.policy ? T.muted : T.poppyText }}>
                           {p.date}{p.characterization ? ` · ${CHAR_LABEL[p.characterization] || p.characterization}` : ""} · {s.label}</div>
+                        {p.txns?.[0]?.memo && <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.tertiary, marginTop: 3 }}>{p.txns[0].memo}</div>}
+                        {p.txns?.[0]?.qbo_url && <div style={{ marginTop: 4 }}><QboLink url={p.txns[0].qbo_url} entity={p.txns[0].entity} /></div>}
                       </div>
                       {p.status === "characterized" && (
                         <button disabled={busy === p.id} onClick={() => act(p.id,

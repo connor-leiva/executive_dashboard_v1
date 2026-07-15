@@ -198,6 +198,15 @@ def test_missing_fields_do_not_raise():
 
 # ── _cdc_split ─────────────────────────────────────────────────────────────────
 
+def test_app_txn_url_by_type():
+    assert qbo.app_txn_url("Purchase", "123").endswith("/expense?txnId=123")
+    assert qbo.app_txn_url("Bill", "4").endswith("/bill?txnId=4")
+    assert qbo.app_txn_url("Transfer", "9").endswith("/transfer?txnId=9")
+    assert qbo.app_txn_url("JournalEntry", "5").endswith("/journal?txnId=5")
+    assert qbo.app_txn_url("Deposit", None) is None        # no id -> no link
+    assert qbo.app_txn_url("MysteryType", "1") is None     # unknown type -> no link
+
+
 def test_cdc_split_extracts_and_drops_tombstones():
     data = {"CDCResponse": [{"QueryResponse": [
         {"Purchase": [{"Id": "1"}, {"Id": "2", "status": "Deleted"}]},

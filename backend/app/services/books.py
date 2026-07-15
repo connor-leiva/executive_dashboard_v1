@@ -14,9 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (BookTxn, PLLine, PLSnapshot, ICLink, ICRule, Integration,
                       Business, Tenant, User)
+from ..integrations import qbo
 from .audit import audit
 from .books_scan import IC_CHARACTERIZATIONS
 from .metrics import _pl_period
+
+
+def _fmt_date(d) -> str | None:
+    return f"{d.strftime('%b')} {d.day}" if d else None      # cross-platform (no %-d)
 
 HOLDINGS_COUNT = 12                                     # ULRG holding entities (SPEC 2.6)
 _OPEN_IC = ("unmatched", "matched", "escalated", "characterized")   # not yet tied
@@ -292,25 +297,51 @@ async def build_books_queue(s, tenant_id) -> dict:
         BookTxn.tenant_id == tenant_id, BookTxn.scan_state.in_(("approved", "posted")),
         BookTxn.reviewed_at >= dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)))).scalar_one()
 
+    # The transactions behind the escalations — the detail a person needs to characterize.
+    txn_ids = {tid for l in esc_links for tid in (l.from_txn_id, l.to_txn_id) if tid}
+    txmap = {}
+    if txn_ids:
+        txmap = {r.id: r for r in (await s.execute(select(BookTxn).where(
+            BookTxn.id.in_(txn_ids)))).scalars().all()}
+
+    _IC_OPTIONS = ["Loan (due-to / due-from)", "Distribution", "Capital contribution",
+                   "Shared expense", "Rent", "Payroll allocation"]
+
+    def _detail(t):
+        return {"id": str(t.id), "entity": bmap.get(t.business_id), "qbo_type": t.qbo_type,
+                "date": _fmt_date(t.txn_date), "amount": float(t.amount), "payee": t.payee,
+                "memo": t.memo, "account": t.account_label, "bank_account": t.bank_account_label,
+                "source": _source_label(t.bank_account_label),
+                "qbo_url": qbo.app_txn_url(t.qbo_type, t.qbo_id)}
+
     def _appr(t):
         sug = t.suggestion or {}
         conf = sug.get("confidence")
-        return {"id": str(t.id), "entity": bmap.get(t.business_id, "-"),
-                "date": t.txn_date.strftime("%b %-d") if hasattr(t.txn_date, "strftime") else None,
+        return {"id": str(t.id), "entity": bmap.get(t.business_id, "-"), "date": _fmt_date(t.txn_date),
                 "vendor": t.payee, "amount": -abs(float(t.amount)) if t.qbo_type != "Deposit" else float(t.amount),
-                "suggest": sug.get("category"),
+                "qbo_type": t.qbo_type, "memo": t.memo, "current_category": t.account_label,
+                "bank_account": t.bank_account_label, "suggest": sug.get("category"),
                 "conf": (f"{round(conf * 100)}%" if isinstance(conf, (int, float)) else None),
                 "reason": sug.get("reason"), "source": _source_label(t.bank_account_label),
-                "flags": t.flags or {}}
+                "flags": t.flags or {}, "qbo_url": qbo.app_txn_url(t.qbo_type, t.qbo_id)}
 
     def _esc(l):
-        return {"id": str(l.id), "kind": "ic", "date": l.occurred_on.strftime("%b %-d"),
-                "amount": float(l.amount),
-                "label": l.note or f"{bmap.get(l.from_business_id, '?')} -> {bmap.get(l.to_business_id, '?')} transfer",
+        sides = [_detail(txmap[tid]) for tid in (l.from_txn_id, l.to_txn_id) if tid in txmap]
+        one_sided = (l.status == "unmatched") or (l.to_txn_id is None) or (l.from_business_id == l.to_business_id)
+        primary = sides[0] if sides else None
+        if l.note:
+            label = l.note
+        elif not one_sided:
+            label = f"{bmap.get(l.from_business_id, '?')} -> {bmap.get(l.to_business_id, '?')} transfer"
+        elif primary:
+            label = primary["payee"] or primary["bank_account"] or f"{primary['qbo_type']} · unmatched"
+        else:
+            label = "Intercompany item"
+        return {"id": str(l.id), "kind": "ic", "date": _fmt_date(l.occurred_on),
+                "amount": float(l.amount), "label": label, "txns": sides,
                 "reason": ("No covering policy rule, or over the monthly cap." if l.status == "escalated"
-                           else "One-sided — no matching counterpart found."),
-                "options": ["Loan (due-to / due-from)", "Distribution", "Capital contribution",
-                            "Shared expense", "Rent", "Payroll allocation"],
+                           else "One-sided — no matching counterpart found in another entity."),
+                "options": _IC_OPTIONS,
                 "tax_note": "Characterization affects basis and taxes; the CFO decides."}
 
     return {
@@ -329,11 +360,23 @@ async def build_books_ic(s, tenant_id) -> dict:
     rules = (await s.execute(select(ICRule).where(
         ICRule.tenant_id == tenant_id).order_by(ICRule.label))).scalars().all()
 
+    txn_ids = {tid for l in links for tid in (l.from_txn_id, l.to_txn_id) if tid}
+    txmap = {}
+    if txn_ids:
+        txmap = {r.id: r for r in (await s.execute(select(BookTxn).where(
+            BookTxn.id.in_(txn_ids)))).scalars().all()}
+
+    def _side(t):
+        return {"entity": bmap.get(t.business_id), "qbo_type": t.qbo_type, "date": _fmt_date(t.txn_date),
+                "amount": float(t.amount), "payee": t.payee, "memo": t.memo, "account": t.account_label,
+                "bank_account": t.bank_account_label, "qbo_url": qbo.app_txn_url(t.qbo_type, t.qbo_id)}
+
     def _pair(l):
         return {"id": str(l.id), "from": bmap.get(l.from_business_id, "?"),
                 "to": bmap.get(l.to_business_id, "?"), "amount": float(l.amount),
                 "date": l.occurred_on.isoformat(), "status": l.status,
-                "characterization": l.characterization}
+                "characterization": l.characterization,
+                "txns": [_side(txmap[tid]) for tid in (l.from_txn_id, l.to_txn_id) if tid in txmap]}
 
     def _rule(r):
         return {"id": str(r.id), "label": r.label, "characterization": r.characterization,

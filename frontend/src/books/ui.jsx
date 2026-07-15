@@ -72,6 +72,27 @@ export function Pill({ tone = "muted", children }) {
   );
 }
 
+/* A labeled detail line (Type / Memo / Account …) for the expanded rows. */
+export function Field({ label, value }) {
+  if (value === null || value === undefined || value === "") return null;
+  return (
+    <div style={{ display: "flex", gap: 8, fontFamily: font.body, fontSize: 12, lineHeight: 1.5 }}>
+      <span style={{ color: T.muted, minWidth: 92, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: T.secondary, fontWeight: 500 }}>{value}</span>
+    </div>
+  );
+}
+
+/* Deep link to the transaction in QuickBooks — names the company so the user knows which. */
+export function QboLink({ url, entity }) {
+  if (!url) return null;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" style={{ fontFamily: font.body, fontSize: 11.5,
+      fontWeight: 700, color: T.teal, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+      Open in QuickBooks{entity ? ` · ${ent(entity).label}` : ""} ↗</a>
+  );
+}
+
 /* The evergreen "on dark" surface the mockup uses for the rail, review, and IC hero. */
 export const DARK = {
   background: T.evergreen,
