@@ -170,6 +170,142 @@ def deposits_to_deals(deposits: list) -> list[dict]:
     return deals
 
 
+# ── Books additions (SPEC-books-module Part 2.1): transaction-level pull ──
+# Same client style — httpx, 429 backoff honoring Retry-After, minorversion=75 pinned.
+async def cdc(realm_id: str, access_token: str, entities: str, changed_since_iso: str) -> dict:
+    """Change Data Capture — everything of `entities` changed since a timestamp.
+    entities is a comma list, e.g. "Purchase,Deposit,JournalEntry,Transfer,Bill,BillPayment".
+    NOTE: the CDC lookback window is 30 days max; older than that, the caller must
+    fall back to a full query. Returns the raw CDCResponse envelope."""
+    url = f"{API_BASE}/v3/company/{realm_id}/cdc"
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    params = {"entities": entities, "changedSince": changed_since_iso, "minorversion": "75"}
+    for attempt in range(3):
+        async with httpx.AsyncClient(timeout=45) as c:
+            r = await c.get(url, headers=headers, params=params)
+            if r.status_code == 429 and attempt < 2:
+                await asyncio.sleep(float(r.headers.get("Retry-After", "5")))
+                continue
+            r.raise_for_status()
+            return r.json()
+    r.raise_for_status()
+    return r.json()
+
+
+async def query_all(realm_id: str, access_token: str, entity: str, where: str = "") -> list[dict]:
+    """Paginated Query API: SELECT * FROM {entity} {where} ORDER stable by Id, walking
+    STARTPOSITION/MAXRESULTS until a page returns < 1000 rows. Used for the initial
+    backfill and for the Account list (chart of accounts)."""
+    rows: list[dict] = []
+    start = 1
+    page = 1000
+    while True:
+        sql = f"SELECT * FROM {entity} {where} STARTPOSITION {start} MAXRESULTS {page}".strip()
+        data = await query(realm_id, access_token, sql)
+        got = ((data.get("QueryResponse") or {}).get(entity)) or []
+        rows.extend(got)
+        if len(got) < page:
+            break
+        start += page
+    return rows
+
+
+async def accounts(realm_id: str, access_token: str) -> list[dict]:
+    """The chart of accounts. Feeds the scan prompt and the recategorize picker."""
+    return await query_all(realm_id, access_token, "Account")
+
+
+async def profit_and_loss_detail(realm_id: str, access_token: str, start: str, end: str) -> dict:
+    """The same ProfitAndLoss report as `profit_and_loss` — the response already carries
+    the full account tree; `parse_pl` reads only the group summaries while
+    `parse_pl_lines` walks the whole tree. Kept as a named entry point so the detail
+    sync reads clearly (and so a future minor-version/param split has a home)."""
+    return await profit_and_loss(realm_id, access_token, start, end)
+
+
+# ── Parse the FULL ProfitAndLoss row tree into account-level lines (SPEC 2.2) ──
+# Top-level rows carry a `group` key (Income, COGS, GrossProfit, Expenses,
+# NetOperatingIncome, OtherIncome, OtherExpenses, NetOtherIncome, NetIncome). Real account
+# detail lives under Income / COGS / Expenses / Other*; the Gross/Net* rows are computed
+# subtotals with no detail we emit (dashboard totals come from PLSnapshot, never from
+# re-summing these). Two shapes matter, both confirmed against a live ULRG report:
+#   - a leaf data row: ColData is (label, amount).
+#   - a PARENT account that ALSO carries its own direct posting: it appears as a section
+#     (Header + nested Rows + Summary), and the Header's SECOND ColData holds that direct
+#     amount (blank when the parent only groups). We must emit that direct amount as its
+#     own line, else sum(lines) drops it and no longer ties to the group total.
+# Sub-section Summary rows are skipped (they'd double-count). Emits
+# {section, parent, label, amount, position}.
+_PL_SECTION_BY_GROUP = {
+    "Income": "income", "COGS": "cogs", "Expenses": "expense",
+    "OtherIncome": "other", "OtherExpense": "other", "OtherExpenses": "other",
+}
+_PL_SKIP_GROUPS = {"GrossProfit", "NetOperatingIncome", "NetIncome", "NetOtherIncome"}
+
+
+def _pl_to_amount(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _pl_header_name(row: dict) -> str:
+    cd = ((row.get("Header") or {}).get("ColData")) or []
+    return (cd[0].get("value") if cd else "") or ""
+
+
+def _pl_header_direct(row: dict):
+    """A parent account's own posted amount, carried in Header.ColData[1] (blank when the
+    account is purely a grouping). Returns a float or None."""
+    cd = ((row.get("Header") or {}).get("ColData")) or []
+    raw = cd[1].get("value") if len(cd) > 1 else None
+    if raw in (None, ""):
+        return None
+    return _pl_to_amount(raw)
+
+
+def _pl_walk(section_row: dict, section: str, parent, out: list, pos: list) -> None:
+    """Descend a group/sub-group row, emitting each leaf data row and each parent
+    account's own direct posting. Sub-section Summary rows are skipped so sum(emitted
+    amounts) ties to the snapshot total."""
+    for r in (((section_row.get("Rows") or {}).get("Row")) or []):
+        if r.get("Rows"):                               # nested sub-account group
+            name = _pl_header_name(r)
+            direct = _pl_header_direct(r)
+            if direct is not None:                      # parent posts to itself AND groups
+                out.append({"section": section, "parent": parent, "label": name,
+                            "amount": direct, "position": pos[0]})
+                pos[0] += 1
+            child = name if not parent else f"{parent}: {name}"
+            _pl_walk(r, section, child, out, pos)
+        else:                                           # leaf data row
+            cd = r.get("ColData") or []
+            if not cd:
+                continue
+            label = (cd[0].get("value") or "").strip()
+            if not label:
+                continue
+            amount = _pl_to_amount(cd[-1].get("value") if len(cd) > 1 else None)
+            out.append({"section": section, "parent": parent, "label": label,
+                        "amount": amount, "position": pos[0]})
+            pos[0] += 1
+
+
+def parse_pl_lines(report: dict) -> list[dict]:
+    out: list[dict] = []
+    pos = [0]
+    for row in (((report.get("Rows") or {}).get("Row")) or []):
+        grp = row.get("group")
+        if grp in _PL_SKIP_GROUPS:
+            continue
+        section = _PL_SECTION_BY_GROUP.get(grp)
+        if section is None:                             # unknown/computed top group
+            continue
+        _pl_walk(row, section, None, out, pos)
+    return out
+
+
 # ── Parse the summary ProfitAndLoss into our six numbers ──
 # Top-level report rows carry a `group` key. We read each group's Summary total
 # (the last ColData value). Group keys: Income, COGS, GrossProfit, Expenses,

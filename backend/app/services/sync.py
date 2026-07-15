@@ -1022,7 +1022,10 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
         elif integ.provider == "ghl_legacy":
             records = await sync_ghl_legacy(s, tenant_id, integ)
         elif integ.provider == "qbo":
+            prev_synced = integ.last_synced_at                 # txn CDC cursor, pre-bump
             records = await sync_qbo_pl(s, tenant_id, integ)   # syncs all periods itself
+            from .books_sync import run_books_syncs            # local import avoids a cycle
+            await run_books_syncs(s, tenant_id, integ, since=prev_synced)
         run.status, run.finished_at = "ok", dt.datetime.utcnow()
         run.stats = {"records": records,
                      "seconds": round((run.finished_at - started).total_seconds(), 1)}

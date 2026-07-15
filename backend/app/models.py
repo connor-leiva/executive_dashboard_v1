@@ -26,6 +26,9 @@ class Tenant(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     slug: Mapped[str] = mapped_column(String(64), unique=True)
     name: Mapped[str] = mapped_column(String(200))
+    # Portfolio-scoped, non-secret config (e.g. Books intercompany elimination account
+    # list `books_elim_accounts`). Portfolio-level because eliminations span businesses.
+    config: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -269,3 +272,128 @@ class LoanRecord(Base):
     matched_transaction_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("transaction.id"), nullable=True)
     funded_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     __table_args__ = (UniqueConstraint("tenant_id", "source", "external_id", name="uq_loan_src_ext"),)
+
+
+# ══ Acumyn Books module (SPEC-books-module Part 1) ══════════════════════════
+# Additive: Books runs the bookkeeping the Command Center reads. The scan pipeline
+# and review draft write ONLY to these tables; QuickBooks write-back is a separate,
+# feature-flagged, human-approved action. Nothing here replaces PLSnapshot (the
+# dashboard's summary source of truth) — PLLine is the detail underneath it.
+
+class BookTxn(Base):
+    """One ledger transaction pulled from QBO — the unit the scan pipeline and
+    approval queue operate on."""
+    __tablename__ = "book_txn"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"))
+    realm_id: Mapped[str] = mapped_column(String(64))                 # QBO company id (matches Integration.realm_id)
+    qbo_type: Mapped[str] = mapped_column(String(24))                 # Purchase|Deposit|JournalEntry|Transfer|Bill|BillPayment
+    qbo_id: Mapped[str] = mapped_column(String(32))
+    sync_token: Mapped[str | None] = mapped_column(String(16), nullable=True)   # sparse-update write-back needs it
+    txn_date: Mapped[date] = mapped_column(Date)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    payee: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    memo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    account_label: Mapped[str | None] = mapped_column(String(200), nullable=True)   # current category
+    account_qbo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    bank_account_label: Mapped[str | None] = mapped_column(String(200), nullable=True)  # feed it rode in on
+    came_categorized: Mapped[bool] = mapped_column(Boolean, default=False)  # arrived on a real (non-suspense) account
+    scan_state: Mapped[str] = mapped_column(String(16), default="pending")
+        # pending -> (cleared | needs_approval | escalated) -> approved -> posted
+    suggestion: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+        # {"category", "account_qbo_id", "confidence", "reason"}
+    flags: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+        # {"anomaly", "intercompany", "first_vendor", "over_band", "possible_1099", "multi_line"}
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+        # {"action": "approve"|"recategorize"|"escalate"|"ic_characterized", "category", ...}
+    posted_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # write-back only
+    __table_args__ = (UniqueConstraint("tenant_id", "realm_id", "qbo_type", "qbo_id", name="uq_booktxn_src"),)
+
+
+class PLLine(Base):
+    """Account-level P&L detail behind PLSnapshot group totals — feeds the P&L page.
+    The (business, period) sum of section lines ties to the snapshot (Part 7 invariant)."""
+    __tablename__ = "pl_line"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    section: Mapped[str] = mapped_column(String(16))                  # income | cogs | expense | other
+    parent: Mapped[str | None] = mapped_column(String(200), nullable=True)   # report group header path (e.g. Marketing)
+    label: Mapped[str] = mapped_column(String(200))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    position: Mapped[int] = mapped_column(Integer, default=0)         # preserve report row order
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_id", "period_start", "period_end",
+                         "section", "parent", "label", name="uq_pl_line"),
+    )
+
+
+class ICRule(Base):
+    """CFO-set intercompany policy. Transfers matching a rule flow through; everything
+    else stops and escalates (never guessed)."""
+    __tablename__ = "ic_rule"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(200))                  # "Office rent to holding LLC"
+    from_business_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("business.id"), nullable=True)  # null = any
+    to_business_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("business.id"), nullable=True)    # null = any
+    characterization: Mapped[str] = mapped_column(String(24))        # loan|distribution|contribution|shared_expense|rent|payroll_alloc
+    monthly_cap: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)  # null = no cap; over cap escalates
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class ICLink(Base):
+    """One intercompany movement — two BookTxn sides tied together, or one side awaiting
+    its match / a human characterization. Open (non-tied) links block the close."""
+    __tablename__ = "ic_link"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    from_business_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("business.id"))
+    to_business_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("business.id"))
+    from_txn_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("book_txn.id"), nullable=True)
+    to_txn_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("book_txn.id"), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    occurred_on: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(16), default="unmatched")
+        # unmatched -> matched -> (auto_tied | escalated) -> characterized -> tied
+    characterization: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("ic_rule.id"), nullable=True)  # set when a rule auto-tied it
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ClosePeriod(Base):
+    """Month-end close checklist state, one row per business per month."""
+    __tablename__ = "close_period"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"))
+    period: Mapped[date] = mapped_column(Date)                       # month start
+    steps: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+        # {"bank_rec", "card_rec", "intercompany", "accruals", "statements"} bools
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open | closed
+    closed_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (UniqueConstraint("tenant_id", "business_id", "period", name="uq_close_period"),)
+
+
+class BooksReview(Base):
+    """Claude's drafted monthly narrative. Draft until the CFO signs off; Claude never
+    posts to the official record."""
+    __tablename__ = "books_review"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    period: Mapped[date] = mapped_column(Date)                       # month start
+    body: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="draft")  # draft | signed
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    signed_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (UniqueConstraint("tenant_id", "period", name="uq_books_review"),)

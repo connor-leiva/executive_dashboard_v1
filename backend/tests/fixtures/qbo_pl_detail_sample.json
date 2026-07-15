@@ -1,0 +1,1890 @@
+{
+ "_fixture_note": "Real ULRG ProfitAndLoss (realm 9130347534128706, June 2026, cash basis), captured live via Intuit API Explorer during the Part 10 Step 2 confirmation. Personal names anonymized; account codes, structure, and ALL amounts preserved so the summary/detail tie is exact. This is the go/no-go fixture for parse_pl_lines.",
+ "Header": {
+  "Time": "2026-07-14T18:36:21-07:00",
+  "ReportName": "ProfitAndLoss",
+  "ReportBasis": "Cash",
+  "StartPeriod": "2026-06-01",
+  "EndPeriod": "2026-06-30",
+  "SummarizeColumnsBy": "Total",
+  "Currency": "USD",
+  "Option": [
+   {
+    "Name": "AccountingStandard",
+    "Value": "GAAP"
+   },
+   {
+    "Name": "NoReportData",
+    "Value": "false"
+   }
+  ]
+ },
+ "Columns": {
+  "Column": [
+   {
+    "ColTitle": "",
+    "ColType": "Account",
+    "MetaData": [
+     {
+      "Name": "ColKey",
+      "Value": "account"
+     }
+    ]
+   },
+   {
+    "ColTitle": "Total",
+    "ColType": "Money",
+    "MetaData": [
+     {
+      "Name": "ColKey",
+      "Value": "total"
+     }
+    ]
+   }
+  ]
+ },
+ "Rows": {
+  "Row": [
+   {
+    "Header": {
+     "ColData": [
+      {
+       "value": "Income"
+      },
+      {
+       "value": ""
+      }
+     ]
+    },
+    "Rows": {
+     "Row": [
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "41000 Gross Commission Income",
+          "id": "287"
+         },
+         {
+          "value": ""
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "ColData": [
+           {
+            "value": "41100 Listing Income",
+            "id": "288"
+           },
+           {
+            "value": "348781.50"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "41200 Sales Income",
+            "id": "289"
+           },
+           {
+            "value": "701731.32"
+           }
+          ],
+          "type": "Data"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 41000 Gross Commission Income"
+         },
+         {
+          "value": "1050512.82"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "ColData": [
+        {
+         "value": "Transaction Fee",
+         "id": "670"
+        },
+        {
+         "value": "44375.00"
+        }
+       ],
+       "type": "Data"
+      }
+     ]
+    },
+    "Summary": {
+     "ColData": [
+      {
+       "value": "Total Income"
+      },
+      {
+       "value": "1094887.82"
+      }
+     ]
+    },
+    "type": "Section",
+    "group": "Income"
+   },
+   {
+    "Header": {
+     "ColData": [
+      {
+       "value": "Cost of Goods Sold"
+      },
+      {
+       "value": ""
+      }
+     ]
+    },
+    "Rows": {
+     "Row": [
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "51000 Commission Paid Out",
+          "id": "292"
+         },
+         {
+          "value": ""
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "ColData": [
+           {
+            "value": "51150 Brokerage Fee",
+            "id": "347"
+           },
+           {
+            "value": "3747.62"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "51300 Listing COS",
+            "id": "295"
+           },
+           {
+            "value": "213664.45"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "51400 Buyer COS",
+            "id": "296"
+           },
+           {
+            "value": "333111.09"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "Header": {
+           "ColData": [
+            {
+             "value": "51600 Referral COS",
+             "id": "297"
+            },
+            {
+             "value": "14275.77"
+            }
+           ]
+          },
+          "Rows": {
+           "Row": [
+            {
+             "ColData": [
+              {
+               "value": "OJO",
+               "id": "619"
+              },
+              {
+               "value": "1565.38"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "Opcity",
+               "id": "507"
+              },
+              {
+               "value": "816.20"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "Zillow Flex",
+               "id": "613"
+              },
+              {
+               "value": "156112.04"
+              }
+             ],
+             "type": "Data"
+            }
+           ]
+          },
+          "Summary": {
+           "ColData": [
+            {
+             "value": "Total 51600 Referral COS"
+            },
+            {
+             "value": "172769.39"
+            }
+           ]
+          },
+          "type": "Section"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 51000 Commission Paid Out"
+         },
+         {
+          "value": "723292.55"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "ColData": [
+        {
+         "value": "Cost of Goods Sold",
+         "id": "405"
+        },
+        {
+         "value": "417.00"
+        }
+       ],
+       "type": "Data"
+      }
+     ]
+    },
+    "Summary": {
+     "ColData": [
+      {
+       "value": "Total Cost of Goods Sold"
+      },
+      {
+       "value": "723709.55"
+      }
+     ]
+    },
+    "type": "Section",
+    "group": "COGS"
+   },
+   {
+    "Summary": {
+     "ColData": [
+      {
+       "value": "Gross Profit"
+      },
+      {
+       "value": "371178.27"
+      }
+     ]
+    },
+    "type": "Section",
+    "group": "GrossProfit"
+   },
+   {
+    "Header": {
+     "ColData": [
+      {
+       "value": "Expenses"
+      },
+      {
+       "value": ""
+      }
+     ]
+    },
+    "Rows": {
+     "Row": [
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "61000 Compensation",
+          "id": "299"
+         },
+         {
+          "value": ""
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "Header": {
+           "ColData": [
+            {
+             "value": "61100 Salaries",
+             "id": "300"
+            },
+            {
+             "value": ""
+            }
+           ]
+          },
+          "Rows": {
+           "Row": [
+            {
+             "Header": {
+              "ColData": [
+               {
+                "value": "61120 Administration",
+                "id": "302"
+               },
+               {
+                "value": ""
+               }
+              ]
+             },
+             "Rows": {
+              "Row": [
+               {
+                "Header": {
+                 "ColData": [
+                  {
+                   "value": "Staff A",
+                   "id": "354"
+                  },
+                  {
+                   "value": "4166.68"
+                  }
+                 ]
+                },
+                "Rows": {
+                 "Row": [
+                  {
+                   "ColData": [
+                    {
+                     "value": "Staff A Bonus",
+                     "id": "469"
+                    },
+                    {
+                     "value": "1350.00"
+                    }
+                   ],
+                   "type": "Data"
+                  }
+                 ]
+                },
+                "Summary": {
+                 "ColData": [
+                  {
+                   "value": "Total Staff A"
+                  },
+                  {
+                   "value": "5516.68"
+                  }
+                 ]
+                },
+                "type": "Section"
+               },
+               {
+                "ColData": [
+                 {
+                  "value": "Staff B",
+                  "id": "770"
+                 },
+                 {
+                  "value": "5000.00"
+                 }
+                ],
+                "type": "Data"
+               },
+               {
+                "ColData": [
+                 {
+                  "value": "Staff C",
+                  "id": "472"
+                 },
+                 {
+                  "value": "7666.68"
+                 }
+                ],
+                "type": "Data"
+               }
+              ]
+             },
+             "Summary": {
+              "ColData": [
+               {
+                "value": "Total 61120 Administration"
+               },
+               {
+                "value": "18183.36"
+               }
+              ]
+             },
+             "type": "Section"
+            },
+            {
+             "Header": {
+              "ColData": [
+               {
+                "value": "61200 Benefits/Processing",
+                "id": "304"
+               },
+               {
+                "value": "976.90"
+               }
+              ]
+             },
+             "Rows": {
+              "Row": [
+               {
+                "ColData": [
+                 {
+                  "value": "61230 Payroll Taxes",
+                  "id": "306"
+                 },
+                 {
+                  "value": "1605.94"
+                 }
+                ],
+                "type": "Data"
+               }
+              ]
+             },
+             "Summary": {
+              "ColData": [
+               {
+                "value": "Total 61200 Benefits/Processing"
+               },
+               {
+                "value": "2582.84"
+               }
+              ]
+             },
+             "type": "Section"
+            }
+           ]
+          },
+          "Summary": {
+           "ColData": [
+            {
+             "value": "Total 61100 Salaries"
+            },
+            {
+             "value": "20766.20"
+            }
+           ]
+          },
+          "type": "Section"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 61000 Compensation"
+         },
+         {
+          "value": "20766.20"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "61300 Contract Labor",
+          "id": "308"
+         },
+         {
+          "value": "755.70"
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "ColData": [
+           {
+            "value": "Contractor A",
+            "id": "599"
+           },
+           {
+            "value": "13146.16"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "Contractor B",
+            "id": "445"
+           },
+           {
+            "value": "5634.07"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "Header": {
+           "ColData": [
+            {
+             "value": "Mentor Bonuses",
+             "id": "512"
+            },
+            {
+             "value": ""
+            }
+           ]
+          },
+          "Rows": {
+           "Row": [
+            {
+             "ColData": [
+              {
+               "value": "Mentor A",
+               "id": "523"
+              },
+              {
+               "value": "400.00"
+              }
+             ],
+             "type": "Data"
+            }
+           ]
+          },
+          "Summary": {
+           "ColData": [
+            {
+             "value": "Total Mentor Bonuses"
+            },
+            {
+             "value": "400.00"
+            }
+           ]
+          },
+          "type": "Section"
+         },
+         {
+          "ColData": [
+           {
+            "value": "Place HUB Fee",
+            "id": "909"
+           },
+           {
+            "value": "3000.00"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "Contractor C",
+            "id": "1150040072"
+           },
+           {
+            "value": "5000.00"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "Photographer A",
+            "id": "1150040079"
+           },
+           {
+            "value": "1500.00"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "Header": {
+           "ColData": [
+            {
+             "value": "Virtual Assistants",
+             "id": "312"
+            },
+            {
+             "value": ""
+            }
+           ]
+          },
+          "Rows": {
+           "Row": [
+            {
+             "ColData": [
+              {
+               "value": "VA 01",
+               "id": "1150040074"
+              },
+              {
+               "value": "1074.00"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "VA 02",
+               "id": "479"
+              },
+              {
+               "value": "1399.48"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "VA 03",
+               "id": "529"
+              },
+              {
+               "value": "1196.14"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "VA 04",
+               "id": "1150040015"
+              },
+              {
+               "value": "1030.98"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "VA 05",
+               "id": "811"
+              },
+              {
+               "value": "1109.98"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "VA 06",
+               "id": "660"
+              },
+              {
+               "value": "1236.98"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "VA 07",
+               "id": "924"
+              },
+              {
+               "value": "663.78"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "VA 08",
+               "id": "1150040028"
+              },
+              {
+               "value": "3090.00"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "VA 09",
+               "id": "1150040017"
+              },
+              {
+               "value": "1816.32"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "VA 10",
+               "id": "527"
+              },
+              {
+               "value": "1154.98"
+              }
+             ],
+             "type": "Data"
+            }
+           ]
+          },
+          "Summary": {
+           "ColData": [
+            {
+             "value": "Total Virtual Assistants"
+            },
+            {
+             "value": "13772.64"
+            }
+           ]
+          },
+          "type": "Section"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 61300 Contract Labor"
+         },
+         {
+          "value": "43208.57"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "62000 Lead Generation",
+          "id": "313"
+         },
+         {
+          "value": ""
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "Header": {
+           "ColData": [
+            {
+             "value": "62100 General Prospecting & Marketing",
+             "id": "314"
+            },
+            {
+             "value": "268.13"
+            }
+           ]
+          },
+          "Rows": {
+           "Row": [
+            {
+             "Header": {
+              "ColData": [
+               {
+                "value": "62110 Advertising",
+                "id": "316"
+               },
+               {
+                "value": "512.24"
+               }
+              ]
+             },
+             "Rows": {
+              "Row": [
+               {
+                "Header": {
+                 "ColData": [
+                  {
+                   "value": "Other Marketing",
+                   "id": "372"
+                  },
+                  {
+                   "value": ""
+                  }
+                 ]
+                },
+                "Rows": {
+                 "Row": [
+                  {
+                   "ColData": [
+                    {
+                     "value": "Vyral Marketing",
+                     "id": "466"
+                    },
+                    {
+                     "value": "625.00"
+                    }
+                   ],
+                   "type": "Data"
+                  }
+                 ]
+                },
+                "Summary": {
+                 "ColData": [
+                  {
+                   "value": "Total Other Marketing"
+                  },
+                  {
+                   "value": "625.00"
+                  }
+                 ]
+                },
+                "type": "Section"
+               }
+              ]
+             },
+             "Summary": {
+              "ColData": [
+               {
+                "value": "Total 62110 Advertising"
+               },
+               {
+                "value": "1137.24"
+               }
+              ]
+             },
+             "type": "Section"
+            },
+            {
+             "Header": {
+              "ColData": [
+               {
+                "value": "62120 Print/Direct Mail",
+                "id": "321"
+               },
+               {
+                "value": ""
+               }
+              ]
+             },
+             "Rows": {
+              "Row": [
+               {
+                "ColData": [
+                 {
+                  "value": "Copies",
+                  "id": "322"
+                 },
+                 {
+                  "value": "596.31"
+                 }
+                ],
+                "type": "Data"
+               },
+               {
+                "ColData": [
+                 {
+                  "value": "Flyers/Business Cards",
+                  "id": "323"
+                 },
+                 {
+                  "value": "1930.95"
+                 }
+                ],
+                "type": "Data"
+               }
+              ]
+             },
+             "Summary": {
+              "ColData": [
+               {
+                "value": "Total 62120 Print/Direct Mail"
+               },
+               {
+                "value": "2527.26"
+               }
+              ]
+             },
+             "type": "Section"
+            },
+            {
+             "Header": {
+              "ColData": [
+               {
+                "value": "62130 Internet Lead Generation",
+                "id": "363"
+               },
+               {
+                "value": ""
+               }
+              ]
+             },
+             "Rows": {
+              "Row": [
+               {
+                "ColData": [
+                 {
+                  "value": "Facebook",
+                  "id": "386"
+                 },
+                 {
+                  "value": "3.54"
+                 }
+                ],
+                "type": "Data"
+               },
+               {
+                "ColData": [
+                 {
+                  "value": "Follow-up Boss",
+                  "id": "1150040018"
+                 },
+                 {
+                  "value": "1972.87"
+                 }
+                ],
+                "type": "Data"
+               },
+               {
+                "ColData": [
+                 {
+                  "value": "Realtor.com",
+                  "id": "365"
+                 },
+                 {
+                  "value": "20902.05"
+                 }
+                ],
+                "type": "Data"
+               },
+               {
+                "ColData": [
+                 {
+                  "value": "Realty.com",
+                  "id": "579"
+                 },
+                 {
+                  "value": "7300.00"
+                 }
+                ],
+                "type": "Data"
+               },
+               {
+                "ColData": [
+                 {
+                  "value": "Zillow",
+                  "id": "366"
+                 },
+                 {
+                  "value": "4950.00"
+                 }
+                ],
+                "type": "Data"
+               }
+              ]
+             },
+             "Summary": {
+              "ColData": [
+               {
+                "value": "Total 62130 Internet Lead Generation"
+               },
+               {
+                "value": "35128.46"
+               }
+              ]
+             },
+             "type": "Section"
+            },
+            {
+             "Header": {
+              "ColData": [
+               {
+                "value": "62140 Promotional Expenses",
+                "id": "344"
+               },
+               {
+                "value": ""
+               }
+              ]
+             },
+             "Rows": {
+              "Row": [
+               {
+                "ColData": [
+                 {
+                  "value": "Meals",
+                  "id": "345"
+                 },
+                 {
+                  "value": "2143.66"
+                 }
+                ],
+                "type": "Data"
+               }
+              ]
+             },
+             "Summary": {
+              "ColData": [
+               {
+                "value": "Total 62140 Promotional Expenses"
+               },
+               {
+                "value": "2143.66"
+               }
+              ]
+             },
+             "type": "Section"
+            }
+           ]
+          },
+          "Summary": {
+           "ColData": [
+            {
+             "value": "Total 62100 General Prospecting & Marketing"
+            },
+            {
+             "value": "41204.75"
+            }
+           ]
+          },
+          "type": "Section"
+         },
+         {
+          "Header": {
+           "ColData": [
+            {
+             "value": "62200 Listing Management",
+             "id": "427"
+            },
+            {
+             "value": ""
+            }
+           ]
+          },
+          "Rows": {
+           "Row": [
+            {
+             "ColData": [
+              {
+               "value": "62220 Photography & Virtual Tours",
+               "id": "318"
+              },
+              {
+               "value": "11427.33"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "62240 Signs",
+               "id": "320"
+              },
+              {
+               "value": "2400.00"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "62250 Showingtime",
+               "id": "463"
+              },
+              {
+               "value": "169.00"
+              }
+             ],
+             "type": "Data"
+            }
+           ]
+          },
+          "Summary": {
+           "ColData": [
+            {
+             "value": "Total 62200 Listing Management"
+            },
+            {
+             "value": "13996.33"
+            }
+           ]
+          },
+          "type": "Section"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 62000 Lead Generation"
+         },
+         {
+          "value": "55201.08"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "63000 Occupancy",
+          "id": "208"
+         },
+         {
+          "value": "12261.33"
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "ColData": [
+           {
+            "value": "63100 Rent/Desk Fees",
+            "id": "209"
+           },
+           {
+            "value": "31345.48"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "Header": {
+           "ColData": [
+            {
+             "value": "63200 Utilities",
+             "id": "210"
+            },
+            {
+             "value": "200.52"
+            }
+           ]
+          },
+          "Rows": {
+           "Row": [
+            {
+             "ColData": [
+              {
+               "value": "Gas",
+               "id": "646"
+              },
+              {
+               "value": "181.73"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "Internet",
+               "id": "629"
+              },
+              {
+               "value": "1799.71"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "Other Miscellaneous Service Cost",
+               "id": "631"
+              },
+              {
+               "value": "408.97"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "Power",
+               "id": "632"
+              },
+              {
+               "value": "924.74"
+              }
+             ],
+             "type": "Data"
+            },
+            {
+             "ColData": [
+              {
+               "value": "Security System",
+               "id": "647"
+              },
+              {
+               "value": "416.47"
+              }
+             ],
+             "type": "Data"
+            }
+           ]
+          },
+          "Summary": {
+           "ColData": [
+            {
+             "value": "Total 63200 Utilities"
+            },
+            {
+             "value": "3932.14"
+            }
+           ]
+          },
+          "type": "Section"
+         },
+         {
+          "ColData": [
+           {
+            "value": "63300 Repair/Maintenance",
+            "id": "211"
+           },
+           {
+            "value": "1496.00"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "63500 Other-Occupency",
+            "id": "213"
+           },
+           {
+            "value": "450.00"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "Cleaning Service",
+            "id": "627"
+           },
+           {
+            "value": "1766.00"
+           }
+          ],
+          "type": "Data"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 63000 Occupancy"
+         },
+         {
+          "value": "51250.95"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "64000 Communication/Technology",
+          "id": "215"
+         },
+         {
+          "value": ""
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "Header": {
+           "ColData": [
+            {
+             "value": "64100 Telephone Services",
+             "id": "216"
+            },
+            {
+             "value": ""
+            }
+           ]
+          },
+          "Rows": {
+           "Row": [
+            {
+             "ColData": [
+              {
+               "value": "Telephone",
+               "id": "218"
+              },
+              {
+               "value": "463.79"
+              }
+             ],
+             "type": "Data"
+            }
+           ]
+          },
+          "Summary": {
+           "ColData": [
+            {
+             "value": "Total 64100 Telephone Services"
+            },
+            {
+             "value": "463.79"
+            }
+           ]
+          },
+          "type": "Section"
+         },
+         {
+          "ColData": [
+           {
+            "value": "64300 ISP/Hosting/Email",
+            "id": "220"
+           },
+           {
+            "value": "3366.94"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "64700 Subscription Software",
+            "id": "224"
+           },
+           {
+            "value": "7188.58"
+           }
+          ],
+          "type": "Data"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 64000 Communication/Technology"
+         },
+         {
+          "value": "11019.31"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "65000 Education/Dues",
+          "id": "227"
+         },
+         {
+          "value": ""
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "Header": {
+           "ColData": [
+            {
+             "value": "65100 Education/Training",
+             "id": "228"
+            },
+            {
+             "value": ""
+            }
+           ]
+          },
+          "Rows": {
+           "Row": [
+            {
+             "Header": {
+              "ColData": [
+               {
+                "value": "Education/Classes",
+                "id": "428"
+               },
+               {
+                "value": ""
+               }
+              ]
+             },
+             "Rows": {
+              "Row": [
+               {
+                "ColData": [
+                 {
+                  "value": "Team Training",
+                  "id": "576"
+                 },
+                 {
+                  "value": "220.64"
+                 }
+                ],
+                "type": "Data"
+               }
+              ]
+             },
+             "Summary": {
+              "ColData": [
+               {
+                "value": "Total Education/Classes"
+               },
+               {
+                "value": "220.64"
+               }
+              ]
+             },
+             "type": "Section"
+            }
+           ]
+          },
+          "Summary": {
+           "ColData": [
+            {
+             "value": "Total 65100 Education/Training"
+            },
+            {
+             "value": "220.64"
+            }
+           ]
+          },
+          "type": "Section"
+         },
+         {
+          "ColData": [
+           {
+            "value": "65200 Coaching/Consulting",
+            "id": "229"
+           },
+           {
+            "value": "12988.00"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "65400 Dues",
+            "id": "231"
+           },
+           {
+            "value": "1037.00"
+           }
+          ],
+          "type": "Data"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 65000 Education/Dues"
+         },
+         {
+          "value": "14245.64"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "67000 Equipment/Furnishings",
+          "id": "242"
+         },
+         {
+          "value": ""
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "ColData": [
+           {
+            "value": "67400 Property Tax on E/F",
+            "id": "247"
+           },
+           {
+            "value": "719.59"
+           }
+          ],
+          "type": "Data"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 67000 Equipment/Furnishings"
+         },
+         {
+          "value": "719.59"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "68000 Supplies/Office Expenses",
+          "id": "249"
+         },
+         {
+          "value": ""
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "ColData": [
+           {
+            "value": "68100 Banking Charges",
+            "id": "250"
+           },
+           {
+            "value": "677.18"
+           }
+          ],
+          "type": "Data"
+         },
+         {
+          "ColData": [
+           {
+            "value": "68200 Office Supplies",
+            "id": "251"
+           },
+           {
+            "value": "2566.28"
+           }
+          ],
+          "type": "Data"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 68000 Supplies/Office Expenses"
+         },
+         {
+          "value": "3243.46"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "69000 Other Expense",
+          "id": "259"
+         },
+         {
+          "value": ""
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "ColData": [
+           {
+            "value": "69610 Charitable Contributions",
+            "id": "260"
+           },
+           {
+            "value": "5000.00"
+           }
+          ],
+          "type": "Data"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total 69000 Other Expense"
+         },
+         {
+          "value": "5000.00"
+         }
+        ]
+       },
+       "type": "Section"
+      }
+     ]
+    },
+    "Summary": {
+     "ColData": [
+      {
+       "value": "Total Expenses"
+      },
+      {
+       "value": "204654.80"
+      }
+     ]
+    },
+    "type": "Section",
+    "group": "Expenses"
+   },
+   {
+    "Summary": {
+     "ColData": [
+      {
+       "value": "Net Operating Income"
+      },
+      {
+       "value": "166523.47"
+      }
+     ]
+    },
+    "type": "Section",
+    "group": "NetOperatingIncome"
+   },
+   {
+    "Header": {
+     "ColData": [
+      {
+       "value": "Other Income"
+      },
+      {
+       "value": ""
+      }
+     ]
+    },
+    "Rows": {
+     "Row": [
+      {
+       "ColData": [
+        {
+         "value": "71000 Interest Income",
+         "id": "274"
+        },
+        {
+         "value": "4.00"
+        }
+       ],
+       "type": "Data"
+      },
+      {
+       "ColData": [
+        {
+         "value": "Place 328 Profit Share",
+         "id": "877"
+        },
+        {
+         "value": "0.01"
+        }
+       ],
+       "type": "Data"
+      },
+      {
+       "Header": {
+        "ColData": [
+         {
+          "value": "Place Exp Reimbursement",
+          "id": "871"
+         },
+         {
+          "value": "138964.80"
+         }
+        ]
+       },
+       "Rows": {
+        "Row": [
+         {
+          "ColData": [
+           {
+            "value": "Place Paid Exp",
+            "id": "907"
+           },
+           {
+            "value": "86553.24"
+           }
+          ],
+          "type": "Data"
+         }
+        ]
+       },
+       "Summary": {
+        "ColData": [
+         {
+          "value": "Total Place Exp Reimbursement"
+         },
+         {
+          "value": "225518.04"
+         }
+        ]
+       },
+       "type": "Section"
+      },
+      {
+       "ColData": [
+        {
+         "value": "Reimbursements",
+         "id": "590"
+        },
+        {
+         "value": "37.50"
+        }
+       ],
+       "type": "Data"
+      }
+     ]
+    },
+    "Summary": {
+     "ColData": [
+      {
+       "value": "Total Other Income"
+      },
+      {
+       "value": "225559.55"
+      }
+     ]
+    },
+    "type": "Section",
+    "group": "OtherIncome"
+   },
+   {
+    "Header": {
+     "ColData": [
+      {
+       "value": "Other Expenses"
+      },
+      {
+       "value": ""
+      }
+     ]
+    },
+    "Rows": {
+     "Row": [
+      {
+       "ColData": [
+        {
+         "value": "86000 Consulting",
+         "id": "280"
+        },
+        {
+         "value": "117952.53"
+        }
+       ],
+       "type": "Data"
+      },
+      {
+       "ColData": [
+        {
+         "value": "Place Income Transfer",
+         "id": "875"
+        },
+        {
+         "value": "150000.00"
+        }
+       ],
+       "type": "Data"
+      }
+     ]
+    },
+    "Summary": {
+     "ColData": [
+      {
+       "value": "Total Other Expenses"
+      },
+      {
+       "value": "267952.53"
+      }
+     ]
+    },
+    "type": "Section",
+    "group": "OtherExpenses"
+   },
+   {
+    "Summary": {
+     "ColData": [
+      {
+       "value": "Net Other Income"
+      },
+      {
+       "value": "-42392.98"
+      }
+     ]
+    },
+    "type": "Section",
+    "group": "NetOtherIncome"
+   },
+   {
+    "Summary": {
+     "ColData": [
+      {
+       "value": "Net Income"
+      },
+      {
+       "value": "124130.49"
+      }
+     ]
+    },
+    "type": "Section",
+    "group": "NetIncome"
+   }
+  ]
+ }
+}
