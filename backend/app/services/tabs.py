@@ -21,6 +21,7 @@ async def tenant_tabs(s, tenant_id) -> list[str]:
     for b in biz:
         out.extend(PROGRAM_TABS.get(b.key, [b.key]))
     out.append("flywheel")
+    out.append("books")                                 # portfolio-level bookkeeping module
     # de-dupe while preserving order (defensive against config quirks)
     seen, ordered = set(), []
     for t in out:
@@ -56,6 +57,8 @@ def tab_for_metric(key: str, business: str | None = None) -> str:
     """The tab that owns a lineage key — the drill inherits its tile's permission."""
     if key.startswith("flywheel_"):
         return "flywheel"
+    if key.startswith("books_"):                        # books_queue, books_ic, books_pl_lines
+        return "books"
     if key.startswith("forum_") or key in _FORUM:
         return "forum"
     if key.startswith("bc_") or key in _BC:

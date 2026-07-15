@@ -63,7 +63,7 @@ async def test_seeded_owner_logs_in_and_me():
     async with _client() as c:
         me = (await c.get("/api/v1/me", headers=_H(tok))).json()
     assert me["role"] == "owner" and me["status"] == "active"
-    assert me["tabs"] == ["portfolio", "ulrg", "forum", "becollective", "sympli", "flywheel"]
+    assert me["tabs"] == ["portfolio", "ulrg", "forum", "becollective", "sympli", "flywheel", "books"]
 
 
 # ── authz matrix (test 1) ───────────────────────────────────────────
