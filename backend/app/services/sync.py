@@ -154,6 +154,20 @@ def _member_type(v: str | None) -> str | None:
     return None
 
 
+# A membership whose CRM "Status" field reads one of these is NOT a current member,
+# even if the Member Type field is still populated (a member can go inactive without
+# anyone clearing their type). Conservative on purpose — payment states (past_due /
+# failed) and transitional ones (pending / resigning) are handled elsewhere and are
+# NOT dropped here. Overridable per tenant via cfg['inactive_statuses'].
+_INACTIVE_MEMBER_STATUS = ("inactive", "not active", "non-active", "cancel",
+                           "lapsed", "expired", "former", "terminated", "churn")
+
+
+def _is_inactive_status(v: str | None, vocab=_INACTIVE_MEMBER_STATUS) -> bool:
+    d = (v or "").strip().lower()
+    return bool(d) and any(k in d for k in vocab)
+
+
 def _read_membership(values: dict, field_ids: dict) -> dict:
     """A contact's custom-field values (id→value) → the semantic membership record."""
     from .billing import normalize_payment_plan
@@ -402,9 +416,14 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     # every active-member count. Tags no longer *define* membership (they were noisy —
     # cohort/guest tags leaked in and tag-less members were missed); they still segment
     # Forum vs Inner Circle. Falls back to the tag union only if the field isn't mapped.
+    # A member whose "Status" field reads inactive is dropped from the count even if the
+    # Member Type field is still set (that field alone no longer keeps a lapsed member on
+    # the roster — the Status field is the authoritative active/inactive signal).
     typed = bool(field_ids.get("member_type"))
+    inactive_vocab = tuple(str(x).lower() for x in
+                           (cfg.get("inactive_statuses") or _INACTIVE_MEMBER_STATUS))
     members, regs = [], []
-    n_admin = 0
+    n_admin = n_inactive = 0
     for c in contacts:
         tset = set(ghl.contact_tags(c))
         cid = str(c.get("id"))
@@ -414,7 +433,12 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                     source_url=ghl.contact_url(location_id, c.get("id")))
         detail = _read_membership(ghl.contact_custom_values(c), field_ids) if field_ids else {}
         kind = detail.get("member_kind")                 # primary | add_on | admin | None
-        is_member = kind in ("primary", "add_on", "admin") if typed else bool(tset & member_tags)
+        typed_member = kind in ("primary", "add_on", "admin")
+        # Inactive Status field overrides a still-populated Member Type (typed path only).
+        inactive = typed and typed_member and _is_inactive_status(detail.get("status"), inactive_vocab)
+        if inactive:
+            n_inactive += 1
+        is_member = (typed_member and not inactive) if typed else bool(tset & member_tags)
         if is_member:
             if kind == "admin":
                 n_admin += 1
@@ -432,7 +456,8 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     await _ghl_snapshot(s, tenant_id, biz, "registration", regs)
     n_records = len(members) + len(regs)
     print(f"[ghl] {len(members) - n_admin} members (+{n_admin} admin) via "
-          f"{'Member Type field' if typed else 'membership tags'}, {len(regs)} registered "
+          f"{'Member Type field' if typed else 'membership tags'}"
+          f"{f', {n_inactive} inactive excluded' if n_inactive else ''}, {len(regs)} registered "
           f"for '{event_tag}' (from {len(contacts)} contacts)", flush=True)
 
     # 2) Opportunities → memberships (renewals pipeline) + onboarded (sales funnel).

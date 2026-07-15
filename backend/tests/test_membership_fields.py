@@ -8,7 +8,8 @@ import pytest
 from sqlalchemy import select
 
 from app.services.billing import normalize_payment_plan, project_renewals, compute_billing
-from app.services.sync import _parse_any_date, _parse_money, _membership_field_ids, _read_membership
+from app.services.sync import (_parse_any_date, _parse_money, _membership_field_ids,
+                               _read_membership, _is_inactive_status)
 
 
 # ── payment-plan normalization ──────────────────────────────────────
@@ -89,6 +90,29 @@ def test_read_membership_richer_fields():
     # a primary label normalizes to 'primary'; Admin is its own kind
     assert _read_membership({"mt": "Primary Member"}, {"member_type": "mt"})["member_kind"] == "primary"
     assert _read_membership({"mt": "Admin"}, {"member_type": "mt"})["member_kind"] == "admin"
+
+
+def test_is_inactive_status():
+    # a member whose Status field reads inactive is NOT a current member, even if
+    # their Member Type field is still populated (the count keys off this).
+    assert _is_inactive_status("Inactive") is True
+    assert _is_inactive_status("Cancelled") is True and _is_inactive_status("Canceled") is True
+    assert _is_inactive_status("Lapsed") is True and _is_inactive_status("Expired") is True
+    assert _is_inactive_status("Former Member") is True
+    # active and transitional states are kept (not dropped here)
+    assert _is_inactive_status("Active") is False        # must not trip on the 'active' substring
+    assert _is_inactive_status("Pending") is False
+    assert _is_inactive_status("") is False and _is_inactive_status(None) is False
+    # per-tenant vocabulary override
+    assert _is_inactive_status("Paused", vocab=("paused",)) is True
+    assert _is_inactive_status("Inactive", vocab=("paused",)) is False
+
+
+def test_read_membership_surfaces_inactive_status_for_exclusion():
+    # the Status string the count reads to drop a still-typed-but-inactive member
+    out = _read_membership({"mt": "Primary Member", "st": "Inactive"},
+                           {"member_type": "mt", "status": "st"})
+    assert out["member_kind"] == "primary" and _is_inactive_status(out["status"]) is True
 
 
 def test_roster_summary_counts_admins_separately():
