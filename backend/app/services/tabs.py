@@ -9,17 +9,34 @@ from sqlalchemy import select
 
 from ..models import Business
 
-# Program views replace their business key in the nav (springb → forum + becollective).
+# Operational multi-view businesses expose more than one nav tab: springb runs both
+# The Forum and beCollective from one GHL location. Financial-only entities (a QBO
+# entity routed to a page) instead contribute a single tab via their `display_tab`.
+# A business's nav tabs resolve as:
+#   config["program_tabs"] (explicit)  ->  PROGRAM_TABS[key]  ->  [display_tab or key]
 PROGRAM_TABS = {"springb": ["forum", "becollective"]}
 
 
+def _business_tabs(b) -> list[str]:
+    cfg = b.config or {}
+    if cfg.get("program_tabs"):
+        return list(cfg["program_tabs"])
+    if b.key in PROGRAM_TABS:
+        return list(PROGRAM_TABS[b.key])
+    return [b.display_tab or b.key]
+
+
 async def tenant_tabs(s, tenant_id) -> list[str]:
-    """Ordered nav-tab keys for a tenant, derived from its businesses (sort_order)."""
+    """Ordered nav-tab keys for a tenant, derived from its businesses (sort_order).
+    Each business contributes its operational program tabs plus — for a financial
+    entity routed to a brand-new page — its `display_tab`."""
     biz = (await s.execute(select(Business).where(
         Business.tenant_id == tenant_id).order_by(Business.sort_order))).scalars().all()
     out = ["portfolio"]
     for b in biz:
-        out.extend(PROGRAM_TABS.get(b.key, [b.key]))
+        out.extend(_business_tabs(b))
+        if b.display_tab:                               # a new-page routing target is a tab too
+            out.append(b.display_tab)
     out.append("flywheel")
     out.append("books")                                 # portfolio-level bookkeeping module
     # de-dupe while preserving order (defensive against config quirks)
@@ -53,8 +70,10 @@ _FINANCIAL = {"revenue", "noi", "gross_profit", "opex", "cogs", "combined_profit
 _BIZ_TAB = {"ulrg": "ulrg", "sympli": "sympli", "springb": "forum"}
 
 
-def tab_for_metric(key: str, business: str | None = None) -> str:
-    """The tab that owns a lineage key — the drill inherits its tile's permission."""
+def tab_for_metric(key: str, business: str | None = None, biz_tab: dict | None = None) -> str:
+    """The tab that owns a lineage key — the drill inherits its tile's permission.
+    `biz_tab` maps business.key → its display_tab (a financial drill for a QBO entity
+    routed to another page belongs to that page); falls back to the static _BIZ_TAB."""
     if key.startswith("flywheel_"):
         return "flywheel"
     if key.startswith("books_"):                        # books_queue, books_ic, books_pl_lines
@@ -70,5 +89,14 @@ def tab_for_metric(key: str, business: str | None = None) -> str:
     if key == "combined_profit":
         return "portfolio"
     if key in _FINANCIAL and business:
-        return _BIZ_TAB.get(business, business)
+        return (biz_tab or _BIZ_TAB).get(business, business)
     return "portfolio"
+
+
+async def biz_tab_map(s, tenant_id) -> dict[str, str]:
+    """business.key → the tab its financial area renders on (display_tab or its own
+    key). Pass to tab_for_metric so a QBO entity routed to another page keeps its
+    drill permission aligned to that page."""
+    rows = (await s.execute(select(Business.key, Business.display_tab).where(
+        Business.tenant_id == tenant_id))).all()
+    return {k: (dt or k) for k, dt in rows}

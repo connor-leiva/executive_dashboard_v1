@@ -122,11 +122,11 @@ async def seed():
         springb = Business(tenant_id=tenant.id, key="springb", name="Spring B",
                            tag="beCollective + The Forum", status="watch", accent="#FA8069",
                            ink="#CE4E29", is_jv=False, jv_share=Decimal("1.0"), sort_order=1,
-                           config=SPRINGB_CONFIG)
+                           kind="membership", display_tab="forum", config=SPRINGB_CONFIG)
         sympli = Business(tenant_id=tenant.id, key="sympli", name="Sympli Mortgage",
                           tag="Joint venture · 50% owned", status="opportunity", accent="#227175",
                           ink="#227175", is_jv=True, jv_share=Decimal("0.5"), sort_order=2,
-                          config=SYMPLI_CONFIG,
+                          kind="commission_jv", config=SYMPLI_CONFIG,
                           per_loan_share=Decimal(2100), capture_target=Decimal(60),
                           lo_comp_rate=Decimal("0.55"), opex_rate=Decimal("0.29"))
         s.add_all([ulrg, springb, sympli])

@@ -134,7 +134,9 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                     integration_id=str(i.id), business_key=b.key, business_name=b.name, state=state,
                     last_synced_at=i.last_synced_at.isoformat() if i.last_synced_at else None,
                     realm_id=i.realm_id,
-                    detail=(i.last_error or "Re-authorize to resume syncing") if state == "error" else None))
+                    detail=(i.last_error or "Re-authorize to resume syncing") if state == "error" else None,
+                    display_tab=(b.display_tab or b.key),
+                    books_enabled=bool((b.config or {}).get("books_enabled", True))))
             connected = [i for i in rows if i.status in ("connected", "error")]
             if not connected:
                 status, note = "disconnected", None

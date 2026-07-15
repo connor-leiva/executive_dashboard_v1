@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import Integration, Transaction, Agent, Lead, PLSnapshot, SyncRun, MetricRecord
+from ..models import Integration, Transaction, Agent, Lead, PLSnapshot, SyncRun, MetricRecord, Business
 from ..security import enc, dec
 from ..integrations import fub, sisu, qbo, ghl, arive, stripe_legacy
 
@@ -1049,8 +1049,16 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
         elif integ.provider == "qbo":
             prev_synced = integ.last_synced_at                 # txn CDC cursor, pre-bump
             records = await sync_qbo_pl(s, tenant_id, integ)   # syncs all periods itself
-            from .books_sync import run_books_syncs            # local import avoids a cycle
-            await run_books_syncs(s, tenant_id, integ, since=prev_synced)
+            biz = await s.get(Business, integ.business_id)     # Books ingestion is per-entity opt-out
+            bcfg = (biz.config or {}) if biz else {}
+            if bcfg.get("books_enabled", True):
+                # the entity's chosen backfill-start lives on the business; surface it onto
+                # the integration the txn sync reads (_backfill_start), bridging create→sync.
+                bf = bcfg.get("books_backfill_start")
+                if bf and (integ.config or {}).get("books_backfill_start") != bf:
+                    integ.config = {**(integ.config or {}), "books_backfill_start": bf}
+                from .books_sync import run_books_syncs        # local import avoids a cycle
+                await run_books_syncs(s, tenant_id, integ, since=prev_synced)
         run.status, run.finished_at = "ok", dt.datetime.utcnow()
         run.stats = {"records": records,
                      "seconds": round((run.finished_at - started).total_seconds(), 1)}

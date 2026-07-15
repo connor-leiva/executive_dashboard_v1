@@ -85,6 +85,15 @@ class Business(Base):
     name: Mapped[str] = mapped_column(String(120))
     tag: Mapped[str] = mapped_column(String(160))
     status: Mapped[str] = mapped_column(String(24), default="healthy")  # healthy|watch|opportunity
+    # Financial-entity model + page routing (QBO entity routing). `kind` dispatches the
+    # compute_financials shape so a non-real-estate entity never renders a Sisu-shaped P&L.
+    # `display_tab` is the nav-tab key this entity's FINANCIAL area renders on — the
+    # user-configurable routing target; NULL means "use this entity's own key". A business
+    # is left out of portfolio/consolidation totals when include_in_portfolio is False
+    # (e.g. the operational-only springb holder after the QBO account split).
+    kind: Mapped[str] = mapped_column(String(24), default="real_estate")  # real_estate|commission_jv|membership|holding
+    display_tab: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    include_in_portfolio: Mapped[bool] = mapped_column(Boolean, default=True)
     accent: Mapped[str] = mapped_column(String(9), default="#61835E")   # bright (borders/dots)
     ink: Mapped[str] = mapped_column(String(9), default="#4F6A4D")      # readable text accent
     is_jv: Mapped[bool] = mapped_column(Boolean, default=False)
