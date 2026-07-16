@@ -3,18 +3,20 @@ the `binder` tab. Step 2 ships the entity lifecycle; the matrix / review / oblig
 mutations land with later steps. Payload shapes mirror the Binder mockups."""
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, Form, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import require_tab
 from ..models import User
-from ..services import binder
+from ..services import binder, binder_ingest
 
 router = APIRouter(prefix="/binder", tags=["binder"])
 
 binder_user = require_tab("binder")     # members with the binder grant + owners/admins
+
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024     # 25 MB — comfortably covers scanned filings/policies
 
 
 class EntityIn(BaseModel):
@@ -82,3 +84,33 @@ async def deactivate_entity(entity_id: uuid.UUID, user: User = Depends(binder_us
     if ent is None:
         raise HTTPException(404, "Entity not found")
     return {"ok": True, "id": str(ent.id), "active": ent.active}
+
+
+# ── Documents (Part 2 ingestion; upload channel) ──────────────────────────────
+@router.post("/documents")
+async def upload_document(file: UploadFile = File(...),
+                          entity_id: uuid.UUID | None = Form(None),
+                          category: str | None = Form(None),
+                          user: User = Depends(binder_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Multipart upload. Stores the raw bytes, dedups on content hash, creates a
+    BinderDocument, and queues it for extraction. entity_id / category are optional hints;
+    extraction (Step 4) proposes the real values."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Empty file")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+    try:
+        doc, created = await binder_ingest.ingest_document(
+            s, user.tenant_id, user, filename=file.filename or "document", data=data,
+            uploaded_via="upload", entity_id=entity_id, category=category)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return binder_ingest.document_out(doc, deduped=not created)
+
+
+@router.get("/documents")
+async def list_documents(entity_id: uuid.UUID | None = None, user: User = Depends(binder_user),
+                         s: AsyncSession = Depends(get_session)):
+    return await binder_ingest.list_documents(s, user.tenant_id, entity_id=entity_id)
