@@ -27,9 +27,10 @@ none on file. This is flagged in that rule's ``source_note``.
 """
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from ..models import JurisdictionRule
 
@@ -153,3 +154,91 @@ async def seed_jurisdiction_rules(session) -> int:
     if inserted:
         await session.flush()
     return inserted
+
+
+# ── Rule lookup + derivation (SPEC Part 4) ───────────────────────────────────
+# The engine: given (jurisdiction, entity_type, kind) find the governing rule (most specific
+# first, a tenant override beating the system default), then turn an anchor date into a
+# schedule. Pure/deterministic — the extraction step feeds anchors in, the confirm loop and
+# status math read the results out.
+
+# Return-form -> federal tax classification (the entity_type_calendar key). A document's
+# return type is the reliable signal for the tax cadence; an LLC's own type is not (its
+# federal classification depends on election), so tax derivation is READ from the return.
+RETURN_TYPE_CLASS = {
+    "1120-s": "s_corp", "1120s": "s_corp",
+    "1065": "partnership",
+    "1120": "c_corp",
+    "1040": "individual",
+}
+
+
+async def lookup_rule(session, tenant_id, *, jurisdiction, entity_type, kind) -> JurisdictionRule | None:
+    """The governing rule for (jurisdiction, entity_type, kind). Considers this tenant's
+    overrides plus system defaults (tenant_id NULL), and wildcard rows (NULL jurisdiction /
+    entity_type). Ranks a tenant rule over a system one, and a more specific match over a
+    wildcard, so the returned rule is the single best fit (or None)."""
+    rows = (await session.execute(select(JurisdictionRule).where(
+        JurisdictionRule.kind == kind,
+        JurisdictionRule.active.is_(True),
+        or_(JurisdictionRule.tenant_id == tenant_id, JurisdictionRule.tenant_id.is_(None)),
+        or_(JurisdictionRule.jurisdiction == jurisdiction, JurisdictionRule.jurisdiction.is_(None)),
+        or_(JurisdictionRule.entity_type == entity_type, JurisdictionRule.entity_type.is_(None)),
+    ))).scalars().all()
+    if not rows:
+        return None
+    rows.sort(key=lambda r: (bool(r.tenant_id), r.jurisdiction is not None,
+                             r.entity_type is not None), reverse=True)
+    return rows[0]
+
+
+def _last_day(year: int, month: int) -> int:
+    return calendar.monthrange(year, month)[1]
+
+
+def _next_on_or_after(today: dt.date, month: int, day: int) -> dt.date:
+    """The next occurrence of (month, day) on or after `today` (this year, else next).
+    Clamps the day into the month so Feb 29 etc. never raises."""
+    for year in (today.year, today.year + 1):
+        d = dt.date(year, month, min(day, _last_day(year, month)))
+        if d >= today:
+            return d
+    return dt.date(today.year + 1, month, min(day, _last_day(today.year + 1, month)))
+
+
+def derive(rule: JurisdictionRule, *, today: dt.date, anchor: dt.date | None = None,
+           classification: str | None = None) -> dict:
+    """Turn a rule + anchor into a schedule: {due_date, cadence, lead_days, applicable}.
+
+    `anchor` is the formation date (anniversary rules); `classification` is the tax class
+    (entity_type_calendar). A rule that cannot derive a date without a missing input returns
+    due_date=None (dormant) rather than guessing. `not_applicable` -> applicable False."""
+    out = {"due_date": None, "cadence": rule.cadence, "lead_days": rule.lead_days_default,
+           "applicable": True}
+    p = rule.params or {}
+    d = rule.derivation
+
+    if d == "not_applicable":
+        out["applicable"] = False
+    elif d == "manual":
+        pass                                        # human sets the date; no derivation
+    elif d == "anniversary_month_end":
+        if anchor is not None:
+            m = anchor.month
+            year = today.year
+            due = dt.date(year, m, _last_day(year, m))
+            if due < today:
+                due = dt.date(year + 1, m, _last_day(year + 1, m))
+            out["due_date"] = due
+    elif d == "fixed_date":
+        quarters = p.get("quarters")
+        if quarters:                                # e.g. estimated payments -> next quarter
+            cands = [_next_on_or_after(today, q["month"], q["day"]) for q in quarters]
+            out["due_date"] = min(cands)
+        elif p.get("month"):
+            out["due_date"] = _next_on_or_after(today, p["month"], p["day"])
+    elif d == "entity_type_calendar":
+        entry = (p.get("calendar") or {}).get(classification or "")
+        if entry:
+            out["due_date"] = _next_on_or_after(today, entry["month"], entry["day"])
+    return out
