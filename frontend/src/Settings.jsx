@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, NavLink, Link } from "react-router-dom";
 import { T, PROVIDER_NAME, relativeTime } from "./theme.js";
-import { getJSON, postJSON, putJSON, patchJSON } from "./api.js";
+import { getJSON, postJSON, putJSON, patchJSON, delJSON } from "./api.js";
 import { Icon } from "./Brand.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -671,35 +671,46 @@ function QboEntityForm({ mode, entity, onClose, onDone }) {
   );
 }
 
-function EntityRow({ e, live, busy, onSync, onReconnect, onEditEntity, onDisconnectEntity }) {
+const CORE_ENTITIES = new Set(["ulrg", "springb", "sympli"]);
+
+function EntityRow({ e, live, busy, onSync, onReconnect, onEditEntity, onDisconnectEntity, onDeleteEntity }) {
   const err = e.state === "error";
+  const disc = e.state === "disconnected";
   const meta = e.realm_id ? `Realm ${e.realm_id}` : "";
   const routesTo = e.display_tab && e.display_tab !== e.business_key ? routableLabel(e.display_tab) : null;
+  const statusColor = err ? T.poppyText : disc ? T.muted : T.meadow;
+  const statusText = err ? (e.detail || "Re-authorize to resume syncing")
+    : disc ? "Disconnected — reconnect to resume"
+    : (e.last_synced_at ? `Synced ${relativeTime(e.last_synced_at)}` : "Not synced");
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.line}`, flexWrap: "wrap" }}>
-      <span style={{ width: 8, height: 8, borderRadius: 2, background: BIZ_DOT[e.business_key] || T.muted, flexShrink: 0 }} />
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.line}`, flexWrap: "wrap", opacity: disc ? 0.7 : 1 }}>
+      <span style={{ width: 8, height: 8, borderRadius: 2, background: disc ? T.muted : (BIZ_DOT[e.business_key] || T.muted), flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           {e.business_name}
           {routesTo && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>→ {routesTo}</span>}
           {e.books_enabled === false && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>Books off</span>}
         </div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: err ? T.poppyText : T.muted, marginTop: 2, display: "flex", alignItems: "center", gap: 5 }}>
-          <Icon name={err ? "warning" : "check_circled"} size={11} color={err ? T.poppyText : T.meadow} />
-          {err ? (e.detail || "Re-authorize to resume syncing") : (e.last_synced_at ? `Synced ${relativeTime(e.last_synced_at)}` : "Not synced")}
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: statusColor, marginTop: 2, display: "flex", alignItems: "center", gap: 5 }}>
+          <Icon name={err || disc ? "warning" : "check_circled"} size={11} color={statusColor} />
+          {statusText}
           {meta && <span style={{ color: T.muted }}>· {meta}</span>}
         </div>
       </div>
-      {err
+      {err || disc
         ? <SBtn kind="primary" small icon="sync" disabled={!live} onClick={() => onReconnect(e)}>Reconnect</SBtn>
         : <SBtn small icon="sync" disabled={!live || busy === e.integration_id} onClick={() => onSync(e.integration_id)}>{busy === e.integration_id ? "Syncing…" : "Sync now"}</SBtn>}
-      {onEditEntity && <SBtn small icon="tune" disabled={!live} onClick={() => onEditEntity(e)}>Edit</SBtn>}
-      {onDisconnectEntity && <button className="si-danger" disabled={!live} onClick={() => onDisconnectEntity(e)}>Disconnect</button>}
+      {onEditEntity && !err && <SBtn small icon="tune" disabled={!live} onClick={() => onEditEntity(e)}>Edit</SBtn>}
+      {disc
+        ? (onDeleteEntity && !CORE_ENTITIES.has(e.business_key) &&
+            <button className="si-danger" disabled={!live} onClick={() => onDeleteEntity(e)}>Remove</button>)
+        : (onDisconnectEntity && !err &&
+            <button className="si-danger" disabled={!live} onClick={() => onDisconnectEntity(e)}>Disconnect</button>)}
     </div>
   );
 }
 
-function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisconnect, onConnect, onEdit, onEditEntity, onDisconnectEntity }) {
+function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisconnect, onConnect, onEdit, onEditEntity, onDisconnectEntity, onDeleteEntity }) {
   const dis = s.status === "disconnected";
   const collapsedLine = s.status === "attention" ? s.status_note
     : dis ? s.desc(s) : s.fresh;
@@ -730,7 +741,8 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
               <div style={{ marginBottom: 4 }}>
                 {s.entities.map((e) => <EntityRow key={e.integration_id} e={e} live={live} busy={busy} onSync={onSync} onReconnect={onReconnect}
                   onEditEntity={s.provider === "qbo" ? onEditEntity : undefined}
-                  onDisconnectEntity={s.provider === "qbo" ? onDisconnectEntity : undefined} />)}
+                  onDisconnectEntity={s.provider === "qbo" ? onDisconnectEntity : undefined}
+                  onDeleteEntity={s.provider === "qbo" ? onDeleteEntity : undefined} />)}
               </div>
             )}
             {s.config_summary?.length > 0 && (
@@ -856,9 +868,14 @@ function IntegrationsPage() {
   const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || (s.provider === "arive" ? "sympli" : "springb"), status: "connected" });
   const editEntity = (e) => setConnecting({ provider: "qbo", mode: "edit", entity: e });
   async function disconnectEntity(e) {
-    if (!window.confirm(`Disconnect ${e.business_name}? Its tokens are removed; synced history stays (delete the entity to remove it entirely).`)) return;
+    if (!window.confirm(`Disconnect ${e.business_name}? Its tokens are removed; synced history stays (Remove deletes it entirely).`)) return;
     setBusy(e.integration_id);
     try { await postJSON(`/integrations/${e.integration_id}/disconnect`); } finally { setBusy(null); load(); }
+  }
+  async function deleteEntity(e) {
+    if (!window.confirm(`Remove ${e.business_name} entirely? This deletes the connection and its synced ledger / P&L. This can't be undone.`)) return;
+    setBusy(e.integration_id);
+    try { await delJSON(`/integrations/qbo/entities/${e.business_key}`); } finally { setBusy(null); load(); }
   }
   const reconnectEntity = (e) => qboConnect(e.business_key);
 
@@ -917,7 +934,7 @@ function IntegrationsPage() {
         <SourceCard key={s.provider} s={s} open={!!open[s.provider]} onToggle={() => toggle(s.provider)}
           live={live} busy={busy} onSync={syncOne} onReconnect={reconnectEntity}
           onDisconnect={disconnectSource} onConnect={connectSource} onEdit={editConfig}
-          onEditEntity={editEntity} onDisconnectEntity={disconnectEntity} />
+          onEditEntity={editEntity} onDisconnectEntity={disconnectEntity} onDeleteEntity={deleteEntity} />
       ))}
 
       <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, padding: "8px 2px" }}>
