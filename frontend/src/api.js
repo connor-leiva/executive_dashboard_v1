@@ -72,6 +72,16 @@ export async function patchJSON(path, body) {
   return res.json();
 }
 
+export async function delJSON(path) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${API}${path}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await throwFor(res);
+  return res.json();
+}
+
 // Public endpoints (accept-invite / reset-password) — no auth header, and surface
 // the server's error message so expired-link guidance reaches the user.
 export async function postPublic(path, body) {

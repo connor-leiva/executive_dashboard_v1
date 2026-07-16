@@ -68,3 +68,20 @@ async def test_stats_last_run():
 
     sisu = next(x for x in out.sources if x.provider == "sisu")
     assert sisu.last_run and "412 records" in sisu.last_run
+
+
+async def test_qbo_disconnected_entity_marked_distinctly():
+    """A disconnected QBO integration renders with state='disconnected' (not 'ok'), so
+    the UI can show it as disconnected + offer Reconnect rather than looking unchanged."""
+    async with SessionLocal() as s:
+        t = await _tenant(s)
+        biz = {b.key: b.id for b in (await s.execute(
+            select(Business).where(Business.tenant_id == t))).scalars().all()}
+        await s.execute(update(Integration).where(
+            Integration.tenant_id == t, Integration.provider == "qbo",
+            Integration.business_id == biz["sympli"]).values(status="disconnected", access_token_enc=None))
+        await s.commit()
+        out = await build_integrations_view(s, t)
+    qbo = next(x for x in out.sources if x.provider == "qbo")
+    sympli = next(e for e in qbo.entities if e.business_key == "sympli")
+    assert sympli.state == "disconnected"      # not "ok" — the UI reflects the disconnect

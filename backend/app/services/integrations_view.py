@@ -124,7 +124,8 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 b = biz_by_id.get(i.business_id)
                 if not b:
                     continue
-                state = "error" if i.status == "error" else "ok"
+                state = ("error" if i.status == "error"
+                         else "disconnected" if i.status == "disconnected" else "ok")
                 err += 1 if state == "error" else 0
                 if i.status == "connected" or state == "error":
                     feeds.append(b.key)
