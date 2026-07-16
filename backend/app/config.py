@@ -97,6 +97,18 @@ class Settings(BaseSettings):
     BOOKS_CONF_THRESHOLD: float = 0.9
     BOOKS_WRITEBACK_ENABLED: bool = False
 
+    # Acumyn Binder — document-driven entity-compliance engine (SPEC-binder-module Part 15).
+    # Extraction reuses ANTHROPIC_API_KEY; BINDER_EXTRACT_MODEL falls back to ASSISTANT_MODEL
+    # when blank. The extraction pipeline only ever proposes obligations — a human confirms
+    # each before it is tracked. RULE_STALE_MONTHS drives the admin "stale rules" view (BOI's
+    # 2024-2025 turbulence is why rules carry last_verified). Storage/email/ingest are later
+    # steps; the keys are declared now so the module's config surface is stable.
+    BINDER_EXTRACT_MODEL: str = ""            # default: falls back to ASSISTANT_MODEL
+    BINDER_INGEST_EMAIL_DOMAIN: str = ""      # for binder@{slug}.acumyn.io (Part 3)
+    BINDER_STORAGE_BUCKET: str = ""           # object-store bucket or Railway volume path (Part 2)
+    BINDER_REMINDER_DIGEST: str = "daily"     # daily | weekly (Part 9)
+    BINDER_RULE_STALE_MONTHS: int = 12
+
     # Single-tenant fallback: when a request Host doesn't match a `domain` row,
     # resolve to this tenant slug. Safe while there is one tenant (Spring); set
     # SINGLE_TENANT_FALLBACK=false once real multitenancy + custom domains land.

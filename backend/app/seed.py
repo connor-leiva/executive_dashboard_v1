@@ -22,6 +22,7 @@ from .models import (
     PLSnapshot, CashSnapshot, MetricRecord,
 )
 from .security import hash_pw
+from .services.binder_rules import seed_jurisdiction_rules
 from .services.metrics import _period_range, _pl_period
 
 OWNER_EMAIL = "spring@springb.com"
@@ -583,6 +584,10 @@ async def seed():
             for _ in range(3):
                 _n += 1
                 _ar(_n, "LOAN_FUNDED", "funded", 450000, mid, f"tx{_n}@myarive.com", state="TX")
+
+        # Binder jurisdiction rules — shared reference data (tenant_id=None), idempotent so
+        # the wipe/reseed above never disturbs them. No LegalEntity rows are ever seeded.
+        await seed_jurisdiction_rules(s)
 
         await s.commit()
 
