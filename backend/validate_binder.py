@@ -24,9 +24,9 @@ import sys
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import Tenant, User, BinderDocument, JurisdictionRule
+from app.models import Tenant, User, LegalEntity, BinderDocument, JurisdictionRule, ProposedObligation
 from app.seed import seed
-from app.services import binder_ingest
+from app.services import binder_ingest, binder_extract
 
 _EXT_OK = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".txt"}
 
@@ -67,33 +67,49 @@ async def main():
         owner = (await s.execute(select(User).where(
             User.tenant_id == tenant.id, User.role == "owner"))).scalars().first()
 
-        # Context the extraction step will match against.
-        ent_ct = len((await s.execute(select(BinderDocument.id).where(
-            BinderDocument.tenant_id == tenant.id))).all())
+        # Context the extraction step matches against.
+        entities = (await s.execute(select(LegalEntity).where(
+            LegalEntity.tenant_id == tenant.id, LegalEntity.active.is_(True)))).scalars().all()
         rules = (await s.execute(select(JurisdictionRule).where(
             JurisdictionRule.tenant_id.is_(None)))).scalars().all()
-        print(f"\nTenant '{args.tenant}': {ent_ct} documents already on file, "
+        print(f"\nTenant '{args.tenant}': {len(entities)} entities configured, "
               f"{len(rules)} system jurisdiction rules seeded.")
-        print("NOTE: entities are user-created; if the tenant has none configured, the entity "
-              "match step (Step 4) has nothing to match against. Configure entities first.\n")
+        if not entities:
+            print("NOTE: entities are user-created; with none configured the entity-match step "
+                  "has nothing to match against. Configure entities first for a real test.")
+        if not binder_extract._enabled():
+            print("NOTE: ANTHROPIC_API_KEY is not set, so extraction is SKIPPED (ingestion only). "
+                  "Set it to exercise the classify/match/derive pass.")
 
-        print(f"Ingesting {len(files)} file(s) from {args.folder} ...")
+        print(f"\nIngesting {len(files)} file(s) from {args.folder} ...")
         res = await binder_ingest.ingest_batch(s, tenant.id, owner, files, uploaded_via="folder")
         print(f"  created={res['created']}  deduped={res['deduped']}  failed={res['failed']}  "
-              f"sync_run={res['sync_run_id']}\n")
-        for d in res["documents"]:
-            if "error" in d:
-                print(f"  [FAIL] {d.get('filename')}: {d['error']}")
-            else:
-                tag = " (dedup)" if d["deduped"] else ""
-                print(f"  [{d['content_hash'][:10]}] {d['filename']}{tag}  "
-                      f"category={d['category']}  pending_extraction={d['extraction_pending']}")
+              f"sync_run={res['sync_run_id']}")
 
-    # TODO(step 4 - binder_extract.py): for each ingested document, run extraction and print
-    #   entity_name_guess + match candidates (the collision-handling proof), method (read/rule),
-    #   proposed obligation (kind, due_date, cadence, confidence), and the gap/renewal flavor.
-    #   That output is what turns this scaffold into the real go/no-go gate.
-    print("\nIngestion path OK. Extraction proposals: TODO(step 4).")
+        # ── Extraction: the go/no-go core (entity-name collision handling on real data) ──
+        ext = await binder_extract.run_binder_extraction(s, tenant.id)
+        if ext.get("skipped"):
+            print("\nIngestion path OK. Extraction skipped (no key).")
+            sys.exit(0)
+        print(f"\nExtracted {ext['documents']} document(s) -> {ext['proposals']} proposal(s):\n")
+        ambiguous_ct = 0
+        for r in ext["results"]:
+            amb = " AMBIGUOUS(pick required)" if r["ambiguous"] else ""
+            ambiguous_ct += int(r["ambiguous"])
+            print(f"  {r['category']:<16} entity~'{r['entity_guess'] or '?'}' "
+                  f"conf={r['entity_confidence']:.2f}{amb}  proposals={r['proposals']} gaps={r['gaps']}")
+        # Per-proposal detail (kind / method / date / basis) — what the review queue will show.
+        props = (await s.execute(select(ProposedObligation).where(
+            ProposedObligation.tenant_id == tenant.id).order_by(ProposedObligation.created_at))).scalars().all()
+        print("\nProposed obligations (nothing is tracked until a human confirms):")
+        for p in props:
+            due = (p.proposed or {}).get("due_date") or "human-set"
+            print(f"  [{p.flavor:<7}] {p.kind:<18} method={p.method:<5} due={due:<12} "
+                  f"conf={p.confidence:.2f}")
+            print(f"            basis: {(p.basis or '')[:100]}")
+        print(f"\nGO/NO-GO: {ext['documents']} docs, {ext['proposals']} proposals, "
+              f"{ambiguous_ct} ambiguous matches to resolve. Review the entity matches above "
+              f"before wiring the confirm loop.")
     sys.exit(0)
 
 
