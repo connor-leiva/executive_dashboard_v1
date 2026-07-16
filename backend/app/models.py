@@ -432,7 +432,7 @@ class LegalEntity(Base):
     jurisdiction: Mapped[str | None] = mapped_column(String(2), nullable=True)   # state code: "UT" | "AZ"
     formation_date: Mapped[date | None] = mapped_column(Date, nullable=True)     # anchor for annual-report derivation
     ein: Mapped[str | None] = mapped_column(String(32), nullable=True)           # stored as-is for v1 (Part 14 security note)
-    entity_group: Mapped[str] = mapped_column(String(8), default="operating")    # operating | holding (drives the matrix split)
+    entity_group: Mapped[str] = mapped_column(String(16), default="operating")   # operating | holding (drives the matrix split)
     ownership: Mapped[str | None] = mapped_column(String(16), nullable=True)     # "100%", "70%", "50%"
     business_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("business.id"), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)

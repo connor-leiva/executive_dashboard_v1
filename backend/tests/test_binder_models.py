@@ -192,3 +192,21 @@ async def test_rule_seed_is_idempotent():
         )).scalars().all())
     assert inserted == 0
     assert before == after == len(SYSTEM_RULES)
+
+
+async def test_string_columns_fit_defaults_and_enums():
+    """Every varchar must hold its own default + allowed values. Postgres ENFORCES the
+    length (SQLite silently ignores it), so this pure-metadata check guards against a class
+    of prod-only 500s — like entity_group varchar(8) vs its default 'operating' (9 chars),
+    which passed every SQLite test but truncated on Railway's Postgres."""
+    from app.services.binder import ENTITY_GROUPS, ENTITY_TYPES
+    for model in (LegalEntity, BinderDocument, Obligation, ProposedObligation, JurisdictionRule):
+        for col in model.__table__.columns:
+            length = getattr(col.type, "length", None)
+            d = col.default
+            if length is not None and d is not None and isinstance(getattr(d, "arg", None), str):
+                assert len(d.arg) <= length, \
+                    f"{model.__name__}.{col.name} default {d.arg!r} exceeds varchar({length})"
+    # A non-default allowed value can still overflow — check the enum sets too.
+    assert max(len(v) for v in ENTITY_GROUPS) <= LegalEntity.__table__.c.entity_group.type.length
+    assert max(len(v) for v in ENTITY_TYPES) <= LegalEntity.__table__.c.entity_type.type.length
