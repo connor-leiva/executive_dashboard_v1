@@ -31,6 +31,7 @@ TAB_LEGEND = {
     "becollective": "beCollective — cohort community program: members, recruiting funnel, events.",
     "sympli": "Sympli Mortgage — the loan business: funded loans, volume, commission, and financials (Live vs Booked).",
     "flywheel": "Referral Flywheel — ULRG → Sympli referral attach-rate and captured revenue.",
+    "binder": "Binder — legal-entity compliance: entities and their obligations (annual reports, BOI, taxes, insurance) with due-date status.",
 }
 
 _client: AsyncAnthropic | None = None
