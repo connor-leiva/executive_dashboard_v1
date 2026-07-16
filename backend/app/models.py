@@ -5,7 +5,7 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from sqlalchemy import (
-    String, Text, ForeignKey, Numeric, Integer, Boolean, DateTime, Date,
+    String, Text, ForeignKey, Numeric, Integer, Boolean, DateTime, Date, Float,
     UniqueConstraint, Index, func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -117,6 +117,10 @@ class Business(Base):
     # Non-secret per-business config: sparkline trend, manual ops tiles, manual
     # funnel, and scorecard contributions (used until a live source connects).
     config: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    # Binder tie only (SPEC-binder-module Part 1/6): the legal entity this operating
+    # business is, used for the tax-lifecycle tie (federal/state_tax obligations read
+    # this Business's Books close). Nullable; nothing else about Business changes.
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("legal_entity.id"), nullable=True)
     __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_business_tenant_key"),)
 
 
@@ -406,3 +410,114 @@ class BooksReview(Base):
     signed_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
     signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     __table_args__ = (UniqueConstraint("tenant_id", "period", name="uq_books_review"),)
+
+
+# ── Acumyn Binder module (SPEC-binder-module Part 1) ─────────────────────────
+# A document-driven obligation engine. LegalEntity is tenant data (user-created,
+# never seeded); JurisdictionRule is product reference data (seeded). Every
+# Obligation is human-confirmed before it is tracked — enforced in the service
+# layer, never auto-committed by extraction.
+
+class LegalEntity(Base):
+    """Every LLC / corp in the portfolio. The Binder's unit; broader than Business
+    (most are holding entities with no P&L). Created/edited by the user in the UI,
+    one entity at a time — never seeded, hardcoded, or shipped in a migration."""
+    __tablename__ = "legal_entity"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    legal_name: Mapped[str] = mapped_column(String(200))           # "Utah Life Real Estate Group, LLC"
+    nickname: Mapped[str | None] = mapped_column(String(120), nullable=True)  # "The Team"
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)      # the "what they pay for" note
+    entity_type: Mapped[str | None] = mapped_column(String(24), nullable=True)   # llc | s_corp | c_corp | partnership | trust
+    jurisdiction: Mapped[str | None] = mapped_column(String(2), nullable=True)   # state code: "UT" | "AZ"
+    formation_date: Mapped[date | None] = mapped_column(Date, nullable=True)     # anchor for annual-report derivation
+    ein: Mapped[str | None] = mapped_column(String(32), nullable=True)           # stored as-is for v1 (Part 14 security note)
+    entity_group: Mapped[str] = mapped_column(String(8), default="operating")    # operating | holding (drives the matrix split)
+    ownership: Mapped[str | None] = mapped_column(String(16), nullable=True)     # "100%", "70%", "50%"
+    business_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("business.id"), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "legal_name", name="uq_legal_entity"),)
+
+
+class BinderDocument(Base):
+    """A stored document. Evidence behind obligations, or filed on its own."""
+    __tablename__ = "binder_document"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("legal_entity.id"), nullable=True)  # null until matched + confirmed
+    filename: Mapped[str] = mapped_column(String(300))
+    category: Mapped[str] = mapped_column(String(24), default="other")   # formation|insurance|tax|lease|registered_agent|estate|other
+    storage_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)   # key/path in storage (Part 2)
+    content_hash: Mapped[str] = mapped_column(String(64))                # sha256, dedup
+    uploaded_via: Mapped[str] = mapped_column(String(16), default="upload")  # upload | email | folder
+    extracted: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # cached raw extraction (incl. entity_attributes)
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "content_hash", name="uq_binder_doc_hash"),)
+
+
+class Obligation(Base):
+    """A tracked obligation. Feeds the matrix. Created ONLY by human confirm — every
+    row carries a confirmed_by user (invariant 1)."""
+    __tablename__ = "obligation"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("legal_entity.id"))
+    kind: Mapped[str] = mapped_column(String(24))            # annual_report|registered_agent|insurance|boi|federal_tax|state_tax|estimated_payments|lease
+    jurisdiction: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    applicable: Mapped[bool] = mapped_column(Boolean, default=True)      # false -> renders "n/a"
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    cadence: Mapped[str] = mapped_column(String(16), default="annual")   # annual|quarterly|biennial|one_time|none
+    lead_days: Mapped[int] = mapped_column(Integer, default=45)          # flag window
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("binder_document.id"), nullable=True)
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("jurisdiction_rule.id"), nullable=True)
+    last_completed: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    confirmed_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)  # NOT NULL in practice (invariant 1)
+    last_reminded_stage: Mapped[str | None] = mapped_column(String(12), nullable=True)  # none|lead|urgent|overdue
+    last_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    __table_args__ = (UniqueConstraint("tenant_id", "entity_id", "kind", name="uq_obligation"),)
+
+
+class ProposedObligation(Base):
+    """Claude's derivation from a document. NEVER a tracked obligation until a human
+    confirms it — the only thing the extraction pipeline writes (with BinderDocument.extracted)."""
+    __tablename__ = "proposed_obligation"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("binder_document.id"))
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("legal_entity.id"), nullable=True)  # best guess (null if none)
+    entity_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entity_candidates: Mapped[list | None] = mapped_column(JSONType, nullable=True)  # [{entity_id,name,score}] when ambiguous
+    kind: Mapped[str] = mapped_column(String(24))
+    method: Mapped[str] = mapped_column(String(8))          # read | rule
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    proposed: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # {due_date, lead_days, cadence, fields:[[k,v]], jurisdiction?}
+    basis: Mapped[str | None] = mapped_column(Text, nullable=True)          # Claude's plain-English derivation
+    flavor: Mapped[str] = mapped_column(String(12), default="normal")       # normal | gap | renewal
+    renewal_of_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("obligation.id"), nullable=True)
+    state: Mapped[str] = mapped_column(String(12), default="pending")       # pending | confirmed | dismissed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class JurisdictionRule(Base):
+    """The rules engine (reference data): turns an anchor into a schedule. tenant_id NULL
+    means a shared system rule (seeded, Part 4); a tenant may add overrides. The one
+    table not strictly tenant-scoped, because jurisdiction rules are not tenant-specific."""
+    __tablename__ = "jurisdiction_rule"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=True, index=True)  # null = system default
+    jurisdiction: Mapped[str | None] = mapped_column(String(2), nullable=True)   # state code; null = federal/any
+    entity_type: Mapped[str | None] = mapped_column(String(24), nullable=True)   # applies to which types; null = any
+    kind: Mapped[str] = mapped_column(String(24))              # obligation kind this rule produces
+    cadence: Mapped[str] = mapped_column(String(16))           # annual|quarterly|biennial|one_time|none
+    derivation: Mapped[str] = mapped_column(String(24))        # anniversary_month_end|fixed_date|entity_type_calendar|not_applicable|manual
+    params: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # {month, day, offset_days, quarters:[...]}
+    lead_days_default: Mapped[int] = mapped_column(Integer, default=45)
+    last_verified: Mapped[date] = mapped_column(Date, server_default=func.current_date())  # when a human last checked this is current
+    source_note: Mapped[str | None] = mapped_column(Text, nullable=True)          # citation / where the rule comes from
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
