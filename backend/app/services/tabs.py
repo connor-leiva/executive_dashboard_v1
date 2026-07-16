@@ -39,6 +39,7 @@ async def tenant_tabs(s, tenant_id) -> list[str]:
             out.append(b.display_tab)
     out.append("flywheel")
     out.append("books")                                 # portfolio-level bookkeeping module
+    out.append("binder")                                # portfolio-level entity-compliance module
     # de-dupe while preserving order (defensive against config quirks)
     seen, ordered = set(), []
     for t in out:

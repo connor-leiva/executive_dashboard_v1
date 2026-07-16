@@ -10,6 +10,7 @@ import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
 import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
 import Books from "./books/Books.jsx";
+import Binder from "./Binder.jsx";
 import Assistant from "./Assistant.jsx";
 import { SpringSignature, ribbedHero, Icon } from "./Brand.jsx";
 
@@ -1058,6 +1059,7 @@ const NAV = [
   { k: "sympli", label: "Sympli Mortgage", dot: T.teal },
   { k: "flywheel", label: "Referral Flywheel", dot: T.poppy, divide: true },
   { k: "books", label: "Books", dot: T.mist },
+  { k: "binder", label: "Binder", dot: T.teal },
 ];
 // nav key → permission tab (the Portfolio nav item is keyed "overview")
 const navTab = (k) => (k === "overview" ? "portfolio" : k);
@@ -1136,6 +1138,7 @@ export default function CommandCenter() {
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
   else if (activeView === "books") content = <Books period={periodKey} role={user?.role} />;
+  else if (activeView === "binder") content = <Binder role={user?.role} />;
   else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
 
   return (
