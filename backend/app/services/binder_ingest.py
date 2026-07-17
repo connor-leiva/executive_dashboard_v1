@@ -18,7 +18,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import BinderDocument, LegalEntity, SyncRun
+from ..models import BinderDocument, LegalEntity, ProposedObligation, SyncRun
 from .audit import audit
 from . import binder_storage
 
@@ -71,6 +71,11 @@ async def _existing(s: AsyncSession, tenant_id, content_hash: str) -> BinderDocu
         BinderDocument.content_hash == content_hash))).scalar_one_or_none()
 
 
+async def _has_proposals(s: AsyncSession, document_id) -> bool:
+    return (await s.execute(select(ProposedObligation.id).where(
+        ProposedObligation.document_id == document_id).limit(1))).first() is not None
+
+
 async def _validate_entity(s: AsyncSession, tenant_id, entity_id) -> None:
     if entity_id is None:
         return
@@ -97,10 +102,21 @@ async def ingest_document(s: AsyncSession, tenant_id, user, *, filename: str, da
         # Same bytes already stored (dedup). If the user is uploading it under a specific entity
         # (they're telling us it belongs there), re-link the existing doc to that entity so it
         # actually shows up — otherwise a re-upload to a new entity silently "disappears".
+        changed = False
         if entity_id is not None and dup.entity_id != entity_id:
             dup.entity_id = entity_id
-            if commit:
-                await s.commit()          # batch callers commit once at the end
+            changed = True
+        # Self-heal ephemeral storage: if the blob went missing (stored on a prior container's
+        # disk, since evaporated), re-store it from the bytes in hand and re-queue extraction when
+        # the earlier pass produced nothing — so a re-upload actually RECOVERS a doc that filed
+        # empty, instead of dedup'ing straight back to the same dead row.
+        if not dup.storage_ref or not binder_storage.exists(dup.storage_ref):
+            dup.storage_ref = binder_storage.store(tenant_id, dup.id, dup.filename, data)
+            changed = True
+            if dup.extracted is not None and not await _has_proposals(s, dup.id):
+                dup.extracted = None
+        if changed and commit:
+            await s.commit()              # batch callers commit once at the end
         return dup, False
 
     doc = BinderDocument(

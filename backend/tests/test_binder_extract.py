@@ -18,7 +18,7 @@ from app.seed import seed
 from app.db import SessionLocal
 from app.config import settings
 from app.models import Tenant, User, LegalEntity, Obligation, ProposedObligation
-from app.services import binder_extract, binder_ingest
+from app.services import binder_extract, binder_ingest, binder_storage
 from app.services.binder_extract import normalize_name, match_entity
 from app.services.binder_rules import lookup_rule, derive
 
@@ -317,6 +317,25 @@ async def test_extract_malformed_files_other_no_proposals(monkeypatch):
         doc = (await s.execute(select(binder_ingest.BinderDocument).where(
             binder_ingest.BinderDocument.id == did))).scalar_one()
     assert doc.extracted is not None       # cached (empty parse) so it is not re-queued forever
+
+
+async def test_extract_defers_when_blob_missing(monkeypatch):
+    """If the document's blob isn't on THIS process's disk (Railway: the worker can't see files
+    the API stored), extraction DEFERS — it must not poison the doc as an empty 'other'. The row
+    stays pending (extracted IS NULL) so the process that has the file handles it."""
+    tid, owner = await _tid(), await _owner()
+    did = await _doc(tid, owner, "vanished.pdf", b"%PDF will be deleted")
+    async with SessionLocal() as s:
+        doc = (await s.execute(select(binder_ingest.BinderDocument).where(
+            binder_ingest.BinderDocument.id == did))).scalar_one()
+        binder_storage.delete(doc.storage_ref)                 # blob gone from this disk
+        summ = await binder_extract.extract_document(s, tid, doc, today=dt.date(2026, 1, 1))
+        await s.commit()
+    assert summ["deferred"] is True and summ["proposals"] == 0
+    async with SessionLocal() as s:
+        doc = (await s.execute(select(binder_ingest.BinderDocument).where(
+            binder_ingest.BinderDocument.id == did))).scalar_one()
+    assert doc.extracted is None                               # still pending, not filed as 'other'
 
 
 async def test_run_extraction_skipped_without_key(monkeypatch):

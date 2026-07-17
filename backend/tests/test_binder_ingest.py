@@ -142,6 +142,33 @@ async def test_dedup_relinks_to_the_upload_entity():
     assert doc.entity_id == bid          # re-linked to the second upload's entity
 
 
+async def test_dedup_reheals_missing_blob_and_requeues():
+    """Re-uploading a doc whose blob evaporated (ephemeral storage across a redeploy) re-stores
+    the bytes and re-queues extraction when the prior pass produced nothing — so a re-upload
+    RECOVERS a doc that filed empty instead of dedup'ing back to the same dead, blob-less row."""
+    tok = await _owner_token()
+    tid = await _tid()
+    data = b"reheal-test-bytes-" + b"z" * 200
+    async with _client() as c:
+        did = (await _upload(c, tok, "reheal.pdf", data)).json()["id"]
+    # Simulate the worker having filed it empty (extracted set, no proposals) AND the blob going
+    # missing after a redeploy to fresh ephemeral storage.
+    async with SessionLocal() as s:
+        doc = (await s.execute(select(BinderDocument).where(BinderDocument.id == did))).scalar_one()
+        binder_storage.delete(doc.storage_ref)
+        doc.extracted = {"parsed": {}, "match": {"entity_id": None}}
+        await s.commit()
+        assert not binder_storage.exists(doc.storage_ref)
+    async with _client() as c:
+        r = await _upload(c, tok, "reheal.pdf", data)
+    assert r.json()["deduped"] is True
+    async with SessionLocal() as s:
+        doc = (await s.execute(select(BinderDocument).where(BinderDocument.id == did))).scalar_one()
+    assert binder_storage.exists(doc.storage_ref)         # blob re-stored from the bytes in hand
+    assert doc.extracted is None                          # re-queued for a fresh extraction pass
+    assert binder_storage.read(doc.storage_ref) == data
+
+
 async def test_empty_and_bad_category_rejected():
     tok = await _owner_token()
     async with _client() as c:

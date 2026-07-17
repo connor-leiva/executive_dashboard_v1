@@ -334,10 +334,22 @@ async def extract_document(s: AsyncSession, tenant_id, doc, *, today=None, entit
         entities = (await s.execute(select(LegalEntity).where(
             LegalEntity.tenant_id == tenant_id, LegalEntity.active.is_(True)))).scalars().all()
 
+    # Fetch the blob. On Railway the worker and API run in SEPARATE containers with separate
+    # disks, so a doc uploaded via the API isn't on the worker's filesystem. If the blob isn't
+    # present in THIS process, DEFER instead of poisoning the doc as an empty 'other': leave
+    # extracted=None so the API-side post-upload task (which has the file) processes it.
+    _defer = {"document_id": str(doc.id), "category": None, "entity_guess": None,
+              "entity_id": None, "entity_confidence": 0.0, "ambiguous": False,
+              "proposals": 0, "gaps": 0, "deferred": True}
+    if doc.storage_ref and not binder_storage.exists(doc.storage_ref):
+        log.warning("binder_extract doc=%s: blob %s absent in this process; deferring",
+                    doc.id, doc.storage_ref)
+        return _defer
     try:
         data = binder_storage.read(doc.storage_ref) if doc.storage_ref else b""
-    except Exception:
-        data = b""
+    except Exception as e:
+        log.warning("binder_extract doc=%s: blob read failed (%s); deferring", doc.id, e)
+        return _defer
 
     parsed: dict = {}
     if data and _enabled():
@@ -392,4 +404,5 @@ async def run_binder_extraction(s: AsyncSession, tenant_id, *, limit: int = 50, 
         summaries.append(await extract_document(s, tenant_id, doc, today=today, entities=entities))
     await s.commit()
     return {"skipped": False, "documents": len(docs),
+            "deferred": sum(1 for x in summaries if x.get("deferred")),
             "proposals": sum(x["proposals"] for x in summaries), "results": summaries}
