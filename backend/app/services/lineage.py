@@ -82,6 +82,28 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     def span():
         return f"{start.strftime('%b %d')}–{end.strftime('%b %d')}"
 
+    # ── Binder drills (compliance module; SPEC Part 9.5) ──
+    if key == "binder_matrix":
+        from . import binder
+        m = await binder.build_matrix(s, tenant_id)
+        rows = [{"entity": e["name"], "group": g["group"], "obligation": kind,
+                 "status": cell["status"], "label": cell["label"]}
+                for g in m["groups"] for e in g["entities"] for kind, cell in e["cells"].items()
+                if cell["status"] in ("overdue", "due_soon", "in_progress")]
+        return {"label": "Binder — obligations needing attention", "source": "Binder",
+                "computed_as": "Overdue / due-soon / in-progress cells across the entity matrix",
+                "count": len(rows), "rows": rows}
+
+    if key == "binder_review":
+        from . import binder
+        rv = await binder.build_review(s, tenant_id)
+        rows = [{"document": p["document"], "entity": p["entity"], "kind": p["kind"],
+                 "method": p["method"], "date": p["date"], "confidence": p["confidence"],
+                 "ambiguous": p["ambiguous"], "flavor": p["flavor"]} for p in rv["proposals"]]
+        return {"label": "Binder — proposals awaiting confirmation", "source": "Binder",
+                "computed_as": "Pending obligation proposals in the review queue",
+                "count": len(rows), "rows": rows}
+
     # ── closed-sale metrics (rows = closed transactions this period) ──
     if key in _TXN_LABEL:
         txns = await _closed(s, tenant_id, start, end)

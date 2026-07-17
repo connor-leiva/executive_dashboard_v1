@@ -137,12 +137,12 @@ function useEntityBinder(row, usingSample) {
   return { data, error, reload: load };
 }
 
-async function uploadDocument(file, entityId) {
+async function uploadDocuments(files, entityId) {
   const token = localStorage.getItem("cc_token");
   const fd = new FormData();
-  fd.append("file", file);
+  for (const f of files) fd.append("files", f);
   if (entityId) fd.append("entity_id", entityId);
-  const res = await fetch(`${API}/binder/documents`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+  const res = await fetch(`${API}/binder/documents/batch`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -154,13 +154,16 @@ function EntityBinder({ row, usingSample, onBack }) {
   const [note, setNote] = useState(null);
 
   async function onFile(ev) {
-    const file = ev.target.files?.[0];
+    const files = [...(ev.target.files || [])];
     ev.target.value = "";
-    if (!file) return;
+    if (!files.length) return;
     if (usingSample) { setNote("Sample mode: connect the app to upload documents."); return; }
     setUploading(true); setNote(null);
-    try { await uploadDocument(file, row.id); reload(); setNote(`Uploaded ${file.name}. It will appear once processed.`); }
-    catch (e) { setNote(e.message || "Upload failed."); }
+    try {
+      const res = await uploadDocuments(files, row.id);
+      reload();
+      setNote(`Uploaded ${res.created} document(s). They appear once processed.`);
+    } catch (e) { setNote(e.message || "Upload failed."); }
     finally { setUploading(false); }
   }
 
@@ -228,12 +231,12 @@ function EntityBinder({ row, usingSample, onBack }) {
               ))}
             </div>
           ))}
-          <input ref={fileRef} type="file" onChange={onFile} style={{ display: "none" }} />
+          <input ref={fileRef} type="file" multiple onChange={onFile} style={{ display: "none" }} />
           <button onClick={() => fileRef.current?.click()} disabled={uploading} className="cc-nav" style={{
             marginTop: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
             fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment,
             border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: uploading ? "default" : "pointer", width: "100%", opacity: uploading ? 0.6 : 1 }}>
-            <Icon name="download" size={14} color={T.slate} />{uploading ? "Uploading…" : "Upload document"}
+            <Icon name="download" size={14} color={T.slate} />{uploading ? "Uploading…" : "Upload documents"}
           </button>
           {note && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 8 }}>{note}</div>}
         </Card>

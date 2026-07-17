@@ -79,6 +79,8 @@ def tab_for_metric(key: str, business: str | None = None, biz_tab: dict | None =
         return "flywheel"
     if key.startswith("books_"):                        # books_queue, books_ic, books_pl_lines
         return "books"
+    if key.startswith("binder_"):                       # binder_matrix, binder_review
+        return "binder"
     if key.startswith("forum_") or key in _FORUM:
         return "forum"
     if key.startswith("bc_") or key in _BC:

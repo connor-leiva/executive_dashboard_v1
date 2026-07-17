@@ -3,13 +3,15 @@ the `binder` tab. Step 2 ships the entity lifecycle; the matrix / review / oblig
 mutations land with later steps. Payload shapes mirror the Binder mockups."""
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, File, Form, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, Form, Header, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..db import get_session
-from ..deps import require_tab
-from ..models import User
+from ..deps import require_tab, require_role
+from ..models import User, Tenant
 from ..services import binder, binder_ingest
 
 router = APIRouter(prefix="/binder", tags=["binder"])
@@ -126,6 +128,52 @@ async def upload_document(file: UploadFile = File(...),
     return binder_ingest.document_out(doc, deduped=not created)
 
 
+@router.post("/documents/batch")
+async def upload_documents_batch(files: list[UploadFile] = File(...),
+                                 entity_id: uuid.UUID | None = Form(None),
+                                 user: User = Depends(binder_user),
+                                 s: AsyncSession = Depends(get_session)):
+    """Bulk upload (Part 2 channel 3) — the cold-start population path. Ingests many files under
+    one SyncRun, deduping across the batch. Each becomes a pending document for extraction;
+    entity_id (optional) links them all to one entity (e.g. bulk-uploading from its binder)."""
+    payload = []
+    for f in files:
+        data = await f.read()
+        if not data:
+            continue
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(413, f"{f.filename} exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+        payload.append({"filename": f.filename or "document", "data": data, "entity_id": entity_id})
+    if not payload:
+        raise HTTPException(400, "No files")
+    return await binder_ingest.ingest_batch(s, user.tenant_id, user, payload, uploaded_via="upload")
+
+
+@router.post("/ingest/email")
+async def ingest_email(to: str = Form(...), files: list[UploadFile] = File(...),
+                       x_ingest_secret: str = Header(default=""),
+                       s: AsyncSession = Depends(get_session)):
+    """Inbound-email forwarding channel (Part 2 channel 2). PUBLIC + secret-gated: 404s unless
+    BINDER_INGEST_SECRET is set and the X-Ingest-Secret header matches. Resolves the tenant from
+    the recipient binder@{slug}.<domain>, ingests attachments as uploaded_via='email' (no user).
+    The email provider's inbound-parse routing to this endpoint is external infra to configure."""
+    if not settings.BINDER_INGEST_SECRET or x_ingest_secret != settings.BINDER_INGEST_SECRET:
+        raise HTTPException(404, "Not found")
+    _, _, host = (to or "").partition("@")            # binder@{slug}.acumyn.io -> slug
+    slug = host.split(".")[0] if host else ""
+    tenant = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(404, "Unknown mailbox")
+    payload = []
+    for f in files:
+        data = await f.read()
+        if data and len(data) <= MAX_UPLOAD_BYTES:
+            payload.append({"filename": f.filename or "document", "data": data})
+    if not payload:
+        raise HTTPException(400, "No attachments")
+    return await binder_ingest.ingest_batch(s, tenant.id, None, payload, uploaded_via="email")
+
+
 @router.get("/documents")
 async def list_documents(entity_id: uuid.UUID | None = None, user: User = Depends(binder_user),
                          s: AsyncSession = Depends(get_session)):
@@ -212,3 +260,20 @@ async def edit_obligation(obligation_id: uuid.UUID, body: ObligationPatch,
     if ob is None:
         raise HTTPException(404, "Obligation not found")
     return {"ok": True, **binder.obligation_out(ob, binder.obligation_status(ob))}
+
+
+# ── Rules engine (Part 4 / 8) ─────────────────────────────────────────────────
+@router.get("/rules")
+async def get_rules(user: User = Depends(binder_user), s: AsyncSession = Depends(get_session)):
+    """The jurisdiction rules that apply to this tenant, with freshness (stale) flags."""
+    return await binder.build_rules(s, user.tenant_id)
+
+
+@router.post("/rules/{rule_id}/verify")
+async def verify_rule(rule_id: uuid.UUID, user: User = Depends(require_role("owner", "admin")),
+                      s: AsyncSession = Depends(get_session)):
+    """Stamp a rule as verified-today (owner/admin only)."""
+    r = await binder.verify_rule(s, user.tenant_id, user, rule_id)
+    if r is None:
+        raise HTTPException(404, "Rule not found")
+    return {"ok": True, "id": str(r.id), "last_verified": r.last_verified.isoformat()}

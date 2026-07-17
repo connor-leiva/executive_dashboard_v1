@@ -109,6 +109,9 @@ async def _build_context(s, user: User, period: str):
         data["forum_detail"] = await build_forum(s, user.tenant_id, period)
     if "becollective" in tabs:
         data["becollective_detail"] = await build_becollective(s, user.tenant_id, period)
+    if "binder" in tabs:
+        from .binder import build_assistant_summary
+        data["binder_detail"] = await build_assistant_summary(s, user.tenant_id)
 
     tenant = (await s.execute(select(Tenant).where(Tenant.id == user.tenant_id))).scalar_one_or_none()
     legend = "\n".join(f"- {TAB_LEGEND[t]}" for t in tabs if t in TAB_LEGEND)
