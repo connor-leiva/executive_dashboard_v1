@@ -103,6 +103,21 @@ async def test_upload_dedups_identical_bytes():
     assert n == 1
 
 
+async def test_ingested_document_is_pending_extraction():
+    """A freshly ingested doc must be visible to the extraction queue (extracted IS NULL).
+    Guards the JSONType none_as_null=True fix: SQLAlchemy's JSON stores Python None as the
+    JSON string 'null' by default, so col.is_(None) would never match and the worker would
+    silently pick up nothing."""
+    tok = await _owner_token()
+    tid = await _tid()
+    async with _client() as c:
+        did = (await _upload(c, tok, "pending_check.pdf", b"pending-extraction-bytes")).json()["id"]
+    async with SessionLocal() as s:
+        pending = {str(d.id) for d in (await s.execute(select(BinderDocument).where(
+            BinderDocument.tenant_id == tid, BinderDocument.extracted.is_(None)))).scalars().all()}
+    assert did in pending
+
+
 async def test_empty_and_bad_category_rejected():
     tok = await _owner_token()
     async with _client() as c:

@@ -57,11 +57,23 @@ def _ratio(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a, b).ratio()
 
 
-# When the top two candidates are within this, or the best match is weak, the proposal is
-# ambiguous and confirm must require an explicit entity pick (never a silent commit).
+def _token_overlap(guess_norm: str, ent_norm: str) -> float:
+    """Fraction of the guess's word-tokens that appear as tokens in the entity name. This is
+    what tells a genuine partial ('meraki title' -> 'meraki title partners', overlap 1.0) apart
+    from an incidental substring collision ('spring b' -> 'realspringb', overlap 0.0) — both of
+    which score ~0.74 on raw character similarity."""
+    gt = set(guess_norm.split())
+    return (len(gt & set(ent_norm.split())) / len(gt)) if gt else 0.0
+
+
+# When the top two candidates are within this, or the best match is weak, or the match is a
+# character-incidental substring (weak token overlap), the proposal is ambiguous and confirm
+# must require an explicit entity pick (never a silent commit).
 _AMBIGUOUS_DELTA = 0.08
 _AMBIGUOUS_FLOOR = 0.55
 _WEAK_MATCH = 0.50
+_STRONG_MATCH = 0.95       # trusted even with low token overlap (e.g. a near-exact string)
+_MIN_TOKEN_OVERLAP = 0.5   # below this (and not near-exact) the match is treated as incidental
 _AUTO_LINK = 0.80          # confident enough to attach the document to the entity
 
 
@@ -82,10 +94,14 @@ def match_entity(guess: str | None, entities: list) -> dict:
     top_score, top = scored[0]
     candidates = [{"entity_id": str(e.id), "name": e.legal_name, "score": round(sc, 3)}
                   for sc, e in scored[:5]]
+    top_overlap = _token_overlap(ng, normalize_name(top.legal_name))
+    if top.nickname:
+        top_overlap = max(top_overlap, _token_overlap(ng, normalize_name(top.nickname)))
     close = len(scored) > 1 and (scored[0][0] - scored[1][0]) < _AMBIGUOUS_DELTA and scored[1][0] >= _AMBIGUOUS_FLOOR
-    ambiguous = close or top_score < _WEAK_MATCH
+    weak = top_score < _WEAK_MATCH
+    incidental = top_overlap < _MIN_TOKEN_OVERLAP and top_score < _STRONG_MATCH
     return {"entity_id": str(top.id), "confidence": round(top_score, 3),
-            "candidates": candidates, "ambiguous": ambiguous}
+            "candidates": candidates, "ambiguous": close or weak or incidental}
 
 
 # ── The Claude call (single network seam; tests monkeypatch _claude_call) ──────
@@ -258,46 +274,53 @@ async def _derive_proposals(s: AsyncSession, tenant_id, doc, parsed, today, matc
         await add("registered_agent", "read", 0.9, due_date=ragent, cadence="annual",
                   basis=f"Registered-agent renewal date read {ragent.isoformat()}.")
 
-    # ── rule: annual report from formation date + jurisdiction ──
-    formation = _pdate(anchors.get("formation_date")) or (ent.formation_date if ent else None)
-    etype = (ent.entity_type if ent else None) or parsed.get("entity_type_signal")
-    if formation and juris:
-        rule = await lookup_rule(s, tenant_id, jurisdiction=juris, entity_type=etype, kind="annual_report")
-        if rule is not None:
-            r = derive(rule, today=today, anchor=formation)
-            verb = "not required" if not r["applicable"] else (
-                f"due {r['due_date'].isoformat()}" if r["due_date"] else "human-set")
-            await add("annual_report", "rule", 0.85, due_date=r["due_date"], cadence=r["cadence"],
-                      lead_days=r["lead_days"], jurisdiction=juris, applicable=r["applicable"],
-                      rule_id=rule.id,
-                      basis=(f"Formation {formation.isoformat()} + {juris} rule "
-                             f"({rule.derivation}): annual report {verb}, derived."))
+    # Rule- and gap-derived proposals depend on WHICH entity this is (its jurisdiction, its
+    # implied filings). When the entity match is ambiguous we don't trust that identity, so we
+    # emit only the read proposals above (the document's own printed dates) and leave the entity
+    # pick to the human — never a rule/gap obligation, and never a "no BOI on file" alert, pinned
+    # to a guessed entity. (Fix from the go/no-go: a Zenworth doc shouldn't flag a BOI gap on
+    # whatever it happened to fuzzy-match.)
+    if not match["ambiguous"]:
+        # ── rule: annual report from formation date + jurisdiction ──
+        formation = _pdate(anchors.get("formation_date")) or (ent.formation_date if ent else None)
+        etype = (ent.entity_type if ent else None) or parsed.get("entity_type_signal")
+        if formation and juris:
+            rule = await lookup_rule(s, tenant_id, jurisdiction=juris, entity_type=etype, kind="annual_report")
+            if rule is not None:
+                r = derive(rule, today=today, anchor=formation)
+                verb = "not required" if not r["applicable"] else (
+                    f"due {r['due_date'].isoformat()}" if r["due_date"] else "human-set")
+                await add("annual_report", "rule", 0.85, due_date=r["due_date"], cadence=r["cadence"],
+                          lead_days=r["lead_days"], jurisdiction=juris, applicable=r["applicable"],
+                          rule_id=rule.id,
+                          basis=(f"Formation {formation.isoformat()} + {juris} rule "
+                                 f"({rule.derivation}): annual report {verb}, derived."))
 
-    # ── rule: federal + state tax from the return type ──
-    rt = (anchors.get("return_type") or "").lower().replace(" ", "")
-    cls = RETURN_TYPE_CLASS.get(rt)
-    if cls:
-        for kind, jr in (("federal_tax", None), ("state_tax", juris)):
-            rule = await lookup_rule(s, tenant_id, jurisdiction=jr, entity_type=None, kind=kind)
-            if rule is None:
-                continue
-            r = derive(rule, today=today, classification=cls)
-            await add(kind, "rule", 0.8, due_date=r["due_date"], cadence=r["cadence"],
-                      lead_days=r["lead_days"], jurisdiction=jr, rule_id=rule.id,
-                      basis=(f"Return type {anchors.get('return_type')} ({cls}) + "
-                             f"{rule.derivation}: {kind.replace('_', ' ')} schedule, derived."))
+        # ── rule: federal + state tax from the return type ──
+        rt = (anchors.get("return_type") or "").lower().replace(" ", "")
+        cls = RETURN_TYPE_CLASS.get(rt)
+        if cls:
+            for kind, jr in (("federal_tax", None), ("state_tax", juris)):
+                rule = await lookup_rule(s, tenant_id, jurisdiction=jr, entity_type=None, kind=kind)
+                if rule is None:
+                    continue
+                r = derive(rule, today=today, classification=cls)
+                await add(kind, "rule", 0.8, due_date=r["due_date"], cadence=r["cadence"],
+                          lead_days=r["lead_days"], jurisdiction=jr, rule_id=rule.id,
+                          basis=(f"Return type {anchors.get('return_type')} ({cls}) + "
+                                 f"{rule.derivation}: {kind.replace('_', ' ')} schedule, derived."))
 
-    # ── gap: an active entity that implies a BOI filing with none on file ──
-    if ent and (ent.entity_type in {"llc", "s_corp", "c_corp", "partnership"}):
-        has_ob = await _existing_obligation(s, tenant_id, eid, "boi")
-        has_doc = await _has_document(s, tenant_id, eid, "tax", doc.id)  # BOI evidence files under tax
-        if has_ob is None and not has_doc:
-            rule = await lookup_rule(s, tenant_id, jurisdiction=None, entity_type=None, kind="boi")
-            await add("boi", "rule", 0.6, cadence="one_time", lead_days=45,
-                      rule_id=(rule.id if rule else None), force_flavor="gap",
-                      basis=("Entity is active and its type implies a BOI/FinCEN filing; none is "
-                             "on file. Human-set date (BOI posture was legally turbulent 2024-2025; "
-                             "re-verify current requirement)."))
+        # ── gap: an active entity that implies a BOI filing with none on file ──
+        if ent and (ent.entity_type in {"llc", "s_corp", "c_corp", "partnership"}):
+            has_ob = await _existing_obligation(s, tenant_id, eid, "boi")
+            has_doc = await _has_document(s, tenant_id, eid, "tax", doc.id)  # BOI evidence files under tax
+            if has_ob is None and not has_doc:
+                rule = await lookup_rule(s, tenant_id, jurisdiction=None, entity_type=None, kind="boi")
+                await add("boi", "rule", 0.6, cadence="one_time", lead_days=45,
+                          rule_id=(rule.id if rule else None), force_flavor="gap",
+                          basis=("Entity is active and its type implies a BOI/FinCEN filing; none is "
+                                 "on file. Human-set date (BOI posture was legally turbulent 2024-2025; "
+                                 "re-verify current requirement)."))
     return out
 
 

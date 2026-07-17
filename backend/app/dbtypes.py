@@ -40,5 +40,7 @@ class GUID(TypeDecorator):
         return uuid.UUID(str(value))
 
 
-# JSONB on Postgres, generic JSON on SQLite.
-JSONType = JSON().with_variant(JSONB(), "postgresql")
+# JSONB on Postgres, generic JSON on SQLite. none_as_null=True so a Python None is stored as
+# SQL NULL (not the JSON string 'null') — otherwise `col.is_(None)` never matches a None-valued
+# JSON column. The Binder extraction queue (BinderDocument.extracted IS NULL) depends on this.
+JSONType = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
