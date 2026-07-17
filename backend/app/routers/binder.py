@@ -48,10 +48,26 @@ class EntityPatch(BaseModel):
     business_id: uuid.UUID | None = None
 
 
+@router.get("")
+async def get_matrix(user: User = Depends(binder_user), s: AsyncSession = Depends(get_session)):
+    """The obligations matrix (Part 8)."""
+    return await binder.build_matrix(s, user.tenant_id)
+
+
 @router.get("/entities")
 async def list_entities(include_inactive: bool = False, user: User = Depends(binder_user),
                         s: AsyncSession = Depends(get_session)):
     return await binder.list_entities(s, user.tenant_id, include_inactive=include_inactive)
+
+
+@router.get("/entity/{entity_id}")
+async def get_entity_binder(entity_id: uuid.UUID, user: User = Depends(binder_user),
+                            s: AsyncSession = Depends(get_session)):
+    """One entity's binder: attributes, obligations, documents (Part 8)."""
+    res = await binder.build_entity_binder(s, user.tenant_id, entity_id)
+    if res is None:
+        raise HTTPException(404, "Entity not found")
+    return res
 
 
 @router.post("/entities")
