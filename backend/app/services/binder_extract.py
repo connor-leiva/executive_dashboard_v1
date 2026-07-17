@@ -243,7 +243,7 @@ async def _derive_proposals(s: AsyncSession, tenant_id, doc, parsed, today, matc
             proposed={"due_date": due_date.isoformat() if due_date else None,
                       "lead_days": lead_days, "cadence": cadence, "applicable": applicable,
                       "jurisdiction": jurisdiction, "rule_id": (str(rule_id) if rule_id else None),
-                      "fields": fields},
+                      "ambiguous": match["ambiguous"], "fields": fields},
             basis=basis, flavor=flavor,
             renewal_of_id=(existing.id if (existing is not None and flavor == "renewal") else None),
             state="pending"))

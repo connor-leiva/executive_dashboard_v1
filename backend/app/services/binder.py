@@ -15,12 +15,14 @@ full document-storage / PII hardening is a multi-tenant concern flagged out of s
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import LegalEntity, Business
+from ..models import LegalEntity, Business, BinderDocument, Obligation, ProposedObligation
 from .audit import audit
+from .binder_status import compute_status, roll_forward
 
 # The three fields the rules engine needs before it can derive any obligation (Part 5.0).
 # An entity missing any of them is valid but dormant.
@@ -262,3 +264,263 @@ async def deactivate_entity(s: AsyncSession, tenant_id, user, entity_id) -> Lega
     audit(s, tenant_id, user.id, "binder.entity_deactivated", "legal_entity", ent.id, None)
     await s.commit()
     return ent
+
+
+# ── The confirmation loop (SPEC Part 5.1) ─────────────────────────────────────
+# The review queue lists pending ProposedObligation rows; a human confirms each into a
+# tracked Obligation. This is the ONLY module path that constructs an Obligation, and it
+# always stamps confirmed_by (Part 10 invariant 1) — extraction never does.
+
+class ReviewError(ValueError):
+    """A confirm/dismiss/complete validation failure the router surfaces as a 400."""
+
+
+KIND_LABELS = {
+    "annual_report": "Annual report", "registered_agent": "Registered agent",
+    "insurance": "Insurance", "boi": "BOI / FinCEN", "federal_tax": "Federal tax",
+    "state_tax": "State tax", "estimated_payments": "Estimated payments", "lease": "Lease",
+}
+
+
+def _fmt_date(d) -> str | None:
+    if not d:
+        return None
+    if isinstance(d, str):
+        d = _norm_date(d)
+    return f"{d.strftime('%b')} {d.day}, {d.year}" if d else None
+
+
+def _as_uuid(v):
+    return v if isinstance(v, uuid.UUID) or v is None else uuid.UUID(str(v))
+
+
+def _entity_conf_label(confidence: float, ambiguous: bool) -> str:
+    if ambiguous:
+        return "needs review"
+    if confidence >= 0.95:
+        return "exact name match"
+    if confidence >= 0.8:
+        return "strong match"
+    if confidence >= 0.6:
+        return "likely match"
+    return "weak match"
+
+
+def obligation_out(ob: Obligation, status: str) -> dict:
+    return {
+        "id": str(ob.id), "entity_id": str(ob.entity_id), "kind": ob.kind, "status": status,
+        "applicable": ob.applicable, "cadence": ob.cadence, "lead_days": ob.lead_days,
+        "due_date": ob.due_date.isoformat() if ob.due_date else None,
+        "last_completed": ob.last_completed.isoformat() if ob.last_completed else None,
+        "confirmed_by": str(ob.confirmed_by) if ob.confirmed_by else None,
+        "source_document_id": str(ob.source_document_id) if ob.source_document_id else None,
+        "notes": ob.notes,
+    }
+
+
+async def build_review(s: AsyncSession, tenant_id) -> dict:
+    """The review queue (GET /binder/review). Payload mirrors the BinderReview mockup:
+    stats + pending proposals + documents filed as evidence with no obligation."""
+    props = (await s.execute(select(ProposedObligation).where(
+        ProposedObligation.tenant_id == tenant_id)
+        .order_by(ProposedObligation.created_at.asc()))).scalars().all()
+    ent_map = {e.id: e for e in (await s.execute(select(LegalEntity).where(
+        LegalEntity.tenant_id == tenant_id))).scalars().all()}
+    docs = (await s.execute(select(BinderDocument).where(
+        BinderDocument.tenant_id == tenant_id))).scalars().all()
+    doc_map = {d.id: d for d in docs}
+
+    today = dt.date.today()
+    pending = [p for p in props if p.state == "pending"]
+    proposals = []
+    for p in pending:
+        proposed = p.proposed or {}
+        ent = ent_map.get(p.entity_id)
+        doc = doc_map.get(p.document_id)
+        ambiguous = bool(proposed.get("ambiguous"))
+        proposals.append({
+            "id": str(p.id),
+            "document": doc.filename if doc else None,
+            "via": doc.uploaded_via if doc else None,
+            "kind": KIND_LABELS.get(p.kind, p.kind),
+            "kind_key": p.kind,
+            "entity": ent.legal_name if ent else (p.proposed or {}).get("entity_name_guess"),
+            "entity_id": str(p.entity_id) if p.entity_id else None,
+            "entity_confidence": _entity_conf_label(p.entity_confidence or 0.0, ambiguous),
+            "method": p.method,
+            "confidence": round(p.confidence, 2) if p.confidence is not None else None,
+            "date": _fmt_date(proposed.get("due_date")),
+            "cadence": (proposed.get("cadence") or "").capitalize() or None,
+            "basis": p.basis,
+            "fields": proposed.get("fields") or [],
+            "ambiguous": ambiguous,
+            "flavor": p.flavor,
+            "candidates": p.entity_candidates or [],
+        })
+
+    # Documents filed as evidence that produced no tracked/awaiting obligation.
+    live_states = {"pending", "confirmed"}
+    doc_has_live = {d.id: False for d in docs}
+    for p in props:
+        if p.state in live_states:
+            doc_has_live[p.document_id] = True
+    filed = [{"filename": d.filename,
+              "entity": (ent_map.get(d.entity_id).legal_name if ent_map.get(d.entity_id) else None),
+              "note": f"Filed under {d.category.replace('_', ' ').title()}."}
+             for d in docs if d.extracted is not None and not doc_has_live.get(d.id, False)]
+
+    stats = {
+        "awaiting": len(pending),
+        "confirmed_this_pass": sum(1 for p in props if p.state == "confirmed"
+                                   and p.resolved_at and p.resolved_at.date() == today),
+        "entity_unclear": sum(1 for p in proposals if p["ambiguous"]),
+        "gaps": sum(1 for p in pending if p.flavor == "gap"),
+    }
+    return {"stats": stats, "proposals": proposals, "filed_no_obligation": filed}
+
+
+async def _proposal(s, tenant_id, proposal_id) -> ProposedObligation | None:
+    return (await s.execute(select(ProposedObligation).where(
+        ProposedObligation.tenant_id == tenant_id,
+        ProposedObligation.id == proposal_id))).scalar_one_or_none()
+
+
+async def _obligation(s, tenant_id, obligation_id) -> Obligation | None:
+    return (await s.execute(select(Obligation).where(
+        Obligation.tenant_id == tenant_id, Obligation.id == obligation_id))).scalar_one_or_none()
+
+
+async def confirm_proposal(s: AsyncSession, tenant_id, user, proposal_id,
+                           entity_id=None, edits: dict | None = None) -> dict | None:
+    """Confirm a proposal into a tracked Obligation. Renewal advances the existing obligation;
+    otherwise upserts on (entity, kind). Always sets confirmed_by. An ambiguous proposal
+    requires an explicit entity pick. Returns None if the proposal isn't found."""
+    p = await _proposal(s, tenant_id, proposal_id)
+    if p is None:
+        return None
+    if p.state != "pending":
+        raise ReviewError(f"Proposal already {p.state}.")
+    proposed = p.proposed or {}
+    edits = edits or {}
+    now = dt.datetime.now(dt.timezone.utc)
+    today = dt.date.today()
+
+    # Resolve the entity: explicit pick (body/edits) beats the proposal's best guess. An
+    # ambiguous proposal cannot be confirmed without an explicit pick (never a silent commit).
+    picked = entity_id or edits.get("entity_id")
+    if proposed.get("ambiguous") and picked is None:
+        raise ReviewError("This proposal's entity is ambiguous; entity_id is required to confirm.")
+    eid = _as_uuid(picked or p.entity_id)
+    if eid is None:
+        raise ReviewError("No entity to attach this obligation to; provide entity_id.")
+    ent = (await s.execute(select(LegalEntity).where(
+        LegalEntity.tenant_id == tenant_id, LegalEntity.id == eid))).scalar_one_or_none()
+    if ent is None:
+        raise ReviewError("entity_id does not match an entity in this tenant.")
+
+    kind = edits.get("kind") or p.kind
+    due_date = _norm_date(edits["due_date"]) if "due_date" in edits else _norm_date(proposed.get("due_date"))
+    lead_days = int(edits.get("lead_days") or proposed.get("lead_days") or 45)
+    cadence = edits.get("cadence") or proposed.get("cadence") or "annual"
+
+    ob = None
+    if p.flavor == "renewal" and p.renewal_of_id:                 # advance the existing obligation
+        ob = await _obligation(s, tenant_id, p.renewal_of_id)
+        if ob is not None:
+            ob.last_completed = today
+            if due_date:
+                ob.due_date = due_date
+            ob.last_reminded_stage = ob.last_reminded_at = None
+            ob.source_document_id = p.document_id
+            ob.confirmed_by, ob.last_confirmed_at = user.id, now
+    if ob is None:                                                # upsert on (entity, kind)
+        ob = (await s.execute(select(Obligation).where(
+            Obligation.tenant_id == tenant_id, Obligation.entity_id == eid,
+            Obligation.kind == kind))).scalar_one_or_none()
+        if ob is None:
+            ob = Obligation(tenant_id=tenant_id, entity_id=eid, kind=kind)
+            s.add(ob)
+        ob.jurisdiction = proposed.get("jurisdiction")
+        ob.applicable = bool(proposed.get("applicable", True))
+        ob.due_date, ob.cadence, ob.lead_days = due_date, cadence, lead_days
+        ob.source_document_id = p.document_id
+        ob.rule_id = _as_uuid(proposed.get("rule_id")) if proposed.get("rule_id") else None
+        ob.confirmed_by, ob.last_confirmed_at = user.id, now      # invariant 1: always set
+
+    doc = await s.get(BinderDocument, p.document_id)
+    if doc is not None and doc.entity_id is None:                 # link evidence to the entity
+        doc.entity_id = eid
+
+    p.state, p.resolved_by, p.resolved_at, p.entity_id = "confirmed", user.id, now, eid
+    await s.flush()
+    status = compute_status(applicable=ob.applicable, kind=ob.kind, due_date=ob.due_date,
+                            lead_days=ob.lead_days, today=today)
+    audit(s, tenant_id, user.id, "binder.obligation_confirmed", "obligation", ob.id,
+          {"kind": ob.kind, "flavor": p.flavor, "status": status})
+    await s.commit()
+    return {"obligation": ob, "status": status}
+
+
+async def dismiss_proposal(s: AsyncSession, tenant_id, user, proposal_id) -> ProposedObligation | None:
+    """Dismiss a proposal. The document stays filed as evidence."""
+    p = await _proposal(s, tenant_id, proposal_id)
+    if p is None:
+        return None
+    if p.state != "pending":
+        raise ReviewError(f"Proposal already {p.state}.")
+    p.state, p.resolved_by, p.resolved_at = "dismissed", user.id, dt.datetime.now(dt.timezone.utc)
+    audit(s, tenant_id, user.id, "binder.proposal_dismissed", "proposed_obligation", p.id,
+          {"kind": p.kind})
+    await s.commit()
+    return p
+
+
+async def complete_obligation(s: AsyncSession, tenant_id, user, obligation_id) -> Obligation | None:
+    """Mark done: stamp last_completed, roll due_date forward by cadence, clear reminders."""
+    ob = await _obligation(s, tenant_id, obligation_id)
+    if ob is None:
+        return None
+    today = dt.date.today()
+    ob.last_completed = today
+    ob.due_date = roll_forward(ob.due_date, ob.cadence)
+    ob.last_reminded_stage = ob.last_reminded_at = None
+    audit(s, tenant_id, user.id, "binder.obligation_completed", "obligation", ob.id,
+          {"cadence": ob.cadence, "next_due": ob.due_date.isoformat() if ob.due_date else None})
+    await s.commit()
+    return ob
+
+
+async def set_applicability(s: AsyncSession, tenant_id, user, obligation_id, applicable: bool) -> Obligation | None:
+    ob = await _obligation(s, tenant_id, obligation_id)
+    if ob is None:
+        return None
+    ob.applicable = bool(applicable)
+    audit(s, tenant_id, user.id, "binder.obligation_applicability", "obligation", ob.id,
+          {"applicable": ob.applicable})
+    await s.commit()
+    return ob
+
+
+async def edit_obligation(s: AsyncSession, tenant_id, user, obligation_id, fields: dict) -> Obligation | None:
+    ob = await _obligation(s, tenant_id, obligation_id)
+    if ob is None:
+        return None
+    changed = []
+    if "due_date" in fields:
+        ob.due_date = _norm_date(fields["due_date"]); changed.append("due_date")
+    if "lead_days" in fields and fields["lead_days"] is not None:
+        ob.lead_days = int(fields["lead_days"]); changed.append("lead_days")
+    if "cadence" in fields and fields["cadence"]:
+        ob.cadence = fields["cadence"]; changed.append("cadence")
+    if "notes" in fields:
+        ob.notes = (fields["notes"] or "").strip() or None; changed.append("notes")
+    if changed:
+        audit(s, tenant_id, user.id, "binder.obligation_edited", "obligation", ob.id,
+              {"changed": changed})
+    await s.commit()
+    return ob
+
+
+def obligation_status(ob: Obligation, today: dt.date | None = None) -> str:
+    return compute_status(applicable=ob.applicable, kind=ob.kind, due_date=ob.due_date,
+                          lead_days=ob.lead_days, today=today or dt.date.today())

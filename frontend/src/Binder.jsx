@@ -7,6 +7,8 @@ import { useMemo, useState } from "react";
 import { T } from "./theme.js";
 import { Icon } from "./Brand.jsx";
 import { useBinder } from "./useBinder.js";
+import { useBinderReview } from "./useBinderReview.js";
+import BinderReview from "./BinderReview.jsx";
 import { postJSON, patchJSON } from "./api.js";
 
 const ENTITY_TYPES = [
@@ -264,8 +266,11 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
 /* ── the view ────────────────────────────────────────────────── */
 export default function Binder() {
   const { data, error, loading, usingSample, reload } = useBinder();
+  const review = useBinderReview();
+  const [surface, setSurface] = useState("entities");   // entities | review
   const [sub, setSub] = useState("all");
   const [form, setForm] = useState(null);   // null | {} (create) | { entity } (edit)
+  const toReview = review.data?.stats?.awaiting || 0;
 
   const entities = data?.entities || [];
   const scoped = useMemo(
@@ -305,9 +310,30 @@ export default function Binder() {
           Legal entities and the documents behind their filings
         </span>
         <span style={{ flex: 1 }} />
-        {entities.length > 0 && <Btn kind="primary" onClick={() => setForm({})}>Add entity</Btn>}
+        {surface === "entities" && entities.length > 0 && <Btn kind="primary" onClick={() => setForm({})}>Add entity</Btn>}
       </div>
 
+      {/* surface sub-nav: Entities | Review */}
+      <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
+        {[["entities", "Entities"], ["review", "Review"]].map(([k, l]) => (
+          <button key={k} onClick={() => setSurface(k)} className="cc-nav" style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600,
+            color: surface === k ? T.ink : T.muted, background: "transparent", border: "none",
+            borderBottom: surface === k ? `2.5px solid ${T.teal}` : "2.5px solid transparent",
+            padding: "9px 15px 11px", cursor: "pointer", marginBottom: -1 }}>
+            {l}
+            {k === "review" && toReview > 0 && (
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 700, color: T.poppyText,
+                background: "rgba(250,128,105,0.14)", borderRadius: 99, padding: "1px 8px" }}>{toReview}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {surface === "review" && <BinderReview review={review} entities={entities} />}
+
+      {surface === "entities" && (<>
       {loading && (
         <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13 }}>Loading entities...</Card>
       )}
@@ -352,6 +378,7 @@ export default function Binder() {
               </Card>)}
         </>
       )}
+      </>)}
 
       {form && (
         <EntityForm

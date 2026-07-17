@@ -114,3 +114,85 @@ async def upload_document(file: UploadFile = File(...),
 async def list_documents(entity_id: uuid.UUID | None = None, user: User = Depends(binder_user),
                          s: AsyncSession = Depends(get_session)):
     return await binder_ingest.list_documents(s, user.tenant_id, entity_id=entity_id)
+
+
+# ── Confirmation loop (Part 5.1) ──────────────────────────────────────────────
+class ConfirmIn(BaseModel):
+    entity_id: uuid.UUID | None = None       # required when the proposal is ambiguous
+    edits: dict | None = None                # override due_date / lead_days / cadence / kind / entity_id
+
+
+class ApplicabilityIn(BaseModel):
+    applicable: bool
+
+
+class ObligationPatch(BaseModel):
+    due_date: str | None = None
+    lead_days: int | None = None
+    cadence: str | None = None
+    notes: str | None = None
+
+
+def _binder400(e):
+    raise HTTPException(400, str(e))
+
+
+@router.get("/review")
+async def get_review(user: User = Depends(binder_user), s: AsyncSession = Depends(get_session)):
+    return await binder.build_review(s, user.tenant_id)
+
+
+@router.post("/review/{proposal_id}/confirm")
+async def confirm(proposal_id: uuid.UUID, body: ConfirmIn = ConfirmIn(),
+                  user: User = Depends(binder_user), s: AsyncSession = Depends(get_session)):
+    try:
+        res = await binder.confirm_proposal(s, user.tenant_id, user, proposal_id,
+                                            entity_id=body.entity_id, edits=body.edits)
+    except (binder.ReviewError, binder.EntityError) as e:
+        _binder400(e)
+    if res is None:
+        raise HTTPException(404, "Proposal not found")
+    return {"ok": True, **binder.obligation_out(res["obligation"], res["status"])}
+
+
+@router.post("/review/{proposal_id}/dismiss")
+async def dismiss(proposal_id: uuid.UUID, user: User = Depends(binder_user),
+                  s: AsyncSession = Depends(get_session)):
+    try:
+        p = await binder.dismiss_proposal(s, user.tenant_id, user, proposal_id)
+    except binder.ReviewError as e:
+        _binder400(e)
+    if p is None:
+        raise HTTPException(404, "Proposal not found")
+    return {"ok": True, "id": str(p.id), "state": p.state}
+
+
+@router.post("/obligations/{obligation_id}/complete")
+async def complete(obligation_id: uuid.UUID, user: User = Depends(binder_user),
+                   s: AsyncSession = Depends(get_session)):
+    ob = await binder.complete_obligation(s, user.tenant_id, user, obligation_id)
+    if ob is None:
+        raise HTTPException(404, "Obligation not found")
+    return {"ok": True, **binder.obligation_out(ob, binder.obligation_status(ob))}
+
+
+@router.post("/obligations/{obligation_id}/applicability")
+async def applicability(obligation_id: uuid.UUID, body: ApplicabilityIn,
+                        user: User = Depends(binder_user), s: AsyncSession = Depends(get_session)):
+    ob = await binder.set_applicability(s, user.tenant_id, user, obligation_id, body.applicable)
+    if ob is None:
+        raise HTTPException(404, "Obligation not found")
+    return {"ok": True, **binder.obligation_out(ob, binder.obligation_status(ob))}
+
+
+@router.patch("/obligations/{obligation_id}")
+async def edit_obligation(obligation_id: uuid.UUID, body: ObligationPatch,
+                          user: User = Depends(binder_user), s: AsyncSession = Depends(get_session)):
+    try:
+        ob = await binder.edit_obligation(s, user.tenant_id, user, obligation_id,
+                                          body.model_dump(exclude_unset=True))
+    except binder.EntityError as e:
+        _binder400(e)
+    if ob is None:
+        raise HTTPException(404, "Obligation not found")
+    return {"ok": True, **binder.obligation_out(ob, binder.obligation_status(ob))}
