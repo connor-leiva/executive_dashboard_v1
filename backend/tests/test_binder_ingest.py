@@ -118,6 +118,30 @@ async def test_ingested_document_is_pending_extraction():
     assert did in pending
 
 
+async def test_dedup_relinks_to_the_upload_entity():
+    """Re-uploading the same file under a different entity dedups the bytes but re-links the
+    document to the entity it was uploaded under (so it doesn't silently 'disappear')."""
+    from app.models import LegalEntity
+    tok = await _owner_token()
+    tid = await _tid()
+    async with SessionLocal() as s:
+        a = LegalEntity(tenant_id=tid, legal_name="Relink A, LLC")
+        b = LegalEntity(tenant_id=tid, legal_name="Relink B, LLC")
+        s.add_all([a, b])
+        await s.commit()
+        aid, bid = a.id, b.id
+    data = b"relink-test-bytes-unique-xyz"
+    async with _client() as c:
+        r1 = await _upload(c, tok, "relink.pdf", data, entity_id=str(aid))
+        r2 = await _upload(c, tok, "relink.pdf", data, entity_id=str(bid))
+    assert r1.json()["deduped"] is False and r2.json()["deduped"] is True
+    async with SessionLocal() as s:
+        doc = (await s.execute(select(BinderDocument).where(
+            BinderDocument.tenant_id == tid,
+            BinderDocument.content_hash == binder_storage.content_hash(data)))).scalar_one()
+    assert doc.entity_id == bid          # re-linked to the second upload's entity
+
+
 async def test_empty_and_bad_category_rejected():
     tok = await _owner_token()
     async with _client() as c:

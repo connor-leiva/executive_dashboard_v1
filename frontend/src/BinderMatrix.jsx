@@ -162,7 +162,10 @@ function EntityBinder({ row, usingSample, onBack }) {
     try {
       const res = await uploadDocuments(files, row.id);
       reload();
-      setNote(`Uploaded ${res.created} document(s). They appear once processed.`);
+      const parts = [];
+      if (res.created) parts.push(`${res.created} uploaded`);
+      if (res.deduped) parts.push(`${res.deduped} already on file`);
+      setNote(`${parts.join(", ") || "Done"}. Proposals appear under Review within a minute.`);
     } catch (e) { setNote(e.message || "Upload failed."); }
     finally { setUploading(false); }
   }

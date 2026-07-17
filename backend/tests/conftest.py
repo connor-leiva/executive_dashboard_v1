@@ -14,6 +14,10 @@ import pathlib
 
 _TEST_DB = pathlib.Path(__file__).parent / "test_command_center.db"
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_TEST_DB.as_posix()}"
+# Never let the test suite reach the live Claude API (backend/.env carries a real key that
+# pydantic-settings would otherwise load). Tests that exercise Claude paths monkeypatch a fake
+# key + mock the network seam; everything else (e.g. post-upload background extraction) no-ops.
+os.environ["ANTHROPIC_API_KEY"] = ""
 
 # Start each suite run from a clean file. seed() recreates the schema per module,
 # but a leftover file from a prior run could otherwise carry rows across runs.
