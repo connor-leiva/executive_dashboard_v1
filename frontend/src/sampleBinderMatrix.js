@@ -40,11 +40,24 @@ const ROWS = {
   ],
 };
 
+// Per-entity display fields so the Operating/Holding list view (which reads these same rows)
+// renders like the mockup. SAMPLE DATA.
+const DISPLAY = {
+  "s-utahlife": { ein_masked: "87-41•••••", ownership: "100%", business_name: "The Team (brokerage)" },
+  "s-forum": { ein_masked: "88-25•••••", ownership: "100%", business_name: "The Forum mastermind" },
+  "s-becoll": { ein_masked: "88-26•••••", ownership: "100%", business_name: "beCollective community" },
+  "s-snb": { ein_masked: "86-33•••••", ownership: "100%", business_name: "Spring's S Corp (parent)" },
+  "s-shepard": { ein_masked: "84-11•••••", ownership: "100%", business_name: "Davis office building" },
+  "s-zenworth": { ein_masked: "84-90•••••", ownership: "100%", business_name: "Ivins, Utah house" },
+};
+
 const groups = Object.entries(ROWS).map(([group, rows]) => ({
-  group, entities: rows.map(([id, name, nickname, cs]) => ({ id, name, nickname, cells: cs })),
+  group, entities: rows.map(([id, name, nickname, cs]) => ({
+    id, name, nickname, cells: cs, entity_group: group, tracking_ready: true, ...(DISPLAY[id] || {}) })),
 }));
 
-// Flags computed from the cells so the tile and matrix agree.
+// Flags + per-row rollup (worst status + open count) computed from the cells so the tile,
+// matrix, and list all agree.
 let overdue = 0, due_soon = 0;
 const attention = [];
 groups.forEach((g) => g.entities.forEach((e) => {
@@ -56,6 +69,7 @@ groups.forEach((g) => g.entities.forEach((e) => {
     const rank = { overdue: 4, due_soon: 3, in_progress: 2, current: 1, not_applicable: 0, none: -1 };
     if (rank[st] > rank[worst]) worst = st;
   });
+  e.worst = worst; e.open = open;
   if (worst === "overdue" || worst === "due_soon") attention.push({ id: e.id, name: e.name, open, worst });
 }));
 attention.sort((a, b) => (a.worst !== "overdue") - (b.worst !== "overdue") || b.open - a.open);

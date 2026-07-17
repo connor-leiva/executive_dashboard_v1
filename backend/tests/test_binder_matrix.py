@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.main import app
 from app.seed import seed
 from app.db import SessionLocal
+from app.config import settings
 from app.models import (Tenant, User, Business, LegalEntity, BinderDocument, Obligation,
                         ClosePeriod)
 from app.security import make_token, hash_pw
@@ -21,7 +22,9 @@ TRANSPORT = ASGITransport(app=app)
 
 
 @pytest.fixture(scope="module", autouse=True)
-async def _seeded():
+async def _seeded(tmp_path_factory):
+    # Point blob storage at a throwaway dir so the raw-preview route has real bytes to serve.
+    settings.BINDER_STORAGE_BUCKET = str(tmp_path_factory.mktemp("binder_matrix_store"))
     await seed()
 
 
@@ -184,12 +187,107 @@ async def test_entity_binder_detail():
     assert body["documents"][0]["category_key"] == "formation"
 
 
+async def test_entity_binder_full_skeleton():
+    """A fresh entity (no obligations, no documents) still returns the FULL shape: every matrix
+    kind as a not-configured stub, and the whole document category tree with empty sections."""
+    tid = await _tid()
+    eid = await _entity(tid, "Skeleton Co, LLC")
+    tok = await _owner_token()
+    async with _client() as c:
+        body = (await c.get(f"/api/v1/binder/entity/{eid}", headers=_H(tok))).json()
+    assert [o["kind"] for o in body["obligations"]] == [
+        "annual_report", "registered_agent", "insurance", "boi",
+        "federal_tax", "state_tax", "estimated_payments"]
+    assert all(o["configured"] is False and o["status"] == "none" and o["id"] is None
+               for o in body["obligations"])
+    assert [d["category_key"] for d in body["documents"]][:6] == [
+        "formation", "registered_agent", "insurance", "tax", "lease", "estate"]
+    assert all(d["items"] == [] for d in body["documents"])
+
+
 async def test_entity_binder_404():
     import uuid
     tok = await _owner_token()
     async with _client() as c:
         r = await c.get(f"/api/v1/binder/entity/{uuid.uuid4()}", headers=_H(tok))
     assert r.status_code == 404
+
+
+# ── Document preview (raw) ────────────────────────────────────────────────────
+async def test_document_raw_streams_inline():
+    tok = await _owner_token()
+    data = b"%PDF-1.4 preview-bytes\n" + b"p" * 200
+    async with _client() as c:
+        did = (await c.post("/api/v1/binder/documents", headers=_H(tok),
+                            files={"file": ("preview.pdf", data, "application/pdf")})).json()["id"]
+        r = await c.get(f"/api/v1/binder/documents/{did}/raw", headers=_H(tok))
+    assert r.status_code == 200 and r.content == data
+    assert "inline" in r.headers["content-disposition"]
+    assert r.headers["content-type"].startswith("application/pdf")
+
+
+async def test_document_raw_404_unknown_and_tenant_scoped():
+    import uuid
+    tok = await _owner_token()
+    async with SessionLocal() as s:                       # a doc that belongs to another tenant
+        other = Tenant(slug="rawother", name="RawOther")
+        s.add(other)
+        await s.flush()
+        d = BinderDocument(tenant_id=other.id, filename="foreign.pdf", content_hash="raw-foreign",
+                           uploaded_via="upload")
+        s.add(d)
+        await s.commit()
+        foreign_id = d.id
+    async with _client() as c:
+        unknown = await c.get(f"/api/v1/binder/documents/{uuid.uuid4()}/raw", headers=_H(tok))
+        foreign = await c.get(f"/api/v1/binder/documents/{foreign_id}/raw", headers=_H(tok))
+    assert unknown.status_code == 404 and foreign.status_code == 404
+
+
+async def test_document_raw_requires_binder_tab():
+    import uuid
+    no_tab = await _member("noraw@springb.com", ["forum"])
+    async with _client() as c:
+        r = await c.get(f"/api/v1/binder/documents/{uuid.uuid4()}/raw", headers=_H(no_tab))
+    assert r.status_code == 403
+
+
+# ── Manual obligation configuration (invariant 1: records a user) ─────────────
+async def test_manual_obligation_configure_records_user_and_upserts():
+    tid = await _tid()
+    eid = await _entity(tid, "Manual Ob Co, LLC")
+    tok = await _owner_token()
+    async with _client() as c:
+        r1 = await c.post(f"/api/v1/binder/entities/{eid}/obligations", headers=_H(tok),
+                          json={"kind": "registered_agent", "due_date": "2026-09-30", "cadence": "annual"})
+        assert r1.status_code == 200, r1.text
+        oid = r1.json()["id"]
+        assert r1.json()["confirmed_by"] is not None            # manual add still records a user
+        r2 = await c.post(f"/api/v1/binder/entities/{eid}/obligations", headers=_H(tok),
+                          json={"kind": "registered_agent", "applicable": False})
+        assert r2.status_code == 200 and r2.json()["id"] == oid  # upsert, not a duplicate
+    async with SessionLocal() as s:
+        obs = (await s.execute(select(Obligation).where(
+            Obligation.entity_id == eid, Obligation.kind == "registered_agent"))).scalars().all()
+    assert len(obs) == 1 and obs[0].applicable is False and obs[0].confirmed_by is not None
+    async with _client() as c:
+        body = (await c.get(f"/api/v1/binder/entity/{eid}", headers=_H(tok))).json()
+    ra = [o for o in body["obligations"] if o["kind"] == "registered_agent"][0]
+    assert ra["configured"] is True and ra["applicable"] is False
+
+
+async def test_manual_obligation_bad_kind_and_unknown_entity():
+    import uuid
+    tid = await _tid()
+    eid = await _entity(tid, "Manual Bad Co, LLC")
+    tok = await _owner_token()
+    async with _client() as c:
+        bad = await c.post(f"/api/v1/binder/entities/{eid}/obligations", headers=_H(tok),
+                           json={"kind": "nonsense"})
+        missing = await c.post(f"/api/v1/binder/entities/{uuid.uuid4()}/obligations", headers=_H(tok),
+                               json={"kind": "insurance"})
+    assert bad.status_code == 400 and "kind" in bad.json()["detail"]
+    assert missing.status_code == 404
 
 
 async def test_matrix_requires_binder_tab():

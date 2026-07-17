@@ -1,11 +1,13 @@
-/* Binder · Overview matrix + entity binder detail (SPEC Part 6 / 8 / 9).
-   Rendered as a sub-surface of the Binder view. The matrix shows one status cell per
-   (entity, obligation kind); clicking an entity opens its binder (obligations + documents
-   + upload). theme.js tokens + Brand.jsx icons. */
+/* Binder · browse surface (SPEC Part 6 / 8 / 9), rendered to the delivered mockup.
+   scope="all"      -> the obligations matrix (one status cell per entity/kind) + attention tile.
+   scope="operating|holding" -> a clean, clickable entity list (rollup status + chevron).
+   Opening an entity (from either) swaps to its binder in place: the FULL obligation set (every
+   kind, editable, "not configured" where nothing is tracked yet) + the full document tree with
+   inline preview. theme.js tokens + Brand.jsx icons (only the shipped icon set). */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { T } from "./theme.js";
 import { Icon } from "./Brand.jsx";
-import { getJSON } from "./api.js";
+import { getJSON, getBlob, postJSON } from "./api.js";
 import { useBinderMatrix } from "./useBinderMatrix.js";
 import sampleEntityBinder from "./sampleEntityBinder.js";
 
@@ -19,6 +21,10 @@ const OSTATUS = {
   not_applicable: { dot: T.muted, text: T.muted, label: "n/a" },
   none: { dot: T.line, text: T.muted, label: "not configured" },
 };
+const CADENCES = [["annual", "Annual"], ["quarterly", "Quarterly"], ["biennial", "Biennial"],
+  ["one_time", "One time"], ["none", "None"]];
+const TYPE_LABEL = { llc: "LLC", s_corp: "S-Corp", c_corp: "C-Corp", partnership: "Partnership", trust: "Trust" };
+const IMG_EXT = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
 
 function Card({ children, style }) {
   return <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, ...style }}>{children}</div>;
@@ -29,8 +35,19 @@ function Eyebrow({ children }) {
 function Dot({ s, size = 8 }) {
   return <span style={{ width: size, height: size, borderRadius: 99, background: (OSTATUS[s] || OSTATUS.none).dot, display: "inline-block", flexShrink: 0 }} />;
 }
+function Legend() {
+  return (
+    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+      {Object.entries(OSTATUS).map(([k, s]) => (
+        <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter,sans-serif", fontSize: 11, color: T.slate }}>
+          <Dot s={k} size={7} />{s.label}
+        </span>
+      ))}
+    </div>
+  );
+}
 
-/* ── the matrix grid ─────────────────────────────────────────── */
+/* ── the matrix grid (scope=all) ─────────────────────────────── */
 function Cell({ code, label }) {
   const st = OSTATUS[code] || OSTATUS.none;
   return (
@@ -106,20 +123,54 @@ function Overview({ matrix, onOpen }) {
 
       {totalEntities === 0 ? (
         <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13, textAlign: "center", padding: "34px" }}>
-          No entities yet. Add one under the Entities tab, then obligations appear here as documents are confirmed.
+          No entities yet. Add one under the Manage tab, then obligations appear here as documents are confirmed.
         </Card>
       ) : (
         <ObligationsMatrix kinds={data.kinds} groups={data.groups} onOpen={onOpen} />
       )}
-
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {Object.entries(OSTATUS).map(([k, s]) => (
-          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter,sans-serif", fontSize: 11, color: T.slate }}>
-            <Dot s={k} size={7} />{s.label}
-          </span>
-        ))}
-      </div>
+      <Legend />
     </div>
+  );
+}
+
+/* ── entity list (scope=operating|holding) ───────────────────── */
+function EntityListView({ rows, scope, onOpen }) {
+  if (rows.length === 0) return (
+    <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13, textAlign: "center", padding: "30px" }}>
+      No {scope} entities yet. Add one under the Manage tab.
+    </Card>
+  );
+  return (
+    <Card style={{ padding: 0, overflow: "hidden" }}>
+      {rows.map((e, i) => {
+        const w = e.worst || "none";
+        const open = e.open || 0;
+        const sub = [e.ein_masked && `EIN ${e.ein_masked}`, e.ownership].filter(Boolean).join(" · ");
+        return (
+          <button key={e.id} onClick={() => onOpen(e)} className="cc-nav" style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 18px",
+            background: i % 2 ? T.parchment : T.white, border: "none",
+            borderTop: i ? `1px solid ${T.line}` : "none", cursor: "pointer", textAlign: "left" }}>
+            <Dot s={w} size={10} />
+            <span style={{ width: 220, flexShrink: 0, fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</span>
+            <span style={{ width: 160, flexShrink: 0, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.business_name || e.nickname || ""}</span>
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>{sub}</span>
+            <span style={{ flex: 1 }} />
+            {open > 0 ? (
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 700, color: w === "overdue" ? T.poppyText : T.daffodilText,
+                background: w === "overdue" ? "rgba(250,128,105,0.14)" : T.daffodilBg, borderRadius: 6, padding: "3px 10px" }}>
+                {open} to handle
+              </span>
+            ) : (
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.tertiary }}>all current</span>
+            )}
+            <Icon name="chevron_backward" size={15} color={T.muted} style={{ transform: "scaleX(-1)", marginLeft: 4 }} />
+          </button>
+        );
+      })}
+    </Card>
   );
 }
 
@@ -147,11 +198,164 @@ async function uploadDocuments(files, entityId) {
   return res.json();
 }
 
-function EntityBinder({ row, usingSample, onBack }) {
+/* Inline editor for one obligation. Save routes through the manual upsert endpoint, which
+   handles both first-time configure and edits of an existing row (records the user either way). */
+function labelStyle() {
+  return { fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.tertiary, marginBottom: 4, display: "block" };
+}
+function inputStyle() {
+  return { width: "100%", fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, background: T.white,
+    border: `1px solid ${T.line}`, borderRadius: 7, padding: "6px 8px", boxSizing: "border-box" };
+}
+
+function ObligationEditor({ o, entityId, usingSample, onClose, onSaved }) {
+  const [f, setF] = useState({
+    applicable: o.applicable == null ? true : o.applicable,
+    due_date: o.due_date || "", cadence: o.cadence || "annual",
+    lead_days: o.lead_days == null ? 45 : o.lead_days, notes: o.notes || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = (k) => (ev) => setF((s) => ({ ...s, [k]: ev.target.value }));
+
+  async function save() {
+    if (usingSample) { setErr("Sample mode: connect the app to configure obligations."); return; }
+    setBusy(true); setErr(null);
+    try {
+      await postJSON(`/binder/entities/${entityId}/obligations`, {
+        kind: o.kind, applicable: f.applicable, due_date: f.due_date || null,
+        cadence: f.cadence, lead_days: Number(f.lead_days) || 0, notes: f.notes.trim() || null,
+      });
+      onSaved();
+    } catch (e) { setErr(e.detail || e.message || "Could not save."); setBusy(false); }
+  }
+  async function complete() {
+    if (usingSample || !o.id) { setErr("Sample mode: connect the app to mark complete."); return; }
+    setBusy(true); setErr(null);
+    try { await postJSON(`/binder/obligations/${o.id}/complete`); onSaved(); }
+    catch (e) { setErr(e.detail || e.message || "Could not complete."); setBusy(false); }
+  }
+
+  return (
+    <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 10, padding: 12, marginTop: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>
+          <input type="checkbox" checked={f.applicable} onChange={(ev) => setF((s) => ({ ...s, applicable: ev.target.checked }))} />
+          Applies to this entity
+        </label>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted }}>
+          {f.applicable ? "" : "unchecking marks this n/a"}
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, opacity: f.applicable ? 1 : 0.5 }}>
+        <div><label style={labelStyle()}>Due date</label><input type="date" value={f.due_date} onChange={set("due_date")} style={inputStyle()} disabled={!f.applicable} /></div>
+        <div><label style={labelStyle()}>Cadence</label>
+          <select value={f.cadence} onChange={set("cadence")} style={inputStyle()} disabled={!f.applicable}>
+            {CADENCES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </div>
+        <div><label style={labelStyle()}>Reminder lead (days)</label><input type="number" min="0" value={f.lead_days} onChange={set("lead_days")} style={inputStyle()} disabled={!f.applicable} /></div>
+      </div>
+      <div style={{ marginTop: 10 }}><label style={labelStyle()}>Notes</label><input value={f.notes} onChange={set("notes")} placeholder="Optional context" style={inputStyle()} /></div>
+      {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText, marginTop: 8 }}>{err}</div>}
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 10 }}>
+        {o.configured && o.id && (
+          <button onClick={complete} disabled={busy} className="cc-nav" style={btnStyle(T.slate, T.white)}>Mark complete</button>
+        )}
+        <span style={{ flex: 1 }} />
+        <button onClick={onClose} disabled={busy} className="cc-nav" style={btnStyle(T.slate, T.white)}>Cancel</button>
+        <button onClick={save} disabled={busy} className="cc-nav" style={btnStyle(T.onDark, T.evergreen, T.evergreen)}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+    </div>
+  );
+}
+function btnStyle(color, bg, border = T.line) {
+  return { fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color, background: bg,
+    border: `1px solid ${border}`, borderRadius: 8, padding: "7px 13px", cursor: "pointer" };
+}
+
+function ObligationRow({ o, first, entityId, usingSample, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const st = OSTATUS[o.status] || OSTATUS.none;
+  const showLabel = o.status === "current" ? "current" : o.status === "not_applicable" ? "n/a" : o.status === "none" ? "not configured" : o.label;
+  return (
+    <div style={{ padding: "11px 0", borderTop: first ? "none" : `1px solid ${T.line}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+        <Dot s={o.status} size={9} />
+        <span style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: o.status === "none" ? T.muted : T.ink }}>{o.kind_label}</span>
+        {o.status === "in_progress" && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.teal, fontStyle: "italic" }}>waiting on Books close</span>}
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: o.status === "overdue" ? 700 : 600, color: st.text,
+          background: o.status === "overdue" ? "rgba(250,128,105,0.12)" : o.status === "due_soon" ? T.daffodilBg : "transparent",
+          borderRadius: 5, padding: (o.status === "overdue" || o.status === "due_soon") ? "2px 8px" : 0 }}>
+          {showLabel}
+        </span>
+        <button onClick={() => setEditing((v) => !v)} className="cc-nav" style={{
+          fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: o.configured ? T.slate : T.tertiary,
+          background: o.configured ? T.white : T.meadowBg, border: `1px solid ${T.line}`, borderRadius: 7, padding: "4px 10px", cursor: "pointer" }}>
+          {editing ? "Close" : o.configured ? "Edit" : "Configure"}
+        </button>
+      </div>
+      {editing && (
+        <ObligationEditor o={o} entityId={entityId} usingSample={usingSample}
+          onClose={() => setEditing(false)} onSaved={() => { setEditing(false); onSaved(); }} />
+      )}
+    </div>
+  );
+}
+
+/* Document preview modal — fetches the blob with auth, shows PDF/image inline. */
+function DocPreview({ doc, usingSample, onClose }) {
+  const [url, setUrl] = useState(null);
+  const [state, setState] = useState("loading");   // loading | ready | sample | error
+  useEffect(() => {
+    if (usingSample || !doc.can_preview) { setState("sample"); return; }
+    let dead = false, made = null;
+    getBlob(`/binder/documents/${doc.id}/raw`)
+      .then((b) => { if (dead) return; made = URL.createObjectURL(b); setUrl(made); setState("ready"); })
+      .catch(() => { if (!dead) setState("error"); });
+    return () => { dead = true; if (made) URL.revokeObjectURL(made); };
+  }, [doc, usingSample]);
+  const name = doc.filename || "document";
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  const isPdf = ext === "pdf", isImg = IMG_EXT.includes(ext);
+  const msg = (t) => <div style={{ margin: "auto", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted }}>{t}</div>;
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,46,44,0.42)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 940, height: "84vh", background: T.white,
+        border: `1px solid ${T.line}`, borderRadius: 14, boxShadow: "0 24px 60px rgba(0,46,44,.28)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${T.line}` }}>
+          <Icon name="open" size={15} color={T.slate} />
+          <span style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
+          {url && <a href={url} download={name} className="cc-nav" style={{ ...btnStyle(T.slate, T.white), textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="download" size={13} color={T.slate} />Download</a>}
+          <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}><Icon name="close" size={16} color={T.muted} /></button>
+        </div>
+        <div style={{ flex: 1, display: "flex", background: T.parchment, overflow: "auto" }}>
+          {state === "loading" && msg("Loading preview…")}
+          {state === "sample" && msg("Preview is available when the app is connected.")}
+          {state === "error" && msg("This document could not be loaded (the file may not be stored).")}
+          {state === "ready" && isPdf && <iframe src={url} title={name} style={{ width: "100%", height: "100%", border: 0 }} />}
+          {state === "ready" && isImg && <img src={url} alt={name} style={{ margin: "auto", maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />}
+          {state === "ready" && !isPdf && !isImg && (
+            <div style={{ margin: "auto", textAlign: "center" }}>
+              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate, marginBottom: 10 }}>This file type can't be previewed inline.</div>
+              <a href={url} download={name} className="cc-nav" style={{ ...btnStyle(T.onDark, T.evergreen, T.evergreen), textDecoration: "none" }}>Download {name}</a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EntityBinder({ row, usingSample, onBack, onChanged }) {
   const { data, error, reload } = useEntityBinder(row, usingSample);
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [note, setNote] = useState(null);
+  const [preview, setPreview] = useState(null);
+
+  const refresh = () => { reload(); onChanged && onChanged(); };
 
   async function onFile(ev) {
     const files = [...(ev.target.files || [])];
@@ -161,7 +365,7 @@ function EntityBinder({ row, usingSample, onBack }) {
     setUploading(true); setNote(null);
     try {
       const res = await uploadDocuments(files, row.id);
-      reload();
+      refresh();
       const parts = [];
       if (res.created) parts.push(`${res.created} uploaded`);
       if (res.deduped) parts.push(`${res.deduped} already on file`);
@@ -182,7 +386,7 @@ function EntityBinder({ row, usingSample, onBack }) {
   if (!data) return (<div><BackBtn onBack={onBack} /><Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13 }}>Loading…</Card></div>);
 
   const e = data.entity;
-  const meta = [e.type && e.type.toUpperCase(), e.jurisdiction, e.ownership,
+  const meta = [e.type && (TYPE_LABEL[e.type] || e.type.toUpperCase()), e.jurisdiction, e.ownership,
     e.ein_masked && `EIN ${e.ein_masked}`].filter(Boolean).join(" · ");
   return (
     <div>
@@ -192,28 +396,19 @@ function EntityBinder({ row, usingSample, onBack }) {
         <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 20, fontWeight: 600, color: T.ink }}>{e.name}</span>
         {e.nickname && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>{e.nickname}</span>}
         <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>{meta}</span>
+        {e.business_name && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>· {e.business_name}</span>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)", gap: 18, alignItems: "start" }}>
         <Card>
-          <Eyebrow>Obligations</Eyebrow>
-          <div style={{ marginTop: 8 }}>
-            {data.obligations.length === 0 && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, padding: "10px 0" }}>No obligations yet. Confirm proposals in Review to track filings here.</div>}
-            {data.obligations.map((o, i) => {
-              const st = OSTATUS[o.status] || OSTATUS.none;
-              return (
-                <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 0", borderTop: i ? `1px solid ${T.line}` : "none" }}>
-                  <Dot s={o.status} size={9} />
-                  <span style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: T.ink }}>{o.kind_label}</span>
-                  {o.status === "in_progress" && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.teal, fontStyle: "italic" }}>waiting on Books close</span>}
-                  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: o.status === "overdue" ? 700 : 600, color: st.text,
-                    background: o.status === "overdue" ? "rgba(250,128,105,0.12)" : o.status === "due_soon" ? T.daffodilBg : "transparent",
-                    borderRadius: 5, padding: (o.status === "overdue" || o.status === "due_soon") ? "2px 8px" : 0 }}>
-                    {o.status === "current" ? "current" : o.status === "not_applicable" ? "n/a" : o.label}
-                  </span>
-                </div>
-              );
-            })}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+            <Eyebrow>Obligations</Eyebrow>
+            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted }}>every filing this entity owes</span>
+          </div>
+          <div style={{ marginTop: 4 }}>
+            {data.obligations.map((o, i) => (
+              <ObligationRow key={o.kind} o={o} first={i === 0} entityId={e.id} usingSample={usingSample} onSaved={refresh} />
+            ))}
           </div>
         </Card>
 
@@ -222,15 +417,18 @@ function EntityBinder({ row, usingSample, onBack }) {
             <Eyebrow>Documents</Eyebrow>
             <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted }}>evidence behind obligations</span>
           </div>
-          {data.documents.length === 0 && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, padding: "8px 0" }}>No documents yet.</div>}
           {data.documents.map((grp, gi) => (
-            <div key={gi} style={{ paddingTop: gi ? 12 : 8, borderTop: gi ? `1px solid ${T.line}` : "none", marginTop: gi ? 6 : 0 }}>
+            <div key={grp.category_key || gi} style={{ paddingTop: gi ? 12 : 8, borderTop: gi ? `1px solid ${T.line}` : "none", marginTop: gi ? 6 : 0 }}>
               <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, color: T.tertiary, marginBottom: 6 }}>{grp.category}</div>
+              {grp.items.length === 0 && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, fontStyle: "italic", padding: "2px 0 4px" }}>None on file yet</div>}
               {grp.items.map((it) => (
-                <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "5px 0" }}>
-                  <Icon name="link" size={13} color={it.alert ? T.poppyText : T.muted} />
-                  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: it.alert ? T.poppyText : T.ink }}>{it.filename}</span>
-                </div>
+                <button key={it.id} onClick={() => setPreview(it)} className="cc-nav" style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "5px 6px", margin: "0 -6px",
+                  background: "transparent", border: "none", borderRadius: 7, cursor: "pointer", textAlign: "left" }}>
+                  <Icon name="open" size={13} color={it.alert ? T.poppyText : T.muted} />
+                  <span style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: it.alert ? T.poppyText : T.ink,
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.filename}</span>
+                </button>
               ))}
             </div>
           ))}
@@ -244,6 +442,8 @@ function EntityBinder({ row, usingSample, onBack }) {
           {note && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 8 }}>{note}</div>}
         </Card>
       </div>
+
+      {preview && <DocPreview doc={preview} usingSample={usingSample} onClose={() => setPreview(null)} />}
     </div>
   );
 }
@@ -253,25 +453,34 @@ function BackBtn({ onBack }) {
     <button onClick={onBack} className="cc-nav" style={{ display: "inline-flex", alignItems: "center", gap: 5,
       fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.tertiary, background: "transparent",
       border: "none", cursor: "pointer", marginBottom: 12, padding: 0 }}>
-      <Icon name="chevron_backward" size={14} color={T.tertiary} />Back to overview
+      <Icon name="chevron_backward" size={14} color={T.tertiary} />Back
     </button>
   );
 }
 
-/* ── surface ─────────────────────────────────────────────────── */
-export default function BinderMatrix() {
+/* ── browse surface: matrix (all) or entity list (operating|holding) ─────────── */
+export default function BinderBrowse({ scope = "all" }) {
   const matrix = useBinderMatrix();
-  const [openRow, setOpenRow] = useState(null);
   const { data, error, loading, usingSample, reload } = matrix;
+  const [openRow, setOpenRow] = useState(null);
+  useEffect(() => { setOpenRow(null); }, [scope]);   // switching browse tabs closes the detail
 
-  if (openRow) return <EntityBinder row={openRow} usingSample={usingSample} onBack={() => setOpenRow(null)} />;
-  if (loading) return <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13 }}>Loading the matrix…</Card>;
+  if (openRow) return <EntityBinder row={openRow} usingSample={usingSample} onBack={() => setOpenRow(null)} onChanged={reload} />;
+  if (loading) return <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13 }}>Loading…</Card>;
   if (error && !data) return (
     <Card style={{ display: "flex", alignItems: "center", gap: 12 }}>
       <Icon name="warning" size={16} color={T.poppyText} />
-      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate, flex: 1 }}>Could not load the matrix.</span>
-      <button onClick={reload} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Retry</button>
+      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate, flex: 1 }}>Could not load the Binder.</span>
+      <button onClick={reload} className="cc-nav" style={btnStyle(T.slate, T.white)}>Retry</button>
     </Card>
   );
-  return <Overview matrix={matrix} onOpen={setOpenRow} />;
+
+  if (scope === "all") return <Overview matrix={matrix} onOpen={setOpenRow} />;
+  const group = (data.groups || []).find((g) => g.group === scope);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <EntityListView rows={group ? group.entities : []} scope={scope} onOpen={setOpenRow} />
+      <Legend />
+    </div>
+  );
 }

@@ -2,9 +2,11 @@
 the `binder` tab. Step 2 ships the entity lifecycle; the matrix / review / obligation
 mutations land with later steps. Payload shapes mirror the Binder mockups."""
 import logging
+import mimetypes
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, File, Form, Header, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db import get_session, SessionLocal
 from ..deps import require_tab, require_role
-from ..models import User, Tenant
-from ..services import binder, binder_ingest
+from ..models import User, Tenant, BinderDocument
+from ..services import binder, binder_ingest, binder_storage
 
 log = logging.getLogger("app")
 router = APIRouter(prefix="/binder", tags=["binder"])
@@ -197,6 +199,29 @@ async def list_documents(entity_id: uuid.UUID | None = None, user: User = Depend
     return await binder_ingest.list_documents(s, user.tenant_id, entity_id=entity_id)
 
 
+@router.get("/documents/{doc_id}/raw")
+async def document_raw(doc_id: uuid.UUID, user: User = Depends(binder_user),
+                       s: AsyncSession = Depends(get_session)):
+    """Stream a stored document inline so the frontend can preview it (PDF/image in a viewer).
+    Tenant-scoped + binder-tab gated; 404 if the blob isn't on this process's storage."""
+    doc = (await s.execute(select(BinderDocument).where(
+        BinderDocument.tenant_id == user.tenant_id,
+        BinderDocument.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(404, "Document not found")
+    if not doc.storage_ref or not binder_storage.exists(doc.storage_ref):
+        raise HTTPException(404, "Document file is not available")
+    try:
+        data = binder_storage.read(doc.storage_ref)
+    except Exception:
+        raise HTTPException(404, "Document file is not available")
+    ctype = mimetypes.guess_type(doc.filename)[0] or "application/octet-stream"
+    safe = binder_storage.safe_filename(doc.filename)
+    return Response(content=data, media_type=ctype,
+                    headers={"Content-Disposition": f'inline; filename="{safe}"',
+                             "Cache-Control": "private, no-store"})
+
+
 # ── Confirmation loop (Part 5.1) ──────────────────────────────────────────────
 class ConfirmIn(BaseModel):
     entity_id: uuid.UUID | None = None       # required when the proposal is ambiguous
@@ -276,6 +301,30 @@ async def edit_obligation(obligation_id: uuid.UUID, body: ObligationPatch,
         _binder400(e)
     if ob is None:
         raise HTTPException(404, "Obligation not found")
+    return {"ok": True, **binder.obligation_out(ob, binder.obligation_status(ob))}
+
+
+class ObligationUpsertIn(BaseModel):
+    kind: str                                # which obligation kind to configure
+    due_date: str | None = None
+    cadence: str | None = None               # annual | quarterly | biennial | one_time | none
+    lead_days: int | None = None
+    applicable: bool | None = None           # false -> renders n/a
+    notes: str | None = None
+
+
+@router.post("/entities/{entity_id}/obligations")
+async def configure_obligation(entity_id: uuid.UUID, body: ObligationUpsertIn,
+                               user: User = Depends(binder_user), s: AsyncSession = Depends(get_session)):
+    """Manually configure (create-or-update) an obligation for a kind on an entity — the way a
+    user tracks something no document proposed. Records a user, so invariant 1 holds."""
+    try:
+        ob = await binder.upsert_obligation(s, user.tenant_id, user, entity_id, body.kind,
+                                            body.model_dump(exclude={"kind"}, exclude_unset=True))
+    except binder.EntityError as e:
+        _binder400(e)
+    if ob is None:
+        raise HTTPException(404, "Entity not found")
     return {"ok": True, **binder.obligation_out(ob, binder.obligation_status(ob))}
 
 

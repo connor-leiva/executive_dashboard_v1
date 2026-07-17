@@ -523,6 +523,46 @@ async def edit_obligation(s: AsyncSession, tenant_id, user, obligation_id, field
     return ob
 
 
+VALID_OBLIGATION_KINDS = set(KIND_LABELS)          # kinds a user may manually configure
+
+
+async def upsert_obligation(s: AsyncSession, tenant_id, user, entity_id, kind: str,
+                            fields: dict) -> Obligation | None:
+    """Manually configure an obligation for a kind no document proposed yet (or edit the existing
+    one). Upserts on (entity, kind). Records confirmed_by so invariant 1 holds for a manual add
+    too; source_document_id stays null (no evidence). Returns None if the entity isn't this
+    tenant's."""
+    if kind not in VALID_OBLIGATION_KINDS:
+        raise EntityError(f"kind must be one of: {', '.join(sorted(VALID_OBLIGATION_KINDS))}")
+    ent = await _get(s, tenant_id, entity_id)
+    if ent is None:
+        return None
+    now = dt.datetime.now(dt.timezone.utc)
+    ob = (await s.execute(select(Obligation).where(
+        Obligation.tenant_id == tenant_id, Obligation.entity_id == entity_id,
+        Obligation.kind == kind))).scalar_one_or_none()
+    created = ob is None
+    if ob is None:
+        ob = Obligation(tenant_id=tenant_id, entity_id=entity_id, kind=kind,
+                        jurisdiction=ent.jurisdiction)
+        s.add(ob)
+    if "due_date" in fields:
+        ob.due_date = _norm_date(fields["due_date"])
+    if fields.get("cadence"):
+        ob.cadence = fields["cadence"]
+    if fields.get("lead_days") is not None:
+        ob.lead_days = int(fields["lead_days"])
+    if fields.get("applicable") is not None:
+        ob.applicable = bool(fields["applicable"])
+    if "notes" in fields:
+        ob.notes = (fields["notes"] or "").strip() or None
+    ob.confirmed_by, ob.last_confirmed_at = user.id, now       # invariant 1: records a user
+    audit(s, tenant_id, user.id, "binder.obligation_manual_set", "obligation", ob.id,
+          {"kind": kind, "created": created})
+    await s.commit()
+    return ob
+
+
 def obligation_status(ob: Obligation, today: dt.date | None = None) -> str:
     return compute_status(applicable=ob.applicable, kind=ob.kind, due_date=ob.due_date,
                           lead_days=ob.lead_days, today=today or dt.date.today())
@@ -585,6 +625,7 @@ async def build_matrix(s: AsyncSession, tenant_id, today: dt.date | None = None)
         by_entity.setdefault(ob.entity_id, {})[ob.kind] = ob
     pending_map = await _books_pending_map(s, tenant_id, today)
 
+    biz = await _biz_by_id(s, tenant_id)
     overdue = due_soon = 0
     attention = []
     groups = {"operating": [], "holding": []}
@@ -606,7 +647,14 @@ async def build_matrix(s: AsyncSession, tenant_id, today: dt.date | None = None)
                 due_soon += 1; open_ct += 1
             if _STATUS_RANK.get(st, -1) > _STATUS_RANK.get(worst, -1):
                 worst = st
-        row = {"id": str(e.id), "name": e.legal_name, "nickname": e.nickname, "cells": cells}
+        business = biz.get(e.business_id) if e.business_id else None
+        # The list view (Operating/Holding) renders from these same rows, so carry the display
+        # fields + a rollup (worst status + count of open items) the mockup's list needs.
+        row = {"id": str(e.id), "name": e.legal_name, "nickname": e.nickname, "cells": cells,
+               "worst": worst, "open": open_ct, "ein_masked": _mask_ein(e.ein),
+               "ownership": e.ownership, "business_name": business.name if business else None,
+               "entity_group": "holding" if e.entity_group == "holding" else "operating",
+               "tracking_ready": _tracking_ready(e)}
         groups["holding" if e.entity_group == "holding" else "operating"].append(row)
         if worst in ("overdue", "due_soon"):
             attention.append({"id": str(e.id), "name": e.legal_name, "open": open_ct, "worst": worst})
@@ -621,13 +669,23 @@ async def build_matrix(s: AsyncSession, tenant_id, today: dt.date | None = None)
     }
 
 
+# Documents in the entity detail always show these category sections (even when empty), so a
+# fresh entity shows the full shape of what it should collect, not a blank card. "other" is
+# appended only when it actually holds something.
+DETAIL_DOC_CATEGORIES = ["formation", "registered_agent", "insurance", "tax", "lease", "estate"]
+
+
 async def build_entity_binder(s: AsyncSession, tenant_id, entity_id, today: dt.date | None = None) -> dict | None:
-    """One entity's binder (GET /binder/entity/{id}): attributes, obligations (with computed
-    status + evidence doc), and documents grouped by category."""
+    """One entity's binder (GET /binder/entity/{id}): attributes, the FULL obligation set (every
+    MATRIX_KIND, with a 'not configured' placeholder where nothing is tracked yet), and documents
+    grouped into the full category tree (empty sections included). The placeholders are what let
+    a user configure an obligation for a kind no document has proposed yet (invariant 1 still
+    holds: creating one records a user)."""
     ent = await _get(s, tenant_id, entity_id)
     if ent is None:
         return None
     today = today or dt.date.today()
+    business = (await _biz_by_id(s, tenant_id)).get(ent.business_id) if ent.business_id else None
     books_pending = (await _books_pending_map(s, tenant_id, today)).get(ent.business_id, False) if ent.business_id else False
     obs = (await s.execute(select(Obligation).where(
         Obligation.tenant_id == tenant_id, Obligation.entity_id == entity_id))).scalars().all()
@@ -635,32 +693,51 @@ async def build_entity_binder(s: AsyncSession, tenant_id, entity_id, today: dt.d
         BinderDocument.tenant_id == tenant_id, BinderDocument.entity_id == entity_id)
         .order_by(BinderDocument.created_at.desc()))).scalars().all()
     doc_by_id = {d.id: d for d in docs}
+    ob_by_kind = {ob.kind: ob for ob in obs}
 
     obligations = []
-    for ob in sorted(obs, key=lambda o: MATRIX_KINDS.index(o.kind) if o.kind in MATRIX_KINDS else 99):
+    for kind in MATRIX_KINDS:
+        ob = ob_by_kind.get(kind)
+        base = {"kind": kind, "kind_label": KIND_LABELS.get(kind, kind)}
+        if ob is None:                                   # not configured yet — an editable stub
+            obligations.append({**base, "id": None, "configured": False, "status": "none",
+                                "label": "not configured", "due_date": None, "cadence": None,
+                                "lead_days": None, "applicable": None, "source_document": None,
+                                "source_document_id": None, "notes": None})
+            continue
         st = compute_status(applicable=ob.applicable, kind=ob.kind, due_date=ob.due_date,
                             lead_days=ob.lead_days, today=today,
                             books_pending=(books_pending and ob.kind in TAX_KINDS))
         src = doc_by_id.get(ob.source_document_id)
         obligations.append({
-            "id": str(ob.id), "kind": ob.kind, "kind_label": KIND_LABELS.get(ob.kind, ob.kind),
+            **base, "id": str(ob.id), "configured": True,
             "status": st, "label": _cell(st, ob.due_date, today)["label"],
             "due_date": ob.due_date.isoformat() if ob.due_date else None,
-            "cadence": ob.cadence, "applicable": ob.applicable,
-            "source_document": src.filename if src else None, "notes": ob.notes,
+            "cadence": ob.cadence, "lead_days": ob.lead_days, "applicable": ob.applicable,
+            "source_document": src.filename if src else None,
+            "source_document_id": str(ob.source_document_id) if ob.source_document_id else None,
+            "notes": ob.notes,
         })
 
     by_cat: dict = {}
     for d in docs:
         by_cat.setdefault(d.category, []).append(
-            {"id": str(d.id), "filename": d.filename, "alert": False})
-    documents = [{"category": _cat_label(c), "category_key": c, "items": by_cat[c]}
-                 for c in CATEGORY_ORDER if c in by_cat]
+            {"id": str(d.id), "filename": d.filename, "category_key": d.category,
+             "can_preview": bool(d.storage_ref), "alert": False})
+    cats = DETAIL_DOC_CATEGORIES + [c for c in CATEGORY_ORDER
+                                    if c not in DETAIL_DOC_CATEGORIES and c in by_cat]
+    documents = [{"category": _cat_label(c), "category_key": c, "items": by_cat.get(c, [])}
+                 for c in cats]
     return {
         "entity": {"id": str(ent.id), "name": ent.legal_name, "nickname": ent.nickname,
                    "type": ent.entity_type, "jurisdiction": ent.jurisdiction,
                    "ownership": ent.ownership, "ein_masked": _mask_ein(ent.ein),
-                   "entity_group": ent.entity_group, "business_name": None,
+                   "has_ein": bool(ent.ein),
+                   "formation_date": ent.formation_date.isoformat() if ent.formation_date else None,
+                   "description": ent.description,
+                   "entity_group": ent.entity_group,
+                   "business_id": str(ent.business_id) if ent.business_id else None,
+                   "business_name": business.name if business else None,
                    "tracking_ready": _tracking_ready(ent)},
         "obligations": obligations,
         "documents": documents,

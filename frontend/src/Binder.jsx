@@ -9,7 +9,7 @@ import { Icon } from "./Brand.jsx";
 import { useBinder } from "./useBinder.js";
 import { useBinderReview } from "./useBinderReview.js";
 import BinderReview from "./BinderReview.jsx";
-import BinderMatrix from "./BinderMatrix.jsx";
+import BinderBrowse from "./BinderMatrix.jsx";
 import BinderRules from "./BinderRules.jsx";
 import { postJSON, patchJSON } from "./api.js";
 
@@ -53,6 +53,15 @@ function Btn({ kind = "ghost", children, onClick, disabled, type = "button" }) {
       padding: "8px 14px", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1, ...styles,
     }}>{children}</button>
   );
+}
+
+function tabStyle(active) {
+  return {
+    fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600,
+    color: active ? T.ink : T.muted, background: "transparent", border: "none",
+    borderBottom: active ? `2.5px solid ${T.teal}` : "2.5px solid transparent",
+    padding: "9px 15px 11px", cursor: "pointer", marginBottom: -1,
+  };
 }
 
 /* ── entity row ──────────────────────────────────────────────── */
@@ -269,11 +278,12 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
 export default function Binder({ role }) {
   const { data, error, loading, usingSample, reload } = useBinder();
   const review = useBinderReview();
-  const [surface, setSurface] = useState("overview");   // overview | entities | review | rules
+  const [surface, setSurface] = useState("all");   // all | operating | holding | manage | review | rules
   const [sub, setSub] = useState("all");
   const [form, setForm] = useState(null);   // null | {} (create) | { entity } (edit)
   const toReview = review.data?.stats?.awaiting || 0;
   const isAdmin = !role || role === "owner" || role === "admin";   // Rules is owner/admin-only
+  const isBrowse = surface === "all" || surface === "operating" || surface === "holding";
 
   const entities = data?.entities || [];
   const scoped = useMemo(
@@ -313,19 +323,20 @@ export default function Binder({ role }) {
           Legal entities and the documents behind their filings
         </span>
         <span style={{ flex: 1 }} />
-        {surface === "entities" && entities.length > 0 && <Btn kind="primary" onClick={() => setForm({})}>Add entity</Btn>}
+        {surface === "manage" && entities.length > 0 && <Btn kind="primary" onClick={() => setForm({})}>Add entity</Btn>}
       </div>
 
-      {/* surface sub-nav: Entities | Review */}
-      <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
-        {[["overview", "Overview"], ["entities", "Entities"], ["review", "Review"],
-          ...(isAdmin ? [["rules", "Rules"]] : [])].map(([k, l]) => (
-          <button key={k} onClick={() => setSurface(k)} className="cc-nav" style={{
-            display: "inline-flex", alignItems: "center", gap: 7,
-            fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600,
-            color: surface === k ? T.ink : T.muted, background: "transparent", border: "none",
-            borderBottom: surface === k ? `2.5px solid ${T.teal}` : "2.5px solid transparent",
-            padding: "9px 15px 11px", cursor: "pointer", marginBottom: -1 }}>
+      {/* surface sub-nav: browse tabs (All / Operating / Holding) left; Manage / Review / Rules right */}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
+        {[["all", "All Entities", counts.total], ["operating", "Operating", counts.operating],
+          ["holding", "Holding", counts.holding]].map(([k, l, n]) => (
+          <button key={k} onClick={() => setSurface(k)} className="cc-nav" style={tabStyle(surface === k)}>
+            {l} <span style={{ color: T.muted, fontWeight: 500 }}>· {n}</span>
+          </button>
+        ))}
+        <span style={{ flex: 1 }} />
+        {[["manage", "Manage"], ["review", "Review"], ...(isAdmin ? [["rules", "Rules"]] : [])].map(([k, l]) => (
+          <button key={k} onClick={() => setSurface(k)} className="cc-nav" style={{ ...tabStyle(surface === k), display: "inline-flex", alignItems: "center", gap: 7 }}>
             {l}
             {k === "review" && toReview > 0 && (
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 700, color: T.poppyText,
@@ -335,13 +346,13 @@ export default function Binder({ role }) {
         ))}
       </div>
 
-      {surface === "overview" && <BinderMatrix />}
+      {isBrowse && <BinderBrowse scope={surface} />}
 
       {surface === "rules" && isAdmin && <BinderRules />}
 
       {surface === "review" && <BinderReview review={review} entities={entities} />}
 
-      {surface === "entities" && (<>
+      {surface === "manage" && (<>
       {loading && (
         <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13 }}>Loading entities...</Card>
       )}

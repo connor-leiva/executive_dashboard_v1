@@ -23,6 +23,17 @@ export async function getJSON(path) {
   return res.json();
 }
 
+// Fetch a binary response (e.g. a stored document) with auth, as a Blob the caller can turn
+// into an object URL for inline preview. Same error surfacing as getJSON.
+export async function getBlob(path) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${API}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) await throwFor(res);
+  return res.blob();
+}
+
 export async function postJSON(path, body) {
   const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${API}${path}`, {
