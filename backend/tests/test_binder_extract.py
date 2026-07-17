@@ -134,6 +134,20 @@ def test_match_entity_no_guess():
     assert m["entity_id"] is None
 
 
+def test_match_entity_incidental_substring_is_flagged():
+    # "Spring B" vs "REALSpringB": ~0.74 raw char similarity but ZERO shared word-tokens -> an
+    # incidental substring collision, must be flagged for a human pick (the go/no-go finding).
+    m = match_entity("Spring B", [_e("REALSpringB"), _e("SB Coaching, LLC")])
+    assert m["ambiguous"] is True
+
+
+def test_match_entity_genuine_partial_not_flagged():
+    # "Meraki Title" vs "Meraki Title Partners, LLC": similar score, but all guess tokens are
+    # present -> a real partial, stays confident (must NOT be over-flagged by the fix above).
+    m = match_entity("Meraki Title", [_e("Meraki Title Partners, LLC"), _e("SB Coaching, LLC")])
+    assert m["ambiguous"] is False and m["entity_id"]
+
+
 # ══ 3. extract_document (Claude seam mocked) ══════════════════════════════════
 def _mock_claude(monkeypatch, payload):
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "test-key")
@@ -236,6 +250,30 @@ async def test_extract_gap_boi_for_active_entity(monkeypatch):
             ProposedObligation.document_id == did))).scalars().all()
     boi = [p for p in props if p.kind == "boi"]
     assert boi and boi[0].flavor == "gap"
+
+
+async def test_extract_ambiguous_match_skips_rule_and_gap(monkeypatch):
+    """When the entity match is ambiguous, only read proposals (the document's own printed
+    dates) are emitted — no rule/gap obligation pinned to a guessed entity (the go/no-go fix)."""
+    tid, owner = await _tid(), await _owner()
+    await _entity(tid, legal_name="REALSpringB", entity_type="llc", jurisdiction="UT")
+    did = await _doc(tid, owner, "springb_mixed.pdf", b"%PDF spring b doc")
+    _mock_claude(monkeypatch, {
+        "category": "insurance", "entity_name_guess": "Spring B", "entity_type_signal": "llc",
+        "anchors": {"expiration_date": "2026-06-14", "return_type": "1120-S"}, "printed_dates": []})
+    async with SessionLocal() as s:
+        doc = (await s.execute(select(binder_ingest.BinderDocument).where(
+            binder_ingest.BinderDocument.id == did))).scalar_one()
+        summ = await binder_extract.extract_document(s, tid, doc, today=dt.date(2026, 1, 1))
+        await s.commit()
+    assert summ["ambiguous"] is True
+    async with SessionLocal() as s:
+        props = (await s.execute(select(ProposedObligation).where(
+            ProposedObligation.document_id == did))).scalars().all()
+    kinds = {p.kind for p in props}
+    assert "insurance" in kinds                                   # read proposal kept
+    assert "federal_tax" not in kinds and "boi" not in kinds      # rule + gap skipped
+    assert all((p.proposed or {}).get("ambiguous") for p in props)
 
 
 async def test_extract_renewal_matches_existing_obligation(monkeypatch):
