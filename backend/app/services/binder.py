@@ -17,13 +17,14 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..models import (LegalEntity, Business, BinderDocument, Obligation, ProposedObligation,
-                      ClosePeriod, Integration)
+                      ClosePeriod, Integration, JurisdictionRule)
 from .audit import audit
-from .binder_status import compute_status, roll_forward, TAX_KINDS
+from .binder_status import compute_status, roll_forward, TAX_KINDS, _add_months
 
 # The three fields the rules engine needs before it can derive any obligation (Part 5.0).
 # An entity missing any of them is valid but dormant.
@@ -664,3 +665,66 @@ async def build_entity_binder(s: AsyncSession, tenant_id, entity_id, today: dt.d
         "obligations": obligations,
         "documents": documents,
     }
+
+
+# ── Rules engine surface (SPEC Part 4 / 8; the Step-5 codeable bit) ───────────
+# The rules are reference data with a last_verified stamp. A rule older than
+# BINDER_RULE_STALE_MONTHS surfaces here so a changed rule (BOI is the cautionary tale)
+# gets re-checked rather than silently misfiring.
+
+async def build_rules(s: AsyncSession, tenant_id, today: dt.date | None = None) -> dict:
+    """List the jurisdiction rules that apply to this tenant (shared system rules + any tenant
+    overrides), each with its freshness (stale = last_verified older than the configured window)."""
+    today = today or dt.date.today()
+    rows = (await s.execute(select(JurisdictionRule).where(
+        or_(JurisdictionRule.tenant_id == tenant_id, JurisdictionRule.tenant_id.is_(None)))
+    )).scalars().all()
+    threshold = _add_months(today, -settings.BINDER_RULE_STALE_MONTHS)
+    out = []
+    for r in sorted(rows, key=lambda x: (x.kind, x.jurisdiction or "", x.entity_type or "")):
+        stale = (r.last_verified is None) or (r.last_verified < threshold)
+        out.append({
+            "id": str(r.id), "kind": r.kind, "kind_label": KIND_LABELS.get(r.kind, r.kind),
+            "jurisdiction": r.jurisdiction, "entity_type": r.entity_type,
+            "cadence": r.cadence, "derivation": r.derivation,
+            "last_verified": r.last_verified.isoformat() if r.last_verified else None,
+            "stale": stale, "source_note": r.source_note, "active": r.active,
+            "scope": "tenant" if r.tenant_id else "system",
+        })
+    return {"rules": out, "stale_count": sum(1 for x in out if x["stale"]),
+            "stale_after_months": settings.BINDER_RULE_STALE_MONTHS}
+
+
+async def verify_rule(s: AsyncSession, tenant_id, user, rule_id, today: dt.date | None = None) -> JurisdictionRule | None:
+    """Stamp last_verified=today on a rule (owner/admin action). A tenant may verify a shared
+    system rule (single-tenant Spring for now) or one of its own overrides — never another
+    tenant's rule."""
+    today = today or dt.date.today()
+    r = (await s.execute(select(JurisdictionRule).where(
+        JurisdictionRule.id == rule_id))).scalar_one_or_none()
+    if r is None or (r.tenant_id is not None and r.tenant_id != tenant_id):
+        return None
+    r.last_verified = today
+    audit(s, tenant_id, user.id, "binder.rule_verified", "jurisdiction_rule", r.id,
+          {"kind": r.kind, "jurisdiction": r.jurisdiction})
+    await s.commit()
+    return r
+
+
+# ── Assistant context (SPEC Part 9.5) ─────────────────────────────────────────
+async def build_assistant_summary(s: AsyncSession, tenant_id, today: dt.date | None = None) -> dict:
+    """Compact Binder overview for the 'Ask' panel: matrix flags, review counts, and the
+    flagged obligations — so 'what's overdue in the Binder' is answerable from the summary, with
+    drill keys for the records behind it."""
+    today = today or dt.date.today()
+    m = await build_matrix(s, tenant_id, today)
+    rv = await build_review(s, tenant_id)
+    flagged = []
+    for g in m["groups"]:
+        for e in g["entities"]:
+            for kind, cell in e["cells"].items():
+                if cell["status"] in ("overdue", "due_soon"):
+                    flagged.append({"entity": e["name"], "obligation": KIND_LABELS.get(kind, kind),
+                                    "status": cell["status"], "label": cell["label"]})
+    return {"flags": m["flags"], "review": rv["stats"], "flagged_obligations": flagged,
+            "drill": {"matrix": "binder_matrix", "review": "binder_review"}}

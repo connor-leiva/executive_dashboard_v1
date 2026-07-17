@@ -325,3 +325,24 @@ async def test_run_extraction_skipped_without_key(monkeypatch):
     async with SessionLocal() as s:
         res = await binder_extract.run_binder_extraction(s, tid)
     assert res["skipped"] is True
+
+
+async def test_worker_run_all_triggers_binder_extraction(monkeypatch):
+    """The periodic worker (sync.run_all) runs a binder extraction pass each cycle."""
+    from app.services import sync as sync_mod
+    from app.services import books_scan
+    tid = await _tid()
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(sync_mod, "_sync_integration", _noop)   # skip real integration syncs
+    monkeypatch.setattr(books_scan, "run_scan", _noop)
+    hit = {}
+
+    async def spy(s, tenant_id, **kw):
+        hit["tid"] = tenant_id
+        return {"skipped": True}
+    monkeypatch.setattr(binder_extract, "run_binder_extraction", spy)
+    async with SessionLocal() as s:
+        await sync_mod.run_all(s, tid, "2026-07-01", "2026-07-31")
+    assert hit.get("tid") == tid

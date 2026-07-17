@@ -210,6 +210,42 @@ def test_storage_ref_traversal_is_guarded():
         binder_storage.read("../../../etc/passwd")
 
 
+# ── Additional ingest channels (Step 9) ──────────────────────────────────────
+async def test_bulk_batch_upload():
+    tok = await _owner_token()
+    async with _client() as c:
+        r = await c.post("/api/v1/binder/documents/batch", headers=_H(tok),
+                         files=[("files", ("b1.pdf", b"batch file one", "application/pdf")),
+                                ("files", ("b2.pdf", b"batch file two", "application/pdf")),
+                                ("files", ("b3.pdf", b"batch file three", "application/pdf"))])
+    assert r.status_code == 200 and r.json()["created"] == 3
+
+
+async def test_email_webhook_disabled_without_secret(monkeypatch):
+    monkeypatch.setattr(settings, "BINDER_INGEST_SECRET", "")     # channel off
+    async with _client() as c:
+        r = await c.post("/api/v1/binder/ingest/email",
+                         data={"to": "binder@springb.acumyn.io"},
+                         files=[("files", ("x.pdf", b"data", "application/pdf"))],
+                         headers={"X-Ingest-Secret": "whatever"})
+    assert r.status_code == 404
+
+
+async def test_email_webhook_ingests_with_secret(monkeypatch):
+    monkeypatch.setattr(settings, "BINDER_INGEST_SECRET", "s3cret")
+    tid = await _tid()
+    async with _client() as c:
+        r = await c.post("/api/v1/binder/ingest/email",
+                         data={"to": "binder@springb.acumyn.io"},
+                         files=[("files", ("policy_email.pdf", b"emailed policy bytes", "application/pdf"))],
+                         headers={"X-Ingest-Secret": "s3cret"})
+    assert r.status_code == 200 and r.json()["created"] >= 1
+    async with SessionLocal() as s:
+        doc = (await s.execute(select(BinderDocument).where(
+            BinderDocument.tenant_id == tid, BinderDocument.uploaded_via == "email"))).scalars().first()
+    assert doc is not None
+
+
 # ── Tenant isolation ──────────────────────────────────────────────────────────
 async def test_documents_are_tenant_scoped():
     tid = await _tid()

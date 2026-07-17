@@ -108,6 +108,10 @@ class Settings(BaseSettings):
     BINDER_STORAGE_BUCKET: str = ""           # object-store bucket or Railway volume path (Part 2)
     BINDER_REMINDER_DIGEST: str = "daily"     # daily | weekly (Part 9)
     BINDER_RULE_STALE_MONTHS: int = 12
+    # Shared secret the inbound-email webhook must present (X-Ingest-Secret). Empty = the
+    # forwarding-address channel is DISABLED (the endpoint 404s). The email provider's
+    # inbound-parse routing to the webhook is external infra to configure separately.
+    BINDER_INGEST_SECRET: str = ""
 
     # Single-tenant fallback: when a request Host doesn't match a `domain` row,
     # resolve to this tenant slug. Safe while there is one tenant (Spring); set

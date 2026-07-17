@@ -1083,6 +1083,14 @@ async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, peri
     if any(i.provider == "qbo" for i in integs):       # Books deterministic scan after txn sync
         from .books_scan import run_scan
         await run_scan(s, tenant_id)
+    # Binder: extract newly-uploaded documents into obligation PROPOSALS (never obligations —
+    # a human confirms each). Independent of integrations; key-gated and a no-op when there are
+    # no pending docs. Proven on real data via the go/no-go before wiring here.
+    from .binder_extract import run_binder_extraction
+    await run_binder_extraction(s, tenant_id)
+    # Binder reminders: stage obligations + deliver the digest on its cadence (no key needed).
+    from .binder_reminders import run_reminders
+    await run_reminders(s, tenant_id)
 
 
 async def run_one(s: AsyncSession, tenant_id: uuid.UUID, integ_id, period_start: str, period_end: str):

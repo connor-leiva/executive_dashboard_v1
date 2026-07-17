@@ -10,6 +10,7 @@ import { useBinder } from "./useBinder.js";
 import { useBinderReview } from "./useBinderReview.js";
 import BinderReview from "./BinderReview.jsx";
 import BinderMatrix from "./BinderMatrix.jsx";
+import BinderRules from "./BinderRules.jsx";
 import { postJSON, patchJSON } from "./api.js";
 
 const ENTITY_TYPES = [
@@ -265,13 +266,14 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
 }
 
 /* ── the view ────────────────────────────────────────────────── */
-export default function Binder() {
+export default function Binder({ role }) {
   const { data, error, loading, usingSample, reload } = useBinder();
   const review = useBinderReview();
-  const [surface, setSurface] = useState("overview");   // overview | entities | review
+  const [surface, setSurface] = useState("overview");   // overview | entities | review | rules
   const [sub, setSub] = useState("all");
   const [form, setForm] = useState(null);   // null | {} (create) | { entity } (edit)
   const toReview = review.data?.stats?.awaiting || 0;
+  const isAdmin = !role || role === "owner" || role === "admin";   // Rules is owner/admin-only
 
   const entities = data?.entities || [];
   const scoped = useMemo(
@@ -316,7 +318,8 @@ export default function Binder() {
 
       {/* surface sub-nav: Entities | Review */}
       <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
-        {[["overview", "Overview"], ["entities", "Entities"], ["review", "Review"]].map(([k, l]) => (
+        {[["overview", "Overview"], ["entities", "Entities"], ["review", "Review"],
+          ...(isAdmin ? [["rules", "Rules"]] : [])].map(([k, l]) => (
           <button key={k} onClick={() => setSurface(k)} className="cc-nav" style={{
             display: "inline-flex", alignItems: "center", gap: 7,
             fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600,
@@ -333,6 +336,8 @@ export default function Binder() {
       </div>
 
       {surface === "overview" && <BinderMatrix />}
+
+      {surface === "rules" && isAdmin && <BinderRules />}
 
       {surface === "review" && <BinderReview review={review} entities={entities} />}
 
