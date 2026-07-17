@@ -94,6 +94,13 @@ async def ingest_document(s: AsyncSession, tenant_id, user, *, filename: str, da
     chash = binder_storage.content_hash(data)
     dup = await _existing(s, tenant_id, chash)
     if dup is not None:
+        # Same bytes already stored (dedup). If the user is uploading it under a specific entity
+        # (they're telling us it belongs there), re-link the existing doc to that entity so it
+        # actually shows up — otherwise a re-upload to a new entity silently "disappears".
+        if entity_id is not None and dup.entity_id != entity_id:
+            dup.entity_id = entity_id
+            if commit:
+                await s.commit()          # batch callers commit once at the end
         return dup, False
 
     doc = BinderDocument(

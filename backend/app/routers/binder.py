@@ -1,24 +1,38 @@
 """Acumyn Binder API (SPEC-binder-module Part 8). All routes under /api/v1/binder, gated by
 the `binder` tab. Step 2 ships the entity lifecycle; the matrix / review / obligation
 mutations land with later steps. Payload shapes mirror the Binder mockups."""
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, File, Form, Header, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, File, Form, Header, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db import get_session
+from ..db import get_session, SessionLocal
 from ..deps import require_tab, require_role
 from ..models import User, Tenant
 from ..services import binder, binder_ingest
 
+log = logging.getLogger("app")
 router = APIRouter(prefix="/binder", tags=["binder"])
 
 binder_user = require_tab("binder")     # members with the binder grant + owners/admins
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024     # 25 MB — comfortably covers scanned filings/policies
+
+
+async def _extract_after_upload(tenant_id) -> None:
+    """Kick off extraction right after an upload so proposals appear in seconds, not on the next
+    30-min worker cycle. Runs in a FRESH session (the request's is closed by now) and never
+    raises — the periodic worker is the backstop. No-op without a Claude key."""
+    from ..services import binder_extract
+    try:
+        async with SessionLocal() as s:
+            await binder_extract.run_binder_extraction(s, tenant_id)
+    except Exception as e:                                    # noqa: BLE001
+        log.warning("binder post-upload extraction failed: %s", e)
 
 
 class EntityIn(BaseModel):
@@ -106,14 +120,14 @@ async def deactivate_entity(entity_id: uuid.UUID, user: User = Depends(binder_us
 
 # ── Documents (Part 2 ingestion; upload channel) ──────────────────────────────
 @router.post("/documents")
-async def upload_document(file: UploadFile = File(...),
+async def upload_document(background: BackgroundTasks, file: UploadFile = File(...),
                           entity_id: uuid.UUID | None = Form(None),
                           category: str | None = Form(None),
                           user: User = Depends(binder_user),
                           s: AsyncSession = Depends(get_session)):
     """Multipart upload. Stores the raw bytes, dedups on content hash, creates a
     BinderDocument, and queues it for extraction. entity_id / category are optional hints;
-    extraction (Step 4) proposes the real values."""
+    extraction proposes the real values."""
     data = await file.read()
     if not data:
         raise HTTPException(400, "Empty file")
@@ -125,11 +139,12 @@ async def upload_document(file: UploadFile = File(...),
             uploaded_via="upload", entity_id=entity_id, category=category)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    background.add_task(_extract_after_upload, user.tenant_id)
     return binder_ingest.document_out(doc, deduped=not created)
 
 
 @router.post("/documents/batch")
-async def upload_documents_batch(files: list[UploadFile] = File(...),
+async def upload_documents_batch(background: BackgroundTasks, files: list[UploadFile] = File(...),
                                  entity_id: uuid.UUID | None = Form(None),
                                  user: User = Depends(binder_user),
                                  s: AsyncSession = Depends(get_session)):
@@ -146,7 +161,9 @@ async def upload_documents_batch(files: list[UploadFile] = File(...),
         payload.append({"filename": f.filename or "document", "data": data, "entity_id": entity_id})
     if not payload:
         raise HTTPException(400, "No files")
-    return await binder_ingest.ingest_batch(s, user.tenant_id, user, payload, uploaded_via="upload")
+    res = await binder_ingest.ingest_batch(s, user.tenant_id, user, payload, uploaded_via="upload")
+    background.add_task(_extract_after_upload, user.tenant_id)
+    return res
 
 
 @router.post("/ingest/email")
