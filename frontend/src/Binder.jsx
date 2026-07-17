@@ -37,7 +37,7 @@ function StatusPill({ ready }) {
       color: ready ? T.tertiary : T.daffodilText, background: ready ? T.meadowBg : T.daffodilBg,
     }}>
       <span style={{ width: 7, height: 7, borderRadius: 99, background: ready ? T.meadow : T.daffodil }} />
-      {ready ? "Tracking" : "Add details"}
+      {ready ? "Tracking" : "Add Details"}
     </span>
   );
 }
@@ -110,13 +110,13 @@ function EmptyState({ onAdd }) {
         justifyContent: "center", background: T.meadowBg, marginBottom: 14 }}>
         <Icon name="puzzle" size={22} color={T.meadow} />
       </div>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 600, color: T.ink }}>Set up your Binder</div>
+      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 600, color: T.ink }}>Set Up Your Binder</div>
       <p style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, lineHeight: 1.55, color: T.slate, margin: "10px auto 20px", maxWidth: 420 }}>
         The Binder tracks every legal entity you own and the filings each one owes (annual reports,
         BOI, taxes, insurance). Start by adding your first entity. A name is enough to begin;
         add the state, type, and formation date when you have them and filing tracking turns on.
       </p>
-      <Btn kind="primary" onClick={onAdd}>Add your first entity</Btn>
+      <Btn kind="primary" onClick={onAdd}>Add Your First Entity</Btn>
       <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 14 }}>
         Dropping in a formation document to read the details automatically is coming next.
       </div>
@@ -189,7 +189,7 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
         border: `1px solid ${T.line}`, borderRadius: 16, boxShadow: "0 20px 50px rgba(0,46,44,.22)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 22px", borderBottom: `1px solid ${T.line}` }}>
           <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>
-            {editing ? "Edit entity" : "Add entity"}
+            {editing ? "Edit Entity" : "Add Entity"}
           </span>
           <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}>
             <Icon name="close" size={16} color={T.muted} />
@@ -197,7 +197,7 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
         </div>
 
         <div style={{ padding: 22 }}>
-          <Field label="Legal name" hint="(required)">
+          <Field label="Legal Name" hint="(required)">
             <input value={f.legal_name} onChange={set("legal_name")} placeholder="Utah Life Real Estate Group, LLC" style={inputStyle()} />
           </Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -209,7 +209,7 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
           {/* Required-to-track group, visually set apart */}
           <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 14px 4px", margin: "6px 0 12px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-              <Eyebrow>Required to track filings</Eyebrow>
+              <Eyebrow>Required to Track Filings</Eyebrow>
               <span style={{ width: 7, height: 7, borderRadius: 99, background: ready ? T.meadow : T.daffodil }} />
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: ready ? T.tertiary : T.daffodilText }}>
                 {ready ? "ready to track" : "dormant until all three are set"}
@@ -222,13 +222,13 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
                   {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </Field>
-              <Field label="Entity type">
+              <Field label="Entity Type">
                 <select value={f.entity_type} onChange={set("entity_type")} style={inputStyle()}>
                   <option value="">-</option>
                   {ENTITY_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select>
               </Field>
-              <Field label="Formation date">
+              <Field label="Formation Date">
                 <input type="date" value={f.formation_date} onChange={set("formation_date")} style={inputStyle()} />
               </Field>
             </div>
@@ -245,7 +245,7 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
               </select>
             </Field>
           </div>
-          <Field label="Linked business" hint="(optional, ties the tax lifecycle to Books)">
+          <Field label="Linked Business" hint="(optional, ties the tax lifecycle to Books)">
             <select value={f.business_id} onChange={set("business_id")} style={inputStyle()}>
               <option value="">None</option>
               {(businesses || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -266,7 +266,7 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 22px", borderTop: `1px solid ${T.line}` }}>
           <Btn kind="ghost" onClick={onClose}>Cancel</Btn>
           <Btn kind="primary" onClick={save} disabled={saving || !f.legal_name.trim()}>
-            {saving ? "Saving..." : editing ? "Save changes" : "Add entity"}
+            {saving ? "Saving..." : editing ? "Save Changes" : "Add Entity"}
           </Btn>
         </div>
       </div>
@@ -279,18 +279,14 @@ export default function Binder({ role }) {
   const { data, error, loading, usingSample, reload } = useBinder();
   const review = useBinderReview();
   const [surface, setSurface] = useState("all");   // all | operating | holding | manage | review | rules
-  const [sub, setSub] = useState("all");
   const [form, setForm] = useState(null);   // null | {} (create) | { entity } (edit)
   const toReview = review.data?.stats?.awaiting || 0;
   const isAdmin = !role || role === "owner" || role === "admin";   // Rules is owner/admin-only
   const isBrowse = surface === "all" || surface === "operating" || surface === "holding";
 
   const entities = data?.entities || [];
-  const scoped = useMemo(
-    () => sub === "all" ? entities : entities.filter((e) => e.entity_group === sub),
-    [entities, sub]);
-  const operating = scoped.filter((e) => e.entity_group === "operating");
-  const holding = scoped.filter((e) => e.entity_group === "holding");
+  const operating = useMemo(() => entities.filter((e) => e.entity_group === "operating"), [entities]);
+  const holding = useMemo(() => entities.filter((e) => e.entity_group === "holding"), [entities]);
   const counts = data?.counts || { total: 0, operating: 0, holding: 0, dormant: 0 };
 
   async function deactivate(e) {
@@ -323,7 +319,7 @@ export default function Binder({ role }) {
           Legal entities and the documents behind their filings
         </span>
         <span style={{ flex: 1 }} />
-        {surface === "manage" && entities.length > 0 && <Btn kind="primary" onClick={() => setForm({})}>Add entity</Btn>}
+        {surface === "manage" && entities.length > 0 && <Btn kind="primary" onClick={() => setForm({})}>Add Entity</Btn>}
       </div>
 
       {/* surface sub-nav: browse tabs (All / Operating / Holding) left; Manage / Review / Rules right */}
@@ -368,33 +364,14 @@ export default function Binder({ role }) {
 
       {data && entities.length > 0 && (
         <>
-          {/* subtabs */}
-          <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
-            {[["all", "All entities", counts.total], ["operating", "Operating", counts.operating], ["holding", "Holding", counts.holding]].map(([k, l, n]) => (
-              <button key={k} onClick={() => setSub(k)} className="cc-nav" style={{
-                fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600,
-                color: sub === k ? T.ink : T.muted, background: "transparent", border: "none",
-                borderBottom: sub === k ? `2.5px solid ${T.meadow}` : "2.5px solid transparent",
-                padding: "9px 15px 11px", cursor: "pointer", marginBottom: -1 }}>
-                {l} <span style={{ color: T.muted, fontWeight: 500 }}>· {n}</span>
-              </button>
-            ))}
-            <span style={{ flex: 1 }} />
-            {counts.dormant > 0 && (
-              <span style={{ display: "flex", alignItems: "center", paddingBottom: 6 }}>
-                <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 700, color: T.daffodilText,
-                  background: T.daffodilBg, borderRadius: 6, padding: "3px 10px" }}>{counts.dormant} need details</span>
-              </span>
-            )}
-          </div>
-
-          {sub === "all"
-            ? (<><Group label="Operating" rows={operating} /><Group label="Holding" rows={holding} /></>)
-            : (<Card style={{ padding: 0, overflow: "hidden" }}>
-                {scoped.map((e, i) => (
-                  <EntityRow key={e.id} e={e} first={i === 0} onEdit={(x) => setForm({ entity: x })} onDeactivate={deactivate} />
-                ))}
-              </Card>)}
+          {counts.dormant > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 700, color: T.daffodilText,
+                background: T.daffodilBg, borderRadius: 6, padding: "3px 10px" }}>{counts.dormant} Need Details</span>
+            </div>
+          )}
+          <Group label="Operating" rows={operating} />
+          <Group label="Holding" rows={holding} />
         </>
       )}
       </>)}

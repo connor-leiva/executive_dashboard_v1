@@ -2,13 +2,13 @@
    Mirrors GET /binder exactly (groups + flags + kinds). SAMPLE DATA. */
 
 const KINDS = [
-  { key: "annual_report", label: "Annual report" },
-  { key: "registered_agent", label: "Registered agent" },
+  { key: "annual_report", label: "Annual Report" },
+  { key: "registered_agent", label: "Registered Agent" },
   { key: "insurance", label: "Insurance" },
   { key: "boi", label: "BOI / FinCEN" },
-  { key: "federal_tax", label: "Federal tax" },
-  { key: "state_tax", label: "State tax" },
-  { key: "estimated_payments", label: "Estimated payments" },
+  { key: "federal_tax", label: "Federal Tax" },
+  { key: "state_tax", label: "State Tax" },
+  { key: "estimated_payments", label: "Estimated Payments" },
 ];
 
 const c = (status, label) => ({ status, label });

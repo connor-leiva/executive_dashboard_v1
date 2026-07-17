@@ -7,19 +7,30 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { T } from "./theme.js";
 import { Icon } from "./Brand.jsx";
-import { getJSON, getBlob, postJSON } from "./api.js";
+import { getJSON, getBlob, postJSON, delJSON } from "./api.js";
 import { useBinderMatrix } from "./useBinderMatrix.js";
 import sampleEntityBinder from "./sampleEntityBinder.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
 const OSTATUS = {
-  current: { dot: T.meadow, text: T.tertiary, label: "current" },
-  due_soon: { dot: T.daffodil, text: T.daffodilText, label: "due soon" },
-  overdue: { dot: T.poppy, text: T.poppyText, label: "overdue" },
-  in_progress: { dot: T.teal, text: T.teal, label: "in progress" },
-  not_applicable: { dot: T.muted, text: T.muted, label: "n/a" },
-  none: { dot: T.line, text: T.muted, label: "not configured" },
+  current: { dot: T.meadow, text: T.tertiary, label: "Current" },
+  due_soon: { dot: T.daffodil, text: T.daffodilText, label: "Due Soon" },
+  overdue: { dot: T.poppy, text: T.poppyText, label: "Overdue" },
+  in_progress: { dot: T.teal, text: T.teal, label: "In Progress" },
+  not_applicable: { dot: T.muted, text: T.muted, label: "N/A" },
+  none: { dot: T.line, text: T.muted, label: "Not Configured" },
+};
+// Plain-language definitions shown on hover over each obligation header (detail + matrix column).
+const KIND_DEFS = {
+  annual_report: "A yearly filing with the state to keep the entity in good standing (its name, address, and registered agent on record).",
+  registered_agent: "The person or company designated to receive legal and state notices on the entity's behalf.",
+  insurance: "Liability, E&O, and other coverage the entity is expected to keep active.",
+  boi: "Beneficial Ownership Information report to FinCEN identifying the people who own or control the entity.",
+  federal_tax: "The entity's federal income tax return (for example an 1120-S or 1065).",
+  state_tax: "The entity's state income or franchise tax return.",
+  estimated_payments: "Quarterly estimated tax payments to the IRS and state.",
+  lease: "Real estate or equipment leases the entity holds.",
 };
 const CADENCES = [["annual", "Annual"], ["quarterly", "Quarterly"], ["biennial", "Biennial"],
   ["one_time", "One time"], ["none", "None"]];
@@ -35,6 +46,18 @@ function Eyebrow({ children }) {
 function Dot({ s, size = 8 }) {
   return <span style={{ width: size, height: size, borderRadius: 99, background: (OSTATUS[s] || OSTATUS.none).dot, display: "inline-block", flexShrink: 0 }} />;
 }
+// A card eyebrow with a hover-for-definition info icon (replaces the old descriptive sub-label).
+function CardHeader({ title, info }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+      <Eyebrow>{title}</Eyebrow>
+      {info && <span title={info} style={{ display: "inline-flex", cursor: "help" }}><Icon name="info" size={12} color={T.muted} /></span>}
+    </div>
+  );
+}
+const docIconBtn = { display: "inline-flex", alignItems: "center", justifyContent: "center",
+  width: 24, height: 24, background: "transparent", border: `1px solid ${T.line}`, borderRadius: 6,
+  cursor: "pointer", flexShrink: 0, padding: 0 };
 function Legend() {
   return (
     <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -81,7 +104,7 @@ function ObligationsMatrix({ kinds, groups, onOpen }) {
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "12px 16px", background: T.evergreen, borderRadius: "13px 13px 0 0" }}>
           <span style={{ width: 196, flexShrink: 0, fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: T.onDark }}>Entity</span>
           {kinds.map((k) => (
-            <span key={k.key} style={{ flex: 1, fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.03em", textTransform: "uppercase", color: T.onDarkMute, textAlign: "center", lineHeight: 1.25 }}>{k.label}</span>
+            <span key={k.key} title={KIND_DEFS[k.key]} style={{ flex: 1, fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.03em", textTransform: "uppercase", color: T.onDarkMute, textAlign: "center", lineHeight: 1.25, cursor: KIND_DEFS[k.key] ? "help" : "default" }}>{k.label}</span>
           ))}
         </div>
         {groups.map((g) => g.entities.length > 0 && (
@@ -161,10 +184,10 @@ function EntityListView({ rows, scope, onOpen }) {
             {open > 0 ? (
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 700, color: w === "overdue" ? T.poppyText : T.daffodilText,
                 background: w === "overdue" ? "rgba(250,128,105,0.14)" : T.daffodilBg, borderRadius: 6, padding: "3px 10px" }}>
-                {open} to handle
+                {open} to Handle
               </span>
             ) : (
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.tertiary }}>all current</span>
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.tertiary }}>All Current</span>
             )}
             <Icon name="chevron_backward" size={15} color={T.muted} style={{ transform: "scaleX(-1)", marginLeft: 4 }} />
           </button>
@@ -241,26 +264,26 @@ function ObligationEditor({ o, entityId, usingSample, onClose, onSaved }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>
           <input type="checkbox" checked={f.applicable} onChange={(ev) => setF((s) => ({ ...s, applicable: ev.target.checked }))} />
-          Applies to this entity
+          Applies to This Entity
         </label>
         <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted }}>
-          {f.applicable ? "" : "unchecking marks this n/a"}
+          {f.applicable ? "" : "unchecking marks this N/A"}
         </span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, opacity: f.applicable ? 1 : 0.5 }}>
-        <div><label style={labelStyle()}>Due date</label><input type="date" value={f.due_date} onChange={set("due_date")} style={inputStyle()} disabled={!f.applicable} /></div>
+        <div><label style={labelStyle()}>Due Date</label><input type="date" value={f.due_date} onChange={set("due_date")} style={inputStyle()} disabled={!f.applicable} /></div>
         <div><label style={labelStyle()}>Cadence</label>
           <select value={f.cadence} onChange={set("cadence")} style={inputStyle()} disabled={!f.applicable}>
             {CADENCES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </div>
-        <div><label style={labelStyle()}>Reminder lead (days)</label><input type="number" min="0" value={f.lead_days} onChange={set("lead_days")} style={inputStyle()} disabled={!f.applicable} /></div>
+        <div><label style={labelStyle()}>Reminder Lead (Days)</label><input type="number" min="0" value={f.lead_days} onChange={set("lead_days")} style={inputStyle()} disabled={!f.applicable} /></div>
       </div>
-      <div style={{ marginTop: 10 }}><label style={labelStyle()}>Notes</label><input value={f.notes} onChange={set("notes")} placeholder="Optional context" style={inputStyle()} /></div>
+      <div style={{ marginTop: 10 }}><label style={labelStyle()}>Notes</label><input value={f.notes} onChange={set("notes")} placeholder="Optional Context" style={inputStyle()} /></div>
       {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText, marginTop: 8 }}>{err}</div>}
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 10 }}>
         {o.configured && o.id && (
-          <button onClick={complete} disabled={busy} className="cc-nav" style={btnStyle(T.slate, T.white)}>Mark complete</button>
+          <button onClick={complete} disabled={busy} className="cc-nav" style={btnStyle(T.slate, T.white)}>Mark Complete</button>
         )}
         <span style={{ flex: 1 }} />
         <button onClick={onClose} disabled={busy} className="cc-nav" style={btnStyle(T.slate, T.white)}>Cancel</button>
@@ -277,13 +300,18 @@ function btnStyle(color, bg, border = T.line) {
 function ObligationRow({ o, first, entityId, usingSample, onSaved }) {
   const [editing, setEditing] = useState(false);
   const st = OSTATUS[o.status] || OSTATUS.none;
-  const showLabel = o.status === "current" ? "current" : o.status === "not_applicable" ? "n/a" : o.status === "none" ? "not configured" : o.label;
+  const showLabel = o.status === "current" ? "Current" : o.status === "not_applicable" ? "N/A" : o.status === "none" ? "Not Configured" : o.label;
+  const def = KIND_DEFS[o.kind];
   return (
     <div style={{ padding: "11px 0", borderTop: first ? "none" : `1px solid ${T.line}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
         <Dot s={o.status} size={9} />
-        <span style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: o.status === "none" ? T.muted : T.ink }}>{o.kind_label}</span>
-        {o.status === "in_progress" && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.teal, fontStyle: "italic" }}>waiting on Books close</span>}
+        <span title={def} style={{ flex: 1, display: "inline-flex", alignItems: "center", gap: 5,
+          fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: o.status === "none" ? T.muted : T.ink, cursor: def ? "help" : "default" }}>
+          {o.kind_label}
+          {def && <Icon name="info" size={12} color={T.muted} />}
+        </span>
+        {o.status === "in_progress" && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.teal, fontStyle: "italic" }}>Waiting on Books Close</span>}
         <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: o.status === "overdue" ? 700 : 600, color: st.text,
           background: o.status === "overdue" ? "rgba(250,128,105,0.12)" : o.status === "due_soon" ? T.daffodilBg : "transparent",
           borderRadius: 5, padding: (o.status === "overdue" || o.status === "due_soon") ? "2px 8px" : 0 }}>
@@ -304,7 +332,7 @@ function ObligationRow({ o, first, entityId, usingSample, onSaved }) {
 }
 
 /* Document preview modal — fetches the blob with auth, shows PDF/image inline. */
-function DocPreview({ doc, usingSample, onClose }) {
+function DocPreview({ doc, usingSample, onClose, onReplace, onDelete }) {
   const [url, setUrl] = useState(null);
   const [state, setState] = useState("loading");   // loading | ready | sample | error
   useEffect(() => {
@@ -328,6 +356,8 @@ function DocPreview({ doc, usingSample, onClose }) {
           <Icon name="open" size={15} color={T.slate} />
           <span style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
           {url && <a href={url} download={name} className="cc-nav" style={{ ...btnStyle(T.slate, T.white), textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="download" size={13} color={T.slate} />Download</a>}
+          {onReplace && <button onClick={onReplace} className="cc-nav" style={{ ...btnStyle(T.slate, T.white), display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="sync" size={13} color={T.slate} />Replace</button>}
+          {onDelete && <button onClick={onDelete} className="cc-nav" style={btnStyle(T.poppyText, T.white)}>Delete</button>}
           <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}><Icon name="close" size={16} color={T.muted} /></button>
         </div>
         <div style={{ flex: 1, display: "flex", background: T.parchment, overflow: "auto" }}>
@@ -351,6 +381,8 @@ function DocPreview({ doc, usingSample, onClose }) {
 function EntityBinder({ row, usingSample, onBack, onChanged }) {
   const { data, error, reload } = useEntityBinder(row, usingSample);
   const fileRef = useRef(null);
+  const replaceRef = useRef(null);
+  const replaceId = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [note, setNote] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -371,6 +403,34 @@ function EntityBinder({ row, usingSample, onBack, onChanged }) {
       if (res.deduped) parts.push(`${res.deduped} already on file`);
       setNote(`${parts.join(", ") || "Done"}. Proposals appear under Review within a minute.`);
     } catch (e) { setNote(e.message || "Upload failed."); }
+    finally { setUploading(false); }
+  }
+
+  function askReplace(docId) {
+    if (usingSample) { setNote("Sample mode: connect the app to replace documents."); return; }
+    replaceId.current = docId;
+    replaceRef.current?.click();
+  }
+  async function onReplaceFile(ev) {
+    const files = [...(ev.target.files || [])];
+    ev.target.value = "";
+    const oldId = replaceId.current; replaceId.current = null;
+    if (!files.length || !oldId) return;
+    setUploading(true); setNote(null);
+    try {
+      await uploadDocuments([files[0]], row.id);   // the replacement file
+      await delJSON(`/binder/documents/${oldId}`); // then drop the old one
+      refresh();
+      setNote("Document replaced.");
+    } catch (err) { setNote(err.message || "Replace failed."); }
+    finally { setUploading(false); }
+  }
+  async function deleteDoc(docId) {
+    if (usingSample) { setNote("Sample mode: connect the app to delete documents."); return; }
+    if (!window.confirm("Delete this document? This cannot be undone.")) return;
+    setUploading(true); setNote(null);
+    try { await delJSON(`/binder/documents/${docId}`); refresh(); setNote("Document deleted."); }
+    catch (err) { setNote(err.message || "Delete failed."); }
     finally { setUploading(false); }
   }
 
@@ -401,10 +461,7 @@ function EntityBinder({ row, usingSample, onBack, onChanged }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)", gap: 18, alignItems: "start" }}>
         <Card>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-            <Eyebrow>Obligations</Eyebrow>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted }}>every filing this entity owes</span>
-          </div>
+          <CardHeader title="Obligations" info="Every filing this entity owes." />
           <div style={{ marginTop: 4 }}>
             {data.obligations.map((o, i) => (
               <ObligationRow key={o.kind} o={o} first={i === 0} entityId={e.id} usingSample={usingSample} onSaved={refresh} />
@@ -413,37 +470,41 @@ function EntityBinder({ row, usingSample, onBack, onChanged }) {
         </Card>
 
         <Card>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-            <Eyebrow>Documents</Eyebrow>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted }}>evidence behind obligations</span>
-          </div>
+          <CardHeader title="Documents" info="Evidence behind obligations." />
           {data.documents.map((grp, gi) => (
             <div key={grp.category_key || gi} style={{ paddingTop: gi ? 12 : 8, borderTop: gi ? `1px solid ${T.line}` : "none", marginTop: gi ? 6 : 0 }}>
               <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, color: T.tertiary, marginBottom: 6 }}>{grp.category}</div>
-              {grp.items.length === 0 && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, fontStyle: "italic", padding: "2px 0 4px" }}>None on file yet</div>}
+              {grp.items.length === 0 && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, fontStyle: "italic", padding: "2px 0 4px" }}>None on File Yet</div>}
               {grp.items.map((it) => (
-                <button key={it.id} onClick={() => setPreview(it)} className="cc-nav" style={{
-                  width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "5px 6px", margin: "0 -6px",
-                  background: "transparent", border: "none", borderRadius: 7, cursor: "pointer", textAlign: "left" }}>
-                  <Icon name="open" size={13} color={it.alert ? T.poppyText : T.muted} />
-                  <span style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: it.alert ? T.poppyText : T.ink,
-                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.filename}</span>
-                </button>
+                <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button onClick={() => setPreview(it)} title="Preview" className="cc-nav" style={{
+                    flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 9, padding: "5px 6px", margin: "0 -6px",
+                    background: "transparent", border: "none", borderRadius: 7, cursor: "pointer", textAlign: "left" }}>
+                    <Icon name="open" size={13} color={it.alert ? T.poppyText : T.muted} />
+                    <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: it.alert ? T.poppyText : T.ink,
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.filename}</span>
+                  </button>
+                  <button onClick={() => askReplace(it.id)} title="Replace" className="cc-nav" style={docIconBtn}><Icon name="sync" size={12} color={T.muted} /></button>
+                  <button onClick={() => deleteDoc(it.id)} title="Delete" className="cc-nav" style={docIconBtn}><Icon name="close" size={12} color={T.muted} /></button>
+                </div>
               ))}
             </div>
           ))}
           <input ref={fileRef} type="file" multiple onChange={onFile} style={{ display: "none" }} />
+          <input ref={replaceRef} type="file" onChange={onReplaceFile} style={{ display: "none" }} />
           <button onClick={() => fileRef.current?.click()} disabled={uploading} className="cc-nav" style={{
             marginTop: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
             fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment,
             border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: uploading ? "default" : "pointer", width: "100%", opacity: uploading ? 0.6 : 1 }}>
-            <Icon name="download" size={14} color={T.slate} />{uploading ? "Uploading…" : "Upload documents"}
+            <Icon name="download" size={14} color={T.slate} />{uploading ? "Uploading…" : "Upload Documents"}
           </button>
           {note && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 8 }}>{note}</div>}
         </Card>
       </div>
 
-      {preview && <DocPreview doc={preview} usingSample={usingSample} onClose={() => setPreview(null)} />}
+      {preview && <DocPreview doc={preview} usingSample={usingSample} onClose={() => setPreview(null)}
+        onReplace={() => { const id = preview.id; setPreview(null); askReplace(id); }}
+        onDelete={() => { const id = preview.id; setPreview(null); deleteDoc(id); }} />}
     </div>
   );
 }

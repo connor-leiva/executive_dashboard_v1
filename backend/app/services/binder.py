@@ -24,6 +24,7 @@ from ..config import settings
 from ..models import (LegalEntity, Business, BinderDocument, Obligation, ProposedObligation,
                       ClosePeriod, Integration, JurisdictionRule)
 from .audit import audit
+from . import binder_storage
 from .binder_status import compute_status, roll_forward, TAX_KINDS, _add_months
 
 # The three fields the rules engine needs before it can derive any obligation (Part 5.0).
@@ -278,9 +279,9 @@ class ReviewError(ValueError):
 
 
 KIND_LABELS = {
-    "annual_report": "Annual report", "registered_agent": "Registered agent",
-    "insurance": "Insurance", "boi": "BOI / FinCEN", "federal_tax": "Federal tax",
-    "state_tax": "State tax", "estimated_payments": "Estimated payments", "lease": "Lease",
+    "annual_report": "Annual Report", "registered_agent": "Registered Agent",
+    "insurance": "Insurance", "boi": "BOI / FinCEN", "federal_tax": "Federal Tax",
+    "state_tax": "State Tax", "estimated_payments": "Estimated Payments", "lease": "Lease",
 }
 
 
@@ -523,6 +524,32 @@ async def edit_obligation(s: AsyncSession, tenant_id, user, obligation_id, field
     return ob
 
 
+async def delete_document(s: AsyncSession, tenant_id, user, doc_id) -> bool:
+    """Delete a stored document: detach it from any obligation it backed, drop the proposals it
+    generated (derivations, not tracked obligations), remove the blob, and delete the row. Returns
+    False if the document isn't this tenant's. (Replace = the caller uploads a new file, then
+    deletes the old one via this.)"""
+    doc = (await s.execute(select(BinderDocument).where(
+        BinderDocument.tenant_id == tenant_id, BinderDocument.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        return False
+    did, filename, storage_ref = doc.id, doc.filename, doc.storage_ref
+    for ob in (await s.execute(select(Obligation).where(
+            Obligation.tenant_id == tenant_id, Obligation.source_document_id == did))).scalars().all():
+        ob.source_document_id = None
+    for p in (await s.execute(select(ProposedObligation).where(
+            ProposedObligation.tenant_id == tenant_id, ProposedObligation.document_id == did))).scalars().all():
+        await s.delete(p)
+    await s.flush()                                   # clear FK references before deleting the row
+    await s.delete(doc)
+    if storage_ref:
+        binder_storage.delete(storage_ref)
+    audit(s, tenant_id, user.id, "binder.document_deleted", "binder_document", did,
+          {"filename": filename})
+    await s.commit()
+    return True
+
+
 VALID_OBLIGATION_KINDS = set(KIND_LABELS)          # kinds a user may manually configure
 
 
@@ -586,15 +613,15 @@ def _cell(status: str, due_date, today: dt.date) -> dict:
     if status == "none":
         return {"status": "none", "label": "—"}
     if status == "not_applicable":
-        return {"status": "not_applicable", "label": "n/a"}
+        return {"status": "not_applicable", "label": "N/A"}
     if status == "in_progress":
-        return {"status": "in_progress", "label": "books"}
+        return {"status": "in_progress", "label": "Books"}
     if status == "overdue":
-        return {"status": "overdue", "label": "overdue"}
+        return {"status": "overdue", "label": "Overdue"}
     if status == "due_soon":
         days = (due_date - today).days if due_date else None
-        return {"status": "due_soon", "label": (f"{days}d" if days is not None else "soon")}
-    return {"status": "current", "label": (due_date.strftime("%b") if due_date else "current")}
+        return {"status": "due_soon", "label": (f"{days}d" if days is not None else "Soon")}
+    return {"status": "current", "label": (due_date.strftime("%b") if due_date else "Current")}
 
 
 async def _books_pending_map(s: AsyncSession, tenant_id, today: dt.date) -> dict:

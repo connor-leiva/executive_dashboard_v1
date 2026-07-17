@@ -199,6 +199,17 @@ async def list_documents(entity_id: uuid.UUID | None = None, user: User = Depend
     return await binder_ingest.list_documents(s, user.tenant_id, entity_id=entity_id)
 
 
+@router.delete("/documents/{doc_id}")
+async def delete_document(doc_id: uuid.UUID, user: User = Depends(binder_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Delete a document (and its blob + derived proposals; detach it from any obligation it
+    backed). Tenant-scoped + binder-tab gated."""
+    ok = await binder.delete_document(s, user.tenant_id, user, doc_id)
+    if not ok:
+        raise HTTPException(404, "Document not found")
+    return {"ok": True, "id": str(doc_id)}
+
+
 @router.get("/documents/{doc_id}/raw")
 async def document_raw(doc_id: uuid.UUID, user: User = Depends(binder_user),
                        s: AsyncSession = Depends(get_session)):

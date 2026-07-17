@@ -17,6 +17,7 @@ from app.config import settings
 from app.models import (Tenant, User, Business, LegalEntity, BinderDocument, Obligation,
                         ClosePeriod)
 from app.security import make_token, hash_pw
+from app.services import binder_storage
 
 TRANSPORT = ASGITransport(app=app)
 
@@ -129,7 +130,7 @@ async def test_matrix_not_applicable_cell():
     async with _client() as c:
         m = (await c.get("/api/v1/binder", headers=_H(tok))).json()
     e, _ = _find_entity(m, "Matrix NA Co, LLC")
-    assert e["cells"]["annual_report"] == {"status": "not_applicable", "label": "n/a"}
+    assert e["cells"]["annual_report"] == {"status": "not_applicable", "label": "N/A"}
 
 
 # ── Books tax tie (Part 6 #1) ────────────────────────────────────────────────
@@ -242,6 +243,37 @@ async def test_document_raw_404_unknown_and_tenant_scoped():
         unknown = await c.get(f"/api/v1/binder/documents/{uuid.uuid4()}/raw", headers=_H(tok))
         foreign = await c.get(f"/api/v1/binder/documents/{foreign_id}/raw", headers=_H(tok))
     assert unknown.status_code == 404 and foreign.status_code == 404
+
+
+async def test_delete_document_removes_row_blob_and_detaches():
+    """Deleting a document removes the row + blob, drops its proposals, and detaches it from any
+    obligation it backed (the obligation stays, just loses its evidence link)."""
+    tid = await _tid()
+    eid = await _entity(tid, "Doc Delete Co, LLC")
+    tok = await _owner_token()
+    data = b"%PDF-1.4 to-be-deleted\n" + b"d" * 80
+    async with _client() as c:
+        did = (await c.post("/api/v1/binder/documents", headers=_H(tok),
+                            files={"file": ("gone.pdf", data, "application/pdf")},
+                            data={"entity_id": str(eid)})).json()["id"]
+    async with SessionLocal() as s:                       # an obligation backed by this document
+        doc = (await s.execute(select(BinderDocument).where(BinderDocument.id == did))).scalar_one()
+        ref = doc.storage_ref
+        s.add(Obligation(tenant_id=tid, entity_id=eid, kind="insurance", source_document_id=doc.id,
+                         confirmed_by=None, lead_days=45))
+        await s.commit()
+    assert binder_storage.exists(ref)
+    async with _client() as c:
+        r = await c.delete(f"/api/v1/binder/documents/{did}", headers=_H(tok))
+        again = await c.delete(f"/api/v1/binder/documents/{did}", headers=_H(tok))
+    assert r.status_code == 200 and again.status_code == 404      # gone, second delete 404s
+    assert not binder_storage.exists(ref)                         # blob removed
+    async with SessionLocal() as s:
+        assert (await s.execute(select(BinderDocument).where(
+            BinderDocument.id == did))).scalar_one_or_none() is None
+        ob = (await s.execute(select(Obligation).where(
+            Obligation.entity_id == eid, Obligation.kind == "insurance"))).scalar_one()
+    assert ob.source_document_id is None                          # obligation kept, evidence detached
 
 
 async def test_document_raw_requires_binder_tab():
