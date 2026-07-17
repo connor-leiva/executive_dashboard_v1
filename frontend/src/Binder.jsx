@@ -9,6 +9,7 @@ import { Icon } from "./Brand.jsx";
 import { useBinder } from "./useBinder.js";
 import { useBinderReview } from "./useBinderReview.js";
 import BinderReview from "./BinderReview.jsx";
+import BinderMatrix from "./BinderMatrix.jsx";
 import { postJSON, patchJSON } from "./api.js";
 
 const ENTITY_TYPES = [
@@ -267,7 +268,7 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
 export default function Binder() {
   const { data, error, loading, usingSample, reload } = useBinder();
   const review = useBinderReview();
-  const [surface, setSurface] = useState("entities");   // entities | review
+  const [surface, setSurface] = useState("overview");   // overview | entities | review
   const [sub, setSub] = useState("all");
   const [form, setForm] = useState(null);   // null | {} (create) | { entity } (edit)
   const toReview = review.data?.stats?.awaiting || 0;
@@ -315,7 +316,7 @@ export default function Binder() {
 
       {/* surface sub-nav: Entities | Review */}
       <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
-        {[["entities", "Entities"], ["review", "Review"]].map(([k, l]) => (
+        {[["overview", "Overview"], ["entities", "Entities"], ["review", "Review"]].map(([k, l]) => (
           <button key={k} onClick={() => setSurface(k)} className="cc-nav" style={{
             display: "inline-flex", alignItems: "center", gap: 7,
             fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600,
@@ -330,6 +331,8 @@ export default function Binder() {
           </button>
         ))}
       </div>
+
+      {surface === "overview" && <BinderMatrix />}
 
       {surface === "review" && <BinderReview review={review} entities={entities} />}
 

@@ -20,9 +20,10 @@ import uuid
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import LegalEntity, Business, BinderDocument, Obligation, ProposedObligation
+from ..models import (LegalEntity, Business, BinderDocument, Obligation, ProposedObligation,
+                      ClosePeriod, Integration)
 from .audit import audit
-from .binder_status import compute_status, roll_forward
+from .binder_status import compute_status, roll_forward, TAX_KINDS
 
 # The three fields the rules engine needs before it can derive any obligation (Part 5.0).
 # An entity missing any of them is valid but dormant.
@@ -524,3 +525,142 @@ async def edit_obligation(s: AsyncSession, tenant_id, user, obligation_id, field
 def obligation_status(ob: Obligation, today: dt.date | None = None) -> str:
     return compute_status(applicable=ob.applicable, kind=ob.kind, due_date=ob.due_date,
                           lead_days=ob.lead_days, today=today or dt.date.today())
+
+
+# ── The matrix + entity binder (SPEC Part 6 / 8) ─────────────────────────────
+# Fixed obligation-kind column set for the matrix (lease is evidence-only, Part 14).
+MATRIX_KINDS = ["annual_report", "registered_agent", "insurance", "boi",
+                "federal_tax", "state_tax", "estimated_payments"]
+CATEGORY_ORDER = ["formation", "insurance", "tax", "lease", "registered_agent", "estate", "other"]
+_STATUS_RANK = {"overdue": 4, "due_soon": 3, "in_progress": 2, "current": 1,
+                "not_applicable": 0, "none": -1}
+
+
+def _cat_label(c: str) -> str:
+    return c.replace("_", " ").title()
+
+
+def _cell(status: str, due_date, today: dt.date) -> dict:
+    """A matrix cell: status + a short label (Part 8)."""
+    if status == "none":
+        return {"status": "none", "label": "—"}
+    if status == "not_applicable":
+        return {"status": "not_applicable", "label": "n/a"}
+    if status == "in_progress":
+        return {"status": "in_progress", "label": "books"}
+    if status == "overdue":
+        return {"status": "overdue", "label": "overdue"}
+    if status == "due_soon":
+        days = (due_date - today).days if due_date else None
+        return {"status": "due_soon", "label": (f"{days}d" if days is not None else "soon")}
+    return {"status": "current", "label": (due_date.strftime("%b") if due_date else "current")}
+
+
+async def _books_pending_map(s: AsyncSession, tenant_id, today: dt.date) -> dict:
+    """business_id -> is the tax-year Books close still pending (drives federal/state tax
+    in_progress, Part 6 #1). Simplified v1: a business with a QBO/Books integration whose
+    books for the current calendar year are NOT yet closed is 'pending'; once it closes a
+    period this year, tax obligations fall to pure date math. (Precise tax-year mapping is a
+    later refinement.) The one cross-module read: Books' ClosePeriod, read-only."""
+    books_biz = {bid for (bid,) in (await s.execute(select(Integration.business_id).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "qbo",
+        Integration.business_id.isnot(None)))).all()}
+    ystart, yend = dt.date(today.year, 1, 1), dt.date(today.year + 1, 1, 1)
+    closed = {bid for (bid,) in (await s.execute(select(ClosePeriod.business_id).where(
+        ClosePeriod.tenant_id == tenant_id, ClosePeriod.status == "closed",
+        ClosePeriod.period >= ystart, ClosePeriod.period < yend))).all()}
+    return {bid: (bid not in closed) for bid in books_biz}
+
+
+async def build_matrix(s: AsyncSession, tenant_id, today: dt.date | None = None) -> dict:
+    """The obligations matrix (GET /binder): one cell per (entity, kind), grouped
+    operating/holding, plus attention flags."""
+    today = today or dt.date.today()
+    ents = (await s.execute(select(LegalEntity).where(
+        LegalEntity.tenant_id == tenant_id, LegalEntity.active.is_(True)))).scalars().all()
+    obs = (await s.execute(select(Obligation).where(Obligation.tenant_id == tenant_id))).scalars().all()
+    by_entity: dict = {}
+    for ob in obs:
+        by_entity.setdefault(ob.entity_id, {})[ob.kind] = ob
+    pending_map = await _books_pending_map(s, tenant_id, today)
+
+    overdue = due_soon = 0
+    attention = []
+    groups = {"operating": [], "holding": []}
+    for e in sorted(ents, key=lambda x: x.legal_name.lower()):
+        books_pending = pending_map.get(e.business_id, False) if e.business_id else False
+        cells, worst, open_ct = {}, "none", 0
+        for kind in MATRIX_KINDS:
+            ob = by_entity.get(e.id, {}).get(kind)
+            if ob is None:
+                cells[kind] = {"status": "none", "label": "—"}
+                continue
+            st = compute_status(applicable=ob.applicable, kind=ob.kind, due_date=ob.due_date,
+                                lead_days=ob.lead_days, today=today,
+                                books_pending=(books_pending and ob.kind in TAX_KINDS))
+            cells[kind] = _cell(st, ob.due_date, today)
+            if st == "overdue":
+                overdue += 1; open_ct += 1
+            elif st == "due_soon":
+                due_soon += 1; open_ct += 1
+            if _STATUS_RANK.get(st, -1) > _STATUS_RANK.get(worst, -1):
+                worst = st
+        row = {"id": str(e.id), "name": e.legal_name, "nickname": e.nickname, "cells": cells}
+        groups["holding" if e.entity_group == "holding" else "operating"].append(row)
+        if worst in ("overdue", "due_soon"):
+            attention.append({"id": str(e.id), "name": e.legal_name, "open": open_ct, "worst": worst})
+
+    attention.sort(key=lambda a: (a["worst"] != "overdue", -a["open"]))
+    return {
+        "updated_at": today.isoformat(),
+        "groups": [{"group": "operating", "entities": groups["operating"]},
+                   {"group": "holding", "entities": groups["holding"]}],
+        "flags": {"overdue": overdue, "due_soon": due_soon, "attention": attention},
+        "kinds": [{"key": k, "label": KIND_LABELS.get(k, k)} for k in MATRIX_KINDS],
+    }
+
+
+async def build_entity_binder(s: AsyncSession, tenant_id, entity_id, today: dt.date | None = None) -> dict | None:
+    """One entity's binder (GET /binder/entity/{id}): attributes, obligations (with computed
+    status + evidence doc), and documents grouped by category."""
+    ent = await _get(s, tenant_id, entity_id)
+    if ent is None:
+        return None
+    today = today or dt.date.today()
+    books_pending = (await _books_pending_map(s, tenant_id, today)).get(ent.business_id, False) if ent.business_id else False
+    obs = (await s.execute(select(Obligation).where(
+        Obligation.tenant_id == tenant_id, Obligation.entity_id == entity_id))).scalars().all()
+    docs = (await s.execute(select(BinderDocument).where(
+        BinderDocument.tenant_id == tenant_id, BinderDocument.entity_id == entity_id)
+        .order_by(BinderDocument.created_at.desc()))).scalars().all()
+    doc_by_id = {d.id: d for d in docs}
+
+    obligations = []
+    for ob in sorted(obs, key=lambda o: MATRIX_KINDS.index(o.kind) if o.kind in MATRIX_KINDS else 99):
+        st = compute_status(applicable=ob.applicable, kind=ob.kind, due_date=ob.due_date,
+                            lead_days=ob.lead_days, today=today,
+                            books_pending=(books_pending and ob.kind in TAX_KINDS))
+        src = doc_by_id.get(ob.source_document_id)
+        obligations.append({
+            "id": str(ob.id), "kind": ob.kind, "kind_label": KIND_LABELS.get(ob.kind, ob.kind),
+            "status": st, "label": _cell(st, ob.due_date, today)["label"],
+            "due_date": ob.due_date.isoformat() if ob.due_date else None,
+            "cadence": ob.cadence, "applicable": ob.applicable,
+            "source_document": src.filename if src else None, "notes": ob.notes,
+        })
+
+    by_cat: dict = {}
+    for d in docs:
+        by_cat.setdefault(d.category, []).append(
+            {"id": str(d.id), "filename": d.filename, "alert": False})
+    documents = [{"category": _cat_label(c), "category_key": c, "items": by_cat[c]}
+                 for c in CATEGORY_ORDER if c in by_cat]
+    return {
+        "entity": {"id": str(ent.id), "name": ent.legal_name, "nickname": ent.nickname,
+                   "type": ent.entity_type, "jurisdiction": ent.jurisdiction,
+                   "ownership": ent.ownership, "ein_masked": _mask_ein(ent.ein),
+                   "entity_group": ent.entity_group, "business_name": None,
+                   "tracking_ready": _tracking_ready(ent)},
+        "obligations": obligations,
+        "documents": documents,
+    }
