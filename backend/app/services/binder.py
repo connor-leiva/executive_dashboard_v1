@@ -15,6 +15,7 @@ full document-storage / PII hardening is a multi-tenant concern flagged out of s
 from __future__ import annotations
 
 import datetime as dt
+import re
 import uuid
 
 from sqlalchemy import select, func, or_
@@ -24,7 +25,7 @@ from ..config import settings
 from ..models import (LegalEntity, Business, BinderDocument, Obligation, ProposedObligation,
                       ClosePeriod, Integration, JurisdictionRule)
 from .audit import audit
-from . import binder_storage
+from . import binder_storage, binder_extract
 from .binder_status import compute_status, roll_forward, TAX_KINDS, _add_months
 
 # The three fields the rules engine needs before it can derive any obligation (Part 5.0).
@@ -590,6 +591,45 @@ async def upsert_obligation(s: AsyncSession, tenant_id, user, entity_id, kind: s
     return ob
 
 
+async def explain_obligation(s: AsyncSession, tenant_id, user, obligation_id) -> dict | None:
+    """Generate + cache a plain-language 'why' for an obligation (on demand). Feeds Claude the
+    obligation, its entity, and the documents in the backing category. Returns None if the
+    obligation isn't this tenant's; raises EntityError when AI is unavailable (no key)."""
+    ob = await _obligation(s, tenant_id, obligation_id)
+    if ob is None:
+        return None
+    ent = await _get(s, tenant_id, ob.entity_id)
+    today = dt.date.today()
+    status = obligation_status(ob, today)
+    cat = OBLIGATION_DOC_CATEGORY.get(ob.kind)
+    doc_rows = []
+    if cat:
+        rows = (await s.execute(select(BinderDocument).where(
+            BinderDocument.tenant_id == tenant_id, BinderDocument.entity_id == ob.entity_id,
+            BinderDocument.category == cat).order_by(BinderDocument.created_at.desc()))).scalars().all()
+        for d in rows:
+            eff, expired = _doc_effective(d, today)
+            doc_rows.append({"filename": d.filename, "date": eff.isoformat() if eff else None,
+                             "expired": expired})
+    payload = {
+        "entity": {"name": ent.legal_name if ent else None,
+                   "jurisdiction": ent.jurisdiction if ent else None,
+                   "entity_type": ent.entity_type if ent else None},
+        "obligation": {"kind": KIND_LABELS.get(ob.kind, ob.kind), "status": status,
+                       "due_date": ob.due_date.isoformat() if ob.due_date else None,
+                       "cadence": ob.cadence, "applicable": ob.applicable},
+        "documents_on_file": doc_rows,
+        "today": today.isoformat(),
+    }
+    summary = await binder_extract.explain_obligation(payload)
+    if not summary:
+        raise EntityError("AI explanations are not available (no API key configured).")
+    ob.ai_summary, ob.ai_summary_at = summary, dt.datetime.now(dt.timezone.utc)
+    audit(s, tenant_id, user.id, "binder.obligation_explained", "obligation", ob.id, {"kind": ob.kind})
+    await s.commit()
+    return {"ai_summary": ob.ai_summary, "ai_summary_at": ob.ai_summary_at.isoformat()}
+
+
 def obligation_status(ob: Obligation, today: dt.date | None = None) -> str:
     return compute_status(applicable=ob.applicable, kind=ob.kind, due_date=ob.due_date,
                           lead_days=ob.lead_days, today=today or dt.date.today())
@@ -700,6 +740,59 @@ async def build_matrix(s: AsyncSession, tenant_id, today: dt.date | None = None)
 # fresh entity shows the full shape of what it should collect, not a blank card. "other" is
 # appended only when it actually holds something.
 DETAIL_DOC_CATEGORIES = ["formation", "registered_agent", "insurance", "tax", "lease", "estate"]
+# Categories whose documents supersede year over year — a prior-year doc there is HISTORICAL.
+# Formation/estate are permanent records: their docs stay Current unless explicitly expired.
+RENEWING_CATEGORIES = {"insurance", "tax", "registered_agent", "estimated_payments"}
+# Which document category backs each obligation kind (drives the "why" panel's related docs).
+OBLIGATION_DOC_CATEGORY = {"insurance": "insurance", "registered_agent": "registered_agent",
+                          "federal_tax": "tax", "state_tax": "tax", "estimated_payments": "tax"}
+_YEAR_RE = re.compile(r"(?:19|20)\d{2}")
+
+
+def _doc_effective(doc: BinderDocument, today: dt.date) -> tuple[dt.date | None, bool]:
+    """Best-effort (effective_date, expired) for a document. Reads extraction anchors first
+    (expiration/renewal/formation dates + printed dates), then a year in the filename, then the
+    upload time. `expired` is True only when a known expiration date has already passed."""
+    parsed = (doc.extracted or {}).get("parsed") or {}
+    anchors = parsed.get("anchors") or {}
+    exp = _norm_date(anchors.get("expiration_date"))
+    printed = [d for d in (_norm_date(x) for x in (parsed.get("printed_dates") or [])) if d]
+    eff = (exp or _norm_date(anchors.get("renewal_date")) or _norm_date(anchors.get("formation_date"))
+           or (max(printed) if printed else None))
+    if eff is None:
+        m = _YEAR_RE.search(doc.filename or "")
+        if m:
+            eff = dt.date(int(m.group(0)), 1, 1)
+    if eff is None and doc.created_at:
+        eff = doc.created_at.date()
+    return eff, bool(exp and exp < today)
+
+
+def _doc_item(doc: BinderDocument, today: dt.date) -> dict:
+    eff, expired = _doc_effective(doc, today)
+    return {"id": str(doc.id), "filename": doc.filename, "category_key": doc.category,
+            "can_preview": bool(doc.storage_ref), "alert": expired,
+            "date": eff.isoformat() if eff else None, "year": (eff.year if eff else None),
+            "expired": expired}
+
+
+def _status_reason(status: str, due_date, today: dt.date) -> str:
+    """A plain, computed sentence for the obligation 'why' panel (no AI)."""
+    if status == "none":
+        return "Not configured yet. Set a due date and cadence to start tracking this filing."
+    if status == "not_applicable":
+        return "Marked not applicable for this entity."
+    if status == "in_progress":
+        return "Waiting on the linked Books close for this tax year before the due date applies."
+    if status == "overdue":
+        return f"Overdue since {_fmt_date(due_date)}." if due_date else "Overdue, and no due date is set."
+    if status == "due_soon":
+        days = (due_date - today).days if due_date else None
+        return (f"Due {_fmt_date(due_date)}" + (f", {days} days away." if days is not None else ".")
+                ) if due_date else "Due soon."
+    if status == "current":
+        return f"Current. Next due {_fmt_date(due_date)}." if due_date else "Current and up to date."
+    return ""
 
 
 async def build_entity_binder(s: AsyncSession, tenant_id, entity_id, today: dt.date | None = None) -> dict | None:
@@ -722,15 +815,26 @@ async def build_entity_binder(s: AsyncSession, tenant_id, entity_id, today: dt.d
     doc_by_id = {d.id: d for d in docs}
     ob_by_kind = {ob.kind: ob for ob in obs}
 
+    # Dated document items grouped by category (newest first), reused for both the document tree
+    # and each obligation's "related documents".
+    by_cat: dict = {}
+    for d in docs:
+        by_cat.setdefault(d.category, []).append(_doc_item(d, today))
+    for items in by_cat.values():
+        items.sort(key=lambda it: (it["date"] or ""), reverse=True)
+
     obligations = []
     for kind in MATRIX_KINDS:
         ob = ob_by_kind.get(kind)
         base = {"kind": kind, "kind_label": KIND_LABELS.get(kind, kind)}
+        related = by_cat.get(OBLIGATION_DOC_CATEGORY.get(kind), []) if OBLIGATION_DOC_CATEGORY.get(kind) else []
         if ob is None:                                   # not configured yet — an editable stub
             obligations.append({**base, "id": None, "configured": False, "status": "none",
                                 "label": "not configured", "due_date": None, "cadence": None,
                                 "lead_days": None, "applicable": None, "source_document": None,
-                                "source_document_id": None, "notes": None})
+                                "source_document_id": None, "notes": None,
+                                "status_reason": _status_reason("none", None, today),
+                                "related_documents": related, "ai_summary": None, "ai_summary_at": None})
             continue
         st = compute_status(applicable=ob.applicable, kind=ob.kind, due_date=ob.due_date,
                             lead_days=ob.lead_days, today=today,
@@ -744,17 +848,28 @@ async def build_entity_binder(s: AsyncSession, tenant_id, entity_id, today: dt.d
             "source_document": src.filename if src else None,
             "source_document_id": str(ob.source_document_id) if ob.source_document_id else None,
             "notes": ob.notes,
+            "status_reason": _status_reason(st, ob.due_date, today),
+            "related_documents": related,
+            "ai_summary": ob.ai_summary,
+            "ai_summary_at": ob.ai_summary_at.isoformat() if ob.ai_summary_at else None,
         })
 
-    by_cat: dict = {}
-    for d in docs:
-        by_cat.setdefault(d.category, []).append(
-            {"id": str(d.id), "filename": d.filename, "category_key": d.category,
-             "can_preview": bool(d.storage_ref), "alert": False})
+    # Split each category into Current + Historical (expired, or a prior-year doc in a renewing
+    # category). Historical stays collapsed in the UI; both lists are newest-first.
     cats = DETAIL_DOC_CATEGORIES + [c for c in CATEGORY_ORDER
                                     if c not in DETAIL_DOC_CATEGORIES and c in by_cat]
-    documents = [{"category": _cat_label(c), "category_key": c, "items": by_cat.get(c, [])}
-                 for c in cats]
+    documents = []
+    for c in cats:
+        items = by_cat.get(c, [])
+        max_year = max((it["year"] for it in items if it["year"] is not None), default=None)
+        renewing = c in RENEWING_CATEGORIES
+        current, historical = [], []
+        for it in items:
+            superseded = renewing and it["year"] is not None and max_year is not None and it["year"] < max_year
+            (historical if (it["expired"] or superseded) else current).append(it)
+        documents.append({"category": _cat_label(c), "category_key": c,
+                          "current": current, "historical": historical,
+                          "items": current + historical})   # items kept for back-compat
     return {
         "entity": {"id": str(ent.id), "name": ent.legal_name, "nickname": ent.nickname,
                    "type": ent.entity_type, "jurisdiction": ent.jurisdiction,

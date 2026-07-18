@@ -478,6 +478,8 @@ class Obligation(Base):
     last_reminded_stage: Mapped[str | None] = mapped_column(String(12), nullable=True)  # none|lead|urgent|overdue
     last_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)                  # cached AI "why" explanation
+    ai_summary_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     __table_args__ = (UniqueConstraint("tenant_id", "entity_id", "kind", name="uq_obligation"),)
 
 

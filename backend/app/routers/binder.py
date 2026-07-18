@@ -315,6 +315,20 @@ async def edit_obligation(obligation_id: uuid.UUID, body: ObligationPatch,
     return {"ok": True, **binder.obligation_out(ob, binder.obligation_status(ob))}
 
 
+@router.post("/obligations/{obligation_id}/explain")
+async def explain_obligation(obligation_id: uuid.UUID, user: User = Depends(binder_user),
+                             s: AsyncSession = Depends(get_session)):
+    """Generate (and cache) a plain-language explanation of an obligation's status. Key-gated:
+    400 when no AI key is configured."""
+    try:
+        res = await binder.explain_obligation(s, user.tenant_id, user, obligation_id)
+    except binder.EntityError as e:
+        _binder400(e)
+    if res is None:
+        raise HTTPException(404, "Obligation not found")
+    return {"ok": True, **res}
+
+
 class ObligationUpsertIn(BaseModel):
     kind: str                                # which obligation kind to configure
     due_date: str | None = None

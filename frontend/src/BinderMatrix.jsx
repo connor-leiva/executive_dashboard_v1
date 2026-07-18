@@ -297,14 +297,19 @@ function btnStyle(color, bg, border = T.line) {
     border: `1px solid ${border}`, borderRadius: 8, padding: "7px 13px", cursor: "pointer" };
 }
 
-function ObligationRow({ o, first, entityId, usingSample, onSaved }) {
+function ObligationRow({ o, first, entityId, usingSample, onSaved, onPreview }) {
   const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const st = OSTATUS[o.status] || OSTATUS.none;
   const showLabel = o.status === "current" ? "Current" : o.status === "not_applicable" ? "N/A" : o.status === "none" ? "Not Configured" : o.label;
   const def = KIND_DEFS[o.kind];
   return (
     <div style={{ padding: "11px 0", borderTop: first ? "none" : `1px solid ${T.line}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+        <button onClick={() => setExpanded((v) => !v)} title={expanded ? "Hide details" : "Show details"} className="cc-nav" style={{
+          background: "transparent", border: "none", cursor: "pointer", padding: 2, display: "inline-flex" }}>
+          <Icon name="chevron_down" size={13} color={T.muted} style={{ transform: expanded ? "none" : "rotate(-90deg)" }} />
+        </button>
         <Dot s={o.status} size={9} />
         <span title={def} style={{ flex: 1, display: "inline-flex", alignItems: "center", gap: 5,
           fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: o.status === "none" ? T.muted : T.ink, cursor: def ? "help" : "default" }}>
@@ -323,6 +328,7 @@ function ObligationRow({ o, first, entityId, usingSample, onSaved }) {
           {editing ? "Close" : o.configured ? "Edit" : "Configure"}
         </button>
       </div>
+      {expanded && <ObligationDetail o={o} usingSample={usingSample} onPreview={onPreview} />}
       {editing && (
         <ObligationEditor o={o} entityId={entityId} usingSample={usingSample}
           onClose={() => setEditing(false)} onSaved={() => { setEditing(false); onSaved(); }} />
@@ -374,6 +380,106 @@ function DocPreview({ doc, usingSample, onClose, onReplace, onDelete }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* One document line: preview + a year/expired badge + replace/delete. */
+function DocRow({ it, onPreview, onReplace, onDelete }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <button onClick={() => onPreview(it)} title="Preview" className="cc-nav" style={{
+        flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 9, padding: "5px 6px", margin: "0 -6px",
+        background: "transparent", border: "none", borderRadius: 7, cursor: "pointer", textAlign: "left" }}>
+        <Icon name="open" size={13} color={it.expired ? T.poppyText : T.muted} />
+        <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: it.expired ? T.poppyText : T.ink,
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.filename}</span>
+        {it.expired
+          ? <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, color: T.poppyText, background: "rgba(250,128,105,0.12)", borderRadius: 5, padding: "1px 6px", flexShrink: 0 }}>Expired</span>
+          : (it.year ? <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{it.year}</span> : null)}
+      </button>
+      <button onClick={() => onReplace(it.id)} title="Replace" className="cc-nav" style={docIconBtn}><Icon name="sync" size={12} color={T.muted} /></button>
+      <button onClick={() => onDelete(it.id)} title="Delete" className="cc-nav" style={docIconBtn}><Icon name="close" size={12} color={T.muted} /></button>
+    </div>
+  );
+}
+
+/* One category: active documents, then a collapsed-by-default Historical disclosure (expired or
+   superseded docs, newest first). */
+function DocGroup({ grp, first, onPreview, onReplace, onDelete }) {
+  const [showHist, setShowHist] = useState(false);
+  const cur = grp.current || grp.items || [];
+  const hist = grp.historical || [];
+  const rowProps = { onPreview, onReplace, onDelete };
+  return (
+    <div style={{ paddingTop: first ? 8 : 12, borderTop: first ? "none" : `1px solid ${T.line}`, marginTop: first ? 0 : 6 }}>
+      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, color: T.tertiary, marginBottom: 6 }}>{grp.category}</div>
+      {cur.length === 0 && (
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, fontStyle: "italic", padding: "2px 0 4px" }}>
+          {hist.length === 0 ? "None on File Yet" : "No active documents"}
+        </div>
+      )}
+      {cur.map((it) => <DocRow key={it.id} it={it} {...rowProps} />)}
+      {hist.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <button onClick={() => setShowHist((v) => !v)} className="cc-nav" style={{
+            display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600,
+            color: T.tertiary, background: "transparent", border: "none", cursor: "pointer", padding: "3px 0" }}>
+            <Icon name="chevron_down" size={12} color={T.tertiary} style={{ transform: showHist ? "none" : "rotate(-90deg)" }} />
+            Historical ({hist.length})
+          </button>
+          {showHist && <div style={{ opacity: 0.9 }}>{hist.map((it) => <DocRow key={it.id} it={it} {...rowProps} />)}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* The obligation "why" panel: computed reason + the documents behind it + an on-demand AI note. */
+function ObligationDetail({ o, usingSample, onPreview }) {
+  const [ai, setAi] = useState(o.ai_summary || null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  async function explain() {
+    if (usingSample) { setErr("Sample mode: connect the app for AI explanations."); return; }
+    setBusy(true); setErr(null);
+    try { const r = await postJSON(`/binder/obligations/${o.id}/explain`); setAi(r.ai_summary); }
+    catch (e) { setErr(e.detail || e.message || "Could not generate an explanation."); }
+    finally { setBusy(false); }
+  }
+  const rel = o.related_documents || [];
+  return (
+    <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 10, padding: 12, marginTop: 4 }}>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, lineHeight: 1.5 }}>{o.status_reason}</div>
+      {rel.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.tertiary, marginBottom: 4 }}>Related Documents</div>
+          {rel.map((d) => (
+            <button key={d.id} onClick={() => onPreview(d)} className="cc-nav" style={{
+              width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", margin: "0 -6px",
+              background: "transparent", border: "none", borderRadius: 6, cursor: "pointer", textAlign: "left" }}>
+              <Icon name="open" size={12} color={d.expired ? T.poppyText : T.muted} />
+              <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter,sans-serif", fontSize: 12, color: d.expired ? T.poppyText : T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.filename}</span>
+              {d.expired ? <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, color: T.poppyText, flexShrink: 0 }}>Expired</span> : (d.year ? <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{d.year}</span> : null)}
+            </button>
+          ))}
+        </div>
+      )}
+      {o.id && (
+        <div style={{ marginTop: 10, borderTop: `1px solid ${T.line}`, paddingTop: 10 }}>
+          {ai ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, color: T.teal, background: T.meadowBg, borderRadius: 5, padding: "2px 6px", height: "fit-content" }}>AI</span>
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, lineHeight: 1.5 }}>{ai}</span>
+            </div>
+          ) : (
+            <button onClick={explain} disabled={busy} className="cc-nav" style={{ ...btnStyle(T.slate, T.white), display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Icon name="spark" size={13} color={T.slate} />{busy ? "Thinking…" : "Explain with AI"}
+            </button>
+          )}
+          {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText, marginTop: 6 }}>{err}</div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -464,7 +570,8 @@ function EntityBinder({ row, usingSample, onBack, onChanged }) {
           <CardHeader title="Obligations" info="Every filing this entity owes." />
           <div style={{ marginTop: 4 }}>
             {data.obligations.map((o, i) => (
-              <ObligationRow key={o.kind} o={o} first={i === 0} entityId={e.id} usingSample={usingSample} onSaved={refresh} />
+              <ObligationRow key={o.kind} o={o} first={i === 0} entityId={e.id} usingSample={usingSample}
+                onSaved={refresh} onPreview={setPreview} />
             ))}
           </div>
         </Card>
@@ -472,23 +579,8 @@ function EntityBinder({ row, usingSample, onBack, onChanged }) {
         <Card>
           <CardHeader title="Documents" info="Evidence behind obligations." />
           {data.documents.map((grp, gi) => (
-            <div key={grp.category_key || gi} style={{ paddingTop: gi ? 12 : 8, borderTop: gi ? `1px solid ${T.line}` : "none", marginTop: gi ? 6 : 0 }}>
-              <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, color: T.tertiary, marginBottom: 6 }}>{grp.category}</div>
-              {grp.items.length === 0 && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, fontStyle: "italic", padding: "2px 0 4px" }}>None on File Yet</div>}
-              {grp.items.map((it) => (
-                <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <button onClick={() => setPreview(it)} title="Preview" className="cc-nav" style={{
-                    flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 9, padding: "5px 6px", margin: "0 -6px",
-                    background: "transparent", border: "none", borderRadius: 7, cursor: "pointer", textAlign: "left" }}>
-                    <Icon name="open" size={13} color={it.alert ? T.poppyText : T.muted} />
-                    <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: it.alert ? T.poppyText : T.ink,
-                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.filename}</span>
-                  </button>
-                  <button onClick={() => askReplace(it.id)} title="Replace" className="cc-nav" style={docIconBtn}><Icon name="sync" size={12} color={T.muted} /></button>
-                  <button onClick={() => deleteDoc(it.id)} title="Delete" className="cc-nav" style={docIconBtn}><Icon name="close" size={12} color={T.muted} /></button>
-                </div>
-              ))}
-            </div>
+            <DocGroup key={grp.category_key || gi} grp={grp} first={gi === 0}
+              onPreview={setPreview} onReplace={askReplace} onDelete={deleteDoc} />
           ))}
           <input ref={fileRef} type="file" multiple onChange={onFile} style={{ display: "none" }} />
           <input ref={replaceRef} type="file" onChange={onReplaceFile} style={{ display: "none" }} />

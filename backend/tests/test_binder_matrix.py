@@ -17,7 +17,7 @@ from app.config import settings
 from app.models import (Tenant, User, Business, LegalEntity, BinderDocument, Obligation,
                         ClosePeriod)
 from app.security import make_token, hash_pw
-from app.services import binder_storage
+from app.services import binder_storage, binder, binder_extract
 
 TRANSPORT = ASGITransport(app=app)
 
@@ -320,6 +320,98 @@ async def test_manual_obligation_bad_kind_and_unknown_entity():
                                json={"kind": "insurance"})
     assert bad.status_code == 400 and "kind" in bad.json()["detail"]
     assert missing.status_code == 404
+
+
+# ── Document lifecycle: Current vs Historical ────────────────────────────────
+async def test_document_current_vs_historical_split():
+    tid = await _tid()
+    eid = await _entity(tid, "Lifecycle Co, LLC")
+    TODAY = dt.date(2026, 7, 17)
+    async with SessionLocal() as s:
+        # insurance: one expired (exp 2020) -> historical; one current-year (filename 2026) -> current
+        s.add(BinderDocument(tenant_id=tid, entity_id=eid, filename="COI 2020.pdf", content_hash="lc-1",
+                             category="insurance", uploaded_via="upload",
+                             extracted={"parsed": {"anchors": {"expiration_date": "2020-06-01"}, "printed_dates": []}}))
+        s.add(BinderDocument(tenant_id=tid, entity_id=eid, filename="COI 2026.pdf", content_hash="lc-2",
+                             category="insurance", uploaded_via="upload"))
+        # tax: prior-year (2019) superseded -> historical; latest (2026) -> current
+        s.add(BinderDocument(tenant_id=tid, entity_id=eid, filename="Tax Return (2019).pdf", content_hash="lc-3",
+                             category="tax", uploaded_via="upload"))
+        s.add(BinderDocument(tenant_id=tid, entity_id=eid, filename="Tax Return (2026).pdf", content_hash="lc-4",
+                             category="tax", uploaded_via="upload"))
+        # formation is permanent: a prior-year doc stays Current, not Historical
+        s.add(BinderDocument(tenant_id=tid, entity_id=eid, filename="Articles (2015).pdf", content_hash="lc-5",
+                             category="formation", uploaded_via="upload"))
+        await s.commit()
+        body = await binder.build_entity_binder(s, tid, eid, today=TODAY)
+    bycat = {d["category_key"]: d for d in body["documents"]}
+    assert [x["filename"] for x in bycat["insurance"]["current"]] == ["COI 2026.pdf"]
+    assert [x["filename"] for x in bycat["insurance"]["historical"]] == ["COI 2020.pdf"]
+    assert bycat["insurance"]["historical"][0]["expired"] is True
+    assert [x["filename"] for x in bycat["tax"]["current"]] == ["Tax Return (2026).pdf"]
+    assert [x["filename"] for x in bycat["tax"]["historical"]] == ["Tax Return (2019).pdf"]
+    assert [x["filename"] for x in bycat["formation"]["current"]] == ["Articles (2015).pdf"]
+    assert bycat["formation"]["historical"] == []
+
+
+# ── Obligation "why" detail ───────────────────────────────────────────────────
+async def test_obligation_detail_reason_and_related_docs():
+    tid = await _tid()
+    eid = await _entity(tid, "Detail Reason Co, LLC")
+    TODAY = dt.date(2026, 7, 17)
+    async with SessionLocal() as s:
+        s.add(BinderDocument(tenant_id=tid, entity_id=eid, filename="EO (2024).pdf", content_hash="dr-1",
+                             category="insurance", uploaded_via="upload",
+                             extracted={"parsed": {"anchors": {"expiration_date": "2025-06-14"}, "printed_dates": []}}))
+        s.add(Obligation(tenant_id=tid, entity_id=eid, kind="insurance", due_date=dt.date(2025, 6, 14),
+                         cadence="annual", lead_days=45, confirmed_by=None))
+        await s.commit()
+        body = await binder.build_entity_binder(s, tid, eid, today=TODAY)
+    ins = [o for o in body["obligations"] if o["kind"] == "insurance"][0]
+    assert ins["status"] == "overdue" and "Overdue" in ins["status_reason"]
+    assert any(d["filename"] == "EO (2024).pdf" and d["expired"] for d in ins["related_documents"])
+    ar = [o for o in body["obligations"] if o["kind"] == "annual_report"][0]
+    assert ar["configured"] is False and "Not configured" in ar["status_reason"] and ar["ai_summary"] is None
+
+
+# ── On-demand AI explanation (network seam mocked) ────────────────────────────
+async def test_explain_obligation_caches_summary(monkeypatch):
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "test-key")
+    async def fake(client, model, prompt):
+        return "The E and O policy expired on Jun 14, 2025, so insurance is Overdue. Upload a current certificate."
+    monkeypatch.setattr(binder_extract, "_explain_call", fake)
+    monkeypatch.setattr(binder_extract, "_client", lambda: object())
+    tid = await _tid()
+    eid = await _entity(tid, "Explain Co, LLC")
+    async with SessionLocal() as s:
+        ob = Obligation(tenant_id=tid, entity_id=eid, kind="insurance", due_date=dt.date(2025, 6, 14),
+                        cadence="annual", lead_days=45, confirmed_by=None)
+        s.add(ob)
+        await s.commit()
+        oid = ob.id
+    tok = await _owner_token()
+    async with _client() as c:
+        r = await c.post(f"/api/v1/binder/obligations/{oid}/explain", headers=_H(tok))
+    assert r.status_code == 200, r.text
+    assert "overdue" in r.json()["ai_summary"].lower()
+    async with SessionLocal() as s:
+        ob = (await s.execute(select(Obligation).where(Obligation.id == oid))).scalar_one()
+    assert ob.ai_summary and ob.ai_summary_at is not None
+
+
+async def test_explain_obligation_400_without_key(monkeypatch):
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")     # no AI key -> unavailable
+    tid = await _tid()
+    eid = await _entity(tid, "No Key Explain Co, LLC")
+    async with SessionLocal() as s:
+        ob = Obligation(tenant_id=tid, entity_id=eid, kind="boi", confirmed_by=None, lead_days=45)
+        s.add(ob)
+        await s.commit()
+        oid = ob.id
+    tok = await _owner_token()
+    async with _client() as c:
+        r = await c.post(f"/api/v1/binder/obligations/{oid}/explain", headers=_H(tok))
+    assert r.status_code == 400
 
 
 async def test_matrix_requires_binder_tab():

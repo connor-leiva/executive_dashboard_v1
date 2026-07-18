@@ -170,6 +170,38 @@ async def _claude_call(client, model, content_blocks) -> str:
     return _text_of(resp)
 
 
+_EXPLAIN_SYSTEM = (
+    "You are a compliance assistant for a small business owner (not a lawyer). Given one legal "
+    "entity's obligation and the documents on file for it, explain in 1 to 3 short plain sentences "
+    "why the obligation is current, due soon, or overdue, and what to do next. Reference specific "
+    "documents and dates from the input when relevant. Never invent facts, dates, or documents "
+    "that are not in the input. Do not use em dashes or en dashes (hyphens, commas, parentheses "
+    "only). Be concrete and actionable, not generic."
+)
+
+
+async def _explain_call(client, model, prompt: str) -> str:
+    """Network seam for the obligation 'why' summary (monkeypatched in tests)."""
+    resp = await client.messages.create(
+        model=model, max_tokens=400, system=_EXPLAIN_SYSTEM,
+        thinking={"type": "disabled"},
+        messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}])
+    return _text_of(resp)
+
+
+async def explain_obligation(payload: dict, *, client=None, model=None) -> str:
+    """Plain-language 'why' for one obligation. `payload` is a compact dict (entity, obligation
+    status/dates, documents on file). Returns '' when no key is configured or the call fails."""
+    if not _enabled():
+        return ""
+    prompt = "Explain this obligation's status for the owner:\n\n" + json.dumps(payload, default=str, indent=2)
+    try:
+        return (await _explain_call(client or _client(), model or _model(), prompt)).strip()
+    except Exception as e:                                       # never surface a raw API error
+        log.warning("binder explain_obligation failed: %s", e)
+        return ""
+
+
 def _parse_extraction_json(text: str) -> dict:
     """Defensive parse of the model's JSON object. Malformed -> {} (files as 'other', no
     proposals). Never raises."""
