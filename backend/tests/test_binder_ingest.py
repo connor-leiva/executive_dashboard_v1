@@ -261,6 +261,40 @@ def test_storage_ref_traversal_is_guarded():
         binder_storage.read("../../../etc/passwd")
 
 
+def test_r2_backend_roundtrip(monkeypatch):
+    """With the four R2_* settings present, store/read/exists/delete route through the
+    object-storage client instead of the filesystem. A fake S3 client keeps it offline."""
+    import io
+    from app.services import binder_storage as bs
+    blobs = {}
+
+    class FakeR2:
+        def put_object(self, Bucket, Key, Body, **kw): blobs[(Bucket, Key)] = Body
+        def get_object(self, Bucket, Key):
+            if (Bucket, Key) not in blobs:
+                raise KeyError("NoSuchKey")
+            return {"Body": io.BytesIO(blobs[(Bucket, Key)])}
+        def head_object(self, Bucket, Key):
+            if (Bucket, Key) not in blobs:
+                raise KeyError("404")
+            return {}
+        def delete_object(self, Bucket, Key): blobs.pop((Bucket, Key), None)
+
+    monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "acct")
+    monkeypatch.setattr(settings, "R2_BUCKET", "acumyn-binder")
+    monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setattr(bs, "_r2_client", lambda: FakeR2())
+
+    ref = bs.store("tenant-x", "doc-y", "policy.pdf", b"pdf-bytes")
+    assert ref == "tenant-x/doc-y/policy.pdf"
+    assert ("acumyn-binder", ref) in blobs          # went to the bucket, not the local disk
+    assert bs.exists(ref) is True and bs.read(ref) == b"pdf-bytes"
+    assert bs.exists("tenant-x/doc-y/missing.pdf") is False
+    bs.delete(ref)
+    assert bs.exists(ref) is False
+
+
 # ── Additional ingest channels (Step 9) ──────────────────────────────────────
 async def test_bulk_batch_upload():
     tok = await _owner_token()

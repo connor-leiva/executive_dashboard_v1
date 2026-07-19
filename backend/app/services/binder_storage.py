@@ -1,17 +1,21 @@
 """Acumyn Binder — document blob storage (SPEC-binder-module Part 2).
 
-V1 is a simple filesystem store keyed by ``{tenant_id}/{document_id}/{filename}``, which is
-all single-tenant Spring needs. In prod ``BINDER_STORAGE_BUCKET`` points at a Railway volume;
-unset (dev/test) it falls back to a temp directory so nothing lands in the repo.
+Two interchangeable backends behind one narrow interface (store / read / delete / exists by an
+opaque ``storage_ref`` keyed ``{tenant_id}/{document_id}/{filename}``):
 
-The interface (store / read / delete by an opaque ``storage_ref``) is deliberately narrow so
-an object bucket can replace the filesystem later without touching callers.
+- **Cloudflare R2** (S3-compatible object storage) when the four ``R2_*`` settings are present.
+  This is the production backend: durable, shared across the api + worker services, and it
+  survives redeploys (the local container disk does NOT, which is why filesystem storage lost
+  files on every deploy). The same key becomes the object key in the bucket.
+- **Filesystem** otherwise — a temp dir (or ``BINDER_STORAGE_BUCKET`` if set). This is the
+  dev/test fallback so nothing external is needed to run locally.
 
 SECURITY (Part 14, deferred): encryption at rest, per-tenant isolation guarantees, and access
 audit trails are OUT OF SCOPE for v1 and become mission-critical at multi-tenant. The data
 model already isolates by ``tenant_id`` and the key is tenant-prefixed, so nothing here makes
-that harder to add — but do not treat this store as hardened. Path traversal IS guarded below
-(a crafted filename can never escape the tenant/document prefix).
+that harder to add — but do not treat this store as hardened. Path traversal IS guarded on the
+filesystem backend (a crafted filename can never escape the tenant/document prefix); R2 keys
+are our own, tenant-prefixed, and every read is tenant-checked at the route.
 """
 from __future__ import annotations
 
@@ -23,11 +27,35 @@ import tempfile
 from ..config import settings
 
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+_r2_obj = None
 
 
 def content_hash(data: bytes) -> str:
     """sha256 hex — the dedup key (BinderDocument.content_hash)."""
     return hashlib.sha256(data).hexdigest()
+
+
+# ── R2 (object storage) backend ───────────────────────────────────────────────
+def _r2_enabled() -> bool:
+    return bool(settings.R2_ACCOUNT_ID and settings.R2_BUCKET
+                and settings.R2_ACCESS_KEY_ID and settings.R2_SECRET_ACCESS_KEY)
+
+
+def _r2_client():
+    """A cached boto3 S3 client pointed at the R2 endpoint (imported lazily so boto3 is only
+    needed when R2 is actually configured)."""
+    global _r2_obj
+    if _r2_obj is None:
+        import boto3
+        from botocore.config import Config
+        _r2_obj = boto3.client(
+            "s3",
+            endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+            aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+            region_name="auto",
+            config=Config(signature_version="s3v4", retries={"max_attempts": 3}))
+    return _r2_obj
 
 
 def _base_dir() -> str:
@@ -57,9 +85,18 @@ def _resolve(storage_ref: str) -> str:
     return full
 
 
+def _content_type(filename: str) -> str:
+    import mimetypes
+    return mimetypes.guess_type(filename or "")[0] or "application/octet-stream"
+
+
 def store(tenant_id, document_id, filename: str, data: bytes) -> str:
     """Write bytes; return the storage_ref to persist on the BinderDocument."""
     ref = storage_key(tenant_id, document_id, filename)
+    if _r2_enabled():
+        _r2_client().put_object(Bucket=settings.R2_BUCKET, Key=ref, Body=data,
+                                ContentType=_content_type(filename))
+        return ref
     path = _resolve(ref)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
@@ -68,11 +105,20 @@ def store(tenant_id, document_id, filename: str, data: bytes) -> str:
 
 
 def read(storage_ref: str) -> bytes:
+    if _r2_enabled():
+        obj = _r2_client().get_object(Bucket=settings.R2_BUCKET, Key=storage_ref)
+        return obj["Body"].read()
     with open(_resolve(storage_ref), "rb") as f:
         return f.read()
 
 
 def exists(storage_ref: str) -> bool:
+    if _r2_enabled():
+        try:
+            _r2_client().head_object(Bucket=settings.R2_BUCKET, Key=storage_ref)
+            return True
+        except Exception:                 # 404 (missing) or any client error -> treat as absent
+            return False
     try:
         return os.path.exists(_resolve(storage_ref))
     except ValueError:
@@ -80,7 +126,13 @@ def exists(storage_ref: str) -> bool:
 
 
 def delete(storage_ref: str) -> None:
-    """Best-effort removal of the blob (and its now-empty document dir)."""
+    """Best-effort removal of the blob (and, on the filesystem, its now-empty document dir)."""
+    if _r2_enabled():
+        try:
+            _r2_client().delete_object(Bucket=settings.R2_BUCKET, Key=storage_ref)
+        except Exception:
+            pass
+        return
     try:
         path = _resolve(storage_ref)
     except ValueError:
