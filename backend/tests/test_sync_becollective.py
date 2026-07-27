@@ -197,3 +197,67 @@ async def test_field_driven_membership_and_operational_payload(_mock_ghl_fields)
     gold = next(r for r in roster["rows"] if r["tier"] == "Gold")
     assert gold["member_type"] == "Primary Member" and gold["payment"] == "monthly"
     assert gold["renews"] == "2026-01-15"
+
+
+# ── beCollective Stripe (membership payments) ─────────────────────────────────
+def test_bc_offering_keeps_membership_drops_the_rest():
+    from app.services.billing import bc_offering
+    assert bc_offering("beCollective Membership") == (True, "becollective")
+    assert bc_offering("Financed payment plan", amount=6500)[0] is True
+    assert bc_offering("2 Pay Plan", is_subscription=True)[0] is True
+    assert bc_offering("Unlabeled", amount=6000)[0] is True          # membership-sized fallback
+    assert bc_offering("The Shift - VIP Ticket")[0] is False         # event ticket
+    assert bc_offering("The Forum - Monthly")[0] is False            # another Spring program
+    assert bc_offering("The Edge Course")[0] is False                # other product
+    assert bc_offering("coffee", amount=12)[0] is False              # small one-off
+    assert bc_offering("Special Cohort", {"bc_keywords": ["cohort"]})[0] is True   # config add
+    assert bc_offering("beCollective Membership", {"non_bc_keywords": ["becollective"]})[0] is False
+
+
+async def test_becollective_stripe_filters_to_roster_and_membership(monkeypatch):
+    import calendar
+    from app.services import sync as sync_mod
+    from app.integrations import stripe_legacy as sl_mod
+    today = dt.date.today()
+    created = calendar.timegm(dt.datetime(today.year, today.month, 1).timetuple())   # current year
+
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        tid = biz.tenant_id
+        member_email = "bc.member@collective.com"
+        s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="bc_member",
+                           external_id="bc_roster_seed", email=member_email, status="active"))
+        integ = Integration(tenant_id=tid, provider="stripe_bc", business_id=biz.id,
+                            status="connected", access_token_enc=enc("rk_test_bc"))
+        s.add(integ)
+        await s.commit()
+
+        async def fake_charges(key, created_gt=None, max_pages=None):
+            def ch(cid, email, desc, amt):
+                return {"id": cid, "amount": amt, "amount_refunded": 0, "currency": "usd",
+                        "status": "succeeded", "created": created, "description": desc,
+                        "payment_intent": "pi_" + cid, "billing_details": {"email": email, "name": "X"}}
+            return [ch("ch_mem", member_email, "beCollective Membership", 650000),   # kept
+                    ch("ch_tkt", member_email, "The Shift VIP Ticket", 15000),       # dropped (ticket)
+                    ch("ch_str", "stranger@x.com", "Membership", 650000)]            # dropped (off-roster)
+
+        async def fake_subs(key, max_pages=None):
+            return []
+
+        monkeypatch.setattr(sl_mod, "list_charges", fake_charges)
+        monkeypatch.setattr(sl_mod, "list_subscriptions", fake_subs)
+
+        n = await sync_mod.sync_becollective_stripe(s, tid, integ)
+        assert n == 1                                              # ticket + stranger filtered out
+        pays = (await s.execute(select(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.source == "stripe_bc",
+            MetricRecord.kind == "payment"))).scalars().all()
+        assert len(pays) == 1 and pays[0].meta["charge_id"] == "ch_mem"
+        assert float(pays[0].amount) == 6500.0 and pays[0].segment == "becollective"
+        assert pays[0].meta["stream"] == "memberships"
+
+        d = await build_becollective(s, tid, "mtd")
+
+    # Cash & Billing now lights up for beCollective (like the Forum), fed by its Stripe account.
+    assert d["billing"] is not None and d["billing"]["available"] is True
+    assert d["billing"]["gross"] >= 6500.0

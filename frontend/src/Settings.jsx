@@ -320,6 +320,54 @@ function StripeLegacyConnectForm({ row, onClose, onDone }) {
   );
 }
 
+function StripeBcConnectForm({ row, onClose, onDone }) {
+  const editing = row.status === "connected" || row.status === "error";
+  const cfg = row.config || {};
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await postJSON("/integrations", {
+        provider: "stripe_bc", business_key: row.business_key || "springb",
+        token: key.trim() || undefined,   // blank on edit = keep the current key
+        config: cfg,
+      });
+      onDone();
+    } catch {
+      setErr("Stripe rejected that key. Use a read-only restricted key (Charges: read, Customers: read, Subscriptions: read).");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit beCollective Stripe" : "Connect beCollective Stripe"}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
+          beCollective's own Stripe account. Create a <b>restricted key</b> in Stripe (Developers → API keys → Create restricted key) with <b>Charges: Read</b>, <b>Customers: Read</b>, and <b>Subscriptions: Read</b> — nothing else. Only membership payments are reported (event tickets and other products are filtered out). Stored encrypted; we never write to Stripe.
+        </div>
+        <label style={label}>Read-only restricted key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
+          <input style={field} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : "rk_live_…"} required={!editing} />
+        </label>
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Verifying…" : editing ? "Save changes" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ── Old GHL connect form (read-only token + location id) ────── */
 
 function GhlLegacyConnectForm({ row, onClose, onDone }) {
@@ -773,7 +821,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
                 {s.entities?.length > 0 && <SBtn small icon="open" disabled={!live} onClick={() => onConnect(s)}>Connect another entity</SBtn>}
                 {(s.provider === "ghl" || s.provider === "ghl_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit configuration</SBtn>}
                 {s.provider === "arive" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update credentials</SBtn>}
-                {s.provider === "stripe_legacy" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update key</SBtn>}
+                {(s.provider === "stripe_legacy" || s.provider === "stripe_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update key</SBtn>}
                 {s.provider === "ghl_legacy" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit connection</SBtn>}
                 <span style={{ flex: 1 }} />
                 {s.integration_id && <button className="si-danger" disabled={!live} onClick={() => onDisconnect(s)}>Disconnect {s.name}</button>}
@@ -786,7 +834,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
   );
 }
 
-const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar", stripe_legacy: "St", ghl_legacy: "GL" };
+const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar", stripe_legacy: "St", stripe_bc: "Sb", ghl_legacy: "GL" };
 const DESC = {
   qbo: () => "Financial source of truth · one connection per entity",
   sisu: () => "Real estate production — transactions, agents, GCI",
@@ -795,6 +843,7 @@ const DESC = {
   ghl_bc: () => "beCollective — its own GHL location; members, cohort onboarding, events",
   arive: () => "Uses your Arive API key · lights up Sympli's pipeline and the referral flywheel",
   stripe_legacy: () => "Spring's original Stripe · read-only. Backfills legacy Forum dues the new sub-account never sees, and feeds the GHL delta-import file",
+  stripe_bc: () => "beCollective's own Stripe · read-only. Membership payments only (event tickets + other products filtered out) — powers the Cash & Billing view",
   ghl_legacy: () => "Old Spring B GHL · read-only. Labels each legacy Stripe charge (join by charge id) so the classifier knows what it's for",
 };
 const SAMPLE_VIEW = {
@@ -812,6 +861,7 @@ const SAMPLE_VIEW = {
     { provider: "ghl_bc", name: "Go High Level · beCollective", mono: "bC", status: "ok", fresh: "Synced 1 hour ago", feeds: ["becollective"], provides: ["Members", "Onboarding", "Events"], last_run: "Last run · 30 members · 25 memberships · 1.9s", integration_id: "gb1", config: {}, config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] },
     { provider: "arive", name: "Arive", mono: "Ar", status: "disconnected", feeds: [], provides: ["Loans", "Pipeline"], business_key: "sympli" },
     { provider: "stripe_legacy", name: "Legacy Stripe · The Forum", mono: "St", status: "disconnected", feeds: [], provides: ["Legacy charges", "Recurring dues"], business_key: "springb" },
+    { provider: "stripe_bc", name: "Stripe · beCollective", mono: "Sb", status: "disconnected", feeds: ["becollective"], provides: ["Membership payments", "Financed plans"], business_key: "springb" },
     { provider: "ghl_legacy", name: "Old GHL · Charge labels", mono: "GL", status: "disconnected", feeds: [], provides: ["Charge labels", "Invoice line items"], business_key: "springb" },
   ],
 };
@@ -862,6 +912,8 @@ function IntegrationsPage() {
       return setConnecting({ provider: "arive", name: s.name, config: s.config || {}, business_key: s.business_key || "sympli", status: "disconnected" });
     if (s.provider === "stripe_legacy")
       return setConnecting({ provider: "stripe_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
+    if (s.provider === "stripe_bc")
+      return setConnecting({ provider: "stripe_bc", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
     if (s.provider === "ghl_legacy")
       return setConnecting({ provider: "ghl_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
   }
@@ -949,6 +1001,9 @@ function IntegrationsPage() {
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "stripe_legacy"
         ? <StripeLegacyConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : connecting.provider === "stripe_bc"
+        ? <StripeBcConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "ghl_legacy"
         ? <GhlLegacyConnectForm row={connecting} onClose={() => setConnecting(null)}

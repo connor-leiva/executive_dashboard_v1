@@ -982,6 +982,122 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     return len(rows) + len(sub_rows)
 
 
+async def _bc_roster_emails(s: AsyncSession, tenant_id, business_id) -> set[str]:
+    """Emails on the beCollective roster (from the GHL sync) — the deterministic filter for
+    beCollective's Stripe account: report a charge only if it belongs to a member. beCollective
+    has no GHL payments/subs, so the roster comes from bc_member / bc_membership records."""
+    rows = (await s.execute(select(MetricRecord.email).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl",
+        MetricRecord.kind.in_(("bc_member", "bc_membership"))))).all()
+    return {em.strip().lower() for (em,) in rows if em}
+
+
+async def sync_becollective_stripe(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    """Snapshot beCollective MEMBERSHIP payments from beCollective's own dedicated Stripe
+    account, read-only. The account is dedicated to beCollective but multiple product types run
+    through it (event tickets, courses), so we keep membership + financed-plan charges and drop
+    the rest (bc_offering), filtered to the beCollective roster. Written as source='stripe_bc'
+    payment/subscription records — the SAME shape as the Forum's legacy-Stripe feed — so
+    build_becollective's Cash & Billing lights up exactly like the Forum's. Reuses the generic
+    stripe_legacy reader (it just reads a Stripe account).
+
+    Config: sync_since_epoch, extra_member_emails / exclude_emails, stream_overrides, and the
+    bc_offering tuning (non_bc_keywords / bc_keywords / membership_min_amount)."""
+    from .billing import classify_stream, bc_offering, classify_installment
+    key = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not key:
+        raise ValueError("beCollective Stripe needs a read-only API key.")
+    biz = integ.business_id
+    cfg = integ.config or {}
+
+    roster = await _bc_roster_emails(s, tenant_id, biz)
+    roster |= {str(e).strip().lower() for e in (cfg.get("extra_member_emails") or [])}
+    exclude = {str(e).strip().lower() for e in (cfg.get("exclude_emails") or [])}
+    stream_overrides = cfg.get("stream_overrides") or {}
+    since = cfg.get("sync_since_epoch")
+    tz = _tz(settings.STRIPE_TIMEZONE or "UTC")       # Stripe account tz (Connor's = UTC)
+
+    # ── charges → payment records (roster member AND a membership offering) ──
+    charges = await stripe_legacy.list_charges(key, created_gt=since)
+    rows, off_roster, off_member = [], 0, 0
+    for ch in charges:
+        email = stripe_legacy.charge_email(ch)
+        # Dedicated account but no old-GHL label source, so the roster email is the gate
+        # (a member paying from a different address needs an extra_member_emails override).
+        if (email in exclude) or (not email) or (email not in roster):
+            off_roster += 1
+            continue
+        desc = stripe_legacy.charge_description(ch)
+        include, segment = bc_offering(desc, cfg, amount=stripe_legacy.charge_amount(ch),
+                                       recurring=bool(ch.get("invoice")))
+        if not include:
+            off_member += 1
+            continue
+        cdt = stripe_legacy.charge_datetime(ch)
+        rows.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="stripe_bc", kind="payment",
+            external_id=str(ch.get("id")),
+            name=(stripe_legacy.charge_name(ch) or email)[:200], email=email,
+            amount=stripe_legacy.charge_amount(ch), status=stripe_legacy.charge_status(ch),
+            occurred_on=_local_date(ch.get("created"), tz), source_url=stripe_legacy.dashboard_url(ch),
+            segment=segment,
+            meta={"stream": classify_stream(desc, stream_overrides),
+                  "entity_source_name": desc or None, "segment": segment,
+                  "amount_refunded": stripe_legacy.charge_refunded(ch),
+                  "charge_id": ch.get("id"), "payment_intent": stripe_legacy.payment_intent(ch),
+                  "currency": ch.get("currency"), "stripe_bc": True,
+                  "charged_at": cdt.isoformat() if cdt else None,
+                  "contact": stripe_legacy.charge_contact(ch)}))
+    await _metric_snapshot(s, tenant_id, biz, "stripe_bc", "payment", rows)
+    print(f"[stripe_bc] {len(rows)} membership charges of {len(charges)} "
+          f"({off_roster} off-roster · {off_member} non-membership skipped · roster={len(roster)})",
+          flush=True)
+
+    # ── subscriptions → the beCollective financed-plan recurring book. Read-only. ──
+    sub_rows, sub_skipped = [], 0
+    try:
+        subs = await stripe_legacy.list_subscriptions(key)
+    except Exception as e:  # noqa: BLE001 — needs Subscriptions:read; degrade, don't fail the charge sync
+        subs = []
+        print(f"[stripe_bc] subscriptions skipped ({e}) — grant Subscriptions:read on the key", flush=True)
+    for sub in subs:
+        email = stripe_legacy.sub_email(sub)
+        if not email or email in exclude or email not in roster:
+            sub_skipped += 1
+            continue
+        plan = stripe_legacy.sub_plan_name(sub) or ""
+        include, segment = bc_offering(plan, cfg, is_subscription=True)
+        if not include:
+            sub_skipped += 1
+            continue
+        start, end = stripe_legacy.sub_start_date(sub), stripe_legacy.sub_end_date(sub)
+        status = stripe_legacy.sub_status(sub)
+        amount = stripe_legacy.sub_amount(sub)
+        sub_type, inst_total = classify_installment(
+            plan, start.isoformat() if start else None, end.isoformat() if end else None, {})
+        npd = stripe_legacy.sub_next_charge(sub) if status == "active" else None
+        sub_rows.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="stripe_bc", kind="subscription",
+            external_id=str(sub.get("id")),
+            name=(stripe_legacy.sub_customer_name(sub) or plan or email)[:200], email=email,
+            amount=amount, status=status, segment=segment,
+            source_url=stripe_legacy.sub_dashboard_url(sub),
+            meta={"plan_name": plan or None, "interval": stripe_legacy.sub_interval(sub),
+                  "start_date": start.isoformat() if start else None,
+                  "end_date": end.isoformat() if end else None,
+                  "sub_type": sub_type, "installments_total": inst_total,
+                  "installments_collected": None,
+                  "next_payment_date": npd.isoformat() if npd else None,
+                  "next_payment_amount": amount, "stripe_bc": True, "segment": segment}))
+    await _metric_snapshot(s, tenant_id, biz, "stripe_bc", "subscription", sub_rows)
+    active_n = sum(1 for r in sub_rows if r["status"] == "active")
+    print(f"[stripe_bc] {active_n}/{len(sub_rows)} active beCollective subscriptions "
+          f"({sub_skipped} skipped)", flush=True)
+
+    return len(rows) + len(sub_rows)
+
+
 async def sync_ghl_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
     """Old Spring B GHL (where the legacy Stripe is wired) — read-only. Builds a
     `pi_ charge id -> real label` map so the legacy-Stripe sync can name + classify each
@@ -1081,6 +1197,8 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
             records = await sync_arive(s, tenant_id, integ)
         elif integ.provider == "stripe_legacy":
             records = await sync_stripe_legacy(s, tenant_id, integ)
+        elif integ.provider == "stripe_bc":
+            records = await sync_becollective_stripe(s, tenant_id, integ)
         elif integ.provider == "ghl_legacy":
             records = await sync_ghl_legacy(s, tenant_id, integ)
         elif integ.provider == "qbo":

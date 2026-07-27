@@ -93,24 +93,43 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
             "event_title": cfg.get("event_title"), "event_dates": cfg.get("event_dates"),
             "event_tag": cfg.get("event_tag"), "prior_event_pace": cfg.get("prior_event_pace")}
     event = F._event(ecfg, members_total, member_regs, guests)
+    today = dt.date.today()
+
+    # ── Cash & Billing — beCollective's OWN dedicated Stripe account (membership payments
+    # only, source='stripe_bc'). No GHL Payments feed here, so no merge/dedupe like the
+    # Forum's legacy-Stripe join: read the stripe_bc records directly and compute billing.
+    from .billing import compute_billing, project_renewals
+
+    async def stripe_recs(kind):
+        return (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+            MetricRecord.source == "stripe_bc", MetricRecord.kind == kind))).scalars().all()
+
+    payments = await stripe_recs("payment")
+    subs_all = list(await stripe_recs("subscription"))
+    # PIF members (no active sub) get their annual renewal lump projected into the forecast.
+    active_sub_emails = {(x.email or "").lower() for x in subs_all if x.status == "active" and x.email}
+    renewal_members = [m for m in members_all if (m.email or "").lower() not in active_sub_emails]
+    extra = project_renewals(renewal_members, today, dt.date(today.year, 12, 31))
+    billing = compute_billing(payments, subs_all, arr, start, end, today, extra_projected=extra)
 
     watch_items = []
+    if billing.get("available") and (billing.get("failed_count") or billing.get("past_due")):
+        watch_items.append("payments")
     if event and event.get("behind_pace"):
         watch_items.append("behind_pace")
     deck = F._deck(funnel, renewals, event, members_total, member_regs)
 
-    # ── Operational Refinement payload (v9) — the same blocks the Forum emits, over the
-    # field-driven bc_member roster. beCollective has no GHL subscriptions or payments, so
-    # renewal states default to auto, the recover list is empty, and billing stays None.
-    today = dt.date.today()
+    # ── Operational Refinement payload (v9) — the same blocks the Forum emits, now over the
+    # field-driven bc_member roster AND the beCollective Stripe payments/subscriptions. ──
     recruiting = F._recruiting(funnel, guests, fcfg)
     book_total = round(sum(F._num((m.meta or {}).get("membership", {}).get("total_cost")) for m in members_all))
     growth = F._growth(members_all, [], today)                # no churn records yet
     pay_mix = F._pay_mix(members_all, book_total)
     tenure = F._tenure(members_all, today)
-    renew = F._renewal_states(members_all, [], today)         # no subscriptions
+    renew = F._renewal_states(members_all, subs_all, today)   # real subs → failing/resign/auto
     calendar = F._calendar(members_all, today)
-    recover_list = F._recover([], members_all, today)         # no GHL payments
+    recover_list = F._recover(payments, members_all, today)   # real failed charges to recover
     action = {"failed": len(recover_list), "recover": round(sum(r["amt"] for r in recover_list))}
     mg = {"active": members_total, "primary": roster["primary"], "addOn": roster["add_on"],
           "admin": roster["admin"], "book": book_total, "growth": growth, "pay": pay_mix,
@@ -128,5 +147,5 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
             "watch": {"count": len(watch_items), "items": watch_items},
             "members_total": members_total, "roster": roster, "pl": None,
             "kpis": kpis, "deck": deck, "funnel": funnel, "renewals": renewals,
-            "event": event, "billing": None,
+            "event": event, "billing": billing,
             "mg": mg, "pulse": pulse, "recruiting": recruiting, "action": action, "recover": recover_list}

@@ -133,7 +133,7 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
     """Create/update a token-based integration (Go High Level, Arive). Body:
     {provider, business_key, token, config}. Token is encrypted at rest."""
     provider = (body.get("provider") or "").strip()
-    if provider not in ("ghl", "ghl_bc", "arive", "stripe_legacy", "ghl_legacy"):
+    if provider not in ("ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy"):
         raise HTTPException(400, "Unsupported provider")
     biz = (await s.execute(select(Business).where(
         Business.tenant_id == user.tenant_id, Business.key == body.get("business_key")))).scalar_one_or_none()
@@ -170,9 +170,10 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
         await s.commit()
         return {"id": str(integ.id)}
 
-    # Legacy Stripe: validate the read-only key up front (a bad/mis-scoped key should
-    # fail the connect, not silently no-op at the next sync).
-    if provider == "stripe_legacy" and body.get("token"):
+    # Stripe (legacy Forum + beCollective): validate the read-only key up front (a bad/
+    # mis-scoped key should fail the connect, not silently no-op at the next sync). Both use
+    # the same generic Stripe reader.
+    if provider in ("stripe_legacy", "stripe_bc") and body.get("token"):
         try:
             await stripe_legacy.ping(body["token"].strip())
         except Exception:  # noqa: BLE001 — surface as a clean 400

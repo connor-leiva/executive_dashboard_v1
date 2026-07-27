@@ -15,7 +15,7 @@ from ..models import Integration, Business, SyncRun
 from ..schemas import EntityRow, SourceOut, IntegrationsOut
 
 # Provider order + static metadata (matches the settings mockup).
-ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "arive", "stripe_legacy", "ghl_legacy"]
+ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy"]
 META = {
     "qbo": {"name": "QuickBooks", "provides": ["Profit & Loss", "Balance Sheet"], "feeds": ["ulrg", "springb", "sympli"],
             "desc": "Financial source of truth · one connection per entity"},
@@ -33,6 +33,10 @@ META = {
                       "feeds": ["forum"],
                       "desc": "Spring's original Stripe account — legacy Forum dues still billing outside "
                               "the new sub-account. Read-only; also feeds the GHL delta-import CSV"},
+    "stripe_bc": {"name": "Stripe · beCollective", "provides": ["Membership payments", "Financed plans"],
+                  "feeds": ["becollective"],
+                  "desc": "beCollective's own dedicated Stripe account — membership payments only (event "
+                          "tickets and other products filtered out). Read-only; powers the Cash & Billing view"},
     "ghl_legacy": {"name": "Old GHL · Charge labels", "provides": ["Charge labels", "Invoice line items"],
                    "feeds": ["forum"],
                    "desc": "The old Spring B GHL (where legacy Stripe is wired) — read-only. Supplies the "
@@ -41,7 +45,7 @@ META = {
 }
 # Offered even without a row (connectable). These all attach to the springb business.
 CONNECTABLE = {"ghl": "springb", "ghl_bc": "springb", "arive": "sympli",
-               "stripe_legacy": "springb", "ghl_legacy": "springb"}
+               "stripe_legacy": "springb", "stripe_bc": "springb", "ghl_legacy": "springb"}
 
 
 def _aware(ts: dt.datetime) -> dt.datetime:

@@ -87,6 +87,45 @@ def forum_offering(description, config=None, is_subscription=False,
     return (False, None)                           # small ambiguous one-off → not Forum revenue
 
 
+# Other things that route through beCollective's dedicated Stripe account but are NOT
+# membership revenue (event tickets are handled separately below). Tunable: config['non_bc_keywords'].
+_NON_BC_DEFAULT = [
+    "the forum", "inner circle", "innercircle",     # other Spring programs on this account
+    "the edge", "va in 30", "virtual assistant", "spring break", "bootcamp",
+    "playbook", "vault", "buyer mastery", "agent attraction", "operator",
+    "blueprint", "abundance", "shadow", "just in time", "justintime", "justin time",
+]
+
+
+def bc_offering(description, config=None, is_subscription=False,
+                amount=0.0, recurring=False) -> tuple[bool, str | None]:
+    """Is a beCollective Stripe charge/subscription a MEMBERSHIP payment — vs the other
+    things that also route through beCollective's dedicated account (event tickets, courses,
+    other Spring programs)? Connor: report membership only. So we KEEP membership + financed-
+    plan charges and DROP event tickets and non-membership products. Descriptions can be thin,
+    so a recurring or membership-sized (>= membership_min_amount, default $500) charge counts.
+    Returns (include, "becollective"|None). Tunable: config['non_bc_keywords'], ['bc_keywords'],
+    ['membership_min_amount']."""
+    config = config or {}
+    d = (description or "").lower()
+    if any(k.lower() in d for k in (config.get("non_bc_keywords") or _NON_BC_DEFAULT)):
+        return (False, None)
+    if any(w in d for w in ("ticket", "rsvp", "vip", " guest")):
+        return (False, None)                          # event tickets are not membership
+    bc = any(k in d for k in ("be collective", "becollective", "collective")) \
+        or any(k.lower() in d for k in (config.get("bc_keywords") or []))
+    if bc:
+        return (True, "becollective")
+    if any(w in d for w in ("membership", "subscription for", "dues", "financed", "pif",
+                            "payment plan", "2 pay", "3 pay", "4 pay", "installment")):
+        return (True, "becollective")                 # a membership charge with a thin label
+    min_amt = config.get("membership_min_amount")
+    min_amt = 500.0 if min_amt is None else float(min_amt)
+    if is_subscription or recurring or float(amount or 0) >= min_amt:
+        return (True, "becollective")                 # recurring / membership-sized → membership
+    return (False, None)                              # small ambiguous one-off → not membership
+
+
 def _pdate(v) -> dt.date | None:
     if not v:
         return None

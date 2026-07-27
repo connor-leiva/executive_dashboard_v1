@@ -101,5 +101,40 @@ export default {
     days_out: 92, registered: 20, members: 30, guests: 6, unregistered: 10,
     behind_pace: true, pace_note: "40 were registered at this point before the prior event",
   },
-  billing: null,
+  // Cash & Billing — fed by beCollective's own Stripe account (membership payments only).
+  billing: {
+    available: true, basis: "cash",
+    span: { start: "2026-04-01", end: "2026-07-08" },
+    net_cash: 71500, full_year: 156000, gross: 78000, refunded: 6500, txn_count: 22,
+    failed_amount: 6500, failed_count: 1, past_due: 1, past_due_amount: 542,
+    monthly: [
+      { month: "Jan", ym: "2026-01", actual: 0, projected: 0, net: 0, mtd: false, is_projected: false },
+      { month: "Feb", ym: "2026-02", actual: 0, projected: 0, net: 0, mtd: false, is_projected: false },
+      { month: "Mar", ym: "2026-03", actual: 0, projected: 0, net: 0, mtd: false, is_projected: false },
+      { month: "Apr", ym: "2026-04", actual: 13000, projected: 0, net: 13000, mtd: false, is_projected: false },
+      { month: "May", ym: "2026-05", actual: 26000, projected: 0, net: 26000, mtd: false, is_projected: false },
+      { month: "Jun", ym: "2026-06", actual: 19500, projected: 0, net: 19500, mtd: false, is_projected: false },
+      { month: "Jul", ym: "2026-07", actual: 13000, projected: 1626, net: 14626, mtd: true, is_projected: false },
+      { month: "Aug", ym: "2026-08", actual: 0, projected: 4878, net: 4878, mtd: false, is_projected: true },
+      { month: "Sep", ym: "2026-09", actual: 0, projected: 4878, net: 4878, mtd: false, is_projected: true },
+      { month: "Oct", ym: "2026-10", actual: 0, projected: 4878, net: 4878, mtd: false, is_projected: true },
+      { month: "Nov", ym: "2026-11", actual: 0, projected: 4878, net: 4878, mtd: false, is_projected: true },
+      { month: "Dec", ym: "2026-12", actual: 0, projected: 4878, net: 4878, mtd: false, is_projected: true },
+    ],
+    forecast: { next_30: 4878, next_90: 14634, rest_of_year: 24390 },
+    mrr: 1626, perpetual_count: 3,
+    installments: [{ name: "The Shift · 3-pay", amount: 542, total: 3, collected: 1, final_date: "2026-09-12" }],
+    next30: {
+      amount: 1626, charges: 3,
+      schedule: [
+        { date: "2026-07-12", amount: 542, who: "Sofia Marchetti" },
+        { date: "2026-07-18", amount: 542, who: "Nathan (3-pay)" },
+        { date: "2026-07-25", amount: 542, who: "Grace Okonkwo" },
+      ],
+    },
+    arr_book: 156000, run_rate: 19512,
+    streams: [
+      { key: "memberships", label: "Memberships", amount: 71500, pct: 100 },
+    ],
+  },
 };

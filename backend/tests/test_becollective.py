@@ -69,10 +69,11 @@ async def test_becollective_payload():
     assert kpis["Financed"] == "1"              # one monthly/financed membership
     assert kpis["In Pipeline"] == "5"           # all open recruiting opps
 
-    # funnel groups (No-Show → footer, not a bar); billing omitted for the cohort model
+    # funnel groups (No-Show → footer, not a bar); billing is present but UNAVAILABLE until
+    # beCollective's own Stripe account is connected (then Cash & Billing lights up like the Forum).
     labels = [st["label"] for st in d["funnel"]["stages"]]
     assert labels == ["Applied", "Appointment", "Payment sent"]
-    assert d["billing"] is None
+    assert d["billing"] == {"available": False}
     assert "event" in {c["k"] for c in d["deck"]}
 
 
