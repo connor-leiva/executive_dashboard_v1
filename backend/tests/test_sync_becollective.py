@@ -120,3 +120,80 @@ async def test_sync_feeds_the_view(_mock_ghl):
     assert kpis["In Pipeline"] == "2"      # two open recruiting opps
     assert kpis["New Members"] == "2"      # both onboarded this period
     assert d["event"]["title"].startswith("beCollective")   # event config from the ghl_bc row
+
+
+# ── Field-driven path — the GHL Membership Details fields are the source of truth ──
+_FIELD_DEFS = [
+    {"id": "f_type", "name": "Member Type"}, {"id": "f_status", "name": "Membership Status"},
+    {"id": "f_tier", "name": "Member Tier"}, {"id": "f_enroll", "name": "Enrollment Date"},
+    {"id": "f_renew", "name": "Renewal Date"}, {"id": "f_plan", "name": "Payment Plan"},
+]
+_FKEY = {"type": "f_type", "status": "f_status", "tier": "f_tier",
+         "enroll": "f_enroll", "renew": "f_renew", "plan": "f_plan"}
+
+
+def _cf(**kw):
+    return [{"id": _FKEY[k], "value": v} for k, v in kw.items()]
+
+
+_FIELD_CONTACTS = [
+    {"id": "m1", "firstName": "Prim", "lastName": "Gold", "tags": [], "customFields": _cf(
+        type="Primary Member", status="Active", tier="Gold", enroll="2025-01-15", renew="2026-01-15", plan="Monthly")},
+    {"id": "m2", "firstName": "Prim", "lastName": "Pif", "tags": [], "customFields": _cf(
+        type="Primary Member", status="Active", tier="Silver", plan="Annually (PIF)")},
+    {"id": "m3", "firstName": "Add", "lastName": "On", "tags": [], "customFields": _cf(
+        type="Add-On Member", status="Active", plan="Quarterly")},
+    {"id": "a1", "firstName": "Staff", "lastName": "Admin", "tags": [], "customFields": _cf(
+        type="Admin", status="Active")},
+    {"id": "x1", "firstName": "Lapsed", "lastName": "Member", "tags": [], "customFields": _cf(
+        type="Primary Member", status="Cancelled")},
+    {"id": "t1", "firstName": "Tag", "lastName": "Only", "tags": ["be collective financed"]},   # no fields
+]
+
+
+@pytest.fixture
+def _mock_ghl_fields(monkeypatch):
+    async def contacts(token, location_id, max_pages=None): return _FIELD_CONTACTS
+    async def pipelines(token, location_id): return _PIPELINES
+    async def opportunities(token, location_id, max_pages=None): return []
+    async def custom_fields(token, location_id): return _FIELD_DEFS
+    monkeypatch.setattr(ghl, "get_contacts", contacts)
+    monkeypatch.setattr(ghl, "get_pipelines", pipelines)
+    monkeypatch.setattr(ghl, "get_opportunities", opportunities)
+    monkeypatch.setattr(ghl, "get_custom_fields", custom_fields)
+
+
+async def test_field_driven_membership_and_operational_payload(_mock_ghl_fields):
+    async with SessionLocal() as s:
+        biz, integ = await _bc_integration(s)
+        await sync_becollective_ghl(s, biz.tenant_id, integ)
+
+        members = (await s.execute(select(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.kind == "bc_member"))).scalars().all()
+        active = [m for m in members if m.status == "active"]
+        admins = [m for m in members if m.status == "admin"]
+        # Member Type field defines membership; lapsed (Cancelled) + tag-only are excluded.
+        assert len(active) == 3 and len(admins) == 1
+        assert {m.external_id for m in active} == {"m1", "m2", "m3"}
+        mem = next(m for m in members if m.external_id == "m1").meta["membership"]
+        assert mem["member_kind"] == "primary" and mem["payment"] == "monthly"
+        assert mem["member_tier"] == "Gold" and mem["status"] == "Active"
+        assert mem["enrollment_date"] == "2025-01-15" and mem["renewal_date"] == "2026-01-15"
+
+        d = await build_becollective(s, biz.tenant_id, "mtd")
+        from app.services.lineage import metric_detail
+        roster = await metric_detail(s, biz.tenant_id, "bc_roster", "mtd", "springb",
+                                     None, None, None, None, None)
+
+    assert d["members_total"] == 3
+    assert d["pulse"] is not None and d["mg"] is not None        # operational payload (like the Forum)
+    assert d["mg"]["primary"] == 2 and d["mg"]["addOn"] == 1 and d["mg"]["admin"] == 1
+    assert d["roster"]["payment_mix"] == {"monthly": 1, "quarterly": 1, "pif": 1, "installments": 0}
+    bc_members_kpi = next(k for k in d["kpis"] if k["key"] == "bc_members")
+    assert bc_members_kpi["drill"] == "bc_roster"                # rich roster drawer
+
+    # the roster drill returns the rich per-member detail (member type / tier / plan / renewal)
+    assert roster["view"] == "roster" and roster["summary"]["total"] == 3
+    gold = next(r for r in roster["rows"] if r["tier"] == "Gold")
+    assert gold["member_type"] == "Primary Member" and gold["payment"] == "monthly"
+    assert gold["renews"] == "2026-01-15"

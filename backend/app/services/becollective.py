@@ -52,14 +52,17 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
         return int((await s.execute(select(func.count()).select_from(MetricRecord)
                     .where(*base(kind), *extra))).scalar() or 0)
 
-    members_all = await records("member", MetricRecord.status == "active")
+    members_all = await records("member", MetricRecord.status == "active")   # primary + add-on
+    admin_recs = await records("member", MetricRecord.status == "admin")      # staff, not members
     members_total = len(members_all)
+    roster = F._roster_summary(members_all, admin_recs, 0, 0)     # no Forum/IC split for beCollective
     seg_by_contact = {m.external_id: m.segment for m in members_all}
     memberships = await records("membership")
     arr = sum(float(m.amount or 0) for m in memberships)
     new_members = await count("onboarded", MetricRecord.occurred_on >= start, MetricRecord.occurred_on <= end)
     in_pipeline = await count("recruiting", MetricRecord.status == "open")
-    financed = sum(1 for m in memberships if (m.meta or {}).get("payment") == "monthly")
+    financed = sum(1 for m in memberships
+                   if (m.meta or {}).get("payment") in ("monthly", "quarterly", "installments"))
 
     all_regs = await records("registration")
     guests = sum(1 for r in all_regs if (r.meta or {}).get("guest"))
@@ -67,7 +70,7 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
 
     kpis = [
         {"key": "bc_members", "label": "Active Members", "value": str(members_total),
-         "sub": "beCollective", "drill": "bc_members"},
+         "sub": f"{roster['primary']} primary · {roster['add_on']} add-on", "drill": "bc_roster"},
         {"key": "bc_arr", "label": "Membership Value", "value": F._usd(arr) if arr else "—",
          "sub": f"{len(memberships)} memberships", "drill": "bc_arr"},
         {"key": "bc_new_members", "label": "New Members", "value": str(new_members),
@@ -96,7 +99,34 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
         watch_items.append("behind_pace")
     deck = F._deck(funnel, renewals, event, members_total, member_regs)
 
+    # ── Operational Refinement payload (v9) — the same blocks the Forum emits, over the
+    # field-driven bc_member roster. beCollective has no GHL subscriptions or payments, so
+    # renewal states default to auto, the recover list is empty, and billing stays None.
+    today = dt.date.today()
+    recruiting = F._recruiting(funnel, guests, fcfg)
+    book_total = round(sum(F._num((m.meta or {}).get("membership", {}).get("total_cost")) for m in members_all))
+    growth = F._growth(members_all, [], today)                # no churn records yet
+    pay_mix = F._pay_mix(members_all, book_total)
+    tenure = F._tenure(members_all, today)
+    renew = F._renewal_states(members_all, [], today)         # no subscriptions
+    calendar = F._calendar(members_all, today)
+    recover_list = F._recover([], members_all, today)         # no GHL payments
+    action = {"failed": len(recover_list), "recover": round(sum(r["amt"] for r in recover_list))}
+    mg = {"active": members_total, "primary": roster["primary"], "addOn": roster["add_on"],
+          "admin": roster["admin"], "book": book_total, "growth": growth, "pay": pay_mix,
+          "tenure": tenure, "renewals": renew, "calendar": calendar}
+    ev_pct = round(event["registered"] / event["members"] * 100) if (event and event["members"]) else 0
+    pulse = {
+        "members": {"value": growth["total"][-1], "delta": growth["netMTD"], "spark": growth["total"][-6:]},
+        "pipeline": ({"value": recruiting["total"], "stages": [st["n"] for st in recruiting["stages"]]}
+                     if recruiting else None),
+        "renewals": {"book": renew["book"], "count": renew["count"], "auto": renew["auto"], "needsYou": renew["needsYou"]},
+        "event": ({"days": event["days_out"], "pct": ev_pct, "reg": event["registered"], "of": event["members"]} if event else None),
+    }
+
     return {"status": "watch" if watch_items else "healthy",
             "watch": {"count": len(watch_items), "items": watch_items},
-            "members_total": members_total, "pl": None, "kpis": kpis, "deck": deck,
-            "funnel": funnel, "renewals": renewals, "event": event, "billing": None}
+            "members_total": members_total, "roster": roster, "pl": None,
+            "kpis": kpis, "deck": deck, "funnel": funnel, "renewals": renewals,
+            "event": event, "billing": None,
+            "mg": mg, "pulse": pulse, "recruiting": recruiting, "action": action, "recover": recover_list}

@@ -120,6 +120,7 @@ def _membership_field_ids(defs: list[dict], cfg: dict) -> dict:
         ("payment_plan", ["payment plan", "pay plan", "plan type", "payment type", "membership plan"], None),
         # Richer CRM "Membership Details" fields for the roster view.
         ("member_type", ["member type", "membership type"], None),
+        ("member_tier", ["member tier", "tier", "membership level"], None),
         ("status", ["status"], "member"),           # prefer a "member/membership status" field
         ("brokerage", ["brokerage", "affiliation"], None),
         ("stripe_account", ["stripe account", "stripe acct"], None),
@@ -191,11 +192,23 @@ def _read_membership(values: dict, field_ids: dict) -> dict:
         norm = _member_type(mt)
         if norm:
             out["member_kind"] = norm            # primary | add_on
-    for key in ("status", "brokerage", "stripe_account"):
+    for key in ("status", "brokerage", "stripe_account", "member_tier"):
         val = _clean_str(values.get(field_ids.get(key)))
         if val:
             out[key] = val
     return out
+
+
+def _member_decision(detail: dict, tset: set, member_tags: set, typed: bool, inactive_vocab) -> tuple:
+    """Field-driven membership decision shared by the Forum + beCollective syncs. When the
+    Member Type field is mapped (`typed`), membership is defined by that field and an
+    inactive Status field drops a lapsed member; otherwise it falls back to the member-tag
+    union. Returns (is_member, member_kind, inactive)."""
+    kind = detail.get("member_kind")                     # primary | add_on | admin | None
+    typed_member = kind in ("primary", "add_on", "admin")
+    inactive = typed and typed_member and _is_inactive_status(detail.get("status"), inactive_vocab)
+    is_member = (typed_member and not inactive) if typed else bool(tset & member_tags)
+    return is_member, kind, inactive
 
 
 async def _valid_access_token(s: AsyncSession, integ: Integration) -> str:
@@ -432,13 +445,9 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                     email=(c.get("email") or None),
                     source_url=ghl.contact_url(location_id, c.get("id")))
         detail = _read_membership(ghl.contact_custom_values(c), field_ids) if field_ids else {}
-        kind = detail.get("member_kind")                 # primary | add_on | admin | None
-        typed_member = kind in ("primary", "add_on", "admin")
-        # Inactive Status field overrides a still-populated Member Type (typed path only).
-        inactive = typed and typed_member and _is_inactive_status(detail.get("status"), inactive_vocab)
+        is_member, kind, inactive = _member_decision(detail, tset, member_tags, typed, inactive_vocab)
         if inactive:
             n_inactive += 1
-        is_member = (typed_member and not inactive) if typed else bool(tset & member_tags)
         if is_member:
             if kind == "admin":
                 n_admin += 1
@@ -668,12 +677,26 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
 
     biz = integ.business_id
 
-    # 1) Contacts → members (tag union) + registrations (event tag) + financed set.
+    # 1) Contacts → members + registrations — FIELD-DRIVEN, exactly like the Forum. The
+    #    GHL "Membership Details" fields (Member Type / Status / Tier / Enrollment / Renewal
+    #    / Payment Plan) are the source of truth; tags only fall back when the Member Type
+    #    field isn't mapped on this location, and a financed tag is a payment-plan fallback.
+    #    Segment stays 'becollective' (no Forum/Inner-Circle split here).
     contacts = await ghl.get_contacts(token, location_id)
+    field_ids = {}
+    try:
+        field_ids = _membership_field_ids(await ghl.get_custom_fields(token, location_id), cfg)
+    except Exception as e:  # noqa: BLE001 — custom fields optional; never fail the sync
+        print(f"[ghl_bc] custom fields skipped: {e}", flush=True)
+    if field_ids:
+        print(f"[ghl_bc] membership fields mapped: {sorted(field_ids)}", flush=True)
+    typed = bool(field_ids.get("member_type"))
+    inactive_vocab = tuple(str(x).lower() for x in
+                           (cfg.get("inactive_statuses") or _INACTIVE_MEMBER_STATUS))
     members, regs, financed_contacts = [], [], set()
+    n_admin = n_inactive = 0
     for c in contacts:
         tset = set(ghl.contact_tags(c))
-        is_member = bool(tset & member_tags)
         cid = str(c.get("id"))
         if tset & financed_tags:
             financed_contacts.add(cid)
@@ -681,16 +704,29 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
                     external_id=cid, name=ghl.contact_name(c)[:200],
                     email=(c.get("email") or None),
                     source_url=ghl.contact_url(location_id, c.get("id")))
+        detail = _read_membership(ghl.contact_custom_values(c), field_ids) if field_ids else {}
+        is_member, kind, inactive = _member_decision(detail, tset, member_tags, typed, inactive_vocab)
+        if inactive:
+            n_inactive += 1
         if is_member:
-            members.append({**base, "kind": "bc_member", "status": "active", "segment": "becollective"})
+            if kind == "admin":
+                n_admin += 1
+            members.append({**base, "kind": "bc_member",
+                            "status": "admin" if kind == "admin" else "active",
+                            "segment": "becollective", "meta": {"membership": detail}})
         if event_tag and event_tag in tset:
             regs.append({**base, "kind": "bc_registration", "status": "registered",
                          "meta": {"event_tag": event_tag, "guest": not is_member, "contact_id": cid}})
     await _ghl_snapshot(s, tenant_id, biz, "bc_member", members)
+    # contact_id → payment plan from the field, so opps below prefer it over the tag.
+    plan_by_contact = {m["external_id"]: (m["meta"]["membership"].get("payment"))
+                       for m in members if (m["meta"]["membership"] or {}).get("payment")}
     await _ghl_snapshot(s, tenant_id, biz, "bc_registration", regs)
     n_records = len(members) + len(regs)
-    print(f"[ghl_bc] {len(members)} members, {len(regs)} registered for '{event_tag}' "
-          f"(from {len(contacts)} contacts)", flush=True)
+    print(f"[ghl_bc] {len(members) - n_admin} members (+{n_admin} admin) via "
+          f"{'Member Type field' if typed else 'membership tags'}"
+          f"{f', {n_inactive} inactive excluded' if n_inactive else ''}, {len(regs)} registered "
+          f"for '{event_tag}' (from {len(contacts)} contacts)", flush=True)
 
     # 2) Opportunities → memberships + onboarded (won-onboarded) + recruiting (funnel).
     try:
@@ -709,7 +745,8 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
                         source_url=ghl.contact_url(location_id, o.get("contactId")))
             if onboarded_match in stage.lower():
                 amount = float(o.get("monetaryValue") or 0)
-                payment = "monthly" if cid in financed_contacts else "pif"
+                # Prefer the member's Payment Plan field; fall back to the financed tag.
+                payment = plan_by_contact.get(cid) or ("monthly" if cid in financed_contacts else "pif")
                 memberships.append({**base, "kind": "bc_membership", "status": "active",
                                     "amount": amount,
                                     "meta": {"payment": payment, "stage": stage, "contact_id": cid}})

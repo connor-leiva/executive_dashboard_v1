@@ -382,7 +382,7 @@ function Deck({ items }) {
 }
 
 /* ── Members & Growth deck panels ───────────────────────────────── */
-function membersItems(data, open, onOpen, deckSlots) {
+function membersItems(data, open, onOpen, deckSlots, rosterKey = "forum_roster") {
   const has = (k) => (data.deck || []).some((x) => x.k === k) || (k === "roster");
   const order = ["roster", ...deckSlots.map((s) => s.k)];
   const items = [];
@@ -405,7 +405,7 @@ function membersItems(data, open, onOpen, deckSlots) {
         {compLine
           ? <Row a="Members" b={compLine} v={arr ? `${arr.value} book` : ""} />
           : <Row a="Members" b="active" v={arr?.value || ""} />}
-        <div style={{ marginTop: 10 }}><Drill onClick={() => onOpen("forum_roster")}>View all {data.members_total} members</Drill></div>
+        <div style={{ marginTop: 10 }}><Drill onClick={() => onOpen(rosterKey)}>View all {data.members_total} members</Drill></div>
       </div>
       <div>
         {(mix.pif || mix.monthly || mix.quarterly || mix.installments) ? <>
@@ -843,11 +843,11 @@ function PulseTile({ children, onClick }) {
 function TileHead({ icon, tint, label, link }) {
   return <div style={{ display: "flex", alignItems: "center", gap: 9 }}><IcChip name={icon} tint={tint} size={28} icon={14} /><span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: C.slate }}>{label}</span>{link && <span style={{ marginLeft: "auto", opacity: .5 }}><Ic name="ext" size={13} color={C.muted} /></span>}</div>;
 }
-function PulseStrip({ pulse, onOpen }) {
+function PulseStrip({ pulse, onOpen, rosterKey = "forum_roster" }) {
   const m = pulse.members, pp = pulse.pipeline, rn = pulse.renewals, ev = pulse.event;
   return (
     <div className="opgrid4">
-      <PulseTile onClick={() => onOpen("forum_roster")}>
+      <PulseTile onClick={() => onOpen(rosterKey)}>
         <TileHead icon="members" tint={C.meadow} label="Active Members" link />
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
@@ -1183,7 +1183,8 @@ function MembersGrowthBody({ mg, recruiting, onOpen }) {
 
 /* ── Program view ───────────────────────────────────────────────── */
 export default function ForumView({ data, area, onDrill, title = "The Forum",
-  subtitle = "Mastermind", deckSlots = DECK_SLOTS, drillBusiness = "springb" }) {
+  subtitle = "Mastermind", deckSlots = DECK_SLOTS, drillBusiness = "springb",
+  rosterKey = "forum_roster" }) {
   const [openState, setOpenState] = useState(null);
   if (!data) return null;
 
@@ -1199,7 +1200,7 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
   const heroMonths = trend.map((m) => m.month);
   const rangeLabel = heroMonths.length ? `${heroMonths[0]}–${heroMonths[heroMonths.length - 1]}` : "";
 
-  const members = membersItems(data, true, onOpen, deckSlots);
+  const members = membersItems(data, true, onOpen, deckSlots, rosterKey);
   const moneyWatch = b && (b.failed_count > 0 || b.past_due > 0);
 
   const pipelineTotal = data.funnel ? (data.funnel.stages || []).reduce((a, s) => a + s.v, 0) : null;
@@ -1248,7 +1249,7 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
 
         {/* operational pulse */}
         <div className="enter" style={{ animationDelay: "90ms" }}>
-          {hasOps ? <PulseStrip pulse={data.pulse} onOpen={onOpen} /> : <OpsPulse data={data} onOpen={onOpen} />}
+          {hasOps ? <PulseStrip pulse={data.pulse} onOpen={onOpen} rosterKey={rosterKey} /> : <OpsPulse data={data} onOpen={onOpen} />}
         </div>
 
         {/* single action row (failed charges) / watch strip — the row itself carried no

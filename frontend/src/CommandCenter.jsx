@@ -1133,7 +1133,7 @@ export default function CommandCenter() {
     : <SkeletonDashboard />;
   else if (activeView === "becollective") content = becollective.data
     ? <ForumView key="becollective" data={becollective.data} area={areas?.becollective} onDrill={onDrill}
-        title="beCollective" subtitle="Community" deckSlots={BC_DECK_SLOTS} drillBusiness="springb" />
+        title="beCollective" subtitle="Community" deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="bc_roster" />
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
@@ -1251,8 +1251,8 @@ export default function CommandCenter() {
         </main>
       </div>
 
-      {drill?.key === "forum_roster"
-        ? <RosterDrawer business={drill?.business} period={periodKey} onClose={() => setDrill(null)} />
+      {["forum_roster", "bc_roster"].includes(drill?.key)
+        ? <RosterDrawer metricKey={drill.key} business={drill?.business} period={periodKey} onClose={() => setDrill(null)} />
         : <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} stage={drill?.stage} source={drill?.source} stream={drill?.stream} month={drill?.month} period={periodKey} onClose={() => setDrill(null)} />}
 
       <Assistant period={periodKey} />

@@ -283,7 +283,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     next_payment = None
                 rows.append({
                     "id": str(m.id), "name": title_name(m), "seg": seg_of(m.segment),
-                    "kind": kind, "member_type": mem.get("member_type"),
+                    "kind": kind, "member_type": mem.get("member_type"), "tier": mem.get("member_tier"),
                     "status": mem.get("status") or "Active",
                     "payment": mem.get("payment"), "amount": amount,
                     "last_payment": last_payment, "next_payment": next_payment,
@@ -419,7 +419,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "count": len(rows), "rows": rows}
 
     # ── beCollective (Go High Level, bc_* kinds) drill-downs ──
-    if key in {"bc_members", "bc_arr", "bc_registered", "bc_financed", "bc_monthly"}:
+    if key in {"bc_members", "bc_roster", "bc_arr", "bc_registered", "bc_financed", "bc_monthly"}:
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
         if not biz:
@@ -443,8 +443,59 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             rows = [{"id": str(r.id), "name": bc_name(r), "seg": "BC", "l2": "beCollective",
                      "source_url": r.source_url} for r in recs]
             return {"label": "Active Members", "source": "Go High Level",
-                    "computed_as": "Contacts carrying a beCollective membership tag.",
+                    "computed_as": "Contacts typed as a member in the beCollective CRM Member Type field.",
                     "count": len(rows), "rows": rows}
+
+        if key == "bc_roster":
+            # The rich roster — every beCollective member with their CRM membership detail
+            # (member type, tier, plan, contract value, enrollment + renewal). Mirrors the
+            # Forum roster; beCollective has no GHL subscriptions/payments, so last/next
+            # payment are omitted. Admins (status='admin') are listed apart, off the totals.
+            recs = (await s.execute(bcq("member").where(
+                MetricRecord.status.in_(["active", "admin"])))).scalars().all()
+            recs = sorted(recs, key=lambda m: (0 if m.status == "active" else 1, m.name or ""))
+            ms_all = (await s.execute(bcq("membership"))).scalars().all()
+            ms_by_contact = {(m.meta or {}).get("contact_id"): m for m in ms_all if (m.meta or {}).get("contact_id")}
+            reg_all = (await s.execute(bcq("registration"))).scalars().all()
+            reg_ids = {(r.meta or {}).get("contact_id") for r in reg_all
+                       if not (r.meta or {}).get("guest") and (r.meta or {}).get("contact_id")}
+            rows, mix = [], {"monthly": 0, "quarterly": 0, "pif": 0, "installments": 0}
+            comp = {"primary": 0, "add_on": 0, "admin": 0, "unspecified": 0}
+            for m in recs:
+                mem = (m.meta or {}).get("membership") or {}
+                ms = ms_by_contact.get(m.external_id)
+                amount = mem.get("total_cost")
+                if amount is None and ms is not None and ms.amount is not None:
+                    amount = float(ms.amount)
+                kind = mem.get("member_kind")
+                comp[kind if kind in comp else "unspecified"] += 1
+                if kind != "admin":
+                    pay = mem.get("payment")
+                    if pay in mix:
+                        mix[pay] += 1
+                rows.append({
+                    "id": str(m.id), "name": bc_name(m), "seg": "BC",
+                    "kind": kind, "member_type": mem.get("member_type"), "tier": mem.get("member_tier"),
+                    "status": mem.get("status") or "Active",
+                    "payment": mem.get("payment"), "amount": amount,
+                    "last_payment": None, "next_payment": None,
+                    "enrolled": mem.get("enrollment_date"), "renews": mem.get("renewal_date"),
+                    "brokerage": mem.get("brokerage"), "stripe_account": mem.get("stripe_account"),
+                    "event": m.external_id in reg_ids, "source_url": m.source_url,
+                })
+            mrows = [r for r in rows if r["kind"] != "admin"]
+            summary = {
+                "total": len(mrows), "forum": 0, "inner_circle": 0,
+                "primary": comp["primary"], "add_on": comp["add_on"],
+                "admin": comp["admin"], "unspecified": comp["unspecified"],
+                "payment_mix": mix,
+                "book": round(sum(float(r["amount"] or 0) for r in mrows), 2),
+            }
+            return {"label": "beCollective · Roster", "source": "Go High Level", "view": "roster",
+                    "computed_as": ("Every beCollective member with their CRM membership detail — member "
+                                    "type, tier, payment plan, contract value, enrollment and renewal. "
+                                    "Admins are staff, listed separately and excluded from the totals."),
+                    "count": len(rows), "rows": rows, "summary": summary}
 
         if key in ("bc_arr", "bc_financed"):
             recs = (await s.execute(bcq("membership").order_by(MetricRecord.amount.desc()))).scalars().all()

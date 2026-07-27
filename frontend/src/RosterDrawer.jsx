@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { T, usd } from "./theme.js";
 import { getJSON } from "./api.js";
 import sampleForum from "./sampleForum.js";
+import sampleBecollective from "./sampleBecollective.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -37,6 +38,7 @@ function initials(name) {
 }
 
 function Seg({ seg }) {
+  if (seg !== "F" && seg !== "IC") return null;   // programs without an F/IC split (beCollective)
   const f = seg === "F";
   return (
     <span style={{
@@ -240,7 +242,7 @@ function MemberRow({ r }) {
   );
 }
 
-export default function RosterDrawer({ business, period, onClose }) {
+export default function RosterDrawer({ business, period, metricKey = "forum_roster", onClose }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(false);
   const [prog, setProg] = useState("all");     // all | F | IC | ADMIN
@@ -251,11 +253,14 @@ export default function RosterDrawer({ business, period, onClose }) {
 
   useEffect(() => {
     setD(null); setErr(false); setProg("all"); setQ(""); setSort(null); setFilters({ plan: [], value: [] }); setMenu(null);
-    if (!API_BASE) { setD(sampleForum.roster_detail); return; }
-    const q = `/metrics/forum_roster/detail?period=${period}`
+    if (!API_BASE) {
+      setD((metricKey === "bc_roster" ? sampleBecollective : sampleForum).roster_detail);
+      return;
+    }
+    const q = `/metrics/${metricKey}/detail?period=${period}`
       + (business ? `&business=${encodeURIComponent(business)}` : "");
     getJSON(q).then(setD).catch(() => setErr(true));
-  }, [business, period]);
+  }, [business, period, metricKey]);
 
   const rows = d?.rows || [];
   const sm = d?.summary || {};
@@ -274,13 +279,16 @@ export default function RosterDrawer({ business, period, onClose }) {
     });
   }, [rows, qtext, filters]);
 
-  // Admins are staff seats — shown as their own group, kept out of the Forum/IC lists.
+  // Admins are staff seats — shown as their own group, kept out of the member lists.
   const isAdmin = (r) => r.kind === "admin";
+  // beCollective has no Forum/Inner-Circle split — one member group, no F/IC chips.
+  const isBc = metricKey === "bc_roster";
   const inScope = filtered.filter((r) =>
     prog === "all" ? !isAdmin(r) : prog === "ADMIN" ? isAdmin(r) : (r.seg === prog && !isAdmin(r)));
-  const groups = prog === "ADMIN" ? ["ADMIN"] : prog === "IC" ? ["IC"] : prog === "F" ? ["F"] : ["F", "IC"];
-  const inGroup = (r, g) => (g === "ADMIN" ? isAdmin(r) : (r.seg === g && !isAdmin(r)));
-  const GROUP_LABEL = { F: "The Forum", IC: "Inner Circle", ADMIN: "Admins" };
+  const groups = prog === "ADMIN" ? ["ADMIN"]
+    : isBc ? ["BC"] : prog === "IC" ? ["IC"] : prog === "F" ? ["F"] : ["F", "IC"];
+  const inGroup = (r, g) => (g === "ADMIN" ? isAdmin(r) : g === "BC" ? !isAdmin(r) : (r.seg === g && !isAdmin(r)));
+  const GROUP_LABEL = { F: "The Forum", IC: "Inner Circle", ADMIN: "Admins", BC: "Members" };
 
   const sorted = useMemo(() => {
     if (!sort) return null;
@@ -334,7 +342,7 @@ export default function RosterDrawer({ business, period, onClose }) {
             <div>
               <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.slate,
                 background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px" }}>Go High Level</span>
-              <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 19, fontWeight: 600, color: T.ink, marginTop: 8 }}>The Forum · Roster</div>
+              <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 19, fontWeight: 600, color: T.ink, marginTop: 8 }}>{isBc ? "beCollective · Roster" : "The Forum · Roster"}</div>
             </div>
             <button onClick={onClose} aria-label="Close" style={{ fontSize: 17, color: T.slate, background: "transparent", border: "none", cursor: "pointer", lineHeight: 1 }}>✕</button>
           </div>
@@ -353,7 +361,7 @@ export default function RosterDrawer({ business, period, onClose }) {
         {/* Controls — program tabs + quick find */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 24px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap" }}>
           <div style={{ display: "inline-flex", gap: 3, background: T.parchment, borderRadius: 9, padding: 3 }}>
-            {[["all", "All"], ["F", "The Forum"], ["IC", "Inner Circle"], ...(sm.admin ? [["ADMIN", "Admins"]] : [])].map(([k, label]) => (
+            {[["all", "All"], ...(isBc ? [] : [["F", "The Forum"], ["IC", "Inner Circle"]]), ...(sm.admin ? [["ADMIN", "Admins"]] : [])].map(([k, label]) => (
               <button key={k} onClick={() => setProg(k)} style={tab(k, prog === k)}>{label}</button>
             ))}
           </div>
