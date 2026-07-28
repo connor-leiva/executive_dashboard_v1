@@ -522,7 +522,8 @@ async def seed():
             #    below are the illustrative spread that reproduces the spec's sample payload
             #    (seat_target 77, enrolled $310K, on pace) until the live GHL sync overwrites
             #    them. bc_launch_opp records carry the resolved group / payment_type. ──
-            from .services.launch import DEFAULT_STAGE_MAP, DEFAULT_PAYMENT_PLAN_MAP
+            from .services.launch import (DEFAULT_STAGE_MAP, DEFAULT_PAYMENT_PLAN_MAP,
+                                          DEFAULT_SHIFT_CURVE)
             aug = Launch(
                 tenant_id=tenant.id, business_id=springb.id, name="August 2026 Cohort",
                 program="beCollective", event_start=dt.date(2026, 8, 11), event_end=dt.date(2026, 8, 13),
@@ -530,9 +531,20 @@ async def seed():
                 goal_arr=Decimal(1_000_000), ticket_pif=Decimal(12000), ticket_plan=Decimal(14000),
                 plan_installments=12, mix_pif=Decimal("0.5"),
                 pipeline_match="Be Collective August 2026 Sales Funnel", cohort_value="Aug 2026",
+                # Seat-primary: the headline goal is 100 women, ARR is derived.
+                goal_basis="seats", seat_goal=100, pace_model="curve",
+                # The Shift — the lead-up webinar that feeds memberships (2,000 regs → 100 seats).
+                shift_name="The Shift", shift_event_date=dt.date(2026, 8, 11), shift_goal=2000,
+                shift_reg_tag="the shift", shift_actual=175, shift_pace_curve=DEFAULT_SHIFT_CURVE,
+                shift_pace_tolerance=Decimal("0.08"),
                 stage_map=DEFAULT_STAGE_MAP, payment_plan_map=DEFAULT_PAYMENT_PLAN_MAP, is_active=True)
             s.add(aug)
             await s.flush()
+            # Synced Shift registrants (so the local demo shows the live count + curve, not the seed).
+            for i in range(175):
+                _mr(kind="bc_shift_reg", external_id=f"bcshift-{i+1:04d}", name=f"Shift Reg {i+1}",
+                    status="registered", meta={"shift_tag": "the shift", "contact_id": f"sh-{i}",
+                                               "is_member": i < 20})
             _lid = str(aug.id)
             _won = dt.date(2026, 8, 18)         # inside the window
             _lo = 0

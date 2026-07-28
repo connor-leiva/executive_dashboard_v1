@@ -20,23 +20,24 @@ const parse = (s) => { const [y, m, d] = String(s).split("-").map(Number); retur
 const fmtDate = (s) => (s ? parse(s).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—");
 
 /* ── the signature instrument: goal bar with a soft linear-pace reference ── */
-function GoalBar({ cfg, D }) {
-  const fill = Math.min(100, D.pctToGoal * 100);
-  const committedEnd = Math.min(100, D.committedPct * 100);
+function GoalBar({ cfg, D, seatPrimary }) {
+  const fill = Math.min(100, D.pctPrimary * 100);
+  const committedEnd = Math.min(100, D.committedPctPrimary * 100);
   const paceLeft = Math.min(100, D.prop * 100);
+  const money = !seatPrimary;
   return (
     <div className="gb">
       <div className="gb-track">
         <span className="gb-committed" style={{ width: `${committedEnd}%` }} />
         <span className="gb-fill" style={{ width: `${fill}%` }} />
-        {!D.isPre && <span className="gb-pace" style={{ left: `${paceLeft}%` }} title="Linear on-pace reference for today" />}
+        {!D.isPre && <span className="gb-pace" style={{ left: `${paceLeft}%` }} title="On-pace reference for today (by time in the cart)" />}
         <span className="gb-goalcap" />
       </div>
       <div className="gb-legend">
-        <span><i className="d meadow" />Enrolled <b>{kMoney(D.enrolledArr)}</b></span>
-        <span><i className="d meadowLt" />Committed <b>{kMoney(D.committedArr)}</b></span>
-        {!D.isPre && <span><i className="tick" />On-pace <b>{kMoney(D.expectedArr)}</b></span>}
-        <span className="right"><i className="d goal" />Goal <b>{kMoney(cfg.goal_arr)}</b></span>
+        <span><i className="d meadow" />Enrolled <b>{money ? kMoney(D.enrolledArr) : D.enrolledSeats}</b></span>
+        <span><i className="d meadowLt" />Committed <b>{money ? kMoney(D.committedArr) : D.committedSeats}</b></span>
+        {!D.isPre && money && <span><i className="tick" />On-pace <b>{kMoney(D.expectedArr)}</b></span>}
+        <span className="right"><i className="d goal" />Goal <b>{money ? kMoney(cfg.goal_arr) : `${D.seatTarget} members`}</b></span>
       </div>
     </div>
   );
@@ -172,6 +173,102 @@ function CashLine({ cfg, D, cash }) {
   );
 }
 
+const fmtN = (n) => Math.round(n || 0).toLocaleString("en-US");
+
+/* ── The Shift — the lead-up webinar layer that feeds memberships. The signature is the
+   curved "where you should be" pace line (pace_model="curve") with the actual below it. ── */
+function ShiftCurve({ shift }) {
+  const W = 560, H = 158, padL = 6, padR = 10, padT = 16, padB = 20;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const goal = shift.goal || 1;
+  const curve = (shift.curve || []).slice().sort((a, b) => b.d - a.d); // day 14 → 0 (left → right)
+  const dMax = curve.length ? curve[0].d : 14;
+  const x = (d) => padL + ((dMax - d) / (dMax || 1)) * iw;
+  const y = (c) => padT + (1 - Math.min(1, c / goal)) * ih;
+  const path = curve.map((p, i) => `${i ? "L" : "M"}${x(p.d).toFixed(1)},${y(p.count).toFixed(1)}`).join(" ");
+  const area = curve.length
+    ? `${path} L${x(curve[curve.length - 1].d).toFixed(1)},${(padT + ih).toFixed(1)} L${x(curve[0].d).toFixed(1)},${(padT + ih).toFixed(1)} Z`
+    : "";
+  const dte = shift.days_to_event == null ? dMax : Math.max(0, Math.min(dMax, shift.days_to_event));
+  const xNow = x(dte);
+  const behind = shift.state === "behind";
+  const actualColor = behind ? T.petalDeep : T.meadow;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="shift-svg" preserveAspectRatio="none" aria-hidden="true">
+      {/* goal cap */}
+      <line x1={padL} y1={y(goal)} x2={padL + iw} y2={y(goal)} stroke={T.petal} strokeWidth="1.5"
+        strokeDasharray="3 3" opacity="0.8" />
+      <text x={padL + iw} y={y(goal) - 4} textAnchor="end" className="shift-svg-lbl">{fmtN(goal)} goal</text>
+      {/* expected curve + soft fill */}
+      {area && <path d={area} fill={T.meadow} opacity="0.07" />}
+      <path d={path} fill="none" stroke={T.meadow} strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+      {/* today marker + expected vs actual */}
+      <line x1={xNow} y1={padT - 4} x2={xNow} y2={padT + ih} stroke={T.line} strokeWidth="1" />
+      <line x1={xNow} y1={y(shift.expected)} x2={xNow} y2={y(shift.registrants)} stroke={actualColor}
+        strokeWidth="1.5" strokeDasharray="2 2" />
+      <circle cx={xNow} cy={y(shift.expected)} r="4" fill={T.white} stroke={T.meadow} strokeWidth="2" />
+      <circle cx={xNow} cy={y(shift.registrants)} r="4.5" fill={actualColor} />
+      <text x={Math.min(xNow + 7, padL + iw)} y={y(shift.registrants) + 4} className="shift-svg-now"
+        fill={actualColor} textAnchor={xNow > padL + iw * 0.7 ? "end" : "start"}>
+        {fmtN(shift.registrants)}
+      </text>
+      {/* x-axis ends */}
+      <text x={padL} y={H - 5} className="shift-svg-lbl">{dMax}d out</text>
+      <text x={padL + iw} y={H - 5} textAnchor="end" className="shift-svg-lbl">event</text>
+    </svg>
+  );
+}
+
+function ShiftStat({ label, value, tone }) {
+  return (
+    <div className="sh-stat">
+      <div className="sh-stat-l">{label}</div>
+      <div className={`sh-stat-v ${tone || ""}`}>{value}</div>
+    </div>
+  );
+}
+
+function TheShift({ shift }) {
+  const pill = {
+    behind: { txt: "Behind the curve", tone: "behind" },
+    onpace: { txt: "On the curve", tone: "good" },
+    ahead: { txt: "Ahead of the curve", tone: "good" },
+    pending: { txt: "Not started", tone: "" },
+    done: { txt: "Event passed", tone: "" },
+  }[shift.state] || { txt: shift.state, tone: "" };
+  const gapTone = shift.gap < 0 ? "behind" : "good";
+  const gapTxt = `${shift.gap < 0 ? "−" : "+"}${fmtN(Math.abs(shift.gap))}`;
+  return (
+    <div className="shift">
+      <div className="shift-head">
+        <span className="shift-bar" />
+        <span className="shift-title">{shift.name}<em>lead-up webinar · feeds memberships</em></span>
+        <span className="shift-spacer" />
+        <span className={`pill ${pill.tone}`}><span className="pdot" />{pill.txt}</span>
+      </div>
+      <div className="shift-body">
+        <div className="shift-left">
+          <div className="shift-num">{fmtN(shift.registrants)}<span className="of">/ {fmtN(shift.goal)} registered</span></div>
+          <div className="shift-sub">
+            {Math.round(shift.pct_to_goal * 100)}% to goal
+            {shift.days_to_event != null && ` · ${shift.days_to_event}d to the Shift`}
+            {shift.source === "manual" && " · manual count"}
+          </div>
+          <div className="shift-stats">
+            <ShiftStat label="On-curve today" value={`${fmtN(shift.expected)} · ${Math.round(shift.expected_pct * 100)}%`} />
+            <ShiftStat label="Gap to pace" value={gapTxt} tone={gapTone} />
+            <ShiftStat label="Projects to" value={`${shift.projected_members} / ${shift.members_at_goal}`} tone={shift.projected_members < shift.members_at_goal ? "behind" : "good"} />
+          </div>
+        </div>
+        <div className="shift-chart"><ShiftCurve shift={shift} /></div>
+      </div>
+      <div className="shift-foot">
+        {fmtN(shift.goal)} registrants → {shift.members_at_goal} members · ~{Math.round(shift.reg_to_member * 100)}% historical conversion · pacing vs your last Shift
+      </div>
+    </div>
+  );
+}
+
 /* ── settings drawer: the configurable surface (owner/admin) ── */
 function Field({ label, children, hint }) {
   return (
@@ -199,6 +296,10 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
     ticket_plan: cfg.ticket_plan, plan_installments: cfg.plan_installments,
     mix_pct: Math.round((cfg.mix_pif || 0) * 100), pipeline_match: cfg.pipeline_match,
     cohort_value: cfg.cohort_value || "",
+    goal_basis: cfg.goal_basis || "arr", seat_goal: cfg.seat_goal || 100,
+    shift_name: cfg.shift_name || "The Shift", shift_event_date: cfg.shift_event_date || "",
+    shift_goal: cfg.shift_goal || 0, shift_reg_tag: cfg.shift_reg_tag || "",
+    shift_actual: cfg.shift_actual ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
@@ -206,7 +307,10 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
 
   const mixPif = f.mix_pct / 100;
   const blended = mixPif * f.ticket_pif + (1 - mixPif) * f.ticket_plan;
-  const seatTarget = blended > 0 ? Math.max(1, Math.ceil(f.goal_arr / blended)) : 0;
+  const seatTarget = f.goal_basis === "seats"
+    ? (+f.seat_goal || 0)
+    : (blended > 0 ? Math.max(1, Math.ceil(f.goal_arr / blended)) : 0);
+  const curvePts = Object.keys(cfg.shift_pace_curve || {}).length;
 
   async function save() {
     setSaving(true); setErr(null);
@@ -216,6 +320,10 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
         event_end: f.event_end || null, goal_arr: f.goal_arr, ticket_pif: f.ticket_pif,
         ticket_plan: f.ticket_plan, plan_installments: f.plan_installments,
         mix_pif: mixPif, pipeline_match: f.pipeline_match, cohort_value: f.cohort_value || null,
+        goal_basis: f.goal_basis, seat_goal: +f.seat_goal || null,
+        shift_name: f.shift_name || null, shift_event_date: f.shift_event_date || null,
+        shift_goal: +f.shift_goal || null, shift_reg_tag: f.shift_reg_tag || null,
+        shift_actual: f.shift_actual === "" ? null : +f.shift_actual,
       });
       onSaved && onSaved();
       onClose();
@@ -250,7 +358,23 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
         </Field>
 
         <div className="dr-sec">Goal &amp; pricing</div>
-        <Field label="ARR goal" hint={`${seatTarget} seats at ${kMoney(blended)} blended`}>
+        <Field label="Goal basis" hint="seat-primary targets a member count; ARR-primary targets a dollar figure">
+          <div className="seg">
+            <button type="button" className={f.goal_basis === "seats" ? "on" : ""}
+              onClick={() => set({ goal_basis: "seats" })}>Members</button>
+            <button type="button" className={f.goal_basis === "arr" ? "on" : ""}
+              onClick={() => set({ goal_basis: "arr" })}>ARR ($)</button>
+          </div>
+        </Field>
+        {f.goal_basis === "seats" && (
+          <Field label="Member goal" hint={`${kMoney(blended)} blended → ~${kMoney((+f.seat_goal || 0) * blended)} ARR at goal`}>
+            <input className="in" type="number" min="1" step="1" value={f.seat_goal}
+              onChange={(e) => set({ seat_goal: Math.max(1, +e.target.value) })} />
+          </Field>
+        )}
+        <Field label="ARR goal" hint={f.goal_basis === "seats"
+          ? "the dollar headline (secondary to the member goal)"
+          : `${seatTarget} seats at ${kMoney(blended)} blended`}>
           <div className="in-money"><span>$</span>
             <input className="in" type="number" step="10000" value={f.goal_arr}
               onChange={(e) => set({ goal_arr: Math.max(0, +e.target.value) })} />
@@ -279,6 +403,35 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
           <input className="in" type="number" min="1" step="1" value={f.plan_installments}
             onChange={(e) => set({ plan_installments: Math.max(1, +e.target.value) })} />
         </Field>
+
+        <div className="dr-sec">The Shift <em className="ro">lead-up webinar</em></div>
+        <Field label="Webinar name">
+          <input className="in" value={f.shift_name} onChange={(e) => set({ shift_name: e.target.value })} />
+        </Field>
+        <div className="grid2">
+          <Field label="Shift event date" hint="the '0 days to event' anchor">
+            <input className="in" type="date" value={f.shift_event_date}
+              onChange={(e) => set({ shift_event_date: e.target.value })} />
+          </Field>
+          <Field label="Registrant goal">
+            <input className="in" type="number" step="50" value={f.shift_goal}
+              onChange={(e) => set({ shift_goal: Math.max(0, +e.target.value) })} />
+          </Field>
+        </div>
+        <div className="grid2">
+          <Field label="GHL registration tag" hint="contacts with this tag = registrants (live)">
+            <input className="in" value={f.shift_reg_tag}
+              onChange={(e) => set({ shift_reg_tag: e.target.value })} />
+          </Field>
+          <Field label="Manual count" hint="fallback / seed until the tag syncs">
+            <input className="in" type="number" step="1" placeholder="auto" value={f.shift_actual}
+              onChange={(e) => set({ shift_actual: e.target.value })} />
+          </Field>
+        </div>
+        <div className="map-note">
+          Pace curve: {curvePts}-point empirical (days-to-event → % of goal) from your last Shift — the
+          curved reference line. Editable via API.
+        </div>
 
         <div className="dr-sec">Data source</div>
         <Field label="Pipeline match" hint="which GHL pipeline this launch reads (name or id)">
@@ -318,19 +471,26 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
   const isEditor = !role || role === "owner" || role === "admin";
   const canPersist = isEditor && !usingSample;
 
+  const seatPrimary = data.goal_basis === "seats";
   const D = useMemo(() => {
     const enrolledArr = data.enrolled.arr, committedArr = data.committed.arr;
     const goal = cfg.goal_arr || 1;
+    const seatTarget = data.seat_target || 1;
+    const enrolledSeats = data.enrolled.seats, committedSeats = data.committed.seats;
+    // Progress bar / hero track: seats when seat-primary, ARR otherwise.
+    const pctPrimary = seatPrimary ? enrolledSeats / seatTarget : enrolledArr / goal;
+    const committedPctPrimary = seatPrimary
+      ? (enrolledSeats + committedSeats) / seatTarget
+      : (enrolledArr + committedArr) / goal;
     return {
-      enrolledArr, committedArr, enrolledSeats: data.enrolled.seats,
-      committedSeats: data.committed.seats, seatTarget: data.seat_target,
+      enrolledArr, committedArr, enrolledSeats, committedSeats, seatTarget,
       seatsRemaining: data.seats_remaining, pctToGoal: data.pct_to_goal,
-      committedPct: (enrolledArr + committedArr) / goal,
+      pctPrimary, committedPctPrimary, committedPct: (enrolledArr + committedArr) / goal,
       prop: data.window_days ? data.days_elapsed / data.window_days : 0,
       isPre: data.status === "pre", expectedArr: data.pace.expected_arr,
       paceGapArr: data.pace.gap_arr,
     };
-  }, [data, cfg]);
+  }, [data, cfg, seatPrimary]);
 
   let pill;
   if (data.status === "pre") pill = { txt: `Opens ${fmtDate(cfg.window_start)} · ${data.days_to_open}d out`, tone: "pre" };
@@ -362,10 +522,13 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .ctx-s { font-size:12px; color:${T.muted}; }
         .bcl .ctx-spacer { flex:1; }
         .bcl .pill { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:600;
-          border-radius:99px; padding:5px 12px; border:1px solid transparent; }
-        .bcl .pill .pdot { width:7px; height:7px; border-radius:99px; }
-        .bcl .pill.open { color:${T.meadow}; background:${T.meadowBg}; border-color:${alpha(T.meadow, .25)}; }
-        .bcl .pill.open .pdot { background:${T.meadow}; }
+          border-radius:99px; padding:5px 12px; border:1px solid ${T.line};
+          color:${T.slate}; background:${T.parchment}; }
+        .bcl .pill .pdot { width:7px; height:7px; border-radius:99px; background:${T.muted}; }
+        .bcl .pill.open, .bcl .pill.good { color:${T.meadow}; background:${T.meadowBg}; border-color:${alpha(T.meadow, .25)}; }
+        .bcl .pill.open .pdot, .bcl .pill.good .pdot { background:${T.meadow}; }
+        .bcl .pill.behind { color:${T.petalDeep}; background:${alpha(T.petal, .18)}; border-color:${alpha(T.petalDeep, .3)}; }
+        .bcl .pill.behind .pdot { background:${T.petalDeep}; }
         .bcl .pill.pre { color:${T.petalDeep}; background:${alpha(T.petal, .18)}; border-color:${alpha(T.petalDeep, .3)}; }
         .bcl .pill.pre .pdot { background:${T.petalDeep}; }
         .bcl .pill.closed { color:${T.slate}; background:${T.parchment}; border-color:${T.line}; }
@@ -375,6 +538,30 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
           display:inline-flex; align-items:center; gap:6px; transition:border-color .15s ease, background .15s ease; }
         .bcl .gear:hover { border-color:${T.petal}; background:${T.parchment}; }
         .bcl .gear.on { border-color:${T.petalDeep}; color:${T.petalDeep}; }
+
+        /* The Shift card (top-of-funnel layer) */
+        .bcl .shift { background:${T.white}; border:1px solid ${T.line}; border-radius:16px; padding:18px 20px 15px;
+          box-shadow:0 10px 26px ${alpha(T.evergreen, .06)}; margin-bottom:14px; }
+        .bcl .shift-head { display:flex; align-items:center; gap:10px; margin-bottom:15px; flex-wrap:wrap; }
+        .bcl .shift-bar { width:4px; height:18px; border-radius:2px; background:${T.teal}; }
+        .bcl .shift-title { font-family:Poppins,sans-serif; font-size:14px; font-weight:600; color:${T.ink}; }
+        .bcl .shift-title em { font-style:normal; font-size:11px; font-weight:500; color:${T.muted}; margin-left:9px; }
+        .bcl .shift-spacer { flex:1; }
+        .bcl .shift-body { display:grid; grid-template-columns:minmax(190px,1fr) 1.35fr; gap:22px; align-items:center; }
+        .bcl .shift-num { font-family:Poppins,sans-serif; font-size:34px; font-weight:700; color:${T.ink};
+          letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1; }
+        .bcl .shift-num .of { font-size:13px; font-weight:500; color:${T.muted}; margin-left:8px; letter-spacing:0; }
+        .bcl .shift-sub { font-size:12px; color:${T.slate}; margin-top:7px; }
+        .bcl .shift-stats { display:flex; gap:20px; margin-top:15px; flex-wrap:wrap; }
+        .bcl .sh-stat-l { font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:${T.muted}; }
+        .bcl .sh-stat-v { font-family:Poppins,sans-serif; font-size:15px; font-weight:700; color:${T.ink}; margin-top:3px; font-variant-numeric:tabular-nums; }
+        .bcl .sh-stat-v.behind { color:${T.petalDeep}; }
+        .bcl .sh-stat-v.good { color:${T.meadow}; }
+        .bcl .shift-chart { min-width:0; }
+        .bcl .shift-svg { width:100%; height:auto; display:block; overflow:visible; }
+        .bcl .shift-svg-lbl { font-family:Inter,sans-serif; font-size:9px; fill:${T.muted}; }
+        .bcl .shift-svg-now { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; }
+        .bcl .shift-foot { font-size:11px; color:${T.muted}; margin-top:15px; padding-top:12px; border-top:1px solid ${T.line}; }
 
         .bcl .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 24px;
           background-color:${T.evergreen};
@@ -491,6 +678,10 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .in-money .in { padding-left:20px; }
         .bcl .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:11px; }
         .bcl .range { width:100%; accent-color:${T.petalDeep}; }
+        .bcl .seg { display:inline-flex; border:1px solid ${T.line}; border-radius:8px; overflow:hidden; }
+        .bcl .seg button { font-family:inherit; font-size:12px; font-weight:600; padding:7px 14px; border:none;
+          background:${T.white}; color:${T.muted}; cursor:pointer; }
+        .bcl .seg button.on { background:${T.evergreen}; color:${T.onDark}; }
         .bcl .map { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; }
         .bcl .map-row { display:flex; justify-content:space-between; align-items:center; padding:9px 13px; border-bottom:1px solid ${T.parchment}; }
         .bcl .map-row:last-child { border-bottom:none; }
@@ -511,7 +702,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
 
         @media (max-width:640px){
           .bcl .hstats, .bcl .mom-grid { grid-template-columns:1fr; }
-          .bcl .side { grid-template-columns:1fr; }
+          .bcl .side, .bcl .shift-body { grid-template-columns:1fr; }
           .bcl .grid2 { grid-template-columns:1fr; }
           .bcl .hnum { font-size:36px; }
         }
@@ -549,18 +740,29 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
             onClose={() => setShowSettings(false)} onSaved={onSaved} />
         )}
 
+        {data.shift && <TheShift shift={data.shift} />}
+
         <div className="hero">
           <SpringSignature tone="light" height={40}
             style={{ position: "absolute", top: 18, right: 24, opacity: 0.14, pointerEvents: "none" }} />
-          <div className="eyebrow"><span className="edot" />ARR added · to goal</div>
-          <div className="hnum">{kMoney(D.enrolledArr)}<span className="of">of {kMoney(cfg.goal_arr)}</span></div>
-          <div className="hdesc">{D.enrolledSeats} of {D.seatTarget} seats enrolled · {data.days_remaining} days left in the cart</div>
+          <div className="eyebrow"><span className="edot" />{seatPrimary ? "Members enrolled · to goal" : "ARR added · to goal"}</div>
+          <div className="hnum">
+            {seatPrimary ? D.enrolledSeats : kMoney(D.enrolledArr)}
+            <span className="of">of {seatPrimary ? `${D.seatTarget} members` : kMoney(cfg.goal_arr)}</span>
+          </div>
+          <div className="hdesc">
+            {seatPrimary
+              ? `${kMoney(D.enrolledArr)} ARR added`
+              : `${D.enrolledSeats} of ${D.seatTarget} seats enrolled`} · {data.days_remaining} days left in the cart
+          </div>
 
-          <GoalBar cfg={cfg} D={D} />
+          <GoalBar cfg={cfg} D={D} seatPrimary={seatPrimary} />
 
           <div className="hstats">
             <MiniStat label="Days left" value={`${data.days_remaining}d`} sub={`of ${data.window_days}-day cart`} />
-            <MiniStat label="Seats enrolled" value={`${D.enrolledSeats} / ${D.seatTarget}`} sub={`${Math.round(D.pctToGoal * 100)}% of goal`} tone="good" />
+            <MiniStat label={seatPrimary ? "Members enrolled" : "Seats enrolled"}
+              value={`${D.enrolledSeats} / ${D.seatTarget}`}
+              sub={`${Math.round((seatPrimary ? D.pctPrimary : D.pctToGoal) * 100)}% of goal`} tone="good" />
             <MiniStat label="Pace" value={paceStat.value} sub={paceStat.sub} tone={paceStat.tone} />
           </div>
         </div>

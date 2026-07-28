@@ -22,8 +22,9 @@ from ..services.tabs import PROGRAM_TABS
 
 router = APIRouter(tags=["launches"])
 
-_DATE_FIELDS = {"event_start", "event_end", "window_start", "window_end"}
-_NUM_FIELDS = {"goal_arr", "ticket_pif", "ticket_plan", "mix_pif", "pace_tolerance"}
+_DATE_FIELDS = {"event_start", "event_end", "window_start", "window_end", "shift_event_date"}
+_NUM_FIELDS = {"goal_arr", "ticket_pif", "ticket_plan", "mix_pif", "pace_tolerance",
+               "shift_pace_tolerance"}
 _REQUIRED = {"name", "window_start", "window_end", "goal_arr",
              "ticket_pif", "ticket_plan", "pipeline_match"}
 

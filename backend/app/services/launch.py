@@ -32,6 +32,15 @@ DEFAULT_STAGE_MAP = {
 DEFAULT_PAYMENT_PLAN_MAP = {"pif": ["paid in full", "pif"],
                             "plan": ["payment plan", "financed", "monthly", "plan"]}
 
+# Empirical Shift-registration pace curve (days-to-event → cumulative fraction of the goal),
+# from Spring's last Shift launch. Back-loaded: ~19% two weeks out, ~48% at 6 days, then the
+# final-week surge to ~94% by event day. This is the pace_model="curve" reference line.
+DEFAULT_SHIFT_CURVE = {
+    "14": 0.190, "13": 0.220, "12": 0.247, "11": 0.275, "10": 0.309, "9": 0.348,
+    "8": 0.390, "7": 0.432, "6": 0.481, "5": 0.584, "4": 0.670, "3": 0.734,
+    "2": 0.801, "1": 0.864, "0": 0.940,
+}
+
 
 # Group precedence: a won opp must resolve as 'enrolled' even though its stage text may also
 # brush a looser keyword. booked_app is a sub-signal that still lands in 'booked'.
@@ -84,6 +93,26 @@ def days_between(a: dt.date, b: dt.date) -> int:
     return (b - a).days
 
 
+def curve_expected(curve: dict, days_to_event) -> float:
+    """Cumulative fraction of goal expected at `days_to_event`, read off an empirical curve
+    keyed by integer days-to-event (higher key = earlier = lower %). Linear-interpolates
+    between points and clamps outside the defined range. This is pace_model="curve": for a
+    back-loaded event it tells the honest 'where you should be' instead of a straight line."""
+    if not curve or days_to_event is None:
+        return 0.0
+    pts = sorted((int(k), float(v)) for k, v in curve.items())   # ascending by day
+    d = float(days_to_event)
+    if d <= pts[0][0]:
+        return pts[0][1]                       # at/after the nearest-to-event point
+    if d >= pts[-1][0]:
+        return pts[-1][1]                      # earlier than the first measured point
+    for (d0, v0), (d1, v1) in zip(pts, pts[1:]):
+        if d0 <= d <= d1:
+            t = (d - d0) / (d1 - d0) if d1 != d0 else 0.0
+            return v0 + t * (v1 - v0)
+    return pts[-1][1]
+
+
 # ── launch selection + the synced opp store ──────────────────────────────────
 async def active_launch_for(s, tenant_id, business_id, today=None) -> Launch | None:
     """The active launch to show: one whose window contains today (nearest window_end),
@@ -109,6 +138,50 @@ async def _launch_opps(s, tenant_id, business_id, launch: Launch) -> list[dict]:
         MetricRecord.source == "ghl", MetricRecord.kind == "bc_launch_opp"))).scalars().all()
     lid = str(launch.id)
     return [(r.meta or {}) for r in recs if (r.meta or {}).get("launch_id") == lid]
+
+
+async def _shift_registrants(s, tenant_id, business_id, tag) -> int:
+    """Live count of Shift registrants — contacts the beCollective sync tagged for the Shift
+    (kind='bc_shift_reg'). 0 when nothing is synced yet (compute falls back to the manual seed)."""
+    if not tag:
+        return 0
+    recs = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "bc_shift_reg"))).scalars().all()
+    t = str(tag).lower()
+    return sum(1 for r in recs if str((r.meta or {}).get("shift_tag", "")).lower() == t)
+
+
+async def compute_shift(s, tenant_id, launch: Launch, seat_target: int, today: dt.date) -> dict | None:
+    """The Shift layer — the lead-up webinar that feeds memberships. Paces registrants against
+    the empirical curve (pace_model="curve"); projects members via seat_target/shift_goal."""
+    if not launch.shift_goal:
+        return None
+    goal = int(launch.shift_goal)
+    synced = await _shift_registrants(s, tenant_id, launch.business_id, launch.shift_reg_tag)
+    registrants = synced or int(launch.shift_actual or 0)
+    curve = launch.shift_pace_curve or {}
+    dte = days_between(today, launch.shift_event_date) if launch.shift_event_date else None
+    exp_pct = curve_expected(curve, dte) if curve else (0.0 if dte is None else 1.0)
+    expected = round(exp_pct * goal)
+    gap = registrants - expected
+    tol = _f(launch.shift_pace_tolerance or 0.08) * goal
+    state = ("pending" if dte is None else "done" if dte < 0
+             else "behind" if gap < -tol else "ahead" if gap > tol else "onpace")
+    ratio = (seat_target / goal) if goal else 0.0     # reg → member conversion
+    return {
+        "name": launch.shift_name or "The Shift",
+        "event_date": launch.shift_event_date.isoformat() if launch.shift_event_date else None,
+        "goal": goal, "registrants": registrants,
+        "pct_to_goal": round(registrants / goal, 4) if goal else 0.0,
+        "days_to_event": dte,
+        "expected": expected, "expected_pct": round(exp_pct, 4), "gap": gap, "state": state,
+        "source": "synced" if synced else ("manual" if launch.shift_actual else "none"),
+        "reg_to_member": round(ratio, 5), "projected_members": round(registrants * ratio),
+        "members_at_goal": seat_target,
+        "curve": [{"d": d, "pct": round(v, 4), "count": round(v * goal)}
+                  for d, v in sorted((int(k), float(x)) for k, x in curve.items())],
+    }
 
 
 # ── grouping / pricing / window / pace ───────────────────────────────────────
@@ -174,7 +247,13 @@ def config_out(launch: Launch) -> dict:
             "ticket_plan": _f(launch.ticket_plan), "plan_installments": launch.plan_installments,
             "mix_pif": _f(launch.mix_pif), "pipeline_match": launch.pipeline_match,
             "cohort_value": launch.cohort_value, "pace_model": launch.pace_model,
-            "pace_tolerance": _f(launch.pace_tolerance)}
+            "pace_tolerance": _f(launch.pace_tolerance),
+            "goal_basis": getattr(launch, "goal_basis", "arr"), "seat_goal": launch.seat_goal,
+            "shift_name": launch.shift_name,
+            "shift_event_date": launch.shift_event_date.isoformat() if launch.shift_event_date else None,
+            "shift_goal": launch.shift_goal, "shift_reg_tag": launch.shift_reg_tag,
+            "shift_actual": launch.shift_actual, "shift_pace_curve": launch.shift_pace_curve or {},
+            "shift_pace_tolerance": _f(launch.shift_pace_tolerance or 0.08)}
 
 
 async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
@@ -187,7 +266,12 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
 
     mix_pif = _f(launch.mix_pif)
     blended = (mix_pif * _f(launch.ticket_pif) + (1 - mix_pif) * _f(launch.ticket_plan)) or 1.0
-    seat_target = max(1, math.ceil(_f(launch.goal_arr) / blended))
+    # Seat-primary launches target a member count directly (e.g. "100 women"); ARR-primary
+    # ones back the seat target out of the goal / blended price.
+    if getattr(launch, "goal_basis", "arr") == "seats" and launch.seat_goal:
+        seat_target = int(launch.seat_goal)
+    else:
+        seat_target = max(1, math.ceil(_f(launch.goal_arr) / blended))
 
     enrolled, committed = _priced(enr_split, launch), _priced(com_split, launch)
     deciding = {"count": g["deciding"], "arr": g["deciding"] * blended}
@@ -221,9 +305,13 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
     if unknown_pt:
         warnings.append(f"{unknown_pt} opps unknown payment type")
 
+    shift = await compute_shift(s, tenant_id, launch, seat_target, today)
+
     return {
         "id": str(launch.id),
         "launch": config_out(launch),
+        "goal_basis": getattr(launch, "goal_basis", "arr"),
+        "shift": shift,
         "status": win["status"], "as_of": today.isoformat(),
         "window_days": win["window_days"], "days_elapsed": win["elapsed"],
         "days_remaining": win["remaining"], "days_to_open": win["days_to_open"],
@@ -235,6 +323,7 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
         "side": {"no_show": g["noshow"], "nurture": g["nurture"]},
         "pace": {"expected_arr": round(expected, 2), "gap_arr": round(gap, 2), "state": state},
         "pct_to_goal": round((enrolled["arr"] / goal) if goal else 0.0, 4),
+        "pct_to_goal_seats": round((enrolled["seats"] / seat_target) if seat_target else 0.0, 4),
         "seats_remaining": max(0, seat_target - enrolled["seats"]),
         "arr_remaining": round(max(0.0, goal - enrolled["arr"]), 2),
         "cash": await collected_cash(s, tenant_id, launch, enr_split),

@@ -129,6 +129,83 @@ async def test_funnel_and_side_signals():
     assert d["warnings"] == []
 
 
+def test_curve_expected_interpolates_and_clamps():
+    from app.services.launch import curve_expected, DEFAULT_SHIFT_CURVE as C
+    assert curve_expected(C, 14) == 0.19          # exact point
+    assert curve_expected(C, 0) == 0.94           # event day
+    assert curve_expected(C, 15) == 0.19          # earlier than first point → clamp low
+    assert curve_expected(C, -3) == 0.94          # past event → clamp high
+    assert curve_expected(C, 7) == 0.432          # exact mid point
+    assert abs(curve_expected(C, 7.5) - 0.411) < 1e-6   # interp between 7 (.432) & 8 (.39)
+    assert curve_expected({}, 5) == 0.0           # no curve
+
+
+async def _make_shift_launch(registrants=175, shift_actual=None, tag="the shift"):
+    """A seat-primary launch (target 100) with a Shift layer + N synced registrants."""
+    from app.db import SessionLocal
+    from app.models import Business, Launch, MetricRecord
+    from app.services.launch import DEFAULT_STAGE_MAP, DEFAULT_PAYMENT_PLAN_MAP, DEFAULT_SHIFT_CURVE
+    from sqlalchemy import select, delete
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(Launch).where(Launch.business_id == biz.id))
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.kind == "bc_shift_reg"))
+        launch = Launch(
+            tenant_id=biz.tenant_id, business_id=biz.id, name="August 2026 Cohort",
+            window_start=dt.date(2026, 8, 11), window_end=dt.date(2026, 9, 12),
+            goal_arr=1_000_000, ticket_pif=12_000, ticket_plan=14_000, mix_pif="0.5",
+            pipeline_match="Be Collective August 2026 Sales Funnel",
+            goal_basis="seats", seat_goal=100, pace_model="curve",
+            shift_name="The Shift", shift_event_date=dt.date(2026, 8, 11), shift_goal=2000,
+            shift_reg_tag=tag, shift_actual=shift_actual, shift_pace_curve=DEFAULT_SHIFT_CURVE,
+            shift_pace_tolerance="0.08",
+            stage_map=DEFAULT_STAGE_MAP, payment_plan_map=DEFAULT_PAYMENT_PLAN_MAP)
+        s.add(launch)
+        await s.flush()
+        for i in range(registrants):
+            s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
+                               kind="bc_shift_reg", external_id=f"sr{i}", status="registered",
+                               meta={"shift_tag": "the shift", "contact_id": f"c{i}"}))
+        await s.commit()
+        return biz.tenant_id, launch.id
+
+
+async def _compute_at(launch_id, tenant_id, today):
+    from app.db import SessionLocal
+    from app.models import Launch
+    from app.services.launch import compute_launch
+    from sqlalchemy import select
+    async with SessionLocal() as s:
+        launch = (await s.execute(select(Launch).where(Launch.id == launch_id))).scalar_one()
+        return await compute_launch(s, tenant_id, launch, today=today)
+
+
+async def test_seat_primary_target_is_the_member_count():
+    tenant_id, lid = await _make_shift_launch()
+    d = await _compute_at(lid, tenant_id, dt.date(2026, 8, 11))
+    assert d["goal_basis"] == "seats"
+    assert d["seat_target"] == 100          # NOT ceil(1M/13k)=77 — seat-primary
+
+
+async def test_shift_layer_behind_the_curve():
+    tenant_id, lid = await _make_shift_launch(registrants=175)
+    d = await _compute_at(lid, tenant_id, dt.date(2026, 7, 28))   # 14 days to Aug 11
+    sh = d["shift"]
+    assert sh["registrants"] == 175 and sh["goal"] == 2000 and sh["source"] == "synced"
+    assert sh["days_to_event"] == 14
+    assert sh["expected_pct"] == 0.19 and sh["expected"] == 380     # curve, not linear
+    assert sh["gap"] == -205 and sh["state"] == "behind"            # honest: below the curve
+    assert sh["projected_members"] == 9 and sh["members_at_goal"] == 100  # 175 * 100/2000
+    assert len(sh["curve"]) == 15
+
+
+async def test_shift_manual_fallback_when_nothing_synced():
+    tenant_id, lid = await _make_shift_launch(registrants=0, shift_actual=210)
+    d = await _compute_at(lid, tenant_id, dt.date(2026, 7, 28))
+    assert d["shift"]["registrants"] == 210 and d["shift"]["source"] == "manual"
+
+
 async def _client():
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver")
 

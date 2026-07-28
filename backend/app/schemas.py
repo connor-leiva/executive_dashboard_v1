@@ -325,6 +325,39 @@ class LaunchConfigOut(BaseModel):
     cohort_value: str | None = None
     pace_model: str
     pace_tolerance: float
+    goal_basis: str = "arr"
+    seat_goal: int | None = None
+    shift_name: str | None = None
+    shift_event_date: str | None = None
+    shift_goal: int | None = None
+    shift_reg_tag: str | None = None
+    shift_actual: int | None = None
+    shift_pace_curve: dict = {}
+    shift_pace_tolerance: float = 0.08
+
+
+class ShiftCurvePoint(BaseModel):
+    d: int
+    pct: float
+    count: int
+
+
+class ShiftOut(BaseModel):
+    name: str
+    event_date: str | None = None
+    goal: int
+    registrants: int
+    pct_to_goal: float
+    days_to_event: int | None = None
+    expected: int
+    expected_pct: float
+    gap: int
+    state: str
+    source: str
+    reg_to_member: float
+    projected_members: int
+    members_at_goal: int
+    curve: list[ShiftCurvePoint]
 
 
 class FunnelStage(BaseModel):
@@ -373,6 +406,8 @@ class SideOut(BaseModel):
 class LaunchResponse(BaseModel):
     id: str
     launch: LaunchConfigOut
+    goal_basis: str = "arr"
+    shift: ShiftOut | None = None
     status: str
     as_of: str
     window_days: int
@@ -388,6 +423,7 @@ class LaunchResponse(BaseModel):
     side: SideOut
     pace: PaceOut
     pct_to_goal: float
+    pct_to_goal_seats: float = 0.0
     seats_remaining: int
     arr_remaining: float
     cash: CashOut
@@ -414,6 +450,15 @@ class LaunchUpsert(BaseModel):
     pace_model: str | None = None
     pace_tolerance: float | None = None
     won_grace_days: int | None = None
+    goal_basis: str | None = None
+    seat_goal: int | None = None
+    shift_name: str | None = None
+    shift_event_date: str | None = None
+    shift_goal: int | None = None
+    shift_reg_tag: str | None = None
+    shift_actual: int | None = None
+    shift_pace_curve: dict | None = None
+    shift_pace_tolerance: float | None = None
     stage_map: dict | None = None
     payment_plan_map: dict | None = None
     is_active: bool | None = None

@@ -550,6 +550,19 @@ class Launch(Base):
     pace_model: Mapped[str] = mapped_column(String(10), default="linear")      # linear | curve
     pace_tolerance: Mapped[Decimal] = mapped_column(Numeric(4, 3), default=Decimal("0.100"))  # fraction of goal
     won_grace_days: Mapped[int] = mapped_column(Integer, default=7)            # won-date guard slack past window
+    # Goal basis: "arr" → seat_target = ceil(goal_arr/blended); "seats" → seat_target = seat_goal.
+    goal_basis: Mapped[str] = mapped_column(String(8), default="arr")          # arr | seats
+    seat_goal: Mapped[int | None] = mapped_column(Integer, nullable=True)      # target members when goal_basis=seats
+    # ── The Shift (lead-up webinar) — the top-of-funnel layer that feeds memberships.
+    #    Registrants pace against an empirical cumulative curve (pace_model="curve"), and a
+    #    reg→member ratio (seat_goal / shift_goal) projects the downstream membership goal. ──
+    shift_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    shift_event_date: Mapped[date | None] = mapped_column(Date, nullable=True)          # the "0 days to event" anchor
+    shift_goal: Mapped[int | None] = mapped_column(Integer, nullable=True)              # registrant goal
+    shift_reg_tag: Mapped[str | None] = mapped_column(String(80), nullable=True)        # GHL tag counted as a registrant
+    shift_actual: Mapped[int | None] = mapped_column(Integer, nullable=True)            # manual seed / fallback count
+    shift_pace_curve: Mapped[dict | None] = mapped_column(JSONType, nullable=True)      # {days_to_event: cum_fraction}
+    shift_pace_tolerance: Mapped[Decimal] = mapped_column(Numeric(4, 3), default=Decimal("0.080"))
     stage_map: Mapped[dict] = mapped_column(JSONType)                          # group -> [raw stage substrings]
     payment_plan_map: Mapped[dict] = mapped_column(JSONType)                   # {"pif":[...], "plan":[...]}
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

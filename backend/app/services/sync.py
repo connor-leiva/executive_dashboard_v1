@@ -768,7 +768,11 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
     typed = bool(field_ids.get("member_type"))
     inactive_vocab = tuple(str(x).lower() for x in
                            (cfg.get("inactive_statuses") or _INACTIVE_MEMBER_STATUS))
-    members, regs, financed_contacts = [], [], set()
+    # The active launch's Shift tag (top-of-funnel webinar registrants) — counted live.
+    from .launch import active_launch_for
+    _launch = await active_launch_for(s, tenant_id, biz)
+    shift_tag = (_launch.shift_reg_tag or "").lower().strip() if _launch else ""
+    members, regs, shift_regs, financed_contacts = [], [], [], set()
     n_admin = n_inactive = 0
     for c in contacts:
         tset = set(ghl.contact_tags(c))
@@ -792,7 +796,13 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
         if event_tag and event_tag in tset:
             regs.append({**base, "kind": "bc_registration", "status": "registered",
                          "meta": {"event_tag": event_tag, "guest": not is_member, "contact_id": cid}})
+        if shift_tag and shift_tag in tset:
+            shift_regs.append({**base, "kind": "bc_shift_reg", "status": "registered",
+                               "meta": {"shift_tag": shift_tag, "contact_id": cid, "is_member": is_member}})
     await _ghl_snapshot(s, tenant_id, biz, "bc_member", members)
+    if shift_tag:      # only touch the Shift store when a launch defines the tag
+        await _ghl_snapshot(s, tenant_id, biz, "bc_shift_reg", shift_regs)
+        print(f"[ghl_bc] Shift '{shift_tag}': {len(shift_regs)} registrants", flush=True)
     # contact_id → payment plan from the field, so opps below prefer it over the tag.
     plan_by_contact = {m["external_id"]: (m["meta"]["membership"].get("payment"))
                        for m in members if (m["meta"]["membership"] or {}).get("payment")}
