@@ -5,8 +5,8 @@ Additive per SPEC-becollective-launch Section 6: one Launch config row per cohor
 Idempotent (guards) so it is safe to re-run; local/SQLite builds its schema from
 create_all, so this migration matters for Postgres (prod).
 
-Revision ID: 0014_becollective_launch
-Revises: 0013_books_init
+Revision ID: 0018_becollective_launch
+Revises: 0017_obligation_ai_summary
 Create Date: 2026-07-27
 """
 from typing import Sequence, Union
@@ -16,8 +16,8 @@ import sqlalchemy as sa
 
 from app.dbtypes import GUID, JSONType
 
-revision: str = "0014_becollective_launch"
-down_revision: Union[str, None] = "0013_books_init"
+revision: str = "0018_becollective_launch"
+down_revision: Union[str, None] = "0017_obligation_ai_summary"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
