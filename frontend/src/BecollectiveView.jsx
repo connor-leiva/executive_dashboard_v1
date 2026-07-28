@@ -3,7 +3,7 @@
    active launch exists (SPEC-becollective-launch §2: no empty shell). */
 import { useEffect, useState } from "react";
 import ForumView from "./ForumView.jsx";
-import LaunchSection from "./LaunchSection.jsx";
+import LaunchSection, { LaunchEmpty } from "./LaunchSection.jsx";
 import { useLaunch } from "./useLaunch.js";
 import { T } from "./theme.js";
 
@@ -28,12 +28,14 @@ export default function BecollectiveView({ data, area, onDrill, deckSlots, drill
                                           rosterKey = "bc_roster", role }) {
   const [page, setPage] = useState("overview");
   const launch = useLaunch(drillBusiness);
-  const hasLaunch = launch.exists && (launch.data || launch.loading);
+  const isEditor = !role || role === "owner" || role === "admin";
+  // Editors always get the Launch tab (to create one); everyone else only when it exists.
+  const showLaunchTab = (launch.exists && (launch.data || launch.loading)) || isEditor;
 
-  // If the launch disappears (404) while the Launch tab is open, fall back to Overview.
+  // If the launch is absent AND the user can't create one, fall back to Overview.
   useEffect(() => {
-    if (page === "launch" && launch.exists === false) setPage("overview");
-  }, [page, launch.exists]);
+    if (page === "launch" && launch.exists === false && !isEditor) setPage("overview");
+  }, [page, launch.exists, isEditor]);
 
   const overview = (
     <ForumView key="becollective" data={data} area={area} onDrill={onDrill}
@@ -41,13 +43,20 @@ export default function BecollectiveView({ data, area, onDrill, deckSlots, drill
       drillBusiness={drillBusiness} rosterKey={rosterKey} />
   );
 
+  let launchPane = overview;
+  if (page === "launch") {
+    if (launch.data) {
+      launchPane = <LaunchSection data={launch.data} usingSample={launch.usingSample} role={role}
+        businessKey={drillBusiness} onSaved={launch.reload} />;
+    } else if (launch.exists === false && isEditor) {
+      launchPane = <LaunchEmpty businessKey={drillBusiness} onCreated={launch.reload} />;
+    }
+  }
+
   return (
     <div>
-      <SubNav page={page} setPage={setPage} hasLaunch={hasLaunch} />
-      {page === "launch" && launch.data
-        ? <LaunchSection data={launch.data} usingSample={launch.usingSample} role={role}
-            businessKey={drillBusiness} onSaved={launch.reload} />
-        : overview}
+      <SubNav page={page} setPage={setPage} hasLaunch={showLaunchTab} />
+      {launchPane}
     </div>
   );
 }

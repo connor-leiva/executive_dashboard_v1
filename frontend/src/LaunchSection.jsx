@@ -8,7 +8,73 @@
 import { useMemo, useState } from "react";
 import { T, alpha } from "./theme.js";
 import { SpringSignature } from "./Brand.jsx";
-import { putJSON } from "./api.js";
+import { putJSON, postJSON } from "./api.js";
+
+/* The August 2026 cohort template — the create payload for the "New launch" button.
+   Prices are provisional ($12k/$14k → ~$1.3M at 100 members); set the real price after. */
+export const AUGUST_TEMPLATE = {
+  name: "August 2026 Cohort", program: "beCollective",
+  event_start: "2026-08-11", event_end: "2026-08-13",
+  window_start: "2026-08-11", window_end: "2026-09-12",
+  goal_arr: 1000000, ticket_pif: 12000, ticket_plan: 14000, plan_installments: 12, mix_pif: 0.5,
+  pipeline_match: "Be Collective August 2026 Sales Funnel", cohort_value: "Aug 2026",
+  goal_basis: "seats", seat_goal: 100,
+  shift_name: "The Shift", shift_event_date: "2026-08-11", shift_goal: 2000,
+  shift_reg_tag: "the shift", shift_actual: 175, shift_pace_tolerance: 0.08,
+  shift_pace_curve: { "14": 0.19, "13": 0.22, "12": 0.247, "11": 0.275, "10": 0.309, "9": 0.348,
+    "8": 0.39, "7": 0.432, "6": 0.481, "5": 0.584, "4": 0.67, "3": 0.734, "2": 0.801, "1": 0.864, "0": 0.94 },
+};
+
+/* Empty state shown to owners/admins when no launch exists yet — one click to stand up
+   the August cohort (uses the current session; no terminal, no credentials to handle). */
+export function LaunchEmpty({ businessKey = "springb", onCreated }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [tag, setTag] = useState(AUGUST_TEMPLATE.shift_reg_tag);
+  const box = { fontFamily: "Inter,sans-serif", color: T.ink };
+  async function create() {
+    setBusy(true); setErr(null);
+    try {
+      await postJSON(`/businesses/${businessKey}/launches`, { ...AUGUST_TEMPLATE, shift_reg_tag: tag.trim() || null });
+      onCreated && onCreated();
+    } catch (e) {
+      setErr(e.detail || e.message || "Create failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div style={{ ...box, maxWidth: 620, margin: "8px auto", background: T.white, border: `1px solid ${T.line}`,
+      borderRadius: 16, padding: "28px 30px", boxShadow: `0 12px 30px ${alpha(T.evergreen, 0.06)}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <span style={{ width: 4, height: 20, borderRadius: 2, background: T.petal }} />
+        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 600 }}>Set up the August 2026 launch</span>
+      </div>
+      <p style={{ fontSize: 13, color: T.slate, lineHeight: 1.6, margin: "6px 0 18px" }}>
+        Stands up the beCollective August cohort: goal <b>100 members</b> (~$1M), the lead-up webinar
+        <b> The Shift</b> (2,000 registrants, pacing on your empirical curve), and the five-stage sales funnel.
+        You can fine-tune everything afterward in ⚙ Launch settings.
+      </p>
+      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.secondary, marginBottom: 5 }}>
+        GHL Shift registration tag
+      </label>
+      <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="the shift"
+        style={{ width: "100%", border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px",
+          fontFamily: "inherit", fontSize: 13, color: T.ink, background: T.white, boxSizing: "border-box" }} />
+      <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>
+        Contacts with this tag are counted as registrants (live). Until the tag syncs, a manual seed of 175 shows.
+      </div>
+      {err && <div style={{ fontSize: 12, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+        <button onClick={create} disabled={busy} style={{ fontFamily: "inherit", fontSize: 13, fontWeight: 600,
+          borderRadius: 9, padding: "10px 18px", border: "none", cursor: busy ? "default" : "pointer",
+          background: busy ? T.muted : T.evergreen, color: T.onDark }}>
+          {busy ? "Creating…" : "Create August launch"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const kMoney = (n) => {
   const a = Math.abs(Math.round(n));
