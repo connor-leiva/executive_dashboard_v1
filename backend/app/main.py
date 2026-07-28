@@ -9,7 +9,7 @@ from .config import settings
 from .db import engine
 from .models import Base
 from .tenancy import resolve_tenant
-from .routers import auth, dashboard, businesses, integrations, users, assistant, books, binder
+from .routers import auth, dashboard, businesses, integrations, users, assistant, books, binder, launches
 
 log = logging.getLogger("app")
 
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(assistant.router, prefix="/api/v1")
     app.include_router(books.router, prefix="/api/v1")
     app.include_router(binder.router, prefix="/api/v1")
+    app.include_router(launches.router, prefix="/api/v1")
 
     @app.get("/health")
     async def health():

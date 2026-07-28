@@ -9,6 +9,7 @@ import AuditDrawer from "./AuditDrawer.jsx";
 import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
 import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
+import BecollectiveView from "./BecollectiveView.jsx";
 import Books from "./books/Books.jsx";
 import Binder from "./Binder.jsx";
 import Assistant from "./Assistant.jsx";
@@ -1132,8 +1133,8 @@ export default function CommandCenter() {
     ? <ForumView key="forum" data={forum.data} area={areas?.forum} onDrill={onDrill} />
     : <SkeletonDashboard />;
   else if (activeView === "becollective") content = becollective.data
-    ? <ForumView key="becollective" data={becollective.data} area={areas?.becollective} onDrill={onDrill}
-        title="beCollective" subtitle="Community" deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="bc_roster" />
+    ? <BecollectiveView data={becollective.data} area={areas?.becollective} onDrill={onDrill}
+        deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="bc_roster" role={user?.role} />
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;

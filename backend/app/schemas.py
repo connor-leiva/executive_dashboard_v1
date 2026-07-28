@@ -306,3 +306,114 @@ class FinancialsResponse(BaseModel):
     expense_run_rate_source: str
     lenses: dict                 # {"live": LiveLens, "projection": ProjectionLens, "booked": BookedLens}
     reconciliation: Reconciliation
+
+
+# ── beCollective Launch section (SPEC-becollective-launch §8) ────────────────
+class LaunchConfigOut(BaseModel):
+    name: str
+    program: str
+    event_start: str | None = None
+    event_end: str | None = None
+    window_start: str
+    window_end: str
+    goal_arr: float
+    ticket_pif: float
+    ticket_plan: float
+    plan_installments: int
+    mix_pif: float
+    pipeline_match: str
+    cohort_value: str | None = None
+    pace_model: str
+    pace_tolerance: float
+
+
+class FunnelStage(BaseModel):
+    key: str
+    label: str
+    owner: str
+    count: int
+    tag: str | None = None
+
+
+class LaunchGroup(BaseModel):
+    pif: int
+    plan: int
+    seats: int
+    arr: float
+
+
+class DecidingGroup(BaseModel):
+    count: int
+    arr: float
+
+
+class PaceOut(BaseModel):
+    expected_arr: float
+    gap_arr: float
+    state: str
+
+
+class CashOut(BaseModel):
+    collected: float
+    source: str
+
+
+class MomentumOut(BaseModel):
+    optins: list[int]
+    calls: list[int]
+    closes: list[int]
+    calls_source: str
+
+
+class SideOut(BaseModel):
+    no_show: int
+    nurture: int
+
+
+class LaunchResponse(BaseModel):
+    id: str
+    launch: LaunchConfigOut
+    status: str
+    as_of: str
+    window_days: int
+    days_elapsed: int
+    days_remaining: int
+    days_to_open: int
+    blended_seat: float
+    seat_target: int
+    enrolled: LaunchGroup
+    committed: LaunchGroup
+    deciding: DecidingGroup
+    funnel: list[FunnelStage]
+    side: SideOut
+    pace: PaceOut
+    pct_to_goal: float
+    seats_remaining: int
+    arr_remaining: float
+    cash: CashOut
+    momentum: MomentumOut
+    warnings: list[str]
+
+
+class LaunchUpsert(BaseModel):
+    """Create/edit a launch. All optional so PUT is a partial patch; POST validates the
+    required set in the route."""
+    name: str | None = None
+    program: str | None = None
+    event_start: str | None = None
+    event_end: str | None = None
+    window_start: str | None = None
+    window_end: str | None = None
+    goal_arr: float | None = None
+    ticket_pif: float | None = None
+    ticket_plan: float | None = None
+    plan_installments: int | None = None
+    mix_pif: float | None = None
+    pipeline_match: str | None = None
+    cohort_value: str | None = None
+    pace_model: str | None = None
+    pace_tolerance: float | None = None
+    won_grace_days: int | None = None
+    stage_map: dict | None = None
+    payment_plan_map: dict | None = None
+    is_active: bool | None = None

@@ -651,6 +651,81 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     return n_records
 
 
+async def snapshot_launch_opps(s: AsyncSession, tenant_id, biz, opps: list[dict],
+                               stage_name: dict, pipeline_name: dict, plan_by_contact: dict,
+                               financed_contacts: set, location_id: str = "",
+                               today: dt.date | None = None) -> int:
+    """Section 7 — snapshot the active launch's opportunities into bc_launch_opp records
+    (delete-then-insert, scoped by meta.launch_id) + upsert this ISO week's LaunchWeekly.
+    Read-only against GHL; classification is stage_map-driven (no stage literals here).
+    Returns the number of launch-opp records written (0 when no active launch)."""
+    from .launch import active_launch_for, classify_stage, classify_payment
+    from ..models import LaunchWeekly
+
+    today = today or dt.date.today()
+    launch = await active_launch_for(s, tenant_id, biz, today)
+    if not launch:
+        return 0
+
+    match = (launch.pipeline_match or "").lower().strip()   # only the launch's own pipeline
+    lid = str(launch.id)
+    stage_map = launch.stage_map or {}
+    ppm = launch.payment_plan_map or {}
+    grace = dt.timedelta(days=launch.won_grace_days or 0)
+
+    rows, wk_optins, wk_calls, wk_closes, enrolled_cum = [], 0, 0, 0, 0
+    monday = today - dt.timedelta(days=today.weekday())
+    for o in opps:
+        pname = (pipeline_name.get(o.get("pipelineId")) or "").lower()
+        if match and match not in pname:
+            continue
+        stage = (stage_name.get(o.get("pipelineStageId")) or "").strip()
+        group, app_in = classify_stage(stage, stage_map)
+        cid = str(o.get("contactId") or "")
+        financed = cid in financed_contacts
+        pay = None
+        if group in ("committed", "enrolled"):
+            pay = classify_payment(plan_by_contact.get(cid), financed, ppm, stage.lower())
+        won = _parse_ghl_dt(o.get("lastStatusChangeAt"))
+        if group == "enrolled" and won and not (launch.window_start <= won <= launch.window_end + grace):
+            continue                       # won outside this cohort's window → not ours
+        rows.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="ghl", kind="bc_launch_opp",
+            external_id=str(o.get("id")), name=(ghl.opp_name(o) or "")[:200],
+            status=o.get("status") or "open",
+            source_url=ghl.contact_url(location_id, o.get("contactId")),
+            occurred_on=won,
+            meta={"launch_id": lid, "group": group, "payment_type": pay, "app_in": app_in,
+                  "stage": stage, "contact_id": cid}))
+        created = _parse_ghl_dt(o.get("createdAt") or o.get("dateAdded"))
+        if group == "enrolled":
+            enrolled_cum += 1
+            if won and won >= monday:
+                wk_closes += 1
+        if created and created >= monday:
+            if group == "leads":
+                wk_optins += 1
+            elif group in ("booked", "deciding"):
+                wk_calls += 1
+
+    await _ghl_snapshot(s, tenant_id, biz, "bc_launch_opp", rows)
+
+    # Upsert this ISO week's momentum row (calls are a proxy until real appointments wire in).
+    existing = (await s.execute(select(LaunchWeekly).where(
+        LaunchWeekly.launch_id == launch.id, LaunchWeekly.week_start == monday))).scalar_one_or_none()
+    if existing:
+        existing.optins, existing.calls, existing.closes = wk_optins, wk_calls, wk_closes
+        existing.enrolled_cum, existing.calls_source = enrolled_cum, "proxy"
+    else:
+        s.add(LaunchWeekly(tenant_id=tenant_id, launch_id=launch.id, week_start=monday,
+                           optins=wk_optins, calls=wk_calls, closes=wk_closes,
+                           enrolled_cum=enrolled_cum, calls_source="proxy"))
+    await s.commit()
+    print(f"[ghl_bc] launch '{launch.name}': {len(rows)} opps snapshotted "
+          f"(week {monday}: {wk_optins} opt-ins, {wk_closes} closes)", flush=True)
+    return len(rows)
+
+
 async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
     """Snapshot beCollective from its OWN Go High Level location into bc_* metric
     records. beCollective is a separate GHL account (own location + token), and a
@@ -732,6 +807,7 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
     try:
         pipelines = await ghl.get_pipelines(token, location_id)
         stage_name = {st.get("id"): st.get("name") for p in pipelines for st in (p.get("stages") or [])}
+        pipeline_name = {p.get("id"): p.get("name") for p in pipelines}
         sales_ids = {p.get("id") for p in pipelines if sales_match in (p.get("name") or "").lower()}
         stage_pos = {st.get("id"): i for p in pipelines if p.get("id") in sales_ids
                      for i, st in enumerate(p.get("stages") or [])}
@@ -766,8 +842,12 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
         fin = sum(1 for m in memberships if m["meta"]["payment"] == "monthly")
         print(f"[ghl_bc] {len(memberships)} memberships (value ${value:,.0f}, {fin} financed), "
               f"{len(onboarded)} onboarded, {len(recruiting)} recruiting", flush=True)
+        # Launch section (Section 7): snapshot the active cohort launch's pipeline opps.
+        n_records += await snapshot_launch_opps(
+            s, tenant_id, biz, opps, stage_name, pipeline_name, plan_by_contact,
+            financed_contacts, location_id=location_id)
     except Exception as e:  # noqa: BLE001 — opportunities scope optional
-        print(f"[ghl_bc] opportunities skipped: {e}", flush=True)
+        print(f"[ghl_bc] opportunities/launch skipped: {e}", flush=True)
 
     return n_records
 

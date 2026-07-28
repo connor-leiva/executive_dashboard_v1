@@ -20,6 +20,7 @@ export const T = {
   line: "#EAE1D6",         // hairline
   white: "#FFFFFF",
   petal: "#FFBA9F",
+  petalDeep: "#E08863",    // deeper petal — pre-window pill, plan accents, focus rings
   poppy: "#FA8069",
   poppyActive: "#F74926",
   poppyText: "#D92B08",    // gap / danger text
@@ -39,6 +40,14 @@ export const STATUS = {
   healthy: { dot: T.meadow, text: T.tertiary, label: "Healthy" },
   watch: { dot: T.poppy, text: T.poppyText, label: "Watch" },
   opportunity: { dot: T.teal, text: T.teal, label: "Opportunity" },
+};
+
+// A brand token (or any #rrggbb) as an rgba() string — lets translucent overlays derive
+// from the palette instead of hardcoding rgb triples.
+export const alpha = (hex, a) => {
+  const h = String(hex).replace("#", "");
+  const n = parseInt(h.length === 3 ? h.replace(/./g, "$&$&") : h, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
 
 export const usd = (n) => "$" + Math.abs(Math.round(n)).toLocaleString("en-US");

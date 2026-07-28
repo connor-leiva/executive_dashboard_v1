@@ -1,0 +1,576 @@
+/* beCollective — Launch section (production).
+
+   Ports the mockup's instrument to the live payload (SPEC-becollective-launch §3/§8): all
+   derivation is server-side (compute_launch), colors come from theme.js tokens, and the
+   hero watermark is the production Spring mark (SpringSignature) rather than a mocked
+   script wordmark. ARR ("annualized revenue added" — Spring's loose usage) is the headline;
+   cash collected is a demoted line. The settings drawer PUTs config and refetches. */
+import { useMemo, useState } from "react";
+import { T, alpha } from "./theme.js";
+import { SpringSignature } from "./Brand.jsx";
+import { putJSON } from "./api.js";
+
+const kMoney = (n) => {
+  const a = Math.abs(Math.round(n));
+  if (a >= 1_000_000) return `$${(a / 1_000_000).toFixed(a % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (a >= 1_000) return `$${Math.round(a / 1000)}K`;
+  return `$${a}`;
+};
+const parse = (s) => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
+const fmtDate = (s) => (s ? parse(s).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—");
+
+/* ── the signature instrument: goal bar with a soft linear-pace reference ── */
+function GoalBar({ cfg, D }) {
+  const fill = Math.min(100, D.pctToGoal * 100);
+  const committedEnd = Math.min(100, D.committedPct * 100);
+  const paceLeft = Math.min(100, D.prop * 100);
+  return (
+    <div className="gb">
+      <div className="gb-track">
+        <span className="gb-committed" style={{ width: `${committedEnd}%` }} />
+        <span className="gb-fill" style={{ width: `${fill}%` }} />
+        {!D.isPre && <span className="gb-pace" style={{ left: `${paceLeft}%` }} title="Linear on-pace reference for today" />}
+        <span className="gb-goalcap" />
+      </div>
+      <div className="gb-legend">
+        <span><i className="d meadow" />Enrolled <b>{kMoney(D.enrolledArr)}</b></span>
+        <span><i className="d meadowLt" />Committed <b>{kMoney(D.committedArr)}</b></span>
+        {!D.isPre && <span><i className="tick" />On-pace <b>{kMoney(D.expectedArr)}</b></span>}
+        <span className="right"><i className="d goal" />Goal <b>{kMoney(cfg.goal_arr)}</b></span>
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, sub, tone }) {
+  return (
+    <div className="ms">
+      <div className="ms-l">{label}</div>
+      <div className={`ms-v ${tone || ""}`}>{value}</div>
+      {sub && <div className="ms-s">{sub}</div>}
+    </div>
+  );
+}
+
+/* ── funnel: active-pipeline bars + enrolled outcome + off-funnel side chips ── */
+function Funnel({ cfg, data, D }) {
+  const active = data.funnel;
+  const max = Math.max(1, ...active.map((s) => s.count));
+  return (
+    <div className="fn">
+      <div className="fn-head">
+        <span className="fn-title">Active pipeline</span>
+        <span className="fn-sub">live count by stage · {cfg.pipeline_match}</span>
+      </div>
+      {active.map((s) => (
+        <div key={s.key} className="fr">
+          <div className="fr-top">
+            <span className="fr-label">{s.label}<em className="fr-owner">{s.owner}</em></span>
+            <span className="fr-n">{s.count}</span>
+          </div>
+          <div className="fr-bar"><span style={{ width: `${(s.count / max) * 100}%` }} /></div>
+          {s.tag && <div className={`fr-tag ${s.key === "deciding" ? "teal" : ""}`}>{s.tag}</div>}
+        </div>
+      ))}
+
+      <div className="fn-out">
+        <div className="fn-out-top">
+          <span className="fn-out-label"><i className="d meadow" />Enrolled</span>
+          <span className="fn-out-n">{D.enrolledSeats}<em>/ {D.seatTarget} seats</em></span>
+        </div>
+        <div className="fn-out-bar"><span style={{ width: `${Math.min(100, (D.enrolledSeats / D.seatTarget) * 100)}%` }} /></div>
+        <div className="fn-out-sub"><b>{kMoney(D.enrolledArr)}</b> ARR added · {Math.round(D.pctToGoal * 100)}% of goal · {D.seatsRemaining} seats to go</div>
+      </div>
+
+      <div className="side">
+        <div className="side-chip">
+          <span className="side-n">{data.side.no_show}</span>
+          <span className="side-l">awaiting rebook</span>
+          <span className="side-note">no-show / cancel — a real lever, not a dead end</span>
+        </div>
+        <div className="side-chip">
+          <span className="side-n">{data.side.nurture}</span>
+          <span className="side-l">warm reserve</span>
+          <span className="side-note">future-cohort nurture — the pool to re-engage</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* hand-rolled sparkline (no deps) */
+function Spark({ data, up }) {
+  const w = 64, h = 20, max = Math.max(1, ...data), min = Math.min(...data);
+  const rng = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = (i / Math.max(1, data.length - 1)) * (w - 2) + 1;
+    const y = h - 2 - ((v - min) / rng) * (h - 4);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return (
+    <svg width={w} height={h} className="spark" aria-hidden="true">
+      <polyline points={pts} fill="none" stroke={up ? T.meadow : T.slate} strokeWidth="1.6"
+        strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Momentum({ mom }) {
+  const rows = [
+    { label: "New opt-ins", series: mom.optins },
+    { label: mom.calls_source === "appointments" ? "Calls held" : "Calls held", series: mom.calls },
+    { label: "Closes", series: mom.closes },
+  ].filter((r) => (r.series || []).length);
+  if (!rows.length) return null;
+  return (
+    <div className="mom">
+      <div className="mom-head">
+        <span className="mom-title">Momentum</span>
+        <span className="mom-sub">this week vs last · {rows[0].series.length}-week trend{mom.calls_source === "proxy" ? " · calls are a proxy" : ""}</span>
+      </div>
+      <div className="mom-grid">
+        {rows.map((r) => {
+          const cur = r.series[r.series.length - 1];
+          const prev = r.series.length > 1 ? r.series[r.series.length - 2] : cur;
+          const delta = cur - prev;
+          const up = delta > 0, flat = delta === 0;
+          return (
+            <div key={r.label} className="mom-cell">
+              <div className="mom-l">{r.label}</div>
+              <div className="mom-row">
+                <span className="mom-v">{cur}</span>
+                <span className={`mom-d ${up ? "up" : flat ? "flat" : "dn"}`}>
+                  {up ? "▲" : flat ? "—" : "▼"} {flat ? "" : Math.abs(delta)}
+                </span>
+              </div>
+              <div className="mom-foot">
+                <Spark data={r.series} up={up} />
+                <span className="mom-prev">was {prev}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CashLine({ cfg, D, cash }) {
+  const pct = D.enrolledArr ? Math.min(100, (cash.collected / D.enrolledArr) * 100) : 0;
+  return (
+    <div className="cash">
+      <div className="cash-top">
+        <span className="cash-l">Cash collected{cash.source === "estimate" ? " · est." : ""}</span>
+        <span className="cash-v"><b>{kMoney(cash.collected)}</b> <em>of {kMoney(D.enrolledArr)} enrolled</em></span>
+      </div>
+      <div className="cash-bar"><span className="cash-fill" style={{ width: `${pct}%` }} /></div>
+      <div className="cash-note">
+        PIF lands in full at enrollment; plan seats add ~{kMoney(cfg.ticket_plan / (cfg.plan_installments || 1))}/mo over {cfg.plan_installments}.
+        Balance arrives across the schedule — <em>secondary to ARR</em>.
+      </div>
+    </div>
+  );
+}
+
+/* ── settings drawer: the configurable surface (owner/admin) ── */
+function Field({ label, children, hint }) {
+  return (
+    <label className="fld">
+      <span className="fld-l">{label}</span>
+      {children}
+      {hint && <span className="fld-h">{hint}</span>}
+    </label>
+  );
+}
+
+const STAGE_ROWS = [
+  ["Leads", "marketing", "opt in"],
+  ["Booked", "setters", "scheduled appointment"],
+  ["Deciding", "closers", "needs decision"],
+  ["Committed", "payment ops", "payment sent"],
+  ["Enrolled", "won", "payment received · won: onboarded"],
+];
+
+function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSaved }) {
+  // Local editable copy; mix stored as a fraction on the server, edited as a percent here.
+  const [f, setF] = useState({
+    name: cfg.name, window_start: cfg.window_start, window_end: cfg.window_end,
+    event_end: cfg.event_end || "", goal_arr: cfg.goal_arr, ticket_pif: cfg.ticket_pif,
+    ticket_plan: cfg.ticket_plan, plan_installments: cfg.plan_installments,
+    mix_pct: Math.round((cfg.mix_pif || 0) * 100), pipeline_match: cfg.pipeline_match,
+    cohort_value: cfg.cohort_value || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = (patch) => setF((c) => ({ ...c, ...patch }));
+
+  const mixPif = f.mix_pct / 100;
+  const blended = mixPif * f.ticket_pif + (1 - mixPif) * f.ticket_plan;
+  const seatTarget = blended > 0 ? Math.max(1, Math.ceil(f.goal_arr / blended)) : 0;
+
+  async function save() {
+    setSaving(true); setErr(null);
+    try {
+      await putJSON(`/businesses/${businessKey}/launches/${launchId}`, {
+        name: f.name, window_start: f.window_start, window_end: f.window_end,
+        event_end: f.event_end || null, goal_arr: f.goal_arr, ticket_pif: f.ticket_pif,
+        ticket_plan: f.ticket_plan, plan_installments: f.plan_installments,
+        mix_pif: mixPif, pipeline_match: f.pipeline_match, cohort_value: f.cohort_value || null,
+      });
+      onSaved && onSaved();
+      onClose();
+    } catch (e) {
+      setErr(e.detail || e.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="drawer">
+      <div className="dr-head">
+        <span className="dr-title">Launch settings</span>
+        <button className="dr-x" onClick={onClose} aria-label="Close settings">✕</button>
+      </div>
+      <div className="dr-body">
+        <div className="dr-sec">Cohort</div>
+        <Field label="Launch name">
+          <input className="in" value={f.name} onChange={(e) => set({ name: e.target.value })} />
+        </Field>
+        <div className="grid2">
+          <Field label="Cart opens" hint="= launch event start">
+            <input className="in" type="date" value={f.window_start} onChange={(e) => set({ window_start: e.target.value })} />
+          </Field>
+          <Field label="Cart closes" hint="event end + open days">
+            <input className="in" type="date" value={f.window_end} onChange={(e) => set({ window_end: e.target.value })} />
+          </Field>
+        </div>
+        <Field label="Launch event ends" hint="the live event window">
+          <input className="in" type="date" value={f.event_end} onChange={(e) => set({ event_end: e.target.value })} />
+        </Field>
+
+        <div className="dr-sec">Goal &amp; pricing</div>
+        <Field label="ARR goal" hint={`${seatTarget} seats at ${kMoney(blended)} blended`}>
+          <div className="in-money"><span>$</span>
+            <input className="in" type="number" step="10000" value={f.goal_arr}
+              onChange={(e) => set({ goal_arr: Math.max(0, +e.target.value) })} />
+          </div>
+        </Field>
+        <div className="grid2">
+          <Field label="PIF price">
+            <div className="in-money"><span>$</span>
+              <input className="in" type="number" step="500" value={f.ticket_pif}
+                onChange={(e) => set({ ticket_pif: Math.max(0, +e.target.value) })} />
+            </div>
+          </Field>
+          <Field label="Plan total">
+            <div className="in-money"><span>$</span>
+              <input className="in" type="number" step="500" value={f.ticket_plan}
+                onChange={(e) => set({ ticket_plan: Math.max(0, +e.target.value) })} />
+            </div>
+          </Field>
+        </div>
+        <Field label={`Assumed mix — ${f.mix_pct}% PIF / ${100 - f.mix_pct}% plan`}
+          hint="assumption for the seat target; actuals come from real counts">
+          <input className="range" type="range" min="0" max="100" step="5" value={f.mix_pct}
+            onChange={(e) => set({ mix_pct: +e.target.value })} />
+        </Field>
+        <Field label="Plan installments" hint="Number of Payments — sets the collected-cash curve">
+          <input className="in" type="number" min="1" step="1" value={f.plan_installments}
+            onChange={(e) => set({ plan_installments: Math.max(1, +e.target.value) })} />
+        </Field>
+
+        <div className="dr-sec">Data source</div>
+        <Field label="Pipeline match" hint="which GHL pipeline this launch reads (name or id)">
+          <input className="in" value={f.pipeline_match} onChange={(e) => set({ pipeline_match: e.target.value })} />
+        </Field>
+        <Field label="Cohort field value" hint="stamped on every opp entering Won in the window">
+          <input className="in" value={f.cohort_value} onChange={(e) => set({ cohort_value: e.target.value })} />
+        </Field>
+
+        <div className="dr-sec">Stage grouping <em className="ro">source of truth: stage_map</em></div>
+        <div className="map">
+          {STAGE_ROWS.map(([g, owner, match]) => (
+            <div key={g} className="map-row">
+              <span className="map-g">{g}<em>{owner}</em></span>
+              <span className="map-m">{match}</span>
+            </div>
+          ))}
+        </div>
+        <div className="map-note">No-show, nurture, and lost stages sit outside the funnel by design.</div>
+
+        {err && <div className="dr-err">{err}</div>}
+        <div className="dr-actions">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={save} disabled={saving || !canPersist}
+            title={canPersist ? "" : "Connect the pipeline to edit"}>
+            {saving ? "Saving…" : canPersist ? "Save changes" : "Read-only"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function LaunchSection({ data, usingSample, role, businessKey = "springb", onSaved }) {
+  const [showSettings, setShowSettings] = useState(false);
+  const cfg = data.launch;
+  const isEditor = !role || role === "owner" || role === "admin";
+  const canPersist = isEditor && !usingSample;
+
+  const D = useMemo(() => {
+    const enrolledArr = data.enrolled.arr, committedArr = data.committed.arr;
+    const goal = cfg.goal_arr || 1;
+    return {
+      enrolledArr, committedArr, enrolledSeats: data.enrolled.seats,
+      committedSeats: data.committed.seats, seatTarget: data.seat_target,
+      seatsRemaining: data.seats_remaining, pctToGoal: data.pct_to_goal,
+      committedPct: (enrolledArr + committedArr) / goal,
+      prop: data.window_days ? data.days_elapsed / data.window_days : 0,
+      isPre: data.status === "pre", expectedArr: data.pace.expected_arr,
+      paceGapArr: data.pace.gap_arr,
+    };
+  }, [data, cfg]);
+
+  let pill;
+  if (data.status === "pre") pill = { txt: `Opens ${fmtDate(cfg.window_start)} · ${data.days_to_open}d out`, tone: "pre" };
+  else if (data.days_remaining > 0) pill = { txt: `In launch window · ${data.days_remaining} days left`, tone: "open" };
+  else pill = { txt: "Cart closed", tone: "closed" };
+
+  const paceStat = {
+    onpace: { value: "On pace", sub: `within ${kMoney(Math.abs(D.paceGapArr))} of the line`, tone: "good" },
+    behind: { value: `−${kMoney(D.paceGapArr)}`, sub: "behind the line", tone: "behind" },
+    ahead: { value: `+${kMoney(D.paceGapArr)}`, sub: "ahead of the line", tone: "good" },
+    pending: { value: "—", sub: "cart not yet open", tone: "" },
+  }[data.pace.state] || { value: "—", sub: "", tone: "" };
+
+  return (
+    <div className="bcl">
+      <style>{`
+        .bcl { font-family:Inter,sans-serif; color:${T.ink}; }
+        .bcl * { box-sizing:border-box; }
+        .bcl .mod { max-width:900px; }
+
+        .bcl .ph { display:flex; align-items:center; gap:9px; font-size:11.5px; color:${T.amber};
+          background:${T.amberBg}; border:1px solid ${alpha(T.amber, .3)}; border-radius:9px; padding:8px 13px; margin-bottom:16px; }
+        .bcl .ph b { font-weight:700; } .bcl .ph em { font-style:normal; color:${T.slate}; }
+        .bcl .ph-dot { width:6px; height:6px; border-radius:99px; background:${T.amber}; flex:none; }
+
+        .bcl .ctx { display:flex; align-items:center; gap:11px; margin-bottom:16px; flex-wrap:wrap; }
+        .bcl .ctx-bar { width:4px; height:20px; border-radius:2px; background:${T.petal}; }
+        .bcl .ctx-h { font-family:Poppins,sans-serif; font-size:17px; font-weight:600; letter-spacing:-.01em; }
+        .bcl .ctx-s { font-size:12px; color:${T.muted}; }
+        .bcl .ctx-spacer { flex:1; }
+        .bcl .pill { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:600;
+          border-radius:99px; padding:5px 12px; border:1px solid transparent; }
+        .bcl .pill .pdot { width:7px; height:7px; border-radius:99px; }
+        .bcl .pill.open { color:${T.meadow}; background:${T.meadowBg}; border-color:${alpha(T.meadow, .25)}; }
+        .bcl .pill.open .pdot { background:${T.meadow}; }
+        .bcl .pill.pre { color:${T.petalDeep}; background:${alpha(T.petal, .18)}; border-color:${alpha(T.petalDeep, .3)}; }
+        .bcl .pill.pre .pdot { background:${T.petalDeep}; }
+        .bcl .pill.closed { color:${T.slate}; background:${T.parchment}; border-color:${T.line}; }
+        .bcl .pill.closed .pdot { background:${T.muted}; }
+        .bcl .gear { border:1px solid ${T.line}; background:${T.white}; border-radius:9px; padding:6px 12px;
+          font-size:11.5px; font-weight:600; color:${T.secondary}; cursor:pointer; font-family:inherit;
+          display:inline-flex; align-items:center; gap:6px; transition:border-color .15s ease, background .15s ease; }
+        .bcl .gear:hover { border-color:${T.petal}; background:${T.parchment}; }
+        .bcl .gear.on { border-color:${T.petalDeep}; color:${T.petalDeep}; }
+
+        .bcl .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 24px;
+          background-color:${T.evergreen};
+          background-image:repeating-linear-gradient(90deg, ${alpha(T.white, .05)} 0 1.5px, transparent 1.5px 13px),
+            radial-gradient(135% 135% at 90% -25%, ${alpha(T.petal, .32)} 0%, ${alpha(T.evergreen, 0)} 55%);
+          box-shadow:0 2px 6px ${alpha(T.evergreen, .12)}, 0 18px 40px ${alpha(T.evergreen, .13)}; }
+        .bcl .eyebrow { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.13em;
+          text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; color:${T.petal}; }
+        .bcl .eyebrow .edot { width:8px; height:8px; border-radius:99px; background:${T.petal}; }
+        .bcl .hnum { font-family:Poppins,sans-serif; font-weight:700; letter-spacing:-.025em; color:${T.onDark};
+          line-height:1; margin:12px 0 6px; font-variant-numeric:tabular-nums; font-size:44px; display:flex; align-items:baseline; gap:12px; }
+        .bcl .hnum .of { font-size:15px; font-weight:500; color:${T.onDarkMute}; letter-spacing:0; }
+        .bcl .hdesc { font-size:12.5px; color:${T.onDarkMute}; }
+
+        .bcl .gb { margin-top:20px; }
+        .bcl .gb-track { position:relative; height:11px; border-radius:6px; background:${alpha(T.onDark, .14)}; overflow:visible; }
+        .bcl .gb-committed { position:absolute; left:0; top:0; bottom:0; background:${T.sprout}; opacity:.34; border-radius:6px; }
+        .bcl .gb-fill { position:absolute; left:0; top:0; bottom:0; background:${T.sprout}; border-radius:6px 0 0 6px; }
+        .bcl .gb-pace { position:absolute; top:-4px; bottom:-4px; width:2px; background:${T.onDark};
+          box-shadow:0 0 0 2px ${alpha(T.evergreen, .55)}; }
+        .bcl .gb-pace::after { content:""; position:absolute; top:-4px; left:-3px; width:8px; height:8px;
+          border-radius:99px; background:${T.onDark}; }
+        .bcl .gb-goalcap { position:absolute; right:0; top:-3px; bottom:-3px; width:3px; border-radius:2px; background:${T.petal}; }
+        .bcl .gb-legend { display:flex; gap:18px; margin-top:12px; flex-wrap:wrap; align-items:center; }
+        .bcl .gb-legend span { font-size:11.5px; color:${T.onDarkMute}; display:inline-flex; align-items:center; gap:6px; }
+        .bcl .gb-legend b { color:${T.onDark}; font-weight:600; font-family:Poppins,sans-serif; }
+        .bcl .gb-legend .right { margin-left:auto; }
+        .bcl .gb-legend .d { width:8px; height:8px; border-radius:99px; }
+        .bcl .gb-legend .d.meadow { background:${T.sprout}; }
+        .bcl .gb-legend .d.meadowLt { background:${T.sprout}; opacity:.4; }
+        .bcl .gb-legend .d.goal { background:${T.petal}; }
+        .bcl .gb-legend .tick { width:2px; height:11px; background:${T.onDark}; border-radius:1px; }
+
+        .bcl .hstats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:22px; }
+        .bcl .ms { background:${alpha(T.onDark, .06)}; border:1px solid ${alpha(T.onDark, .12)}; border-radius:11px; padding:11px 13px; }
+        .bcl .ms-l { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:${T.onDarkMute}; }
+        .bcl .ms-v { font-family:Poppins,sans-serif; font-size:19px; font-weight:700; color:${T.onDark}; margin-top:5px;
+          letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+        .bcl .ms-v.behind { color:${T.petal}; }
+        .bcl .ms-v.good { color:${T.sprout}; }
+        .bcl .ms-s { font-size:10.5px; color:${T.onDarkMute}; margin-top:2px; }
+
+        .bcl .card { background:${T.white}; border:1px solid ${T.line}; border-top:none; border-radius:0 0 18px 18px;
+          padding:22px 26px 24px; box-shadow:0 12px 30px ${alpha(T.evergreen, .06)}; }
+
+        .bcl .fn-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; flex-wrap:wrap; gap:4px; }
+        .bcl .fn-title { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:${T.ink}; }
+        .bcl .fn-sub { font-size:11px; color:${T.muted}; }
+        .bcl .fr { margin-bottom:13px; }
+        .bcl .fr-top { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
+        .bcl .fr-label { font-size:12.5px; font-weight:600; color:${T.secondary}; }
+        .bcl .fr-owner { font-style:normal; font-size:10px; font-weight:500; letter-spacing:.04em; text-transform:uppercase;
+          color:${T.muted}; margin-left:8px; }
+        .bcl .fr-n { font-family:Poppins,sans-serif; font-size:15px; font-weight:600; color:${T.ink}; font-variant-numeric:tabular-nums; }
+        .bcl .fr-bar { height:8px; border-radius:5px; background:${T.parchment}; overflow:hidden; }
+        .bcl .fr-bar span { display:block; height:100%; background:${T.teal}; opacity:.55; border-radius:5px; transition:width .4s ease; }
+        .bcl .fr-tag { font-size:11px; color:${T.muted}; margin-top:5px; }
+        .bcl .fr-tag.teal { color:${T.teal}; font-weight:600; }
+
+        .bcl .fn-out { margin-top:16px; padding-top:16px; border-top:1px dashed ${T.line}; }
+        .bcl .fn-out-top { display:flex; justify-content:space-between; align-items:baseline; }
+        .bcl .fn-out-label { font-size:13px; font-weight:700; color:${T.ink}; display:inline-flex; align-items:center; gap:7px; }
+        .bcl .fn-out-label .d { width:9px; height:9px; border-radius:99px; background:${T.meadow}; }
+        .bcl .fn-out-n { font-family:Poppins,sans-serif; font-size:22px; font-weight:700; color:${T.ink}; font-variant-numeric:tabular-nums; }
+        .bcl .fn-out-n em { font-style:normal; font-size:12px; font-weight:500; color:${T.muted}; margin-left:6px; }
+        .bcl .fn-out-bar { height:10px; border-radius:6px; background:${T.parchment}; overflow:hidden; margin:9px 0 7px; }
+        .bcl .fn-out-bar span { display:block; height:100%; background:${T.meadow}; border-radius:6px; transition:width .5s ease; }
+        .bcl .fn-out-sub { font-size:12px; color:${T.slate}; } .bcl .fn-out-sub b { color:${T.meadow}; font-family:Poppins,sans-serif; font-weight:600; }
+
+        .bcl .side { display:grid; grid-template-columns:1fr 1fr; gap:11px; margin-top:18px; }
+        .bcl .side-chip { background:${T.parchment}; border:1px solid ${T.line}; border-radius:11px; padding:12px 14px; }
+        .bcl .side-n { font-family:Poppins,sans-serif; font-size:20px; font-weight:700; color:${T.ink}; }
+        .bcl .side-l { font-size:12px; font-weight:600; color:${T.secondary}; margin-left:7px; }
+        .bcl .side-note { display:block; font-size:10.5px; color:${T.muted}; margin-top:4px; line-height:1.4; }
+
+        .bcl .mom { margin-top:16px; }
+        .bcl .mom-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; flex-wrap:wrap; gap:4px; }
+        .bcl .mom-title { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:${T.ink}; }
+        .bcl .mom-sub { font-size:11px; color:${T.muted}; }
+        .bcl .mom-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:11px; }
+        .bcl .mom-cell { background:${T.white}; border:1px solid ${T.line}; border-radius:11px; padding:12px 13px; }
+        .bcl .mom-l { font-size:11px; font-weight:600; color:${T.slate}; }
+        .bcl .mom-row { display:flex; align-items:baseline; gap:8px; margin-top:4px; }
+        .bcl .mom-v { font-family:Poppins,sans-serif; font-size:22px; font-weight:700; color:${T.ink}; font-variant-numeric:tabular-nums; }
+        .bcl .mom-d { font-size:11px; font-weight:700; }
+        .bcl .mom-d.up { color:${T.meadow}; } .bcl .mom-d.dn { color:${T.petalDeep}; } .bcl .mom-d.flat { color:${T.muted}; }
+        .bcl .mom-foot { display:flex; align-items:center; justify-content:space-between; margin-top:6px; }
+        .bcl .spark { display:block; } .bcl .mom-prev { font-size:10px; color:${T.muted}; }
+
+        .bcl .cash { margin-top:18px; padding-top:16px; border-top:1px solid ${T.line}; }
+        .bcl .cash-top { display:flex; justify-content:space-between; align-items:baseline; }
+        .bcl .cash-l { font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:${T.slate}; }
+        .bcl .cash-v { font-size:13px; color:${T.secondary}; } .bcl .cash-v b { font-family:Poppins,sans-serif; font-weight:600; color:${T.ink}; } .bcl .cash-v em { font-style:normal; color:${T.muted}; }
+        .bcl .cash-bar { height:7px; border-radius:4px; background:${T.parchment}; overflow:hidden; margin:9px 0 7px; }
+        .bcl .cash-fill { display:block; height:100%; background:${T.teal}; opacity:.55; border-radius:4px; }
+        .bcl .cash-note { font-size:11px; color:${T.muted}; line-height:1.5; } .bcl .cash-note em { font-style:normal; color:${T.slate}; font-weight:600; }
+
+        .bcl .drawer { margin-bottom:16px; background:${T.white}; border:1px solid ${T.line}; border-radius:16px;
+          box-shadow:0 12px 30px ${alpha(T.evergreen, .08)}; overflow:hidden; }
+        .bcl .dr-head { display:flex; justify-content:space-between; align-items:center; padding:15px 20px;
+          border-bottom:1px solid ${T.line}; background:${T.parchment}; }
+        .bcl .dr-title { font-family:Poppins,sans-serif; font-size:13px; font-weight:700; color:${T.ink}; }
+        .bcl .dr-x { border:none; background:none; font-size:14px; color:${T.slate}; cursor:pointer; padding:2px 6px; }
+        .bcl .dr-body { padding:18px 20px 22px; }
+        .bcl .dr-sec { font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:${T.petalDeep};
+          margin:18px 0 10px; } .bcl .dr-sec:first-child { margin-top:0; } .bcl .dr-sec .ro { font-weight:500; color:${T.muted}; text-transform:none; letter-spacing:0; font-style:normal; margin-left:8px; }
+        .bcl .fld { display:block; margin-bottom:13px; }
+        .bcl .fld-l { display:block; font-size:11.5px; font-weight:600; color:${T.secondary}; margin-bottom:5px; }
+        .bcl .fld-h { display:block; font-size:10.5px; color:${T.muted}; margin-top:4px; }
+        .bcl .in { width:100%; border:1px solid ${T.line}; border-radius:8px; padding:8px 10px; font-family:inherit;
+          font-size:12.5px; color:${T.ink}; background:${T.white}; }
+        .bcl .in:focus { outline:2px solid ${T.petal}; outline-offset:1px; border-color:${T.petal}; }
+        .bcl .in-money { position:relative; } .bcl .in-money span { position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:12.5px; color:${T.muted}; }
+        .bcl .in-money .in { padding-left:20px; }
+        .bcl .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:11px; }
+        .bcl .range { width:100%; accent-color:${T.petalDeep}; }
+        .bcl .map { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; }
+        .bcl .map-row { display:flex; justify-content:space-between; align-items:center; padding:9px 13px; border-bottom:1px solid ${T.parchment}; }
+        .bcl .map-row:last-child { border-bottom:none; }
+        .bcl .map-g { font-size:12px; font-weight:600; color:${T.secondary}; } .bcl .map-g em { font-style:normal; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:${T.muted}; margin-left:8px; }
+        .bcl .map-m { font-size:11px; color:${T.muted}; }
+        .bcl .map-note { font-size:10.5px; color:${T.muted}; margin-top:8px; }
+        .bcl .dr-err { font-size:11.5px; color:${T.poppyText}; margin-top:12px; }
+        .bcl .dr-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+        .bcl .btn { font-family:inherit; font-size:12px; font-weight:600; border-radius:8px; padding:8px 14px; cursor:pointer; border:1px solid transparent; }
+        .bcl .btn.ghost { background:${T.white}; border-color:${T.line}; color:${T.secondary}; }
+        .bcl .btn.primary { background:${T.evergreen}; color:${T.onDark}; }
+        .bcl .btn.primary:disabled { background:${T.muted}; cursor:not-allowed; }
+
+        @media (prefers-reduced-motion:no-preference){
+          .bcl .edot, .bcl .pill.open .pdot { animation:bcl-pulse 2.2s ease-out infinite; }
+        }
+        @keyframes bcl-pulse { 0%{ box-shadow:0 0 0 0 ${alpha(T.petal, .7)}; } 70%{ box-shadow:0 0 0 5px ${alpha(T.petal, 0)}; } 100%{ box-shadow:0 0 0 0 ${alpha(T.petal, 0)}; } }
+
+        @media (max-width:640px){
+          .bcl .hstats, .bcl .mom-grid { grid-template-columns:1fr; }
+          .bcl .side { grid-template-columns:1fr; }
+          .bcl .grid2 { grid-template-columns:1fr; }
+          .bcl .hnum { font-size:36px; }
+        }
+      `}</style>
+
+      <div className="mod">
+        {usingSample && (
+          <div className="ph">
+            <span className="ph-dot" />
+            <span><b>Sample data.</b> <em>A simulated in-window snapshot. Wires to the “{cfg.pipeline_match}” pipeline on sync.</em></span>
+          </div>
+        )}
+        {!usingSample && data.warnings && data.warnings.length > 0 && (
+          <div className="ph">
+            <span className="ph-dot" />
+            <span><b>Heads up.</b> <em>{data.warnings.join(" · ")}. Check the stage mapping in Launch settings.</em></span>
+          </div>
+        )}
+
+        <div className="ctx">
+          <span className="ctx-bar" />
+          <span className="ctx-h">{cfg.program}</span>
+          <span className="ctx-s">{cfg.name} · Launch · event {fmtDate(cfg.event_start)}–{fmtDate(cfg.event_end)} · cart through {fmtDate(cfg.window_end)}</span>
+          <span className="ctx-spacer" />
+          <span className={`pill ${pill.tone}`}><span className="pdot" />{pill.txt}</span>
+          {isEditor && (
+            <button className={`gear ${showSettings ? "on" : ""}`} onClick={() => setShowSettings((s) => !s)}>
+              ⚙ Launch settings
+            </button>
+          )}
+        </div>
+
+        {showSettings && isEditor && (
+          <SettingsDrawer cfg={cfg} launchId={data.id} businessKey={businessKey} canPersist={canPersist}
+            onClose={() => setShowSettings(false)} onSaved={onSaved} />
+        )}
+
+        <div className="hero">
+          <SpringSignature tone="light" height={40}
+            style={{ position: "absolute", top: 18, right: 24, opacity: 0.14, pointerEvents: "none" }} />
+          <div className="eyebrow"><span className="edot" />ARR added · to goal</div>
+          <div className="hnum">{kMoney(D.enrolledArr)}<span className="of">of {kMoney(cfg.goal_arr)}</span></div>
+          <div className="hdesc">{D.enrolledSeats} of {D.seatTarget} seats enrolled · {data.days_remaining} days left in the cart</div>
+
+          <GoalBar cfg={cfg} D={D} />
+
+          <div className="hstats">
+            <MiniStat label="Days left" value={`${data.days_remaining}d`} sub={`of ${data.window_days}-day cart`} />
+            <MiniStat label="Seats enrolled" value={`${D.enrolledSeats} / ${D.seatTarget}`} sub={`${Math.round(D.pctToGoal * 100)}% of goal`} tone="good" />
+            <MiniStat label="Pace" value={paceStat.value} sub={paceStat.sub} tone={paceStat.tone} />
+          </div>
+        </div>
+
+        <div className="card">
+          <Funnel cfg={cfg} data={data} D={D} />
+          <Momentum mom={data.momentum} />
+          <CashLine cfg={cfg} D={D} cash={data.cash} />
+        </div>
+      </div>
+    </div>
+  );
+}

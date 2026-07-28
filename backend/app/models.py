@@ -523,3 +523,52 @@ class JurisdictionRule(Base):
     last_verified: Mapped[date] = mapped_column(Date, server_default=func.current_date())  # when a human last checked this is current
     source_note: Mapped[str | None] = mapped_column(Text, nullable=True)          # citation / where the rule comes from
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Launch(Base):
+    """A single cohort launch (beCollective) tracked against a revenue goal. Config is
+    tenant-editable; the current metrics are computed on read from synced opportunity
+    data + this config. "ARR" here = annualized revenue ADDED by this cohort (Spring's
+    loose usage), not a recurring subscription — renewals live on the other sections."""
+    __tablename__ = "launch"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    program: Mapped[str] = mapped_column(String(80), default="beCollective")
+    event_start: Mapped[date | None] = mapped_column(Date, nullable=True)      # live event start
+    event_end: Mapped[date | None] = mapped_column(Date, nullable=True)        # live event end
+    window_start: Mapped[date] = mapped_column(Date)                           # cart opens
+    window_end: Mapped[date] = mapped_column(Date)                            # cart closes
+    goal_arr: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    ticket_pif: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    ticket_plan: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    plan_installments: Mapped[int] = mapped_column(Integer, default=12)
+    mix_pif: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("0.50"))   # assumption only
+    pipeline_match: Mapped[str] = mapped_column(String(160))                   # GHL pipeline name or id
+    cohort_value: Mapped[str | None] = mapped_column(String(80), nullable=True)  # Cohort opp-field value
+    pace_model: Mapped[str] = mapped_column(String(10), default="linear")      # linear | curve
+    pace_tolerance: Mapped[Decimal] = mapped_column(Numeric(4, 3), default=Decimal("0.100"))  # fraction of goal
+    won_grace_days: Mapped[int] = mapped_column(Integer, default=7)            # won-date guard slack past window
+    stage_map: Mapped[dict] = mapped_column(JSONType)                          # group -> [raw stage substrings]
+    payment_plan_map: Mapped[dict] = mapped_column(JSONType)                   # {"pif":[...], "plan":[...]}
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class LaunchWeekly(Base):
+    """Rolling weekly momentum store — the one launch metric that needs history (opt-ins,
+    calls, closes, cumulative enrolled). The sync upserts the current ISO-week row."""
+    __tablename__ = "launch_weekly"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    launch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("launch.id", ondelete="CASCADE"), index=True)
+    week_start: Mapped[date] = mapped_column(Date)             # Monday of the ISO week
+    optins: Mapped[int] = mapped_column(Integer, default=0)
+    calls: Mapped[int] = mapped_column(Integer, default=0)
+    calls_source: Mapped[str] = mapped_column(String(16), default="proxy")   # appointments | proxy
+    closes: Mapped[int] = mapped_column(Integer, default=0)
+    enrolled_cum: Mapped[int] = mapped_column(Integer, default=0)  # cumulative enrolled seats at week end
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("launch_id", "week_start", name="uq_launch_week"),)

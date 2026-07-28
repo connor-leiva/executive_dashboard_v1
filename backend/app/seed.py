@@ -19,7 +19,7 @@ from .config import settings
 from .db import SessionLocal, engine
 from .models import (
     Base, Tenant, Domain, User, Business, Integration, Agent, Transaction, Lead,
-    PLSnapshot, CashSnapshot, MetricRecord,
+    PLSnapshot, CashSnapshot, MetricRecord, Launch, LaunchWeekly,
 )
 from .security import hash_pw
 from .services.binder_rules import seed_jurisdiction_rules
@@ -516,6 +516,59 @@ async def seed():
                     status="registered", segment="becollective",
                     meta={"guest": guest, "event_tag": "the shift",
                           "contact_id": (f"bcguest-{i}" if guest else f"bcm-{i+1:03d}")})
+
+            # ── beCollective Launch section — the active August cohort + its pipeline opps
+            #    (SPEC-becollective-launch). The Launch config is tenant-editable; the opps
+            #    below are the illustrative spread that reproduces the spec's sample payload
+            #    (seat_target 77, enrolled $310K, on pace) until the live GHL sync overwrites
+            #    them. bc_launch_opp records carry the resolved group / payment_type. ──
+            from .services.launch import DEFAULT_STAGE_MAP, DEFAULT_PAYMENT_PLAN_MAP
+            aug = Launch(
+                tenant_id=tenant.id, business_id=springb.id, name="August 2026 Cohort",
+                program="beCollective", event_start=dt.date(2026, 8, 11), event_end=dt.date(2026, 8, 13),
+                window_start=dt.date(2026, 8, 11), window_end=dt.date(2026, 9, 12),
+                goal_arr=Decimal(1_000_000), ticket_pif=Decimal(12000), ticket_plan=Decimal(14000),
+                plan_installments=12, mix_pif=Decimal("0.5"),
+                pipeline_match="Be Collective August 2026 Sales Funnel", cohort_value="Aug 2026",
+                stage_map=DEFAULT_STAGE_MAP, payment_plan_map=DEFAULT_PAYMENT_PLAN_MAP, is_active=True)
+            s.add(aug)
+            await s.flush()
+            _lid = str(aug.id)
+            _won = dt.date(2026, 8, 18)         # inside the window
+            _lo = 0
+
+            def _opp(group, payment_type=None, app_in=False):
+                nonlocal _lo
+                _lo += 1
+                _mr(kind="bc_launch_opp", external_id=f"lopp-{_lo:03d}", name=f"Launch Opp {_lo:03d}",
+                    status=("won" if group in ("committed", "enrolled") else "open"),
+                    occurred_on=(_won if group == "enrolled" else None),
+                    meta={"launch_id": _lid, "group": group, "payment_type": payment_type,
+                          "app_in": app_in, "stage": group, "contact_id": f"lc-{_lo}"})
+
+            for _ in range(19):
+                _opp("leads")
+            for i in range(8):
+                _opp("booked", app_in=(i < 5))     # 5 of 8 apps in
+            for _ in range(11):
+                _opp("deciding")
+            for _ in range(2):
+                _opp("committed", "pif")
+            for _ in range(3):
+                _opp("committed", "plan")
+            for _ in range(13):
+                _opp("enrolled", "pif")
+            for _ in range(11):
+                _opp("enrolled", "plan")
+            for _ in range(9):
+                _opp("noshow")
+            for _ in range(32):
+                _opp("nurture")
+            for i, (o, c, cl, cum) in enumerate([(40, 6, 2, 6), (55, 9, 5, 11),
+                                                 (70, 12, 7, 18), (88, 14, 6, 24)]):
+                s.add(LaunchWeekly(tenant_id=tenant.id, launch_id=aug.id,
+                                   week_start=dt.date(2026, 8, 3) + dt.timedelta(days=7 * i),
+                                   optins=o, calls=c, closes=cl, enrolled_cum=cum, calls_source="proxy"))
 
             # ── Sympli (ARIVE) loan pipeline — representative loans so the Sympli
             #    card + 3-signal flywheel render locally. source="arive", kind="loan".
