@@ -419,7 +419,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "count": len(rows), "rows": rows}
 
     # ── beCollective (Go High Level, bc_* kinds) drill-downs ──
-    if key in {"bc_members", "bc_roster", "bc_arr", "bc_registered", "bc_financed", "bc_monthly"}:
+    if key in {"bc_members", "bc_roster", "bc_arr", "bc_registered", "bc_financed",
+               "bc_renewal_book", "bc_renewals_due", "bc_unregistered", "bc_new_members"}:
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
         if not biz:
@@ -518,6 +519,223 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             return {"label": "Registered", "source": "Go High Level",
                     "computed_as": "beCollective members registered for the next event (guests excluded).",
                     "count": len(rows), "rows": rows}
+
+        if key == "bc_new_members":
+            recs = (await s.execute(bcq("onboarded").where(
+                MetricRecord.occurred_on >= start, MetricRecord.occurred_on <= end)
+                .order_by(MetricRecord.occurred_on.desc()))).scalars().all()
+            rows = [{"id": str(r.id), "name": bc_name(r), "seg": "BC",
+                     "status": (r.occurred_on.isoformat() if r.occurred_on else "onboarded"),
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "New Members", "source": "Go High Level",
+                    "computed_as": f"beCollective members onboarded {span()}.",
+                    "count": len(rows), "rows": rows}
+
+        # Renewal book / renewals due — beCollective renewal info is field-driven on the
+        # member (meta.membership.renewal_date), not on a renewals-pipeline opp like the Forum.
+        if key in ("bc_renewal_book", "bc_renewals_due"):
+            members = (await s.execute(bcq("member").where(MetricRecord.status == "active"))).scalars().all()
+            today = dt.date.today()
+            rows = []
+            for m in members:
+                mem = (m.meta or {}).get("membership") or {}
+                rd = mem.get("renewal_date")
+                d = None
+                if rd:
+                    try:
+                        d = dt.date.fromisoformat(str(rd)[:10])
+                    except ValueError:
+                        d = None
+                if not d:
+                    continue
+                if key == "bc_renewals_due":
+                    if (d.year, d.month) != (today.year, today.month):
+                        continue
+                elif not (0 <= (d - today).days <= 90):
+                    continue
+                rows.append({"id": str(m.id), "name": bc_name(m), "seg": "BC",
+                             "l2": f"renews {d.strftime('%b %d')}",
+                             "r1": bc_money(mem.get("total_cost")), "source_url": m.source_url, "_d": d})
+            rows.sort(key=lambda r: r.pop("_d"))
+            if key == "bc_renewals_due":
+                return {"label": "Renewals Due", "source": "Go High Level",
+                        "computed_as": f"beCollective members whose renewal date falls in {today.strftime('%B')}.",
+                        "count": len(rows), "rows": rows}
+            return {"label": "Renewal Book · next 90 days", "source": "Go High Level",
+                    "computed_as": "beCollective members whose renewal date falls in the next 90 days.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "bc_unregistered":
+            members = (await s.execute(bcq("member").where(MetricRecord.status == "active"))).scalars().all()
+            reg_all = (await s.execute(bcq("registration"))).scalars().all()
+            reg_ids = {(r.meta or {}).get("contact_id") for r in reg_all if not (r.meta or {}).get("guest")}
+            recs = sorted((m for m in members if m.external_id not in reg_ids), key=lambda m: (m.name or ""))
+            rows = [{"id": str(m.id), "name": bc_name(m), "seg": "BC", "l2": "beCollective", "r1": "call",
+                     "source_url": m.source_url} for m in recs]
+            return {"label": "Not Yet Registered", "source": "Go High Level",
+                    "computed_as": "Active beCollective members without a registration for the next event — the call list.",
+                    "count": len(rows), "rows": rows}
+
+    # ── beCollective · Cash & Billing drills (its OWN dedicated Stripe account) ──
+    if key in {"bc_payments", "bc_failed_payments", "bc_mrr_subs", "bc_installments",
+               "bc_next30", "bc_streams", "bc_cashflow", "bc_monthly", "bc_pastdue", "bc_mrr"}:
+        from .billing import (is_perpetual, sub_monthly, project_charges,
+                              project_renewals, STREAM_LABELS)
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+
+        async def bcpay(kind):
+            if not biz:
+                return []
+            return (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "stripe_bc", MetricRecord.kind == kind))).scalars().all()
+
+        async def bcrenewals(all_subs):
+            if not biz:
+                return []
+            members = (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind == "bc_member",
+                MetricRecord.status == "active"))).scalars().all()
+            active_emails = {(x.email or "").lower() for x in all_subs if x.status == "active" and x.email}
+            elig = [m for m in members if (m.email or "").lower() not in active_emails]
+            return project_renewals(elig, dt.date.today(), dt.date(dt.date.today().year, 12, 31))
+
+        def money(n):
+            return f"${float(n or 0):,.0f}"
+
+        def nm(r):
+            return (r.name or "").strip() or r.email or r.external_id
+
+        def dlabel(d):
+            return d.strftime("%b %d") if d else None
+
+        def desc_of(p):
+            meta = p.meta or {}
+            return meta.get("entity_source_name") or STREAM_LABELS.get(meta.get("stream"), meta.get("stream"))
+
+        SRC = "Stripe · beCollective"
+
+        if key in ("bc_payments", "bc_streams"):
+            pays = [p for p in await bcpay("payment") if p.occurred_on]
+            if key == "bc_streams" and stream:
+                pays = [p for p in pays if (p.meta or {}).get("stream") == stream]
+            pays.sort(key=lambda p: (p.occurred_on or dt.date.min), reverse=True)
+            rows = [{"id": str(p.id), "name": nm(p),
+                     "tone": "watch" if p.status == "failed" else None,
+                     "l2": " · ".join(x for x in [desc_of(p),
+                                                  (p.status if p.status != "succeeded" else None)] if x),
+                     "r1": money(p.amount), "r2": dlabel(p.occurred_on),
+                     "source_url": p.source_url} for p in pays]
+            if key == "bc_streams":
+                lbl = STREAM_LABELS.get(stream, (stream or "").title() or "Revenue by stream")
+                return {"label": lbl, "source": SRC,
+                        "computed_as": f"Succeeded beCollective Stripe charges classified as {lbl} (net of refunds).",
+                        "count": len(rows), "rows": rows}
+            return {"label": "All transactions", "source": SRC,
+                    "computed_as": "Every charge on the beCollective Stripe account — succeeded, failed, refunded.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "bc_failed_payments":
+            today = dt.date.today()
+            pays = [p for p in await bcpay("payment")
+                    if p.status == "failed" and p.occurred_on
+                    and (p.occurred_on.year, p.occurred_on.month) == (today.year, today.month)]
+            pays.sort(key=lambda p: p.occurred_on, reverse=True)
+            rows = [{"id": str(p.id), "name": nm(p), "tone": "watch",
+                     "l2": "Failed charge · " + (dlabel(p.occurred_on) or ""),
+                     "r1": money(p.amount), "source_url": p.source_url} for p in pays]
+            return {"label": "Failed charges · this month", "source": SRC,
+                    "computed_as": "beCollective card charges that failed this month — the recovery list.",
+                    "count": len(rows), "rows": rows}
+
+        subs = list(await bcpay("subscription"))
+        active_subs = [x for x in subs if x.status == "active"]
+
+        if key in ("bc_mrr_subs", "bc_mrr"):
+            perp = sorted([x for x in active_subs if is_perpetual(x)], key=lambda x: sub_monthly(x), reverse=True)
+            rows = [{"id": str(x.id), "name": nm(x), "seg": "BC", "l2": "Monthly subscription",
+                     "r1": money(sub_monthly(x)) + "/mo", "source_url": x.source_url} for x in perp]
+            return {"label": "Perpetual subscriptions", "source": SRC,
+                    "computed_as": "Active recurring beCollective memberships (installment plans excluded) — the MRR base.",
+                    "count": len(rows), "rows": rows}
+
+        if key == "bc_installments":
+            inst = [x for x in active_subs if not is_perpetual(x)]
+            rows = [{"id": str(x.id), "name": (x.meta or {}).get("plan_name") or nm(x),
+                     "l2": f"{(x.meta or {}).get('installments_collected', 0)} of "
+                           f"{(x.meta or {}).get('installments_total') or '?'} collected",
+                     "r1": money(sub_monthly(x)), "r2": f"final {(x.meta or {}).get('end_date') or '—'}",
+                     "source_url": x.source_url} for x in inst]
+            return {"label": "Installment plans", "source": SRC,
+                    "computed_as": "Finite N-pay beCollective plans — collection progress (kept out of MRR).",
+                    "count": len(rows), "rows": rows}
+
+        if key in ("bc_monthly", "bc_pastdue"):
+            recs = sorted(subs, key=lambda x: -float(x.amount or 0))
+            if key == "bc_pastdue":
+                recs = [x for x in recs if x.status == "past_due"]
+            rows = [{"id": str(x.id), "name": nm(x), "seg": "BC",
+                     "l2": "Monthly · past due" if x.status == "past_due" else "Monthly · current",
+                     "tone": "watch" if x.status == "past_due" else None,
+                     "r1": (f"{money(x.amount)}/mo" if x.amount is not None else "monthly"),
+                     "source_url": x.source_url} for x in recs]
+            label = "Subscriptions Past Due" if key == "bc_pastdue" else "Monthly Subscriptions"
+            how = ("beCollective subscriptions whose most-recent charge failed — the recovery list."
+                   if key == "bc_pastdue" else "All recurring beCollective subscriptions (active + past due).")
+            return {"label": label, "source": SRC, "computed_as": how, "count": len(rows), "rows": rows}
+
+        today = dt.date.today()
+        if key == "bc_cashflow":
+            try:
+                y, mo = int(str(month)[:4]), int(str(month)[5:7])
+            except (TypeError, ValueError):
+                y, mo = today.year, today.month
+            mname = dt.date(y, mo, 1).strftime("%B %Y")
+            month_end = dt.date(y + mo // 12, mo % 12 + 1, 1) - dt.timedelta(days=1)
+            is_past = (y, mo) < (today.year, today.month)
+            is_current = (y, mo) == (today.year, today.month)
+            rows, collected_sum, scheduled_sum = [], 0.0, 0.0
+            if (y, mo) <= (today.year, today.month):
+                pays = [p for p in await bcpay("payment")
+                        if p.occurred_on and (p.occurred_on.year, p.occurred_on.month) == (y, mo)
+                        and p.status == "succeeded"]
+                pays.sort(key=lambda p: (p.occurred_on or dt.date.min), reverse=True)
+                collected_sum = sum(float(p.amount or 0) for p in pays)
+                rows += [{"id": str(p.id), "name": nm(p),
+                          "l2": " · ".join(x for x in [desc_of(p), "collected"] if x),
+                          "r1": money(p.amount), "r2": dlabel(p.occurred_on),
+                          "source_url": p.source_url} for p in pays]
+            if (y, mo) >= (today.year, today.month):
+                sched = [c for c in project_charges(active_subs, today, month_end) + await bcrenewals(subs)
+                         if c["date"][:7] == f"{y}-{mo:02d}"]
+                sched.sort(key=lambda c: c["date"])
+                scheduled_sum = sum(c["amount"] for c in sched)
+                rows += [{"id": f"s{i}", "name": c["who"], "tone": "projected",
+                          "l2": " · ".join(x for x in [c.get("note"), "scheduled"] if x),
+                          "r1": money(c["amount"]), "r2": dlabel(dt.date.fromisoformat(c["date"])),
+                          "source_url": c.get("source_url")} for i, c in enumerate(sched)]
+            if is_past:
+                label, how = f"{mname} · cash collected", f"Succeeded beCollective Stripe charges recorded in {mname} (net of refunds)."
+            elif is_current:
+                label = f"{mname} · collected + scheduled"
+                how = (f"{money(collected_sum)} collected so far + {money(scheduled_sum)} still scheduled "
+                       f"= {money(collected_sum + scheduled_sum)} expected this month.")
+            else:
+                label, how = f"{mname} · projected inflow", f"Charges expected in {mname}: active subscriptions + PIF member renewals."
+            return {"label": label, "source": SRC, "computed_as": how, "count": len(rows), "rows": rows}
+
+        # bc_next30 — forward-billing schedule matching the cash-flow footer
+        d30 = today + dt.timedelta(days=30)
+        sched = project_charges(active_subs, today, d30) + [c for c in await bcrenewals(subs) if c["date"] <= d30.isoformat()]
+        sched.sort(key=lambda c: c["date"])
+        rows = [{"id": f"n{i}", "name": c["who"], "l2": c["note"], "r1": money(c["amount"]),
+                 "r2": dlabel(dt.date.fromisoformat(c["date"])), "source_url": c.get("source_url")}
+                for i, c in enumerate(sched)]
+        return {"label": "Next 30 days", "source": SRC,
+                "computed_as": "Scheduled beCollective charges in the next 30 days: subscriptions + PIF member renewals.",
+                "count": len(rows), "rows": rows}
 
     # ── The Forum · Cash & Billing drills (GHL Payments) ──
     if key in {"forum_payments", "forum_failed_payments", "forum_mrr_subs",

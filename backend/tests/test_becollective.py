@@ -84,3 +84,36 @@ async def test_forum_still_works():
     async with AsyncClient(transport=transport, base_url="http://testserver") as c:
         f = (await c.get("/api/v1/forum?period=mtd", headers={"Authorization": f"Bearer {token}"})).json()
     assert f["members_total"] == 70 and "billing" in f    # Forum numbers intact
+
+
+async def test_bc_drills_never_leak_forum_data():
+    """Every beCollective drill resolves to beCollective data — never the Forum's. The
+    Overview reuses the Forum component, so this guards against the drill-map / lineage
+    regressing back to forum_* keys (which showed 'The Forum · Roster', FORUM/IC members,
+    and GHL+legacy cash inside the beCollective tab)."""
+    from app.db import SessionLocal
+    from app.models import Business
+    from app.services.lineage import metric_detail
+    from sqlalchemy import select
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        tid = biz.tenant_id
+
+        # Member/registration/renewal drills → only beCollective rows (seg 'BC'), never F/IC.
+        for key in ("bc_roster", "bc_registered", "bc_unregistered", "bc_new_members"):
+            d = await metric_detail(s, tid, key, "mtd")
+            segs = {r.get("seg") for r in d["rows"]}
+            assert segs <= {"BC", None}, f"{key} leaked Forum segments: {segs}"
+            assert "Forum" not in d["label"], f"{key} carries a Forum label: {d['label']}"
+        assert (await metric_detail(s, tid, "bc_roster", "mtd"))["label"] == "beCollective · Roster"
+
+        # Cash & Billing drills → the beCollective Stripe account, not the Forum's GHL/legacy feed.
+        for key in ("bc_payments", "bc_mrr_subs", "bc_cashflow", "bc_streams",
+                    "bc_failed_payments", "bc_next30", "bc_monthly", "bc_pastdue"):
+            d = await metric_detail(s, tid, key, "mtd", month="2026-02", stream="dues")
+            assert d["source"] == "Stripe · beCollective", f"{key} source is {d['source']!r}"
+            for r in d["rows"]:
+                assert r.get("seg") in (None, "BC"), f"{key} leaked seg {r.get('seg')}"
+
+        # And the Forum's own drills still return the Forum (no cross-contamination the other way).
+        assert (await metric_detail(s, tid, "forum_roster", "mtd"))["label"] == "The Forum · Roster"

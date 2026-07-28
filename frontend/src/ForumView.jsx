@@ -519,7 +519,7 @@ function CashFlowPanel({ b, open, onOpen }) {
     </div>
   );
 }
-function moneyItems(b, open, onOpen) {
+function moneyItems(b, open, onOpen, isBc) {
   const inst = (b.installments || [])[0];
   const streams = b.streams || [];
   const stotal = streams.reduce((a, x) => a + x.amount, 0) || 1;
@@ -563,7 +563,7 @@ function moneyItems(b, open, onOpen) {
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: scolors[i % scolors.length] }} />{x.label}</span>
             <span style={{ color: C.muted }}>{x.pct}%</span><b>{usd(x.amount)}</b></div>
         ))}
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted, marginTop: 10 }}>Classified within The Forum · sums to net cash {usd(stotal)}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted, marginTop: 10 }}>Classified within {isBc ? "beCollective" : "The Forum"} · sums to net cash {usd(stotal)}</div>
       </div>) },
   ];
 }
@@ -1184,11 +1184,15 @@ function MembersGrowthBody({ mg, recruiting, onOpen }) {
 /* ── Program view ───────────────────────────────────────────────── */
 export default function ForumView({ data, area, onDrill, title = "The Forum",
   subtitle = "Mastermind", deckSlots = DECK_SLOTS, drillBusiness = "springb",
-  rosterKey = "forum_roster" }) {
+  rosterKey = "forum_roster", drillMap = null }) {
   const [openState, setOpenState] = useState(null);
   if (!data) return null;
 
-  const onOpen = (key, opts) => onDrill && onDrill(key, drillBusiness, null, null, opts);
+  // When reused for another program (beCollective), drillMap remaps every Forum drill key
+  // to that program's own (bc_*) key in one place, so no drill can leak Forum data.
+  const isBc = !!drillMap;
+  const onOpen = (key, opts) =>
+    onDrill && onDrill((drillMap && drillMap[key]) || key, drillBusiness, null, null, opts);
   const b = data.billing?.available ? data.billing : null;
 
   // hero cash trend: actual months from first non-zero through the current month
@@ -1274,9 +1278,9 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
             <Section icon={A.cash} tint={C.meadow} title="Cash & Billing"
                      summary={`${kc(b.net_cash)} collected · ${kc(b.mrr)} MRR · ${kc(b.arr_book)} ARR`}
                      watch={moneyWatch ? `${(b.failed_count || 0) + (b.past_due || 0)} to recover` : null}
-                     live sub="Cash basis · Stripe via Go High Level · reconciles to QuickBooks as the Booked lens when connected"
+                     live sub={`Cash basis · ${isBc ? "Stripe · beCollective account" : "Stripe via Go High Level"} · reconciles to QuickBooks as the Booked lens when connected`}
                      open={!!open.money} onToggle={() => toggle("money")}>
-              <Deck items={moneyItems(b, !!open.money, onOpen)} />
+              <Deck items={moneyItems(b, !!open.money, onOpen, isBc)} />
               {(() => {
                 const cal = data.mg?.calendar?.length ? <RenewalCalendar cal={data.mg.calendar} /> : null;
                 const rec = data.recover && data.recover.length

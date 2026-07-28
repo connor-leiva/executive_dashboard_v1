@@ -7,6 +7,18 @@ import LaunchSection, { LaunchEmpty } from "./LaunchSection.jsx";
 import { useLaunch } from "./useLaunch.js";
 import { T } from "./theme.js";
 
+/* beCollective reuses the Forum's operational component. This remaps every Forum drill key
+   to beCollective's own (bc_*) key, so no drill-down or roll-up leaks Forum data. */
+const BC_DRILL_MAP = {
+  forum_roster: "bc_roster", forum_arr: "bc_arr", active_members: "bc_members",
+  registered: "bc_registered", new_members: "bc_new_members",
+  renewal_book: "bc_renewal_book", renewals_due: "bc_renewals_due", unregistered: "bc_unregistered",
+  forum_payments: "bc_payments", forum_failed_payments: "bc_failed_payments",
+  forum_mrr_subs: "bc_mrr_subs", forum_installments: "bc_installments", forum_next30: "bc_next30",
+  forum_streams: "bc_streams", forum_cashflow: "bc_cashflow",
+  mrr: "bc_mrr", monthly: "bc_monthly", pastdue: "bc_pastdue",
+};
+
 function SubNav({ page, setPage, hasLaunch }) {
   const items = [["overview", "Overview"]];
   if (hasLaunch) items.push(["launch", "Launch"]);
@@ -40,7 +52,7 @@ export default function BecollectiveView({ data, area, onDrill, deckSlots, drill
   const overview = (
     <ForumView key="becollective" data={data} area={area} onDrill={onDrill}
       title="beCollective" subtitle="Community" deckSlots={deckSlots}
-      drillBusiness={drillBusiness} rosterKey={rosterKey} />
+      drillBusiness={drillBusiness} rosterKey={rosterKey} drillMap={BC_DRILL_MAP} />
   );
 
   let launchPane = overview;
