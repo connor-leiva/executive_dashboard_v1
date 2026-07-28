@@ -215,6 +215,54 @@ async def _login(c, email=OWNER_EMAIL, password=OWNER_PASSWORD):
     return r.json()["token"]
 
 
+async def test_drill_resolves_records_and_calc():
+    from app.db import SessionLocal
+    from app.models import Launch
+    from app.services.launch import drill_launch
+    from sqlalchemy import select
+    tenant_id, launch_id = await _make_launch()   # the full sample spread (opps + weekly)
+    async with SessionLocal() as s:
+        launch = (await s.execute(select(Launch).where(Launch.id == launch_id))).scalar_one()
+        # records: enrolled opps
+        enr = await drill_launch(s, tenant_id, launch, "funnel.enrolled", today=ASOF)
+        assert enr["type"] == "records" and enr["count"] == 24
+        assert set(enr["columns"]) == {"name", "stage", "payment", "url"}
+        # calc: enrolled ARR breakdown
+        arr = await drill_launch(s, tenant_id, launch, "enrolled.arr", today=ASOF)
+        assert arr["type"] == "calc" and arr["value"] == "$310,000" and len(arr["steps"]) == 2
+        # unknown metric → graceful fallback
+        assert (await drill_launch(s, tenant_id, launch, "nope", today=ASOF))["value"] == "-"
+
+
+async def test_drill_shift_expected_returns_curve_table():
+    from app.db import SessionLocal
+    from app.models import Launch
+    from app.services.launch import drill_launch
+    from sqlalchemy import select
+    tenant_id, launch_id = await _make_shift_launch(registrants=175)
+    async with SessionLocal() as s:
+        launch = (await s.execute(select(Launch).where(Launch.id == launch_id))).scalar_one()
+        r = await drill_launch(s, tenant_id, launch, "shift.expected", today=dt.date(2026, 7, 28))
+    assert r["type"] == "calc" and len(r["table"]) == 15          # full day-by-day curve
+    today_row = [t for t in r["table"] if t["today"]][0]
+    assert today_row["day"] == 14 and today_row["expected"] == 380  # where we should be, day 14
+    # records path for registrants
+    async with SessionLocal() as s:
+        launch = (await s.execute(select(Launch).where(Launch.id == launch_id))).scalar_one()
+        regs = await drill_launch(s, tenant_id, launch, "shift.registrants", today=dt.date(2026, 7, 28))
+    assert regs["type"] == "records" and regs["count"] == 175
+
+
+async def test_drill_endpoint_authorized():
+    await _make_launch()
+    async with await _client() as c:
+        tok = await _login(c)
+        r = await c.get("/api/v1/businesses/springb/launches/active/drill/funnel.leads",
+                        headers={"Authorization": f"Bearer {tok}"})
+        assert r.status_code == 200, r.text
+        assert r.json()["type"] == "records"
+
+
 async def test_active_endpoint_serves_launch():
     await _make_launch()
     async with await _client() as c:

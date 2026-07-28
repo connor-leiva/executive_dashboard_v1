@@ -330,3 +330,169 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
         "momentum": await momentum_series(s, tenant_id, launch),
         "warnings": warnings,
     }
+
+
+# ── drill-down: resolve any number on the Launch tab to its records or its math ──────────
+def _usd0(n) -> str:
+    return "$" + format(int(round(n or 0)), ",")
+
+
+async def _opp_records(s, tenant_id, business_id, launch: Launch):
+    recs = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "bc_launch_opp"))).scalars().all()
+    lid = str(launch.id)
+    return [r for r in recs if (r.meta or {}).get("launch_id") == lid]
+
+
+_GROUP_TITLE = {"leads": "Leads", "booked": "Booked", "deciding": "Deciding",
+                "committed": "Committed", "enrolled": "Enrolled",
+                "noshow": "No-show / cancel", "nurture": "Warm reserve"}
+_METRIC_GROUP = {"funnel.leads": "leads", "funnel.booked": "booked", "funnel.deciding": "deciding",
+                 "funnel.committed": "committed", "funnel.enrolled": "enrolled",
+                 "side.no_show": "noshow", "side.nurture": "nurture",
+                 "enrolled.seats": "enrolled", "committed.seats": "committed"}
+
+
+async def drill_launch(s, tenant_id, launch: Launch, metric: str, today=None) -> dict:
+    """What's behind a number on the Launch tab: either the underlying records (registrants,
+    opportunities, weeks — with GHL links) or the calculation (inputs + formula) for a derived
+    figure. One shape the drawer renders both ways."""
+    today = today or dt.date.today()
+    d = await compute_launch(s, tenant_id, launch, today)
+    biz = launch.business_id
+    pif, plan = _f(launch.ticket_pif), _f(launch.ticket_plan)
+    sh = d.get("shift") or {}
+
+    def records(title, subtitle, rows, columns):
+        return {"metric": metric, "type": "records", "title": title, "subtitle": subtitle,
+                "count": len(rows), "columns": columns, "rows": rows}
+
+    def calc(title, value, steps, formula=None, note=None, table=None):
+        return {"metric": metric, "type": "calc", "title": title, "value": str(value),
+                "steps": steps, "formula": formula, "note": note, "table": table}
+
+    # ── record-backed numbers ───────────────────────────────────────────────
+    if metric in _METRIC_GROUP:
+        g = _METRIC_GROUP[metric]
+        rows = [{"name": r.name or "-", "stage": (r.meta or {}).get("stage"),
+                 "payment": (r.meta or {}).get("payment_type"), "url": r.source_url}
+                for r in await _opp_records(s, tenant_id, biz, launch)
+                if (r.meta or {}).get("group") == g]
+        return records(_GROUP_TITLE.get(g, g),
+                       f"{len(rows)} in this stage | {launch.pipeline_match}",
+                       rows, ["name", "stage", "payment", "url"])
+
+    if metric == "shift.registrants":
+        recs = (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
+            MetricRecord.source == "ghl", MetricRecord.kind == "bc_shift_reg"))).scalars().all()
+        tag = str(launch.shift_reg_tag or "").lower()
+        rows = [{"name": r.name or "-", "email": r.email,
+                 "member": "member" if (r.meta or {}).get("is_member") else "", "url": r.source_url}
+                for r in recs if str((r.meta or {}).get("shift_tag", "")).lower() == tag]
+        sub = (f"{len(rows)} contacts tagged '{launch.shift_reg_tag}' (live)"
+               if sh.get("source") == "synced"
+               else f"manual count of {sh.get('registrants', 0)} - no live tag synced yet")
+        return records("The Shift - registrants", sub, rows, ["name", "email", "member", "url"])
+
+    if metric.startswith("momentum."):
+        key = metric.split(".", 1)[1]
+        weeks = (await s.execute(select(LaunchWeekly).where(
+            LaunchWeekly.tenant_id == tenant_id, LaunchWeekly.launch_id == launch.id)
+            .order_by(LaunchWeekly.week_start))).scalars().all()
+        label = {"optins": "New opt-ins", "calls": "Calls held", "closes": "Closes"}.get(key, key)
+        rows = [{"week": w.week_start.isoformat(), "value": getattr(w, key, 0)} for w in weeks]
+        note = " | calls are a proxy until appointment data wires in" if key == "calls" else ""
+        return records(f"Momentum - {label}", "by ISO week, most recent last" + note,
+                       rows, ["week", "value"])
+
+    # ── calculated numbers ──────────────────────────────────────────────────
+    if metric in ("seat_target", "goal.seats", "goal.arr"):
+        seat_primary = d["goal_basis"] == "seats"
+        return calc("Seat / member target", d["seat_target"],
+                    [{"label": "Goal basis", "value": d["goal_basis"]},
+                     {"label": "Member goal" if seat_primary else "ARR goal",
+                      "value": str(launch.seat_goal) if seat_primary else _usd0(launch.goal_arr)},
+                     {"label": "Blended seat price", "value": _usd0(d["blended_seat"])},
+                     {"label": "Implied ARR at goal", "value": _usd0(d["seat_target"] * d["blended_seat"])}],
+                    formula=("seat_target = member goal" if seat_primary
+                             else "seat_target = ceil(ARR goal / blended)"),
+                    note=None if seat_primary else "Seat-derived; set goal basis to 'members' to target people.")
+
+    if metric == "blended":
+        m = _f(launch.mix_pif)
+        return calc("Blended seat price", _usd0(d["blended_seat"]),
+                    [{"label": "Assumed mix", "value": f"{round(m*100)}% PIF / {round((1-m)*100)}% plan"},
+                     {"label": "PIF price", "value": _usd0(pif)}, {"label": "Plan price", "value": _usd0(plan)}],
+                    formula="blended = mix*PIF + (1-mix)*plan",
+                    note="An assumption used only to set the target; actuals price off real counts.")
+
+    if metric in ("shift.expected", "shift.curve", "shift.pace"):
+        goal = int(launch.shift_goal or 0)
+        dte = sh.get("days_to_event")
+        days = [p["d"] for p in sh.get("curve", [])]
+        clamped = max(min(dte, max(days)), min(days)) if (dte is not None and days) else None
+        table = [{"day": p["d"], "pct": p["pct"], "expected": p["count"],
+                  "today": p["d"] == clamped} for p in sh.get("curve", [])]
+        return calc("On-curve target (where we should be)", f"{sh.get('expected')} of {goal}",
+                    [{"label": "Days to the Shift", "value": sh.get("days_to_event")},
+                     {"label": "Curve % today", "value": f"{round(sh.get('expected_pct', 0)*100)}%"},
+                     {"label": "Expected today", "value": f"{sh.get('expected')} registrants"},
+                     {"label": "Actual", "value": f"{sh.get('registrants')} registrants"}],
+                    formula="expected = curve%(days-to-event) x goal",
+                    note="Empirical curve from your last Shift - the honest, back-loaded pace line.",
+                    table=table)
+
+    if metric == "shift.gap":
+        return calc("Gap to pace", sh.get("gap"),
+                    [{"label": "Actual registrants", "value": sh.get("registrants")},
+                     {"label": "On-curve target", "value": sh.get("expected")},
+                     {"label": "State", "value": sh.get("state")}],
+                    formula="gap = actual - on-curve target")
+
+    if metric == "shift.projected":
+        return calc("Projected members from registrants",
+                    f"{sh.get('projected_members')} of {sh.get('members_at_goal')}",
+                    [{"label": "Registrants", "value": sh.get("registrants")},
+                     {"label": "Conversion", "value": f"{round(sh.get('reg_to_member', 0)*100)}%"},
+                     {"label": "Member goal", "value": sh.get("members_at_goal")}],
+                    formula="projected = registrants x (member goal / registrant goal)")
+
+    if metric == "shift.pct":
+        return calc("The Shift - % to goal", f"{round(sh.get('pct_to_goal', 0)*100)}%",
+                    [{"label": "Registrants", "value": sh.get("registrants")},
+                     {"label": "Registrant goal", "value": sh.get("goal")}],
+                    formula="% = registrants / registrant goal")
+
+    if metric in ("enrolled.arr", "committed.arr"):
+        grp = d["enrolled"] if metric.startswith("enrolled") else d["committed"]
+        return calc(f"{metric.split('.')[0].title()} ARR", _usd0(grp["arr"]),
+                    [{"label": "PIF seats x price", "value": f"{grp['pif']} x {_usd0(pif)} = {_usd0(grp['pif']*pif)}"},
+                     {"label": "Plan seats x price", "value": f"{grp['plan']} x {_usd0(plan)} = {_usd0(grp['plan']*plan)}"}],
+                    formula="ARR = PIF*PIF-price + plan*plan-price",
+                    note="Click the seat counts to see the underlying opportunities.")
+
+    if metric in ("deciding.arr", "deciding.count"):
+        return calc("Deciding - value on the table", _usd0(d["deciding"]["arr"]),
+                    [{"label": "Opportunities", "value": d["deciding"]["count"]},
+                     {"label": "Blended seat price", "value": _usd0(d["blended_seat"])}],
+                    formula="value = deciding count x blended price")
+
+    if metric == "cash":
+        inst = launch.plan_installments or 1
+        return calc("Cash collected (estimate)", _usd0(d["cash"]["collected"]),
+                    [{"label": "PIF seats (full)", "value": f"{d['enrolled']['pif']} x {_usd0(pif)}"},
+                     {"label": "Plan seats (1st installment)", "value": f"{d['enrolled']['plan']} x {_usd0(plan/inst)}"},
+                     {"label": "Source", "value": d["cash"]["source"]}],
+                    formula="collected ~= PIF*price + plan*(price / installments)",
+                    note="Demoted vs ARR - the balance arrives across the payment schedule.")
+
+    if metric in ("days_left", "window_days", "days_to_open"):
+        return calc("Cart window", f"{d['days_remaining']}d left",
+                    [{"label": "Cart opens", "value": launch.window_start.isoformat()},
+                     {"label": "Cart closes", "value": launch.window_end.isoformat()},
+                     {"label": "Window length", "value": f"{d['window_days']} days"},
+                     {"label": "Status", "value": d["status"]}])
+
+    return calc(metric, "-", [], note="No drill-down defined for this value yet.")

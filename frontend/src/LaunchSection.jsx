@@ -5,14 +5,30 @@
    hero watermark is the production Spring mark (SpringSignature) rather than a mocked
    script wordmark. ARR ("annualized revenue added" — Spring's loose usage) is the headline;
    cash collected is a demoted line. The settings drawer PUTs config and refetches. */
-import { useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { T, alpha } from "./theme.js";
 import { SpringSignature } from "./Brand.jsx";
-import { putJSON, postJSON } from "./api.js";
+import { putJSON, postJSON, getJSON } from "./api.js";
+
+/* Every number on the tab is a drill target. A context carries the opener so any nested
+   number can trigger it without prop-threading; <Num metric="…"> wraps the value. */
+const DrillCtx = createContext(null);
+function Num({ metric, children, title }) {
+  const open = useContext(DrillCtx);
+  if (!open || !metric) return <>{children}</>;
+  return (
+    <span className="num" role="button" tabIndex={0} title={title || "Drill in"}
+      onClick={(e) => { e.stopPropagation(); open(metric); }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(metric); } }}>
+      {children}
+    </span>
+  );
+}
 
 /* The August 2026 cohort template — the create payload for the "New launch" button.
-   Prices are provisional ($12k/$14k → ~$1.3M at 100 members); set the real price after. */
-export const AUGUST_TEMPLATE = {
+   Prices are provisional ($12k/$14k → ~$1.3M at 100 members); set the real price after.
+   Module-local (not exported) so React Fast Refresh can hot-reload this file. */
+const AUGUST_TEMPLATE = {
   name: "August 2026 Cohort", program: "beCollective",
   event_start: "2026-08-11", event_end: "2026-08-13",
   window_start: "2026-08-11", window_end: "2026-09-12",
@@ -100,20 +116,20 @@ function GoalBar({ cfg, D, seatPrimary }) {
         <span className="gb-goalcap" />
       </div>
       <div className="gb-legend">
-        <span><i className="d meadow" />Enrolled <b>{money ? kMoney(D.enrolledArr) : D.enrolledSeats}</b></span>
-        <span><i className="d meadowLt" />Committed <b>{money ? kMoney(D.committedArr) : D.committedSeats}</b></span>
+        <span><i className="d meadow" />Enrolled <b><Num metric={money ? "enrolled.arr" : "enrolled.seats"}>{money ? kMoney(D.enrolledArr) : D.enrolledSeats}</Num></b></span>
+        <span><i className="d meadowLt" />Committed <b><Num metric={money ? "committed.arr" : "committed.seats"}>{money ? kMoney(D.committedArr) : D.committedSeats}</Num></b></span>
         {!D.isPre && money && <span><i className="tick" />On-pace <b>{kMoney(D.expectedArr)}</b></span>}
-        <span className="right"><i className="d goal" />Goal <b>{money ? kMoney(cfg.goal_arr) : `${D.seatTarget} members`}</b></span>
+        <span className="right"><i className="d goal" />Goal <b><Num metric="seat_target">{money ? kMoney(cfg.goal_arr) : `${D.seatTarget} members`}</Num></b></span>
       </div>
     </div>
   );
 }
 
-function MiniStat({ label, value, sub, tone }) {
+function MiniStat({ label, value, sub, tone, metric }) {
   return (
     <div className="ms">
       <div className="ms-l">{label}</div>
-      <div className={`ms-v ${tone || ""}`}>{value}</div>
+      <div className={`ms-v ${tone || ""}`}><Num metric={metric}>{value}</Num></div>
       {sub && <div className="ms-s">{sub}</div>}
     </div>
   );
@@ -133,7 +149,7 @@ function Funnel({ cfg, data, D }) {
         <div key={s.key} className="fr">
           <div className="fr-top">
             <span className="fr-label">{s.label}<em className="fr-owner">{s.owner}</em></span>
-            <span className="fr-n">{s.count}</span>
+            <span className="fr-n"><Num metric={`funnel.${s.key}`}>{s.count}</Num></span>
           </div>
           <div className="fr-bar"><span style={{ width: `${(s.count / max) * 100}%` }} /></div>
           {s.tag && <div className={`fr-tag ${s.key === "deciding" ? "teal" : ""}`}>{s.tag}</div>}
@@ -143,20 +159,20 @@ function Funnel({ cfg, data, D }) {
       <div className="fn-out">
         <div className="fn-out-top">
           <span className="fn-out-label"><i className="d meadow" />Enrolled</span>
-          <span className="fn-out-n">{D.enrolledSeats}<em>/ {D.seatTarget} seats</em></span>
+          <span className="fn-out-n"><Num metric="funnel.enrolled">{D.enrolledSeats}</Num><em>/ {D.seatTarget} seats</em></span>
         </div>
         <div className="fn-out-bar"><span style={{ width: `${Math.min(100, (D.enrolledSeats / D.seatTarget) * 100)}%` }} /></div>
-        <div className="fn-out-sub"><b>{kMoney(D.enrolledArr)}</b> ARR added · {Math.round(D.pctToGoal * 100)}% of goal · {D.seatsRemaining} seats to go</div>
+        <div className="fn-out-sub"><b><Num metric="enrolled.arr">{kMoney(D.enrolledArr)}</Num></b> ARR added · {Math.round(D.pctToGoal * 100)}% of goal · {D.seatsRemaining} seats to go</div>
       </div>
 
       <div className="side">
         <div className="side-chip">
-          <span className="side-n">{data.side.no_show}</span>
+          <span className="side-n"><Num metric="side.no_show">{data.side.no_show}</Num></span>
           <span className="side-l">awaiting rebook</span>
           <span className="side-note">no-show / cancel — a real lever, not a dead end</span>
         </div>
         <div className="side-chip">
-          <span className="side-n">{data.side.nurture}</span>
+          <span className="side-n"><Num metric="side.nurture">{data.side.nurture}</Num></span>
           <span className="side-l">warm reserve</span>
           <span className="side-note">future-cohort nurture — the pool to re-engage</span>
         </div>
@@ -184,9 +200,9 @@ function Spark({ data, up }) {
 
 function Momentum({ mom }) {
   const rows = [
-    { label: "New opt-ins", series: mom.optins },
-    { label: mom.calls_source === "appointments" ? "Calls held" : "Calls held", series: mom.calls },
-    { label: "Closes", series: mom.closes },
+    { label: "New opt-ins", series: mom.optins, metric: "momentum.optins" },
+    { label: "Calls held", series: mom.calls, metric: "momentum.calls" },
+    { label: "Closes", series: mom.closes, metric: "momentum.closes" },
   ].filter((r) => (r.series || []).length);
   if (!rows.length) return null;
   return (
@@ -205,7 +221,7 @@ function Momentum({ mom }) {
             <div key={r.label} className="mom-cell">
               <div className="mom-l">{r.label}</div>
               <div className="mom-row">
-                <span className="mom-v">{cur}</span>
+                <span className="mom-v"><Num metric={r.metric}>{cur}</Num></span>
                 <span className={`mom-d ${up ? "up" : flat ? "flat" : "dn"}`}>
                   {up ? "▲" : flat ? "—" : "▼"} {flat ? "" : Math.abs(delta)}
                 </span>
@@ -228,7 +244,7 @@ function CashLine({ cfg, D, cash }) {
     <div className="cash">
       <div className="cash-top">
         <span className="cash-l">Cash collected{cash.source === "estimate" ? " · est." : ""}</span>
-        <span className="cash-v"><b>{kMoney(cash.collected)}</b> <em>of {kMoney(D.enrolledArr)} enrolled</em></span>
+        <span className="cash-v"><b><Num metric="cash">{kMoney(cash.collected)}</Num></b> <em>of {kMoney(D.enrolledArr)} enrolled</em></span>
       </div>
       <div className="cash-bar"><span className="cash-fill" style={{ width: `${pct}%` }} /></div>
       <div className="cash-note">
@@ -243,7 +259,8 @@ const fmtN = (n) => Math.round(n || 0).toLocaleString("en-US");
 
 /* ── The Shift — the lead-up webinar layer that feeds memberships. The signature is the
    curved "where you should be" pace line (pace_model="curve") with the actual below it. ── */
-function ShiftCurve({ shift }) {
+function ShiftCurve({ shift, onHover, onPick }) {
+  const [hi, setHi] = useState(null);
   const W = 560, H = 158, padL = 6, padR = 10, padT = 16, padB = 20;
   const iw = W - padL - padR, ih = H - padT - padB;
   const goal = shift.goal || 1;
@@ -259,8 +276,18 @@ function ShiftCurve({ shift }) {
   const xNow = x(dte);
   const behind = shift.state === "behind";
   const actualColor = behind ? T.petalDeep : T.meadow;
+  const move = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const vbx = ((e.clientX - rect.left) / rect.width) * W;
+    let best = null, bd = 1e9;
+    for (const p of curve) { const dd = Math.abs(x(p.d) - vbx); if (dd < bd) { bd = dd; best = p; } }
+    setHi(best); onHover && onHover(best);
+  };
+  const leave = () => { setHi(null); onHover && onHover(null); };
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="shift-svg" preserveAspectRatio="none" aria-hidden="true">
+    <svg viewBox={`0 0 ${W} ${H}`} className="shift-svg" preserveAspectRatio="none" role="img"
+      aria-label="Shift registration pace curve — hover for the target on any day"
+      onMouseMove={move} onMouseLeave={leave} onClick={() => onPick && onPick()}>
       {/* goal cap */}
       <line x1={padL} y1={y(goal)} x2={padL + iw} y2={y(goal)} stroke={T.petal} strokeWidth="1.5"
         strokeDasharray="3 3" opacity="0.8" />
@@ -268,6 +295,11 @@ function ShiftCurve({ shift }) {
       {/* expected curve + soft fill */}
       {area && <path d={area} fill={T.meadow} opacity="0.07" />}
       <path d={path} fill="none" stroke={T.meadow} strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+      {/* hovered day — the "where should we be" point */}
+      {hi && <>
+        <line x1={x(hi.d)} y1={padT} x2={x(hi.d)} y2={padT + ih} stroke={T.teal} strokeWidth="1" opacity="0.55" />
+        <circle cx={x(hi.d)} cy={y(hi.count)} r="4" fill={T.teal} />
+      </>}
       {/* today marker + expected vs actual */}
       <line x1={xNow} y1={padT - 4} x2={xNow} y2={padT + ih} stroke={T.line} strokeWidth="1" />
       <line x1={xNow} y1={y(shift.expected)} x2={xNow} y2={y(shift.registrants)} stroke={actualColor}
@@ -285,16 +317,18 @@ function ShiftCurve({ shift }) {
   );
 }
 
-function ShiftStat({ label, value, tone }) {
+function ShiftStat({ label, value, tone, metric }) {
   return (
     <div className="sh-stat">
       <div className="sh-stat-l">{label}</div>
-      <div className={`sh-stat-v ${tone || ""}`}>{value}</div>
+      <div className={`sh-stat-v ${tone || ""}`}><Num metric={metric}>{value}</Num></div>
     </div>
   );
 }
 
 function TheShift({ shift }) {
+  const open = useContext(DrillCtx);
+  const [hov, setHov] = useState(null);
   const pill = {
     behind: { txt: "Behind the curve", tone: "behind" },
     onpace: { txt: "On the curve", tone: "good" },
@@ -314,19 +348,26 @@ function TheShift({ shift }) {
       </div>
       <div className="shift-body">
         <div className="shift-left">
-          <div className="shift-num">{fmtN(shift.registrants)}<span className="of">/ {fmtN(shift.goal)} registered</span></div>
+          <div className="shift-num"><Num metric="shift.registrants">{fmtN(shift.registrants)}</Num><span className="of">/ {fmtN(shift.goal)} registered</span></div>
           <div className="shift-sub">
-            {Math.round(shift.pct_to_goal * 100)}% to goal
+            <Num metric="shift.pct">{Math.round(shift.pct_to_goal * 100)}% to goal</Num>
             {shift.days_to_event != null && ` · ${shift.days_to_event}d to the Shift`}
             {shift.source === "manual" && " · manual count"}
           </div>
           <div className="shift-stats">
-            <ShiftStat label="On-curve today" value={`${fmtN(shift.expected)} · ${Math.round(shift.expected_pct * 100)}%`} />
-            <ShiftStat label="Gap to pace" value={gapTxt} tone={gapTone} />
-            <ShiftStat label="Projects to" value={`${shift.projected_members} / ${shift.members_at_goal}`} tone={shift.projected_members < shift.members_at_goal ? "behind" : "good"} />
+            <ShiftStat label="On-curve today" metric="shift.expected" value={`${fmtN(shift.expected)} · ${Math.round(shift.expected_pct * 100)}%`} />
+            <ShiftStat label="Gap to pace" metric="shift.gap" value={gapTxt} tone={gapTone} />
+            <ShiftStat label="Projects to" metric="shift.projected" value={`${shift.projected_members} / ${shift.members_at_goal}`} tone={shift.projected_members < shift.members_at_goal ? "behind" : "good"} />
           </div>
         </div>
-        <div className="shift-chart"><ShiftCurve shift={shift} /></div>
+        <div className="shift-chart">
+          <div className={`shift-cap ${hov ? "on" : ""}`}>
+            {hov
+              ? <><b>{hov.d} day{hov.d === 1 ? "" : "s"} out</b> → should be at <b>{fmtN(hov.count)}</b> of {fmtN(shift.goal)} <span className="shift-cap-pct">({Math.round(hov.pct * 100)}%)</span></>
+              : "Hover the curve to see where we should be on any day →"}
+          </div>
+          <ShiftCurve shift={shift} onHover={setHov} onPick={() => open && open("shift.expected")} />
+        </div>
       </div>
       <div className="shift-foot">
         {fmtN(shift.goal)} registrants → {shift.members_at_goal} members · ~{Math.round(shift.reg_to_member * 100)}% historical conversion · pacing vs your last Shift
@@ -531,8 +572,104 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
   );
 }
 
+/* ── drill drawer: shows what's behind a clicked number (records or calc) ── */
+function DrillRecords({ d }) {
+  const cols = d.columns || [];
+  return (
+    <>
+      <div className="drx-sub">{d.subtitle}</div>
+      {d.rows.length === 0 && <div className="drx-empty">No records.</div>}
+      {d.rows.length > 0 && (
+        <div className="drx-tblwrap">
+          <table className="drx-tbl">
+            <thead><tr>{cols.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+            <tbody>
+              {d.rows.map((r, i) => (
+                <tr key={i}>
+                  {cols.map((c) => (
+                    <td key={c}>
+                      {c === "url"
+                        ? (r.url ? <a href={r.url} target="_blank" rel="noreferrer">GHL ↗</a> : "—")
+                        : (r[c] === true ? "✓" : r[c] === false || r[c] == null || r[c] === "" ? "—" : r[c])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+function DrillCalc({ d }) {
+  return (
+    <>
+      <div className="drx-val">{d.value}</div>
+      <div className="drx-sub">{d.title}</div>
+      {(d.steps || []).length > 0 && (
+        <div className="drx-steps">
+          {d.steps.map((s, i) => (
+            <div key={i} className="drx-step"><span>{s.label}</span><b>{String(s.value ?? "—")}</b></div>
+          ))}
+        </div>
+      )}
+      {d.formula && <div className="drx-formula">{d.formula}</div>}
+      {d.note && <div className="drx-note2">{d.note}</div>}
+      {d.table && d.table.length > 0 && (
+        <div className="drx-tblwrap">
+          <div className="drx-sub" style={{ marginTop: 4 }}>Where we should be, day by day</div>
+          <table className="drx-tbl">
+            <thead><tr><th>days out</th><th>% of goal</th><th>should be</th></tr></thead>
+            <tbody>
+              {d.table.map((t) => (
+                <tr key={t.day} className={t.today ? "on" : ""}>
+                  <td>{t.day}{t.today ? " · today" : ""}</td><td>{Math.round(t.pct * 100)}%</td><td>{fmtN(t.expected)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+function LaunchDrawer({ metric, businessKey, usingSample, onClose }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    if (usingSample) { setErr("sample"); return; }
+    setD(null); setErr(null);
+    getJSON(`/businesses/${businessKey}/launches/active/drill/${encodeURIComponent(metric)}`)
+      .then((r) => alive && setD(r))
+      .catch((e) => alive && setErr(e.detail || e.message || "Failed to load"));
+    return () => { alive = false; };
+  }, [metric, businessKey, usingSample]);
+  return (
+    <div className="drx-scrim" onClick={onClose}>
+      <div className="drx" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div className="drx-head">
+          <span className="drx-title">{d?.title || "Drill-down"}</span>
+          <button className="drx-x" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="drx-body">
+          {err === "sample" && <div className="drx-note">Drill-down loads with live data (this is sample mode).</div>}
+          {err && err !== "sample" && <div className="drx-note">{err}</div>}
+          {!d && !err && <div className="drx-note">Loading…</div>}
+          {d && d.type === "records" && <DrillRecords d={d} />}
+          {d && d.type === "calc" && <DrillCalc d={d} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LaunchSection({ data, usingSample, role, businessKey = "springb", onSaved }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [drill, setDrill] = useState(null);   // metric currently drilled into
   const cfg = data.launch;
   const isEditor = !role || role === "owner" || role === "admin";
   const canPersist = isEditor && !usingSample;
@@ -571,6 +708,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
   }[data.pace.state] || { value: "—", sub: "", tone: "" };
 
   return (
+    <DrillCtx.Provider value={setDrill}>
     <div className="bcl">
       <style>{`
         .bcl { font-family:Inter,sans-serif; color:${T.ink}; }
@@ -628,6 +766,45 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .shift-svg-lbl { font-family:Inter,sans-serif; font-size:9px; fill:${T.muted}; }
         .bcl .shift-svg-now { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; }
         .bcl .shift-foot { font-size:11px; color:${T.muted}; margin-top:15px; padding-top:12px; border-top:1px solid ${T.line}; }
+        .bcl .shift-cap { font-size:11.5px; color:${T.muted}; margin-bottom:7px; min-height:16px; }
+        .bcl .shift-cap.on { color:${T.teal}; }
+        .bcl .shift-cap b { color:${T.ink}; font-weight:600; }
+        .bcl .shift-cap.on b { color:${T.teal}; }
+        .bcl .shift-cap-pct { color:${T.muted}; }
+        .bcl .shift-svg { cursor:pointer; }
+
+        /* drill affordance — every number is clickable */
+        .bcl .num { cursor:pointer; border-radius:3px; box-shadow:inset 0 -1px 0 ${alpha(T.muted, 0)};
+          transition:box-shadow .12s ease; }
+        .bcl .num:hover { box-shadow:inset 0 -1.5px 0 currentColor; }
+        .bcl .num:focus-visible { outline:2px solid ${T.petal}; outline-offset:2px; }
+
+        /* drill drawer */
+        .bcl .drx-scrim { position:fixed; inset:0; background:${alpha(T.evergreen, .32)}; z-index:60;
+          display:flex; justify-content:flex-end; }
+        .bcl .drx { width:min(440px,92vw); height:100%; background:${T.white}; display:flex; flex-direction:column;
+          box-shadow:-12px 0 40px ${alpha(T.evergreen, .2)}; animation:drx-in .18s ease; }
+        @keyframes drx-in { from{ transform:translateX(20px); opacity:.6; } to{ transform:none; opacity:1; } }
+        .bcl .drx-head { display:flex; justify-content:space-between; align-items:center; padding:16px 20px;
+          border-bottom:1px solid ${T.line}; background:${T.parchment}; }
+        .bcl .drx-title { font-family:Poppins,sans-serif; font-size:14px; font-weight:700; color:${T.ink}; }
+        .bcl .drx-x { border:none; background:none; font-size:15px; color:${T.slate}; cursor:pointer; }
+        .bcl .drx-body { padding:18px 20px; overflow-y:auto; }
+        .bcl .drx-val { font-family:Poppins,sans-serif; font-size:30px; font-weight:700; color:${T.ink}; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+        .bcl .drx-sub { font-size:12px; color:${T.muted}; margin:2px 0 12px; }
+        .bcl .drx-steps { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; margin-bottom:12px; }
+        .bcl .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:12.5px; border-bottom:1px solid ${T.parchment}; }
+        .bcl .drx-step:last-child { border-bottom:none; }
+        .bcl .drx-step span { color:${T.slate}; } .bcl .drx-step b { color:${T.ink}; font-family:Poppins,sans-serif; font-weight:600; text-align:right; }
+        .bcl .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:${T.teal}; background:${T.mist}; border-radius:8px; padding:8px 11px; margin-bottom:10px; }
+        .bcl .drx-note, .bcl .drx-note2 { font-size:11.5px; color:${T.muted}; line-height:1.5; }
+        .bcl .drx-empty { font-size:12.5px; color:${T.muted}; padding:12px 0; }
+        .bcl .drx-tblwrap { overflow-x:auto; }
+        .bcl .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
+        .bcl .drx-tbl th { text-align:left; font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .bcl .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${T.parchment}; color:${T.secondary}; }
+        .bcl .drx-tbl tr.on td { background:${T.meadowBg}; color:${T.ink}; font-weight:600; }
+        .bcl .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
 
         .bcl .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 24px;
           background-color:${T.evergreen};
@@ -813,8 +990,8 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
             style={{ position: "absolute", top: 18, right: 24, opacity: 0.14, pointerEvents: "none" }} />
           <div className="eyebrow"><span className="edot" />{seatPrimary ? "Members enrolled · to goal" : "ARR added · to goal"}</div>
           <div className="hnum">
-            {seatPrimary ? D.enrolledSeats : kMoney(D.enrolledArr)}
-            <span className="of">of {seatPrimary ? `${D.seatTarget} members` : kMoney(cfg.goal_arr)}</span>
+            <Num metric={seatPrimary ? "funnel.enrolled" : "enrolled.arr"}>{seatPrimary ? D.enrolledSeats : kMoney(D.enrolledArr)}</Num>
+            <span className="of">of <Num metric="seat_target">{seatPrimary ? `${D.seatTarget} members` : kMoney(cfg.goal_arr)}</Num></span>
           </div>
           <div className="hdesc">
             {seatPrimary
@@ -825,8 +1002,8 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
           <GoalBar cfg={cfg} D={D} seatPrimary={seatPrimary} />
 
           <div className="hstats">
-            <MiniStat label="Days left" value={`${data.days_remaining}d`} sub={`of ${data.window_days}-day cart`} />
-            <MiniStat label={seatPrimary ? "Members enrolled" : "Seats enrolled"}
+            <MiniStat label="Days left" metric="days_left" value={`${data.days_remaining}d`} sub={`of ${data.window_days}-day cart`} />
+            <MiniStat label={seatPrimary ? "Members enrolled" : "Seats enrolled"} metric="funnel.enrolled"
               value={`${D.enrolledSeats} / ${D.seatTarget}`}
               sub={`${Math.round((seatPrimary ? D.pctPrimary : D.pctToGoal) * 100)}% of goal`} tone="good" />
             <MiniStat label="Pace" value={paceStat.value} sub={paceStat.sub} tone={paceStat.tone} />
@@ -839,6 +1016,9 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
           <CashLine cfg={cfg} D={D} cash={data.cash} />
         </div>
       </div>
+      {drill && <LaunchDrawer metric={drill} businessKey={businessKey} usingSample={usingSample}
+        onClose={() => setDrill(null)} />}
     </div>
+    </DrillCtx.Provider>
   );
 }

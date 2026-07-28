@@ -15,7 +15,7 @@ from ..models import User, Business, Launch
 from ..schemas import LaunchResponse, LaunchUpsert
 from ..services.audit import audit
 from ..services.launch import (
-    compute_launch, active_launch_for, config_out,
+    compute_launch, active_launch_for, config_out, drill_launch,
     DEFAULT_STAGE_MAP, DEFAULT_PAYMENT_PLAN_MAP,
 )
 from ..services.tabs import PROGRAM_TABS
@@ -83,6 +83,18 @@ async def active_launch(key: str, user: User = Depends(current_user),
     if not launch:
         raise HTTPException(404, "No active launch")
     return await compute_launch(s, user.tenant_id, launch)
+
+
+@router.get("/businesses/{key}/launches/active/drill/{metric}")
+async def drill_active_launch(key: str, metric: str, user: User = Depends(current_user),
+                              s: AsyncSession = Depends(get_session)):
+    """What's behind a number on the Launch tab — its records or its calculation."""
+    b = await _biz(s, user.tenant_id, key)
+    await assert_tab(user, s, _launch_tab(b))
+    launch = await active_launch_for(s, user.tenant_id, b.id)
+    if not launch:
+        raise HTTPException(404, "No active launch")
+    return await drill_launch(s, user.tenant_id, launch, metric)
 
 
 @router.get("/businesses/{key}/launches")
