@@ -855,46 +855,47 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .drx-tbl tr.on td { background:${T.meadowBg}; color:${T.ink}; font-weight:600; }
         .bcl .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
 
+        /* Hero — official petal ribbed gradient (beCollective's brand colorway), light surface. */
         .bcl .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 24px;
-          background-color:${T.evergreen};
-          background-image:repeating-linear-gradient(90deg, ${alpha(T.white, .05)} 0 1.5px, transparent 1.5px 13px),
-            radial-gradient(135% 135% at 90% -25%, ${alpha(T.petal, .32)} 0%, ${alpha(T.evergreen, 0)} 55%);
-          box-shadow:0 2px 6px ${alpha(T.evergreen, .12)}, 0 18px 40px ${alpha(T.evergreen, .13)}; }
+          background-color:${T.petal};
+          background-image:url(/brand/RibbedGradient_Petal.jpg);
+          background-size:cover; background-position:center; background-blend-mode:multiply;
+          box-shadow:0 2px 6px ${alpha(T.evergreen, .10)}, 0 16px 38px ${alpha(T.evergreen, .12)}; }
         .bcl .eyebrow { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.13em;
-          text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; color:${T.petal}; }
-        .bcl .eyebrow .edot { width:8px; height:8px; border-radius:99px; background:${T.petal}; }
-        .bcl .hnum { font-family:Poppins,sans-serif; font-weight:700; letter-spacing:-.025em; color:${T.onDark};
+          text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; color:${T.evergreen}; }
+        .bcl .eyebrow .edot { width:8px; height:8px; border-radius:99px; background:${T.poppy}; }
+        .bcl .hnum { font-family:Poppins,sans-serif; font-weight:700; letter-spacing:-.025em; color:${T.evergreen};
           line-height:1; margin:12px 0 6px; font-variant-numeric:tabular-nums; font-size:44px; display:flex; align-items:baseline; gap:12px; }
-        .bcl .hnum .of { font-size:15px; font-weight:500; color:${T.onDarkMute}; letter-spacing:0; }
-        .bcl .hdesc { font-size:12.5px; color:${T.onDarkMute}; }
+        .bcl .hnum .of { font-size:15px; font-weight:500; color:${T.slate}; letter-spacing:0; }
+        .bcl .hdesc { font-size:12.5px; color:${T.slate}; }
 
         .bcl .gb { margin-top:20px; }
-        .bcl .gb-track { position:relative; height:11px; border-radius:6px; background:${alpha(T.onDark, .14)}; overflow:visible; }
-        .bcl .gb-committed { position:absolute; left:0; top:0; bottom:0; background:${T.sprout}; opacity:.34; border-radius:6px; }
-        .bcl .gb-fill { position:absolute; left:0; top:0; bottom:0; background:${T.sprout}; border-radius:6px 0 0 6px; }
-        .bcl .gb-pace { position:absolute; top:-4px; bottom:-4px; width:2px; background:${T.onDark};
-          box-shadow:0 0 0 2px ${alpha(T.evergreen, .55)}; }
+        .bcl .gb-track { position:relative; height:11px; border-radius:6px; background:${alpha(T.evergreen, .1)}; overflow:visible; }
+        .bcl .gb-committed { position:absolute; left:0; top:0; bottom:0; background:${T.meadow}; opacity:.3; border-radius:6px; }
+        .bcl .gb-fill { position:absolute; left:0; top:0; bottom:0; background:${T.meadow}; border-radius:6px 0 0 6px; }
+        .bcl .gb-pace { position:absolute; top:-4px; bottom:-4px; width:2px; background:${T.evergreen};
+          box-shadow:0 0 0 2px ${alpha(T.white, .7)}; }
         .bcl .gb-pace::after { content:""; position:absolute; top:-4px; left:-3px; width:8px; height:8px;
-          border-radius:99px; background:${T.onDark}; }
-        .bcl .gb-goalcap { position:absolute; right:0; top:-3px; bottom:-3px; width:3px; border-radius:2px; background:${T.petal}; }
+          border-radius:99px; background:${T.evergreen}; }
+        .bcl .gb-goalcap { position:absolute; right:0; top:-3px; bottom:-3px; width:3px; border-radius:2px; background:${T.poppy}; }
         .bcl .gb-legend { display:flex; gap:18px; margin-top:12px; flex-wrap:wrap; align-items:center; }
-        .bcl .gb-legend span { font-size:11.5px; color:${T.onDarkMute}; display:inline-flex; align-items:center; gap:6px; }
-        .bcl .gb-legend b { color:${T.onDark}; font-weight:600; font-family:Poppins,sans-serif; }
+        .bcl .gb-legend span { font-size:11.5px; color:${T.slate}; display:inline-flex; align-items:center; gap:6px; }
+        .bcl .gb-legend b { color:${T.ink}; font-weight:600; font-family:Poppins,sans-serif; }
         .bcl .gb-legend .right { margin-left:auto; }
         .bcl .gb-legend .d { width:8px; height:8px; border-radius:99px; }
-        .bcl .gb-legend .d.meadow { background:${T.sprout}; }
-        .bcl .gb-legend .d.meadowLt { background:${T.sprout}; opacity:.4; }
-        .bcl .gb-legend .d.goal { background:${T.petal}; }
-        .bcl .gb-legend .tick { width:2px; height:11px; background:${T.onDark}; border-radius:1px; }
+        .bcl .gb-legend .d.meadow { background:${T.meadow}; }
+        .bcl .gb-legend .d.meadowLt { background:${T.meadow}; opacity:.35; }
+        .bcl .gb-legend .d.goal { background:${T.poppy}; }
+        .bcl .gb-legend .tick { width:2px; height:11px; background:${T.evergreen}; border-radius:1px; }
 
         .bcl .hstats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:22px; }
-        .bcl .ms { background:${alpha(T.onDark, .06)}; border:1px solid ${alpha(T.onDark, .12)}; border-radius:11px; padding:11px 13px; }
-        .bcl .ms-l { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:${T.onDarkMute}; }
-        .bcl .ms-v { font-family:Poppins,sans-serif; font-size:19px; font-weight:700; color:${T.onDark}; margin-top:5px;
+        .bcl .ms { background:${alpha(T.white, .5)}; border:1px solid ${alpha(T.evergreen, .1)}; border-radius:11px; padding:11px 13px; }
+        .bcl .ms-l { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:${T.tertiary}; }
+        .bcl .ms-v { font-family:Poppins,sans-serif; font-size:19px; font-weight:700; color:${T.evergreen}; margin-top:5px;
           letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
-        .bcl .ms-v.behind { color:${T.petal}; }
-        .bcl .ms-v.good { color:${T.sprout}; }
-        .bcl .ms-s { font-size:10.5px; color:${T.onDarkMute}; margin-top:2px; }
+        .bcl .ms-v.behind { color:${T.poppyText}; }
+        .bcl .ms-v.good { color:${T.meadow}; }
+        .bcl .ms-s { font-size:10.5px; color:${T.muted}; margin-top:2px; }
 
         .bcl .card { background:${T.white}; border:1px solid ${T.line}; border-top:none; border-radius:0 0 18px 18px;
           padding:22px 26px 24px; box-shadow:0 12px 30px ${alpha(T.evergreen, .06)}; }
@@ -990,7 +991,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         @media (prefers-reduced-motion:no-preference){
           .bcl .edot, .bcl .pill.open .pdot { animation:bcl-pulse 2.2s ease-out infinite; }
         }
-        @keyframes bcl-pulse { 0%{ box-shadow:0 0 0 0 ${alpha(T.petal, .7)}; } 70%{ box-shadow:0 0 0 5px ${alpha(T.petal, 0)}; } 100%{ box-shadow:0 0 0 0 ${alpha(T.petal, 0)}; } }
+        @keyframes bcl-pulse { 0%{ box-shadow:0 0 0 0 ${alpha(T.poppy, .6)}; } 70%{ box-shadow:0 0 0 5px ${alpha(T.poppy, 0)}; } 100%{ box-shadow:0 0 0 0 ${alpha(T.poppy, 0)}; } }
 
         @media (max-width:640px){
           .bcl .hstats, .bcl .mom-grid { grid-template-columns:1fr; }
@@ -1035,8 +1036,8 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         {data.shift && <TheShift shift={data.shift} />}
 
         <div className="hero">
-          <SpringSignature tone="light" height={40}
-            style={{ position: "absolute", top: 18, right: 24, opacity: 0.14, pointerEvents: "none" }} />
+          <SpringSignature tone="dark" height={40}
+            style={{ position: "absolute", top: 18, right: 24, opacity: 0.12, pointerEvents: "none" }} />
           <div className="eyebrow"><span className="edot" />{seatPrimary ? "Members enrolled · to goal" : "ARR added · to goal"}</div>
           <div className="hnum">
             <Num metric={seatPrimary ? "funnel.enrolled" : "enrolled.arr"}>{seatPrimary ? D.enrolledSeats : kMoney(D.enrolledArr)}</Num>

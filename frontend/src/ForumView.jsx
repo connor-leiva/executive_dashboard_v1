@@ -22,6 +22,7 @@ const C = {
   meadow: "#61835E", sprout: "#B8CCB8", mist: "#DCE7E9", mistDeep: "#67A5AA", evergreen: "#002E2C",
   flagBg: "#FFF9D6", flagDot: "#FFDD1F", flagText: "#6D5336", amber: "#B5792A",
   heroDeep: "#00211F", heroMid: "#013B38", heroText: "#EAF3EE", heroMut: "rgba(217,232,225,.58)",
+  petal: "#FFBA9F", petalDeep: "#E08863", poppy: "#FA8069",
 };
 
 const kc = (n) => {
@@ -194,9 +195,9 @@ function ConnectQbo() {
 }
 
 /* ── Money Hero — the Cash Lens (real-time) ─────────────────────── */
-function MoneyHero({ b, rangeLabel, spark, months, onOpen }) {
+function MoneyHero({ b, rangeLabel, spark, months, onOpen, isBc }) {
   return (
-    <Glow className="hero" tint="rgba(103,165,170,.18)">
+    <Glow className={isBc ? "hero bc" : "hero"} tint={isBc ? "rgba(224,136,99,.16)" : "rgba(103,165,170,.18)"}>
       <div className="hero-eyebrow"><span className="hero-dot" />Cash · Real-Time Truth
         <span className="hero-range">Cash Lens{rangeLabel ? ` · ${rangeLabel}` : ""}</span></div>
       <div className="hero-body">
@@ -204,27 +205,27 @@ function MoneyHero({ b, rangeLabel, spark, months, onOpen }) {
           <div className="hero-plabel">Net Cash{months[0] ? ` · Since ${months[0]}` : ""}</div>
           <div className="hero-pval"><Count to={b.net_cash} fmt={kc} duration={950} /></div>
           <div className="hero-chart">
-            <Spark points={spark} w={300} h={58} stroke={C.mistDeep} fill="url(#hg)" pad={3} />
+            <Spark points={spark} w={300} h={58} stroke={isBc ? C.meadow : C.mistDeep} fill="url(#hg)" pad={3} />
             <svg width="0" height="0"><defs>
               <linearGradient id="hg" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={C.mistDeep} stopOpacity="0.34" />
-                <stop offset="100%" stopColor={C.mistDeep} stopOpacity="0" />
+                <stop offset="0%" stopColor={isBc ? C.meadow : C.mistDeep} stopOpacity={isBc ? "0.28" : "0.34"} />
+                <stop offset="100%" stopColor={isBc ? C.meadow : C.mistDeep} stopOpacity="0" />
               </linearGradient></defs></svg>
             <div className="hero-months">{months.map((m) => <span key={m}>{m}</span>)}</div>
           </div>
           <div className="hero-psub">{usd(b.gross)} collected − {usd(b.refunded)} · <b className="hero-drill" onClick={() => onOpen("forum_payments")}>{b.txn_count} transactions ↗</b></div>
         </div>
         <div className="hero-side">
-          <Glow className="hero-scell" tint="rgba(103,165,170,.16)" role="button" tabIndex={0}
+          <Glow className="hero-scell" tint={isBc ? "rgba(224,136,99,.18)" : "rgba(103,165,170,.16)"} role="button" tabIndex={0}
             onClick={() => onOpen("forum_mrr_subs")} onKeyDown={(e) => (e.key === "Enter") && onOpen("forum_mrr_subs")}>
-            <Chip src={A.growth} onDark size={26} icon={13} />
+            <Chip src={A.growth} onDark={!isBc} tint={C.meadow} size={26} icon={13} />
             <div className="hero-sval"><Count to={b.mrr} fmt={kc} duration={880} /><span>/mo</span></div>
             <div className="hero-slabel">MRR · True Recurring</div>
             <div className="hero-ssub">{b.perpetual_count} perpetual subscriptions</div>
           </Glow>
-          <Glow className="hero-scell" tint="rgba(103,165,170,.16)" role="button" tabIndex={0}
+          <Glow className="hero-scell" tint={isBc ? "rgba(224,136,99,.18)" : "rgba(103,165,170,.16)"} role="button" tabIndex={0}
             onClick={() => onOpen("renewal_book")} onKeyDown={(e) => (e.key === "Enter") && onOpen("renewal_book")}>
-            <Chip src={A.crown} onDark size={26} icon={13} />
+            <Chip src={A.crown} onDark={!isBc} tint={C.meadow} size={26} icon={13} />
             <div className="hero-sval"><Count to={b.arr_book} fmt={kc} duration={940} /></div>
             <div className="hero-slabel">ARR · Renewal Book</div>
             <div className="hero-ssub">run-rate {kc(b.run_rate)}</div>
@@ -629,6 +630,28 @@ const CSS = `
   .hero-sval span { font-size:12px; font-weight:500; color:${C.heroMut}; margin-left:2px; }
   .hero-slabel { font-family:Inter,sans-serif; font-size:11px; color:rgba(217,232,225,.72); margin-top:3px; font-weight:500; }
   .hero-ssub { font-family:Inter,sans-serif; font-size:10px; color:rgba(217,232,225,.42); margin-top:2px; }
+
+  /* beCollective Cash card — official petal ribbed gradient (light surface, dark ink). */
+  .hero.bc { color:${C.ink};
+    background-color:${C.petal};
+    background-image:url(/brand/RibbedGradient_Petal.jpg);
+    background-size:cover; background-position:center; background-blend-mode:multiply;
+    box-shadow:0 2px 6px ${C.evergreen}1A, 0 16px 38px ${C.evergreen}1F, inset 0 1px 0 rgba(255,255,255,.35);
+    border:1px solid ${C.petalDeep}55; }
+  .hero.bc .hero-eyebrow { color:${C.evergreen}; }
+  .hero.bc .hero-dot { background:${C.poppy}; box-shadow:0 0 0 3px ${C.poppy}33; }
+  .hero.bc .hero-range { color:${C.slate}; background:rgba(255,255,255,.5); border:1px solid ${C.evergreen}1A; }
+  .hero.bc .hero-plabel { color:${C.slate}; }
+  .hero.bc .hero-pval { background:linear-gradient(160deg, ${C.evergreen}, ${C.meadow} 78%); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .hero.bc .hero-months { color:${C.muted}; }
+  .hero.bc .hero-psub { color:${C.slate}; }
+  .hero.bc .hero-psub b { color:${C.ink}; }
+  .hero.bc .hero-side { background:rgba(255,255,255,.42); border:1px solid ${C.evergreen}14; }
+  .hero.bc .hero-scell { background:linear-gradient(160deg, rgba(255,255,255,.5), rgba(255,255,255,.2)); }
+  .hero.bc .hero-sval { color:${C.ink}; }
+  .hero.bc .hero-sval span { color:${C.muted}; }
+  .hero.bc .hero-slabel { color:${C.slate}; }
+  .hero.bc .hero-ssub { color:${C.muted}; }
 
   .topgrid { display:grid; grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr); gap:14px; align-items:stretch; margin-bottom:14px; }
   @media (max-width:900px){ .topgrid{ grid-template-columns:1fr; } }
@@ -1244,7 +1267,7 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
         <div className="enter topgrid">
           <PnlCard area={area} billing={b} />
           {b
-            ? <MoneyHero b={b} rangeLabel={rangeLabel} spark={heroSpark} months={heroMonths} onOpen={onOpen} />
+            ? <MoneyHero b={b} rangeLabel={rangeLabel} spark={heroSpark} months={heroMonths} onOpen={onOpen} isBc={isBc} />
             : <div className="card" style={{ padding: 22, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                 <div className="kick"><span className="kb kb-m" />Cash · Real-Time Truth<span className="src">Go High Level</span></div>
                 <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>The cash lens lights up when this program's Go High Level Payments connection is live.</div>
