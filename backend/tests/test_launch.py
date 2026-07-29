@@ -206,6 +206,51 @@ async def test_shift_manual_fallback_when_nothing_synced():
     assert d["shift"]["registrants"] == 210 and d["shift"]["source"] == "manual"
 
 
+async def test_shift_source_breakdown_and_channel_drill():
+    """Registrants aggregate by acquisition channel (from meta.channel the sync sets), and
+    each channel drills to its registrant list."""
+    from app.db import SessionLocal
+    from app.models import Business, Launch, MetricRecord
+    from app.services.launch import (compute_launch, drill_launch, DEFAULT_STAGE_MAP,
+                                      DEFAULT_PAYMENT_PLAN_MAP, DEFAULT_SHIFT_CURVE)
+    from sqlalchemy import select, delete
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(Launch).where(Launch.business_id == biz.id))
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.kind == "bc_shift_reg"))
+        launch = Launch(
+            tenant_id=biz.tenant_id, business_id=biz.id, name="Aug", window_start=dt.date(2026, 8, 11),
+            window_end=dt.date(2026, 9, 12), goal_arr=1_000_000, ticket_pif=12_000, ticket_plan=14_000,
+            mix_pif="0.5", pipeline_match="x", goal_basis="seats", seat_goal=100,
+            shift_name="The Shift", shift_event_date=dt.date(2026, 8, 11), shift_goal=2000,
+            shift_reg_tags=["shift-ga-purchaser"], shift_campaign_match="shift",
+            shift_pace_curve=DEFAULT_SHIFT_CURVE, stage_map=DEFAULT_STAGE_MAP,
+            payment_plan_map=DEFAULT_PAYMENT_PLAN_MAP)
+        s.add(launch)
+        await s.flush()
+        for ch, n in [("Meta", 6), ("Organic / Existing", 3), ("Comped", 1)]:
+            for i in range(n):
+                s.add(MetricRecord(tenant_id=biz.tenant_id, business_id=biz.id, source="ghl",
+                                   kind="bc_shift_reg", external_id=f"{ch}{i}", status="registered",
+                                   meta={"channel": ch, "utm_campaign": "KB The Shift Aug" if ch == "Meta" else None}))
+        await s.commit()
+        lid, tid = launch.id, biz.tenant_id
+
+    d = await _compute_at(lid, tid, dt.date(2026, 7, 28))
+    src = d["shift"]["sources"]
+    assert src["total"] == 10 and src["paid"] == 6 and src["organic"] == 3 and src["comped"] == 1
+    chans = {c["key"]: c for c in src["channels"]}
+    assert chans["meta"]["count"] == 6 and chans["meta"]["pct"] == 60 and chans["meta"]["paid"] is True
+    assert d["shift"]["registrants"] == 10 and d["shift"]["source"] == "synced"
+
+    async with SessionLocal() as s:
+        from sqlalchemy import select as _sel
+        launch = (await s.execute(_sel(Launch).where(Launch.id == lid))).scalar_one()
+        dr = await drill_launch(s, tid, launch, "shift.source.meta", today=dt.date(2026, 7, 28))
+    assert dr["type"] == "records" and dr["count"] == 6 and "Meta" in dr["title"]
+
+
 async def _client():
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver")
 

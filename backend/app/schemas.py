@@ -331,6 +331,8 @@ class LaunchConfigOut(BaseModel):
     shift_event_date: str | None = None
     shift_goal: int | None = None
     shift_reg_tag: str | None = None
+    shift_reg_tags: list = []
+    shift_campaign_match: str | None = None
     shift_actual: int | None = None
     shift_pace_curve: dict = {}
     shift_pace_tolerance: float = 0.08
@@ -340,6 +342,22 @@ class ShiftCurvePoint(BaseModel):
     d: int
     pct: float
     count: int
+
+
+class ShiftChannel(BaseModel):
+    key: str
+    label: str
+    count: int
+    pct: int
+    paid: bool
+
+
+class ShiftSources(BaseModel):
+    total: int
+    paid: int
+    organic: int
+    comped: int
+    channels: list[ShiftChannel]
 
 
 class ShiftOut(BaseModel):
@@ -358,6 +376,7 @@ class ShiftOut(BaseModel):
     projected_members: int
     members_at_goal: int
     curve: list[ShiftCurvePoint]
+    sources: ShiftSources | None = None
 
 
 class FunnelStage(BaseModel):
@@ -456,6 +475,8 @@ class LaunchUpsert(BaseModel):
     shift_event_date: str | None = None
     shift_goal: int | None = None
     shift_reg_tag: str | None = None
+    shift_reg_tags: list | None = None
+    shift_campaign_match: str | None = None
     shift_actual: int | None = None
     shift_pace_curve: dict | None = None
     shift_pace_tolerance: float | None = None

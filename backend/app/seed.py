@@ -534,17 +534,27 @@ async def seed():
                 # Seat-primary: the headline goal is 100 women, ARR is derived.
                 goal_basis="seats", seat_goal=100, pace_model="curve",
                 # The Shift — the lead-up webinar that feeds memberships (2,000 regs → 100 seats).
+                # Registrants = the August-exclusive ticket tags; UTM attributes them to a channel.
                 shift_name="The Shift", shift_event_date=dt.date(2026, 8, 11), shift_goal=2000,
-                shift_reg_tag="the shift", shift_actual=175, shift_pace_curve=DEFAULT_SHIFT_CURVE,
+                shift_reg_tag="the shift",
+                shift_reg_tags=["shift-ga-purchaser", "shift-vip-glowup", "shift-comp-member"],
+                shift_campaign_match="shift", shift_actual=175, shift_pace_curve=DEFAULT_SHIFT_CURVE,
                 shift_pace_tolerance=Decimal("0.08"),
                 stage_map=DEFAULT_STAGE_MAP, payment_plan_map=DEFAULT_PAYMENT_PLAN_MAP, is_active=True)
             s.add(aug)
             await s.flush()
-            # Synced Shift registrants (so the local demo shows the live count + curve, not the seed).
-            for i in range(175):
-                _mr(kind="bc_shift_reg", external_id=f"bcshift-{i+1:04d}", name=f"Shift Reg {i+1}",
-                    status="registered", meta={"shift_tag": "the shift", "contact_id": f"sh-{i}",
-                                               "is_member": i < 20})
+            # Synced Shift registrants with acquisition channel (mirrors the live August split from
+            # the GHL UTM probe: Meta 143 / Organic 59 / Comped 36 / Email 2).
+            _shift_i = 0
+            for _channel, _n in [("Meta", 143), ("Organic / Existing", 59), ("Comped", 36), ("Email", 2)]:
+                for _ in range(_n):
+                    _shift_i += 1
+                    _mr(kind="bc_shift_reg", external_id=f"bcshift-{_shift_i:04d}",
+                        name=f"Shift Reg {_shift_i}", status="registered",
+                        meta={"shift_tags": ["shift-ga-purchaser"], "channel": _channel,
+                              "utm_source": {"Meta": "meta", "Email": "email"}.get(_channel),
+                              "utm_campaign": "KB - The Shift - August2026" if _channel in ("Meta", "Email") else None,
+                              "contact_id": f"sh-{_shift_i}", "is_member": _shift_i <= 20})
             _lid = str(aug.id)
             _won = dt.date(2026, 8, 18)         # inside the window
             _lo = 0

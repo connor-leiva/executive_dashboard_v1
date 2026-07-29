@@ -23,10 +23,19 @@ const sampleLaunch = {
   },
   goal_basis: "seats",
   shift: {
-    name: "The Shift", event_date: "2026-08-11", goal: 2000, registrants: 175,
-    pct_to_goal: 0.0875, days_to_event: 14, expected: 380, expected_pct: 0.19,
-    gap: -205, state: "behind", source: "synced", reg_to_member: 0.05,
-    projected_members: 9, members_at_goal: 100, curve,
+    name: "The Shift", event_date: "2026-08-11", goal: 2000, registrants: 240,
+    pct_to_goal: 0.12, days_to_event: 14, expected: 380, expected_pct: 0.19,
+    gap: -140, state: "behind", source: "synced", reg_to_member: 0.05,
+    projected_members: 12, members_at_goal: 100, curve,
+    sources: {
+      total: 240, paid: 143, organic: 59, comped: 36,
+      channels: [
+        { key: "meta", label: "Meta", count: 143, pct: 60, paid: true },
+        { key: "email", label: "Email", count: 2, pct: 1, paid: false },
+        { key: "comped", label: "Comped", count: 36, pct: 15, paid: false },
+        { key: "organic", label: "Organic / Existing", count: 59, pct: 25, paid: false },
+      ],
+    },
   },
   status: "pre", as_of: "2026-07-28",
   window_days: 32, days_elapsed: 0, days_remaining: 32, days_to_open: 14,

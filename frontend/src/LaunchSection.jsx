@@ -326,6 +326,43 @@ function ShiftStat({ label, value, tone, metric }) {
   );
 }
 
+const CHANNEL_COLOR = {
+  meta: T.teal, google: T.petalDeep, tiktok: T.poppy, paid_other: T.petal,
+  email: T.mist, comped: T.daffodil, organic: T.meadow,
+};
+
+/* "Where they came from" — the acquisition-channel split of Shift registrants (organic vs
+   paid), from GHL contact UTM. Each channel drills to its registrant list. */
+function ShiftSources({ sources }) {
+  if (!sources || !sources.total) return null;
+  const { total, paid, organic, comped, channels } = sources;
+  const pct = (n) => Math.round((n / total) * 100);
+  return (
+    <div className="shift-src">
+      <div className="shift-src-head">
+        <span className="shift-src-title">Where they came from</span>
+        <span className="shift-src-sub">
+          {pct(paid)}% paid · {pct(organic)}% organic{comped ? ` · ${pct(comped)}% comped` : ""}
+        </span>
+      </div>
+      <div className="shift-src-bar">
+        {channels.filter((c) => c.count > 0).map((ch) => (
+          <span key={ch.key} style={{ width: `${ch.pct}%`, background: CHANNEL_COLOR[ch.key] || T.muted }}
+            title={`${ch.label}: ${fmtN(ch.count)} (${ch.pct}%)`} />
+        ))}
+      </div>
+      <div className="shift-src-legend">
+        {channels.filter((c) => c.count > 0).map((ch) => (
+          <Num key={ch.key} metric={`shift.source.${ch.key}`} title={`${ch.label} registrants`}>
+            <span className="shift-src-item"><i style={{ background: CHANNEL_COLOR[ch.key] || T.muted }} />
+              {ch.label} <b>{fmtN(ch.count)}</b> <em>{ch.pct}%</em></span>
+          </Num>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TheShift({ shift }) {
   const open = useContext(DrillCtx);
   const [hov, setHov] = useState(null);
@@ -369,6 +406,7 @@ function TheShift({ shift }) {
           <ShiftCurve shift={shift} onHover={setHov} onPick={() => open && open("shift.expected")} />
         </div>
       </div>
+      {shift.sources && <ShiftSources sources={shift.sources} />}
       <div className="shift-foot">
         {fmtN(shift.goal)} registrants → {shift.members_at_goal} members · ~{Math.round(shift.reg_to_member * 100)}% historical conversion · pacing vs your last Shift
       </div>
@@ -766,6 +804,17 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .shift-svg-lbl { font-family:Inter,sans-serif; font-size:9px; fill:${T.muted}; }
         .bcl .shift-svg-now { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; }
         .bcl .shift-foot { font-size:11px; color:${T.muted}; margin-top:15px; padding-top:12px; border-top:1px solid ${T.line}; }
+        .bcl .shift-src { margin-top:16px; padding-top:14px; border-top:1px solid ${T.line}; }
+        .bcl .shift-src-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:9px; flex-wrap:wrap; gap:4px; }
+        .bcl .shift-src-title { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:${T.slate}; }
+        .bcl .shift-src-sub { font-size:11px; color:${T.muted}; }
+        .bcl .shift-src-bar { display:flex; height:9px; border-radius:5px; overflow:hidden; background:${T.parchment}; }
+        .bcl .shift-src-bar span { display:block; height:100%; transition:width .4s ease; }
+        .bcl .shift-src-legend { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:11px; }
+        .bcl .shift-src-item { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:${T.secondary}; }
+        .bcl .shift-src-item i { width:9px; height:9px; border-radius:3px; flex:none; }
+        .bcl .shift-src-item b { font-family:Poppins,sans-serif; font-weight:600; color:${T.ink}; font-variant-numeric:tabular-nums; }
+        .bcl .shift-src-item em { font-style:normal; color:${T.muted}; }
         .bcl .shift-cap { font-size:11.5px; color:${T.muted}; margin-bottom:7px; min-height:16px; }
         .bcl .shift-cap.on { color:${T.teal}; }
         .bcl .shift-cap b { color:${T.ink}; font-weight:600; }

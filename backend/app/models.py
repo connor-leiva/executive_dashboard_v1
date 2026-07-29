@@ -559,7 +559,9 @@ class Launch(Base):
     shift_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     shift_event_date: Mapped[date | None] = mapped_column(Date, nullable=True)          # the "0 days to event" anchor
     shift_goal: Mapped[int | None] = mapped_column(Integer, nullable=True)              # registrant goal
-    shift_reg_tag: Mapped[str | None] = mapped_column(String(80), nullable=True)        # GHL tag counted as a registrant
+    shift_reg_tag: Mapped[str | None] = mapped_column(String(80), nullable=True)        # legacy single GHL tag
+    shift_reg_tags: Mapped[list | None] = mapped_column(JSONType, nullable=True)        # GHL tags that mark a registrant
+    shift_campaign_match: Mapped[str | None] = mapped_column(String(80), nullable=True)  # utm_campaign substring for Shift-scoped attribution
     shift_actual: Mapped[int | None] = mapped_column(Integer, nullable=True)            # manual seed / fallback count
     shift_pace_curve: Mapped[dict | None] = mapped_column(JSONType, nullable=True)      # {days_to_event: cum_fraction}
     shift_pace_tolerance: Mapped[Decimal] = mapped_column(Numeric(4, 3), default=Decimal("0.080"))

@@ -5,6 +5,7 @@ Launch-only: ARR here is annualized revenue ADDED by the cohort, not recurring �
 renewal machinery lives in this section."""
 import datetime as dt
 import math
+from collections import Counter
 
 from sqlalchemy import select
 
@@ -57,6 +58,35 @@ def classify_stage(stage_name: str, stage_map: dict) -> tuple[str, bool]:
         if any(sub in low for sub in subs):
             return ("booked", True) if g == "booked_app" else (g, False)
     return "uncategorized", False
+
+
+# Shift registrant source classification (organic vs paid channels, from GHL contact UTM).
+# Attribution is Shift-scoped: UTM only counts when utm_campaign references the Shift, so a
+# long-time member's stale UTM from an old campaign falls to Organic instead of a paid ad.
+SHIFT_PAID_MED = {"cpc", "ppc", "paid", "paid-social", "paidsocial", "cpm", "display"}
+SHIFT_SRC_CHANNEL = {"meta": "Meta", "facebook": "Meta", "instagram": "Meta", "fb": "Meta",
+                     "ig": "Meta", "google": "Google", "adwords": "Google", "youtube": "Google",
+                     "bing": "Google", "tiktok": "TikTok", "email": "Email"}
+SHIFT_CHANNEL_ORDER = ["Meta", "Google", "TikTok", "Email", "Paid (other)", "Comped", "Organic / Existing"]
+
+
+def classify_shift_source(utm: dict, is_comp: bool, campaign_match: str = "shift") -> str:
+    """A registrant's channel from their (Shift-scoped) UTM. Comped seats are their own
+    channel; anything without Shift-campaign UTM is Organic / Existing (owned audience)."""
+    if is_comp:
+        return "Comped"
+    utm = utm or {}
+    src = str(utm.get("source") or "").lower()
+    med = str(utm.get("medium") or "").lower()
+    camp = str(utm.get("campaign") or "").lower()
+    if campaign_match and campaign_match.lower() not in camp:
+        return "Organic / Existing"      # no Shift-scoped attribution → owned/existing
+    ch = SHIFT_SRC_CHANNEL.get(src)
+    if ch:
+        return ch
+    if med in SHIFT_PAID_MED:
+        return "Paid (other)"
+    return "Organic / Existing"
 
 
 def classify_payment(field_value, financed: bool, payment_plan_map: dict, stage_low: str = "") -> str | None:
@@ -140,16 +170,42 @@ async def _launch_opps(s, tenant_id, business_id, launch: Launch) -> list[dict]:
     return [(r.meta or {}) for r in recs if (r.meta or {}).get("launch_id") == lid]
 
 
-async def _shift_registrants(s, tenant_id, business_id, tag) -> int:
-    """Live count of Shift registrants — contacts the beCollective sync tagged for the Shift
-    (kind='bc_shift_reg'). 0 when nothing is synced yet (compute falls back to the manual seed)."""
-    if not tag:
-        return 0
+async def _shift_recs(s, tenant_id, business_id) -> list[dict]:
+    """The synced Shift-registrant meta records (kind='bc_shift_reg'). The beCollective sync
+    scopes these to the launch's registrant tag set + captures each contact's channel from its
+    GHL UTM, so every record here is a current registrant carrying its source."""
     recs = (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
         MetricRecord.source == "ghl", MetricRecord.kind == "bc_shift_reg"))).scalars().all()
-    t = str(tag).lower()
-    return sum(1 for r in recs if str((r.meta or {}).get("shift_tag", "")).lower() == t)
+    return [(r.meta or {}) for r in recs]
+
+
+_PAID_CHANNELS = {"Meta", "Google", "TikTok", "Paid (other)"}
+_CHANNEL_SLUG = {"Meta": "meta", "Google": "google", "TikTok": "tiktok", "Email": "email",
+                 "Paid (other)": "paid_other", "Comped": "comped", "Organic / Existing": "organic"}
+
+
+def channel_slug(label: str) -> str:
+    return _CHANNEL_SLUG.get(label, (label or "organic").lower().split()[0])
+
+
+def _shift_sources(recs: list[dict]) -> dict | None:
+    """Aggregate synced registrants by acquisition channel (from meta.channel the sync set)."""
+    if not recs:
+        return None
+    ch = Counter(m.get("channel") or "Organic / Existing" for m in recs)
+    total = sum(ch.values())
+    order = {c: i for i, c in enumerate(SHIFT_CHANNEL_ORDER)}
+    items = sorted(ch.items(), key=lambda kv: (order.get(kv[0], 99), -kv[1]))
+    return {
+        "total": total,
+        "paid": sum(v for k, v in ch.items() if k in _PAID_CHANNELS),
+        "organic": ch.get("Organic / Existing", 0),
+        "comped": ch.get("Comped", 0),
+        "channels": [{"key": channel_slug(k), "label": k, "count": v,
+                      "pct": round(v / total * 100) if total else 0,
+                      "paid": k in _PAID_CHANNELS} for k, v in items],
+    }
 
 
 async def compute_shift(s, tenant_id, launch: Launch, seat_target: int, today: dt.date) -> dict | None:
@@ -158,7 +214,8 @@ async def compute_shift(s, tenant_id, launch: Launch, seat_target: int, today: d
     if not launch.shift_goal:
         return None
     goal = int(launch.shift_goal)
-    synced = await _shift_registrants(s, tenant_id, launch.business_id, launch.shift_reg_tag)
+    recs = await _shift_recs(s, tenant_id, launch.business_id)
+    synced = len(recs)
     registrants = synced or int(launch.shift_actual or 0)
     curve = launch.shift_pace_curve or {}
     dte = days_between(today, launch.shift_event_date) if launch.shift_event_date else None
@@ -181,6 +238,7 @@ async def compute_shift(s, tenant_id, launch: Launch, seat_target: int, today: d
         "members_at_goal": seat_target,
         "curve": [{"d": d, "pct": round(v, 4), "count": round(v * goal)}
                   for d, v in sorted((int(k), float(x)) for k, x in curve.items())],
+        "sources": _shift_sources(recs),
     }
 
 
@@ -252,6 +310,8 @@ def config_out(launch: Launch) -> dict:
             "shift_name": launch.shift_name,
             "shift_event_date": launch.shift_event_date.isoformat() if launch.shift_event_date else None,
             "shift_goal": launch.shift_goal, "shift_reg_tag": launch.shift_reg_tag,
+            "shift_reg_tags": launch.shift_reg_tags or [],
+            "shift_campaign_match": launch.shift_campaign_match,
             "shift_actual": launch.shift_actual, "shift_pace_curve": launch.shift_pace_curve or {},
             "shift_pace_tolerance": _f(launch.shift_pace_tolerance or 0.08)}
 
@@ -383,18 +443,25 @@ async def drill_launch(s, tenant_id, launch: Launch, metric: str, today=None) ->
                        f"{len(rows)} in this stage | {launch.pipeline_match}",
                        rows, ["name", "stage", "payment", "url"])
 
-    if metric == "shift.registrants":
+    if metric == "shift.registrants" or metric.startswith("shift.source."):
+        slug = metric.split(".", 2)[2] if metric.startswith("shift.source.") else None
         recs = (await s.execute(select(MetricRecord).where(
             MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
             MetricRecord.source == "ghl", MetricRecord.kind == "bc_shift_reg"))).scalars().all()
-        tag = str(launch.shift_reg_tag or "").lower()
         rows = [{"name": r.name or "-", "email": r.email,
-                 "member": "member" if (r.meta or {}).get("is_member") else "", "url": r.source_url}
-                for r in recs if str((r.meta or {}).get("shift_tag", "")).lower() == tag]
-        sub = (f"{len(rows)} contacts tagged '{launch.shift_reg_tag}' (live)"
-               if sh.get("source") == "synced"
-               else f"manual count of {sh.get('registrants', 0)} - no live tag synced yet")
-        return records("The Shift - registrants", sub, rows, ["name", "email", "member", "url"])
+                 "channel": (r.meta or {}).get("channel"),
+                 "campaign": (r.meta or {}).get("utm_campaign"), "url": r.source_url}
+                for r in recs
+                if slug is None or channel_slug((r.meta or {}).get("channel", "")) == slug]
+        if slug:
+            label = next((c["label"] for c in (sh.get("sources") or {}).get("channels", [])
+                          if c["key"] == slug), slug.title())
+            return records(f"The Shift - {label} registrants",
+                           f"{len(rows)} registrants attributed to {label}",
+                           rows, ["name", "email", "channel", "campaign", "url"])
+        sub = (f"{len(rows)} registrants (live)" if sh.get("source") == "synced"
+               else f"manual count of {sh.get('registrants', 0)} - no live tags synced yet")
+        return records("The Shift - registrants", sub, rows, ["name", "email", "channel", "campaign", "url"])
 
     if metric.startswith("momentum."):
         key = metric.split(".", 1)[1]

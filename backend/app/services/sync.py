@@ -131,6 +131,18 @@ def _membership_field_ids(defs: list[dict], cfg: dict) -> dict:
     return out
 
 
+def _utm_field_ids(defs: list[dict]) -> dict:
+    """Map {source, medium, campaign, content, term} → GHL custom-field id — the contact-UTM
+    fields ('[Paid Events] Contact UTM' folder) used to attribute Shift registrants to a channel."""
+    out = {}
+    for d in defs:
+        nm, fk = (d.get("name") or "").lower(), (d.get("fieldKey") or "").lower()
+        for short in ("source", "medium", "campaign", "content", "term"):
+            if short not in out and (f"utm_{short}" in nm or f"utm_{short}" in fk or f"utm {short}" in nm):
+                out[short] = d.get("id")
+    return out
+
+
 def _clean_str(v) -> str | None:
     """A GHL custom-field value → a trimmed string (first element of a multi-select),
     or None when blank."""
@@ -758,9 +770,11 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
     #    field isn't mapped on this location, and a financed tag is a payment-plan fallback.
     #    Segment stays 'becollective' (no Forum/Inner-Circle split here).
     contacts = await ghl.get_contacts(token, location_id)
-    field_ids = {}
+    field_ids, utm_ids, defs = {}, {}, []
     try:
-        field_ids = _membership_field_ids(await ghl.get_custom_fields(token, location_id), cfg)
+        defs = await ghl.get_custom_fields(token, location_id)
+        field_ids = _membership_field_ids(defs, cfg)
+        utm_ids = _utm_field_ids(defs)
     except Exception as e:  # noqa: BLE001 — custom fields optional; never fail the sync
         print(f"[ghl_bc] custom fields skipped: {e}", flush=True)
     if field_ids:
@@ -768,10 +782,14 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
     typed = bool(field_ids.get("member_type"))
     inactive_vocab = tuple(str(x).lower() for x in
                            (cfg.get("inactive_statuses") or _INACTIVE_MEMBER_STATUS))
-    # The active launch's Shift tag (top-of-funnel webinar registrants) — counted live.
-    from .launch import active_launch_for
+    # The active launch's Shift registrant tag SET (top-of-funnel webinar) + UTM attribution.
+    from .launch import active_launch_for, classify_shift_source
     _launch = await active_launch_for(s, tenant_id, biz)
-    shift_tag = (_launch.shift_reg_tag or "").lower().strip() if _launch else ""
+    shift_tags = campaign_match = None
+    if _launch:
+        raw = _launch.shift_reg_tags or ([_launch.shift_reg_tag] if _launch.shift_reg_tag else [])
+        shift_tags = {str(t).lower().strip() for t in raw if t}
+        campaign_match = _launch.shift_campaign_match or "shift"
     members, regs, shift_regs, financed_contacts = [], [], [], set()
     n_admin = n_inactive = 0
     for c in contacts:
@@ -783,7 +801,8 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
                     external_id=cid, name=ghl.contact_name(c)[:200],
                     email=(c.get("email") or None),
                     source_url=ghl.contact_url(location_id, c.get("id")))
-        detail = _read_membership(ghl.contact_custom_values(c), field_ids) if field_ids else {}
+        cvals = ghl.contact_custom_values(c)
+        detail = _read_membership(cvals, field_ids) if field_ids else {}
         is_member, kind, inactive = _member_decision(detail, tset, member_tags, typed, inactive_vocab)
         if inactive:
             n_inactive += 1
@@ -796,13 +815,22 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
         if event_tag and event_tag in tset:
             regs.append({**base, "kind": "bc_registration", "status": "registered",
                          "meta": {"event_tag": event_tag, "guest": not is_member, "contact_id": cid}})
-        if shift_tag and shift_tag in tset:
+        matched = (tset & shift_tags) if shift_tags else set()
+        if matched:
+            utm = {k: _clean_str(cvals.get(vid)) for k, vid in utm_ids.items()}
+            is_comp = any("comp" in t for t in matched)
+            channel = classify_shift_source(utm, is_comp, campaign_match)
             shift_regs.append({**base, "kind": "bc_shift_reg", "status": "registered",
-                               "meta": {"shift_tag": shift_tag, "contact_id": cid, "is_member": is_member}})
+                               "meta": {"shift_tags": sorted(matched), "channel": channel,
+                                        "utm_source": utm.get("source"), "utm_medium": utm.get("medium"),
+                                        "utm_campaign": utm.get("campaign"),
+                                        "contact_id": cid, "is_member": is_member}})
     await _ghl_snapshot(s, tenant_id, biz, "bc_member", members)
-    if shift_tag:      # only touch the Shift store when a launch defines the tag
+    if shift_tags:      # only touch the Shift store when a launch defines the registrant tags
         await _ghl_snapshot(s, tenant_id, biz, "bc_shift_reg", shift_regs)
-        print(f"[ghl_bc] Shift '{shift_tag}': {len(shift_regs)} registrants", flush=True)
+        from collections import Counter as _Ctr
+        print(f"[ghl_bc] Shift {sorted(shift_tags)}: {len(shift_regs)} registrants; "
+              f"channels={dict(_Ctr(r['meta']['channel'] for r in shift_regs))}", flush=True)
     # contact_id → payment plan from the field, so opps below prefer it over the tag.
     plan_by_contact = {m["external_id"]: (m["meta"]["membership"].get("payment"))
                        for m in members if (m["meta"]["membership"] or {}).get("payment")}
