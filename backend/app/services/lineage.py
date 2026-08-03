@@ -33,6 +33,7 @@ def _fin_row(t: Transaction, kind: str, when) -> dict:
     return {
         "id": str(t.id),
         "name": t.buyer_name or t.address or t.external_id,
+        "sale_price": float(t.sale_price) if t.sale_price is not None else None,  # deal size (to isolate large sales)
         "gci": gci,
         "agent_commission": comm,
         "company_dollar": round(gci - comm, 2) if comm is not None else None,
