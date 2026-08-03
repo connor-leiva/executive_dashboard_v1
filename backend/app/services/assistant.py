@@ -15,8 +15,9 @@ from anthropic import AsyncAnthropic
 from sqlalchemy import select
 
 from ..config import settings
-from ..models import Tenant, User
+from ..models import Tenant, User, Business
 from ..services.becollective import build_becollective
+from ..services.financials import compute_financials
 from ..services.forum import build_forum
 from ..services.lineage import metric_detail
 from ..services.metrics import build_dashboard
@@ -26,7 +27,7 @@ log = logging.getLogger("app")
 
 TAB_LEGEND = {
     "portfolio": "Portfolio — the roll-up across all businesses (combined revenue, NOI, margin, cash).",
-    "ulrg": "ULRG — the real-estate team (units closed, GCI, volume, pipeline, listings, agents).",
+    "ulrg": "ULRG — the real-estate team (units closed, GCI, volume, pipeline, listings, agents) plus three-lens Financials: Live (closed) vs Projection (pending expected to close) vs Booked (QuickBooks) — with Projected profit, Projected GCI, commissions, net GCI, and est. expenses.",
     "forum": "The Forum — mastermind membership: members, recruiting funnel, renewals, events, and Cash & Billing (net cash, MRR, ARR, streams, failed payments).",
     "becollective": "beCollective — cohort community program: members, recruiting funnel, events.",
     "sympli": "Sympli Mortgage — the loan business: funded loans, volume, commission, and financials (Live vs Booked).",
@@ -41,20 +42,22 @@ _client: AsyncAnthropic | None = None
 DRILL_TOOL = {
     "name": "get_dashboard_detail",
     "description": (
-        "Fetch the underlying records behind a dashboard tile — the same drill-down a user "
-        "gets by clicking a number (e.g. the member roster behind 'active_members', the "
-        "renewal book behind 'renewal_book', the transactions behind 'forum_payments' or "
-        "'units_closed'). Use this whenever the summary numbers can't answer the question — "
-        "to name specific members, list transactions, or RECONCILE two counts (e.g. which of "
-        "the 70 active members lack a membership: drill 'active_members' and 'forum_arr' or "
-        "'renewal_book' and compare the rosters). Pass metric_key exactly as it appears in a "
-        "'drill' field of the dashboard JSON."
+        "Fetch the underlying records behind a dashboard tile or financial line — the same "
+        "drill-down a user gets by clicking a number (e.g. the member roster behind "
+        "'active_members', the renewal book behind 'renewal_book', the per-deal GCI behind a "
+        "financials line via 'fin_projected'/'fin_closed', the transactions behind "
+        "'forum_payments' or 'units_closed'). Use this whenever the summary numbers can't "
+        "answer the question — to name specific members, list the individual deals/transactions "
+        "(e.g. to isolate or exclude specific large sales from a projection), or RECONCILE two "
+        "counts. For a financial line, pass the row's 'key' (fin_projected, fin_closed, "
+        "fin_expenses) and business='ulrg'|'sympli'; otherwise pass metric_key exactly as it "
+        "appears in a 'drill' field of the dashboard JSON."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
-            "metric_key": {"type": "string", "description": "The tile/drill key, e.g. active_members, forum_arr, renewal_book, registered, monthly, unregistered, forum_payments, units_closed."},
-            "business": {"type": "string", "description": "Business key when relevant: springb (Forum/beCollective), ulrg, or sympli."},
+            "metric_key": {"type": "string", "description": "The tile/drill/financial-row key, e.g. active_members, forum_arr, renewal_book, forum_payments, units_closed, fin_projected (per-deal Projected GCI), fin_closed, fin_expenses."},
+            "business": {"type": "string", "description": "Business key when relevant: springb (Forum/beCollective), ulrg, or sympli. Required for financial-row drills (fin_projected/fin_closed/fin_expenses)."},
             "stream": {"type": "string", "description": "Optional filter for revenue-stream drills (memberships, event_tickets, sponsorships, invoices)."},
             "stage": {"type": "string", "description": "Optional pipeline-stage filter."},
             "source": {"type": "string", "description": "Optional lead-source filter."},
@@ -105,6 +108,24 @@ async def _build_context(s, user: User, period: str):
         d = _scope_dashboard(d, tabs)
 
     data = {"period": period, "dashboard": d.model_dump(mode="json")}
+
+    # Per-business three-lens financials (Live / Projection / Booked) — the Financials
+    # view each business tab renders: Projected profit, Projected GCI, commissions, net
+    # GCI, est. expenses, and the Booked P&L. The dashboard tiles above only carry the
+    # booked snapshot (often null early in a period), so without this the assistant
+    # can't see the Projection numbers the user is looking at.
+    businesses = (await s.execute(select(Business).where(
+        Business.tenant_id == user.tenant_id))).scalars().all()
+    fin: dict = {}
+    for b in businesses:
+        if (b.display_tab or b.key) in tabs:              # only pages this user can see
+            try:
+                fin[b.key] = await compute_financials(s, user.tenant_id, b, period)
+            except Exception:                              # a business with no financial source
+                log.debug("assistant: no financials for %s", b.key)
+    if fin:
+        data["financials"] = fin
+
     if "forum" in tabs:
         data["forum_detail"] = await build_forum(s, user.tenant_id, period)
     if "becollective" in tabs:
@@ -133,12 +154,16 @@ def _system_prompt(ctx: dict, period: str) -> str:
         f"- State the period when relevant. The data covers period='{period}'.\n"
         f"- The user can only see these tabs: {', '.join(ctx['tabs'])}. Never reference anything outside them.\n"
         f"- Short markdown is fine (a bold number, a tight bullet list). No preamble like 'Based on the data'.\n\n"
-        f"TOOL — get_dashboard_detail: the JSON below is the summary only (tile numbers). To answer "
-        f"anything that needs the records BEHIND a tile — naming specific members, listing transactions, "
-        f"or reconciling two counts (e.g. 'who is in the 70 active members but has no membership' → drill "
-        f"'active_members' and 'forum_arr'/'renewal_book' and diff the rosters) — call the tool with the "
-        f"metric_key from the relevant 'drill' field. Prefer the summary for overview questions; drill only "
-        f"when the summary genuinely can't answer. You may call it more than once to compare rosters.\n\n"
+        f"The JSON includes the summary tiles AND, under 'financials', each business's three-lens "
+        f"view (Live / Projection / Booked) with Projected profit, Projected GCI, commissions, net "
+        f"GCI, and est. expenses — use those figures directly for projection/forecast questions "
+        f"(don't say a Projection number is unavailable when it's under data.financials).\n\n"
+        f"TOOL — get_dashboard_detail: the JSON is summary-level. To answer anything that needs the "
+        f"records BEHIND a tile or a financial line — naming specific members, listing the individual "
+        f"deals behind Projected GCI (drill 'fin_projected' with business='ulrg' to see each pending "
+        f"sale and its GCI, e.g. to exclude specific large deals and recompute), listing transactions, "
+        f"or reconciling two counts — call the tool. Prefer the summary/financials for overview "
+        f"questions; drill only when they genuinely can't answer. You may call it more than once.\n\n"
         f"TAB LEGEND:\n{ctx['legend']}\n\n"
         f"DASHBOARD DATA (JSON):\n{data_json}\n"
     )
