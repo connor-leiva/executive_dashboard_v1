@@ -15,7 +15,7 @@ from app.config import settings
 from app.models import (Tenant, Business, Launch, AISkill, AIEmployee, AIRun, AIArtifact,
                         AIEmployeeSkill)
 from app.services import ai_employees
-from app.services.ai_skills import SKILL_KEYS
+from app.services.ai_skills import SKILL_KEYS, SKILLS
 from app.services.launch import DEFAULT_SHIFT_CURVE
 
 
@@ -33,6 +33,15 @@ async def test_skill_catalog_seeded():
     for sk in skills.values():
         assert sk.default_prompt and sk.artifact_kinds
         assert sk.output_contract.get("required") == ["reads", "summary", "artifacts"]
+
+
+def test_skill_prompts_instruct_the_full_envelope():
+    """Each prompt must tell the model to emit the artifact WRAPPER (title + payload), not
+    just the payload shape — else a real run fails output_contract validation on the missing
+    'title' (caught live: the model returns payload-only unless the envelope is spelled out)."""
+    for sk in SKILLS:
+        p = sk["default_prompt"]
+        assert '"title"' in p and '"artifacts"' in p and '"payload"' in p, sk["key"]
 
 
 async def test_demo_fixture_loads_summer_shipped_run():

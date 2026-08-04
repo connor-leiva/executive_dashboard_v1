@@ -367,7 +367,7 @@ function HistoryPanel({ runs, currentId, onOpen }) {
   );
 }
 
-function RosterPanel({ employeeId, roster, canManage, onChanged }) {
+function RosterPanel({ employeeId, roster, canManage, onChanged, onAudit }) {
   const [adding, setAdding] = useState(false);
   const [handle, setHandle] = useState("");
   const [why, setWhy] = useState("");
@@ -401,6 +401,11 @@ function RosterPanel({ employeeId, roster, canManage, onChanged }) {
           {r.in_launch && <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, color: T.teal, background: "#E6F0F1", borderRadius: 999, padding: "1px 7px" }}>IN LAUNCH</span>}
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.why}</span>
           <span title="priority" style={{ fontFamily: MONO, fontSize: 11, color: T.slate, flexShrink: 0 }}>▲ {r.priority}</span>
+          {canManage && onAudit && (
+            <button onClick={() => onAudit(r.handle)} className="cc-nav" title="Audit this account via Claude in Chrome"
+              style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.teal, background: T.white,
+                border: `1px solid ${T.line}`, borderRadius: 7, padding: "3px 9px", cursor: "pointer", flexShrink: 0 }}>Audit</button>
+          )}
         </div>
       ))}
     </Card>
@@ -430,6 +435,57 @@ function BriefsPanel({ briefs }) {
   );
 }
 
+/* ── audit trigger (Claude-in-Chrome handoff → review → submit) ── */
+const LBL = { fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.tertiary, display: "block", marginBottom: 5 };
+const INP = { width: "100%", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", boxSizing: "border-box" };
+
+function RunAuditModal({ empId, initialHandle, onClose, onQueued }) {
+  const [handle, setHandle] = useState(initialHandle || "");
+  const [material, setMaterial] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const target = handle.trim().replace(/^@+/, "");
+  const instr = `Open https://www.instagram.com/${target || "<handle>"}/ and read the 12 most recent posts. For each post, capture on one line: format (Reel / carousel / image) · like count · comment count · date · the first ~200 characters of the caption. Extract only — do not summarize, rank, or copy. Then paste the list back into the dashboard.`;
+  function copy() { if (navigator.clipboard) navigator.clipboard.writeText(instr); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+  async function submit() {
+    if (!target) { setErr("Enter the account handle."); return; }
+    if (!material.trim()) { setErr("Paste the captured posts first."); return; }
+    setErr(null); setBusy(true);
+    try { const r = await postJSON(`/ai/employees/${empId}/skills/audit/run`, { handle: "@" + target, material: material.trim() }); onQueued(r.id); }
+    catch (e) { setErr(e.detail || e.message || "Could not queue the audit."); setBusy(false); }
+  }
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,46,44,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, background: T.white, border: `1px solid ${T.line}`, borderRadius: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${T.line}` }}>
+          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Audit an account via Claude in Chrome</span>
+          <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer" }}><Icon name="close" size={15} color={T.muted} /></button>
+        </div>
+        <div style={{ padding: 20 }}>
+          <label style={LBL}>Instagram handle</label>
+          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@competitor" style={INP} autoFocus />
+          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14, margin: "14px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: ".05em", color: T.tertiary, textTransform: "uppercase" }}>1 · Hand this to Claude in Chrome</span>
+              <button onClick={copy} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 600, color: T.teal, background: T.white, border: `1px solid ${T.line}`, borderRadius: 7, padding: "3px 10px", cursor: "pointer" }}>{copied ? "Copied" : "Copy"}</button>
+            </div>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, lineHeight: 1.5 }}>{instr}</div>
+          </div>
+          <label style={LBL}>2 · Paste what Claude returns</label>
+          <textarea value={material} onChange={(e) => setMaterial(e.target.value)} rows={7} placeholder={"Reel · 4,210 likes · 88 comments · Aug 1 · caption…\nCarousel · 3,100 likes · 54 comments · Jul 30 · caption…"} style={{ ...INP, fontFamily: "monospace", fontSize: 11.5, resize: "vertical" }} />
+          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>Summer drafts the audit from these posts and lands it for your approval — supervised, per account. Nothing is copied or posted.</div>
+          {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, marginTop: 8 }}>{err}</div>}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "0 20px 18px" }}>
+          <button onClick={onClose} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
+          <button onClick={submit} disabled={busy} style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "8px 16px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Queuing…" : "Queue audit"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── container ────────────────────────────────────────────────── */
 export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onBack }) {
   const canManage = role === "owner" || role === "admin";
@@ -438,6 +494,9 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
   const [pendingIds, setPendingIds] = useState([]);
   const [busy, setBusy] = useState(false);
   const [approveErr, setApproveErr] = useState(null);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditHandle, setAuditHandle] = useState("");
+  const openAudit = (handle) => { setAuditHandle(handle || ""); setAuditOpen(true); };
 
   const run = detail && detail.run;
   const artifacts = (detail && detail.artifacts) || [];
@@ -476,6 +535,16 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
     <div>
       {styleBlock}
       <Header employee={employee} onBack={onBack} writebackEnvOpen={writebackEnvOpen} />
+
+      {canManage && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <button onClick={() => openAudit("")} className="cc-nav" style={{ display: "inline-flex", alignItems: "center", gap: 6,
+            fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment,
+            border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 13px", cursor: "pointer" }}>
+            <Icon name="search" size={13} color={T.slate} />Run an audit
+          </button>
+        </div>
+      )}
 
       {error && !detail ? (
         <Card style={{ padding: 22, textAlign: "center" }}>
@@ -526,8 +595,14 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
       )}
 
       <HistoryPanel runs={runs} currentId={runId} onOpen={setRunId} />
-      <RosterPanel employeeId={employee.id} roster={roster} canManage={canManage} onChanged={reload} />
+      <RosterPanel employeeId={employee.id} roster={roster} canManage={canManage} onChanged={reload} onAudit={openAudit} />
       <BriefsPanel briefs={briefs} />
+
+      {auditOpen && (
+        <RunAuditModal empId={employee.id} initialHandle={auditHandle}
+          onClose={() => setAuditOpen(false)}
+          onQueued={(id) => { setAuditOpen(false); reload(); if (id) setRunId(id); }} />
+      )}
     </div>
   );
 }

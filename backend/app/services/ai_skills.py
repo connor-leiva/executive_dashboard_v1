@@ -94,10 +94,12 @@ _MEASURE = {"type": "object", "required": ["kind", "tags"], "properties": {
 
 # ── skill definitions ────────────────────────────────────────────────────────
 # {placeholders} are filled from the context pack by the executor (Section 4).
-_COMMON = ("Return STRICT JSON only — no prose, no markdown fences. Never invent metrics; "
-           "work only from the material provided. `reads` are 2-4 short diagnosis lines; "
-           "`summary` is one line for the run list. Draft in {brand_voice}; nothing is "
-           "published — a human approves every item.\n\nContext:\n{context}")
+_COMMON = ("Return STRICT JSON only — no prose, no markdown fences — in EXACTLY this shape:\n"
+           "{\"reads\": [\"2-4 short diagnosis lines\"], \"summary\": \"one line for the run list\", "
+           "\"artifacts\": [{\"title\": \"a short headline for this artifact\", \"payload\": {…the shape below…}}]}\n"
+           "Every artifact object needs BOTH a \"title\" and a \"payload\". Never invent metrics; work only "
+           "from the material provided. Draft in {brand_voice}; nothing is published — a human approves "
+           "every item.\n\nContext:\n{context}")
 
 SKILLS: list[dict] = [
     {
