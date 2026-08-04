@@ -73,7 +73,8 @@ class RunCreate(BaseModel):
 
 class CoworkIngest(BaseModel):
     token: str                               # the signed capability token from the deep link
-    artifact: dict | None = None             # { title, payload:{kind:"audit", handle, top, mechanics, note} }
+    artifact: dict | None = None             # one audit { title, payload:{kind:"audit", handle, top, …} }
+    artifacts: list[dict] | None = None      # or several (the roster audit for a full response)
 
 
 class RosterUpsert(BaseModel):
@@ -333,28 +334,49 @@ async def run_skill(emp_id: str, key: str, body: RunCreate, user: User = Depends
 
 
 @router.post("/employees/{emp_id}/respond", status_code=201)
-async def run_full_response(emp_id: str, body: RunCreate, user: User = Depends(manager),
+async def run_full_response(emp_id: str, request: Request, user: User = Depends(manager),
                             s: AsyncSession = Depends(get_session)):
-    """Queue the coordinated full response (the AI employee in action): one run that diagnoses
-    the current pace gap and drafts every skill's artifact for a single approval. Optional
-    `material` seeds the audit step (paste from Claude in Chrome)."""
+    """One button → the whole coordinated response on ONE run. If the employee watches a roster,
+    Cowork audits those accounts (real IG data) and the cascade continues on the same run,
+    building on the audits, for a single approval. With no roster it runs straight through
+    server-side. Returns a claude:// deep link when the Cowork audit is the first step."""
     e = await _emp(s, user.tenant_id, emp_id)
+    org = (await s.execute(select(Tenant.name).where(Tenant.id == user.tenant_id))).scalar() or "the brand"
     tc = await eng.pace_facts(s, user.tenant_id, dt.date.today()) or {
         "source": "Manual", "label": "Full response", "title": "Full campaign response", "facts": []}
-    ctx = dict(body.context or {})
-    if body.material:
-        ctx["material"] = body.material
-    if body.handle:
-        ctx["handle"] = body.handle
-    over = await eng._over_budget(s, user.tenant_id)
+    if await eng._over_budget(s, user.tenant_id):
+        run = AIRun(tenant_id=user.tenant_id, employee_id=e.id, skill_key=eng.PACE_RESPONSE,
+                    trigger="manual", status="skipped_budget", trigger_context=tc)
+        s.add(run)
+        await s.flush()
+        await s.commit()
+        return {"run_id": str(run.id), "deep_link": None, "status": "skipped_budget"}
+    roster = list((await s.execute(select(AIRosterAccount.handle).where(
+        AIRosterAccount.employee_id == e.id, AIRosterAccount.status != "archived")
+        .order_by(AIRosterAccount.created_at).limit(5))).scalars().all())
+    if roster:
+        # Cowork audits the roster first; the ingest flips the run back to 'queued' so the
+        # worker runs the rest of the cascade on those real teardowns — all one run.
+        run = AIRun(tenant_id=user.tenant_id, employee_id=e.id, skill_key=eng.PACE_RESPONSE,
+                    trigger="manual", status="awaiting_audit", trigger_context=tc,
+                    context={"external": "cowork", "handles": roster})
+        s.add(run)
+        await s.flush()
+        token = make_capability("cowork_audit", minutes=90, run_id=str(run.id), tid=str(user.tenant_id))
+        ingest_url = str(request.base_url).rstrip("/") + "/api/v1/ai/cowork/ingest"
+        deep_link = "claude://cowork/new?q=" + quote(
+            _cowork_cascade_instruction(org, roster, ingest_url, token), safe="")
+        audit(s, user.tenant_id, user.id, "ai.run_response", "ai_run", run.id,
+              {"status": "awaiting_audit", "roster": len(roster)})
+        await s.commit()
+        return {"run_id": str(run.id), "deep_link": deep_link, "status": "awaiting_audit"}
     run = AIRun(tenant_id=user.tenant_id, employee_id=e.id, skill_key=eng.PACE_RESPONSE,
-                trigger="manual", status="skipped_budget" if over else "queued",
-                trigger_context=tc, context=ctx or None)
+                trigger="manual", status="queued", trigger_context=tc)
     s.add(run)
     await s.flush()
-    audit(s, user.tenant_id, user.id, "ai.run_response", "ai_run", run.id, {"status": run.status})
+    audit(s, user.tenant_id, user.id, "ai.run_response", "ai_run", run.id, {"status": "queued"})
     await s.commit()
-    return {"id": str(run.id), "status": run.status}
+    return {"run_id": str(run.id), "deep_link": None, "status": "queued"}
 
 
 # ── Cowork audit bridge (autonomous IG audit via Claude Desktop + Chrome) ─────
@@ -378,6 +400,24 @@ def _cowork_instruction(org: str, handle: str, ingest_url: str, token: str) -> s
         f"{schema}\n"
         f"Use the real numbers you observed; 'w' is a bar width like '100%%' for the top performer, "
         f"scaled down for the rest. Do not post anything to Instagram.")
+
+
+def _cowork_cascade_instruction(org: str, handles: list[str], ingest_url: str, token: str) -> str:
+    """The audit step of a full response: audit every roster account, post one audit per account.
+    The ingest continues the cascade (strategy / creative / tags) on those real teardowns."""
+    schema = ('{"token":"%s","artifacts":[{"title":"<one line: what is converting>","payload":{'
+              '"kind":"audit","handle":"<@account>",'
+              '"top":[{"name":"<post + format>","val":"<e.g. 4.2x>","w":"<bar width, top=100%%>"}],'
+              '"mechanics":["<reusable mechanic>"],"note":"<how it informs %s>"}}]}' % (token, org))
+    return (
+        f"You are running {org}'s competitor audits ahead of a launch push. Open Instagram and audit "
+        f"EACH of these accounts: {', '.join(handles)}. For each, read ~12 recent posts — noting format "
+        f"(Reel / carousel / static), hook, and visible engagement — and identify its top 3 performers "
+        f"and the reusable mechanics (hook style, format, cadence). Nothing is copied.\n\n"
+        f"When ALL accounts are done, send ONE HTTP POST to {ingest_url} with one audit object per "
+        f"account in the artifacts array, exactly this shape and nothing else:\n{schema}\n"
+        f"Use the real numbers you observed; 'w' is a bar width like '100%%' for the top performer. "
+        f"Do not post anything to Instagram.")
 
 
 @router.post("/employees/{emp_id}/cowork-audit", status_code=201)
@@ -418,22 +458,31 @@ async def cowork_ingest(body: CoworkIngest, s: AsyncSession = Depends(get_sessio
         AIRun.id == data["run_id"], AIRun.tenant_id == data["tid"]))).scalar_one_or_none()
     if not run:
         raise HTTPException(404, "Unknown run")
-    if run.status != "running":                  # single-use: already fulfilled/cancelled
+    if run.status not in ("running", "awaiting_audit"):   # single-use: already fulfilled/cancelled
         raise HTTPException(409, "This audit is no longer awaiting a result")
-    art = body.artifact or {}
-    payload = dict(art.get("payload") or {})
-    payload.setdefault("kind", "audit")
-    payload.setdefault("handle", data.get("handle"))
+    items = body.artifacts if body.artifacts else ([body.artifact] if body.artifact else [])
+    if not items:
+        raise HTTPException(400, "No audit provided")
     meta = KIND_META.get("audit", {"lane": "Intel", "dest_label": None})
-    s.add(AIArtifact(tenant_id=run.tenant_id, run_id=run.id, kind="audit", lane=meta["lane"],
-                     title=(art.get("title") or f"Audit of {data.get('handle')}")[:160],
-                     dest_label="Instagram · Cowork", payload=payload, state="draft"))
-    run.status = "awaiting_approval"
-    run.summary = f"Live audit of {data.get('handle')} via Cowork."
-    run.finished_at = dt.datetime.now(dt.timezone.utc)
-    audit(s, run.tenant_id, None, "ai.cowork_audit_ingest", "ai_run", run.id, {"handle": data.get("handle")})
+    handles = []
+    for art in items:
+        payload = dict(art.get("payload") or {})
+        payload.setdefault("kind", "audit")
+        h = payload.get("handle") or data.get("handle") or "the account"
+        payload.setdefault("handle", h)
+        handles.append(h)
+        s.add(AIArtifact(tenant_id=run.tenant_id, run_id=run.id, kind="audit", lane=meta["lane"],
+                         title=(art.get("title") or f"Audit of {h}")[:160],
+                         dest_label="Instagram · Cowork", payload=payload, state="draft"))
+    audit(s, run.tenant_id, None, "ai.cowork_audit_ingest", "ai_run", run.id, {"handles": handles})
+    if run.skill_key == eng.PACE_RESPONSE:
+        run.status = "queued"                    # continue the cascade on those real teardowns
+    else:
+        run.status = "awaiting_approval"
+        run.summary = f"Live audit of {handles[0]} via Cowork."
+        run.finished_at = dt.datetime.now(dt.timezone.utc)
     await s.commit()
-    return {"ok": True, "run_id": str(run.id)}
+    return {"ok": True, "run_id": str(run.id), "status": run.status}
 
 
 # ── runs + artifacts ──────────────────────────────────────────────────────────

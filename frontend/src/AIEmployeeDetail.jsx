@@ -32,8 +32,8 @@ const STEPS = [
   { id: "write", label: "Ship & Track", sub: "On approval", icon: "sync" },
 ];
 // index of the first not-yet-done step per status (everything before = done, this one = active)
-const ACTIVE_AT = { queued: 1, running: 2, awaiting_approval: 3, approved: 4, shipped: 5,
-  failed: 3, dismissed: 5, skipped_budget: 1 };
+const ACTIVE_AT = { queued: 1, awaiting_audit: 2, running: 2, awaiting_approval: 3, approved: 4,
+  shipped: 5, failed: 3, dismissed: 5, skipped_budget: 1 };
 
 function stepState(status, i) {
   const active = ACTIVE_AT[status] ?? 5;
@@ -57,6 +57,7 @@ function StatusChip({ status }) {
     awaiting_approval: [T.daffodilText, T.daffodilBg, "Awaiting approval"],
     approved: [T.meadowInk, T.meadowBg, "Approved"], shipped: [T.meadowInk, T.meadowBg, "Shipped"],
     running: [T.teal, "#E6F0F1", "Running"], queued: [T.slate, T.parchment, "Queued"],
+    awaiting_audit: [T.teal, "#E6F0F1", "Auditing"],
     failed: [T.poppyText, T.white, "Failed"], skipped_budget: [T.muted, T.parchment, "Skipped · budget"],
     dismissed: [T.muted, T.parchment, "Dismissed"],
   };
@@ -493,8 +494,14 @@ function RunResponseModal({ empId, name, onClose, onQueued }) {
   const [err, setErr] = useState(null);
   async function submit() {
     setErr(null); setBusy(true);
-    try { const r = await postJSON(`/ai/employees/${empId}/respond`, {}); onQueued(r.id); }
-    catch (e) { setErr(e.detail || e.message || "Could not start the response."); setBusy(false); }
+    try {
+      const r = await postJSON(`/ai/employees/${empId}/respond`, {});
+      if (r.deep_link) {          // roster present → Cowork audits it first, then the cascade continues
+        const a = document.createElement("a");
+        a.href = r.deep_link; document.body.appendChild(a); a.click(); a.remove();
+      }
+      onQueued(r.run_id);
+    } catch (e) { setErr(e.detail || e.message || "Could not start the response."); setBusy(false); }
   }
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,46,44,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
@@ -505,11 +512,11 @@ function RunResponseModal({ empId, name, onClose, onQueued }) {
         </div>
         <div style={{ padding: 20 }}>
           <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.secondary, lineHeight: 1.55, marginBottom: 14 }}>
-            {name} reads the current pace gap, then drafts the whole coordinated response —
-            <span style={{ color: T.ink }}> audit · trend brief · strategy · carousel · reel · UTM tags</span> — and lands it all on one run for a single approval. It builds live; watch it fill in.
+            One run, one approval. {name} opens Cowork to audit your watch roster live, then — on the same run — reads the pace gap and drafts the rest:
+            <span style={{ color: T.ink }}> trend brief · strategy · carousel · reel · UTM tags</span>, each building on those real audits. It fills in live; watch it go.
           </div>
           <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px", fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, lineHeight: 1.5 }}>
-            The audit and trend steps build on the account audits you’ve gathered via Cowork in the last 21 days. For the freshest read, run <span style={{ color: T.ink, fontWeight: 600 }}>Run an audit</span> on your roster accounts first.
+            Cowork opens to browse the roster in Chrome (needs Claude Desktop + the Chrome connector). Keep this tab open — the response builds here as it lands. No roster? It runs straight through server-side.
           </div>
           {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, marginTop: 10 }}>{err}</div>}
         </div>
@@ -617,15 +624,17 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
           <Pipeline status={status} />
           <TriggerBanner ctx={run.trigger_context} trigger={run.trigger} />
           <Diagnosis reads={run.reads} name={employee.name} />
-          {(status === "running" || status === "queued") && artifacts.length === 0 && (
+          {["running", "queued", "awaiting_audit"].includes(status) && artifacts.length === 0 && (
             <Card style={{ padding: 18, display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
               <span className="ai-spin" style={{ width: 16, height: 16, borderRadius: 99, border: `2px solid ${T.line}`, borderTopColor: T.teal, flexShrink: 0 }} />
               <div>
                 <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink }}>
-                  {run.trigger_context && run.trigger_context.source === "Instagram · Cowork" ? "Cowork is auditing in Chrome…" : "Working…"}</div>
+                  {status === "awaiting_audit" ? "Cowork is auditing your roster in Chrome…"
+                    : run.trigger_context && run.trigger_context.source === "Instagram · Cowork" ? "Cowork is auditing in Chrome…"
+                    : "Working…"}</div>
                 <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 2 }}>
-                  {run.trigger_context && run.trigger_context.source === "Instagram · Cowork"
-                    ? "The teardown lands here as a draft when it finishes — you can leave this open."
+                  {status === "awaiting_audit" ? "When the audits land, the rest of the response drafts automatically on this run — you can leave this open."
+                    : run.trigger_context && run.trigger_context.source === "Instagram · Cowork" ? "The teardown lands here as a draft when it finishes — you can leave this open."
                     : "Drafting — the response fills in as each piece is produced."}</div>
               </div>
             </Card>

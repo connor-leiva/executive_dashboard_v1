@@ -218,6 +218,37 @@ async def test_cowork_audit_bridge_round_trip():
         assert bad.status_code == 401
 
 
+async def test_full_response_audits_roster_then_continues():
+    """One button: with a watch roster, the full response returns a Cowork deep link and lands in
+    'awaiting_audit'; posting the roster audit back flips the run to 'queued' (the cascade
+    continues on the worker) with the audit(s) attached."""
+    import re
+    from urllib.parse import urlparse, parse_qs
+    owner = await _owner_token()
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Nova"})).json()
+        await c.post(f"/api/v1/ai/employees/{emp['id']}/roster", headers=_H(owner), json={"handle": "@rival"})
+        r = (await c.post(f"/api/v1/ai/employees/{emp['id']}/respond", headers=_H(owner))).json()
+        assert r["status"] == "awaiting_audit" and r["deep_link"].startswith("claude://cowork/new?q=")
+        rid = r["run_id"]
+        token = re.search(r'"token":"([^"]+)"', parse_qs(urlparse(r["deep_link"]).query)["q"][0]).group(1)
+        ing = await c.post("/api/v1/ai/cowork/ingest", json={"token": token, "artifacts": [
+            {"title": "@rival wins on carousels", "payload": {"kind": "audit", "handle": "@rival",
+             "top": [{"name": "carousel", "val": "3.4x", "w": "100%"}], "mechanics": ["teach then sell"]}}]})
+        assert ing.status_code == 200 and ing.json()["status"] == "queued"   # cascade continues
+        det = (await c.get(f"/api/v1/ai/runs/{rid}", headers=_H(owner))).json()
+        assert det["run"]["status"] == "queued"
+        assert len(det["artifacts"]) == 1 and det["artifacts"][0]["dest_label"] == "Instagram · Cowork"
+
+
+async def test_full_response_without_roster_runs_server_side():
+    owner = await _owner_token()
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Ivy"})).json()
+        r = (await c.post(f"/api/v1/ai/employees/{emp['id']}/respond", headers=_H(owner))).json()
+        assert r["deep_link"] is None and r["status"] == "queued"   # no roster → straight cascade
+
+
 async def test_create_seeds_six_skills_and_awaiting_badge():
     owner = await _owner_token()
     tid = await _tenant_id()

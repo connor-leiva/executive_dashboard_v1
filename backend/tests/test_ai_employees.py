@@ -278,6 +278,45 @@ async def test_cowork_audit_feeds_cascade_context():
         assert "recent_audits" not in ctx2         # only the audit/trend/diagnose slice pulls it
 
 
+async def test_cascade_skips_audit_when_cowork_already_did_it(monkeypatch):
+    """One-button flow: a pace_response run that already carries Cowork audits does NOT
+    re-generate the audit server-side — it keeps them and drafts the rest on top."""
+    _enable(monkeypatch)
+
+    async def fake_claude(client, model, system, user):
+        return json.dumps({"reads": ["behind the curve"]}), 3, 3
+    monkeypatch.setattr(ai_employees, "_claude_call", fake_claude)
+    called = []
+
+    async def fake_call_skill(skill_def, prompt, *, client=None, model=None):
+        kind = (skill_def["artifact_kinds"] or ["audit"])[0]
+        called.append(kind)
+        return ({"reads": [], "summary": "ok", "artifacts": [{"title": kind, "payload": {"kind": kind}}]}, 5, 5, None)
+    monkeypatch.setattr(ai_employees, "call_skill", fake_call_skill)
+
+    async with SessionLocal() as s:
+        tid = await _tid(s)
+        emp = await _mk_employee(s, tid)
+        await ai_employees.seed_employee_skills(s, emp)
+        run = AIRun(tenant_id=tid, employee_id=emp.id, skill_key=ai_employees.PACE_RESPONSE,
+                    trigger="manual", status="queued")
+        s.add(run)
+        await s.flush()
+        s.add(AIArtifact(tenant_id=tid, run_id=run.id, kind="audit", lane="Intel", title="a",
+                         dest_label="Instagram · Cowork", state="draft",
+                         payload={"kind": "audit", "handle": "@x", "top": [], "mechanics": ["m"]}))
+        await s.commit()
+        rid = run.id
+        await ai_employees.execute_pace_response(s, tid, run)   # direct — avoid the shared queue picker
+    async with SessionLocal() as s:
+        run = (await s.execute(select(AIRun).where(AIRun.id == rid))).scalar_one()
+        assert run.status == "awaiting_approval"
+        kinds = [a.kind for a in (await s.execute(select(AIArtifact).where(AIArtifact.run_id == rid))).scalars().all()]
+        assert kinds.count("audit") == 1           # the Cowork audit kept, not duplicated
+        assert set(kinds) == {"audit", "trend", "strategy", "design", "script", "measure"}
+    assert "audit" not in called                   # the audit step was skipped, not re-run
+
+
 async def test_pace_check_fires_when_behind_curve(monkeypatch):
     """With registrations far under the empirical curve, eval_pace_check returns a trigger_context."""
     async with SessionLocal() as s:

@@ -447,7 +447,13 @@ async def execute_pace_response(s, tenant_id, run: AIRun) -> None:
     client, model = _client(), _model()
     enabled_skills = {es.skill_key: es for es in (await s.execute(select(AIEmployeeSkill).where(
         AIEmployeeSkill.employee_id == emp.id, AIEmployeeSkill.enabled.is_(True)))).scalars().all()}
-    order = [k for k in PACE_RESPONSE_ORDER if k in enabled_skills and k in SKILL_BY_KEY]
+    # The audit step may already be done — Cowork browsed the roster and filed real audits on
+    # this run (the one-button flow). If so, skip generating a blind server audit and build the
+    # rest of the cascade on those real teardowns.
+    existing_audits = (await s.execute(select(AIArtifact).where(
+        AIArtifact.run_id == run.id, AIArtifact.kind == "audit"))).scalars().all()
+    order = [k for k in PACE_RESPONSE_ORDER if k in enabled_skills and k in SKILL_BY_KEY
+             and not (k == "audit" and existing_audits)]
     tin_total = tout_total = 0
 
     # 1) diagnose the gap
@@ -462,8 +468,12 @@ async def execute_pace_response(s, tenant_id, run: AIRun) -> None:
     except Exception as e:
         log.warning("pace_response diagnose failed for run %s: %s", run.id, e)
 
-    # 2) run each skill in order, chaining prior outputs, committing as each lands
+    # 2) run each skill in order, chaining prior outputs, committing as each lands.
+    #    Seed from the Cowork audits already on the run so downstream steps build on them.
     prior, kinds = {}, []
+    if existing_audits:
+        prior["audit"] = existing_audits[0].payload
+        kinds = ["audit"] * len(existing_audits)
     for key in order:
         es, skill_def = enabled_skills[key], SKILL_BY_KEY[key]
         try:
