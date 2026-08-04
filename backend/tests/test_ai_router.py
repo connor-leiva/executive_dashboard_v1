@@ -180,6 +180,44 @@ async def test_manual_schedule_override_means_no_next_run():
         assert mine["next_run_at"] is None
 
 
+async def test_cowork_audit_bridge_round_trip():
+    """start_cowork_audit → pending run + claude:// deep link; a token-gated post-back (as
+    Cowork would send) lands the audit as a draft awaiting approval, and is single-use."""
+    import re
+    from urllib.parse import urlparse, parse_qs
+    owner = await _owner_token()
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Cass"})).json()
+        start = (await c.post(f"/api/v1/ai/employees/{emp['id']}/cowork-audit",
+                              headers=_H(owner), json={"handle": "@rival"})).json()
+        assert start["deep_link"].startswith("claude://cowork/new?q=")
+        rid = start["run_id"]
+        # pending run shows "running" (external — the worker leaves it alone)
+        r = (await c.get(f"/api/v1/ai/runs/{rid}", headers=_H(owner))).json()
+        assert r["run"]["status"] == "running" and not r["artifacts"]
+        # pull the capability token out of the deep-link instruction, as Cowork receives it
+        q = parse_qs(urlparse(start["deep_link"]).query)["q"][0]
+        token = re.search(r'"token":"([^"]+)"', q).group(1)
+        # Cowork posts the teardown back — NO login header, just the token
+        ing = await c.post("/api/v1/ai/cowork/ingest", json={"token": token, "artifact": {
+            "title": "Rival wins on reflection Reels",
+            "payload": {"kind": "audit", "handle": "@rival",
+                        "top": [{"name": "Reflection Reel", "val": "4.2x", "w": "100%"}],
+                        "mechanics": ["Hook names a hidden problem"], "note": "informs our posts"}}})
+        assert ing.status_code == 200 and ing.json()["ok"] is True
+        r2 = (await c.get(f"/api/v1/ai/runs/{rid}", headers=_H(owner))).json()
+        assert r2["run"]["status"] == "awaiting_approval"
+        assert len(r2["artifacts"]) == 1
+        a = r2["artifacts"][0]
+        assert a["kind"] == "audit" and a["state"] == "draft" and a["dest_label"] == "Instagram · Cowork"
+        # single-use: a second post-back is refused
+        ing2 = await c.post("/api/v1/ai/cowork/ingest", json={"token": token, "artifact": {}})
+        assert ing2.status_code == 409
+        # a garbage token is unauthorized
+        bad = await c.post("/api/v1/ai/cowork/ingest", json={"token": "nope", "artifact": {}})
+        assert bad.status_code == 401
+
+
 async def test_create_seeds_six_skills_and_awaiting_badge():
     owner = await _owner_token()
     tid = await _tenant_id()

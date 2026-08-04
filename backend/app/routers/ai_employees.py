@@ -10,8 +10,9 @@ and shipping an unapproved artifact is a 409. Nothing here calls the model — t
 from __future__ import annotations
 
 import datetime as dt
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,8 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db import get_session
 from ..deps import current_user, require_role, assert_tab
-from ..models import (User, AISkill, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact,
+from ..models import (User, Tenant, AISkill, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact,
                       AIRosterAccount, AIIntelEntry)
+from ..security import make_capability, read_capability
 from ..services.audit import audit
 from ..services import ai_employees as eng
 from ..services.ai_skills import SKILLS, SKILL_KEYS, KIND_META
@@ -67,6 +69,11 @@ class RunCreate(BaseModel):
     material: str | None = None              # pasted post text / audit source
     handle: str | None = None                # the account being audited
     context: dict | None = None              # any extra run context
+
+
+class CoworkIngest(BaseModel):
+    token: str                               # the signed capability token from the deep link
+    artifact: dict | None = None             # { title, payload:{kind:"audit", handle, top, mechanics, note} }
 
 
 class RosterUpsert(BaseModel):
@@ -348,6 +355,85 @@ async def run_full_response(emp_id: str, body: RunCreate, user: User = Depends(m
     audit(s, user.tenant_id, user.id, "ai.run_response", "ai_run", run.id, {"status": run.status})
     await s.commit()
     return {"id": str(run.id), "status": run.status}
+
+
+# ── Cowork audit bridge (autonomous IG audit via Claude Desktop + Chrome) ─────
+# A web page can't reach the Chrome extension, but it CAN fire a claude:// deep link that
+# opens a Cowork task; Cowork browses Instagram through its Chrome connector and POSTs the
+# teardown back here. `start_cowork_audit` mints the deep link + a scoped, single-use
+# capability token; `cowork_ingest` (token-gated, no login) lands the result as a draft.
+def _cowork_instruction(org: str, handle: str, ingest_url: str, token: str) -> str:
+    schema = ('{"token":"%s","artifact":{"title":"<one line: what is converting>","payload":{'
+              '"kind":"audit","handle":"%s",'
+              '"top":[{"name":"<post + format>","val":"<e.g. 4.2x>","w":"<bar width, top=100%%>"}],'
+              '"mechanics":["<reusable mechanic>"],"note":"<how it informs %s, nothing copied>"}}}'
+              % (token, handle, org))
+    return (
+        f"You are running the Account Audit skill for {org}. Open Instagram and audit {handle}: "
+        f"read its ~12 most recent posts, noting each post's format (Reel / carousel / static), its "
+        f"hook, and visible engagement (likes, comments). Identify the top 3 performers and the "
+        f"reusable mechanics behind them (hook style, format, cadence). Nothing is copied — the "
+        f"mechanics inform {org}'s own posts.\n\n"
+        f"When done, send ONE HTTP POST to {ingest_url} with this exact JSON body and nothing else:\n"
+        f"{schema}\n"
+        f"Use the real numbers you observed; 'w' is a bar width like '100%%' for the top performer, "
+        f"scaled down for the rest. Do not post anything to Instagram.")
+
+
+@router.post("/employees/{emp_id}/cowork-audit", status_code=201)
+async def start_cowork_audit(emp_id: str, body: RunCreate, request: Request,
+                             user: User = Depends(manager), s: AsyncSession = Depends(get_session)):
+    """Begin an autonomous audit: create a pending run and return a claude:// deep link that
+    launches a Cowork task to browse the account and post the teardown back (no paste)."""
+    handle = (body.handle or "").strip()
+    if not handle:
+        raise HTTPException(400, "A handle is required")
+    e = await _emp(s, user.tenant_id, emp_id)
+    org = (await s.execute(select(Tenant.name).where(Tenant.id == user.tenant_id))).scalar() or "the brand"
+    tc = {"source": "Instagram · Cowork", "label": "Live audit",
+          "title": f"Auditing {handle}", "facts": [handle, "browsing via Claude in Chrome (Cowork)"]}
+    run = AIRun(tenant_id=user.tenant_id, employee_id=e.id, skill_key="audit", trigger="manual",
+                status="running", trigger_context=tc, context={"external": "cowork", "handle": handle})
+    s.add(run)
+    await s.flush()
+    token = make_capability("cowork_audit", minutes=90, run_id=str(run.id),
+                            tid=str(user.tenant_id), handle=handle)
+    ingest_url = str(request.base_url).rstrip("/") + "/api/v1/ai/cowork/ingest"
+    deep_link = "claude://cowork/new?q=" + quote(_cowork_instruction(org, handle, ingest_url, token), safe="")
+    audit(s, user.tenant_id, user.id, "ai.cowork_audit_start", "ai_run", run.id, {"handle": handle})
+    await s.commit()
+    return {"run_id": str(run.id), "deep_link": deep_link, "ingest_url": ingest_url}
+
+
+@router.post("/cowork/ingest")
+async def cowork_ingest(body: CoworkIngest, s: AsyncSession = Depends(get_session)):
+    """The return door: a Cowork task posts the audit result here with its capability token.
+    No login — the signed, single-use token authorizes creating ONE draft audit artifact on
+    its run (which still needs human approval, so a leaked token has zero blast radius)."""
+    try:
+        data = read_capability(body.token, "cowork_audit")
+    except Exception:
+        raise HTTPException(401, "Invalid or expired token")
+    run = (await s.execute(select(AIRun).where(
+        AIRun.id == data["run_id"], AIRun.tenant_id == data["tid"]))).scalar_one_or_none()
+    if not run:
+        raise HTTPException(404, "Unknown run")
+    if run.status != "running":                  # single-use: already fulfilled/cancelled
+        raise HTTPException(409, "This audit is no longer awaiting a result")
+    art = body.artifact or {}
+    payload = dict(art.get("payload") or {})
+    payload.setdefault("kind", "audit")
+    payload.setdefault("handle", data.get("handle"))
+    meta = KIND_META.get("audit", {"lane": "Intel", "dest_label": None})
+    s.add(AIArtifact(tenant_id=run.tenant_id, run_id=run.id, kind="audit", lane=meta["lane"],
+                     title=(art.get("title") or f"Audit of {data.get('handle')}")[:160],
+                     dest_label="Instagram · Cowork", payload=payload, state="draft"))
+    run.status = "awaiting_approval"
+    run.summary = f"Live audit of {data.get('handle')} via Cowork."
+    run.finished_at = dt.datetime.now(dt.timezone.utc)
+    audit(s, run.tenant_id, None, "ai.cowork_audit_ingest", "ai_run", run.id, {"handle": data.get("handle")})
+    await s.commit()
+    return {"ok": True, "run_id": str(run.id)}
 
 
 # ── runs + artifacts ──────────────────────────────────────────────────────────

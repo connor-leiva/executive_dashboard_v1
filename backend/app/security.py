@@ -41,6 +41,22 @@ def read_token(token: str) -> dict:
     return jwt.decode(token, settings.APP_SECRET, algorithms=[ALGO])
 
 
+def make_capability(purpose: str, minutes: int = 90, **claims) -> str:
+    """A short-lived, signed capability token for a narrow one-shot action (e.g. a Cowork task
+    posting an audit result back). Carries its own purpose + scope claims; not a login token."""
+    body = {"cap": purpose, **claims,
+            "exp": dt.datetime.utcnow() + dt.timedelta(minutes=minutes)}
+    return jwt.encode(body, settings.APP_SECRET, algorithm=ALGO)
+
+
+def read_capability(token: str, purpose: str) -> dict:
+    """Decode + verify a capability token, asserting its purpose. Raises on bad sig/expiry/purpose."""
+    data = jwt.decode(token, settings.APP_SECRET, algorithms=[ALGO])
+    if data.get("cap") != purpose:
+        raise ValueError("wrong capability purpose")
+    return data
+
+
 def new_action_token() -> tuple[str, str]:
     """(raw urlsafe token returned once, sha256 hash stored). For invites + resets."""
     raw = secrets.token_urlsafe(32)

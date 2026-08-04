@@ -444,45 +444,44 @@ const INP = { width: "100%", fontFamily: "Inter,sans-serif", fontSize: 13, color
 
 function RunAuditModal({ empId, initialHandle, onClose, onQueued }) {
   const [handle, setHandle] = useState(initialHandle || "");
-  const [material, setMaterial] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const [copied, setCopied] = useState(false);
   const target = handle.trim().replace(/^@+/, "");
-  const instr = `Open https://www.instagram.com/${target || "<handle>"}/ and read the 12 most recent posts. For each post, capture on one line: format (Reel / carousel / image) · like count · comment count · date · the first ~200 characters of the caption. Extract only — do not summarize, rank, or copy. Then paste the list back into the dashboard.`;
-  function copy() { if (navigator.clipboard) navigator.clipboard.writeText(instr); setCopied(true); setTimeout(() => setCopied(false), 1500); }
-  async function submit() {
+  async function launch() {
     if (!target) { setErr("Enter the account handle."); return; }
-    if (!material.trim()) { setErr("Paste the captured posts first."); return; }
     setErr(null); setBusy(true);
-    try { const r = await postJSON(`/ai/employees/${empId}/skills/audit/run`, { handle: "@" + target, material: material.trim() }); onQueued(r.id); }
-    catch (e) { setErr(e.detail || e.message || "Could not queue the audit."); setBusy(false); }
+    try {
+      const r = await postJSON(`/ai/employees/${empId}/cowork-audit`, { handle: "@" + target });
+      // fire the claude:// deep link — the OS hands it to Claude Desktop, which opens the
+      // Cowork task pre-filled; Cowork browses IG via Chrome and posts the teardown back.
+      const a = document.createElement("a");
+      a.href = r.deep_link;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      onQueued(r.run_id);
+    } catch (e) { setErr(e.detail || e.message || "Could not start the audit."); setBusy(false); }
   }
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,46,44,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, background: T.white, border: `1px solid ${T.line}`, borderRadius: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, background: T.white, border: `1px solid ${T.line}`, borderRadius: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${T.line}` }}>
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Audit an account via Claude in Chrome</span>
+          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Audit an account</span>
           <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer" }}><Icon name="close" size={15} color={T.muted} /></button>
         </div>
         <div style={{ padding: 20 }}>
           <label style={LBL}>Instagram handle</label>
-          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@competitor" style={INP} autoFocus />
-          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14, margin: "14px 0" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: ".05em", color: T.tertiary, textTransform: "uppercase" }}>1 · Hand this to Claude in Chrome</span>
-              <button onClick={copy} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 600, color: T.teal, background: T.white, border: `1px solid ${T.line}`, borderRadius: 7, padding: "3px 10px", cursor: "pointer" }}>{copied ? "Copied" : "Copy"}</button>
-            </div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, lineHeight: 1.5 }}>{instr}</div>
+          <input value={handle} onChange={(e) => setHandle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") launch(); }} placeholder="@competitor" style={INP} autoFocus />
+          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14, margin: "14px 0", fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.secondary, lineHeight: 1.55 }}>
+            Opens a <span style={{ color: T.ink, fontWeight: 600 }}>Claude (Cowork) task</span> that browses
+            {" "}<span style={{ fontFamily: MONO, color: T.teal }}>@{target || "handle"}</span> in Chrome, reads the recent posts, and files the teardown back here as a draft for your approval. You don’t paste anything.
           </div>
-          <label style={LBL}>2 · Paste what Claude returns</label>
-          <textarea value={material} onChange={(e) => setMaterial(e.target.value)} rows={7} placeholder={"Reel · 4,210 likes · 88 comments · Aug 1 · caption…\nCarousel · 3,100 likes · 54 comments · Jul 30 · caption…"} style={{ ...INP, fontFamily: "monospace", fontSize: 11.5, resize: "vertical" }} />
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>Summer drafts the audit from these posts and lands it for your approval — supervised, per account. Nothing is copied or posted.</div>
+          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>Requires Claude Desktop with the Chrome connector. Keep this tab open — the draft lands here when Cowork finishes.</div>
           {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, marginTop: 8 }}>{err}</div>}
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "0 20px 18px" }}>
           <button onClick={onClose} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
-          <button onClick={submit} disabled={busy} style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "8px 16px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Queuing…" : "Queue audit"}</button>
+          <button onClick={launch} disabled={busy} style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "8px 16px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Opening Cowork…" : "Open in Cowork"}</button>
         </div>
       </div>
     </div>
@@ -625,6 +624,19 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
           <Pipeline status={status} />
           <TriggerBanner ctx={run.trigger_context} trigger={run.trigger} />
           <Diagnosis reads={run.reads} name={employee.name} />
+          {(status === "running" || status === "queued") && artifacts.length === 0 && (
+            <Card style={{ padding: 18, display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <span className="ai-spin" style={{ width: 16, height: 16, borderRadius: 99, border: `2px solid ${T.line}`, borderTopColor: T.teal, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink }}>
+                  {run.trigger_context && run.trigger_context.source === "Instagram · Cowork" ? "Cowork is auditing in Chrome…" : "Working…"}</div>
+                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 2 }}>
+                  {run.trigger_context && run.trigger_context.source === "Instagram · Cowork"
+                    ? "The teardown lands here as a draft when it finishes — you can leave this open."
+                    : "Drafting — the response fills in as each piece is produced."}</div>
+              </div>
+            </Card>
+          )}
           {run.summary && ["approved", "shipped"].includes(status) && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.meadowInk, background: T.meadowBg, borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
               <Icon name="check" size={14} color={T.meadow} />{run.summary}
