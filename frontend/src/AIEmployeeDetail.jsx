@@ -151,11 +151,14 @@ function TriggerBanner({ ctx, trigger }) {
 }
 
 /* ── diagnosis ────────────────────────────────────────────────── */
-function Diagnosis({ reads }) {
+function Diagnosis({ reads, name }) {
   if (!reads || !reads.length) return null;
   return (
     <Card style={{ padding: "14px 16px", marginBottom: 14 }}>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.08em", color: T.tertiary, textTransform: "uppercase", marginBottom: 8 }}>Diagnosis</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink }}>{name ? `${name} diagnosed the gap` : "Diagnosis"}</div>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 700, color: T.tertiary, background: T.mist, borderRadius: 6, padding: "2px 8px" }}>{reads.length} reads</span>
+      </div>
       {reads.map((r, i) => (
         <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: i < reads.length - 1 ? 6 : 0 }}>
           <span style={{ width: 5, height: 5, borderRadius: 99, background: T.teal, marginTop: 6, flexShrink: 0 }} />
@@ -486,6 +489,47 @@ function RunAuditModal({ empId, initialHandle, onClose, onQueued }) {
   );
 }
 
+function RunResponseModal({ empId, name, onClose, onQueued }) {
+  const [handle, setHandle] = useState("");
+  const [material, setMaterial] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  async function submit() {
+    setErr(null); setBusy(true);
+    const body = {};
+    if (material.trim()) body.material = material.trim();
+    if (handle.trim()) body.handle = "@" + handle.trim().replace(/^@+/, "");
+    try { const r = await postJSON(`/ai/employees/${empId}/respond`, body); onQueued(r.id); }
+    catch (e) { setErr(e.detail || e.message || "Could not start the response."); setBusy(false); }
+  }
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,46,44,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 540, background: T.white, border: `1px solid ${T.line}`, borderRadius: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${T.line}` }}>
+          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Run {name}’s full response</span>
+          <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer" }}><Icon name="close" size={15} color={T.muted} /></button>
+        </div>
+        <div style={{ padding: 20 }}>
+          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.secondary, lineHeight: 1.55, marginBottom: 14 }}>
+            {name} reads the current pace gap, then drafts the whole coordinated response —
+            <span style={{ color: T.ink }}> audit · trend brief · strategy · carousel · reel · UTM tags</span> — and lands it all on one run for a single approval. It builds live; watch it fill in.
+          </div>
+          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14 }}>
+            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: ".05em", color: T.tertiary, textTransform: "uppercase", marginBottom: 8 }}>Optional · seed the audit step from Claude in Chrome</div>
+            <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@competitor (optional)" style={{ ...INP, marginBottom: 8 }} />
+            <textarea value={material} onChange={(e) => setMaterial(e.target.value)} rows={4} placeholder="Paste captured posts to audit a specific account this run (else the audit works from the roster)." style={{ ...INP, fontFamily: "monospace", fontSize: 11.5, resize: "vertical" }} />
+          </div>
+          {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, marginTop: 10 }}>{err}</div>}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "0 20px 18px" }}>
+          <button onClick={onClose} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
+          <button onClick={submit} disabled={busy} style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "8px 16px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Starting…" : "Run response"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── container ────────────────────────────────────────────────── */
 export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onBack }) {
   const canManage = role === "owner" || role === "admin";
@@ -496,6 +540,7 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
   const [approveErr, setApproveErr] = useState(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditHandle, setAuditHandle] = useState("");
+  const [respOpen, setRespOpen] = useState(false);
   const openAudit = (handle) => { setAuditHandle(handle || ""); setAuditOpen(true); };
 
   const run = detail && detail.run;
@@ -537,11 +582,16 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
       <Header employee={employee} onBack={onBack} writebackEnvOpen={writebackEnvOpen} />
 
       {canManage && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
           <button onClick={() => openAudit("")} className="cc-nav" style={{ display: "inline-flex", alignItems: "center", gap: 6,
             fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment,
             border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 13px", cursor: "pointer" }}>
             <Icon name="search" size={13} color={T.slate} />Run an audit
+          </button>
+          <button onClick={() => setRespOpen(true)} className="cc-nav" style={{ display: "inline-flex", alignItems: "center", gap: 6,
+            fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.onDark, background: T.evergreen,
+            border: `1px solid ${T.evergreen}`, borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}>
+            <Icon name="spark" size={13} color={T.onDark} />Run full response
           </button>
         </div>
       )}
@@ -574,7 +624,7 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
         <>
           <Pipeline status={status} />
           <TriggerBanner ctx={run.trigger_context} trigger={run.trigger} />
-          <Diagnosis reads={run.reads} />
+          <Diagnosis reads={run.reads} name={employee.name} />
           {run.summary && ["approved", "shipped"].includes(status) && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.meadowInk, background: T.meadowBg, borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
               <Icon name="check" size={14} color={T.meadow} />{run.summary}
@@ -582,6 +632,12 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
           )}
           {artifacts.length > 0 && (
             <Card style={{ padding: "4px 16px 8px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0 8px" }}>
+                <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink }}>{employee.name} built the response</span>
+                {status === "awaiting_approval" && (
+                  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".05em", color: T.daffodilText, background: T.daffodilBg, border: `1px solid #F0E3AC`, borderRadius: 6, padding: "2px 8px" }}>DRAFT MODE</span>
+                )}
+              </div>
               {artifacts.map((a) => (
                 <ArtifactRow key={a.id} a={a} open={openId === a.id} onToggle={() => setOpenId(openId === a.id ? null : a.id)}
                   onDismiss={() => dismiss(a.id)} canManage={canManage} pending={pendingIds.includes(a.id)} />
@@ -602,6 +658,11 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
         <RunAuditModal empId={employee.id} initialHandle={auditHandle}
           onClose={() => setAuditOpen(false)}
           onQueued={(id) => { setAuditOpen(false); reload(); if (id) setRunId(id); }} />
+      )}
+      {respOpen && (
+        <RunResponseModal empId={employee.id} name={employee.name}
+          onClose={() => setRespOpen(false)}
+          onQueued={(id) => { setRespOpen(false); reload(); if (id) setRunId(id); }} />
       )}
     </div>
   );

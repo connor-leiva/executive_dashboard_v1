@@ -194,13 +194,49 @@ async def test_condition_debounce_max_per_day(monkeypatch):
     async with SessionLocal() as s:
         tid = await _tid(s)
         emp = await _mk_employee(s, tid)
-        es = AIEmployeeSkill(tenant_id=tid, employee_id=emp.id, skill_key="strategy")
-        s.add(es)
-        s.add(AIRun(tenant_id=tid, employee_id=emp.id, skill_key="strategy",
+        s.add(AIRun(tenant_id=tid, employee_id=emp.id, skill_key=ai_employees.PACE_RESPONSE,
                     trigger="condition", status="awaiting_approval"))
         await s.commit()
-        assert await ai_employees._condition_fired_today(s, es, max_per_day=1) is True
-        assert await ai_employees._condition_fired_today(s, es, max_per_day=2) is False
+        # debounce counts today's condition runs for the EMPLOYEE (the pace check fires a
+        # pace_response run, not the carrier skill)
+        assert await ai_employees._condition_fired_today(s, emp.id, max_per_day=1) is True
+        assert await ai_employees._condition_fired_today(s, emp.id, max_per_day=2) is False
+
+
+async def test_pace_response_cascade_drafts_all_skills(monkeypatch):
+    """One pace_response run → diagnose + the six skills in order → all six draft artifacts on
+    one run, awaiting_approval (the coordinated 'AI employee in action')."""
+    _enable(monkeypatch)
+
+    async def fake_claude(client, model, system, user):   # only _diagnose hits this
+        return json.dumps({"reads": ["Behind the curve", "Reels are winning"]}), 5, 5
+    monkeypatch.setattr(ai_employees, "_claude_call", fake_claude)
+
+    async def fake_call_skill(skill_def, prompt, *, client=None, model=None):
+        kind = (skill_def["artifact_kinds"] or ["audit"])[0]
+        return ({"reads": [], "summary": "ok",
+                 "artifacts": [{"title": f"{kind} draft", "payload": {"kind": kind}}]}, 10, 12, None)
+    monkeypatch.setattr(ai_employees, "call_skill", fake_call_skill)
+
+    async with SessionLocal() as s:
+        tid = await _tid(s)
+        emp = await _mk_employee(s, tid)
+        await ai_employees.seed_employee_skills(s, emp)
+        run = AIRun(tenant_id=tid, employee_id=emp.id, skill_key=ai_employees.PACE_RESPONSE,
+                    trigger="condition", status="running",
+                    trigger_context={"source": "GoHighLevel", "title": "behind", "facts": ["14% under curve"]})
+        s.add(run)
+        await s.commit()
+        rid = run.id
+        # call the cascade directly (execute_one's oldest-queued picker races with leftover
+        # queued runs from earlier tests sharing this DB)
+        await ai_employees.execute_pace_response(s, tid, run)
+    async with SessionLocal() as s:
+        run = (await s.execute(select(AIRun).where(AIRun.id == rid))).scalar_one()
+        assert run.status == "awaiting_approval" and run.reads and run.tokens_in > 0
+        arts = (await s.execute(select(AIArtifact).where(AIArtifact.run_id == rid))).scalars().all()
+        assert {a.kind for a in arts} == {"audit", "trend", "strategy", "design", "script", "measure"}
+        assert {a.lane for a in arts} == {"Intel", "Strategy", "Creative", "Tracking"}
 
 
 async def test_pace_check_fires_when_behind_curve(monkeypatch):

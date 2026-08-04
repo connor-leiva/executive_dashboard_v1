@@ -325,6 +325,31 @@ async def run_skill(emp_id: str, key: str, body: RunCreate, user: User = Depends
     return {"id": str(run.id), "status": run.status}
 
 
+@router.post("/employees/{emp_id}/respond", status_code=201)
+async def run_full_response(emp_id: str, body: RunCreate, user: User = Depends(manager),
+                            s: AsyncSession = Depends(get_session)):
+    """Queue the coordinated full response (the AI employee in action): one run that diagnoses
+    the current pace gap and drafts every skill's artifact for a single approval. Optional
+    `material` seeds the audit step (paste from Claude in Chrome)."""
+    e = await _emp(s, user.tenant_id, emp_id)
+    tc = await eng.pace_facts(s, user.tenant_id, dt.date.today()) or {
+        "source": "Manual", "label": "Full response", "title": "Full campaign response", "facts": []}
+    ctx = dict(body.context or {})
+    if body.material:
+        ctx["material"] = body.material
+    if body.handle:
+        ctx["handle"] = body.handle
+    over = await eng._over_budget(s, user.tenant_id)
+    run = AIRun(tenant_id=user.tenant_id, employee_id=e.id, skill_key=eng.PACE_RESPONSE,
+                trigger="manual", status="skipped_budget" if over else "queued",
+                trigger_context=tc, context=ctx or None)
+    s.add(run)
+    await s.flush()
+    audit(s, user.tenant_id, user.id, "ai.run_response", "ai_run", run.id, {"status": run.status})
+    await s.commit()
+    return {"id": str(run.id), "status": run.status}
+
+
 # ── runs + artifacts ──────────────────────────────────────────────────────────
 @router.get("/employees/{emp_id}/runs")
 async def list_runs(emp_id: str, status: str | None = None,
