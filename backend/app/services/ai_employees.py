@@ -150,6 +150,26 @@ async def call_skill(skill_def: dict, prompt: str, *, client=None, model=None):
 
 
 # ── context pack (§4.1) ──────────────────────────────────────────────────────
+COWORK_DEST = "Instagram · Cowork"          # the label the Cowork ingest stamps on real audits
+
+
+async def recent_cowork_audits(s, employee_id, days: int = 21) -> list[dict]:
+    """The real per-account teardowns gathered via the Cowork bridge, latest one per handle
+    within the window. This is what wires an autonomous audit into the cascade — the audit /
+    trend / diagnose steps build on this instead of running blind."""
+    since = _now() - dt.timedelta(days=days)
+    rows = (await s.execute(
+        select(AIArtifact).join(AIRun, AIArtifact.run_id == AIRun.id).where(
+            AIRun.employee_id == employee_id, AIArtifact.kind == "audit",
+            AIArtifact.dest_label == COWORK_DEST, AIArtifact.created_at >= since)
+        .order_by(AIArtifact.created_at.desc()))).scalars().all()
+    latest: dict = {}
+    for a in rows:
+        handle = (a.payload or {}).get("handle") or a.title
+        latest.setdefault(handle, a.payload)     # first seen = most recent (desc order)
+    return list(latest.values())
+
+
 def _fill_prompt(template: str, scalars: dict, context: dict) -> str:
     out = template
     for k, v in scalars.items():
@@ -183,6 +203,9 @@ async def build_context(s, tenant_id, employee: AIEmployee, es: AIEmployeeSkill 
             .limit(30))).scalars().all()
         context["roster"] = [{"handle": r.handle, "why": r.why, "in_launch": r.in_launch,
                               "platform": r.platform} for r in roster]
+        audits = await recent_cowork_audits(s, employee.id)     # real teardowns from the Cowork bridge
+        if audits:
+            context["recent_audits"] = audits
     since = _now() - dt.timedelta(days=90)
     intel = (await s.execute(select(AIIntelEntry).where(
         AIIntelEntry.employee_id == employee.id, AIIntelEntry.created_at >= since)

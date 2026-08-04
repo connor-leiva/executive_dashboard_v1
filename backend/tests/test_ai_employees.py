@@ -251,6 +251,33 @@ async def test_pace_response_cascade_drafts_all_skills(monkeypatch):
         assert {a.lane for a in arts} == {"Intel", "Strategy", "Creative", "Tracking"}
 
 
+async def test_cowork_audit_feeds_cascade_context():
+    """A Cowork audit artifact flows into the cascade's audit/trend context as recent_audits —
+    wiring the autonomous audit into the full response so it no longer runs blind."""
+    async with SessionLocal() as s:
+        tid = await _tid(s)
+        emp = await _mk_employee(s, tid)
+        run = AIRun(tenant_id=tid, employee_id=emp.id, skill_key="audit", trigger="manual",
+                    status="awaiting_approval")
+        s.add(run)
+        await s.flush()
+        s.add(AIArtifact(tenant_id=tid, run_id=run.id, kind="audit", lane="Intel", title="t",
+                         dest_label="Instagram · Cowork", state="draft",
+                         payload={"kind": "audit", "handle": "@rival",
+                                  "top": [{"name": "Reel", "val": "6.6x", "w": "100%"}],
+                                  "mechanics": ["curiosity-gap hook"]}))
+        await s.commit()
+        assert (await ai_employees.recent_cowork_audits(s, emp.id))[0]["handle"] == "@rival"
+        crun = AIRun(tenant_id=tid, employee_id=emp.id, skill_key=ai_employees.PACE_RESPONSE,
+                     trigger="condition", status="running")
+        s.add(crun)
+        await s.flush()
+        _, ctx = await ai_employees.build_context(s, tid, emp, None, crun, skill_key="audit")
+        assert "recent_audits" in ctx and ctx["recent_audits"][0]["handle"] == "@rival"
+        _, ctx2 = await ai_employees.build_context(s, tid, emp, None, crun, skill_key="strategy")
+        assert "recent_audits" not in ctx2         # only the audit/trend/diagnose slice pulls it
+
+
 async def test_pace_check_fires_when_behind_curve(monkeypatch):
     """With registrations far under the empirical curve, eval_pace_check returns a trigger_context."""
     async with SessionLocal() as s:

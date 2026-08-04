@@ -19,7 +19,7 @@ from ..models import AISkill
 # kind → the lane chip + destination label the run surface shows (product constants,
 # not tenant config). The artifact carries these so the frontend needs no lookup table.
 KIND_META: dict[str, dict] = {
-    "audit":    {"lane": "Intel",    "dest_label": "Claude in Chrome"},
+    "audit":    {"lane": "Intel",    "dest_label": "Roster audit"},
     "trend":    {"lane": "Intel",    "dest_label": "Weekly trend brief"},
     "strategy": {"lane": "Strategy", "dest_label": "Strategy memo"},
     "design":   {"lane": "Creative", "dest_label": "Claude Design"},
@@ -105,10 +105,13 @@ SKILLS: list[dict] = [
     {
         "key": "audit", "name": "Account Audit",
         "description": "Teardown of a competitor/peer account's recent winners and the mechanics behind them, from provided audit material.",
-        "default_prompt": ("You are a social media strategist auditing {handle} for {org}. From the "
-                           "provided posts/screenshots, identify the top-performing recent posts and the "
-                           "reusable mechanics (hook style, format, cadence). Nothing is copied — the "
-                           "mechanics inform {org}'s own posts.\n" + _COMMON +
+        "default_prompt": ("You are a social media strategist producing a competitor teardown for {org}. "
+                           "If context.recent_audits is present, those are REAL per-account teardowns already "
+                           "gathered from the roster via Claude in Chrome — synthesize the top cross-account "
+                           "performers and the reusable mechanics (hook style, format, cadence) from that real "
+                           "data, naming the account each came from. Otherwise use any provided material. "
+                           "Nothing is copied — the mechanics inform {org}'s own posts. If there is no audit "
+                           "data at all, say so plainly in the note rather than inventing posts.\n" + _COMMON +
                            "\n\nartifacts[0].payload = {\"kind\":\"audit\",\"handle\":str,\"top\":[{\"name\":str,"
                            "\"val\":\"4.2x\",\"w\":\"100%\"}],\"mechanics\":[str],\"note\":str}"),
         "default_schedule": None, "artifact_kinds": ["audit"], "output_contract": _run_contract(_AUDIT),
@@ -116,10 +119,11 @@ SKILLS: list[dict] = [
     {
         "key": "trend_brief", "name": "Weekly Trend Brief",
         "description": "Scans the watched roster + provided material for patterns winning across the niche, ending with the one change to make.",
-        "default_prompt": ("You are a social media analyst filing {org}'s weekly trend brief. From the "
-                           "roster and provided material, extract the patterns winning across the niche and "
-                           "what is timely this week. End with the single change to the plan — intel that "
-                           "doesn't change the plan is trivia.\n" + _COMMON +
+        "default_prompt": ("You are a social media analyst filing {org}'s weekly trend brief. Use "
+                           "context.recent_audits (real per-account teardowns from the roster) as your primary "
+                           "evidence, plus the roster and any provided material, to extract the patterns "
+                           "winning across the niche and what is timely this week. End with the single change "
+                           "to the plan — intel that doesn't change the plan is trivia.\n" + _COMMON +
                            "\n\nartifacts[0].payload = {\"kind\":\"trend\",\"scanned\":\"12 accounts\","
                            "\"patterns\":[{\"p\":str,\"d\":\"3.1x\"}],\"timely\":[str],\"change\":str,\"note\":str}"),
         "default_schedule": "0 7 * * 1", "artifact_kinds": ["trend"], "output_contract": _run_contract(_TREND),

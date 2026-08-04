@@ -489,21 +489,16 @@ function RunAuditModal({ empId, initialHandle, onClose, onQueued }) {
 }
 
 function RunResponseModal({ empId, name, onClose, onQueued }) {
-  const [handle, setHandle] = useState("");
-  const [material, setMaterial] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   async function submit() {
     setErr(null); setBusy(true);
-    const body = {};
-    if (material.trim()) body.material = material.trim();
-    if (handle.trim()) body.handle = "@" + handle.trim().replace(/^@+/, "");
-    try { const r = await postJSON(`/ai/employees/${empId}/respond`, body); onQueued(r.id); }
+    try { const r = await postJSON(`/ai/employees/${empId}/respond`, {}); onQueued(r.id); }
     catch (e) { setErr(e.detail || e.message || "Could not start the response."); setBusy(false); }
   }
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,46,44,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 540, background: T.white, border: `1px solid ${T.line}`, borderRadius: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, background: T.white, border: `1px solid ${T.line}`, borderRadius: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${T.line}` }}>
           <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Run {name}’s full response</span>
           <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer" }}><Icon name="close" size={15} color={T.muted} /></button>
@@ -513,10 +508,8 @@ function RunResponseModal({ empId, name, onClose, onQueued }) {
             {name} reads the current pace gap, then drafts the whole coordinated response —
             <span style={{ color: T.ink }}> audit · trend brief · strategy · carousel · reel · UTM tags</span> — and lands it all on one run for a single approval. It builds live; watch it fill in.
           </div>
-          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14 }}>
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: ".05em", color: T.tertiary, textTransform: "uppercase", marginBottom: 8 }}>Optional · seed the audit step from Claude in Chrome</div>
-            <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@competitor (optional)" style={{ ...INP, marginBottom: 8 }} />
-            <textarea value={material} onChange={(e) => setMaterial(e.target.value)} rows={4} placeholder="Paste captured posts to audit a specific account this run (else the audit works from the roster)." style={{ ...INP, fontFamily: "monospace", fontSize: 11.5, resize: "vertical" }} />
+          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px", fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, lineHeight: 1.5 }}>
+            The audit and trend steps build on the account audits you’ve gathered via Cowork in the last 21 days. For the freshest read, run <span style={{ color: T.ink, fontWeight: 600 }}>Run an audit</span> on your roster accounts first.
           </div>
           {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, marginTop: 10 }}>{err}</div>}
         </div>
