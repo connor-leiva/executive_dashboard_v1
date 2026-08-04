@@ -8,12 +8,13 @@ import { T } from "./theme.js";
 import { relativeTime } from "./theme.js";
 import { Icon } from "./Brand.jsx";
 import { postJSON } from "./api.js";
+import AIEmployeeDetail from "./AIEmployeeDetail.jsx";
 
 const AVATAR_SWATCHES = [T.teal, T.meadow, T.poppy, T.petalDeep, T.evergreen, T.daffodilText];
 
 /* ── small shared UI (house idiom) ───────────────────────────── */
-function Card({ children, style }) {
-  return <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, ...style }}>{children}</div>;
+function Card({ children, style, ...rest }) {
+  return <div {...rest} style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, ...style }}>{children}</div>;
 }
 function Btn({ kind = "ghost", children, onClick, disabled, type = "button" }) {
   const styles = {
@@ -85,11 +86,13 @@ function futureLabel(iso) {
 }
 
 /* ── employee card ───────────────────────────────────────────── */
-function EmployeeCard({ e }) {
+function EmployeeCard({ e, onOpen }) {
   const last = e.last_run;
   const nextLabel = e.next_run_at ? `Next run ${futureLabel(e.next_run_at) || "soon"}` : "No scheduled runs";
   return (
-    <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+    <Card className="cc-card" onClick={onOpen} role="button" tabIndex={0}
+      onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onOpen(); } }}
+      style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12, cursor: "pointer" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <Avatar name={e.name} color={e.avatar_color} />
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -190,7 +193,7 @@ function CreateModal({ onClose, onSaved }) {
             <Avatar name={name || "?"} color={color} size={48} />
             <div style={{ flex: 1 }}>
               <label style={labelStyle()}>Name</label>
-              <input value={name} onChange={(ev) => setName(ev.target.value)} placeholder="Summer" style={inputStyle()} autoFocus />
+              <input value={name} onChange={(ev) => setName(ev.target.value)} placeholder="Name this employee" style={inputStyle()} autoFocus />
             </div>
           </div>
           <div style={{ marginBottom: 16 }}>
@@ -223,8 +226,19 @@ function CreateModal({ onClose, onSaved }) {
 /* ── page ────────────────────────────────────────────────────── */
 export default function AIEmployees({ data, loading, error, reload, role }) {
   const [creating, setCreating] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
   const canManage = role === "owner" || role === "admin" || Boolean(data && data.can_manage);
   const employees = (data && data.employees) || [];
+
+  // Employee detail (run surface) — selecting a card swaps the list for the detail view.
+  const selected = selectedId && employees.find((e) => e.id === selectedId);
+  if (selected) {
+    return (
+      <AIEmployeeDetail employee={selected} role={role}
+        writebackEnvOpen={Boolean(data && data.writeback_env_open)}
+        onBack={() => { setSelectedId(null); reload && reload(); }} />
+    );
+  }
 
   return (
     <div>
@@ -269,7 +283,7 @@ export default function AIEmployees({ data, loading, error, reload, role }) {
         <EmptyState canManage={canManage} onAdd={() => setCreating(true)} />
       ) : (
         <div className="ai-emp-grid">
-          {employees.map((e) => <EmployeeCard key={e.id} e={e} />)}
+          {employees.map((e) => <EmployeeCard key={e.id} e={e} onOpen={() => setSelectedId(e.id)} />)}
         </div>
       )}
 

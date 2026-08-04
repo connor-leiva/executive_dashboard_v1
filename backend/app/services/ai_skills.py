@@ -127,7 +127,7 @@ SKILLS: list[dict] = [
         "description": "Re-architects the next few days of content around what's working and the pacing gap.",
         "default_prompt": ("You are {org}'s content strategist. Given the pacing facts and the audit/trend "
                            "findings, re-architect the remaining days of the {launch} into a daily plan that "
-                           "closes the gap. State the shift plainly and why.\n" + _COMMON +
+                           "closes the gap. State the pivot plainly and why.\n" + _COMMON +
                            "\n\nartifacts[0].payload = {\"kind\":\"strategy\",\"title\":str,\"shift\":str,"
                            "\"plan\":[{\"day\":\"Day 4\",\"what\":str,\"cta\":str}],\"why\":str}"),
         "default_schedule": None, "artifact_kinds": ["strategy"], "output_contract": _run_contract(_STRATEGY),

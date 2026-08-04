@@ -120,7 +120,7 @@ class Settings(BaseSettings):
     # inbound-parse routing to the webhook is external infra to configure separately.
     BINDER_INGEST_SECRET: str = ""
 
-    # AI Employees — agentic employees (v1: "Summer", Social Media Manager). OFF by default:
+    # AI Employees — agentic employees (v1 archetype: Social Media Manager). OFF by default:
     # AI_EMPLOYEES_ENABLED guards the routers, the two worker jobs, and the rail item.
     # Writeback (measure→GHL) needs BOTH AI_EMPLOYEES_WRITEBACK_ENABLED and the per-employee
     # writeback_enabled flag (the Books pattern) — v1 ships approve+export, so the GHL write
