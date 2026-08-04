@@ -120,6 +120,18 @@ class Settings(BaseSettings):
     # inbound-parse routing to the webhook is external infra to configure separately.
     BINDER_INGEST_SECRET: str = ""
 
+    # AI Employees — agentic employees (v1: "Summer", Social Media Manager). OFF by default:
+    # AI_EMPLOYEES_ENABLED guards the routers, the two worker jobs, and the rail item.
+    # Writeback (measure→GHL) needs BOTH AI_EMPLOYEES_WRITEBACK_ENABLED and the per-employee
+    # writeback_enabled flag (the Books pattern) — v1 ships approve+export, so the GHL write
+    # path stays off. AI_EMPLOYEES_MODEL falls back to ASSISTANT_MODEL when blank. The monthly
+    # per-tenant token budget (in+out) hard-stops scheduled runs (→ skipped_budget); 0 = unlimited.
+    AI_EMPLOYEES_ENABLED: bool = False
+    AI_EMPLOYEES_WRITEBACK_ENABLED: bool = False
+    AI_EMPLOYEES_MODEL: str = ""
+    AI_EMPLOYEES_MAX_TOKENS: int = 4096
+    AI_EMPLOYEES_TOKEN_BUDGET: int = 2_000_000
+
     # Single-tenant fallback: when a request Host doesn't match a `domain` row,
     # resolve to this tenant slug. Safe while there is one tenant (Spring); set
     # SINGLE_TENANT_FALLBACK=false once real multitenancy + custom domains land.

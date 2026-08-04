@@ -587,3 +587,125 @@ class LaunchWeekly(Base):
     enrolled_cum: Mapped[int] = mapped_column(Integer, default=0)  # cumulative enrolled seats at week end
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint("launch_id", "week_start", name="uq_launch_week"),)
+
+
+# ── AI Employees (SPEC-ai-employees-tab §3) ──────────────────────────────────
+# An AI employee runs skills → drafts artifacts → a human approves before anything
+# ships. AISkill is PRODUCT data (seeded, versioned); everything else is tenant data.
+# PKs are GUID (repo convention, not the spec's int); JSONType (not JSONB). Governance:
+# no auto-commit — runs land awaiting_approval, artifacts land draft.
+
+class AISkill(Base):
+    """Product-seeded skill definition (prompt template + output contract). Enabled per
+    employee with per-tenant overrides; the seed row is never mutated by an override."""
+    __tablename__ = "ai_skill"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    key: Mapped[str] = mapped_column(String(40), unique=True)          # audit, trend_brief, ...
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(Text)
+    default_prompt: Mapped[str] = mapped_column(Text)                  # template, {placeholders}
+    default_schedule: Mapped[str | None] = mapped_column(String(60), nullable=True)  # cron or null (manual)
+    artifact_kinds: Mapped[list] = mapped_column(JSONType, default=list)    # ["audit"] etc.
+    output_contract: Mapped[dict] = mapped_column(JSONType, default=dict)   # JSON schema the run must satisfy
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class AIEmployee(Base):
+    __tablename__ = "ai_employee"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    role_title: Mapped[str] = mapped_column(String(80))
+    avatar_color: Mapped[str] = mapped_column(String(7), default="#227175")
+    status: Mapped[str] = mapped_column(String(12), default="active")   # active | paused
+    writeback_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    config: Mapped[dict] = mapped_column(JSONType, default=dict)        # brand_doc_refs, timezone, quiet_hours, budget knobs
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AIEmployeeSkill(Base):
+    __tablename__ = "ai_employee_skill"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    employee_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("ai_employee.id", ondelete="CASCADE"), index=True)
+    skill_key: Mapped[str] = mapped_column(String(40))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    prompt_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    schedule_override: Mapped[str | None] = mapped_column(String(60), nullable=True)   # cron; null = skill default
+    config: Mapped[dict] = mapped_column(JSONType, default=dict)        # skill knobs (Section 5) incl. condition builder
+    seed_version: Mapped[int] = mapped_column(Integer, default=1)       # seed version the override was written against
+    __table_args__ = (UniqueConstraint("employee_id", "skill_key", name="uq_ai_emp_skill"),)
+
+
+class AIRun(Base):
+    __tablename__ = "ai_run"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    employee_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("ai_employee.id", ondelete="CASCADE"), index=True)
+    skill_key: Mapped[str] = mapped_column(String(40))
+    trigger: Mapped[str] = mapped_column(String(12))                   # manual | scheduled | condition
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+        # queued | running | awaiting_approval | approved | shipped | failed | dismissed | skipped_budget
+    trigger_context: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # {source,label,title,facts} (the EVENT)
+    context: Mapped[dict | None] = mapped_column(JSONType, nullable=True)          # pasted source material / pacing facts
+    reads: Mapped[list] = mapped_column(JSONType, default=list)        # the diagnosis lines
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)   # one-line, for the run list
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tokens_in: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (Index("ix_ai_run_te", "tenant_id", "employee_id"),
+                      Index("ix_ai_run_ts", "tenant_id", "status"))
+
+
+class AIArtifact(Base):
+    __tablename__ = "ai_artifact"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("ai_run.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))                     # audit|trend|strategy|design|script|measure
+    lane: Mapped[str] = mapped_column(String(20))                     # Intel|Strategy|Creative|Tracking
+    title: Mapped[str] = mapped_column(String(160))
+    dest_label: Mapped[str | None] = mapped_column(String(60), nullable=True)   # "Claude in Chrome", "GoHighLevel", ...
+    payload: Mapped[dict] = mapped_column(JSONType, default=dict)      # shape = mockup preview object
+    state: Mapped[str] = mapped_column(String(12), default="draft")    # draft | approved | shipped | dismissed
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    shipped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (Index("ix_ai_artifact_tr", "tenant_id", "run_id"),)
+
+
+class AIRosterAccount(Base):
+    __tablename__ = "ai_roster_account"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    employee_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("ai_employee.id", ondelete="CASCADE"), index=True)
+    platform: Mapped[str] = mapped_column(String(20), default="instagram")
+    handle: Mapped[str] = mapped_column(String(80))
+    why: Mapped[str | None] = mapped_column(Text, nullable=True)       # human note on why they're watched
+    status: Mapped[str] = mapped_column(String(12), default="watch")   # watch | active | archived
+    added_by: Mapped[str] = mapped_column(String(12), default="human") # human | ai (watchlist extension)
+    score_overlap: Mapped[int] = mapped_column(Integer, default=0)     # 0-5 audience overlap
+    score_offer: Mapped[int] = mapped_column(Integer, default=0)       # 0-5 offer similarity
+    score_perf: Mapped[int] = mapped_column(Integer, default=0)        # 0-5 recent performance
+    in_launch: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_audited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (Index("ix_ai_roster_te", "tenant_id", "employee_id"),)   # priority is computed, not stored
+
+
+class AIIntelEntry(Base):
+    """The compounding pattern library — findings a run files, tagged, retained per settings."""
+    __tablename__ = "ai_intel_entry"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    employee_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("ai_employee.id", ondelete="CASCADE"), index=True)
+    source_run_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("ai_run.id"), nullable=True)
+    finding: Mapped[str] = mapped_column(Text)
+    tags: Mapped[list] = mapped_column(JSONType, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

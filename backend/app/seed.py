@@ -23,6 +23,7 @@ from .models import (
 )
 from .security import hash_pw
 from .services.binder_rules import seed_jurisdiction_rules
+from .services.ai_skills import seed_ai_skills
 from .services.metrics import _period_range, _pl_period
 
 OWNER_EMAIL = "spring@springb.com"
@@ -663,6 +664,8 @@ async def seed():
         # Binder jurisdiction rules — shared reference data (tenant_id=None), idempotent so
         # the wipe/reseed above never disturbs them. No LegalEntity rows are ever seeded.
         await seed_jurisdiction_rules(s)
+        # AI Employees skill catalog — product data (the 6 skill defs), idempotent upsert.
+        await seed_ai_skills(s)
 
         await s.commit()
 
