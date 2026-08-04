@@ -346,9 +346,11 @@ async def execute_one(s, tenant_id) -> bool:
     picked (worker keeps calling while True), False if the queue is empty."""
     if not enabled():
         return False
-    run = (await s.execute(select(AIRun).where(
-        AIRun.tenant_id == tenant_id, AIRun.status == "queued")
-        .order_by(AIRun.created_at).limit(1))).scalar_one_or_none()
+    q = (select(AIRun).where(AIRun.tenant_id == tenant_id, AIRun.status == "queued")
+         .order_by(AIRun.created_at).limit(1))
+    if not settings.is_sqlite:                       # backstop if the API runs >1 process
+        q = q.with_for_update(skip_locked=True)
+    run = (await s.execute(q)).scalar_one_or_none()
     if not run:
         return False
     run.status, run.started_at = "running", _now()

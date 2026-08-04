@@ -21,7 +21,20 @@ async def lifespan(app: FastAPI):
     if settings.is_sqlite:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-    yield
+    # Single-service deployments (no separate `worker` service) run the scheduler here so the
+    # sync tick + AI dispatch/execute jobs actually run. Off by default.
+    sched = None
+    if settings.RUN_WORKER_IN_API:
+        from .worker import build_scheduler
+        sched = build_scheduler()
+        sched.start()
+        log.info("in-API scheduler started (sync%s)",
+                 " + ai" if settings.AI_EMPLOYEES_ENABLED else "")
+    try:
+        yield
+    finally:
+        if sched:
+            sched.shutdown(wait=False)
 
 
 def create_app() -> FastAPI:

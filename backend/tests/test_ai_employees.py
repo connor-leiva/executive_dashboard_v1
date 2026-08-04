@@ -203,6 +203,18 @@ async def test_condition_debounce_max_per_day(monkeypatch):
         assert await ai_employees._condition_fired_today(s, emp.id, max_per_day=2) is False
 
 
+def test_build_scheduler_registers_ai_jobs(monkeypatch):
+    """The scheduler (shared by the standalone worker and RUN_WORKER_IN_API) registers the two
+    AI jobs when the flag is on — the queue only drains if something runs them."""
+    from app import worker
+    monkeypatch.setattr(settings, "AI_EMPLOYEES_ENABLED", True)
+    on = {j.func.__name__ for j in worker.build_scheduler().get_jobs()}
+    assert {"tick", "ai_dispatch", "ai_execute"} <= on
+    monkeypatch.setattr(settings, "AI_EMPLOYEES_ENABLED", False)
+    off = {j.func.__name__ for j in worker.build_scheduler().get_jobs()}
+    assert "ai_execute" not in off and "tick" in off
+
+
 async def test_pace_response_cascade_drafts_all_skills(monkeypatch):
     """One pace_response run → diagnose + the six skills in order → all six draft artifacts on
     one run, awaiting_approval (the coordinated 'AI employee in action')."""

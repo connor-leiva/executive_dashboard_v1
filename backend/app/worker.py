@@ -54,16 +54,21 @@ async def ai_execute():
                 print(f"[ai_execute] tenant {t.id}: {type(e).__name__}: {e}", flush=True)
 
 
-async def main():
+def build_scheduler() -> AsyncIOScheduler:
+    """Configure the scheduler with the sync tick + (when the flag is on) the two AI jobs.
+    Shared by the standalone worker (`python -m app.worker`) and the in-API scheduler
+    (RUN_WORKER_IN_API) so both run exactly the same jobs."""
     sched = AsyncIOScheduler()
-    sched.add_job(
-        tick, "interval", minutes=settings.SYNC_INTERVAL_MINUTES,
-        next_run_time=dt.datetime.now(),
-    )
+    sched.add_job(tick, "interval", minutes=settings.SYNC_INTERVAL_MINUTES,
+                  next_run_time=dt.datetime.now())
     if settings.AI_EMPLOYEES_ENABLED:
         sched.add_job(ai_dispatch, "interval", minutes=1, next_run_time=dt.datetime.now())
         sched.add_job(ai_execute, "interval", seconds=15, next_run_time=dt.datetime.now())
-    sched.start()
+    return sched
+
+
+async def main():
+    build_scheduler().start()
     print(f"[worker] started · interval={settings.SYNC_INTERVAL_MINUTES}m"
           + (" · ai=on" if settings.AI_EMPLOYEES_ENABLED else ""))
     while True:

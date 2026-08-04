@@ -69,6 +69,11 @@ class Settings(BaseSettings):
 
     # worker
     SYNC_INTERVAL_MINUTES: int = 30
+    # Run the background scheduler (syncs + the AI Employees dispatch/execute jobs) INSIDE the
+    # API process instead of a separate `python -m app.worker` service. For single-service
+    # deployments that don't run a dedicated worker. Keep the API to ONE process when on
+    # (the run picker also uses SELECT … FOR UPDATE SKIP LOCKED on Postgres as a backstop).
+    RUN_WORKER_IN_API: bool = False
 
     # GHL location timezone — GHL stores UTC but records/displays the location's local
     # date, so GHL transaction dates (createdAt/fulfilledAt) resolve here.
