@@ -12,6 +12,8 @@ import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.j
 import BecollectiveView from "./BecollectiveView.jsx";
 import Books from "./books/Books.jsx";
 import Binder from "./Binder.jsx";
+import AIEmployees from "./AIEmployees.jsx";
+import { useAiEmployees } from "./useAiEmployees.js";
 import Assistant from "./Assistant.jsx";
 import { SpringSignature, ribbedHero, Icon } from "./Brand.jsx";
 
@@ -1061,6 +1063,7 @@ const NAV = [
   { k: "flywheel", label: "Referral Flywheel", dot: T.poppy, divide: true },
   { k: "books", label: "Books", dot: T.mist },
   { k: "binder", label: "Binder", dot: T.teal },
+  { k: "ai_employees", label: "AI Employees", dot: T.meadow },
 ];
 // nav key → permission tab (the Portfolio nav item is keyed "overview")
 const navTab = (k) => (k === "overview" ? "portfolio" : k);
@@ -1075,12 +1078,17 @@ export default function CommandCenter() {
   const [drill, setDrill] = useState(null);       // { key, business, agentId, lo, stage, source } for the audit drawer
   const onDrill = (key, business, agentId, lo, opts) => setDrill(key ? { key, business, agentId, lo, ...(opts || {}) } : null);
   const user = useMe();
+  // AI Employees list — fetched at the shell so the rail badge has the awaiting count even
+  // when the tab isn't the active view. Only when the flag+grant put the tab in myTabs.
+  const ai = useAiEmployees(Boolean(user && user.tabs && user.tabs.includes("ai_employees")));
 
   // Tab-permission gating: the rail renders only the user's granted tabs, and a
   // deep-link / stale view to an ungranted tab redirects to the first one they have.
-  // null = offline/unknown (no /me) → show all (dev fallback).
+  // null = offline/unknown (no /me) → show all (dev fallback), minus flag-gated live-only tabs.
   const myTabs = user && user.tabs ? user.tabs : null;
-  const baseNav = myTabs ? NAV.filter((n) => myTabs.includes(navTab(n.k))) : NAV;
+  const baseNav = myTabs
+    ? NAV.filter((n) => myTabs.includes(navTab(n.k)))
+    : NAV.filter((n) => n.k !== "ai_employees");   // needs a live backend + flag; hide in sample mode
   // Financial pages a QBO entity was routed to that aren't in the built-in NAV
   // (e.g. a new coaching page) — render them data-driven, before the flywheel divider.
   const KNOWN_TABS = new Set(NAV.map((n) => navTab(n.k)));
@@ -1140,6 +1148,7 @@ export default function CommandCenter() {
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
   else if (activeView === "books") content = <Books period={periodKey} role={user?.role} />;
   else if (activeView === "binder") content = <Binder role={user?.role} />;
+  else if (activeView === "ai_employees") content = <AIEmployees data={ai.data} loading={ai.loading} error={ai.error} reload={ai.reload} role={user?.role} />;
   else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
 
   return (
@@ -1184,6 +1193,13 @@ export default function CommandCenter() {
               }}>
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: n.dot, flexShrink: 0 }} />
                 <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: active ? 600 : 500, color: active ? T.onDark : T.onDarkMute }}>{n.label}</span>
+                {n.k === "ai_employees" && ai.data && ai.data.awaiting_total > 0 && (
+                  <span style={{
+                    marginLeft: "auto", minWidth: 18, textAlign: "center", fontFamily: "Inter,sans-serif",
+                    fontSize: 11, fontWeight: 700, color: T.daffodilText, background: T.daffodil,
+                    borderRadius: 9, padding: "1px 6px",
+                  }}>{ai.data.awaiting_total}</span>
+                )}
               </button>
             );
           })}

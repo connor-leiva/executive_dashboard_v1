@@ -23,7 +23,7 @@ from jsonschema import Draft7Validator
 from sqlalchemy import select, func
 
 from ..config import settings
-from ..models import (Tenant, Launch, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact,
+from ..models import (Tenant, Launch, AISkill, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact,
                       AIRosterAccount, AIIntelEntry)
 from .audit import audit
 from .ai_skills import SKILLS, KIND_META
@@ -357,3 +357,39 @@ async def execute_one(s, tenant_id) -> bool:
               {"skill": run.skill_key, "artifacts": len(result.get("artifacts", []))})
     await s.commit()
     return True
+
+
+# ── helpers shared with the router (§5, §6) ──────────────────────────────────
+DEFAULT_ROSTER_WEIGHTS = {"overlap": 1.0, "offer": 1.0, "perf": 1.0, "launch_boost": 1.5}
+
+
+def next_run_at(cron: str | None, after: dt.datetime) -> dt.datetime | None:
+    """The next fire of a cron after `after` (tz preserved). None for manual/invalid."""
+    if not cron:
+        return None
+    try:
+        return croniter(cron, after).get_next(dt.datetime)
+    except Exception:
+        return None
+
+
+def writeback_open(employee: AIEmployee) -> bool:
+    """Both gates — the env flag AND the per-employee toggle — like the Books pattern."""
+    return bool(settings.AI_EMPLOYEES_WRITEBACK_ENABLED and employee.writeback_enabled)
+
+
+def roster_priority(acc: AIRosterAccount, weights: dict | None = None) -> float:
+    """Computed, never stored: weighted score sum with an in-launch boost (§3 note)."""
+    w = {**DEFAULT_ROSTER_WEIGHTS, **(weights or {})}
+    base = (acc.score_overlap * w["overlap"] + acc.score_offer * w["offer"]
+            + acc.score_perf * w["perf"])
+    return round(base * (w["launch_boost"] if acc.in_launch else 1.0), 2)
+
+
+async def seed_employee_skills(s, employee: AIEmployee) -> None:
+    """Give a new employee the six product skills (enabled), pinning each seed_version so a
+    later seed upgrade can flag a stale override. Caller commits."""
+    vers = {k: v for k, v in (await s.execute(select(AISkill.key, AISkill.version))).all()}
+    for d in SKILLS:
+        s.add(AIEmployeeSkill(tenant_id=employee.tenant_id, employee_id=employee.id,
+                              skill_key=d["key"], enabled=True, seed_version=vers.get(d["key"], 1)))

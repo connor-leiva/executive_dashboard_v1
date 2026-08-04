@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
+from ..config import settings
 from ..models import Business
 
 # Operational multi-view businesses expose more than one nav tab: springb runs both
@@ -40,6 +41,8 @@ async def tenant_tabs(s, tenant_id) -> list[str]:
     out.append("flywheel")
     out.append("books")                                 # portfolio-level bookkeeping module
     out.append("binder")                                # portfolio-level entity-compliance module
+    if settings.AI_EMPLOYEES_ENABLED:                   # flag-gated top-level rail item
+        out.append("ai_employees")
     # de-dupe while preserving order (defensive against config quirks)
     seen, ordered = set(), []
     for t in out:
