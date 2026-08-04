@@ -253,15 +253,24 @@ function UsageMeter({ used, budget }) {
 /* ── 7.3 triggers (pace_check condition + quiet hours) ────────── */
 function TriggersCard({ empId, skills, cfg, setCfgKey, onSaveConfig, onReloadSkills }) {
   const responders = (skills || []).filter((s) => s.key !== "measure");
-  // find the skill currently carrying a pace_check condition (if any)
-  const carrier = (skills || []).find((s) => (s.config || {}).condition && s.config.condition.type === "pace_check");
-  const [respKey, setRespKey] = useState(carrier ? carrier.key : "strategy");
-  const cond = carrier ? carrier.config.condition : null;
-  const [threshold, setThreshold] = useState(cond ? cond.threshold_pct_under_curve : 10);
-  const [maxDay, setMaxDay] = useState(cond ? (cond.max_per_day || 1) : 1);
-  const [on, setOn] = useState(Boolean(carrier));
+  const [respKey, setRespKey] = useState("strategy");
+  const [threshold, setThreshold] = useState(10);
+  const [maxDay, setMaxDay] = useState(1);
+  const [on, setOn] = useState(false);
   const q = cfg.quiet_hours || {};
   const [busy, setBusy] = useState(false);
+
+  // Re-derive from the saved config once `skills` loads (it's null on first mount, so the
+  // toggle can't read the carrier at useState time — that made it always render OFF).
+  useEffect(() => {
+    if (!skills) return;
+    const carrier = skills.find((s) => (s.config || {}).condition && s.config.condition.type === "pace_check");
+    const cond = carrier ? carrier.config.condition : null;
+    setOn(Boolean(carrier));
+    setRespKey(carrier ? carrier.key : "strategy");
+    setThreshold(cond ? cond.threshold_pct_under_curve : 10);
+    setMaxDay(cond ? (cond.max_per_day || 1) : 1);
+  }, [skills]);
 
   async function save() {
     setBusy(true);
