@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, NavLink, Link } from "react-router-dom";
 import { T, PROVIDER_NAME, relativeTime } from "./theme.js";
 import { getJSON, postJSON, putJSON, patchJSON, delJSON } from "./api.js";
 import { Icon } from "./Brand.jsx";
+import AISettings from "./AISettings.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -44,18 +45,20 @@ function ensureProviders(rows) {
 /* ── shell ─────────────────────────────────────────────────── */
 
 // Members get a lone Account entry; owners/admins get the full management set.
-function subnavFor(role) {
+function subnavFor(role, aiOn) {
   if (role === "member") return [{ to: "/settings/account", label: "Account" }];
-  return [
+  const nav = [
     { to: "/settings/integrations", label: "Integrations" },
     { to: "/settings/users", label: "Team" },
     { to: "/settings/businesses", label: "Businesses" },
-    { to: "/settings/account", label: "Account" },
   ];
+  if (aiOn) nav.push({ to: "/settings/ai", label: "AI Employees" });
+  nav.push({ to: "/settings/account", label: "Account" });
+  return nav;
 }
 
-function SettingsShell({ children, role }) {
-  const SUBNAV = subnavFor(role);
+function SettingsShell({ children, role, aiOn }) {
+  const SUBNAV = subnavFor(role, aiOn);
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
       <style>{`
@@ -1464,9 +1467,11 @@ function UsersPage() {
 
 export default function Settings() {
   const [role, setRole] = useState(null);
+  const [aiOn, setAiOn] = useState(false);
   useEffect(() => {
     if (!API_BASE) { setRole("owner"); return; }
-    getJSON("/me").then((m) => setRole(m.role)).catch(() => setRole("member"));
+    getJSON("/me").then((m) => { setRole(m.role); setAiOn((m.tabs || []).includes("ai_employees")); })
+      .catch(() => setRole("member"));
   }, []);
   // Wait for the role before mounting routes — else the catch-all redirect fires
   // with isAdmin=false and bounces a deep-link to /settings/users away.
@@ -1476,12 +1481,13 @@ export default function Settings() {
   const isAdmin = role === "owner" || role === "admin";
   const home = isAdmin ? "/settings/integrations" : "/settings/account";
   return (
-    <SettingsShell role={role}>
+    <SettingsShell role={role} aiOn={aiOn}>
       <Routes>
         <Route path="account" element={<AccountPage />} />
         {isAdmin && <Route path="integrations" element={<IntegrationsPage />} />}
         {isAdmin && <Route path="users" element={<UsersPage />} />}
         {isAdmin && <Route path="businesses" element={<BusinessesPage />} />}
+        {isAdmin && aiOn && <Route path="ai" element={<AISettings />} />}
         <Route path="*" element={<Navigate to={home} replace />} />
       </Routes>
     </SettingsShell>

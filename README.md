@@ -73,6 +73,37 @@ npm run dev                              # http://localhost:5173
    (Fernet); refresh-token rotation is persisted on every call.
 3. Run the **worker** for scheduled syncs: `python -m app.worker`.
 
+## AI Employees
+
+A configurable agent surface (rail tab **AI Employees** + a Settings group). An AI
+employee = identity + product-seeded **skills** (prompt template + output contract) +
+**triggers** (manual / cron / a `pace_check` condition bound to the launch curve) +
+**governance**: every run drafts artifacts and a human approves before anything ships.
+v1 archetype is a Social-Media-Manager with six skills (audit, trend brief, strategy,
+carousel design, reel script, attribution tagging).
+
+**Enable it** (off by default):
+
+```bash
+AI_EMPLOYEES_ENABLED=true            # gates the routers, the two worker jobs, and the rail item
+ANTHROPIC_API_KEY=sk-...             # runs execute server-side; the key never reaches the browser
+AI_EMPLOYEES_MODEL=                  # optional; falls back to ASSISTANT_MODEL
+AI_EMPLOYEES_TOKEN_BUDGET=2000000    # per-tenant monthly (in+out); 0 = unlimited. Over budget → runs land skipped_budget
+AI_EMPLOYEES_WRITEBACK_ENABLED=false # v1 ships approve+export; GHL writeback stays behind this gate + the per-employee toggle
+```
+
+**How it runs.** The worker registers two jobs (gated on the flag): `ai_dispatch`
+(every minute — cron-due skills + the pace check → queue `AIRun`s) and `ai_execute`
+(every 15s — oldest queued run → context pack → Anthropic call validated against the
+skill's `output_contract`, one retry → **draft** artifacts, `awaiting_approval`). Nothing
+auto-commits. Approving marks artifacts `approved`; they reach `shipped` only when **both**
+writeback gates are open. Owner/admin manage and approve; a member with the `ai_employees`
+tab grant gets read-only (403 on mutations).
+
+**Demo data** (never auto-loaded): `python -m app.demo_fixture_ai [tenant_slug]` creates a
+demo "Summer" employee with one historical shipped run for design/QA. It is the only place
+tenant-specific names live; real tenants create their own employees in Settings › AI Employees.
+
 ## Deployment
 
 Railway: three services (`api`, `worker`, `web`) + a Postgres plugin, one

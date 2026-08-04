@@ -154,7 +154,8 @@ def _artifact_out(a: AIArtifact) -> dict:
 async def list_employees(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     await assert_tab(user, s, TAB)
     emps = (await s.execute(select(AIEmployee).where(
-        AIEmployee.tenant_id == user.tenant_id).order_by(AIEmployee.created_at))).scalars().all()
+        AIEmployee.tenant_id == user.tenant_id, AIEmployee.status != "archived")
+        .order_by(AIEmployee.created_at))).scalars().all()
     awaiting = await _awaiting_by_employee(s, user.tenant_id)
     writeback_env = settings.AI_EMPLOYEES_WRITEBACK_ENABLED
     out = []
@@ -187,6 +188,20 @@ async def create_employee(body: EmployeeCreate, user: User = Depends(manager),
     return {"id": str(e.id), "name": e.name}
 
 
+@router.get("/settings")
+async def ai_settings(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """Tenant-level env state + the live monthly token meter for the Settings group (§7.5).
+    Model + budget are environment-controlled in v1, so they're returned read-only."""
+    await assert_tab(user, s, TAB)
+    return {
+        "writeback_env_open": settings.AI_EMPLOYEES_WRITEBACK_ENABLED,
+        "model": eng._model(), "max_tokens": settings.AI_EMPLOYEES_MAX_TOKENS,
+        "token_budget": settings.AI_EMPLOYEES_TOKEN_BUDGET,
+        "tokens_used": await eng.tokens_used_this_month(s, user.tenant_id),
+        "can_manage": user.role in ("owner", "admin"),
+    }
+
+
 @router.patch("/employees/{emp_id}")
 async def patch_employee(emp_id: str, body: EmployeePatch, user: User = Depends(manager),
                          s: AsyncSession = Depends(get_session)):
@@ -200,6 +215,41 @@ async def patch_employee(emp_id: str, body: EmployeePatch, user: User = Depends(
           {"fields": sorted(fields)})
     await s.commit()
     return {"ok": True}
+
+
+@router.delete("/employees/{emp_id}")
+async def archive_employee(emp_id: str, user: User = Depends(manager),
+                           s: AsyncSession = Depends(get_session)):
+    """Soft delete (§7.1): archive keeps the runs/artifacts for the record; dispatch already
+    skips non-active employees, and the list hides archived ones."""
+    e = await _emp(s, user.tenant_id, emp_id)
+    e.status = "archived"
+    audit(s, user.tenant_id, user.id, "ai.employee_archive", "ai_employee", e.id, {})
+    await s.commit()
+    return {"ok": True}
+
+
+@router.get("/employees/{emp_id}/export")
+async def export_employee(emp_id: str, user: User = Depends(current_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Everything for one employee as JSON (§7.7): runs, artifacts, intel, roster."""
+    await assert_tab(user, s, TAB)
+    e = await _emp(s, user.tenant_id, emp_id)
+    runs = (await s.execute(select(AIRun).where(AIRun.employee_id == e.id)
+            .order_by(AIRun.created_at))).scalars().all()
+    arts = (await s.execute(select(AIArtifact).join(AIRun, AIArtifact.run_id == AIRun.id)
+            .where(AIRun.employee_id == e.id))).scalars().all()
+    intel = (await s.execute(select(AIIntelEntry).where(AIIntelEntry.employee_id == e.id))).scalars().all()
+    roster = (await s.execute(select(AIRosterAccount).where(AIRosterAccount.employee_id == e.id))).scalars().all()
+    weights = (e.config or {}).get("roster_weights") or {}
+    return {
+        "employee": {"id": str(e.id), "name": e.name, "role_title": e.role_title,
+                     "status": e.status, "config": e.config or {}},
+        "runs": [_run_out(r) for r in runs],
+        "artifacts": [_artifact_out(a) for a in arts],
+        "intel": [{"finding": i.finding, "tags": i.tags or [], "created_at": _iso(i.created_at)} for i in intel],
+        "roster": [_roster_out(a, weights) for a in roster],
+    }
 
 
 # ── skills (merged seed + override) ───────────────────────────────────────────

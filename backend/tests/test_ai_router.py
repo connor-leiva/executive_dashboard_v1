@@ -144,6 +144,42 @@ async def test_ship_unapproved_returns_409():
         assert r.status_code == 409 and "approved" in r.json()["detail"].lower()
 
 
+async def test_settings_summary_and_export():
+    owner = await _owner_token()
+    tid = await _tenant_id()
+    async with _client() as c:
+        st = (await c.get("/api/v1/ai/settings", headers=_H(owner))).json()
+        assert set(st) >= {"writeback_env_open", "model", "token_budget", "tokens_used", "can_manage"}
+        assert st["can_manage"] is True
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Faye"})).json()
+        await _seed_run_with_draft(emp["id"], tid)
+        exp = (await c.get(f"/api/v1/ai/employees/{emp['id']}/export", headers=_H(owner))).json()
+        assert exp["employee"]["name"] == "Faye" and len(exp["runs"]) == 1 and len(exp["artifacts"]) == 1
+
+
+async def test_archive_hides_employee_from_list():
+    owner = await _owner_token()
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Zed"})).json()
+        assert (await c.delete(f"/api/v1/ai/employees/{emp['id']}", headers=_H(owner))).status_code == 200
+        lst = (await c.get("/api/v1/ai/employees", headers=_H(owner))).json()
+        assert all(e["id"] != emp["id"] for e in lst["employees"])   # archived → hidden
+
+
+async def test_manual_schedule_override_means_no_next_run():
+    """schedule_override='manual' zeroes the next scheduled run even for a skill with a
+    default cron (trend_brief)."""
+    owner = await _owner_token()
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Odette"})).json()
+        await c.patch(f"/api/v1/ai/employees/{emp['id']}/skills/trend_brief", headers=_H(owner),
+                      json={"schedule_override": "manual"})
+        # every other skill is manual-by-default → the employee now has no scheduled run
+        lst = (await c.get("/api/v1/ai/employees", headers=_H(owner))).json()
+        mine = next(e for e in lst["employees"] if e["id"] == emp["id"])
+        assert mine["next_run_at"] is None
+
+
 async def test_create_seeds_six_skills_and_awaiting_badge():
     owner = await _owner_token()
     tid = await _tenant_id()

@@ -289,6 +289,8 @@ async def dispatch_tenant(s, tenant_id, now: dt.datetime) -> None:
             if not skill_def:
                 continue
             cron = es.schedule_override or skill_def.get("default_schedule")
+            if cron == "manual":                 # explicit "no schedule" override (§7.2)
+                cron = None
             if cron and not _in_quiet_hours(emp, now_local) and await _cron_due(s, es, cron, now_local):
                 await _queue_run(s, tenant_id, emp, es.skill_key, "scheduled", None, over_budget)
                 queued = True
@@ -365,7 +367,7 @@ DEFAULT_ROSTER_WEIGHTS = {"overlap": 1.0, "offer": 1.0, "perf": 1.0, "launch_boo
 
 def next_run_at(cron: str | None, after: dt.datetime) -> dt.datetime | None:
     """The next fire of a cron after `after` (tz preserved). None for manual/invalid."""
-    if not cron:
+    if not cron or cron == "manual":            # "manual" sentinel = no schedule (§7.2)
         return None
     try:
         return croniter(cron, after).get_next(dt.datetime)
