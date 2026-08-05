@@ -241,6 +241,11 @@ async def build_context(s, tenant_id, employee: AIEmployee, es: AIEmployeeSkill 
         context["pacing"] = tc
     if rc.get("material"):
         context["source_material"] = str(rc["material"])[:8000]
+    if sk in ("design_carousel", "reel_script"):
+        from . import ai_media                   # the catalog she composes with (b-roll, event photos)
+        catalog = await ai_media.media_catalog(s, employee.id)
+        if catalog:
+            context["media"] = catalog
     if prior:                                    # earlier steps' outputs, so the chain builds on itself
         context["prior_work"] = prior
     return scalars, context

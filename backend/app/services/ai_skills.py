@@ -78,13 +78,15 @@ _DESIGN = {"type": "object", "required": ["kind", "slides"], "properties": {
     "kind": {"const": "design"},
     "slides": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["bg", "fg", "h"],
                "properties": {"bg": {"type": "string"}, "fg": {"type": "string"},
-                              "h": {"type": "string"}, "sub": {"type": "string"}}}},
+                              "h": {"type": "string"}, "sub": {"type": "string"},
+                              "media_id": {"type": "string"}}}},   # optional: a real photo behind the slide
     "caption": {"type": "string"}, "note": {"type": "string"}}}
 
 _SCRIPT = {"type": "object", "required": ["kind", "hook", "shots"], "properties": {
     "kind": {"const": "script"}, "hookType": {"type": "string"}, "hook": {"type": "string"},
     "shots": {"type": "array", "items": {"type": "object", "required": ["vis", "vo"],
-              "properties": {"vis": {"type": "string"}, "vo": {"type": "string"}}}}}}
+              "properties": {"vis": {"type": "string"}, "vo": {"type": "string"},
+                             "media_id": {"type": "string"}}}}}}   # optional: real b-roll for the shot
 
 _MEASURE = {"type": "object", "required": ["kind", "tags"], "properties": {
     "kind": {"const": "measure"},
@@ -143,18 +145,28 @@ SKILLS: list[dict] = [
         "description": "Drafts a multi-slide carousel in the brand — copy + slide backgrounds/foregrounds — from the strategy.",
         "default_prompt": ("You are {org}'s designer-copywriter. Draft a 5-slide carousel in {brand_voice} using "
                            "the brand colors {brand_colors}. Each slide has a background/foreground hex and a "
-                           "headline; the hook is adapted (not copied) from the audit. Nothing posts.\n" + _COMMON +
+                           "headline; the hook is adapted (not copied) from the audit. Nothing posts.\n"
+                           "If context.media is provided, it is the brand's real photo/b-roll library. For "
+                           "slides where a real photo strengthens the message, set that slide's media_id to the "
+                           "best-matching asset id from context.media (match on its description) — keep the fg "
+                           "hex for legible text over the photo. Leave media_id out for slides that read better "
+                           "as a solid brand color (openers and CTAs usually do). ONLY use ids that appear in "
+                           "context.media; never invent one.\n" + _COMMON +
                            "\n\nartifacts[0].payload = {\"kind\":\"design\",\"slides\":[{\"bg\":\"#002E2C\","
-                           "\"fg\":\"#F6F0E9\",\"h\":str,\"sub\":str}],\"caption\":str,\"note\":str}"),
+                           "\"fg\":\"#F6F0E9\",\"h\":str,\"sub\":str,\"media_id\":\"<id from context.media, optional>\"}],"
+                           "\"caption\":str,\"note\":str}"),
         "default_schedule": None, "artifact_kinds": ["design"], "output_contract": _run_contract(_DESIGN),
     },
     {
         "key": "reel_script", "name": "Reel Script",
         "description": "Writes a reflection-hook Reel script with a shotlist (visual + voiceover per shot).",
         "default_prompt": ("You are {org}'s short-form scriptwriter. Write a Reel with a reflection hook and a "
-                           "4-shot shotlist (visual + voiceover per shot), in {brand_voice}.\n" + _COMMON +
+                           "4-shot shotlist (visual + voiceover per shot), in {brand_voice}.\n"
+                           "If context.media has b-roll or a photo that fits a shot, set that shot's media_id to "
+                           "its asset id (match on its description); leave it out otherwise. ONLY use ids from "
+                           "context.media.\n" + _COMMON +
                            "\n\nartifacts[0].payload = {\"kind\":\"script\",\"hookType\":str,\"hook\":str,"
-                           "\"shots\":[{\"vis\":str,\"vo\":str}]}"),
+                           "\"shots\":[{\"vis\":str,\"vo\":str,\"media_id\":\"<id from context.media, optional>\"}]}"),
         "default_schedule": None, "artifact_kinds": ["script"], "output_contract": _run_contract(_SCRIPT),
     },
     {

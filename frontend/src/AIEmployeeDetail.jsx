@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { T, relativeTime } from "./theme.js";
 import { Icon } from "./Brand.jsx";
-import { postJSON } from "./api.js";
+import { postJSON, fileUrl } from "./api.js";
 import { useAiEmployeeDetail } from "./useAiEmployeeDetail.js";
 
 const MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -231,42 +231,57 @@ function StrategyPreview({ p }) {
     </div>
   );
 }
-function DesignPreview({ p }) {
+function DesignPreview({ p, mediaById = {} }) {
   return (
     <div>
       <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6 }}>
-        {(p.slides || []).map((s, i) => (
-          <div key={i} style={{ flex: "0 0 130px", height: 160, borderRadius: 12, background: s.bg, color: s.fg,
-            border: `1px solid ${T.line}`, padding: 12, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-            <span style={{ fontFamily: MONO, fontSize: 9, opacity: 0.6 }}>{i + 1}/{p.slides.length}</span>
-            <div>
-              <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, lineHeight: 1.25 }}>{s.h}</div>
-              {s.sub && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, opacity: 0.85, marginTop: 4 }}>{s.sub}</div>}
+        {(p.slides || []).map((s, i) => {
+          const media = s.media_id && mediaById[s.media_id];
+          const src = media && media.is_image ? fileUrl(media.url) : null;
+          const fg = src ? "#fff" : s.fg;
+          const shadow = src ? "0 1px 4px rgba(0,0,0,.55)" : "none";
+          return (
+            <div key={i} style={{ position: "relative", flex: "0 0 130px", height: 160, borderRadius: 12, background: s.bg, color: fg,
+              border: `1px solid ${T.line}`, padding: 12, display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden" }}>
+              {src && <>
+                <img src={src} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,.12), rgba(0,0,0,.58))" }} />
+              </>}
+              <span style={{ position: "relative", fontFamily: MONO, fontSize: 9, opacity: 0.7 }}>{i + 1}/{p.slides.length}</span>
+              <div style={{ position: "relative" }}>
+                <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, lineHeight: 1.25, textShadow: shadow }}>{s.h}</div>
+                {s.sub && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, opacity: 0.9, marginTop: 4, textShadow: shadow }}>{s.sub}</div>}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       {p.caption && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, marginTop: 8 }}>{p.caption}</div>}
       {p.note && <Note>{p.note}</Note>}
     </div>
   );
 }
-function ScriptPreview({ p }) {
+function ScriptPreview({ p, mediaById = {} }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         {p.hookType && <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px" }}>{p.hookType}</span>}
       </div>
       {p.hook && <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.ink, lineHeight: 1.35, marginBottom: 12 }}>“{p.hook}”</div>}
-      {(p.shots || []).map((sh, i) => (
-        <div key={i} style={{ display: "flex", gap: 10, padding: "7px 0", borderTop: `1px solid ${T.line}` }}>
-          <span style={{ fontFamily: MONO, fontSize: 11, color: T.muted, flexShrink: 0 }}>{i + 1}</span>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{sh.vis}</div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, marginTop: 2 }}>{sh.vo}</div>
+      {(p.shots || []).map((sh, i) => {
+        const media = sh.media_id && mediaById[sh.media_id];
+        const src = media && media.is_image ? fileUrl(media.url) : null;
+        return (
+          <div key={i} style={{ display: "flex", gap: 10, padding: "7px 0", borderTop: `1px solid ${T.line}`, alignItems: "flex-start" }}>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: T.muted, flexShrink: 0, marginTop: 2 }}>{i + 1}</span>
+            {src && <img src={src} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{sh.vis}{media ? ` · ${media.title || "b-roll"}` : ""}</div>
+              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, marginTop: 2 }}>{sh.vo}</div>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -285,14 +300,14 @@ function MeasurePreview({ p }) {
 }
 const PREVIEWS = { audit: AuditPreview, trend: TrendPreview, strategy: StrategyPreview,
   design: DesignPreview, script: ScriptPreview, measure: MeasurePreview };
-function Preview({ kind, payload }) {
+function Preview({ kind, payload, mediaById }) {
   const C = PREVIEWS[kind];
   if (!C) return <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>No preview for “{kind}”.</div>;
-  return <C p={payload || {}} />;
+  return <C p={payload || {}} mediaById={mediaById || {}} />;
 }
 
 /* ── artifact row (expand) ────────────────────────────────────── */
-function ArtifactRow({ a, open, onToggle, onDismiss, canManage, pending }) {
+function ArtifactRow({ a, open, onToggle, onDismiss, canManage, pending, mediaById }) {
   const expandable = a.state === "draft";     // approved/shipped rows are read-only (§ Open Item 4)
   const shipped = a.state === "shipped", approved = a.state === "approved" || shipped;
   return (
@@ -316,7 +331,7 @@ function ArtifactRow({ a, open, onToggle, onDismiss, canManage, pending }) {
       {expandable && open && (
         <div role="region" aria-label={a.title} style={{ padding: "4px 4px 16px" }}>
           <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14 }}>
-            <Preview kind={a.kind} payload={a.payload} />
+            <Preview kind={a.kind} payload={a.payload} mediaById={mediaById} />
           </div>
           {canManage && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
@@ -556,7 +571,7 @@ function RunResponseModal({ empId, name, onClose, onQueued }) {
 /* ── container ────────────────────────────────────────────────── */
 export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onBack }) {
   const canManage = role === "owner" || role === "admin";
-  const { runs, roster, briefs, detail, runId, setRunId, error, reload } = useAiEmployeeDetail(employee.id);
+  const { runs, roster, briefs, mediaById, detail, runId, setRunId, error, reload } = useAiEmployeeDetail(employee.id);
   const [openId, setOpenId] = useState(null);
   const [pendingIds, setPendingIds] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -685,7 +700,7 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
               </div>
               {artifacts.map((a) => (
                 <ArtifactRow key={a.id} a={a} open={openId === a.id} onToggle={() => setOpenId(openId === a.id ? null : a.id)}
-                  onDismiss={() => dismiss(a.id)} canManage={canManage} pending={pendingIds.includes(a.id)} />
+                  onDismiss={() => dismiss(a.id)} canManage={canManage} pending={pendingIds.includes(a.id)} mediaById={mediaById} />
               ))}
             </Card>
           )}

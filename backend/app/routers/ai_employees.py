@@ -371,6 +371,40 @@ async def delete_media(asset_id: str, user: User = Depends(manager),
     return {"ok": True}
 
 
+@router.post("/employees/{emp_id}/media/caption-missing")
+async def caption_missing_media(emp_id: str, user: User = Depends(manager),
+                                s: AsyncSession = Depends(get_session)):
+    """Auto-caption images that don't have a description yet (a vision pass writes what's in each
+    one), so Summer can actually find and use them. Bounded per call; returns what's left."""
+    e = await _emp(s, user.tenant_id, emp_id)
+    if not eng.enabled():
+        raise HTTPException(400, "Captioning needs ANTHROPIC_API_KEY and AI_EMPLOYEES_ENABLED")
+    rows = (await s.execute(select(AIMediaAsset).where(
+        AIMediaAsset.employee_id == e.id, AIMediaAsset.description.is_(None)).limit(12))).scalars().all()
+    done = sum([await ai_media.caption_and_store(s, a) for a in rows])
+    audit(s, user.tenant_id, user.id, "ai.media_caption", "ai_employee", e.id, {"captioned": done})
+    await s.commit()
+    remaining = (await s.execute(select(func.count(AIMediaAsset.id)).where(
+        AIMediaAsset.employee_id == e.id, AIMediaAsset.description.is_(None)))).scalar_one()
+    return {"captioned": done, "remaining": int(remaining)}
+
+
+@router.post("/media/{asset_id}/caption")
+async def caption_one_media(asset_id: str, user: User = Depends(manager),
+                            s: AsyncSession = Depends(get_session)):
+    a = (await s.execute(select(AIMediaAsset).where(
+        AIMediaAsset.id == asset_id, AIMediaAsset.tenant_id == user.tenant_id))).scalar_one_or_none()
+    if not a:
+        raise HTTPException(404, "Unknown asset")
+    if not eng.enabled():
+        raise HTTPException(400, "Captioning is not enabled")
+    await ai_media.caption_and_store(s, a)
+    audit(s, user.tenant_id, user.id, "ai.media_caption", "ai_media_asset", a.id, {})
+    await s.commit()
+    tok = make_capability("media_read", minutes=180, tid=str(user.tenant_id))
+    return ai_media.asset_out(a, tok)
+
+
 @router.get("/employees/{emp_id}/export")
 async def export_employee(emp_id: str, user: User = Depends(current_user),
                           s: AsyncSession = Depends(get_session)):

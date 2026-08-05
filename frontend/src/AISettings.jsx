@@ -378,11 +378,24 @@ function MediaCard({ empId }) {
   const [assets, setAssets] = useState(null);
   const [kind, setKind] = useState("event");
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
   const [err, setErr] = useState(null);
   function load() {
-    getJSON(`/ai/employees/${empId}/media`).then((d) => setAssets(d.assets || [])).catch(() => setAssets([]));
+    return getJSON(`/ai/employees/${empId}/media`).then((d) => { setAssets(d.assets || []); return d.assets || []; }).catch(() => { setAssets([]); return []; });
   }
-  useEffect(load, [empId]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [empId]);   // eslint-disable-line react-hooks/exhaustive-deps
+  async function captionMissing() {
+    // vision-caption any images without a description, in batches, so Summer can use them
+    setStatus("Generating descriptions…");
+    try {
+      for (let i = 0; i < 20; i++) {
+        const r = await postJSON(`/ai/employees/${empId}/media/caption-missing`);
+        await load();
+        if (!r || r.remaining === 0 || r.captioned === 0) break;
+      }
+    } catch (e) { setErr(e.detail || e.message || "Captioning failed."); }
+    setStatus("");
+  }
   async function onFiles(fileList) {
     const files = [...fileList];
     if (!files.length) return;
@@ -395,23 +408,26 @@ function MediaCard({ empId }) {
         fd.append("title", f.name.replace(/\.[^.]+$/, ""));
         await uploadFile(`/ai/employees/${empId}/media`, fd);
       }
-      load();
+      await load();
+      await captionMissing();     // describe the new images so they're immediately usable
     } catch (e) { setErr(e.detail || e.message || "Upload failed."); }
     finally { setBusy(false); }
   }
   async function del(id) { await delJSON(`/ai/media/${id}`); load(); }
   async function save(id, body) { await patchJSON(`/ai/media/${id}`, body); load(); }
+  const missing = (assets || []).filter((a) => a.is_image && !a.description).length;
 
   return (
     <Card title="Media library"
-      hint="B-roll, stock, and past-event photos Summer pulls from to build carousels and reels. Add a description and tags so she can find the right asset — she references them by what you write, not by looking at the image (auto-captioning comes next). Stored durably in object storage.">
+      hint="B-roll, stock, and past-event photos Summer pulls from to build carousels and reels. Each image is auto-described on upload (a vision pass), because she picks assets by what's written about them, not by looking — edit any description to steer her. Stored durably in object storage.">
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
         <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...field, width: "auto" }}>{MEDIA_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
         <label style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, borderRadius: 8, padding: "8px 14px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
           {busy ? "Uploading…" : "Add files"}
           <input type="file" accept="image/*,video/*" multiple disabled={busy} onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} style={{ display: "none" }} />
         </label>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>Images &amp; video · up to 25 MB each</span>
+        {missing > 0 && !busy && <Btn onClick={captionMissing} disabled={Boolean(status)}>{status ? "Describing…" : `Describe ${missing} photo${missing > 1 ? "s" : ""}`}</Btn>}
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{status || "Images & video · up to 25 MB each"}</span>
         {err && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText }}>{err}</span>}
       </div>
       {assets === null ? <div style={{ color: T.muted, fontSize: 12.5 }}>Loading…</div>

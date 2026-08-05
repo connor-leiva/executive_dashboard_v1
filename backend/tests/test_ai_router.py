@@ -295,6 +295,27 @@ async def test_media_upload_list_serve_and_delete():
         assert bad.status_code == 415
 
 
+async def test_caption_missing_describes_images(monkeypatch):
+    """Auto-caption fills in descriptions for images that don't have one (vision pass mocked)."""
+    from app.services import ai_media, ai_employees as eng
+    monkeypatch.setattr(eng, "enabled", lambda: True)
+
+    async def fake_caption(data, content_type):
+        return {"description": "two women outdoors at golden hour", "tags": ["event", "outdoor"]}
+    monkeypatch.setattr(ai_media, "caption_asset", fake_caption)
+
+    owner = await _owner_token()
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Cap"})).json()
+        await c.post(f"/api/v1/ai/employees/{emp['id']}/media", headers=_H(owner),
+                     files={"file": ("p.png", png, "image/png")}, data={"kind": "event"})
+        r = (await c.post(f"/api/v1/ai/employees/{emp['id']}/media/caption-missing", headers=_H(owner))).json()
+        assert r["captioned"] == 1 and r["remaining"] == 0
+        got = (await c.get(f"/api/v1/ai/employees/{emp['id']}/media", headers=_H(owner))).json()
+        assert got["assets"][0]["description"] == "two women outdoors at golden hour"
+
+
 async def test_voice_profile_stored_and_excluded_from_list():
     owner = await _owner_token()
     async with _client() as c:

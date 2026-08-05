@@ -8,10 +8,70 @@ so media and Binder documents coexist in one bucket without collision.
 """
 from __future__ import annotations
 
+import base64
+
+from sqlalchemy import select
+
 from ..models import AIMediaAsset
 from . import binder_storage
 
 KINDS = ("broll", "stock", "event", "logo", "other")
+SUPPORTED_IMAGE = {"image/jpeg", "image/png", "image/gif", "image/webp"}   # Claude vision inputs
+
+_CAPTION_PROMPT = (
+    "You are cataloging an image for a brand's social-media asset library. In 1-2 plain sentences "
+    "describe what's actually in it — subjects, setting, action, mood, lighting, and whether it's "
+    "portrait or landscape. Then give 4-8 short lowercase tags. No marketing language — just what a "
+    "person would type to find this photo later. Return STRICT JSON only: "
+    "{\"description\": str, \"tags\": [str, ...]}.")
+
+
+async def caption_asset(data: bytes, content_type: str) -> dict | None:
+    """Vision pass → {description, tags} for an image. None if captioning is off (no key/flag) or
+    the type isn't a supported image. This is what lets a text model 'see' the library."""
+    from . import ai_employees as eng          # late import — avoid a circular dependency
+    if not eng.enabled() or content_type not in SUPPORTED_IMAGE:
+        return None
+    block = {"type": "image", "source": {"type": "base64", "media_type": content_type,
+             "data": base64.b64encode(data).decode()}}
+    try:
+        resp = await eng._client().messages.create(
+            model=eng._model(), max_tokens=400, thinking={"type": "disabled"},
+            messages=[{"role": "user", "content": [block, {"type": "text", "text": _CAPTION_PROMPT}]}])
+        obj = eng._parse_json(eng._text_of(resp)) or {}
+    except Exception:
+        return None
+    desc = obj.get("description")
+    if not desc:
+        return None
+    tags = obj.get("tags") if isinstance(obj.get("tags"), list) else []
+    return {"description": str(desc)[:800], "tags": [str(t)[:40] for t in tags][:8]}
+
+
+async def caption_and_store(s, asset: AIMediaAsset) -> bool:
+    """(Re)caption one asset from its stored blob and persist. True if it got a description.
+    Never overwrites tags the human already set."""
+    try:
+        data = binder_storage.read(asset.storage_ref)
+    except Exception:
+        return False
+    cap = await caption_asset(data, asset.content_type)
+    if not cap:
+        return False
+    asset.description = cap["description"]
+    if cap["tags"] and not (asset.tags or []):
+        asset.tags = cap["tags"]
+    return True
+
+
+async def media_catalog(s, employee_id, limit: int = 40) -> list[dict]:
+    """The catalog the cascade's content steps select from (by description). Described assets
+    are the useful ones; they're what a text model matches against."""
+    rows = (await s.execute(select(AIMediaAsset).where(AIMediaAsset.employee_id == employee_id)
+            .order_by(AIMediaAsset.created_at.desc()).limit(limit))).scalars().all()
+    return [{"id": str(a.id), "kind": a.kind, "title": a.title,
+             "description": a.description or "", "tags": a.tags or []}
+            for a in rows if a.description]     # only described assets are selectable
 
 
 def _ref(tenant_id, asset_id, filename: str) -> str:

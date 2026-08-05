@@ -317,6 +317,32 @@ async def test_cascade_skips_audit_when_cowork_already_did_it(monkeypatch):
     assert "audit" not in called                   # the audit step was skipped, not re-run
 
 
+async def test_media_catalog_and_carousel_context():
+    """media_catalog surfaces only DESCRIBED assets, and the carousel/reel steps get them in
+    context (so Summer can compose with real photos); analysis steps don't."""
+    from app.models import AIMediaAsset
+    from app.services import ai_media
+    async with SessionLocal() as s:
+        tid = await _tid(s)
+        emp = await _mk_employee(s, tid)
+        s.add(AIMediaAsset(tenant_id=tid, employee_id=emp.id, kind="event", title="stage",
+                           description="Spring on stage, warm light, landscape", tags=["stage"],
+                           storage_ref="x", filename="a.jpg", content_type="image/jpeg"))
+        s.add(AIMediaAsset(tenant_id=tid, employee_id=emp.id, kind="stock", title="undescribed",
+                           storage_ref="y", filename="b.jpg", content_type="image/jpeg"))
+        await s.commit()
+        cat = await ai_media.media_catalog(s, emp.id)
+        assert len(cat) == 1 and cat[0]["description"].startswith("Spring on stage")
+        run = AIRun(tenant_id=tid, employee_id=emp.id, skill_key=ai_employees.PACE_RESPONSE,
+                    trigger="manual", status="running")
+        s.add(run)
+        await s.flush()
+        _, ctx = await ai_employees.build_context(s, tid, emp, None, run, skill_key="design_carousel")
+        assert "media" in ctx and ctx["media"][0]["id"] == cat[0]["id"]
+        _, ctx2 = await ai_employees.build_context(s, tid, emp, None, run, skill_key="audit")
+        assert "media" not in ctx2                 # analysis steps don't carry the catalog
+
+
 async def test_cascade_applies_voice_pass(monkeypatch):
     """When the employee has a voice profile, the cascade's final step rewrites the published
     carousel/reel copy against it (structure + colors preserved, pre-voice snapshotted)."""

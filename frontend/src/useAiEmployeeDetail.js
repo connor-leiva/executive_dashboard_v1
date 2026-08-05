@@ -11,6 +11,7 @@ export function useAiEmployeeDetail(employeeId, enabled = true) {
   const [runs, setRuns] = useState(null);      // history (summaries)
   const [roster, setRoster] = useState(null);
   const [briefs, setBriefs] = useState(null);
+  const [mediaById, setMediaById] = useState({});   // asset id → { url, … } so previews show real photos
   const [runId, setRunId] = useState(null);    // the run shown on the surface
   const [detail, setDetail] = useState(null);  // { run, artifacts }
   const [error, setError] = useState(null);
@@ -26,11 +27,13 @@ export function useAiEmployeeDetail(employeeId, enabled = true) {
       getJSON(`/ai/employees/${employeeId}/runs?size=25`),
       getJSON(`/ai/employees/${employeeId}/roster`),
       getJSON(`/ai/employees/${employeeId}/briefs`),
-    ]).then(([r, ro, b]) => {
+      getJSON(`/ai/employees/${employeeId}/media`).catch(() => ({ assets: [] })),
+    ]).then(([r, ro, b, m]) => {
       if (!alive) return;
       setRuns(r.runs || []);
       setRoster(ro.roster || []);
       setBriefs(b.briefs || []);
+      setMediaById(Object.fromEntries((m.assets || []).map((a) => [a.id, a])));
       setRunId((prev) => prev || (r.runs && r.runs[0] && r.runs[0].id) || null);
     }).catch((e) => {
       if (!alive) return;
@@ -60,5 +63,5 @@ export function useAiEmployeeDetail(employeeId, enabled = true) {
     return () => { alive = false; if (timer) clearTimeout(timer); document.removeEventListener("visibilitychange", onVis); };
   }, [runId, nonce]);
 
-  return { runs, roster, briefs, detail, runId, setRunId, error, reload };
+  return { runs, roster, briefs, mediaById, detail, runId, setRunId, error, reload };
 }
