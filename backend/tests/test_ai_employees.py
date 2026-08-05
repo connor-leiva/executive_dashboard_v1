@@ -317,6 +317,53 @@ async def test_cascade_skips_audit_when_cowork_already_did_it(monkeypatch):
     assert "audit" not in called                   # the audit step was skipped, not re-run
 
 
+async def test_cascade_applies_voice_pass(monkeypatch):
+    """When the employee has a voice profile, the cascade's final step rewrites the published
+    carousel/reel copy against it (structure + colors preserved, pre-voice snapshotted)."""
+    _enable(monkeypatch)
+
+    async def fake_claude(client, model, system, user):     # diagnose vs voice, told apart by the prompt
+        if "VOICE PROFILE" in user:
+            return json.dumps({"design": {"caption": "voiced cap", "slides": [{"h": "voiced H", "sub": "voiced S"}]},
+                               "script": {"hook": "voiced hook", "shots": [{"vo": "voiced vo"}]}}), 4, 4
+        return json.dumps({"reads": ["behind"]}), 2, 2
+    monkeypatch.setattr(ai_employees, "_claude_call", fake_claude)
+
+    async def fake_call_skill(skill_def, prompt, *, client=None, model=None):
+        kind = (skill_def["artifact_kinds"] or ["audit"])[0]
+        payload = {"kind": kind}
+        if kind == "design":
+            payload |= {"caption": "raw cap", "slides": [{"bg": "#000", "fg": "#fff", "h": "raw H", "sub": "raw S"}]}
+        if kind == "script":
+            payload |= {"hook": "raw hook", "shots": [{"vis": "b-roll", "vo": "raw vo"}]}
+        return ({"reads": [], "summary": "ok", "artifacts": [{"title": kind, "payload": payload}]}, 5, 5, None)
+    monkeypatch.setattr(ai_employees, "call_skill", fake_call_skill)
+
+    async with SessionLocal() as s:
+        tid = await _tid(s)
+        emp = await _mk_employee(s, tid)
+        emp.config = {"voice_profile": "# Forensic Voice Profile\nRules with {braces} and no em-dashes."}
+        await ai_employees.seed_employee_skills(s, emp)
+        run = AIRun(tenant_id=tid, employee_id=emp.id, skill_key=ai_employees.PACE_RESPONSE,
+                    trigger="manual", status="running")
+        s.add(run)
+        await s.flush()
+        await s.commit()
+        rid = run.id
+        # call the cascade directly — execute_one picks the tenant's OLDEST queued run, which
+        # may belong to another test in the same DB.
+        await ai_employees.execute_pace_response(s, tid, run)
+    async with SessionLocal() as s:
+        arts = {a.kind: a for a in (await s.execute(select(AIArtifact).where(AIArtifact.run_id == rid))).scalars().all()}
+        d = arts["design"].payload
+        assert d["voiced"] is True and d["caption"] == "voiced cap" and d["slides"][0]["h"] == "voiced H"
+        assert d["slides"][0]["bg"] == "#000"            # structure/colors preserved
+        assert d["pre_voice"]["caption"] == "raw cap"    # the draft is kept
+        sc = arts["script"].payload
+        assert sc["hook"] == "voiced hook" and sc["shots"][0]["vo"] == "voiced vo"
+        assert sc["shots"][0]["vis"] == "b-roll"         # non-voice fields untouched
+
+
 async def test_pace_check_fires_when_behind_curve(monkeypatch):
     """With registrations far under the empirical curve, eval_pace_check returns a trigger_context."""
     async with SessionLocal() as s:

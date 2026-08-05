@@ -77,6 +77,10 @@ class CoworkIngest(BaseModel):
     artifacts: list[dict] | None = None      # or several (the roster audit for a full response)
 
 
+class VoiceProfile(BaseModel):
+    voice_profile: str = ""                  # the full, uncompressed voice spec (may be many pages)
+
+
 class RosterUpsert(BaseModel):
     handle: str | None = None
     platform: str | None = None
@@ -173,7 +177,10 @@ async def list_employees(user: User = Depends(current_user), s: AsyncSession = D
         out.append({
             "id": str(e.id), "name": e.name, "role_title": e.role_title,
             "avatar_color": e.avatar_color, "status": e.status,
-            "writeback_enabled": e.writeback_enabled, "config": e.config or {},
+            "writeback_enabled": e.writeback_enabled,
+            # the voice profile can be many pages — don't ship it in the list; it has its own route
+            "config": {k: v for k, v in (e.config or {}).items() if k != "voice_profile"},
+            "has_voice_profile": bool((e.config or {}).get("voice_profile")),
             "awaiting_approval": int(awaiting.get(e.id, 0)),
             "next_run_at": await _next_run_for(s, e),
             "last_run": _run_out(last) if last else None,
@@ -235,6 +242,33 @@ async def archive_employee(emp_id: str, user: User = Depends(manager),
     audit(s, user.tenant_id, user.id, "ai.employee_archive", "ai_employee", e.id, {})
     await s.commit()
     return {"ok": True}
+
+
+@router.get("/employees/{emp_id}/voice")
+async def get_voice(emp_id: str, user: User = Depends(manager),
+                    s: AsyncSession = Depends(get_session)):
+    """The employee's full voice profile — the uncompressed spec the voice pass writes against."""
+    e = await _emp(s, user.tenant_id, emp_id)
+    text = (e.config or {}).get("voice_profile", "") or ""
+    return {"voice_profile": text, "chars": len(text)}
+
+
+@router.put("/employees/{emp_id}/voice")
+async def set_voice(emp_id: str, body: VoiceProfile, user: User = Depends(manager),
+                    s: AsyncSession = Depends(get_session)):
+    """Store (or clear) the full voice profile. Content skills stay lean; the cascade's final
+    voice pass rewrites the published copy against this, verbatim (never compressed)."""
+    e = await _emp(s, user.tenant_id, emp_id)
+    cfg = dict(e.config or {})
+    text = (body.voice_profile or "").strip()
+    if text:
+        cfg["voice_profile"] = body.voice_profile
+    else:
+        cfg.pop("voice_profile", None)
+    e.config = cfg
+    audit(s, user.tenant_id, user.id, "ai.voice_update", "ai_employee", e.id, {"chars": len(text)})
+    await s.commit()
+    return {"ok": True, "chars": len(text)}
 
 
 @router.get("/employees/{emp_id}/export")

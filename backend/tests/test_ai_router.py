@@ -241,6 +241,22 @@ async def test_full_response_audits_roster_then_continues():
         assert len(det["artifacts"]) == 1 and det["artifacts"][0]["dest_label"] == "Instagram · Cowork"
 
 
+async def test_voice_profile_stored_and_excluded_from_list():
+    owner = await _owner_token()
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Vox"})).json()
+        prof = "# Forensic Voice Profile\n" + ("line of the spec\n" * 400)   # many pages
+        put = await c.put(f"/api/v1/ai/employees/{emp['id']}/voice", headers=_H(owner),
+                          json={"voice_profile": prof})
+        assert put.status_code == 200 and put.json()["chars"] == len(prof.strip())
+        got = (await c.get(f"/api/v1/ai/employees/{emp['id']}/voice", headers=_H(owner))).json()
+        assert got["voice_profile"] == prof            # stored verbatim (not stripped)
+        # the big profile is NOT shipped in the employee list, but its presence is flagged
+        me = next(e for e in (await c.get("/api/v1/ai/employees", headers=_H(owner))).json()["employees"]
+                  if e["id"] == emp["id"])
+        assert "voice_profile" not in me["config"] and me["has_voice_profile"] is True
+
+
 async def test_full_response_without_roster_runs_server_side():
     owner = await _owner_token()
     async with _client() as c:

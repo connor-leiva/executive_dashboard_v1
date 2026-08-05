@@ -13,6 +13,7 @@ stays behind AI_EMPLOYEES_WRITEBACK_ENABLED; v1 ships approve+export.
 """
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 import logging
@@ -54,6 +55,30 @@ _DIAGNOSE_PROMPT = (
     "facts and any audit material / roster / intel in the context, write 2-4 short diagnosis lines "
     "— what the numbers say and what is (and isn't) working right now. Concrete, not generic. "
     "Return STRICT JSON only: {\"reads\": [\"line\", \"line\", ...]}.\n\nContext:\n{context}")
+
+# ── voice pass — the final content step (SPEC: make it indistinguishable from Spring) ──
+# Rewrites the PUBLISHED copy (carousel headlines/caption, reel hook/voiceover) against a
+# tenant's full, uncompressed voice profile. Structure/counts/colors are preserved; only the
+# words change. The full profile is the point — its anti-patterns and exclusions are what stop
+# output reading as generic AI, so it is passed verbatim, never summarized.
+_VOICE_SYSTEM = (
+    "You rewrite draft social copy so it is indistinguishable from a specific person's own writing, "
+    "using the VOICE PROFILE provided. You change wording and voice only — never structure, item "
+    "counts, or non-text fields — and you never violate the profile's exclusions or anti-patterns. "
+    "Return STRICT JSON only, no prose, no fences.")
+_VOICE_PROMPT = (
+    "Rewrite every published line in the DRAFTS so it is indistinguishable from the person described "
+    "in the VOICE PROFILE — their diction, rhythm, beliefs, hard rules. Obey the profile exactly: "
+    "honor the EXCLUSIONS (never generate from off-limits material), the anti-patterns (no em-dashes, "
+    "no emoji, no polished tricolons, exact numbers over vague magnitudes, ragged repetition, at most "
+    "one soft profanity), and belief-traceability (every claim must map to a stated conviction — cut "
+    "anything that doesn't). Keep the SAME number of slides and shots; rewrite ONLY the text fields; "
+    "do not add or drop items.\n\n"
+    "Return STRICT JSON only, the same shape as DRAFTS with rewritten text (include only the keys "
+    "present in DRAFTS):\n"
+    "{\"design\":{\"caption\":str,\"slides\":[{\"h\":str,\"sub\":str}]},"
+    "\"script\":{\"hook\":str,\"shots\":[{\"vo\":str}]}}\n\n"
+    "=== VOICE PROFILE ===\n{profile}\n\n=== DRAFTS ===\n{drafts}")
 
 
 def enabled() -> bool:
@@ -433,6 +458,58 @@ async def _diagnose(client, model, scalars: dict, context: dict):
     return [str(r) for r in reads][:6], tin, tout
 
 
+async def _voice_pass(client, model, profile: str, content: dict):
+    """content = {"design": payload, "script": payload}. One call rewrites the published copy
+    against the full profile. Returns (voiced-by-kind, tokens_in, tokens_out)."""
+    ask = {}
+    d = content.get("design")
+    if d:
+        ask["design"] = {"caption": d.get("caption", ""),
+                         "slides": [{"h": s.get("h", ""), "sub": s.get("sub", "")} for s in (d.get("slides") or [])]}
+    sc = content.get("script")
+    if sc:
+        ask["script"] = {"hook": sc.get("hook", ""),
+                         "shots": [{"vo": sh.get("vo", "")} for sh in (sc.get("shots") or [])]}
+    prompt = (_VOICE_PROMPT.replace("{profile}", str(profile)[:120000])
+              .replace("{drafts}", json.dumps(ask, ensure_ascii=False)))
+    text, tin, tout = await _claude_call(client, model, _VOICE_SYSTEM, prompt)
+    return (_parse_json(text) or {}), tin, tout
+
+
+def _apply_voice(art_by_kind: dict, voiced: dict) -> bool:
+    """Merge the voiced text back into the content artifacts in place (preserving structure,
+    colors, B-roll direction), snapshotting the pre-voice copy. Returns True if anything changed."""
+    changed = False
+    for kind, art in art_by_kind.items():
+        v = voiced.get(kind)
+        if not isinstance(v, dict):
+            continue
+        payload = copy.deepcopy(art.payload or {})
+        payload["pre_voice"] = {k: copy.deepcopy(payload.get(k))
+                                for k in ("caption", "slides", "hook", "shots") if k in payload}
+        if kind == "design":
+            if isinstance(v.get("caption"), str):
+                payload["caption"] = v["caption"]
+            vs = v.get("slides") or []
+            for i, slide in enumerate(payload.get("slides") or []):
+                if i < len(vs) and isinstance(vs[i], dict):
+                    if isinstance(vs[i].get("h"), str):
+                        slide["h"] = vs[i]["h"]
+                    if isinstance(vs[i].get("sub"), str):
+                        slide["sub"] = vs[i]["sub"]
+        elif kind == "script":
+            if isinstance(v.get("hook"), str):
+                payload["hook"] = v["hook"]
+            vsh = v.get("shots") or []
+            for i, shot in enumerate(payload.get("shots") or []):
+                if i < len(vsh) and isinstance(vsh[i], dict) and isinstance(vsh[i].get("vo"), str):
+                    shot["vo"] = vsh[i]["vo"]
+        payload["voiced"] = True
+        art.payload = payload
+        changed = True
+    return changed
+
+
 async def execute_pace_response(s, tenant_id, run: AIRun) -> None:
     """The orchestration: diagnose the gap, then run each enabled skill in dependency order,
     chaining outputs, and land EVERY draft on this one run for a single batch approval. Writes
@@ -497,6 +574,25 @@ async def execute_pace_response(s, tenant_id, run: AIRun) -> None:
             kinds.append(kind)
         run.tokens_in, run.tokens_out = tin_total, tout_total
         await s.commit()                             # each artifact appears as it's produced
+
+    # 3) voice pass — rewrite the published copy to be indistinguishable from the brand's own
+    #    writing, using the employee's full voice profile (its anti-patterns + exclusions are the
+    #    point, so it's passed verbatim). Structure/counts/colors preserved; only the words change.
+    profile = (emp.config or {}).get("voice_profile")
+    if profile and kinds:
+        art_by_kind = {a.kind: a for a in (await s.execute(select(AIArtifact).where(
+            AIArtifact.run_id == run.id, AIArtifact.kind.in_(("design", "script"))))).scalars().all()}
+        content = {k: a.payload for k, a in art_by_kind.items()}
+        if content:
+            try:
+                voiced, vin, vout = await _voice_pass(client, model, profile, content)
+                tin_total += vin
+                tout_total += vout
+                _apply_voice(art_by_kind, voiced)
+                run.tokens_in, run.tokens_out = tin_total, tout_total
+                await s.commit()                     # copy updates to the brand voice in place
+            except Exception as e:
+                log.warning("voice pass failed for run %s: %s", run.id, e)
 
     run.finished_at = _now()
     if not kinds:

@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { T } from "./theme.js";
-import { getJSON, postJSON, patchJSON, delJSON } from "./api.js";
+import { getJSON, postJSON, patchJSON, putJSON, delJSON } from "./api.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 const SWATCHES = [T.teal, T.meadow, T.poppy, T.petalDeep, T.evergreen, T.daffodilText];
@@ -176,6 +176,9 @@ export default function AISettings() {
               : skills.map((sk) => <SkillRow key={sk.key} empId={sel.id} sk={sk} onChanged={() => getJSON(`/ai/employees/${sel.id}/skills`).then((d) => setSkills(d.skills))} />)}
           </Card>
 
+          {/* Voice profile — the full spec the cascade's voice pass writes against */}
+          <VoiceCard key={sel.id} empId={sel.id} />
+
           {/* 7.3 Triggers */}
           <TriggersCard empId={sel.id} skills={skills} cfg={cfg} setCfgKey={setCfgKey} onSaveConfig={saveConfig} onReloadSkills={() => getJSON(`/ai/employees/${sel.id}/skills`).then((d) => setSkills(d.skills))} />
 
@@ -321,6 +324,43 @@ function TriggersCard({ empId, skills, cfg, setCfgKey, onSaveConfig, onReloadSki
 }
 
 /* ── 7.6 roster defaults ──────────────────────────────────────── */
+/* ── voice profile (the full spec the cascade's voice pass writes against) ─── */
+function VoiceCard({ empId }) {
+  const [text, setText] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getJSON(`/ai/employees/${empId}/voice`).then((d) => { if (alive) setText(d.voice_profile || ""); })
+      .catch(() => { if (alive) setText(""); });
+    return () => { alive = false; };
+  }, [empId]);
+  async function save() {
+    setBusy(true);
+    try { await putJSON(`/ai/employees/${empId}/voice`, { voice_profile: text || "" }); setSaved(true); setTimeout(() => setSaved(false), 1800); }
+    finally { setBusy(false); }
+  }
+  const chars = (text || "").length;
+  return (
+    <Card title="Voice profile"
+      hint="The full, uncompressed voice spec — paste the entire profile (pages are fine). Its anti-patterns and exclusions are what keep content from reading as AI, so it's used verbatim. As the cascade's final step, the voice pass rewrites every published caption, headline, hook, and voiceover to match it.">
+      {text === null ? <div style={{ color: T.muted, fontSize: 12.5 }}>Loading…</div> : (
+        <>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={12}
+            placeholder="# Forensic Voice Profile: …  (paste the full profile — multiple pages are expected)"
+            style={{ ...field, fontFamily: "monospace", fontSize: 11.5, resize: "vertical", lineHeight: 1.5 }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+            <Btn kind="primary" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save voice profile"}</Btn>
+            <span style={{ fontFamily: "monospace", fontSize: 11, color: T.muted }}>
+              {chars.toLocaleString()} chars{chars ? " · applied to every piece of content" : " · none set; content uses the default brand voice"}</span>
+            {saved && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.meadowInk }}>Saved.</span>}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function RosterCard({ cfg, setCfgKey, onSave }) {
   const w = cfg.roster_weights || { overlap: 1, offer: 1, perf: 1, launch_boost: 1.5 };
   const setW = (k, v) => setCfgKey("roster_weights", { ...w, [k]: Number(v) });

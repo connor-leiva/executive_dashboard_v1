@@ -304,6 +304,9 @@ function ArtifactRow({ a, open, onToggle, onDismiss, canManage, pending }) {
         <LaneChip lane={a.lane} />
         <Icon name={KIND_ICON[a.kind] || "spark"} size={14} color={T.muted} />
         <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, flex: 1, minWidth: 0 }}>{a.title}</span>
+        {a.payload && a.payload.voiced && (
+          <span title="Rewritten to match the saved voice profile" style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em", color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>IN VOICE</span>
+        )}
         {a.dest_label && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, flexShrink: 0 }}>{a.dest_label}</span>}
         {pending ? <span className="ai-spin" style={{ width: 14, height: 14, borderRadius: 99, border: `2px solid ${T.line}`, borderTopColor: T.teal, flexShrink: 0 }} />
           : approved ? <Icon name="check" size={15} color={T.meadow} />
