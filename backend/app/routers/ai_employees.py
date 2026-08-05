@@ -616,6 +616,46 @@ async def dismiss_artifact(art_id: str, user: User = Depends(manager),
     return _artifact_out(a)
 
 
+async def _dismiss_run(s, run: AIRun) -> None:
+    """Clear a run without approving: dismiss it and its draft artifacts (so it drops off the
+    awaiting-approval badge). Approved/shipped artifacts are left as the record."""
+    for a in (await s.execute(select(AIArtifact).where(
+            AIArtifact.run_id == run.id, AIArtifact.state == "draft"))).scalars():
+        a.state = "dismissed"
+    run.status = "dismissed"
+
+
+@router.post("/runs/{run_id}/dismiss")
+async def dismiss_run(run_id: str, user: User = Depends(manager),
+                      s: AsyncSession = Depends(get_session)):
+    """Dismiss a whole run (and its drafts) — the 'clear it, I'm not approving' path."""
+    r = await _run(s, user.tenant_id, run_id)
+    await _dismiss_run(s, r)
+    audit(s, user.tenant_id, user.id, "ai.run_dismiss", "ai_run", r.id, {})
+    await s.commit()
+    return {"ok": True, "run_status": r.status}
+
+
+# statuses that clutter the surface / stack on the badge while testing
+_PENDING_STATUSES = ("awaiting_approval", "awaiting_audit", "queued", "running", "failed")
+
+
+@router.post("/employees/{emp_id}/dismiss-pending")
+async def dismiss_pending(emp_id: str, user: User = Depends(manager),
+                          s: AsyncSession = Depends(get_session)):
+    """Bulk clear: dismiss every not-yet-resolved run for the employee (and their drafts). Clears
+    the awaiting-approval badge and stuck test runs in one action."""
+    e = await _emp(s, user.tenant_id, emp_id)
+    runs = (await s.execute(select(AIRun).where(
+        AIRun.employee_id == e.id, AIRun.status.in_(_PENDING_STATUSES)))).scalars().all()
+    for r in runs:
+        await _dismiss_run(s, r)
+    audit(s, user.tenant_id, user.id, "ai.runs_dismiss_pending", "ai_employee", e.id,
+          {"count": len(runs)})
+    await s.commit()
+    return {"ok": True, "dismissed": len(runs)}
+
+
 # ── roster (computed priority) ────────────────────────────────────────────────
 def _roster_out(acc: AIRosterAccount, weights: dict) -> dict:
     return {"id": str(acc.id), "platform": acc.platform, "handle": acc.handle, "why": acc.why,

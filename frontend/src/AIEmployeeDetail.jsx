@@ -331,7 +331,7 @@ function ArtifactRow({ a, open, onToggle, onDismiss, canManage, pending }) {
 }
 
 /* ── approve bar ──────────────────────────────────────────────── */
-function ApproveBar({ drafts, canManage, wbLine, onApproveAll, busy, err }) {
+function ApproveBar({ drafts, canManage, wbLine, onApproveAll, busy, err, onDismiss }) {
   return (
     <div style={{ marginTop: 14, padding: 14, borderRadius: 14, background: T.daffodilBg, border: `1px solid #F0E3AC` }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -340,10 +340,15 @@ function ApproveBar({ drafts, canManage, wbLine, onApproveAll, busy, err }) {
           <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.amber, marginTop: 2 }}>{wbLine}</div>
         </div>
         {canManage ? (
-          <button onClick={onApproveAll} disabled={busy || drafts === 0} style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 700,
-            color: T.ink, background: T.daffodil, border: "none", borderRadius: 10, padding: "9px 18px",
-            cursor: busy || drafts === 0 ? "default" : "pointer", opacity: busy || drafts === 0 ? 0.6 : 1 }}>
-            {busy ? "Approving…" : `Approve all (${drafts})`}</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={onDismiss} disabled={busy} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600,
+              color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 10, padding: "9px 14px",
+              cursor: busy ? "default" : "pointer" }}>Dismiss</button>
+            <button onClick={onApproveAll} disabled={busy || drafts === 0} style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 700,
+              color: T.ink, background: T.daffodil, border: "none", borderRadius: 10, padding: "9px 18px",
+              cursor: busy || drafts === 0 ? "default" : "pointer", opacity: busy || drafts === 0 ? 0.6 : 1 }}>
+              {busy ? "Approving…" : `Approve all (${drafts})`}</button>
+          </div>
         ) : (
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>Approvals are limited to owners and admins.</span>
         )}
@@ -354,13 +359,25 @@ function ApproveBar({ drafts, canManage, wbLine, onApproveAll, busy, err }) {
 }
 
 /* ── run history / roster / briefs (below the surface) ────────── */
-function HistoryPanel({ runs, currentId, onOpen }) {
+function HistoryPanel({ runs, currentId, onOpen, canManage, onDismissRun, onClearPending }) {
+  const [open, setOpen] = useState(false);         // collapsed by default — keep it out of the way
   if (!runs || !runs.length) return null;
+  const pending = runs.filter((r) => ["awaiting_approval", "awaiting_audit", "queued", "running", "failed"].includes(r.status)).length;
   return (
     <Card style={{ padding: 16, marginTop: 18 }}>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 700, color: T.ink, marginBottom: 10 }}>Run history</div>
-      {runs.map((r) => (
-        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.line}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="cc-nav" style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: "none", cursor: "pointer", padding: 0, flex: 1, textAlign: "left" }}>
+          <Icon name="chevron_down" size={14} color={T.muted} style={{ transform: open ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 700, color: T.ink }}>Run history</span>
+          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{runs.length}{pending ? ` · ${pending} pending` : ""}</span>
+        </button>
+        {canManage && pending > 0 && (
+          <button onClick={onClearPending} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 600,
+            color: T.muted, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 7, padding: "4px 10px", cursor: "pointer", flexShrink: 0 }}>Clear all pending</button>
+        )}
+      </div>
+      {open && runs.map((r) => (
+        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.line}`, marginTop: r === runs[0] ? 10 : 0 }}>
           <StatusChip status={r.status} />
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, textTransform: "capitalize", flexShrink: 0 }}>{r.trigger}</span>
           <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.secondary, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.summary || r.skill_key}</span>
@@ -368,6 +385,10 @@ function HistoryPanel({ runs, currentId, onOpen }) {
           <button onClick={() => onOpen(r.id)} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 600,
             color: r.id === currentId ? T.teal : T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 7, padding: "4px 10px", cursor: "pointer", flexShrink: 0 }}>
             {r.id === currentId ? "Viewing" : "Open"}</button>
+          {canManage && r.status !== "dismissed" && (
+            <button onClick={() => onDismissRun(r.id)} title="Dismiss this run" className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 2, flexShrink: 0 }}>
+              <Icon name="close" size={13} color={T.muted} /></button>
+          )}
         </div>
       ))}
     </Card>
@@ -565,6 +586,13 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
     try { await postJSON(`/ai/artifacts/${id}/dismiss`); reload(); }
     catch { setPendingIds((p) => p.filter((x) => x !== id)); }
   }
+  async function dismissRun(id) {
+    try { await postJSON(`/ai/runs/${id}/dismiss`); reload(); } catch { /* reload shows truth */ }
+  }
+  async function clearPending() {
+    if (!window.confirm("Dismiss all pending runs for this employee? Approved work is kept.")) return;
+    try { await postJSON(`/ai/employees/${employee.id}/dismiss-pending`); reload(); } catch { /* reload shows truth */ }
+  }
 
   const styleBlock = (
     <style>{`
@@ -662,12 +690,14 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
             </Card>
           )}
           {status === "awaiting_approval" && drafts.length > 0 && (
-            <ApproveBar drafts={drafts.length} canManage={canManage} wbLine={wbLine} onApproveAll={approveAll} busy={busy} err={approveErr} />
+            <ApproveBar drafts={drafts.length} canManage={canManage} wbLine={wbLine} onApproveAll={approveAll}
+              busy={busy} err={approveErr} onDismiss={() => dismissRun(run.id)} />
           )}
         </>
       )}
 
-      <HistoryPanel runs={runs} currentId={runId} onOpen={setRunId} />
+      <HistoryPanel runs={runs} currentId={runId} onOpen={setRunId} canManage={canManage}
+        onDismissRun={dismissRun} onClearPending={clearPending} />
       <RosterPanel employeeId={employee.id} roster={roster} canManage={canManage} onChanged={reload} onAudit={openAudit} />
       <BriefsPanel briefs={briefs} />
 

@@ -241,6 +241,30 @@ async def test_full_response_audits_roster_then_continues():
         assert len(det["artifacts"]) == 1 and det["artifacts"][0]["dest_label"] == "Instagram · Cowork"
 
 
+async def test_dismiss_run_and_bulk_clear_pending():
+    """Clear-without-approving: dismissing a run drops its drafts off the badge; the bulk
+    endpoint clears every pending run for the employee at once."""
+    owner = await _owner_token()
+    tid = await _tenant_id()
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Dez"})).json()
+        r1, a1 = await _seed_run_with_draft(emp["id"], tid)
+        r2, _ = await _seed_run_with_draft(emp["id"], tid)
+        # badge = 2 draft artifacts across the two awaiting_approval runs
+        me = next(e for e in (await c.get("/api/v1/ai/employees", headers=_H(owner))).json()["employees"] if e["id"] == emp["id"])
+        assert me["awaiting_approval"] == 2
+        # dismiss one run → its draft is dismissed, badge drops to 1
+        assert (await c.post(f"/api/v1/ai/runs/{r1}/dismiss", headers=_H(owner))).json()["run_status"] == "dismissed"
+        det = (await c.get(f"/api/v1/ai/runs/{r1}", headers=_H(owner))).json()
+        assert det["run"]["status"] == "dismissed" and det["artifacts"][0]["state"] == "dismissed"
+        me = next(e for e in (await c.get("/api/v1/ai/employees", headers=_H(owner))).json()["employees"] if e["id"] == emp["id"])
+        assert me["awaiting_approval"] == 1
+        # bulk clear → the rest go, badge to 0
+        assert (await c.post(f"/api/v1/ai/employees/{emp['id']}/dismiss-pending", headers=_H(owner))).json()["dismissed"] >= 1
+        me = next(e for e in (await c.get("/api/v1/ai/employees", headers=_H(owner))).json()["employees"] if e["id"] == emp["id"])
+        assert me["awaiting_approval"] == 0
+
+
 async def test_voice_profile_stored_and_excluded_from_list():
     owner = await _owner_token()
     async with _client() as c:
