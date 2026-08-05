@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { T } from "./theme.js";
-import { getJSON, postJSON, patchJSON, putJSON, delJSON } from "./api.js";
+import { getJSON, postJSON, patchJSON, putJSON, delJSON, uploadFile, fileUrl } from "./api.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 const SWATCHES = [T.teal, T.meadow, T.poppy, T.petalDeep, T.evergreen, T.daffodilText];
@@ -176,6 +176,9 @@ export default function AISettings() {
               : skills.map((sk) => <SkillRow key={sk.key} empId={sel.id} sk={sk} onChanged={() => getJSON(`/ai/employees/${sel.id}/skills`).then((d) => setSkills(d.skills))} />)}
           </Card>
 
+          {/* Media library — the assets Summer pulls from to build content */}
+          <MediaCard key={`media-${sel.id}`} empId={sel.id} />
+
           {/* Voice profile — the full spec the cascade's voice pass writes against */}
           <VoiceCard key={sel.id} empId={sel.id} />
 
@@ -324,6 +327,102 @@ function TriggersCard({ empId, skills, cfg, setCfgKey, onSaveConfig, onReloadSki
 }
 
 /* ── 7.6 roster defaults ──────────────────────────────────────── */
+/* ── media library (b-roll / stock / event photos Summer pulls from) ───────── */
+const MEDIA_KINDS = [["stock", "Stock"], ["broll", "B-roll"], ["event", "Event photo"], ["logo", "Logo / brand"], ["other", "Other"]];
+
+function MediaTile({ a, onDelete, onSave }) {
+  const [edit, setEdit] = useState(false);
+  const [title, setTitle] = useState(a.title || "");
+  const [kind, setKind] = useState(a.kind);
+  const [desc, setDesc] = useState(a.description || "");
+  const [tags, setTags] = useState((a.tags || []).join(", "));
+  async function save() {
+    await onSave(a.id, { title: title.trim(), kind, description: desc.trim() || null, tags: tags.split(",").map((t) => t.trim()).filter(Boolean) });
+    setEdit(false);
+  }
+  return (
+    <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, overflow: "hidden", background: T.white, display: "flex", flexDirection: "column" }}>
+      <div style={{ position: "relative", aspectRatio: "1/1", background: T.parchment }}>
+        {a.is_image
+          ? <img src={fileUrl(a.url)} alt={a.title || a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6, color: T.muted }}>
+              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700 }}>VIDEO</span>
+              <span style={{ fontFamily: "monospace", fontSize: 9, padding: "0 8px", textAlign: "center", wordBreak: "break-all" }}>{a.filename}</span>
+            </div>}
+        <button onClick={() => onDelete(a.id)} title="Delete" style={{ position: "absolute", top: 6, right: 6, width: 22, height: 22, borderRadius: 99, border: "none", background: "rgba(11,46,44,0.55)", color: "#fff", cursor: "pointer", fontSize: 13, lineHeight: 1 }}>×</button>
+        <span style={{ position: "absolute", bottom: 6, left: 6, fontFamily: "Poppins,sans-serif", fontSize: 9, fontWeight: 700, color: T.onDark, background: "rgba(11,46,44,0.6)", borderRadius: 999, padding: "2px 7px" }}>{(MEDIA_KINDS.find((k) => k[0] === a.kind) || [a.kind, a.kind])[1]}</span>
+      </div>
+      <div style={{ padding: 8 }}>
+        {edit ? (
+          <>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" style={{ ...field, fontSize: 11.5, padding: "5px 8px", marginBottom: 6 }} />
+            <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...field, fontSize: 11.5, padding: "5px 8px", marginBottom: 6 }}>{MEDIA_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+            <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2} placeholder="Description (what's in it, when, mood)" style={{ ...field, fontSize: 11, padding: "5px 8px", marginBottom: 6, resize: "vertical" }} />
+            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="tags, comma separated" style={{ ...field, fontSize: 11, padding: "5px 8px", marginBottom: 6 }} />
+            <div style={{ display: "flex", gap: 6 }}><Btn small kind="primary" onClick={save}>Save</Btn><Btn small onClick={() => setEdit(false)}>Cancel</Btn></div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title || a.filename}</div>
+            {a.description && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, marginTop: 2, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{a.description}</div>}
+            {(a.tags || []).length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>{a.tags.map((t) => <span key={t} style={{ fontFamily: "Inter,sans-serif", fontSize: 9.5, color: T.slate, background: T.parchment, borderRadius: 999, padding: "1px 6px" }}>{t}</span>)}</div>}
+            <button onClick={() => setEdit(true)} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.teal, background: "transparent", border: "none", cursor: "pointer", padding: "4px 0 0" }}>Edit details</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MediaCard({ empId }) {
+  const [assets, setAssets] = useState(null);
+  const [kind, setKind] = useState("event");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  function load() {
+    getJSON(`/ai/employees/${empId}/media`).then((d) => setAssets(d.assets || [])).catch(() => setAssets([]));
+  }
+  useEffect(load, [empId]);   // eslint-disable-line react-hooks/exhaustive-deps
+  async function onFiles(fileList) {
+    const files = [...fileList];
+    if (!files.length) return;
+    setErr(null); setBusy(true);
+    try {
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append("file", f);
+        fd.append("kind", kind);
+        fd.append("title", f.name.replace(/\.[^.]+$/, ""));
+        await uploadFile(`/ai/employees/${empId}/media`, fd);
+      }
+      load();
+    } catch (e) { setErr(e.detail || e.message || "Upload failed."); }
+    finally { setBusy(false); }
+  }
+  async function del(id) { await delJSON(`/ai/media/${id}`); load(); }
+  async function save(id, body) { await patchJSON(`/ai/media/${id}`, body); load(); }
+
+  return (
+    <Card title="Media library"
+      hint="B-roll, stock, and past-event photos Summer pulls from to build carousels and reels. Add a description and tags so she can find the right asset — she references them by what you write, not by looking at the image (auto-captioning comes next). Stored durably in object storage.">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...field, width: "auto" }}>{MEDIA_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+        <label style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, borderRadius: 8, padding: "8px 14px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
+          {busy ? "Uploading…" : "Add files"}
+          <input type="file" accept="image/*,video/*" multiple disabled={busy} onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} style={{ display: "none" }} />
+        </label>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>Images &amp; video · up to 25 MB each</span>
+        {err && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText }}>{err}</span>}
+      </div>
+      {assets === null ? <div style={{ color: T.muted, fontSize: 12.5 }}>Loading…</div>
+        : assets.length === 0 ? <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, fontStyle: "italic" }}>No media yet. Add photos and b-roll for Summer to build content from.</div>
+          : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
+              {assets.map((a) => <MediaTile key={a.id} a={a} onDelete={del} onSave={save} />)}
+            </div>}
+    </Card>
+  );
+}
+
 /* ── voice profile (the full spec the cascade's voice pass writes against) ─── */
 function VoiceCard({ empId }) {
   const [text, setText] = useState(null);

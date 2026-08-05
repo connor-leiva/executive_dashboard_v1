@@ -12,7 +12,8 @@ from __future__ import annotations
 import datetime as dt
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,11 +22,14 @@ from ..config import settings
 from ..db import get_session
 from ..deps import current_user, require_role, assert_tab
 from ..models import (User, Tenant, AISkill, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact,
-                      AIRosterAccount, AIIntelEntry)
+                      AIRosterAccount, AIIntelEntry, AIMediaAsset)
 from ..security import make_capability, read_capability
 from ..services.audit import audit
 from ..services import ai_employees as eng
+from ..services import ai_media
 from ..services.ai_skills import SKILLS, SKILL_KEYS, KIND_META
+
+MAX_MEDIA_BYTES = 25 * 1024 * 1024      # 25 MB per asset
 
 TAB = "ai_employees"
 
@@ -79,6 +83,13 @@ class CoworkIngest(BaseModel):
 
 class VoiceProfile(BaseModel):
     voice_profile: str = ""                  # the full, uncompressed voice spec (may be many pages)
+
+
+class MediaPatch(BaseModel):
+    kind: str | None = None
+    title: str | None = None
+    description: str | None = None
+    tags: list | None = None
 
 
 class RosterUpsert(BaseModel):
@@ -269,6 +280,95 @@ async def set_voice(emp_id: str, body: VoiceProfile, user: User = Depends(manage
     audit(s, user.tenant_id, user.id, "ai.voice_update", "ai_employee", e.id, {"chars": len(text)})
     await s.commit()
     return {"ok": True, "chars": len(text)}
+
+
+# ── media library (Summer's b-roll / stock / event photos) ───────────────────
+@router.post("/employees/{emp_id}/media", status_code=201)
+async def upload_media(emp_id: str, file: UploadFile = File(...), kind: str = Form("stock"),
+                       title: str = Form(""), description: str = Form(""), tags: str = Form(""),
+                       user: User = Depends(manager), s: AsyncSession = Depends(get_session)):
+    """Upload one media asset. Bytes go to object storage (R2/fs, shared with the Binder); the
+    row is the catalog Summer references. Images and video only."""
+    e = await _emp(s, user.tenant_id, emp_id)
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Empty file")
+    if len(data) > MAX_MEDIA_BYTES:
+        raise HTTPException(413, f"File exceeds the {MAX_MEDIA_BYTES // (1024 * 1024)} MB limit")
+    ct = file.content_type or "application/octet-stream"
+    if not (ct.startswith("image/") or ct.startswith("video/")):
+        raise HTTPException(415, "Only image and video files are supported")
+    taglist = [t.strip() for t in (tags or "").split(",") if t.strip()]
+    asset = await ai_media.add_asset(
+        s, user.tenant_id, e.id, filename=file.filename or "asset", content_type=ct, data=data,
+        kind=kind, title=title.strip(), description=(description.strip() or None),
+        tags=taglist, uploaded_by=user.id)
+    audit(s, user.tenant_id, user.id, "ai.media_add", "ai_media_asset", asset.id,
+          {"kind": asset.kind, "bytes": asset.size_bytes})
+    await s.commit()
+    tok = make_capability("media_read", minutes=180, tid=str(user.tenant_id))
+    return ai_media.asset_out(asset, tok)
+
+
+@router.get("/employees/{emp_id}/media")
+async def list_media(emp_id: str, user: User = Depends(current_user),
+                     s: AsyncSession = Depends(get_session)):
+    await assert_tab(user, s, TAB)
+    e = await _emp(s, user.tenant_id, emp_id)
+    rows = (await s.execute(select(AIMediaAsset).where(AIMediaAsset.employee_id == e.id)
+            .order_by(AIMediaAsset.created_at.desc()))).scalars().all()
+    tok = make_capability("media_read", minutes=180, tid=str(user.tenant_id))
+    return {"assets": [ai_media.asset_out(a, tok) for a in rows], "kinds": list(ai_media.KINDS)}
+
+
+@router.get("/media/{asset_id}/file")
+async def media_file(asset_id: str, t: str = Query(...), s: AsyncSession = Depends(get_session)):
+    """Serve the blob — token-gated (so <img src> works without a session header). The token is
+    tenant-scoped and short-lived; every read is checked against the asset's tenant."""
+    try:
+        cap = read_capability(t, "media_read")
+    except Exception:
+        raise HTTPException(401, "Invalid or expired token")
+    a = (await s.execute(select(AIMediaAsset).where(
+        AIMediaAsset.id == asset_id, AIMediaAsset.tenant_id == cap["tid"]))).scalar_one_or_none()
+    if not a:
+        raise HTTPException(404, "Unknown asset")
+    try:
+        blob = ai_media.binder_storage.read(a.storage_ref)
+    except Exception:
+        raise HTTPException(404, "File not found")
+    return Response(content=blob, media_type=a.content_type or "application/octet-stream",
+                    headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.patch("/media/{asset_id}")
+async def patch_media(asset_id: str, body: MediaPatch, user: User = Depends(manager),
+                      s: AsyncSession = Depends(get_session)):
+    a = (await s.execute(select(AIMediaAsset).where(
+        AIMediaAsset.id == asset_id, AIMediaAsset.tenant_id == user.tenant_id))).scalar_one_or_none()
+    if not a:
+        raise HTTPException(404, "Unknown asset")
+    fields = body.model_dump(exclude_unset=True)
+    if "kind" in fields and fields["kind"] not in ai_media.KINDS:
+        fields.pop("kind")
+    for k, v in fields.items():
+        setattr(a, k, v)
+    audit(s, user.tenant_id, user.id, "ai.media_update", "ai_media_asset", a.id, {"fields": sorted(fields)})
+    await s.commit()
+    return ai_media.asset_out(a)
+
+
+@router.delete("/media/{asset_id}")
+async def delete_media(asset_id: str, user: User = Depends(manager),
+                       s: AsyncSession = Depends(get_session)):
+    a = (await s.execute(select(AIMediaAsset).where(
+        AIMediaAsset.id == asset_id, AIMediaAsset.tenant_id == user.tenant_id))).scalar_one_or_none()
+    if not a:
+        raise HTTPException(404, "Unknown asset")
+    await ai_media.delete_asset(s, a)
+    audit(s, user.tenant_id, user.id, "ai.media_delete", "ai_media_asset", asset_id, {})
+    await s.commit()
+    return {"ok": True}
 
 
 @router.get("/employees/{emp_id}/export")

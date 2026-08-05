@@ -709,3 +709,27 @@ class AIIntelEntry(Base):
     finding: Mapped[str] = mapped_column(Text)
     tags: Mapped[list] = mapped_column(JSONType, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AIMediaAsset(Base):
+    """Summer's media library — b-roll, stock, past-event photos she pulls from to build content.
+    Blob lives in object storage (R2, shared with the Binder via binder_storage); the row is the
+    searchable catalog. `description`/`tags` are what a text model references (Stage 2 auto-captions
+    images via a vision pass); the cascade's carousel/reel steps select assets by them (Stage 3)."""
+    __tablename__ = "ai_media_asset"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    employee_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("ai_employee.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="stock")   # broll | stock | event | logo | other
+    title: Mapped[str] = mapped_column(String(160), default="")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)   # caption (manual now, auto later)
+    tags: Mapped[list] = mapped_column(JSONType, default=list)
+    storage_ref: Mapped[str] = mapped_column(String(400))                 # opaque R2/fs key
+    filename: Mapped[str] = mapped_column(String(200))
+    content_type: Mapped[str] = mapped_column(String(80), default="application/octet-stream")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (Index("ix_ai_media_te", "tenant_id", "employee_id"),)

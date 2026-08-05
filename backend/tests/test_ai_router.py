@@ -265,6 +265,36 @@ async def test_dismiss_run_and_bulk_clear_pending():
         assert me["awaiting_approval"] == 0
 
 
+async def test_media_upload_list_serve_and_delete():
+    """Upload → catalog row + blob; list returns it with a token-gated url; the file endpoint
+    serves the bytes with that token; delete removes it."""
+    owner = await _owner_token()
+    png = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)   # minimal PNG-ish bytes
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner), json={"name": "Mia"})).json()
+        up = await c.post(f"/api/v1/ai/employees/{emp['id']}/media", headers=_H(owner),
+                          files={"file": ("stage.png", png, "image/png")},
+                          data={"kind": "event", "title": "On stage", "tags": "keynote, warm"})
+        assert up.status_code == 201
+        a = up.json()
+        assert a["kind"] == "event" and a["is_image"] and a["tags"] == ["keynote", "warm"]
+        lst = (await c.get(f"/api/v1/ai/employees/{emp['id']}/media", headers=_H(owner))).json()
+        assert len(lst["assets"]) == 1
+        url = lst["assets"][0]["url"]                 # /ai/media/{id}/file?t=<token>
+        got = await c.get("/api/v1" + url)            # token-gated — no auth header needed
+        assert got.status_code == 200 and got.content == png and got.headers["content-type"] == "image/png"
+        # bad/missing token is rejected
+        assert (await c.get(f"/api/v1/ai/media/{a['id']}/file?t=nope")).status_code == 401
+        # edit metadata, then delete
+        await c.patch(f"/api/v1/ai/media/{a['id']}", headers=_H(owner), json={"description": "Spring mid-talk"})
+        assert (await c.delete(f"/api/v1/ai/media/{a['id']}", headers=_H(owner))).status_code == 200
+        assert (await c.get(f"/api/v1/ai/employees/{emp['id']}/media", headers=_H(owner))).json()["assets"] == []
+        # only images/video allowed
+        bad = await c.post(f"/api/v1/ai/employees/{emp['id']}/media", headers=_H(owner),
+                           files={"file": ("x.txt", b"hello", "text/plain")}, data={"kind": "stock"})
+        assert bad.status_code == 415
+
+
 async def test_voice_profile_stored_and_excluded_from_list():
     owner = await _owner_token()
     async with _client() as c:

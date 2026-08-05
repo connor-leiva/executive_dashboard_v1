@@ -1,6 +1,26 @@
 const API = import.meta.env.VITE_API_BASE; // e.g. https://api.springb.com/api/v1
 const TOKEN_KEY = "cc_token";
 
+export const API_BASE = API;
+
+// Absolute URL for a server-relative media/file path (the API already returns a token-gated
+// query string), so an <img src> can load it directly. Null-safe for the no-API sample mode.
+export function fileUrl(relPath) {
+  return relPath ? `${API}${relPath}` : null;
+}
+
+// Multipart upload (media library). No Content-Type header — the browser sets the boundary.
+export async function uploadFile(path, formData) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  if (!res.ok) await throwFor(res);
+  return res.json();
+}
+
 // Turn a non-2xx response into an Error carrying both the HTTP status and the
 // server's `detail` string, so callers can show the real reason ("A user with
 // that email already exists") instead of a generic message.

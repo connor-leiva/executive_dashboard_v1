@@ -90,18 +90,24 @@ def _content_type(filename: str) -> str:
     return mimetypes.guess_type(filename or "")[0] or "application/octet-stream"
 
 
-def store(tenant_id, document_id, filename: str, data: bytes) -> str:
-    """Write bytes; return the storage_ref to persist on the BinderDocument."""
-    ref = storage_key(tenant_id, document_id, filename)
+def put(ref: str, data: bytes, content_type: str | None = None) -> str:
+    """Write bytes at an opaque, caller-built ref (R2 object key or filesystem path). Shared by
+    the Binder (documents) and AI Employees (Summer's media library) so both use the identical,
+    production-proven R2/filesystem path. Returns the ref."""
     if _r2_enabled():
         _r2_client().put_object(Bucket=settings.R2_BUCKET, Key=ref, Body=data,
-                                ContentType=_content_type(filename))
+                                ContentType=content_type or "application/octet-stream")
         return ref
     path = _resolve(ref)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(data)
     return ref
+
+
+def store(tenant_id, document_id, filename: str, data: bytes) -> str:
+    """Write bytes; return the storage_ref to persist on the BinderDocument."""
+    return put(storage_key(tenant_id, document_id, filename), data, _content_type(filename))
 
 
 def read(storage_ref: str) -> bytes:
