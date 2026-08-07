@@ -733,3 +733,102 @@ class AIMediaAsset(Base):
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (Index("ix_ai_media_te", "tenant_id", "employee_id"),)
+
+
+# ── ULRG L10 Scorecard + Team Rooms (SPEC-ulrg-scorecard Part 2) ──────────────
+# Replaces the EOS L10 Google Sheet. Values stored ASCENDING (oldest first), reversed only at
+# render. Three row types (flow/rate/snapshot); snapshot never carries a cumulative block. Nothing
+# is hardcoded to Spring — groups/metrics are tenant data (seeded per tenant); a new tenant gets none.
+
+class ScorecardGroup(Base):
+    __tablename__ = "scorecard_group"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("business.id"), index=True)
+    key: Mapped[str] = mapped_column(String(40))                  # davis | slc | utco | overall
+    name: Mapped[str] = mapped_column(String(120))
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    owner_name: Mapped[str | None] = mapped_column(String(120), nullable=True)   # display when no user row
+    is_team_room: Mapped[bool] = mapped_column(Boolean, default=True)            # 'overall' is False
+    read: Mapped[str | None] = mapped_column(Text, nullable=True)                # authored per group (Part 5.1)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    __table_args__ = (UniqueConstraint("tenant_id", "business_id", "key", name="uq_scorecard_group"),)
+
+
+class ScorecardMetric(Base):
+    __tablename__ = "scorecard_metric"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    group_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("scorecard_group.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    note: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    goal: Mapped[Decimal] = mapped_column(Numeric(12, 4))
+    direction: Mapped[str] = mapped_column(String(4), default="gte")             # gte | lte
+    type: Mapped[str] = mapped_column(String(10))                                # flow | rate | snapshot
+    stage: Mapped[int | None] = mapped_column(Integer, nullable=True)            # funnel position, null off-funnel
+    lever: Mapped[str | None] = mapped_column(String(12), nullable=True)         # volume | behavior
+    source: Mapped[str] = mapped_column(String(12), default="manual")            # sisu | fub | ghl | manual
+    resolver_key: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    owner_initials: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class ScorecardValue(Base):
+    __tablename__ = "scorecard_value"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    metric_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("scorecard_metric.id", ondelete="CASCADE"), index=True)
+    week_start: Mapped[date] = mapped_column(Date)               # Monday of the ISO week
+    value: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)   # null ≠ zero (uncollected)
+    source: Mapped[str] = mapped_column(String(10), default="manual")             # resolver | manual
+    entered_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("metric_id", "week_start", name="uq_scorecard_value"),)
+
+
+class TeamCommitment(Base):
+    __tablename__ = "team_commitment"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    group_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("scorecard_group.id", ondelete="CASCADE"), index=True)
+    period_month: Mapped[date] = mapped_column(Date)             # first of month
+    kind: Mapped[str] = mapped_column(String(10))               # pace | rock | worklist
+    title: Mapped[str] = mapped_column(String(200))
+    target: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)   # null for worklists
+    unit: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    source: Mapped[str] = mapped_column(String(12), default="manual")
+    resolver_key: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    config: Mapped[dict] = mapped_column(JSONType, default=dict)   # resolver args, e.g. {"sessions":[...]}
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    committed_ref_url: Mapped[str | None] = mapped_column(String(400), nullable=True)   # the ClickUp L10 task
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class TeamCommitmentProgress(Base):
+    """Hand-tracked rock progress points (Part 2.5)."""
+    __tablename__ = "team_commitment_progress"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    commitment_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("team_commitment.id", ondelete="CASCADE"), index=True)
+    as_of: Mapped[date] = mapped_column(Date)
+    value: Mapped[Decimal] = mapped_column(Numeric(12, 4))
+    entered_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("commitment_id", "as_of", name="uq_commitment_progress"),)
+
+
+class ShareLink(Base):
+    """Read-only share token so the Scorecard / a Team Room can be embedded in ClickUp (Part 2.6)."""
+    __tablename__ = "share_link"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    scope: Mapped[str] = mapped_column(String(24))               # ulrg_scorecard | ulrg_team
+    scope_ref: Mapped[str | None] = mapped_column(String(40), nullable=True)   # team key when ulrg_team
+    token: Mapped[str] = mapped_column(String(64), unique=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
