@@ -1311,30 +1311,44 @@ async def sync_edge_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integratio
     except Exception as e:  # noqa: BLE001 — custom fields optional
         print(f"[ghl_edge] custom fields unavailable: {e}", flush=True)
         return 0
+    # Find the Edge status field by NAME or fieldKey (GHL often returns the key, e.g.
+    # 'contact.the_edge_status', not the UI label). Matches "edge" + "status" in either.
     override = str(cfg.get("edge_status_field") or "").strip().lower()
-    edge_field_id = None
+    edge_field_id, edge_field_name = None, None
     for d in defs:
         nm = (d.get("name") or "").strip().lower()
-        if (override and (nm == override or d.get("id") == cfg.get("edge_status_field"))) \
-           or ("the edge" in nm and "status" in nm):        # 'The Edge - Status'
-            edge_field_id = d.get("id")
+        fk = (d.get("fieldKey") or "").lower()
+        hay = f"{nm} {fk}"
+        if (override and (nm == override or fk == override or d.get("id") == cfg.get("edge_status_field"))) \
+           or ("edge" in hay and "status" in hay):
+            edge_field_id, edge_field_name = d.get("id"), d.get("name")
             break
-    if not edge_field_id:
-        print("[ghl_edge] 'The Edge - Status' field not found; skipping", flush=True)
-        return 0
     active_val = str(cfg.get("edge_active_value") or "active").strip().lower()
+    # Tag fallback: the contacts also carry a 'the edge - active' tag, so a member is identified
+    # by EITHER the status field reading active OR one of these tags. Robust to either setup.
+    edge_tags = {t.lower() for t in (cfg.get("edge_member_tags") or ["the edge - active", "the edge active"])}
+    if not edge_field_id and not edge_tags:
+        print("[ghl_edge] no Edge status field found and no edge tags configured; skipping", flush=True)
+        return 0
+    print(f"[ghl_edge] status field={edge_field_name or 'NOT FOUND'} active≈'{active_val}' "
+          f"tags={sorted(edge_tags)}", flush=True)
     event_tag = (cfg.get("edge_event_tag") or "").lower().strip()
     field_ids = _membership_field_ids(defs, cfg)             # reuse the shared roster fields for enrichment
 
     contacts = await ghl.get_contacts(token, location_id)
     members, regs = [], []
+    n_field = n_tag = 0
     for c in contacts:
         vals = ghl.contact_custom_values(c)
-        status = _clean_str(vals.get(edge_field_id))
-        if not (status and status.lower() == active_val):
+        tset = {str(t).lower() for t in ghl.contact_tags(c)}
+        status = (_clean_str(vals.get(edge_field_id)) or "").lower() if edge_field_id else ""
+        by_field = bool(status) and active_val in status   # lenient (contains), not exact
+        by_tag = bool(edge_tags & tset)
+        if not (by_field or by_tag):
             continue
+        n_field += int(by_field)
+        n_tag += int(by_tag and not by_field)
         cid = str(c.get("id"))
-        tset = set(ghl.contact_tags(c))
         detail = _read_membership(vals, field_ids) if field_ids else {}
         base = dict(tenant_id=tenant_id, business_id=biz, source="ghl", external_id=cid,
                     name=ghl.contact_name(c)[:200], email=(c.get("email") or None),
@@ -1349,7 +1363,7 @@ async def sync_edge_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integratio
     await _ghl_snapshot(s, tenant_id, biz, "edge_member", members)
     await _ghl_snapshot(s, tenant_id, biz, "edge_registration", regs)
     n = len(members) + len(regs)
-    print(f"[ghl_edge] {len(members)} Edge members (The Edge - Status = {active_val}), "
+    print(f"[ghl_edge] {len(members)} Edge members ({n_field} via status field, {n_tag} via tag only), "
           f"{len(regs)} registered (from {len(contacts)} contacts)", flush=True)
 
     # Opportunities → edge memberships/onboarded/recruiting, config-gated on an Edge pipeline.
