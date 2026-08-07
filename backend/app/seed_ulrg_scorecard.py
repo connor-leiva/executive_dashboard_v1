@@ -74,7 +74,7 @@ async def load_ulrg_scorecard(s, tenant_id) -> int:
 
     tenant = await s.get(Tenant, tenant_id)
     cfg = dict(tenant.config or {})
-    cfg.setdefault("fiscal_quarters", data["fiscal_quarters"])
+    cfg["fiscal_quarters"] = data["fiscal_quarters"]   # the scorecard seed owns these — overwrite so a reseed corrects them
     tenant.config = cfg
     await s.commit()
     return n_values
