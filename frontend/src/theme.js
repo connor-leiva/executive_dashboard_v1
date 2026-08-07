@@ -27,6 +27,7 @@ export const T = {
   gapText: "#D92B08",
   mist: "#DCE7E9",
   teal: "#227175",
+  edge: "#B26248",         // The Edge nav/identity — terracotta, distinct from the other programs
   daffodil: "#FFDD1F",     // flag dot / attention accent
   daffodilBg: "#FFF9D6",
   daffodilText: "#6D5336",

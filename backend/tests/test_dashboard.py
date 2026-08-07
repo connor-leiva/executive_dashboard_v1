@@ -36,7 +36,7 @@ async def test_login_and_dashboard_shape():
     # Top-level shape mirrors the mockup data objects.
     assert set(d) >= {"period", "portfolio", "scorecards", "areas", "flywheel", "sources"}
     # Spring B is split into The Forum + beCollective (one QBO entity, two views).
-    assert set(d["areas"]) == {"ulrg", "forum", "becollective", "sympli"}
+    assert set(d["areas"]) == {"ulrg", "forum", "becollective", "edge", "sympli"}
     assert "springb" not in d["areas"]
     assert d["areas"]["forum"]["name"] == "The Forum"
     assert "members" in d["areas"]["forum"]["tag"]

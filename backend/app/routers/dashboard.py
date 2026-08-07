@@ -9,6 +9,7 @@ from ..services.metrics import build_dashboard
 from ..services.lineage import metric_detail
 from ..services.forum import build_forum
 from ..services.becollective import build_becollective
+from ..services.edge import build_edge
 from ..services.tabs import tenant_tabs, effective_tabs, tab_for_metric, biz_tab_map
 
 router = APIRouter(tags=["dashboard"])
@@ -60,6 +61,16 @@ async def becollective(
 ):
     """beCollective focused view — cohort program (mirrors the Forum's shape)."""
     return await build_becollective(s, user.tenant_id, period)
+
+
+@router.get("/edge")
+async def edge(
+    period: str = Query("mtd"),
+    user: User = Depends(require_tab("edge")),
+    s: AsyncSession = Depends(get_session),
+):
+    """The Edge focused view — Spring + Justin Nelson membership (mirrors the Forum's shape)."""
+    return await build_edge(s, user.tenant_id, period)
 
 
 @router.get("/metrics/{key}/detail")

@@ -4,12 +4,14 @@ import { T, STATUS, usd, signed, relativeTime } from "./theme.js";
 import { useDashboard } from "./useDashboard.js";
 import { useForum } from "./useForum.js";
 import { useBecollective } from "./useBecollective.js";
+import { useEdge } from "./useEdge.js";
 import { getJSON, postJSON } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
 import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
 import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
 import BecollectiveView from "./BecollectiveView.jsx";
+import EdgeView from "./EdgeView.jsx";
 import Books from "./books/Books.jsx";
 import Binder from "./Binder.jsx";
 import AIEmployees from "./AIEmployees.jsx";
@@ -39,6 +41,8 @@ function dotFor(businessKey) {
       return T.daffodil;
     case "becollective":
       return T.petal;
+    case "edge":
+      return T.edge;
     case "springb":
       return T.poppy;
     default:
@@ -1059,6 +1063,7 @@ const NAV = [
   { k: "ulrg", label: "ULRG + Team", dot: T.meadow },
   { k: "forum", label: "The Forum", dot: T.daffodil },
   { k: "becollective", label: "beCollective", dot: T.petal },
+  { k: "edge", label: "The Edge", dot: T.edge },
   { k: "sympli", label: "Sympli Mortgage", dot: T.teal },
   { k: "flywheel", label: "Referral Flywheel", dot: T.poppy, divide: true },
   { k: "books", label: "Books", dot: T.mist },
@@ -1073,6 +1078,7 @@ export default function CommandCenter() {
   const { data, loading, error, usingSample, retry } = useDashboard(periodKey);
   const forum = useForum(periodKey);
   const becollective = useBecollective(periodKey);
+  const edge = useEdge(periodKey);
   const [view, setView] = useState("overview");
   const [refreshing, setRefreshing] = useState(false);
   const [drill, setDrill] = useState(null);       // { key, business, agentId, lo, stage, source } for the audit drawer
@@ -1143,6 +1149,10 @@ export default function CommandCenter() {
   else if (activeView === "becollective") content = becollective.data
     ? <BecollectiveView data={becollective.data} area={areas?.becollective} onDrill={onDrill}
         deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="bc_roster" role={user?.role} />
+    : <SkeletonDashboard />;
+  else if (activeView === "edge") content = edge.data
+    ? <EdgeView data={edge.data} area={areas?.edge} onDrill={onDrill}
+        deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="edge_roster" />
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
@@ -1268,7 +1278,7 @@ export default function CommandCenter() {
         </main>
       </div>
 
-      {["forum_roster", "bc_roster"].includes(drill?.key)
+      {["forum_roster", "bc_roster", "edge_roster"].includes(drill?.key)
         ? <RosterDrawer metricKey={drill.key} business={drill?.business} period={periodKey} onClose={() => setDrill(null)} />
         : <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} stage={drill?.stage} source={drill?.source} stream={drill?.stream} month={drill?.month} period={periodKey} onClose={() => setDrill(null)} />}
 

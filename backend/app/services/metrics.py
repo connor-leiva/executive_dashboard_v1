@@ -859,19 +859,23 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         if sbiz:
             fk = await _forum_kpis(s, tenant_id, sbiz.id, start, end)
             members, arr = fk["members"], fk["arr"]
-            bc_members = int((await s.execute(select(func.count()).select_from(MetricRecord).where(
-                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sbiz.id,
-                MetricRecord.source == "ghl", MetricRecord.kind == "bc_member",
-                MetricRecord.status == "active"))).scalar() or 0)
+            async def _prog_members(kind):
+                return int((await s.execute(select(func.count()).select_from(MetricRecord).where(
+                    MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sbiz.id,
+                    MetricRecord.source == "ghl", MetricRecord.kind == kind,
+                    MetricRecord.status == "active"))).scalar() or 0)
+            bc_members = await _prog_members("bc_member")
+            edge_members = await _prog_members("edge_member")
             # "Active members" scorecard = distinct union across programs (no double count).
             union_ids = (await s.execute(select(MetricRecord.external_id).where(
                 MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sbiz.id,
-                MetricRecord.source == "ghl", MetricRecord.kind.in_(["member", "bc_member"]),
+                MetricRecord.source == "ghl", MetricRecord.kind.in_(["member", "bc_member", "edge_member"]),
                 MetricRecord.status == "active"))).scalars().all()
             if union_ids:
                 sc["members"] = str(len(set(union_ids)))
-                if bc_members:
-                    sc["members_sub"] = "Forum + beCollective"
+                extra = (["beCollective"] if bc_members else []) + (["The Edge"] if edge_members else [])
+                if extra:
+                    sc["members_sub"] = " + ".join(["Forum"] + extra)
         forum_tag = f"Mastermind · {members} members" + (f" · {_compact_usd(arr)} ARR" if arr else "")
         areas["forum"] = sb.model_copy(update={
             "key": "forum", "name": "The Forum", "tag": forum_tag,
@@ -880,6 +884,12 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             id=sb.id, key="becollective", name="beCollective",
             tag=(f"Community · {bc_members} members" if bc_members else "Community · GHL segment"),
             status="opportunity", accent="#FFBA9F", ink="#6D5336",
+            sources=["Go High Level"], revenue=None, noi=None, margin=None,
+            trend=sb.trend, pl=[], ops=[], funnel=None)
+        areas["edge"] = AreaPayload(
+            id=sb.id, key="edge", name="The Edge",
+            tag=(f"Membership · {edge_members} members" if edge_members else "Membership · GHL segment"),
+            status="opportunity", accent="#B26248", ink="#6D5336",
             sources=["Go High Level"], revenue=None, noi=None, margin=None,
             trend=sb.trend, pl=[], ops=[], funnel=None)
 

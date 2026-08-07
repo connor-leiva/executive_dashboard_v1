@@ -15,7 +15,7 @@ from ..models import Business
 # entity routed to a page) instead contribute a single tab via their `display_tab`.
 # A business's nav tabs resolve as:
 #   config["program_tabs"] (explicit)  ->  PROGRAM_TABS[key]  ->  [display_tab or key]
-PROGRAM_TABS = {"springb": ["forum", "becollective"]}
+PROGRAM_TABS = {"springb": ["forum", "becollective", "edge"]}
 
 
 def _business_tabs(b) -> list[str]:
@@ -67,6 +67,8 @@ _FORUM = {"active_members", "forum_roster", "forum_arr", "renewals_due", "new_me
           "forum_payments", "forum_failed_payments", "forum_mrr_subs",
           "forum_installments", "forum_next30", "forum_streams"}
 _BC = {"bc_members", "bc_arr", "bc_registered", "bc_financed", "bc_monthly"}
+_EDGE = {"edge_members", "edge_arr", "edge_registered", "edge_financed", "edge_monthly",
+         "edge_roster", "edge_new_members", "edge_pipeline", "edge_payments"}
 _SYMPLI = {"funded_loans", "loan_volume", "preapprovals", "in_underwriting",
            "sympli_commission", "loan_stage"}
 _FINANCIAL = {"revenue", "noi", "gross_profit", "opex", "cogs", "combined_profit"}
@@ -88,6 +90,8 @@ def tab_for_metric(key: str, business: str | None = None, biz_tab: dict | None =
         return "forum"
     if key.startswith("bc_") or key in _BC:
         return "becollective"
+    if key.startswith("edge_") or key in _EDGE:
+        return "edge"
     if key in _SYMPLI:
         return "sympli"
     if key in _ULRG:

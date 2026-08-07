@@ -3,6 +3,7 @@ import { T, usd } from "./theme.js";
 import { getJSON } from "./api.js";
 import sampleForum from "./sampleForum.js";
 import sampleBecollective from "./sampleBecollective.js";
+import sampleEdge from "./sampleEdge.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -254,7 +255,8 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
   useEffect(() => {
     setD(null); setErr(false); setProg("all"); setQ(""); setSort(null); setFilters({ plan: [], value: [] }); setMenu(null);
     if (!API_BASE) {
-      setD((metricKey === "bc_roster" ? sampleBecollective : sampleForum).roster_detail);
+      setD((metricKey === "bc_roster" ? sampleBecollective
+        : metricKey === "edge_roster" ? sampleEdge : sampleForum).roster_detail);
       return;
     }
     const q = `/metrics/${metricKey}/detail?period=${period}`
@@ -281,14 +283,15 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
 
   // Admins are staff seats — shown as their own group, kept out of the member lists.
   const isAdmin = (r) => r.kind === "admin";
-  // beCollective has no Forum/Inner-Circle split — one member group, no F/IC chips.
-  const isBc = metricKey === "bc_roster";
+  // beCollective / The Edge have no Forum/Inner-Circle split — one member group, no F/IC chips.
+  const single = metricKey === "bc_roster" ? "BC" : metricKey === "edge_roster" ? "EDGE" : null;
+  const isBc = Boolean(single);
   const inScope = filtered.filter((r) =>
     prog === "all" ? !isAdmin(r) : prog === "ADMIN" ? isAdmin(r) : (r.seg === prog && !isAdmin(r)));
   const groups = prog === "ADMIN" ? ["ADMIN"]
-    : isBc ? ["BC"] : prog === "IC" ? ["IC"] : prog === "F" ? ["F"] : ["F", "IC"];
-  const inGroup = (r, g) => (g === "ADMIN" ? isAdmin(r) : g === "BC" ? !isAdmin(r) : (r.seg === g && !isAdmin(r)));
-  const GROUP_LABEL = { F: "The Forum", IC: "Inner Circle", ADMIN: "Admins", BC: "Members" };
+    : single ? [single] : prog === "IC" ? ["IC"] : prog === "F" ? ["F"] : ["F", "IC"];
+  const inGroup = (r, g) => (g === "ADMIN" ? isAdmin(r) : (g === "BC" || g === "EDGE") ? !isAdmin(r) : (r.seg === g && !isAdmin(r)));
+  const GROUP_LABEL = { F: "The Forum", IC: "Inner Circle", ADMIN: "Admins", BC: "Members", EDGE: "Members" };
 
   const sorted = useMemo(() => {
     if (!sort) return null;

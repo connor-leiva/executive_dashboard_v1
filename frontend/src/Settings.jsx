@@ -577,7 +577,7 @@ function QuickBooksConnect({ live }) {
 
 /* ── integrations (accordion revamp, spec v3 Part 1) ───────────── */
 
-const BIZ_DOT = { ulrg: T.meadow, springb: T.poppy, forum: T.daffodil, becollective: T.petal, sympli: T.teal };
+const BIZ_DOT = { ulrg: T.meadow, springb: T.poppy, forum: T.daffodil, becollective: T.petal, edge: T.edge, sympli: T.teal };
 
 function StatusPill({ status }) {
   const map = {
@@ -620,7 +620,7 @@ function SBtn({ kind = "ghost", small, icon, children, onClick, disabled, title 
 }
 
 /* ── QBO entity: create (name → destination page → connect) or edit / re-route ── */
-const ROUTABLE_LABELS = { forum: "The Forum", becollective: "beCollective", ulrg: "ULRG + Team", sympli: "Sympli Mortgage" };
+const ROUTABLE_LABELS = { forum: "The Forum", becollective: "beCollective", edge: "The Edge", ulrg: "ULRG + Team", sympli: "Sympli Mortgage" };
 const NON_ROUTABLE = new Set(["portfolio", "flywheel", "books"]);
 const routableLabel = (k) => ROUTABLE_LABELS[k] || k.charAt(0).toUpperCase() + k.slice(1);
 
@@ -1235,6 +1235,7 @@ function BusinessesPage() {
 const TAB_META = {
   portfolio: { label: "Portfolio", dot: T.evergreen }, ulrg: { label: "ULRG", dot: T.meadow },
   forum: { label: "The Forum", dot: T.daffodil }, becollective: { label: "beCollective", dot: T.petal },
+  edge: { label: "The Edge", dot: T.edge },
   sympli: { label: "Sympli", dot: T.teal }, flywheel: { label: "Flywheel", dot: T.poppy },
 };
 const ROLE_COLOR = { owner: T.evergreen, admin: T.meadow, member: T.slate };

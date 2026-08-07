@@ -126,6 +126,35 @@ def bc_offering(description, config=None, is_subscription=False,
     return (False, None)                              # small ambiguous one-off → not membership
 
 
+# The Edge shares Spring's legacy Stripe with the Forum/beCollective; these siblings are NOT
+# Edge revenue. Tunable via config['non_edge_keywords']. (Note: "the edge" stays denylisted in
+# _NON_FORUM_DEFAULT / _NON_BC_DEFAULT so Edge charges never leak INTO Forum/bc — they're captured
+# here instead.)
+_NON_EDGE_DEFAULT = [
+    "the forum", "inner circle", "innercircle", "be collective", "becollective", "collective",
+    "spring break", "va in 30", "virtual assistant", "bootcamp", "playbook", "vault",
+    "buyer mastery", "agent attraction", "operator", "blueprint", "abundance", "shadow",
+    "just in time", "justintime", "justin time",
+]
+
+
+def edge_offering(description, config=None, is_subscription=False,
+                  amount=0.0, recurring=False) -> tuple[bool, str | None]:
+    """Is a legacy-Stripe charge one of The Edge's offerings (e.g. 'The Edge Monthly',
+    'The Edge Intensive', 'The Edge Course')? The Edge is NAME-identified — its products carry
+    'The Edge' in the description — so unlike forum/bc, there is deliberately NO amount/recurring
+    fallback (that would steal generic membership dues that belong to the Forum). Returns
+    (include, "edge"|None). Tunable: config['edge_keywords'], ['non_edge_keywords']."""
+    config = config or {}
+    d = (description or "").lower()
+    if any(k.lower() in d for k in (config.get("non_edge_keywords") or _NON_EDGE_DEFAULT)):
+        return (False, None)
+    edge = ("the edge" in d) or any(k.lower() in d for k in (config.get("edge_keywords") or []))
+    if any(w in d for w in ("ticket", "rsvp", "vip", " guest")) and not edge:
+        return (False, None)
+    return (True, "edge") if edge else (False, None)
+
+
 def _pdate(v) -> dt.date | None:
     if not v:
         return None
