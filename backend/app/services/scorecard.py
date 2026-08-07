@@ -12,6 +12,15 @@ the current goal, turning it into a goal-setting (IDS) conversation, not a perfo
 """
 from __future__ import annotations
 
+import datetime as dt
+import logging
+
+from sqlalchemy import select
+
+from ..models import Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue
+
+log = logging.getLogger("app")
+
 
 def _clean(values) -> list[float]:
     """Non-null values in chronological order (nulls = uncollected, skipped — never treated as 0)."""
@@ -132,3 +141,103 @@ def move(group_rows):
                     if r.get("lever") == "behavior" and cum_attain(r) is not None and cum_attain(r) < 100],
                    key=lambda r: cum_attain(r))
     return constraint, (behav[0] if behav else None)
+
+
+# ── payload assembly (SPEC Part 5.1) ─────────────────────────────────────────
+def _fv(v):
+    return None if v is None else float(v)
+
+
+def quarter_of(fiscal_quarters, today: dt.date) -> dict:
+    """Resolve the current fiscal quarter from tenant.config.fiscal_quarters (Part 4.7); fall back
+    to the calendar quarter with a warning if none is configured / contains today."""
+    for q in (fiscal_quarters or []):
+        start, end = dt.date.fromisoformat(q["start"]), dt.date.fromisoformat(q["end"])
+        if start <= today <= end:
+            total = max(1, round((end - start).days / 7))
+            closed = min(total, max(0, (today - start).days // 7))
+            return {"key": q["key"], "start": q["start"], "end": q["end"], "start_date": start,
+                    "weeks_total": total, "weeks_closed": closed, "weeks_left": max(0, total - closed)}
+    log.warning("scorecard: no fiscal quarter contains %s — falling back to the calendar quarter", today)
+    qn = (today.month - 1) // 3
+    start = dt.date(today.year, qn * 3 + 1, 1)
+    end = dt.date(today.year, 12, 31) if qn == 3 else dt.date(today.year, qn * 3 + 4, 1) - dt.timedelta(days=1)
+    total = max(1, round((end - start).days / 7))
+    closed = min(total, max(0, (today - start).days // 7))
+    return {"key": f"{today.year}Q{qn + 1}", "start": start.isoformat(), "end": end.isoformat(),
+            "start_date": start, "weeks_total": total, "weeks_closed": closed, "weeks_left": max(0, total - closed)}
+
+
+async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt.date | None = None) -> dict:
+    """The GET /ulrg/scorecard payload. All math server-side; the client reverses for display only."""
+    today = today or dt.date.today()
+    tenant = await s.get(Tenant, tenant_id)
+    q = quarter_of((tenant.config or {}).get("fiscal_quarters"), today)
+    wl = q["weeks_left"]
+
+    groups = (await s.execute(select(ScorecardGroup).where(
+        ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.business_id == business_id)
+        .order_by(ScorecardGroup.sort_order))).scalars().all()
+    metrics = (await s.execute(select(ScorecardMetric).where(
+        ScorecardMetric.tenant_id == tenant_id, ScorecardMetric.active.is_(True))
+        .order_by(ScorecardMetric.sort_order))).scalars().all()
+    by_group: dict = {}
+    for m in metrics:
+        by_group.setdefault(m.group_id, []).append(m)
+    values = (await s.execute(select(ScorecardValue).where(
+        ScorecardValue.tenant_id == tenant_id))).scalars().all()
+    vmap: dict = {}
+    for v in values:
+        vmap.setdefault(v.metric_id, {})[v.week_start] = _fv(v.value)
+
+    all_weeks = sorted({v.week_start for v in values})
+    weeks = all_weeks[-weeks_param:] if weeks_param else all_weeks
+    weeks_out = [{"n": w.isocalendar()[1], "start": w.isoformat(),
+                  "end": (w + dt.timedelta(days=6)).isoformat(), "label": f"{w.month}/{w.day:02d}"}
+                 for w in weeks]
+    wkey = f"w{weeks_param}"
+
+    def _cum(all_vals, m):
+        if m.type == "snapshot":
+            return None
+        goal, d = float(m.goal), m.direction
+        in_q = [vmap.get(m.id, {}).get(w) for w in all_weeks if w >= q["start_date"]]
+        qtd = None if q["weeks_closed"] < 2 else cumulative_block(in_q, goal, m.type, d, len(in_q), wl)
+        return {"w4": cumulative_block(all_vals, goal, m.type, d, 4, wl),
+                wkey: cumulative_block(all_vals, goal, m.type, d, weeks_param, wl), "qtd": qtd}
+
+    groups_out = []
+    for g in groups:
+        rows, move_rows = [], []
+        for m in by_group.get(g.id, []):
+            all_vals = [vmap.get(m.id, {}).get(w) for w in all_weeks]
+            goal, d = float(m.goal), m.direction
+            cum = _cum(all_vals, m)
+            rows.append({
+                "id": str(m.id), "measurable": m.name, "note": m.note, "goal": goal,
+                "direction": d, "type": m.type, "stage": m.stage, "lever": m.lever,
+                "owner": {"initials": m.owner_initials} if m.owner_initials else None,
+                "source": m.source, "source_synced_at": None,
+                "values": [vmap.get(m.id, {}).get(w) for w in weeks],
+                "trend_4v4": trend_4v4(all_vals, goal, m.type, d),
+                "streak": miss_streak(all_vals, goal, d),
+                "cumulative": cum,
+            })
+            move_rows.append({"id": str(m.id), "stage": m.stage, "lever": m.lever,
+                              "cum": (cum or {}).get(wkey) if cum else None})
+        constraint, free_win = move(move_rows)
+        groups_out.append({
+            "key": g.key, "name": g.name, "is_team_room": g.is_team_room,
+            "owner": {"name": g.owner_name} if g.owner_name else None, "read": g.read,
+            "move": {"constraint_metric_id": constraint["id"] if constraint else None,
+                     "free_win_metric_id": free_win["id"] if free_win else None},
+            "rows": rows,
+        })
+
+    return {
+        "weeks": weeks_out,
+        "current_week": weeks_out[-1]["n"] if weeks_out else None,
+        "quarter": {k: q[k] for k in ("key", "start", "end", "weeks_total", "weeks_closed", "weeks_left")},
+        "windows": [4, weeks_param, "qtd"], "default_window": weeks_param,
+        "groups": groups_out,
+    }

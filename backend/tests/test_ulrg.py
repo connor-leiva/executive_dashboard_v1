@@ -1,0 +1,73 @@
+"""ULRG L10 Scorecard API (SPEC-ulrg-scorecard Part 5.1) against the seeded Spring data."""
+import pytest
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy import select
+
+from app.main import app
+from app.seed import seed
+from app.db import SessionLocal
+from app.models import Tenant, ScorecardMetric
+from app.seed_ulrg_scorecard import load_ulrg_scorecard
+
+TRANSPORT = ASGITransport(app=app)
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def _seeded():
+    await seed()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        await load_ulrg_scorecard(s, t.id)
+
+
+def _client():
+    return AsyncClient(transport=TRANSPORT, base_url="http://testserver")
+
+
+async def _owner_token():
+    async with _client() as c:
+        r = await c.post("/api/v1/auth/login",
+                         json={"email": "spring@springb.com", "password": "springtime"})
+    return r.json()["token"]
+
+
+def _H(t):
+    return {"Authorization": f"Bearer {t}"}
+
+
+async def test_scorecard_payload_shape_and_snapshot_rule():
+    owner = await _owner_token()
+    async with _client() as c:
+        r = await c.get("/api/v1/ulrg/scorecard?weeks=13", headers=_H(owner))
+        assert r.status_code == 200
+        d = r.json()
+    assert len(d["groups"]) == 4 and d["default_window"] == 13
+    assert d["quarter"]["key"] and d["windows"] == [4, 13, "qtd"]
+
+    rows = [row for g in d["groups"] for row in g["rows"]]
+    snaps = [row for row in rows if row["type"] == "snapshot"]
+    # Part 7 acceptance: snapshot rows never carry a cumulative block
+    assert {row["measurable"] for row in snaps} == {
+        "Met to Signed Ratio YTD", "Database HealthScore", "QTD Agents Recruited"}
+    assert all(row["cumulative"] is None for row in snaps)
+
+    davis = next(g for g in d["groups"] if g["key"] == "davis")
+    appts = next(row for row in davis["rows"] if row["measurable"] == "Appointments Met")
+    assert isinstance(appts["values"], list) and appts["cumulative"]["w13"]["attain"] is not None
+    assert appts["cumulative"]["qtd"] is None          # quarter < 2 weeks closed → qtd null
+    assert davis["move"]["constraint_metric_id"]        # earliest funnel stage below 100
+
+
+async def test_manual_value_entry_and_role_gate():
+    owner = await _owner_token()
+    async with _client() as c:
+        mid = (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()["groups"][0]["rows"][0]["id"]
+        r = await c.post("/api/v1/ulrg/scorecard/values", headers=_H(owner),
+                         json={"metric_id": mid, "week_start": "2026-07-27", "value": 41})
+        assert r.status_code == 201 and r.json()["ok"] is True
+    async with SessionLocal() as s:
+        from app.models import ScorecardValue
+        import datetime as dt
+        v = (await s.execute(select(ScorecardValue).where(
+            ScorecardValue.metric_id == mid, ScorecardValue.week_start == dt.date(2026, 7, 27)))).scalar_one()
+        assert float(v.value) == 41 and v.source == "manual"
