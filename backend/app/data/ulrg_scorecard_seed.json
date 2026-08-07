@@ -40,7 +40,7 @@
   {
    "key": "davis",
    "name": "Davis",
-   "owner": "Justin",
+   "owner": "Jace",
    "is_team_room": true,
    "read": null,
    "metrics": [
@@ -50,7 +50,7 @@
      "type": "flow",
      "stage": 1,
      "lever": "volume",
-     "initials": "JT",
+     "initials": "JA",
      "note": null,
      "values": [
       31.0,
@@ -84,7 +84,7 @@
      "type": "flow",
      "stage": 2,
      "lever": "volume",
-     "initials": "JT",
+     "initials": "JA",
      "note": null,
      "values": [
       8.0,
@@ -118,7 +118,7 @@
      "type": "flow",
      "stage": 3,
      "lever": "volume",
-     "initials": "JT",
+     "initials": "JA",
      "note": null,
      "values": [
       8.0,
@@ -152,7 +152,7 @@
      "type": "flow",
      "stage": 4,
      "lever": "volume",
-     "initials": "JT",
+     "initials": "JA",
      "note": null,
      "values": [
       null,
@@ -186,7 +186,7 @@
      "type": "flow",
      "stage": null,
      "lever": "behavior",
-     "initials": "JT",
+     "initials": "JA",
      "note": null,
      "values": [
       10.0,
@@ -220,7 +220,7 @@
      "type": "rate",
      "stage": null,
      "lever": "behavior",
-     "initials": "JT",
+     "initials": "JA",
      "note": null,
      "values": [
       60.0,
@@ -254,7 +254,7 @@
      "type": "rate",
      "stage": null,
      "lever": "behavior",
-     "initials": "JT",
+     "initials": "JA",
      "note": null,
      "values": [
       40.0,
@@ -287,7 +287,7 @@
   {
    "key": "slc",
    "name": "Slc",
-   "owner": null,
+   "owner": "Justin",
    "is_team_room": true,
    "read": null,
    "metrics": [
@@ -297,7 +297,7 @@
      "type": "flow",
      "stage": 1,
      "lever": "volume",
-     "initials": null,
+     "initials": "JU",
      "note": null,
      "values": [
       17.0,
@@ -331,7 +331,7 @@
      "type": "flow",
      "stage": 2,
      "lever": "volume",
-     "initials": null,
+     "initials": "JU",
      "note": null,
      "values": [
       12.0,
@@ -365,7 +365,7 @@
      "type": "flow",
      "stage": 3,
      "lever": "volume",
-     "initials": null,
+     "initials": "JU",
      "note": null,
      "values": [
       11.0,
@@ -399,7 +399,7 @@
      "type": "flow",
      "stage": 4,
      "lever": "volume",
-     "initials": null,
+     "initials": "JU",
      "note": null,
      "values": [
       null,
@@ -433,7 +433,7 @@
      "type": "flow",
      "stage": null,
      "lever": "behavior",
-     "initials": null,
+     "initials": "JU",
      "note": null,
      "values": [
       null,
@@ -467,7 +467,7 @@
      "type": "rate",
      "stage": null,
      "lever": "behavior",
-     "initials": null,
+     "initials": "JU",
      "note": null,
      "values": [
       0.0,
@@ -501,7 +501,7 @@
      "type": "rate",
      "stage": null,
      "lever": "behavior",
-     "initials": null,
+     "initials": "JU",
      "note": null,
      "values": [
       40.0,
@@ -534,7 +534,7 @@
   {
    "key": "utco",
    "name": "Utah County",
-   "owner": null,
+   "owner": "Lauren",
    "is_team_room": true,
    "read": null,
    "metrics": [
@@ -544,7 +544,7 @@
      "type": "flow",
      "stage": 1,
      "lever": "volume",
-     "initials": null,
+     "initials": "LA",
      "note": null,
      "values": [
       null,
@@ -578,7 +578,7 @@
      "type": "flow",
      "stage": 2,
      "lever": "volume",
-     "initials": null,
+     "initials": "LA",
      "note": null,
      "values": [
       null,
@@ -612,7 +612,7 @@
      "type": "flow",
      "stage": 3,
      "lever": "volume",
-     "initials": null,
+     "initials": "LA",
      "note": null,
      "values": [
       null,
@@ -646,7 +646,7 @@
      "type": "flow",
      "stage": 4,
      "lever": "volume",
-     "initials": null,
+     "initials": "LA",
      "note": null,
      "values": [
       null,
@@ -680,7 +680,7 @@
      "type": "rate",
      "stage": null,
      "lever": "behavior",
-     "initials": null,
+     "initials": "LA",
      "note": null,
      "values": [
       null,
@@ -714,7 +714,7 @@
      "type": "rate",
      "stage": null,
      "lever": "behavior",
-     "initials": null,
+     "initials": "LA",
      "note": null,
      "values": [
       null,
@@ -747,7 +747,7 @@
   {
    "key": "overall",
    "name": "Overall",
-   "owner": "Spring",
+   "owner": "Sarah",
    "is_team_room": false,
    "read": null,
    "metrics": [
@@ -757,7 +757,7 @@
      "type": "rate",
      "stage": null,
      "lever": "behavior",
-     "initials": "SB",
+     "initials": "SA",
      "note": null,
      "values": [
       19.0,
@@ -791,7 +791,7 @@
      "type": "flow",
      "stage": null,
      "lever": "volume",
-     "initials": "SB",
+     "initials": "SA",
      "note": null,
      "values": [
       7.0,
@@ -825,7 +825,7 @@
      "type": "flow",
      "stage": null,
      "lever": "volume",
-     "initials": "SB",
+     "initials": "SA",
      "note": null,
      "values": [
       null,
@@ -859,7 +859,7 @@
      "type": "snapshot",
      "stage": null,
      "lever": null,
-     "initials": "SB",
+     "initials": "SA",
      "note": null,
      "values": [
       48.6,
@@ -893,7 +893,7 @@
      "type": "rate",
      "stage": null,
      "lever": "behavior",
-     "initials": "SB",
+     "initials": "SA",
      "note": null,
      "values": [
       40.0,
@@ -927,7 +927,7 @@
      "type": "rate",
      "stage": null,
      "lever": "behavior",
-     "initials": "SB",
+     "initials": "SA",
      "note": null,
      "values": [
       50.0,
@@ -961,7 +961,7 @@
      "type": "snapshot",
      "stage": null,
      "lever": null,
-     "initials": "SB",
+     "initials": "SA",
      "note": null,
      "values": [
       null,
@@ -995,7 +995,7 @@
      "type": "flow",
      "stage": null,
      "lever": "volume",
-     "initials": "SB",
+     "initials": "SA",
      "note": null,
      "values": [
       null,
@@ -1029,7 +1029,7 @@
      "type": "snapshot",
      "stage": null,
      "lever": null,
-     "initials": "SB",
+     "initials": "SA",
      "note": null,
      "values": [
       null,
