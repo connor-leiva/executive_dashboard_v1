@@ -110,6 +110,8 @@ def cumulative_block(values, goal: float, type_: str, direction: str, window: in
     if not vals:
         return None
     att = attainment(vals, goal, type_, direction)
+    if att is None:                          # no scoreable goal (e.g. goal 0) → not a cumulative row
+        return None
     g = gap(vals, goal, type_)
     best = max(vals)
     req = required(vals, goal, type_, weeks_left)

@@ -25,6 +25,14 @@ def test_snapshot_never_gets_a_cumulative_block():
     assert scorecard.gap([90, 88, 92], 85, "snapshot") is None
 
 
+def test_goalless_row_has_no_cumulative_block():
+    # A track-only measurable (goal 0, e.g. "# of Mastermind RSVPs") has no scoreable target, so
+    # there is nothing to attain against. The block must be None — an emitted block with attain=None
+    # crashes the client, which renders the number as a percentage. Regression guard.
+    assert scorecard.attainment([20, 25, 20], 0, "flow", "gte") is None
+    assert scorecard.cumulative_block([20, 25, 20], 0, "flow", "gte", 13, 13) is None
+
+
 def test_rate_averages_across_the_window():
     assert round(scorecard.attainment([20, 22, 24], 22, "rate", "gte"), 1) == 100.0   # mean 22 / goal 22
     assert round(scorecard.attainment([2, 3, 4], 3, "rate", "lte"), 1) == 100.0       # lower is better

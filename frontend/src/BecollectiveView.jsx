@@ -6,6 +6,7 @@ import ForumView from "./ForumView.jsx";
 import LaunchSection, { LaunchEmpty } from "./LaunchSection.jsx";
 import { useLaunch } from "./useLaunch.js";
 import { T } from "./theme.js";
+import SubTabs from "./SubTabs.jsx";
 
 /* beCollective reuses the Forum's operational component. This remaps every Forum drill key
    to beCollective's own (bc_*) key, so no drill-down or roll-up leaks Forum data. */
@@ -20,20 +21,9 @@ const BC_DRILL_MAP = {
 };
 
 function SubNav({ page, setPage, hasLaunch }) {
-  const items = [["overview", "Overview"]];
-  if (hasLaunch) items.push(["launch", "Launch"]);
-  if (items.length < 2) return null;               // nothing to switch to
-  return (
-    <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
-      {items.map(([k, l]) => (
-        <button key={k} onClick={() => setPage(k)} style={{
-          fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600,
-          color: page === k ? T.ink : T.muted, background: "transparent", border: "none",
-          borderBottom: page === k ? `2.5px solid ${T.meadow}` : "2.5px solid transparent",
-          padding: "9px 15px 11px", cursor: "pointer", marginBottom: -1 }}>{l}</button>
-      ))}
-    </div>
-  );
+  const tabs = [{ k: "overview", label: "Overview" }];
+  if (hasLaunch) tabs.push({ k: "launch", label: "Launch" });
+  return <SubTabs tabs={tabs} active={page} onChange={setPage} />;   // one shared switcher
 }
 
 export default function BecollectiveView({ data, area, onDrill, deckSlots, drillBusiness = "springb",

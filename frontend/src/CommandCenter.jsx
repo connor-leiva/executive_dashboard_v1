@@ -9,6 +9,7 @@ import { getJSON, postJSON } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
 import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
+import UlrgTabs from "./ulrg/UlrgTabs.jsx";
 import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
 import BecollectiveView from "./BecollectiveView.jsx";
 import EdgeView from "./EdgeView.jsx";
@@ -1154,7 +1155,9 @@ export default function CommandCenter() {
     ? <EdgeView data={edge.data} area={areas?.edge} onDrill={onDrill}
         deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="edge_roster" />
     : <SkeletonDashboard />;
-  else if (activeView === "ulrg" || activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
+  else if (activeView === "ulrg") content = <UlrgTabs role={user?.role}
+    overview={<AreaDetail area={areas.ulrg} onDrill={onDrill} period={periodKey} />} />;
+  else if (activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
   else if (activeView === "books") content = <Books period={periodKey} role={user?.role} />;
   else if (activeView === "binder") content = <Binder role={user?.role} />;
