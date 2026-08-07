@@ -420,6 +420,81 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                     "count": len(rows), "rows": rows}
 
     # ── beCollective (Go High Level, bc_* kinds) drill-downs ──
+    if key in {"edge_members", "edge_roster", "edge_arr", "edge_financed", "edge_registered",
+               "edge_new_members"}:
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        if not biz:
+            return {"label": key.replace("_", " ").title(), "source": "Go High Level",
+                    "computed_as": "The Edge isn't connected yet.", "count": 0, "rows": []}
+
+        def eq(kind):
+            return select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                MetricRecord.source == "ghl", MetricRecord.kind == f"edge_{kind}")
+
+        def ename(r):
+            return (r.name or "").strip().title() or r.email or r.external_id
+
+        if key == "edge_roster":
+            recs = (await s.execute(eq("member").where(
+                MetricRecord.status.in_(["active", "admin"])))).scalars().all()
+            recs = sorted(recs, key=lambda m: (0 if m.status == "active" else 1, m.name or ""))
+            reg_ids = {(r.meta or {}).get("contact_id") for r in (await s.execute(eq("registration"))).scalars().all()
+                       if not (r.meta or {}).get("guest") and (r.meta or {}).get("contact_id")}
+            rows, mix = [], {"monthly": 0, "quarterly": 0, "pif": 0, "installments": 0}
+            comp = {"primary": 0, "add_on": 0, "admin": 0, "unspecified": 0}
+            for m in recs:
+                mem = (m.meta or {}).get("membership") or {}
+                kind = mem.get("member_kind")
+                comp[kind if kind in comp else "unspecified"] += 1
+                if kind != "admin" and mem.get("payment") in mix:
+                    mix[mem["payment"]] += 1
+                rows.append({
+                    "id": str(m.id), "name": ename(m), "seg": "EDGE", "kind": kind,
+                    "member_type": mem.get("member_type"), "tier": mem.get("member_tier"),
+                    "status": mem.get("status") or "Active", "payment": mem.get("payment"),
+                    "amount": mem.get("total_cost"), "last_payment": None, "next_payment": None,
+                    "enrolled": mem.get("enrollment_date"), "renews": mem.get("renewal_date"),
+                    "brokerage": mem.get("brokerage"), "stripe_account": mem.get("stripe_account"),
+                    "event": m.external_id in reg_ids, "source_url": m.source_url})
+            mrows = [r for r in rows if r["kind"] != "admin"]
+            summary = {"total": len(mrows), "forum": 0, "inner_circle": 0,
+                       "primary": comp["primary"], "add_on": comp["add_on"], "admin": comp["admin"],
+                       "unspecified": comp["unspecified"], "payment_mix": mix,
+                       "book": round(sum(float(r["amount"] or 0) for r in mrows), 2)}
+            return {"label": "The Edge · Roster", "source": "Go High Level", "view": "roster",
+                    "computed_as": ("Every Edge member with their CRM membership detail (from 'The Edge - "
+                                    "Status' = Active). Admins are staff, listed separately."),
+                    "count": len(rows), "rows": rows, "summary": summary}
+        if key == "edge_members":
+            recs = (await s.execute(eq("member").where(MetricRecord.status == "active")
+                    .order_by(MetricRecord.name))).scalars().all()
+            rows = [{"id": str(r.id), "name": ename(r), "seg": "EDGE", "l2": "The Edge",
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "Active Members", "source": "Go High Level",
+                    "computed_as": "Contacts whose 'The Edge - Status' custom field reads Active.",
+                    "count": len(rows), "rows": rows}
+        if key == "edge_registered":
+            recs = [r for r in (await s.execute(eq("registration").order_by(MetricRecord.name))).scalars().all()
+                    if not (r.meta or {}).get("guest")]
+            rows = [{"id": str(r.id), "name": ename(r), "seg": "EDGE", "l2": "Registered", "r1": "✓",
+                     "source_url": r.source_url} for r in recs]
+            return {"label": "Registered", "source": "Go High Level",
+                    "computed_as": "Edge members registered for the next event (guests excluded).",
+                    "count": len(rows), "rows": rows}
+        recs = (await s.execute(eq("membership").order_by(MetricRecord.amount.desc()))).scalars().all()
+        if key == "edge_financed":
+            recs = [r for r in recs if (r.meta or {}).get("payment") == "monthly"]
+        rows = [{"id": str(r.id), "name": ename(r), "seg": "EDGE",
+                 "l2": ("Financed" if (r.meta or {}).get("payment") == "monthly" else "Paid in full"),
+                 "r1": f"${float(r.amount or 0):,.0f}", "source_url": r.source_url} for r in recs]
+        return {"label": ("Financed Members" if key == "edge_financed" else "Membership Value"),
+                "source": "Go High Level",
+                "computed_as": ("Edge members on a financed plan." if key == "edge_financed"
+                                else "Contract value across Edge memberships."),
+                "count": len(rows), "rows": rows}
+
     if key in {"bc_members", "bc_roster", "bc_arr", "bc_registered", "bc_financed",
                "bc_renewal_book", "bc_renewals_due", "bc_unregistered", "bc_new_members"}:
         biz = (await s.execute(select(Business).where(

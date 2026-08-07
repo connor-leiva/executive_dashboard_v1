@@ -53,6 +53,29 @@ async def test_build_edge_returns_the_forum_shape():
         assert all((k.get("drill") or "edge_").startswith("edge_") for k in d["kpis"])
 
 
+async def test_edge_roster_drill_reads_edge_members():
+    """The Active-Members drill (edge_roster) returns the rich roster from edge_member records —
+    what the RosterDrawer opens in live mode."""
+    from app.models import Business, MetricRecord
+    from app.services.lineage import metric_detail
+    async with SessionLocal() as s:
+        tid = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one().id
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tid, Business.key == "springb"))).scalar_one()
+        s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="edge_member",
+                           external_id="edrill1", name="Edge Drill Member", status="active", segment="edge",
+                           meta={"membership": {"member_kind": "primary", "total_cost": 6500, "payment": "monthly"}}))
+        await s.commit()
+        d = await metric_detail(s, tid, "edge_roster", "mtd")
+        assert d["view"] == "roster" and d["label"] == "The Edge · Roster"
+        assert any(r["name"] == "Edge Drill Member" and r["seg"] == "EDGE" for r in d["rows"])
+        assert d["summary"]["primary"] >= 1
+        # cleanup so the shared springb DB isn't polluted for sibling tests
+        rec = (await s.execute(select(MetricRecord).where(MetricRecord.external_id == "edrill1"))).scalar_one()
+        await s.delete(rec)
+        await s.commit()
+
+
 async def test_edge_tab_registered_for_springb():
     from app.services.tabs import tenant_tabs
     async with SessionLocal() as s:

@@ -1294,6 +1294,180 @@ async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration):
     return len(_QBO_PERIODS)
 
 
+async def sync_edge_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    """The Edge — a SEGMENT of the Forum's GHL location (reuses the `ghl` integration's location
+    + token). A contact is an Edge member when its custom field 'The Edge - Status' reads 'Active'.
+    Writes edge_* records; wholly separate from the Forum sync (never mutates its records/logic).
+    No-op if the Edge status field isn't present. Config: edge_status_field (name/id override),
+    edge_active_value (default 'active'), edge_event_tag, edge_pipeline_match."""
+    cfg = integ.config or {}
+    location_id = cfg.get("location_id")
+    token = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not (location_id and token):
+        return 0
+    biz = integ.business_id
+    try:
+        defs = await ghl.get_custom_fields(token, location_id)
+    except Exception as e:  # noqa: BLE001 — custom fields optional
+        print(f"[ghl_edge] custom fields unavailable: {e}", flush=True)
+        return 0
+    override = str(cfg.get("edge_status_field") or "").strip().lower()
+    edge_field_id = None
+    for d in defs:
+        nm = (d.get("name") or "").strip().lower()
+        if (override and (nm == override or d.get("id") == cfg.get("edge_status_field"))) \
+           or ("the edge" in nm and "status" in nm):        # 'The Edge - Status'
+            edge_field_id = d.get("id")
+            break
+    if not edge_field_id:
+        print("[ghl_edge] 'The Edge - Status' field not found; skipping", flush=True)
+        return 0
+    active_val = str(cfg.get("edge_active_value") or "active").strip().lower()
+    event_tag = (cfg.get("edge_event_tag") or "").lower().strip()
+    field_ids = _membership_field_ids(defs, cfg)             # reuse the shared roster fields for enrichment
+
+    contacts = await ghl.get_contacts(token, location_id)
+    members, regs = [], []
+    for c in contacts:
+        vals = ghl.contact_custom_values(c)
+        status = _clean_str(vals.get(edge_field_id))
+        if not (status and status.lower() == active_val):
+            continue
+        cid = str(c.get("id"))
+        tset = set(ghl.contact_tags(c))
+        detail = _read_membership(vals, field_ids) if field_ids else {}
+        base = dict(tenant_id=tenant_id, business_id=biz, source="ghl", external_id=cid,
+                    name=ghl.contact_name(c)[:200], email=(c.get("email") or None),
+                    source_url=ghl.contact_url(location_id, c.get("id")))
+        kind = detail.get("member_kind")
+        members.append({**base, "kind": "edge_member",
+                        "status": "admin" if kind == "admin" else "active",
+                        "segment": "edge", "meta": {"membership": detail}})
+        if event_tag and event_tag in tset:
+            regs.append({**base, "kind": "edge_registration", "status": "registered",
+                         "meta": {"event_tag": event_tag, "guest": False, "contact_id": cid}})
+    await _ghl_snapshot(s, tenant_id, biz, "edge_member", members)
+    await _ghl_snapshot(s, tenant_id, biz, "edge_registration", regs)
+    n = len(members) + len(regs)
+    print(f"[ghl_edge] {len(members)} Edge members (The Edge - Status = {active_val}), "
+          f"{len(regs)} registered (from {len(contacts)} contacts)", flush=True)
+
+    # Opportunities → edge memberships/onboarded/recruiting, config-gated on an Edge pipeline.
+    edge_pipe = (cfg.get("edge_pipeline_match") or "").lower().strip()
+    if edge_pipe:
+        try:
+            pipelines = await ghl.get_pipelines(token, location_id)
+            stage_name = {st.get("id"): st.get("name") for p in pipelines for st in (p.get("stages") or [])}
+            edge_ids = {p.get("id") for p in pipelines if edge_pipe in (p.get("name") or "").lower()}
+            onboarded_match = (cfg.get("edge_onboarded_stage_match") or "onboarded").lower()
+            opps = await ghl.get_opportunities(token, location_id)
+            memberships, onboarded, recruiting = [], [], []
+            for o in opps:
+                if o.get("pipelineId") not in edge_ids:
+                    continue
+                stage = (stage_name.get(o.get("pipelineStageId")) or "").strip()
+                cid = str(o.get("contactId") or "")
+                b = dict(tenant_id=tenant_id, business_id=biz, source="ghl", external_id=str(o.get("id")),
+                         name=ghl.opp_name(o)[:200], source_url=ghl.contact_url(location_id, o.get("contactId")))
+                if onboarded_match in stage.lower():
+                    onboarded.append({**b, "kind": "edge_onboarded", "status": o.get("status") or "won",
+                                      "occurred_on": _parse_ghl_dt(o.get("lastStatusChangeAt")),
+                                      "amount": float(o.get("monetaryValue") or 0),
+                                      "meta": {"stage": stage, "contact_id": cid}})
+                elif o.get("status") == "open":
+                    recruiting.append({**b, "kind": "edge_recruiting", "status": "open",
+                                       "amount": float(o.get("monetaryValue") or 0) or None,
+                                       "meta": {"stage": stage, "stage_position": 99, "contact_id": cid}})
+            await _ghl_snapshot(s, tenant_id, biz, "edge_onboarded", onboarded)
+            await _ghl_snapshot(s, tenant_id, biz, "edge_recruiting", recruiting)
+            n += len(onboarded) + len(recruiting)
+        except Exception as e:  # noqa: BLE001 — opportunities scope optional
+            print(f"[ghl_edge] opportunities skipped: {e}", flush=True)
+    return n
+
+
+async def sync_edge_stripe(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    """The Edge shares the Forum's legacy Stripe account (reuses the `stripe_legacy` integration).
+    Classify its charges/subs by product name (edge_offering) into edge_payment / edge_subscription
+    records — additive; the Forum sync already excludes 'The Edge' from its own numbers, so nothing
+    double-counts. Name-identified, so no roster gate is needed."""
+    from .billing import edge_offering, classify_stream, classify_installment
+    key = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not key:
+        return 0
+    biz = integ.business_id
+    cfg = integ.config or {}
+    since = cfg.get("sync_since_epoch")
+    tz = _tz(settings.STRIPE_TIMEZONE or "UTC")
+
+    async def _ghl_map(kind):
+        return {ext: nm for ext, nm in (await s.execute(select(
+            MetricRecord.external_id, MetricRecord.name).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
+            MetricRecord.source == "ghl_legacy", MetricRecord.kind == kind))).all()}
+    inv_label = await _ghl_map("invoice")
+    pi_label = await _ghl_map("label")
+
+    charges = await stripe_legacy.list_charges(key, created_gt=since)
+    rows = []
+    for ch in charges:
+        inv_id, pi = stripe_legacy.invoice_id(ch), stripe_legacy.payment_intent(ch)
+        label = (inv_id and inv_label.get(inv_id)) or (pi and pi_label.get(pi))
+        desc = label or stripe_legacy.charge_description(ch)
+        include, _seg = edge_offering(desc, cfg, amount=stripe_legacy.charge_amount(ch),
+                                      recurring=bool(ch.get("invoice")))
+        if not include:
+            continue
+        cdt = stripe_legacy.charge_datetime(ch)
+        rows.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="stripe_legacy", kind="edge_payment",
+            external_id=str(ch.get("id")),
+            name=(stripe_legacy.charge_name(ch) or stripe_legacy.charge_email(ch))[:200],
+            email=stripe_legacy.charge_email(ch), amount=stripe_legacy.charge_amount(ch),
+            status=stripe_legacy.charge_status(ch), occurred_on=_local_date(ch.get("created"), tz),
+            source_url=stripe_legacy.dashboard_url(ch), segment="edge",
+            meta={"stream": classify_stream(desc), "entity_source_name": desc or None, "segment": "edge",
+                  "amount_refunded": stripe_legacy.charge_refunded(ch), "charge_id": ch.get("id"),
+                  "currency": ch.get("currency"), "legacy": True,
+                  "charged_at": cdt.isoformat() if cdt else None,
+                  "contact": stripe_legacy.charge_contact(ch)}))
+    await _metric_snapshot(s, tenant_id, biz, "stripe_legacy", "edge_payment", rows)
+
+    sub_rows = []
+    try:
+        subs = await stripe_legacy.list_subscriptions(key)
+    except Exception as e:  # noqa: BLE001 — needs Subscriptions:read; degrade
+        subs = []
+        print(f"[stripe_edge] subscriptions skipped ({e})", flush=True)
+    for sub in subs:
+        plan = stripe_legacy.sub_plan_name(sub) or ""
+        include, _ = edge_offering(plan, cfg, is_subscription=True)
+        if not include:
+            continue
+        start, end = stripe_legacy.sub_start_date(sub), stripe_legacy.sub_end_date(sub)
+        status = stripe_legacy.sub_status(sub)
+        amount = stripe_legacy.sub_amount(sub)
+        sub_type, inst_total = classify_installment(
+            plan, start.isoformat() if start else None, end.isoformat() if end else None, {})
+        npd = stripe_legacy.sub_next_charge(sub) if status == "active" else None
+        sub_rows.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="stripe_legacy", kind="edge_subscription",
+            external_id=str(sub.get("id")),
+            name=(stripe_legacy.sub_customer_name(sub) or plan or stripe_legacy.sub_email(sub))[:200],
+            email=stripe_legacy.sub_email(sub), amount=amount, status=status, segment="edge",
+            source_url=stripe_legacy.sub_dashboard_url(sub),
+            meta={"plan_name": plan or None, "interval": stripe_legacy.sub_interval(sub),
+                  "start_date": start.isoformat() if start else None,
+                  "end_date": end.isoformat() if end else None,
+                  "sub_type": sub_type, "installments_total": inst_total, "installments_collected": None,
+                  "next_payment_date": npd.isoformat() if npd else None,
+                  "next_payment_amount": amount, "legacy": True, "segment": "edge"}))
+    await _metric_snapshot(s, tenant_id, biz, "stripe_legacy", "edge_subscription", sub_rows)
+    active_n = sum(1 for r in sub_rows if r["status"] == "active")
+    print(f"[stripe_edge] {len(rows)} Edge charges, {active_n} active Edge subscriptions", flush=True)
+    return len(rows) + len(sub_rows)
+
+
 async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, period_start, period_end):
     """Sync one integration, recording a SyncRun (with record/timing stats) and
     updating its status."""
@@ -1309,12 +1483,20 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
             records = await sync_fub(s, tenant_id, integ.business_id)
         elif integ.provider == "ghl":
             records = await sync_ghl(s, tenant_id, integ)
+            try:                                   # The Edge is a segment of this same location
+                records = (records or 0) + await sync_edge_ghl(s, tenant_id, integ)
+            except Exception as e:  # noqa: BLE001 — never let Edge break the Forum sync
+                print(f"[ghl_edge] skipped: {e}", flush=True)
         elif integ.provider == "ghl_bc":
             records = await sync_becollective_ghl(s, tenant_id, integ)
         elif integ.provider == "arive":
             records = await sync_arive(s, tenant_id, integ)
         elif integ.provider == "stripe_legacy":
             records = await sync_stripe_legacy(s, tenant_id, integ)
+            try:                                   # The Edge shares this same legacy Stripe account
+                records = (records or 0) + await sync_edge_stripe(s, tenant_id, integ)
+            except Exception as e:  # noqa: BLE001 — never let Edge break the Forum sync
+                print(f"[stripe_edge] skipped: {e}", flush=True)
         elif integ.provider == "stripe_bc":
             records = await sync_becollective_stripe(s, tenant_id, integ)
         elif integ.provider == "ghl_legacy":
