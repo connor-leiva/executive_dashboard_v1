@@ -46,9 +46,9 @@ async def test_scorecard_payload_shape_and_snapshot_rule():
 
     rows = [row for g in d["groups"] for row in g["rows"]]
     snaps = [row for row in rows if row["type"] == "snapshot"]
-    # Part 7 acceptance: snapshot rows never carry a cumulative block
+    # Part 7 acceptance: snapshot rows never carry a cumulative block (the three named in the sheet)
     assert {row["measurable"] for row in snaps} == {
-        "Met to Signed Ratio YTD", "Database HealthScore", "QTD Agents Recruited"}
+        "ULRG Met to Signed Ratio YTD", "Database HealthScore", "QTD Agents Recruited"}
     assert all(row["cumulative"] is None for row in snaps)
 
     davis = next(g for g in d["groups"] if g["key"] == "davis")
