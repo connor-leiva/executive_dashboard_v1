@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
@@ -21,6 +22,22 @@ async def tick():
         tenants = (await s.execute(select(Tenant))).scalars().all()
         for t in tenants:
             await run_all(s, t.id, start, end)
+
+
+async def scorecard_tick():
+    """ULRG L10 Scorecard resolvers (SPEC 3.1): daily, resolving the open week plus a trailing
+    look-back so late syncs self-heal. `today` is the business-local date — the server runs UTC, so
+    a naive date would flip the Monday-keyed week a day early and drop late closings. No-op until a
+    metric sets a resolver_key. One tenant's failure is isolated so it can't stop the rest."""
+    from .services.scorecard_resolvers import run_resolvers
+    today = dt.datetime.now(ZoneInfo(settings.BILLING_TIMEZONE)).date()
+    async with SessionLocal() as s:
+        tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
+    for tid in tenant_ids:                              # run_resolvers isolates each (metric, week)
+        try:
+            await run_resolvers(SessionLocal, tid, today)
+        except Exception as e:
+            print(f"[scorecard_tick] tenant {tid}: {type(e).__name__}: {e}", flush=True)
 
 
 async def ai_dispatch():
@@ -55,12 +72,14 @@ async def ai_execute():
 
 
 def build_scheduler() -> AsyncIOScheduler:
-    """Configure the scheduler with the sync tick + (when the flag is on) the two AI jobs.
-    Shared by the standalone worker (`python -m app.worker`) and the in-API scheduler
-    (RUN_WORKER_IN_API) so both run exactly the same jobs."""
+    """Configure the scheduler with the sync tick, the daily scorecard-resolver tick, and (when
+    the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`) and
+    the in-API scheduler (RUN_WORKER_IN_API) so both run exactly the same jobs."""
     sched = AsyncIOScheduler()
     sched.add_job(tick, "interval", minutes=settings.SYNC_INTERVAL_MINUTES,
                   next_run_time=dt.datetime.now())
+    sched.add_job(scorecard_tick, "cron", hour=5, minute=15,    # 5:15am business-local, not UTC
+                  timezone=ZoneInfo(settings.BILLING_TIMEZONE))
     if settings.AI_EMPLOYEES_ENABLED:
         sched.add_job(ai_dispatch, "interval", minutes=1, next_run_time=dt.datetime.now())
         sched.add_job(ai_execute, "interval", seconds=15, next_run_time=dt.datetime.now())

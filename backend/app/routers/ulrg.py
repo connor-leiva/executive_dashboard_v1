@@ -11,6 +11,7 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
@@ -59,16 +60,28 @@ async def set_value(body: ValueIn, user: User = Depends(current_user),
         wk = dt.date.fromisoformat(body.week_start)
     except ValueError:
         raise HTTPException(400, "week_start must be an ISO date")
+    def _apply(existing) -> bool:
+        overrode = bool(existing and existing.source == "resolver")
+        if existing:
+            existing.value = body.value
+            existing.source, existing.entered_by = "manual", user.id
+            existing.entered_at = dt.datetime.now(dt.timezone.utc)
+        else:
+            s.add(ScorecardValue(tenant_id=user.tenant_id, metric_id=m.id, week_start=wk,
+                                 value=body.value, source="manual", entered_by=user.id))
+        audit(s, user.tenant_id, user.id, "scorecard.value_set", "scorecard_metric", m.id,
+              {"week": body.week_start, "overrode_resolver": overrode})
+        return overrode
+
     row = (await s.execute(select(ScorecardValue).where(
         ScorecardValue.metric_id == m.id, ScorecardValue.week_start == wk))).scalar_one_or_none()
-    conflict = bool(row and row.source == "resolver")
-    if row:
-        row.value = body.value
-        row.source, row.entered_by, row.entered_at = "manual", user.id, dt.datetime.now(dt.timezone.utc)
-    else:
-        s.add(ScorecardValue(tenant_id=user.tenant_id, metric_id=m.id, week_start=wk,
-                             value=body.value, source="manual", entered_by=user.id))
-    audit(s, user.tenant_id, user.id, "scorecard.value_set", "scorecard_metric", m.id,
-          {"week": body.week_start, "overrode_resolver": conflict})
-    await s.commit()
+    conflict = _apply(row)
+    try:
+        await s.commit()
+    except IntegrityError:                              # a concurrent first-write won the insert race
+        await s.rollback()
+        row = (await s.execute(select(ScorecardValue).where(
+            ScorecardValue.metric_id == m.id, ScorecardValue.week_start == wk))).scalar_one()
+        conflict = _apply(row)
+        await s.commit()
     return {"ok": True, "overrode_resolver": conflict}
