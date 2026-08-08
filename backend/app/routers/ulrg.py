@@ -9,12 +9,13 @@ from __future__ import annotations
 import datetime as dt
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..db import get_session
 from ..deps import current_user, require_tab
 from ..models import User, Business, ScorecardMetric, ScorecardValue, ShareLink
@@ -99,15 +100,16 @@ def _require_admin(user: User) -> None:
         raise HTTPException(403, "Owner or admin only")
 
 
-def _share_url(request: Request, token: str) -> str:
-    return f"{str(request.base_url).rstrip('/')}/share/{token}"
+def _share_url(token: str) -> str:
+    # the web app serves the embed page (renders the real read-only Scorecard); APP_PUBLIC_URL is it
+    return f"{settings.APP_PUBLIC_URL.rstrip('/')}/share/{token}"
 
 
 @router.post("/share", status_code=201)
-async def create_share(body: ShareIn, request: Request, user: User = Depends(current_user),
+async def create_share(body: ShareIn, user: User = Depends(current_user),
                        s: AsyncSession = Depends(get_session)):
     """Mint a read-only share token for the scorecard (owner/admin). Returns {token, url}; the url is
-    the embeddable page ClickUp iframes."""
+    the web-app embed page ClickUp iframes."""
     _require_admin(user)
     if body.scope != "ulrg_scorecard":                   # team-room sharing arrives with Step 6
         raise HTTPException(400, "Only the full scorecard can be shared yet")
@@ -116,12 +118,11 @@ async def create_share(body: ShareIn, request: Request, user: User = Depends(cur
                     token=token, created_by=user.id))
     audit(s, user.tenant_id, user.id, "scorecard.share_created", "share_link", None, {"scope": body.scope})
     await s.commit()
-    return {"token": token, "url": _share_url(request, token)}
+    return {"token": token, "url": _share_url(token)}
 
 
 @router.get("/shares")
-async def list_shares(request: Request, user: User = Depends(current_user),
-                      s: AsyncSession = Depends(get_session)):
+async def list_shares(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     """Live (non-revoked) share links for this tenant, owner/admin."""
     _require_admin(user)
     rows = (await s.execute(select(ShareLink).where(
@@ -129,7 +130,7 @@ async def list_shares(request: Request, user: User = Depends(current_user),
         .order_by(ShareLink.created_at.desc()))).scalars().all()
     return [{"id": str(link.id), "scope": link.scope, "scope_ref": link.scope_ref,
              "created_at": link.created_at.isoformat() if link.created_at else None,
-             "url": _share_url(request, link.token)} for link in rows]
+             "url": _share_url(link.token)} for link in rows]
 
 
 @router.delete("/share/{share_id}", status_code=204)

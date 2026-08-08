@@ -130,6 +130,18 @@ export async function postPublic(path, body) {
   return data;
 }
 
+// Public GET (no auth header) — for token-scoped share endpoints an embed viewer hits without login.
+export async function getPublic(path) {
+  const res = await fetch(`${API}${path}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.detail || `${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
 export function setToken(token) {
   localStorage.setItem(TOKEN_KEY, token);
 }

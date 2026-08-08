@@ -21,9 +21,9 @@ function widths(cum, nWeeks, earlier) {
   return [...fixed, ...Array(nWeeks).fill((100 - used) / nWeeks), ...(earlier ? [2.5] : [])];
 }
 
-export default function Scorecard({ role }) {
-  const { data } = useScorecard(13);
-  const isAdmin = role === "owner" || role === "admin";
+export default function Scorecard({ role, shareToken = null }) {
+  const { data } = useScorecard(13, shareToken);
+  const isAdmin = !shareToken && (role === "owner" || role === "admin");   // no Share button inside an embed
   const [win, setWin] = useState(13);        // window: 4 | 13 | "qtd"
   const [cum, setCum] = useState(true);      // cumulative panel open
   const [hideOk, setHideOk] = useState(false);

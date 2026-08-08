@@ -1,6 +1,6 @@
 """ULRG scorecard share links (SPEC 5.3 / Step 8): owner-gated create, token-scoped public read
-with no auth, revoked/unknown → 404 (never 403), the ulrg_team scope deferred, and the embeddable
-page carrying the ClickUp frame-ancestors CSP."""
+with no auth + no-store, revoked/unknown → 404 (never 403), the ulrg_team scope deferred, and the
+backend /share/{token} URL 307-redirecting to the web-app embed page."""
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
@@ -50,11 +50,9 @@ async def test_create_then_public_read_and_csp():
         assert len(sc.json()["groups"]) == 4
         assert sc.headers.get("cache-control") == "no-store"         # token in URL → never cache the payload
 
-        page = await c.get(f"/share/{tok}")
-        assert page.status_code == 200
-        csp = page.headers.get("content-security-policy", "")
-        assert "frame-ancestors" in csp and "https://*.clickup.com" in csp
-        assert "x-frame-options" not in page.headers                 # would block the ClickUp frame
+        page = await c.get(f"/share/{tok}")                          # backend URL → redirect to the web app
+        assert page.status_code == 307
+        assert page.headers["location"].endswith(f"/share/{tok}")
 
 
 async def test_unknown_and_revoked_read_as_404_not_403():
