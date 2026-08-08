@@ -14,6 +14,7 @@ venv/
 ghl_audit*.json
 ghl_payments_audit.json
 *_audit*.json
+consent_audit_out/
 *.db
 *.sqlite3
 .DS_Store
