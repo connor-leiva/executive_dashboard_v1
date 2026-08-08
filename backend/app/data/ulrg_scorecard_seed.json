@@ -115,6 +115,7 @@
     },
     {
      "name": "Under Contract",
+     "resolver_key": "ulrg_team_under_contract",
      "goal": 10.0,
      "type": "flow",
      "stage": 3,
@@ -149,6 +150,7 @@
     },
     {
      "name": "130 Homes Sold Q2 (Apr 13-Jul)",
+     "resolver_key": "ulrg_team_homes_closed",
      "goal": 8.0,
      "type": "flow",
      "stage": 4,
@@ -363,6 +365,7 @@
     },
     {
      "name": "Under Contract",
+     "resolver_key": "ulrg_team_under_contract",
      "goal": 6.0,
      "type": "flow",
      "stage": 3,
@@ -397,6 +400,7 @@
     },
     {
      "name": "100 Homes Sold Q2",
+     "resolver_key": "ulrg_team_homes_closed",
      "goal": 6.0,
      "type": "flow",
      "stage": 4,
@@ -611,6 +615,7 @@
     },
     {
      "name": "Under Contract",
+     "resolver_key": "ulrg_team_under_contract",
      "goal": 3.0,
      "type": "flow",
      "stage": 3,
@@ -645,6 +650,7 @@
     },
     {
      "name": "20 Homes Sold Q2",
+     "resolver_key": "ulrg_team_homes_closed",
      "goal": 2.0,
      "type": "flow",
      "stage": 4,
@@ -995,6 +1001,7 @@
     },
     {
      "name": "ULRG Q2 - 250 Homes (Apr-Jul)",
+     "resolver_key": "ulrg_homes_closed",
      "goal": 20.0,
      "type": "flow",
      "stage": null,
