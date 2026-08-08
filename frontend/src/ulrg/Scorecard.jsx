@@ -7,6 +7,7 @@ import { C, FD, FB, FM, band } from "./scorecardMath.js";
 import { Card, thL, thC, thCum, groupTh } from "./Parts.jsx";
 import ScorecardRow from "./ScorecardRow.jsx";
 import MoveCard from "./MoveCard.jsx";
+import ShareButton from "./ShareButton.jsx";
 
 const VIS_OPEN = 6, VIS_SHUT = 13;   // weeks shown when the panel is open / shut (Part 1.3)
 const SRC_LABEL = { sisu: "Sisu", fub: "Follow Up Boss", ghl: "GoHighLevel", manual: "Entered by hand" };
@@ -20,8 +21,9 @@ function widths(cum, nWeeks, earlier) {
   return [...fixed, ...Array(nWeeks).fill((100 - used) / nWeeks), ...(earlier ? [2.5] : [])];
 }
 
-export default function Scorecard() {
+export default function Scorecard({ role }) {
   const { data } = useScorecard(13);
+  const isAdmin = role === "owner" || role === "admin";
   const [win, setWin] = useState(13);        // window: 4 | 13 | "qtd"
   const [cum, setCum] = useState(true);      // cumulative panel open
   const [hideOk, setHideOk] = useState(false);
@@ -70,9 +72,12 @@ export default function Scorecard() {
             <span style={{ fontFamily: FD, fontSize: 15, fontWeight: 600, color: C.ink }}>L10 Scorecard</span>
             <span style={{ fontFamily: FB, fontSize: 11.5, color: C.slate }}>Week {data.current_week} newest. Click any measurable for the detail.</span>
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: FB, fontSize: 12, color: C.slate, cursor: "pointer" }}>
-            <input type="checkbox" checked={hideOk} onChange={(e) => setHideOk(e.target.checked)} /> Only what is off
-          </label>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: FB, fontSize: 12, color: C.slate, cursor: "pointer" }}>
+              <input type="checkbox" checked={hideOk} onChange={(e) => setHideOk(e.target.checked)} /> Only what is off
+            </label>
+            {isAdmin && <ShareButton />}
+          </div>
         </div>
 
         {qtdThin && cum && (

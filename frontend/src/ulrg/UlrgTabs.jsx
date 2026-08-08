@@ -27,7 +27,7 @@ export default function UlrgTabs({ overview, role }) {
     <div>
       <SubTabs tabs={tabs} active={sub} onChange={setSub} />
       {sub === "overview" && overview}
-      {sub === "scorecard" && <Scorecard />}
+      {sub === "scorecard" && <Scorecard role={role} />}
       {team && (
         <Card style={{ textAlign: "center", padding: "40px 28px" }}>
           <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: C.ink }}>{team.name} Team Room</div>

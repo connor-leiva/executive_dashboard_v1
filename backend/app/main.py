@@ -9,7 +9,7 @@ from .config import settings
 from .db import engine
 from .models import Base
 from .tenancy import resolve_tenant
-from .routers import auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg
+from .routers import auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share
 
 log = logging.getLogger("app")
 
@@ -79,6 +79,8 @@ def create_app() -> FastAPI:
     app.include_router(launches.router, prefix="/api/v1")
     app.include_router(ai_employees.router, prefix="/api/v1")
     app.include_router(ulrg.router, prefix="/api/v1")
+    app.include_router(share.router, prefix="/api/v1")   # /api/v1/share/{token}/scorecard (no auth)
+    app.include_router(share.page_router)                 # /share/{token} — embeddable page + CSP
 
     @app.get("/health")
     async def health():
