@@ -338,6 +338,27 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     return len(agent_rows) + len(txn_rows)
 
 
+async def sync_agent_offices(s: AsyncSession, tenant_id: uuid.UUID) -> int:
+    """Refresh each Sisu agent's group memberships (agent.sisu_group_ids) from Sisu's edit-agent
+    endpoint — the live source for per-team scorecard attribution (the client feed has no sub-team).
+    Runs daily (see worker.roster_tick), one edit-agent call per agent. A failed fetch leaves that
+    agent's stored memberships untouched. Returns the number of agents refreshed."""
+    agents = (await s.execute(select(Agent).where(
+        Agent.tenant_id == tenant_id, Agent.source == "sisu"))).scalars().all()
+    if not agents:
+        return 0
+    groups = await sisu.fetch_agent_groups([a.external_id for a in agents])
+    updated = 0
+    for a in agents:
+        g = groups.get(str(a.external_id))
+        if g is not None:                               # None = fetch failed → keep prior value
+            a.sisu_group_ids = g
+            updated += 1
+    await s.commit()
+    print(f"[sisu] refreshed group memberships for {updated}/{len(agents)} agents", flush=True)
+    return updated
+
+
 async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID) -> int:
     n = 0
     # Agents (FUB users) first.

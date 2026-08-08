@@ -1,10 +1,11 @@
 """ULRG L10 Scorecard — resolver registry + runner (SPEC-ulrg-scorecard Part 3.1, Step 5).
 
-A resolver maps `(session, tenant_id, business_id, week_start, week_end)` to a single
-`numeric | None`. Register one with `@resolver(key)`; a metric opts in by setting its
-`resolver_key`. The worker (`app.worker.scorecard_tick`) runs every active metric that has a
-resolver_key once a day for the current open week, and again each Monday for the week that just
-closed, writing `scorecard_value` with `source="resolver"`.
+A resolver maps `(session, tenant_id, business_id, week_start, week_end, group)` to a single
+`numeric | None` (`group` carries the scorecard team's context — `sisu_group_id` — for per-team
+resolvers; business-wide ones ignore it). Register one with `@resolver(key)`; a metric opts in by
+setting its `resolver_key`. The worker (`app.worker.scorecard_tick`) runs every active
+resolver-backed metric once a day over the trailing look-back (the open week + the 2 before it, so
+a late sync self-heals), writing `scorecard_value` with `source="resolver"`.
 
 null ≠ zero (SPEC 0.2 / 2.3): a resolver returns `None` only when its source is not a live feed —
 a *collection gap*. A live source that genuinely counts nothing returns `0`, a real datum. So a
@@ -28,7 +29,7 @@ from decimal import Decimal
 
 from sqlalchemy import func, or_, select
 
-from ..models import (Integration, ScorecardGroup, ScorecardMetric, ScorecardValue, Transaction)
+from ..models import (Agent, Integration, ScorecardGroup, ScorecardMetric, ScorecardValue, Transaction)
 
 log = logging.getLogger("app")
 
@@ -57,16 +58,15 @@ async def _sisu_live(s, tenant_id, business_id) -> bool:
 
 
 @resolver("ulrg_homes_closed")
-async def homes_closed(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date):
+async def homes_closed(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
     """Homes closed in the week — count of Sisu `Transaction`s with status=closed and a real sale
     (sale_price > 0) whose `close_date` falls in [week_start, week_end], across the whole business.
 
     `sale_price > 0` matches the rest of the dashboard's units-closed accounting (services/metrics
     `require_sale=True`) and Sisu's own Closed count: it drops $0 outbound-referral "closings",
-    which otherwise inflate the count ~7%. Business-wide by necessity: Sisu pulls one team (621),
-    and the record's `agent` object carries no Davis/SLC/Utah-County split — so this powers the
-    Overall "ULRG Q2 – 250 Homes" row, not the per-team Homes-Sold rows. Returns None only when
-    Sisu isn't a live feed; a live week with no closings is a real 0."""
+    which otherwise inflate the count ~7%. Business-wide (ignores `group`): powers the Overall
+    "ULRG Q2 – 250 Homes" row — includes every office, even out-of-state agents. Returns None only
+    when Sisu isn't a live feed; a live week with no closings is a real 0."""
     if not await _sisu_live(s, tenant_id, business_id):
         return None
     n = await s.scalar(select(func.count()).select_from(Transaction).where(
@@ -77,6 +77,56 @@ async def homes_closed(s, tenant_id, business_id, week_start: dt.date, week_end:
         Transaction.close_date >= week_start,
         Transaction.close_date <= week_end))
     return float(n)   # func.count() is never None; a live week with 0 closings stays a real 0
+
+
+async def _office_agent_ids(s, tenant_id, sisu_group_id: int) -> set | None:
+    """Agent ids whose live Sisu memberships include this office group. None when the roster hasn't
+    been synced yet (no agent carries memberships) — a collection gap, not an empty office. The JSON
+    array membership is filtered in Python (cross-dialect + the roster is ~140 agents, tiny)."""
+    rows = (await s.execute(select(Agent.id, Agent.sisu_group_ids).where(
+        Agent.tenant_id == tenant_id, Agent.source == "sisu",
+        Agent.sisu_group_ids.is_not(None)))).all()
+    if not rows:
+        return None
+    return {aid for aid, groups in rows if isinstance(groups, list) and sisu_group_id in groups}
+
+
+async def _team_count(s, tenant_id, business_id, group, extra) -> float | None:
+    """Shared per-team body: None if the team isn't mapped to a Sisu office, if Sisu isn't live, or
+    if the roster isn't synced (all gaps); otherwise the real count (0 included) of the team's deals
+    matching `extra` (a list of WHERE clauses). Attribution is via the deal's agent's office. A
+    synced-but-empty office (no agents assigned to it) is a real 0, not a gap — see null≠zero."""
+    sgid = (group or {}).get("sisu_group_id")
+    if sgid is None:
+        return None                                     # e.g. 'overall' — not a per-team row
+    if not await _sisu_live(s, tenant_id, business_id):
+        return None
+    ids = await _office_agent_ids(s, tenant_id, sgid)
+    if ids is None:                                     # roster not synced yet → gap (not 0)
+        return None
+    n = await s.scalar(select(func.count()).select_from(Transaction).where(
+        Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
+        Transaction.agent_id.in_(ids), *extra))         # empty office → IN () → real 0
+    return float(n)
+
+
+@resolver("ulrg_team_homes_closed")
+async def team_homes_closed(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Per-team Homes Sold — closed real sales in the week whose agent is in this team's Sisu office
+    (group.sisu_group_id). Same real-sale rule as the Overall row; scoped to the office's agents."""
+    return await _team_count(s, tenant_id, business_id, group, [
+        Transaction.status == "closed", Transaction.sale_price > 0,
+        Transaction.close_date >= week_start, Transaction.close_date <= week_end])
+
+
+@resolver("ulrg_team_under_contract")
+async def team_under_contract(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Per-team Under Contract — deals that WENT under contract in the week (contract_date in the
+    window) whose agent is in this team's office. A weekly flow of new contracts; sale_price > 0
+    drops $0 referrals (contract price)."""
+    return await _team_count(s, tenant_id, business_id, group, [
+        Transaction.sale_price > 0,
+        Transaction.contract_date >= week_start, Transaction.contract_date <= week_end])
 
 
 # ── runner (called by the worker) ────────────────────────────────────────────
@@ -129,22 +179,24 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date) -> int:
 
     async with session_factory() as s:                  # read the work list up front, read-only
         metrics = (await s.execute(
-            select(ScorecardMetric.id, ScorecardMetric.resolver_key, ScorecardGroup.business_id)
+            select(ScorecardMetric.id, ScorecardMetric.resolver_key, ScorecardGroup.business_id,
+                   ScorecardGroup.key, ScorecardGroup.sisu_group_id)
             .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
             .where(ScorecardMetric.tenant_id == tenant_id,
                    ScorecardMetric.active.is_(True),
                    ScorecardMetric.resolver_key.is_not(None)))).all()
 
     written = 0
-    for metric_id, key, business_id in metrics:
+    for metric_id, key, business_id, group_key, sisu_group_id in metrics:
         fn = RESOLVERS.get(key)
         if fn is None:
             log.warning("scorecard: metric %s names resolver %r, which isn't registered", metric_id, key)
             continue
+        group = {"key": group_key, "sisu_group_id": sisu_group_id}   # context for per-team resolvers
         for ws, we in weeks:
             async with session_factory() as s:
                 try:
-                    val = await fn(s, tenant_id, business_id, ws, we)
+                    val = await fn(s, tenant_id, business_id, ws, we, group=group)
                     await _write(s, tenant_id, metric_id, ws, val, key)
                     await s.commit()
                     written += 1

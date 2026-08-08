@@ -98,6 +98,48 @@ async def _get_page(client: httpx.AsyncClient, page: int) -> dict:
     return r.json()
 
 
+async def _agent_group_ids(client: httpx.AsyncClient, agent_id) -> list[int] | None:
+    """One agent's CURRENT Sisu group_ids via GET /v1/agent/edit-agent/{id} (agent.agent_groups,
+    is_included). The client feed carries no sub-team, but this does — it's the live source for
+    per-team scorecard attribution (office/pod/tier group ids). None on any failure or app-error, so
+    a transient blip leaves the stored roster untouched rather than wiping it."""
+    url = f"{settings.SISU_BASE_URL}/v1/agent/edit-agent/{agent_id}"
+    for attempt in range(3):                            # same 429/5xx backoff as the other Sisu calls
+        try:
+            r = await client.get(url)
+            if r.status_code == 429 and attempt < 2:
+                await asyncio.sleep(5 * (attempt + 1))
+                continue
+            if r.status_code >= 500 and attempt < 2:
+                await asyncio.sleep(2 ** attempt)
+                continue
+            r.raise_for_status()
+            body = r.json() or {}
+            if body.get("status_code") not in (0, None) or "agent" not in body:
+                return None                             # Sisu app-level error envelope (status_code != 0)
+            groups = (body.get("agent") or {}).get("agent_groups") or []
+            return sorted({int(g["group_id"]) for g in groups
+                           if g.get("is_included") and g.get("group_id") is not None})
+        except Exception:  # noqa: BLE001 — best-effort; caller keeps the prior value on failure
+            if attempt >= 2:
+                return None
+            await asyncio.sleep(1)
+    return None
+
+
+async def fetch_agent_groups(agent_external_ids, concurrency: int = 8) -> dict[str, list[int] | None]:
+    """Concurrently fetch each agent's Sisu group_ids. Returns {external_id: [group_id,...] | None};
+    None means the fetch failed for that agent (leave its stored memberships as-is)."""
+    out: dict[str, list[int] | None] = {}
+    sem = asyncio.Semaphore(concurrency)
+    async with httpx.AsyncClient(auth=_auth(), timeout=60, headers={"accept": "application/json"}) as c:
+        async def one(aid):
+            async with sem:
+                out[str(aid)] = await _agent_group_ids(c, aid)
+        await asyncio.gather(*(one(aid) for aid in agent_external_ids))
+    return out
+
+
 async def get_team_vendors() -> list[dict]:
     """The team's vendor directory (mortgage/title/warranty/… companies). Each has
     vendor_id, name, vendor_type (M=mortgage, T=title, W=warranty, H=inspection,

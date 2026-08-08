@@ -24,6 +24,21 @@ async def tick():
             await run_all(s, t.id, start, end)
 
 
+async def roster_tick():
+    """Daily: refresh Sisu agent group memberships (agent.sisu_group_ids) — the live source for
+    per-team scorecard attribution. Runs before scorecard_tick; one tenant's failure is isolated.
+    A no-op when Sisu isn't configured (fetches just fail and leave the roster as-is)."""
+    from .services.sync import sync_agent_offices
+    async with SessionLocal() as s:
+        tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
+    for tid in tenant_ids:
+        try:
+            async with SessionLocal() as s2:
+                await sync_agent_offices(s2, tid)
+        except Exception as e:
+            print(f"[roster_tick] tenant {tid}: {type(e).__name__}: {e}", flush=True)
+
+
 async def scorecard_tick():
     """ULRG L10 Scorecard resolvers (SPEC 3.1): daily, resolving the open week plus a trailing
     look-back so late syncs self-heal. `today` is the business-local date — the server runs UTC, so
@@ -72,14 +87,15 @@ async def ai_execute():
 
 
 def build_scheduler() -> AsyncIOScheduler:
-    """Configure the scheduler with the sync tick, the daily scorecard-resolver tick, and (when
-    the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`) and
-    the in-API scheduler (RUN_WORKER_IN_API) so both run exactly the same jobs."""
+    """Configure the scheduler with the sync tick, the daily agent-roster + scorecard-resolver ticks,
+    and (when the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`)
+    and the in-API scheduler (RUN_WORKER_IN_API) so both run exactly the same jobs."""
     sched = AsyncIOScheduler()
     sched.add_job(tick, "interval", minutes=settings.SYNC_INTERVAL_MINUTES,
                   next_run_time=dt.datetime.now())
-    sched.add_job(scorecard_tick, "cron", hour=5, minute=15,    # 5:15am business-local, not UTC
-                  timezone=ZoneInfo(settings.BILLING_TIMEZONE))
+    _tz = ZoneInfo(settings.BILLING_TIMEZONE)
+    sched.add_job(roster_tick, "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
+    sched.add_job(scorecard_tick, "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
     if settings.AI_EMPLOYEES_ENABLED:
         sched.add_job(ai_dispatch, "interval", minutes=1, next_run_time=dt.datetime.now())
         sched.add_job(ai_execute, "interval", seconds=15, next_run_time=dt.datetime.now())

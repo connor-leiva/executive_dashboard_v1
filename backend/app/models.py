@@ -151,6 +151,10 @@ class Agent(Base):
     name: Mapped[str] = mapped_column(String(200))
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Sisu group memberships (office/pod/tier group_ids), refreshed by the roster sync — the live
+    # source for per-team scorecard attribution (Sisu's client feed carries no sub-team). NULL = not
+    # yet fetched (≠ "no groups").
+    sisu_group_ids: Mapped[list | None] = mapped_column(JSONType, nullable=True)
     __table_args__ = (UniqueConstraint("tenant_id", "source", "external_id", name="uq_agent_src_ext"),)
 
 
@@ -752,6 +756,9 @@ class ScorecardGroup(Base):
     is_team_room: Mapped[bool] = mapped_column(Boolean, default=True)            # 'overall' is False
     read: Mapped[str | None] = mapped_column(Text, nullable=True)                # authored per group (Part 5.1)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    # Sisu office group_id this team maps to (43958=Davis, 43957=Salt Lake, 45345=Utah County for
+    # Spring) — tenant data set by the seed, drives per-team resolver attribution. NULL for 'overall'.
+    sisu_group_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     __table_args__ = (UniqueConstraint("tenant_id", "business_id", "key", name="uq_scorecard_group"),)
 
 

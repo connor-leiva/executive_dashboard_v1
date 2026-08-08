@@ -55,7 +55,7 @@ async def load_ulrg_scorecard(s, tenant_id) -> int:
         group = ScorecardGroup(
             tenant_id=tenant_id, business_id=biz.id, key=g["key"], name=g["name"],
             owner_name=g.get("owner"), is_team_room=g.get("is_team_room", True),
-            read=g.get("read"), sort_order=gi)
+            read=g.get("read"), sort_order=gi, sisu_group_id=g.get("sisu_group_id"))
         s.add(group)
         await s.flush()
         for mi, m in enumerate(g["metrics"]):

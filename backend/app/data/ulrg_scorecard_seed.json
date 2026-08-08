@@ -39,6 +39,7 @@
  "groups": [
   {
    "key": "davis",
+   "sisu_group_id": 43958,
    "name": "Davis",
    "owner": "Jace",
    "is_team_room": true,
@@ -286,6 +287,7 @@
   },
   {
    "key": "slc",
+   "sisu_group_id": 43957,
    "name": "Slc",
    "owner": "Justin",
    "is_team_room": true,
@@ -533,6 +535,7 @@
   },
   {
    "key": "utco",
+   "sisu_group_id": 45345,
    "name": "Utah County",
    "owner": "Lauren",
    "is_team_room": true,
@@ -746,6 +749,7 @@
   },
   {
    "key": "overall",
+   "sisu_group_id": null,
    "name": "Overall",
    "owner": "Sarah",
    "is_team_room": false,

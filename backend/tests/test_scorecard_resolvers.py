@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db import SessionLocal, engine
-from app.models import (Base, Tenant, Business, Integration, Transaction,
+from app.models import (Agent, Base, Tenant, Business, Integration, Transaction,
                         ScorecardGroup, ScorecardMetric, ScorecardValue)
 from app.services import scorecard_resolvers as R
 
@@ -191,3 +191,122 @@ async def test_a_raising_resolver_is_isolated(env):
     async with SessionLocal() as s:
         v = await _val(s, env["tid"], env["mid"], MON)
         assert float(v.value) == 1.0                                # the healthy resolver still wrote
+
+
+# ── per-team resolvers (SPEC Step 5, agent→office attribution) ────────────────
+DAVIS_GID, SLC_GID = 43958, 43957     # Sisu office group_ids
+DAVIS = {"key": "davis", "sisu_group_id": DAVIS_GID}
+
+
+async def _txn_agent(s, tid, bid, agent_id, status, ext, close_date=None,
+                     contract_date=None, sale_price=350000):
+    s.add(Transaction(tenant_id=tid, business_id=bid, source="sisu", external_id=ext, status=status,
+                      close_date=close_date, contract_date=contract_date, sale_price=sale_price,
+                      agent_id=agent_id))
+
+
+@pytest.fixture
+async def team_env():
+    """A tenant whose ULRG business has a Davis scorecard team (mapped to office 43958) and a synced
+    roster: 2 Davis agents, 1 SLC agent, 1 out-of-office agent."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with SessionLocal() as s:
+        t = Tenant(slug=f"tt-{uuid.uuid4().hex[:8]}", name="Team Test")
+        s.add(t); await s.flush()
+        b = Business(tenant_id=t.id, key="ulrg", name="ULRG", tag="re")
+        s.add(b); await s.flush()
+        s.add(Integration(tenant_id=t.id, provider="sisu", business_id=b.id,
+                          status="connected", last_synced_at=dt.datetime.now(dt.timezone.utc)))
+        agents = {
+            "d1": Agent(tenant_id=t.id, source="sisu", external_id="d1", name="Davis One",
+                        sisu_group_ids=[DAVIS_GID, 48550]),          # office + a tier
+            "d2": Agent(tenant_id=t.id, source="sisu", external_id="d2", name="Davis Two",
+                        sisu_group_ids=[DAVIS_GID]),
+            "s1": Agent(tenant_id=t.id, source="sisu", external_id="s1", name="Slc One",
+                        sisu_group_ids=[SLC_GID]),
+            "n1": Agent(tenant_id=t.id, source="sisu", external_id="n1", name="Nomad",
+                        sisu_group_ids=[99999]),                     # out-of-office (e.g. Team Alabama)
+        }
+        s.add_all(list(agents.values())); await s.flush()
+        g = ScorecardGroup(tenant_id=t.id, business_id=b.id, key="davis", name="Davis",
+                           is_team_room=True, sisu_group_id=DAVIS_GID)
+        s.add(g); await s.flush()
+        m = ScorecardMetric(tenant_id=t.id, group_id=g.id, name="130 Homes Sold Q2", goal=Decimal("8"),
+                            direction="gte", type="flow", resolver_key="ulrg_team_homes_closed", active=True)
+        muc = ScorecardMetric(tenant_id=t.id, group_id=g.id, name="Under Contract", goal=Decimal("10"),
+                              direction="gte", type="flow", resolver_key="ulrg_team_under_contract",
+                              active=True, sort_order=1)
+        s.add_all([m, muc]); await s.flush()
+        await s.commit()
+        yield {"tid": t.id, "bid": b.id, "mid": m.id, "muc": muc.id,
+               "d": [agents["d1"].id, agents["d2"].id], "s": agents["s1"].id, "n": agents["n1"].id}
+
+
+async def test_team_homes_closed_only_counts_the_offices_agents(team_env):
+    e = team_env
+    async with SessionLocal() as s:
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "a", close_date=MON)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][1], "closed", "b", close_date=SUN)
+        await _txn_agent(s, e["tid"], e["bid"], e["s"], "closed", "c", close_date=MON)      # other office
+        await _txn_agent(s, e["tid"], e["bid"], e["n"], "closed", "d", close_date=MON)      # out-of-office
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "z", close_date=MON, sale_price=0)  # $0
+        await s.commit()
+        n = await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)
+    assert n == 2.0     # only the two Davis-agent real sales
+
+
+async def test_team_under_contract_uses_contract_date(team_env):
+    e = team_env
+    async with SessionLocal() as s:
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "pending", "u1", contract_date=WED)  # UC this week
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][1], "closed", "u2", contract_date=MON,
+                         close_date=dt.date(2026, 9, 1))                                        # UC this wk, later closed
+        await _txn_agent(s, e["tid"], e["bid"], e["s"], "pending", "u3", contract_date=WED)     # other office
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "pending", "u4",
+                         contract_date=dt.date(2026, 7, 20))                                    # prior week
+        await s.commit()
+        n = await R.team_under_contract(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)
+    assert n == 2.0
+
+
+async def test_team_live_zero_vs_unsynced_roster_and_unmapped_group(team_env):
+    e = team_env
+    # Davis agents exist but nothing closed this week → real 0 (not a gap)
+    async with SessionLocal() as s:
+        assert await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN, group=DAVIS) == 0.0
+    # an unmapped group (overall, sisu_group_id None) → None, never a per-team count
+    async with SessionLocal() as s:
+        assert await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN,
+                                         group={"key": "overall", "sisu_group_id": None}) is None
+    # roster not synced (no agent carries memberships) → None (gap), not 0
+    async with SessionLocal() as s:
+        for a in (await s.execute(select(Agent).where(Agent.tenant_id == e["tid"]))).scalars():
+            a.sisu_group_ids = None
+        await s.commit()
+    async with SessionLocal() as s:
+        assert await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN, group=DAVIS) is None
+
+
+async def test_synced_but_empty_office_is_a_real_zero(team_env):
+    e = team_env
+    # roster IS synced, but this mapped office has no agents assigned → a real 0, not a gap (None)
+    async with SessionLocal() as s:
+        n = await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN,
+                                      group={"key": "ghost", "sisu_group_id": 55555})
+    assert n == 0.0
+
+
+async def test_run_resolvers_wires_per_team_group_context(team_env):
+    e = team_env
+    async with SessionLocal() as s:
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "h1", close_date=WED)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][1], "closed", "h2", close_date=WED)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "pending", "uc1", contract_date=WED)
+        await s.commit()
+    await R.run_resolvers(SessionLocal, e["tid"], WED)
+    async with SessionLocal() as s:
+        homes = await _val(s, e["tid"], e["mid"], MON)
+        uc = await _val(s, e["tid"], e["muc"], MON)
+        assert float(homes.value) == 2.0 and homes.source == "resolver"
+        assert float(uc.value) == 1.0 and uc.source == "resolver"
