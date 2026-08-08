@@ -13,7 +13,7 @@ export default function ScorecardRow({ r, wkey, weeks, offset, counted, earlier,
   const rate = r.type === "rate";
   const vals = r.values.slice(offset).slice().reverse();   // render newest first; storage ascending
   const wk = weeks.slice().reverse();                      // index-aligned to vals
-  const hand = r.source === "manual";
+  const hand = !r.auto;      // HAND only on rows still entered by hand (no live resolver)
   const snap = r.type === "snapshot";
 
   return (

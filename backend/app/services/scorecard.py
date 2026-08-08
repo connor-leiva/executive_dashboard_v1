@@ -220,6 +220,7 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                 "direction": d, "type": m.type, "stage": m.stage, "lever": m.lever,
                 "owner": {"initials": m.owner_initials} if m.owner_initials else None,
                 "source": m.source, "source_synced_at": None,
+                "auto": m.resolver_key is not None,     # auto-sourced (no HAND chip); else hand-entered
                 "values": [vmap.get(m.id, {}).get(w) for w in weeks],
                 "trend_4v4": trend_4v4(all_vals, goal, m.type, d),
                 "streak": miss_streak(all_vals, goal, d),
