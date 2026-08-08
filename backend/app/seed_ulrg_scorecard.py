@@ -80,15 +80,42 @@ async def load_ulrg_scorecard(s, tenant_id) -> int:
     return n_values
 
 
-async def _main(slug: str):
+async def map_group_scopes(s, tenant_id) -> int:
+    """Set each ScorecardGroup.sisu_group_id from the seed JSON WITHOUT clearing metrics/values —
+    for an already-seeded tenant (prod) that predates the office mapping. Non-destructive: the only
+    field it writes is sisu_group_id. Returns the number of groups updated."""
+    data = _load_data()
+    biz = (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
+    if not biz:
+        raise RuntimeError("no ULRG business for this tenant")
+    n = 0
+    for g in data["groups"]:
+        grp = (await s.execute(select(ScorecardGroup).where(
+            ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.business_id == biz.id,
+            ScorecardGroup.key == g["key"]))).scalar_one_or_none()
+        if grp is not None:
+            grp.sisu_group_id = g.get("sisu_group_id")
+            n += 1
+    await s.commit()
+    return n
+
+
+async def _main(slug: str, scopes_only: bool = False):
     async with SessionLocal() as s:
         t = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
         if not t:
             print(f"[seed_ulrg_scorecard] no tenant '{slug}'"); return
+        if scopes_only:                                  # --scopes: just set the office mapping
+            n = await map_group_scopes(s, t.id)
+            print(f"[seed_ulrg_scorecard] set the Sisu office mapping on {n} groups for '{slug}' "
+                  f"(no scorecard values changed)")
+            return
         n = await load_ulrg_scorecard(s, t.id)
         print(f"[seed_ulrg_scorecard] seeded groups + metrics + {n} weekly values for '{slug}' "
               f"from the real sheet (confirm fiscal-quarter boundaries with Connor)")
 
 
 if __name__ == "__main__":
-    asyncio.run(_main(sys.argv[1] if len(sys.argv) > 1 else "springb"))
+    _args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    asyncio.run(_main(_args[0] if _args else "springb", scopes_only="--scopes" in sys.argv))
