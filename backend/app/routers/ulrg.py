@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import mimetypes
 import secrets
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
@@ -19,7 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db import get_session
 from ..deps import current_user, require_tab
-from ..models import User, Business, Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue, ShareLink
+from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue,
+                      ScorecardGoal, ShareLink)
 from ..services import binder_storage, scorecard
 from ..services.audit import audit
 
@@ -260,3 +262,71 @@ async def set_periods(body: PeriodsIn, user: User = Depends(current_user),
           {"count": len(out)})
     await s.commit()
     return {"ok": True, "periods": out}
+
+
+# ── per-period goals (Phase C) — a goal per (metric, period); absent → the metric's default ─────
+class GoalIn(BaseModel):
+    metric_id: str
+    goal: float
+
+
+class GoalsIn(BaseModel):
+    period: str
+    goals: list[GoalIn]
+
+
+@router.get("/goals")
+async def get_goals(period: str, user: User = Depends(current_user),
+                    s: AsyncSession = Depends(get_session)):
+    """Each active measurable's goal for a period (override if set, else the metric default), grouped
+    for the editor. owner/admin."""
+    _require_admin(user)
+    rows = (await s.execute(
+        select(ScorecardMetric, ScorecardGroup.name, ScorecardGroup.sort_order)
+        .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
+        .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.active.is_(True))
+        .order_by(ScorecardGroup.sort_order, ScorecardMetric.sort_order))).all()
+    overrides = {str(mid): float(gv) for mid, gv in (await s.execute(select(
+        ScorecardGoal.metric_id, ScorecardGoal.goal).where(
+        ScorecardGoal.tenant_id == user.tenant_id, ScorecardGoal.period_key == period))).all()}
+    goals = [{"metric_id": str(m.id), "name": m.name, "group": gname, "type": m.type,
+              "default": float(m.goal), "goal": overrides.get(str(m.id), float(m.goal)),
+              "overridden": str(m.id) in overrides}
+             for m, gname, _ in rows]
+    return {"period": period, "goals": goals}
+
+
+@router.put("/goals")
+async def set_goals(body: GoalsIn, user: User = Depends(current_user),
+                    s: AsyncSession = Depends(get_session)):
+    """Upsert per-period goals for a period (owner/admin). Only touches this period, so other periods
+    keep their goals."""
+    _require_admin(user)
+    valid = {str(mid) for (mid,) in (await s.execute(select(ScorecardMetric.id).where(
+        ScorecardMetric.tenant_id == user.tenant_id))).all()}
+    targets = [g for g in body.goals if g.metric_id in valid]
+
+    async def _apply() -> int:
+        existing = {str(r.metric_id): r for r in (await s.execute(select(ScorecardGoal).where(
+            ScorecardGoal.tenant_id == user.tenant_id, ScorecardGoal.period_key == body.period))).scalars()}
+        for g in targets:
+            row = existing.get(g.metric_id)
+            if row is not None:
+                row.goal = Decimal(str(g.goal))
+            else:
+                s.add(ScorecardGoal(tenant_id=user.tenant_id, metric_id=g.metric_id,
+                                    period_key=body.period, goal=Decimal(str(g.goal))))
+        return len(targets)
+
+    n = await _apply()
+    audit(s, user.tenant_id, user.id, "scorecard.goals_set", "tenant", user.tenant_id,
+          {"period": body.period, "count": n})
+    try:
+        await s.commit()
+    except IntegrityError:                              # a concurrent PUT won the insert race for this period
+        await s.rollback()
+        n = await _apply()
+        audit(s, user.tenant_id, user.id, "scorecard.goals_set", "tenant", user.tenant_id,
+              {"period": body.period, "count": n})
+        await s.commit()
+    return {"ok": True, "count": n}

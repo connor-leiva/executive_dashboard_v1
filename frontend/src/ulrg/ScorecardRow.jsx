@@ -12,6 +12,7 @@ export default function ScorecardRow({ r, wkey, weeks, offset, counted, earlier,
   const na = <span style={{ fontFamily: FB, fontSize: 11.5, color: C.muted }}>–</span>;
   const rate = r.type === "rate";
   const vals = r.values.slice(offset).slice().reverse();   // render newest first; storage ascending
+  const wgoals = (r.week_goals || []).slice(offset).slice().reverse();   // each week's period goal
   const wk = weeks.slice().reverse();                      // index-aligned to vals
   const hand = !r.auto;      // HAND only on rows still entered by hand (no live resolver)
   const snap = r.type === "snapshot";
@@ -74,7 +75,8 @@ export default function ScorecardRow({ r, wkey, weeks, offset, counted, earlier,
         )}
 
         {vals.map((val, i) => {
-          const bb = val === null || val === undefined || !r.goal ? null : band((val / r.goal) * 100);
+          const wgoal = wgoals[i] == null ? r.goal : wgoals[i];   // that week's period goal (honor a 0)
+          const bb = val === null || val === undefined || !wgoal ? null : band((val / wgoal) * 100);
           const inWin = counted.has(wk[i].n);
           return (
             <td key={i} style={{ ...tdC, fontFamily: FD, fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",

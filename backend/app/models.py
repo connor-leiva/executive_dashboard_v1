@@ -796,6 +796,19 @@ class ScorecardValue(Base):
     __table_args__ = (UniqueConstraint("metric_id", "week_start", name="uq_scorecard_value"),)
 
 
+class ScorecardGoal(Base):
+    """Per-period goal for a measurable (Phase C). Each measurement period keeps its own goals so
+    past periods never shift when a new sprint's goals are set. Absent row → the metric's default
+    goal (ScorecardMetric.goal). Unique per (metric, period)."""
+    __tablename__ = "scorecard_goal"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    metric_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("scorecard_metric.id", ondelete="CASCADE"), index=True)
+    period_key: Mapped[str] = mapped_column(String(40))
+    goal: Mapped[Decimal] = mapped_column(Numeric(12, 4))
+    __table_args__ = (UniqueConstraint("metric_id", "period_key", name="uq_scorecard_goal"),)
+
+
 class TeamCommitment(Base):
     __tablename__ = "team_commitment"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)

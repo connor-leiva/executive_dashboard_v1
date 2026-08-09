@@ -17,7 +17,7 @@ import logging
 
 from sqlalchemy import select
 
-from ..models import Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue
+from ..models import Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue, ScorecardGoal
 
 log = logging.getLogger("app")
 
@@ -83,8 +83,9 @@ def trend_4v4(values, goal: float, type_: str, direction: str):
     vals = _clean(values)
     if len(vals) < 8:
         return None
-    return round(attainment(vals[-4:], goal, type_, direction)
-                 - attainment(vals[-8:-4], goal, type_, direction), 1)
+    a = attainment(vals[-4:], goal, type_, direction)
+    b = attainment(vals[-8:-4], goal, type_, direction)
+    return None if a is None or b is None else round(a - b, 1)   # goal 0 → no scoreable trend
 
 
 def miss_streak(values, goal: float, direction: str) -> int:
@@ -174,8 +175,30 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
     """The GET /ulrg/scorecard payload. All math server-side; the client reverses for display only."""
     today = today or dt.date.today()
     tenant = await s.get(Tenant, tenant_id)
-    q = quarter_of((tenant.config or {}).get("fiscal_quarters"), today)
+    fq = (tenant.config or {}).get("fiscal_quarters") or []
+    q = quarter_of(fq, today)
     wl = q["weeks_left"]
+    cur_key = q["key"]
+
+    # per-period goals (Phase C): (metric_id, period_key) → goal; absent → the metric's default.
+    goal_rows = (await s.execute(select(
+        ScorecardGoal.metric_id, ScorecardGoal.period_key, ScorecardGoal.goal).where(
+        ScorecardGoal.tenant_id == tenant_id))).all()
+    gmap = {(str(mid), pk): float(gv) for mid, pk, gv in goal_rows}
+
+    def _period_of(d: dt.date):
+        iso = d.isoformat()
+        for p in fq:
+            if p["start"] <= iso <= p["end"]:            # ISO date strings compare correctly
+                return p["key"]
+        return None
+
+    def _goal_for(mid, period_key, default: float) -> float:
+        if period_key is not None:
+            v = gmap.get((str(mid), period_key))
+            if v is not None:
+                return v
+        return default
 
     groups = (await s.execute(select(ScorecardGroup).where(
         ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.business_id == business_id)
@@ -199,10 +222,10 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                  for w in weeks]
     wkey = f"w{weeks_param}"
 
-    def _cum(all_vals, m):
+    def _cum(all_vals, m, goal):
         if m.type == "snapshot":
             return None
-        goal, d = float(m.goal), m.direction
+        d = m.direction
         in_q = [vmap.get(m.id, {}).get(w) for w in all_weeks if w >= q["start_date"]]
         qtd = None if q["weeks_closed"] < 2 else cumulative_block(in_q, goal, m.type, d, len(in_q), wl)
         return {"w4": cumulative_block(all_vals, goal, m.type, d, 4, wl),
@@ -213,8 +236,9 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
         rows, move_rows = [], []
         for m in by_group.get(g.id, []):
             all_vals = [vmap.get(m.id, {}).get(w) for w in all_weeks]
-            goal, d = float(m.goal), m.direction
-            cum = _cum(all_vals, m)
+            default_goal, d = float(m.goal), m.direction
+            goal = _goal_for(m.id, cur_key, default_goal)   # current-period goal: cumulative + display
+            cum = _cum(all_vals, m, goal)
             rows.append({
                 "id": str(m.id), "measurable": m.name, "note": m.note, "goal": goal,
                 "direction": d, "type": m.type, "stage": m.stage, "lever": m.lever,
@@ -222,6 +246,9 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                 "source": m.source, "source_synced_at": None,
                 "auto": m.resolver_key is not None,     # auto-sourced (no HAND chip); else hand-entered
                 "values": [vmap.get(m.id, {}).get(w) for w in weeks],
+                # each week keeps its OWN period's goal, so past periods don't recolor when a new
+                # period's goal changes (Phase C history)
+                "week_goals": [_goal_for(m.id, _period_of(w), default_goal) for w in weeks],
                 "trend_4v4": trend_4v4(all_vals, goal, m.type, d),
                 "streak": miss_streak(all_vals, goal, d),
                 "cumulative": cum,

@@ -20,6 +20,79 @@ export default function ScorecardSettings({ groups, onClose, onChanged }) {
         {(groups || []).map((g) => <OfficeRow key={g.id} g={g} onChanged={onChanged} />)}
       </div>
       <PeriodsEditor onChanged={onChanged} />
+      <GoalsEditor onChanged={onChanged} />
+    </div>
+  );
+}
+
+function GoalsEditor({ onChanged }) {
+  const [periods, setPeriods] = useState(null);
+  const [period, setPeriod] = useState("");
+  const [goals, setGoals] = useState(null);
+  const [state, setState] = useState("idle");
+
+  useEffect(() => {
+    getJSON("/ulrg/periods").then((d) => {
+      const ps = d.periods || [];
+      setPeriods(ps);
+      if (ps.length) setPeriod(ps[ps.length - 1].key);   // default to the latest period
+    }).catch(() => setPeriods([]));
+  }, []);
+  useEffect(() => {
+    if (!period) return;
+    setGoals(null);
+    getJSON(`/ulrg/goals?period=${encodeURIComponent(period)}`).then((d) => setGoals(d.goals || [])).catch(() => setGoals([]));
+  }, [period]);
+
+  async function save() {
+    setState("saving");
+    try {
+      // send only fields with a real number (0 is a valid track-only goal); a cleared field is skipped,
+      // so it keeps its current goal instead of silently becoming 0.
+      const payload = goals
+        .filter((g) => String(g.goal).trim() !== "" && Number.isFinite(parseFloat(g.goal)))
+        .map((g) => ({ metric_id: g.metric_id, goal: parseFloat(g.goal) }));
+      await putJSON("/ulrg/goals", { period, goals: payload });
+      setState("saved"); onChanged && onChanged(); setTimeout(() => setState("idle"), 1600);
+    } catch (e) { setState("error"); }
+  }
+
+  if (periods === null) return null;
+  if (!periods.length) return (
+    <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
+      <div style={_label}>Goals per period</div>
+      <div style={{ fontFamily: FB, fontSize: 12, color: C.muted }}>Add a measurement period first.</div>
+    </div>
+  );
+
+  return (
+    <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
+      <div style={_label}>Goals per period</div>
+      <select value={period} onChange={(e) => setPeriod(e.target.value)} style={{ ..._field, minWidth: 220 }}>
+        {periods.map((p) => <option key={p.key} value={p.key}>{p.key} ({p.start} → {p.end})</option>)}
+      </select>
+      {goals === null
+        ? <div style={{ ..._label, marginTop: 12 }}>Loading goals…</div>
+        : (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 340, overflowY: "auto" }}>
+            {goals.map((g) => (
+              <div key={g.metric_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 12.5, color: C.body }}>
+                  <span style={{ color: C.muted, fontSize: 11 }}>{g.group} · </span>{g.name}
+                  {g.type === "rate" && <span style={{ color: C.muted, fontSize: 11 }}> (%)</span>}
+                </span>
+                <input type="number" step="0.1" value={g.goal}
+                       onChange={(e) => setGoals(goals.map((x) => x.metric_id === g.metric_id ? { ...x, goal: e.target.value } : x))}
+                       style={{ ..._field, width: 92, textAlign: "right" }} />
+              </div>
+            ))}
+            <button onClick={save} disabled={state === "saving"} style={{ ..._btn, alignSelf: "flex-start", marginTop: 8,
+              color: state === "saved" ? C.meadowInk : state === "error" ? C.poppy : C.ink,
+              borderColor: state === "error" ? C.poppy : C.hair }}>
+              {state === "saving" ? "Saving…" : state === "saved" ? "Saved ✓" : state === "error" ? "Retry" : `Save goals for ${period}`}
+            </button>
+          </div>
+        )}
     </div>
   );
 }
