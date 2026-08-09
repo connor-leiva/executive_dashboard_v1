@@ -7,9 +7,10 @@ scope, Part 8). Manual entry is owner/admin or the metric's own owner. All math 
 from __future__ import annotations
 
 import datetime as dt
+import mimetypes
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -18,8 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db import get_session
 from ..deps import current_user, require_tab
-from ..models import User, Business, ScorecardMetric, ScorecardValue, ShareLink
-from ..services import scorecard
+from ..models import User, Business, ScorecardGroup, ScorecardMetric, ScorecardValue, ShareLink
+from ..services import binder_storage, scorecard
 from ..services.audit import audit
 
 router = APIRouter(prefix="/ulrg", tags=["ulrg"])
@@ -146,3 +147,65 @@ async def revoke_share(share_id: str, user: User = Depends(current_user),
         link.revoked_at = dt.datetime.now(dt.timezone.utc)
         audit(s, user.tenant_id, user.id, "scorecard.share_revoked", "share_link", link.id, {})
         await s.commit()
+
+
+# ── self-service office config (Step: scorecard settings) — owner name + headshot ──────────────
+class GroupPatch(BaseModel):
+    owner_name: str | None = None
+
+
+async def _group(s: AsyncSession, tenant_id, group_id: str) -> ScorecardGroup:
+    g = (await s.execute(select(ScorecardGroup).where(
+        ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.id == group_id))).scalar_one_or_none()
+    if g is None:
+        raise HTTPException(404, "Unknown group")
+    return g
+
+
+@router.patch("/group/{group_id}")
+async def edit_group(group_id: str, body: GroupPatch, user: User = Depends(current_user),
+                     s: AsyncSession = Depends(get_session)):
+    """Rename a team's owner (owner/admin) — e.g. first name → full name, self-service."""
+    _require_admin(user)
+    g = await _group(s, user.tenant_id, group_id)
+    if body.owner_name is not None:
+        g.owner_name = body.owner_name.strip() or None
+    audit(s, user.tenant_id, user.id, "scorecard.group_edit", "scorecard_group", g.id,
+          {"owner_name": g.owner_name})
+    await s.commit()
+    return {"ok": True, "owner_name": g.owner_name}
+
+
+@router.post("/group/{group_id}/photo", status_code=201)
+async def upload_group_photo(group_id: str, file: UploadFile = File(...),
+                             user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """Upload an office/owner headshot (owner/admin). Bytes go to the shared object storage."""
+    _require_admin(user)
+    g = await _group(s, user.tenant_id, group_id)
+    ct = file.content_type or ""
+    if not ct.startswith("image/"):
+        raise HTTPException(400, "Please upload an image")
+    data = await file.read()
+    if len(data) > 5_000_000:
+        raise HTTPException(413, "Image too large (max 5 MB)")
+    ref = f"{user.tenant_id}/scorecard-photos/{g.id}/{binder_storage.safe_filename(file.filename or 'photo')}"
+    g.owner_photo_ref = binder_storage.put(ref, data, ct)
+    audit(s, user.tenant_id, user.id, "scorecard.group_photo", "scorecard_group", g.id, {})
+    await s.commit()
+    return {"ok": True}
+
+
+@router.get("/group/{group_id}/photo")
+async def group_photo(group_id: str, s: AsyncSession = Depends(get_session)):
+    """Serve a headshot — PUBLIC (no auth) so it shows in the app AND the read-only ClickUp embed.
+    Not sensitive; the group id is an unguessable UUID."""
+    g = (await s.execute(select(ScorecardGroup).where(
+        ScorecardGroup.id == group_id))).scalar_one_or_none()
+    if g is None or not g.owner_photo_ref:
+        raise HTTPException(404, "No photo")
+    try:
+        data = binder_storage.read(g.owner_photo_ref)
+    except Exception:
+        raise HTTPException(404, "No photo")
+    media_type = mimetypes.guess_type(g.owner_photo_ref)[0] or "image/jpeg"
+    return Response(content=data, media_type=media_type, headers={"Cache-Control": "public, max-age=300"})

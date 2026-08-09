@@ -759,6 +759,7 @@ class ScorecardGroup(Base):
     # Sisu office group_id this team maps to (43958=Davis, 43957=Salt Lake, 45345=Utah County for
     # Spring) — tenant data set by the seed, drives per-team resolver attribution. NULL for 'overall'.
     sisu_group_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    owner_photo_ref: Mapped[str | None] = mapped_column(String(300), nullable=True)   # headshot in object storage
     __table_args__ = (UniqueConstraint("tenant_id", "business_id", "key", name="uq_scorecard_group"),)
 
 

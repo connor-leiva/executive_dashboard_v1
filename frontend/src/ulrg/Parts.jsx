@@ -1,6 +1,26 @@
 /* Small shared scorecard UI, ported from the mockup (Card / Chip / Avatar / Bar / Dir /
    Eyebrow). All colors come from scorecardMath's palette so band hexes stay in one place. */
 import { C, FD, FB, FM, band, sgn } from "./scorecardMath.js";
+import { fileUrl } from "../api.js";
+
+/* Owner headshot (or initial) + name, next to a group header. `dark` for the dark group banner. */
+export function OwnerBadge({ owner, dark, size = 22 }) {
+  if (!owner) return null;
+  const name = owner.name || "";
+  const src = owner.photo_url ? fileUrl(owner.photo_url) : null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+      {src
+        ? <img src={src} alt="" style={{ width: size, height: size, borderRadius: 99, objectFit: "cover",
+            border: `1px solid ${dark ? "rgba(255,255,255,.3)" : C.hair}` }} />
+        : <span style={{ width: size, height: size, borderRadius: 99, display: "inline-flex", alignItems: "center",
+            justifyContent: "center", fontFamily: FM, fontSize: Math.round(size * 0.42),
+            background: dark ? "rgba(255,255,255,.15)" : C.mist, color: dark ? C.onDark : C.slate }}>
+            {(name[0] || "·").toUpperCase()}</span>}
+      <span style={{ fontFamily: FB, fontSize: 11.5, color: dark ? C.onDark : C.slate }}>{name}</span>
+    </span>
+  );
+}
 
 export function Eyebrow({ children, color = C.muted }) {
   return <div style={{ fontFamily: FM, fontSize: 9.5, letterSpacing: ".15em", textTransform: "uppercase", color }}>{children}</div>;

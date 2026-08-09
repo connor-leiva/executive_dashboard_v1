@@ -2,7 +2,7 @@
    below goal) and the free win (lowest-attainment behavior row). Both metric ids are computed
    server-side and returned in group.move; here we just read those rows and render. */
 import { C, FD, FB, band, verdictStyle } from "./scorecardMath.js";
-import { Card, Chip, Eyebrow, Bar, Dir } from "./Parts.jsx";
+import { Card, Chip, Eyebrow, Bar, Dir, OwnerBadge } from "./Parts.jsx";
 
 export default function MoveCard({ group, wkey }) {
   const byId = (id) => group.rows.find((r) => r.id === id) || null;
@@ -11,13 +11,13 @@ export default function MoveCard({ group, wkey }) {
   const crC = cr && cr.cumulative && cr.cumulative[wkey];
   const fwC = fw && fw.cumulative && fw.cumulative[wkey];
   const v = crC && verdictStyle(crC.verdict);
-  const owner = group.owner && group.owner.name;
 
   return (
     <Card style={{ flex: "1 1 300px", minWidth: 280, borderTop: `3px solid ${crC ? band(crC.attain).bar : C.meadow}` }} pad={18}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
         <div style={{ fontFamily: FD, fontSize: 13, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase", color: C.ink }}>{group.name}</div>
-        <span style={{ fontFamily: FB, fontSize: 11.5, color: owner ? C.slate : C.amberInk }}>{owner || "Unassigned"}</span>
+        {group.owner ? <OwnerBadge owner={group.owner} size={24} />
+                     : <span style={{ fontFamily: FB, fontSize: 11.5, color: C.amberInk }}>Unassigned</span>}
       </div>
       {crC ? (
         <>

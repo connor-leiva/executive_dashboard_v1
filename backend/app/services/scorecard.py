@@ -230,8 +230,12 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                               "cum": (cum or {}).get(wkey) if cum else None})
         constraint, free_win = move(move_rows)
         groups_out.append({
-            "key": g.key, "name": g.name, "is_team_room": g.is_team_room,
-            "owner": {"name": g.owner_name} if g.owner_name else None, "read": g.read,
+            "id": str(g.id), "key": g.key, "name": g.name, "is_team_room": g.is_team_room,
+            "owner": ({"name": g.owner_name,
+                       "photo_url": (f"/ulrg/group/{g.id}/photo?v={str(g.owner_photo_ref)[-8:]}"
+                                     if g.owner_photo_ref else None)}
+                      if (g.owner_name or g.owner_photo_ref) else None),
+            "read": g.read,
             "move": {"constraint_metric_id": constraint["id"] if constraint else None,
                      "free_win_metric_id": free_win["id"] if free_win else None},
             "rows": rows,

@@ -4,10 +4,11 @@
 import { useState, Fragment } from "react";
 import { useScorecard } from "./useScorecard.js";
 import { C, FD, FB, FM, band } from "./scorecardMath.js";
-import { Card, thL, thC, thCum, groupTh } from "./Parts.jsx";
+import { Card, thL, thC, thCum, groupTh, OwnerBadge } from "./Parts.jsx";
 import ScorecardRow from "./ScorecardRow.jsx";
 import MoveCard from "./MoveCard.jsx";
 import ShareButton from "./ShareButton.jsx";
+import ScorecardSettings from "./ScorecardSettings.jsx";
 
 const VIS_OPEN = 6, VIS_SHUT = 13;   // weeks shown when the panel is open / shut (Part 1.3)
 const SRC_LABEL = { sisu: "Sisu", fub: "Follow Up Boss", ghl: "GoHighLevel", manual: "Entered by hand" };
@@ -22,8 +23,9 @@ function widths(cum, nWeeks, earlier) {
 }
 
 export default function Scorecard({ role, shareToken = null }) {
-  const { data } = useScorecard(13, shareToken);
-  const isAdmin = !shareToken && (role === "owner" || role === "admin");   // no Share button inside an embed
+  const { data, reload } = useScorecard(13, shareToken);
+  const isAdmin = !shareToken && (role === "owner" || role === "admin");   // no Share/Settings inside an embed
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [win, setWin] = useState(13);        // window: 4 | 13 | "qtd"
   const [cum, setCum] = useState(true);      // cumulative panel open
   const [hideOk, setHideOk] = useState(false);
@@ -60,6 +62,9 @@ export default function Scorecard({ role, shareToken = null }) {
 
   return (
     <>
+      {isAdmin && settingsOpen && (
+        <ScorecardSettings groups={data.groups} onClose={() => setSettingsOpen(false)} onChanged={reload} />
+      )}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
         {data.groups.filter((g) => g.is_team_room).map((g) => (
           <MoveCard key={g.key} group={g} wkey={`w${data.default_window}`} />
@@ -76,6 +81,11 @@ export default function Scorecard({ role, shareToken = null }) {
             <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: FB, fontSize: 12, color: C.slate, cursor: "pointer" }}>
               <input type="checkbox" checked={hideOk} onChange={(e) => setHideOk(e.target.checked)} /> Only what is off
             </label>
+            {isAdmin && (
+              <button onClick={() => setSettingsOpen((v) => !v)} style={{ fontFamily: FM, fontSize: 11.5,
+                color: settingsOpen ? C.ink : C.slate, background: "none", border: `1px solid ${C.hair}`,
+                borderRadius: 8, padding: "5px 11px", cursor: "pointer" }}>Settings</button>
+            )}
             {isAdmin && <ShareButton />}
           </div>
         </div>
@@ -190,7 +200,8 @@ function FragmentGroup({ g, owner, NCOL, children }) {
         <td colSpan={NCOL} style={{ padding: 0 }}>
           <div style={{ background: C.evergreen, padding: "9px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <span style={{ fontFamily: FD, fontSize: 12, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase", color: C.onDark }}>{g.name}</span>
-            <span style={{ fontFamily: FB, fontSize: 11, color: owner ? C.onDarkMute : C.daffodil }}>{owner || "Unassigned"}</span>
+            {g.owner ? <OwnerBadge owner={g.owner} dark size={22} />
+                     : <span style={{ fontFamily: FB, fontSize: 11, color: C.daffodil }}>Unassigned</span>}
             {g.read && <span style={{ fontFamily: FB, fontSize: 11.5, color: C.onDarkMute, lineHeight: 1.45, flex: "1 1 320px", minWidth: 240 }}>{g.read}</span>}
           </div>
         </td>
