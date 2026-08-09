@@ -7,6 +7,7 @@ import { C, FD, FB, FM } from "./scorecardMath.js";
 const _label = { fontFamily: FM, fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.muted, marginBottom: 8 };
 const _field = { fontFamily: FB, fontSize: 13, color: C.ink, background: C.parchment, border: `1px solid ${C.hair}`, borderRadius: 8, padding: "6px 9px" };
 const _btn = { fontFamily: FM, fontSize: 11.5, borderRadius: 8, padding: "6px 12px", cursor: "pointer", border: `1px solid ${C.hair}`, color: C.slate, background: "none" };
+const _colHdr = { width: 92, textAlign: "right", fontFamily: FM, fontSize: 9.5, letterSpacing: ".08em", textTransform: "uppercase", color: C.muted };
 
 export default function ScorecardSettings({ groups, onClose, onChanged }) {
   return (
@@ -19,8 +20,58 @@ export default function ScorecardSettings({ groups, onClose, onChanged }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {(groups || []).map((g) => <OfficeRow key={g.id} g={g} onChanged={onChanged} />)}
       </div>
+      <MeasurablesEditor onChanged={onChanged} />
       <PeriodsEditor onChanged={onChanged} />
       <GoalsEditor onChanged={onChanged} />
+    </div>
+  );
+}
+
+/* Rename measurables (owner/admin), self-service — so a static number ("130 Homes Sold Q2") never
+   goes stale in the label. Names are global (not per-period); auto-sourcing is unaffected. */
+function MeasurablesEditor({ onChanged }) {
+  const [rows, setRows] = useState(null);       // [{metric_id, name, group, dirty}]
+  const [state, setState] = useState("idle");
+
+  useEffect(() => {
+    // reuse the goals endpoint for the metric list (any period works — names aren't period-scoped)
+    getJSON("/ulrg/periods").then((d) => {
+      const p = (d.periods || [])[0];
+      const q = p ? `?period=${encodeURIComponent(p.key)}` : "?period=_";
+      return getJSON(`/ulrg/goals${q}`);
+    }).then((d) => setRows((d.goals || []).map((g) => ({ metric_id: g.metric_id, name: g.name, group: g.group }))))
+      .catch(() => setRows([]));
+  }, []);
+
+  async function save() {
+    setState("saving");
+    try {
+      const dirty = rows.filter((r) => r.dirty && String(r.name).trim() !== "");
+      for (const r of dirty) await patchJSON(`/ulrg/metric/${r.metric_id}`, { name: r.name.trim() });
+      setRows(rows.map((r) => ({ ...r, dirty: false })));
+      setState("saved"); onChanged && onChanged(); setTimeout(() => setState("idle"), 1600);
+    } catch (e) { setState("error"); }
+  }
+
+  if (rows === null) return <div style={{ ..._label, marginTop: 18 }}>Loading measurables…</div>;
+  return (
+    <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
+      <div style={_label}>Measurables · names</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
+        {rows.map((r, i) => (
+          <div key={r.metric_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ flex: "0 0 92px", fontFamily: FM, fontSize: 10.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.slate }}>{r.group}</span>
+            <input value={r.name} aria-label="Measurable name"
+                   onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, name: e.target.value, dirty: true } : x))}
+                   style={{ ..._field, flex: "1 1 auto" }} />
+          </div>
+        ))}
+      </div>
+      <button onClick={save} disabled={state === "saving"} style={{ ..._btn, marginTop: 10,
+        color: state === "saved" ? C.meadowInk : state === "error" ? C.poppy : C.ink,
+        borderColor: state === "error" ? C.poppy : C.hair }}>
+        {state === "saving" ? "Saving…" : state === "saved" ? "Saved ✓" : state === "error" ? "Retry" : "Save names"}
+      </button>
     </div>
   );
 }
@@ -47,11 +98,16 @@ function GoalsEditor({ onChanged }) {
   async function save() {
     setState("saving");
     try {
-      // send only fields with a real number (0 is a valid track-only goal); a cleared field is skipped,
-      // so it keeps its current goal instead of silently becoming 0.
+      // send only fields with a real weekly number (0 is a valid track-only goal); a cleared weekly
+      // field is skipped, so it keeps its current goal instead of silently becoming 0. The cumulative
+      // (period total) is optional and flow-only; blank / non-positive clears it.
       const payload = goals
         .filter((g) => String(g.goal).trim() !== "" && Number.isFinite(parseFloat(g.goal)))
-        .map((g) => ({ metric_id: g.metric_id, goal: parseFloat(g.goal) }));
+        .map((g) => {
+          const cg = g.supports_cumulative ? parseFloat(g.cumulative_goal) : NaN;
+          return { metric_id: g.metric_id, goal: parseFloat(g.goal),
+                   cumulative_goal: Number.isFinite(cg) && cg > 0 ? cg : null };
+        });
       await putJSON("/ulrg/goals", { period, goals: payload });
       setState("saved"); onChanged && onChanged(); setTimeout(() => setState("idle"), 1600);
     } catch (e) { setState("error"); }
@@ -71,21 +127,38 @@ function GoalsEditor({ onChanged }) {
       <select value={period} onChange={(e) => setPeriod(e.target.value)} style={{ ..._field, minWidth: 220 }}>
         {periods.map((p) => <option key={p.key} value={p.key}>{p.key} ({p.start} → {p.end})</option>)}
       </select>
+      <div style={{ fontFamily: FB, fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+        <b style={{ color: C.slate }}>Weekly</b> colours each week's cell. <b style={{ color: C.slate }}>Cumulative</b> is the
+        whole-period total (e.g. 130 homes/quarter); the running total tracks toward it. Leave cumulative blank to track vs weekly × weeks.
+      </div>
       {goals === null
         ? <div style={{ ..._label, marginTop: 12 }}>Loading goals…</div>
         : (
-          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 340, overflowY: "auto" }}>
-            {goals.map((g) => (
-              <div key={g.metric_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 12.5, color: C.body }}>
-                  <span style={{ color: C.muted, fontSize: 11 }}>{g.group} · </span>{g.name}
-                  {g.type === "rate" && <span style={{ color: C.muted, fontSize: 11 }}> (%)</span>}
-                </span>
-                <input type="number" step="0.1" value={g.goal}
-                       onChange={(e) => setGoals(goals.map((x) => x.metric_id === g.metric_id ? { ...x, goal: e.target.value } : x))}
-                       style={{ ..._field, width: 92, textAlign: "right" }} />
-              </div>
-            ))}
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 360, overflowY: "auto" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, background: C.surface, paddingBottom: 4 }}>
+              <span style={{ flex: "1 1 auto" }} />
+              <span style={{ ..._colHdr }}>Weekly</span>
+              <span style={{ ..._colHdr }}>Cumulative</span>
+            </div>
+            {goals.map((g) => {
+              const upd = (k, v) => setGoals(goals.map((x) => x.metric_id === g.metric_id ? { ...x, [k]: v } : x));
+              return (
+                <div key={g.metric_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 12.5, color: C.body }}>
+                    <span style={{ color: C.muted, fontSize: 11 }}>{g.group} · </span>{g.name}
+                    {g.type === "rate" && <span style={{ color: C.muted, fontSize: 11 }}> (%)</span>}
+                  </span>
+                  <input type="number" step="0.1" value={g.goal} aria-label={`${g.name} weekly goal`}
+                         onChange={(e) => upd("goal", e.target.value)}
+                         style={{ ..._field, width: 92, textAlign: "right" }} />
+                  {g.supports_cumulative
+                    ? <input type="number" step="1" value={g.cumulative_goal ?? ""} placeholder="—" aria-label={`${g.name} period total`}
+                             onChange={(e) => upd("cumulative_goal", e.target.value)}
+                             style={{ ..._field, width: 92, textAlign: "right" }} />
+                    : <span style={{ width: 92, textAlign: "center", color: C.muted, fontFamily: FM, fontSize: 12 }}>—</span>}
+                </div>
+              );
+            })}
             <button onClick={save} disabled={state === "saving"} style={{ ..._btn, alignSelf: "flex-start", marginTop: 8,
               color: state === "saved" ? C.meadowInk : state === "error" ? C.poppy : C.ink,
               borderColor: state === "error" ? C.poppy : C.hair }}>

@@ -180,11 +180,13 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
     wl = q["weeks_left"]
     cur_key = q["key"]
 
-    # per-period goals (Phase C): (metric_id, period_key) → goal; absent → the metric's default.
+    # per-period goals (Phase C): (metric_id, period_key) → weekly goal; absent → the metric's default.
+    # cmap holds the optional per-period CUMULATIVE goal (the whole-period total, e.g. 130 homes/qtr).
     goal_rows = (await s.execute(select(
-        ScorecardGoal.metric_id, ScorecardGoal.period_key, ScorecardGoal.goal).where(
-        ScorecardGoal.tenant_id == tenant_id))).all()
-    gmap = {(str(mid), pk): float(gv) for mid, pk, gv in goal_rows}
+        ScorecardGoal.metric_id, ScorecardGoal.period_key, ScorecardGoal.goal,
+        ScorecardGoal.cumulative_goal).where(ScorecardGoal.tenant_id == tenant_id))).all()
+    gmap = {(str(mid), pk): float(gv) for mid, pk, gv, _ in goal_rows}
+    cmap = {(str(mid), pk): float(cg) for mid, pk, _, cg in goal_rows if cg is not None}
 
     def _period_of(d: dt.date):
         iso = d.isoformat()
@@ -237,10 +239,15 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
         for m in by_group.get(g.id, []):
             all_vals = [vmap.get(m.id, {}).get(w) for w in all_weeks]
             default_goal, d = float(m.goal), m.direction
-            goal = _goal_for(m.id, cur_key, default_goal)   # current-period goal: cumulative + display
-            cum = _cum(all_vals, m, goal)
+            goal = _goal_for(m.id, cur_key, default_goal)   # WEEKLY goal: cells + display + streak
+            # cumulative basis: a flow metric with a period-total goal tracks toward that total, so the
+            # per-week pace = total / weeks-in-period drives the cumulative block; else the weekly goal.
+            cum_goal = cmap.get((str(m.id), cur_key)) if m.type == "flow" else None
+            cum_basis = (cum_goal / q["weeks_total"]) if cum_goal is not None else goal
+            cum = _cum(all_vals, m, cum_basis)
             rows.append({
                 "id": str(m.id), "measurable": m.name, "note": m.note, "goal": goal,
+                "cumulative_goal": cum_goal,            # the period total (flow only); None → weekly×weeks
                 "direction": d, "type": m.type, "stage": m.stage, "lever": m.lever,
                 "owner": {"initials": m.owner_initials} if m.owner_initials else None,
                 "source": m.source, "source_synced_at": None,
@@ -249,8 +256,8 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                 # each week keeps its OWN period's goal, so past periods don't recolor when a new
                 # period's goal changes (Phase C history)
                 "week_goals": [_goal_for(m.id, _period_of(w), default_goal) for w in weeks],
-                "trend_4v4": trend_4v4(all_vals, goal, m.type, d),
-                "streak": miss_streak(all_vals, goal, d),
+                "trend_4v4": trend_4v4(all_vals, cum_basis, m.type, d),   # trend follows the cumulative basis
+                "streak": miss_streak(all_vals, goal, d),                 # streak = missed WEEKLY goal
                 "cumulative": cum,
             })
             move_rows.append({"id": str(m.id), "stage": m.stage, "lever": m.lever,

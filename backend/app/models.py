@@ -805,7 +805,10 @@ class ScorecardGoal(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
     metric_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("scorecard_metric.id", ondelete="CASCADE"), index=True)
     period_key: Mapped[str] = mapped_column(String(40))
-    goal: Mapped[Decimal] = mapped_column(Numeric(12, 4))
+    goal: Mapped[Decimal] = mapped_column(Numeric(12, 4))                      # the WEEKLY goal
+    # the whole-period total (e.g. 130 homes/quarter); the cumulative block tracks toward it. NULL →
+    # cumulative falls back to weekly_goal × weeks. Only meaningful for flow metrics.
+    cumulative_goal: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     __table_args__ = (UniqueConstraint("metric_id", "period_key", name="uq_scorecard_goal"),)
 
 

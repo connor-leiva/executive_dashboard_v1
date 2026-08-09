@@ -1,5 +1,6 @@
 """Scorecard self-service office config (Phase A): edit owner full name (owner/admin) + upload a
 headshot served publicly (for the app AND the read-only embed)."""
+import datetime as dt
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
@@ -145,6 +146,77 @@ async def test_per_period_goals_override_and_history():
                     for rr in gg["rows"] if rr["measurable"] == "Appointments Met")
         assert all(wg == default - 5 for wg in row2["week_goals"])            # Q2 weeks use the Q2 goal
         assert row2["goal"] == default + 10                                  # current (Q3) still its own
+
+
+async def test_cumulative_goal_drives_period_total_tracking():
+    """A flow metric can carry a period-total (cumulative) goal separate from its weekly goal, so the
+    cumulative block tracks toward the real quarter total (e.g. 130 homes) — not weekly × weeks."""
+    tok = await _owner()
+    async with _client() as c:
+        await c.put("/api/v1/ulrg/periods", headers=_H(tok), json={"periods": [
+            {"key": "2026Q2", "start": "2026-04-13", "end": "2026-07-27"},
+            {"key": "2026Q3", "start": "2026-07-28", "end": "2026-10-30"}]})
+
+        g = (await c.get("/api/v1/ulrg/goals?period=2026Q3", headers=_H(tok))).json()["goals"]
+        homes = next(x for x in g if x["name"].startswith("Total Homes Sold") and x["group"] == "Davis")
+        assert homes["supports_cumulative"] is True and homes["cumulative_goal"] is None
+        # a rate metric does NOT support a cumulative total
+        rate = next(x for x in g if x["type"] == "rate")
+        assert rate["supports_cumulative"] is False
+
+        def _homes_cum(sc):
+            row = next(rr for gg in sc["groups"] if gg["key"] == "davis"
+                       for rr in gg["rows"] if rr["measurable"].startswith("Total Homes Sold"))
+            return row, row["cumulative"]["w13"]
+
+        # baseline: no cumulative goal → target is weekly(8) × weeks
+        base = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
+        row0, c0 = _homes_cum(base)
+        assert row0["cumulative_goal"] is None
+        assert c0["target"] == round(8 * c0["n"])
+
+        # set the period total to 130 (weekly stays 8)
+        r = await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "2026Q3",
+            "goals": [{"metric_id": homes["metric_id"], "goal": 8, "cumulative_goal": 130}]})
+        assert r.status_code == 200
+        got = next(x for x in (await c.get("/api/v1/ulrg/goals?period=2026Q3", headers=_H(tok))).json()["goals"]
+                   if x["metric_id"] == homes["metric_id"])
+        assert got["goal"] == 8 and got["cumulative_goal"] == 130
+
+        sc = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
+        row1, c1 = _homes_cum(sc)
+        assert row1["goal"] == 8                          # weekly unchanged (colours the cells)
+        assert row1["cumulative_goal"] == 130             # period total carried in the payload
+        q3w = max(1, round((dt.date(2026, 10, 30) - dt.date(2026, 7, 28)).days / 7))   # quarter_of's formula
+        assert c1["target"] == round((130 / q3w) * c1["n"])   # cumulative now paces toward 130
+        assert c1["target"] != c0["target"]                   # and genuinely differs from weekly×weeks
+
+        # clearing it (0 / null) reverts to the weekly-derived target
+        await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "2026Q3",
+            "goals": [{"metric_id": homes["metric_id"], "goal": 8, "cumulative_goal": None}]})
+        sc2 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
+        row2, c2 = _homes_cum(sc2)
+        assert row2["cumulative_goal"] is None and c2["target"] == round(8 * c2["n"])
+
+
+async def test_rename_measurable():
+    """Owner/admin can rename a measurable (self-service); renaming does not touch its resolver."""
+    tok = await _owner()
+    async with _client() as c:
+        d = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
+        row = next(rr for gg in d["groups"] if gg["key"] == "slc"          # slc, so davis lookups elsewhere are safe
+                   for rr in gg["rows"] if rr["measurable"].startswith("Total Homes Sold"))
+        mid, original = row["id"], row["measurable"]
+        r = await c.patch(f"/api/v1/ulrg/metric/{mid}", headers=_H(tok), json={"name": "Homes Closed"})
+        assert r.status_code == 200 and r.json()["name"] == "Homes Closed"
+        d2 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
+        assert any(rr["measurable"] == "Homes Closed" for gg in d2["groups"] if gg["key"] == "slc"
+                   for rr in gg["rows"])
+        # auth + validation
+        assert (await c.patch(f"/api/v1/ulrg/metric/{mid}", json={"name": "x"})).status_code == 401
+        assert (await c.patch(f"/api/v1/ulrg/metric/{mid}", headers=_H(tok), json={"name": "   "})).status_code == 400
+        # restore (module-scoped seed is shared across tests)
+        await c.patch(f"/api/v1/ulrg/metric/{mid}", headers=_H(tok), json={"name": original})
 
 
 async def test_current_period_goal_zero_does_not_crash():

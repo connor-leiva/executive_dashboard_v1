@@ -149,7 +149,7 @@
      ]
     },
     {
-     "name": "130 Homes Sold Q2 (Apr 13-Jul)",
+     "name": "Total Homes Sold (Current Quarter)",
      "resolver_key": "ulrg_team_homes_closed",
      "goal": 8.0,
      "type": "flow",
@@ -399,7 +399,7 @@
      ]
     },
     {
-     "name": "100 Homes Sold Q2",
+     "name": "Total Homes Sold (Current Quarter)",
      "resolver_key": "ulrg_team_homes_closed",
      "goal": 6.0,
      "type": "flow",
@@ -649,7 +649,7 @@
      ]
     },
     {
-     "name": "20 Homes Sold Q2",
+     "name": "Total Homes Sold (Current Quarter)",
      "resolver_key": "ulrg_team_homes_closed",
      "goal": 2.0,
      "type": "flow",
@@ -1000,7 +1000,7 @@
      ]
     },
     {
-     "name": "ULRG Q2 - 250 Homes (Apr-Jul)",
+     "name": "Total Homes Sold (Current Quarter)",
      "resolver_key": "ulrg_homes_closed",
      "goal": 20.0,
      "type": "flow",

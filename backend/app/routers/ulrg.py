@@ -213,6 +213,30 @@ async def group_photo(group_id: str, s: AsyncSession = Depends(get_session)):
     return Response(content=data, media_type=media_type, headers={"Cache-Control": "public, max-age=300"})
 
 
+# ── measurables (rename) — generic names so a static number never goes stale in the label ──────
+class MetricPatch(BaseModel):
+    name: str
+
+
+@router.patch("/metric/{metric_id}")
+async def edit_metric(metric_id: str, body: MetricPatch, user: User = Depends(current_user),
+                      s: AsyncSession = Depends(get_session)):
+    """Rename a measurable (owner/admin), self-service — e.g. '130 Homes Sold Q2' → 'Total Homes
+    Sold (Current Quarter)'. Display only; auto-sourcing keys off resolver_key, not the name."""
+    _require_admin(user)
+    m = (await s.execute(select(ScorecardMetric).where(
+        ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.id == metric_id))).scalar_one_or_none()
+    if m is None:
+        raise HTTPException(404, "Unknown metric")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Name required")
+    m.name = name[:160]
+    audit(s, user.tenant_id, user.id, "scorecard.metric_rename", "scorecard_metric", m.id, {"name": m.name})
+    await s.commit()
+    return {"ok": True, "name": m.name}
+
+
 # ── measurement periods (Phase B) — the fiscal quarters live on tenant.config ──────────────────
 class PeriodIn(BaseModel):
     key: str
@@ -267,7 +291,8 @@ async def set_periods(body: PeriodsIn, user: User = Depends(current_user),
 # ── per-period goals (Phase C) — a goal per (metric, period); absent → the metric's default ─────
 class GoalIn(BaseModel):
     metric_id: str
-    goal: float
+    goal: float                                 # weekly goal
+    cumulative_goal: float | None = None        # period total (flow only); None clears any override
 
 
 class GoalsIn(BaseModel):
@@ -278,20 +303,23 @@ class GoalsIn(BaseModel):
 @router.get("/goals")
 async def get_goals(period: str, user: User = Depends(current_user),
                     s: AsyncSession = Depends(get_session)):
-    """Each active measurable's goal for a period (override if set, else the metric default), grouped
-    for the editor. owner/admin."""
+    """Each active measurable's weekly + cumulative goal for a period (override if set, else the
+    metric default / no cumulative), grouped for the editor. owner/admin."""
     _require_admin(user)
     rows = (await s.execute(
         select(ScorecardMetric, ScorecardGroup.name, ScorecardGroup.sort_order)
         .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
         .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.active.is_(True))
         .order_by(ScorecardGroup.sort_order, ScorecardMetric.sort_order))).all()
-    overrides = {str(mid): float(gv) for mid, gv in (await s.execute(select(
-        ScorecardGoal.metric_id, ScorecardGoal.goal).where(
-        ScorecardGoal.tenant_id == user.tenant_id, ScorecardGoal.period_key == period))).all()}
+    over = {str(mid): (float(gv), None if cg is None else float(cg))
+            for mid, gv, cg in (await s.execute(select(
+                ScorecardGoal.metric_id, ScorecardGoal.goal, ScorecardGoal.cumulative_goal).where(
+                ScorecardGoal.tenant_id == user.tenant_id, ScorecardGoal.period_key == period))).all()}
     goals = [{"metric_id": str(m.id), "name": m.name, "group": gname, "type": m.type,
-              "default": float(m.goal), "goal": overrides.get(str(m.id), float(m.goal)),
-              "overridden": str(m.id) in overrides}
+              "default": float(m.goal), "goal": over.get(str(m.id), (float(m.goal), None))[0],
+              "cumulative_goal": over.get(str(m.id), (None, None))[1],
+              "supports_cumulative": m.type == "flow",   # only flow metrics accumulate toward a total
+              "overridden": str(m.id) in over}
              for m, gname, _ in rows]
     return {"period": period, "goals": goals}
 
@@ -306,6 +334,10 @@ async def set_goals(body: GoalsIn, user: User = Depends(current_user),
         ScorecardMetric.tenant_id == user.tenant_id))).all()}
     targets = [g for g in body.goals if g.metric_id in valid]
 
+    def _cum(g) -> Decimal | None:
+        # a period total ≤ 0 is meaningless → clear it (fall back to weekly × weeks)
+        return Decimal(str(g.cumulative_goal)) if (g.cumulative_goal and g.cumulative_goal > 0) else None
+
     async def _apply() -> int:
         existing = {str(r.metric_id): r for r in (await s.execute(select(ScorecardGoal).where(
             ScorecardGoal.tenant_id == user.tenant_id, ScorecardGoal.period_key == body.period))).scalars()}
@@ -313,9 +345,11 @@ async def set_goals(body: GoalsIn, user: User = Depends(current_user),
             row = existing.get(g.metric_id)
             if row is not None:
                 row.goal = Decimal(str(g.goal))
+                row.cumulative_goal = _cum(g)
             else:
                 s.add(ScorecardGoal(tenant_id=user.tenant_id, metric_id=g.metric_id,
-                                    period_key=body.period, goal=Decimal(str(g.goal))))
+                                    period_key=body.period, goal=Decimal(str(g.goal)),
+                                    cumulative_goal=_cum(g)))
         return len(targets)
 
     n = await _apply()

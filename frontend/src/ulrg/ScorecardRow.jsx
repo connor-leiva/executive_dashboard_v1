@@ -112,7 +112,7 @@ export default function ScorecardRow({ r, wkey, weeks, offset, counted, earlier,
                   <Lbl>The recovery maths</Lbl>
                   <div style={{ fontFamily: FB, fontSize: 12.5, color: C.body, lineHeight: 1.6, marginTop: 7 }}>
                     {c.gap >= 0
-                      ? `Running ${sgn(c.gap, rate ? 1 : 0)}${rate ? " points" : ""} above goal across ${c.n} weeks. Hold ${r.goal}${rate ? "%" : ""} a week and it stays there.`
+                      ? `Running ${sgn(c.gap, rate ? 1 : 0)}${rate ? " points" : ""} above goal across ${c.n} weeks. Hold ${(!rate && r.cumulative_goal != null) ? Math.round(c.target / c.n) : r.goal}${rate ? "%" : ""} a week and it stays there.`
                       : `${c.required.toFixed(0)}${rate ? "%" : ""} a week closes the ${Math.abs(c.gap).toFixed(rate ? 1 : 0)}${rate ? " point" : ""} gap. The best single week in this window was ${c.best}${rate ? "%" : ""}.`}
                   </div>
                 </div>
