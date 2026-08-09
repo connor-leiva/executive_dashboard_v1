@@ -114,6 +114,8 @@ export default function ScorecardRow({ r, wkey, weeks, offset, counted, earlier,
                   <div style={{ fontFamily: FB, fontSize: 12.5, color: C.body, lineHeight: 1.6, marginTop: 7 }}>
                     {c.gap >= 0
                       ? `Running ${sgn(c.gap, rate ? 1 : 0)}${rate ? " points" : ""} ${c.period ? "ahead of pace" : "above goal"} across ${c.n} weeks. Hold ${rate ? r.goal : (c.pace ?? r.goal)}${rate ? "%" : ""} a week and it stays there.`
+                      : c.required == null
+                      ? `No weeks left ${c.period ? "in the period" : "this quarter"} to close the ${Math.abs(c.gap).toFixed(rate ? 1 : 0)}${rate ? " point" : ""} gap.`
                       : `${c.required.toFixed(0)}${rate ? "%" : ""} a week closes the ${Math.abs(c.gap).toFixed(rate ? 1 : 0)}${rate ? " point" : ""} gap. The best single week in this window was ${c.best}${rate ? "%" : ""}.`}
                   </div>
                 </div>
