@@ -129,6 +129,36 @@ def cumulative_block(values, goal: float, type_: str, direction: str, window: in
     }
 
 
+def period_block(period_values, total: float, weeks_total: int, weeks_closed: int, weeks_left: int):
+    """Cumulative for a period-TOTAL goal (Phase D) — a quarter thermometer. Counts only the values
+    WITHIN the current period and tracks the running total toward `total`, with PACE-based attainment:
+    the bar reads on/off pace (actual vs where the running total should be by now), not raw progress,
+    so early in a period a small count isn't a misleading near-zero. Returns None if the period has no
+    data yet. `total` is the whole-period number (e.g. 130 homes/quarter)."""
+    vals = _clean(period_values)
+    if not vals:
+        return None
+    actual = sum(vals)
+    elapsed = max(1, min(weeks_total, weeks_closed))       # weeks into the period so far (>=1)
+    pace_to_date = total * elapsed / weeks_total            # where the running total should be by now
+    attain = (actual / pace_to_date * 100) if pace_to_date else None
+    gap = actual - pace_to_date                             # ahead (+) / behind (−) pace, in units
+    req = (total - actual) / weeks_left if weeks_left else None   # per-week over the weeks left to finish
+    best = max(vals)
+    return {
+        "n": len(vals),
+        "actual": round(actual),
+        "target": round(total),          # the FULL period total → renders "X of 130"
+        "attain": round(attain, 1) if attain is not None else None,
+        "gap": round(gap, 1),
+        "required": round(req, 1) if req is not None else None,
+        "best": round(best),
+        "verdict": verdict(gap, req, best),
+        "period": True,                  # thermometer: quarter-to-date; the window toggle is a no-op
+        "pace": round(total / weeks_total) if weeks_total else None,   # steady per-week pace
+    }
+
+
 def move(group_rows):
     """(constraint, free_win) for a group's Move card (Part 4.9). The constraint is the earliest
     funnel stage below 100% (ranked by funnel position, not gap — a downstream stage can't be
@@ -179,6 +209,7 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
     q = quarter_of(fq, today)
     wl = q["weeks_left"]
     cur_key = q["key"]
+    q_end = dt.date.fromisoformat(q["end"])
 
     # per-period goals (Phase C): (metric_id, period_key) → weekly goal; absent → the metric's default.
     # cmap holds the optional per-period CUMULATIVE goal (the whole-period total, e.g. 130 homes/qtr).
@@ -240,11 +271,19 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
             all_vals = [vmap.get(m.id, {}).get(w) for w in all_weeks]
             default_goal, d = float(m.goal), m.direction
             goal = _goal_for(m.id, cur_key, default_goal)   # WEEKLY goal: cells + display + streak
-            # cumulative basis: a flow metric with a period-total goal tracks toward that total, so the
-            # per-week pace = total / weeks-in-period drives the cumulative block; else the weekly goal.
+            # A flow metric with a period-TOTAL goal becomes a quarter thermometer: count only weeks
+            # WITHIN the current period and track toward the full total (all windows show the same
+            # quarter-to-date block). Otherwise the standard rolling cumulative on the weekly goal.
             cum_goal = cmap.get((str(m.id), cur_key)) if m.type == "flow" else None
-            cum_basis = (cum_goal / q["weeks_total"]) if cum_goal is not None else goal
-            cum = _cum(all_vals, m, cum_basis)
+            if cum_goal is not None:
+                cum_basis = cum_goal / q["weeks_total"]      # steady per-week pace (drives trend)
+                period_vals = [vmap.get(m.id, {}).get(w) for w in all_weeks
+                               if q["start_date"] <= w <= q_end]
+                pb = period_block(period_vals, cum_goal, q["weeks_total"], q["weeks_closed"], wl)
+                cum = {"w4": pb, wkey: pb, "qtd": pb}
+            else:
+                cum_basis = goal
+                cum = _cum(all_vals, m, goal)
             rows.append({
                 "id": str(m.id), "measurable": m.name, "note": m.note, "goal": goal,
                 "cumulative_goal": cum_goal,            # the period total (flow only); None → weekly×weeks

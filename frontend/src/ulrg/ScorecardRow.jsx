@@ -28,6 +28,7 @@ export default function ScorecardRow({ r, wkey, weeks, offset, counted, earlier,
             <span style={{ fontFamily: FB, fontSize: 13, color: C.ink }}>{r.measurable}</span>
             {snap && <Chip dash>SNAPSHOT</Chip>}
             {hand && <Chip dash>HAND</Chip>}
+            {r.cumulative_goal != null && <Chip dash>{`${r.cumulative_goal}/QTR`}</Chip>}
             {c && r.streak >= 3 && <Chip ink={C.poppyInk} bg={C.poppyBg}>IDS {r.streak}</Chip>}
           </div>
           {r.note && <div style={{ fontFamily: FB, fontSize: 10.5, color: C.muted, marginTop: 2, paddingLeft: 20 }}>{r.note}</div>}
@@ -112,7 +113,7 @@ export default function ScorecardRow({ r, wkey, weeks, offset, counted, earlier,
                   <Lbl>The recovery maths</Lbl>
                   <div style={{ fontFamily: FB, fontSize: 12.5, color: C.body, lineHeight: 1.6, marginTop: 7 }}>
                     {c.gap >= 0
-                      ? `Running ${sgn(c.gap, rate ? 1 : 0)}${rate ? " points" : ""} above goal across ${c.n} weeks. Hold ${(!rate && r.cumulative_goal != null) ? Math.round(c.target / c.n) : r.goal}${rate ? "%" : ""} a week and it stays there.`
+                      ? `Running ${sgn(c.gap, rate ? 1 : 0)}${rate ? " points" : ""} ${c.period ? "ahead of pace" : "above goal"} across ${c.n} weeks. Hold ${rate ? r.goal : (c.pace ?? r.goal)}${rate ? "%" : ""} a week and it stays there.`
                       : `${c.required.toFixed(0)}${rate ? "%" : ""} a week closes the ${Math.abs(c.gap).toFixed(rate ? 1 : 0)}${rate ? " point" : ""} gap. The best single week in this window was ${c.best}${rate ? "%" : ""}.`}
                   </div>
                 </div>

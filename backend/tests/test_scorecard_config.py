@@ -148,54 +148,58 @@ async def test_per_period_goals_override_and_history():
         assert row2["goal"] == default + 10                                  # current (Q3) still its own
 
 
-async def test_cumulative_goal_drives_period_total_tracking():
-    """A flow metric can carry a period-total (cumulative) goal separate from its weekly goal, so the
-    cumulative block tracks toward the real quarter total (e.g. 130 homes) — not weekly × weeks."""
+async def test_cumulative_goal_is_period_scoped_thermometer():
+    """A flow metric with a period-total (cumulative) goal becomes a quarter thermometer: it counts
+    ONLY the weeks within the current period (not a trailing window that bleeds in the prior period)
+    and tracks the running total toward the FULL total. Regression for the '96 of 110 after 1 week'
+    bug — the actual must be period-to-date, not a rolling 13-week sum."""
     tok = await _owner()
     async with _client() as c:
+        # current period starts 2026-07-01, so only the JULY data weeks count (the seed ends 7/27).
         await c.put("/api/v1/ulrg/periods", headers=_H(tok), json={"periods": [
-            {"key": "2026Q2", "start": "2026-04-13", "end": "2026-07-27"},
-            {"key": "2026Q3", "start": "2026-07-28", "end": "2026-10-30"}]})
+            {"key": "H1", "start": "2026-01-01", "end": "2026-06-30"},
+            {"key": "H2", "start": "2026-07-01", "end": "2026-12-31"}]})
 
-        g = (await c.get("/api/v1/ulrg/goals?period=2026Q3", headers=_H(tok))).json()["goals"]
+        g = (await c.get("/api/v1/ulrg/goals?period=H2", headers=_H(tok))).json()["goals"]
         homes = next(x for x in g if x["name"].startswith("Total Homes Sold") and x["group"] == "Davis")
         assert homes["supports_cumulative"] is True and homes["cumulative_goal"] is None
-        # a rate metric does NOT support a cumulative total
-        rate = next(x for x in g if x["type"] == "rate")
-        assert rate["supports_cumulative"] is False
+        assert next(x for x in g if x["type"] == "rate")["supports_cumulative"] is False
 
-        def _homes_cum(sc):
+        def _homes(sc):
             row = next(rr for gg in sc["groups"] if gg["key"] == "davis"
                        for rr in gg["rows"] if rr["measurable"].startswith("Total Homes Sold"))
             return row, row["cumulative"]["w13"]
 
-        # baseline: no cumulative goal → target is weekly(8) × weeks
-        base = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
-        row0, c0 = _homes_cum(base)
-        assert row0["cumulative_goal"] is None
-        assert c0["target"] == round(8 * c0["n"])
+        # baseline: no cumulative goal → rolling window, target = weekly(8) × weeks
+        row0, c0 = _homes((await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json())
+        assert row0["cumulative_goal"] is None and c0["target"] == round(8 * c0["n"])
 
-        # set the period total to 130 (weekly stays 8)
-        r = await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "2026Q3",
-            "goals": [{"metric_id": homes["metric_id"], "goal": 8, "cumulative_goal": 130}]})
+        # set the period total to 260 (weekly stays 8)
+        r = await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "H2",
+            "goals": [{"metric_id": homes["metric_id"], "goal": 8, "cumulative_goal": 260}]})
         assert r.status_code == 200
-        got = next(x for x in (await c.get("/api/v1/ulrg/goals?period=2026Q3", headers=_H(tok))).json()["goals"]
-                   if x["metric_id"] == homes["metric_id"])
-        assert got["goal"] == 8 and got["cumulative_goal"] == 130
 
         sc = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
-        row1, c1 = _homes_cum(sc)
-        assert row1["goal"] == 8                          # weekly unchanged (colours the cells)
-        assert row1["cumulative_goal"] == 130             # period total carried in the payload
-        q3w = max(1, round((dt.date(2026, 10, 30) - dt.date(2026, 7, 28)).days / 7))   # quarter_of's formula
-        assert c1["target"] == round((130 / q3w) * c1["n"])   # cumulative now paces toward 130
-        assert c1["target"] != c0["target"]                   # and genuinely differs from weekly×weeks
+        weeks = sc["weeks"]
+        row1, c1 = _homes(sc)
+        assert row1["goal"] == 8 and row1["cumulative_goal"] == 260   # weekly unchanged, total carried
 
-        # clearing it (0 / null) reverts to the weekly-derived target
-        await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "2026Q3",
+        # actual counts ONLY weeks whose start is inside the period (>= 2026-07-01)
+        pstart = dt.date(2026, 7, 1)
+        pd = [v for v, w in zip(row1["values"], weeks)
+              if v is not None and dt.date.fromisoformat(w["start"]) >= pstart]
+        trailing = [v for v in row1["values"] if v is not None]
+        assert c1["actual"] == round(sum(pd))                 # period-to-date, NOT the rolling sum
+        assert sum(pd) < sum(trailing)                        # proves pre-period data is excluded
+        assert c1["target"] == 260                            # thermometer shows the FULL total
+        assert c1["period"] is True and c1["pace"] == round(260 / 26)   # H2 = 26 weeks → pace 10/wk
+        # every window is the same quarter-to-date block (the toggle is a no-op for a thermometer)
+        assert row1["cumulative"]["w4"] == c1 and row1["cumulative"]["qtd"] == c1
+
+        # clearing it reverts to the rolling weekly-derived cumulative
+        await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "H2",
             "goals": [{"metric_id": homes["metric_id"], "goal": 8, "cumulative_goal": None}]})
-        sc2 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
-        row2, c2 = _homes_cum(sc2)
+        row2, c2 = _homes((await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json())
         assert row2["cumulative_goal"] is None and c2["target"] == round(8 * c2["n"])
 
 
