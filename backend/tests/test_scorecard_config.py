@@ -76,6 +76,26 @@ async def test_upload_headshot_then_public_serve():
         assert img.content == _PNG
 
 
+async def test_edit_measurement_periods():
+    tok = await _owner()
+    async with _client() as c:
+        r = await c.put("/api/v1/ulrg/periods", headers=_H(tok), json={"periods": [
+            {"key": "2026Q4", "start": "2026-11-02", "end": "2027-01-30"},
+            {"key": "2026Q3", "start": "2026-07-28", "end": "2026-10-30"}]})   # out of order on purpose
+        assert r.status_code == 200
+        assert [p["key"] for p in r.json()["periods"]] == ["2026Q3", "2026Q4"]  # sorted by start
+        got = (await c.get("/api/v1/ulrg/periods", headers=_H(tok))).json()["periods"]
+        assert len(got) == 2
+        # bad date → 400
+        bad = await c.put("/api/v1/ulrg/periods", headers=_H(tok),
+                          json={"periods": [{"key": "X", "start": "nope", "end": "2026-01-01"}]})
+        assert bad.status_code == 400
+        # end before start → 400
+        b2 = await c.put("/api/v1/ulrg/periods", headers=_H(tok),
+                         json={"periods": [{"key": "X", "start": "2026-05-01", "end": "2026-04-01"}]})
+        assert b2.status_code == 400
+
+
 async def test_config_requires_admin_auth():
     async with _client() as c:
         gid = await _davis_id(c, await _owner())

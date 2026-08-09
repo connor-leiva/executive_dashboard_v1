@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db import get_session
 from ..deps import current_user, require_tab
-from ..models import User, Business, ScorecardGroup, ScorecardMetric, ScorecardValue, ShareLink
+from ..models import User, Business, Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue, ShareLink
 from ..services import binder_storage, scorecard
 from ..services.audit import audit
 
@@ -209,3 +209,54 @@ async def group_photo(group_id: str, s: AsyncSession = Depends(get_session)):
         raise HTTPException(404, "No photo")
     media_type = mimetypes.guess_type(g.owner_photo_ref)[0] or "image/jpeg"
     return Response(content=data, media_type=media_type, headers={"Cache-Control": "public, max-age=300"})
+
+
+# ── measurement periods (Phase B) — the fiscal quarters live on tenant.config ──────────────────
+class PeriodIn(BaseModel):
+    key: str
+    start: str          # ISO date (Monday-ish; boundaries drive quarter_of + QTD)
+    end: str
+
+
+class PeriodsIn(BaseModel):
+    periods: list[PeriodIn]
+
+
+@router.get("/periods")
+async def get_periods(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """The tenant's measurement periods (fiscal quarters), owner/admin."""
+    _require_admin(user)
+    t = await s.get(Tenant, user.tenant_id)
+    return {"periods": (t.config or {}).get("fiscal_quarters", [])}
+
+
+@router.put("/periods")
+async def set_periods(body: PeriodsIn, user: User = Depends(current_user),
+                      s: AsyncSession = Depends(get_session)):
+    """Replace the measurement periods (owner/admin). Validates dates and sorts by start; the
+    scorecard resolves the current period + QTD from these, so bad dates would skew every row."""
+    _require_admin(user)
+    out, seen = [], set()
+    for p in body.periods:
+        key = p.key.strip()
+        if not key:
+            raise HTTPException(400, "Every period needs a name")
+        if key in seen:
+            raise HTTPException(400, f"Duplicate period name: {key}")
+        seen.add(key)
+        try:
+            sd, ed = dt.date.fromisoformat(p.start), dt.date.fromisoformat(p.end)
+        except ValueError:
+            raise HTTPException(400, f"{key}: dates must be YYYY-MM-DD")
+        if ed <= sd:
+            raise HTTPException(400, f"{key}: end must be after start")
+        out.append({"key": key, "start": p.start, "end": p.end})
+    out.sort(key=lambda p: p["start"])
+    t = await s.get(Tenant, user.tenant_id)
+    cfg = dict(t.config or {})
+    cfg["fiscal_quarters"] = out
+    t.config = cfg
+    audit(s, user.tenant_id, user.id, "scorecard.periods_set", "tenant", user.tenant_id,
+          {"count": len(out)})
+    await s.commit()
+    return {"ok": True, "periods": out}
