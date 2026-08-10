@@ -47,6 +47,7 @@
    "metrics": [
     {
      "name": "Appointments Met",
+     "resolver_key": "ulrg_team_appts_met",
      "goal": 30.0,
      "type": "flow",
      "stage": 1,
@@ -81,6 +82,7 @@
     },
     {
      "name": "Clients Signed",
+     "resolver_key": "ulrg_team_signed",
      "goal": 20.0,
      "type": "flow",
      "stage": 2,
@@ -297,6 +299,7 @@
    "metrics": [
     {
      "name": "Appointments Met",
+     "resolver_key": "ulrg_team_appts_met",
      "goal": 24.0,
      "type": "flow",
      "stage": 1,
@@ -331,6 +334,7 @@
     },
     {
      "name": "Signed Units",
+     "resolver_key": "ulrg_team_signed",
      "goal": 15.0,
      "type": "flow",
      "stage": 2,
@@ -547,6 +551,7 @@
    "metrics": [
     {
      "name": "Appointments Met",
+     "resolver_key": "ulrg_team_appts_met",
      "goal": 5.0,
      "type": "flow",
      "stage": 1,
@@ -581,6 +586,7 @@
     },
     {
      "name": "Signed Units",
+     "resolver_key": "ulrg_team_signed",
      "goal": 4.0,
      "type": "flow",
      "stage": 2,

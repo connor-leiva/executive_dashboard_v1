@@ -199,10 +199,10 @@ DAVIS = {"key": "davis", "sisu_group_id": DAVIS_GID}
 
 
 async def _txn_agent(s, tid, bid, agent_id, status, ext, close_date=None,
-                     contract_date=None, sale_price=350000):
+                     contract_date=None, sale_price=350000, appt_met_date=None, signed_date=None):
     s.add(Transaction(tenant_id=tid, business_id=bid, source="sisu", external_id=ext, status=status,
                       close_date=close_date, contract_date=contract_date, sale_price=sale_price,
-                      agent_id=agent_id))
+                      agent_id=agent_id, appt_met_date=appt_met_date, signed_date=signed_date))
 
 
 @pytest.fixture
@@ -268,6 +268,27 @@ async def test_team_under_contract_uses_contract_date(team_env):
         await s.commit()
         n = await R.team_under_contract(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)
     assert n == 2.0
+
+
+async def test_team_appts_met_and_signed_use_their_dates(team_env):
+    e = team_env
+    async with SessionLocal() as s:
+        # appointments HELD this week — counted by appt_met_date, no sale_price gate (am1 has none)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "active", "am1", appt_met_date=WED, sale_price=None)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][1], "closed", "am2", appt_met_date=MON,
+                         close_date=dt.date(2026, 9, 1))                                    # met this wk, later closed
+        await _txn_agent(s, e["tid"], e["bid"], e["s"], "active", "am3", appt_met_date=WED)  # other office
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "active", "am4",
+                         appt_met_date=dt.date(2026, 7, 20))                                 # prior week
+        # agreements signed this week — counted by signed_date
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "active", "sg1", signed_date=WED)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "active", "sg2",
+                         signed_date=dt.date(2026, 7, 20))                                   # prior week
+        await s.commit()
+        am = await R.team_appts_met(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)
+        sg = await R.team_signed(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)
+    assert am == 2.0   # d1 (Wed) + d2 (Mon), both Davis; other office & prior week excluded
+    assert sg == 1.0   # d1 signed this week; prior-week signing excluded
 
 
 async def test_team_live_zero_vs_unsynced_roster_and_unmapped_group(team_env):

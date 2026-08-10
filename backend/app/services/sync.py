@@ -255,7 +255,7 @@ _TXN_UPDATE_KEYS = [
     "side", "status", "gci", "agent_commission", "sale_price", "address", "buyer_name",
     "buyer_email", "mortgage_vid", "buyer_email2", "buyer_phone",
     "agent_id", "contract_date", "close_date", "expected_close_date",
-    "appt_set_date", "lead_date", "listing_date", "sisu_status_code",
+    "appt_set_date", "appt_met_date", "signed_date", "lead_date", "listing_date", "sisu_status_code",
 ]
 
 
@@ -327,7 +327,8 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
              agent_id=agent_map.get(t.get("agent_external_id")),
              contract_date=t.get("contract_date"), close_date=t.get("close_date"),
              expected_close_date=t.get("expected_close_date"),
-             appt_set_date=t.get("appt_set_date"), lead_date=t.get("lead_date"),
+             appt_set_date=t.get("appt_set_date"), appt_met_date=t.get("appt_met_date"),
+             signed_date=t.get("signed_date"), lead_date=t.get("lead_date"),
              listing_date=t.get("listing_date"),
              sisu_status_code=t.get("sisu_status_code"))
         for t in mapped

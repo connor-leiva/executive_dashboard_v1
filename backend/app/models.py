@@ -184,6 +184,8 @@ class Transaction(Base):
     expected_close_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # pending → projection
     # Sisu funnel/leading-indicator dates + raw stage code.
     appt_set_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    appt_met_date: Mapped[date | None] = mapped_column(Date, nullable=True)   # Sisu appt_dt — appointment held/met
+    signed_date: Mapped[date | None] = mapped_column(Date, nullable=True)     # Sisu signed_dt — buyer/listing agreement signed
     lead_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     listing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     sisu_status_code: Mapped[str | None] = mapped_column(String(16), nullable=True)

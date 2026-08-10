@@ -303,6 +303,8 @@ def map_client(c: dict) -> dict:
         "expected_close_date": parse_dt(c.get("est_close_dt") or c.get("estimated_close_dt")
                                         or c.get("projected_close_dt") or c.get("closed_dt")),
         "appt_set_date": parse_dt(c.get("appt_set_dt")),
+        "appt_met_date": parse_dt(c.get("appt_dt")),        # the appointment (held) date → Appointments Met
+        "signed_date": parse_dt(c.get("signed_dt")),        # buyer/listing agreement signed → Clients Signed
         "lead_date": parse_dt(c.get("lead_dt")),
         "listing_date": parse_dt(c.get("listing_dt")),
     }

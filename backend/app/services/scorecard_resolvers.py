@@ -129,6 +129,24 @@ async def team_under_contract(s, tenant_id, business_id, week_start: dt.date, we
         Transaction.contract_date >= week_start, Transaction.contract_date <= week_end])
 
 
+@resolver("ulrg_team_appts_met")
+async def team_appts_met(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Per-team Appointments Met — deals whose appointment was HELD in the week (Sisu `appt_dt` →
+    `appt_met_date` in the window) whose agent is in this team's office. Counts the dated event, not
+    the current pipeline stage, so a deal that has since progressed still counts for its appt week.
+    No sale_price gate — an appointment isn't a sale."""
+    return await _team_count(s, tenant_id, business_id, group, [
+        Transaction.appt_met_date >= week_start, Transaction.appt_met_date <= week_end])
+
+
+@resolver("ulrg_team_signed")
+async def team_signed(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Per-team Clients Signed — buyer/listing agreements signed in the week (Sisu `signed_dt` →
+    `signed_date` in the window) whose agent is in this team's office. Dated event, not current stage."""
+    return await _team_count(s, tenant_id, business_id, group, [
+        Transaction.signed_date >= week_start, Transaction.signed_date <= week_end])
+
+
 # ── runner (called by the worker) ────────────────────────────────────────────
 LOOKBACK_WEEKS = 3     # re-resolve the open week + the 2 before it every day, so a missed Monday
                        # run or a late Sisu sync self-heals — writes are idempotent upserts.
