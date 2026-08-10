@@ -134,7 +134,12 @@ export default function Scorecard({ role, shareToken = null }) {
           .l10-scroll::-webkit-scrollbar-thumb{ background:#DCD5C7; border-radius:5px; border:2px solid ${T.paper}; }
           .l10-scroll::-webkit-scrollbar-thumb:hover{ background:#C9C0AE; }
           .l10-wkcol{ scroll-snap-align:start; }
-          .l10-clip{ overflow:hidden; flex-shrink:0; transition:width ${DUR}ms ${EASE}; }
+          /* the cumulative panel toggles via MAX-WIDTH (0 ↔ CUM). It toggles INSTANTLY, not animated:
+             on this flex item (fixed-width child, flex-shrink:0) Chromium refuses to TRANSITION any
+             size property that changes layout to a smaller value — the transition sticks at the start
+             (this is exactly what broke the mockup's re-open). max-width clamps reliably with no
+             transition; the columns still fade via .l10-fade opacity. overflow:hidden clips the fade. */
+          .l10-clip{ overflow:hidden; flex-shrink:0; min-width:0; }
           .l10-fade{ transition:opacity 90ms ease 0ms; }
           .l10-clip.is-open .l10-fade{ transition:opacity 160ms ease 140ms; }
           .l10-cell{ position:relative; }
@@ -286,7 +291,7 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveN }) {
         </div>
       </div>
 
-      <div className={`l10-clip${cumOpen ? " is-open" : ""}`} style={{ width: cumOpen ? CUM : 0 }}>
+      <div className={`l10-clip${cumOpen ? " is-open" : ""}`} style={{ maxWidth: cumOpen ? CUM : 0 }}>
         <div className="l10-fade" style={{ width: CUM, height: "100%", display: "flex", alignItems: "center", background: T.shell, borderRight: `1px solid ${T.line}`, opacity: cumOpen ? 1 : 0 }}>
           <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, ...LBL }}>Actual</div>
           <div style={{ width: C_PACE, flexShrink: 0, ...LBL }}>Pace to goal</div>
