@@ -1,146 +1,151 @@
-/* One measurable row + its expand detail (SPEC 1.3). Reads the server's cumulative block — the
-   client never recomputes attainment/gap/required. Reverses values ONLY here, at render (Part
-   0.3): storage/API stay ascending, so every derivation upstream is chronological. */
+/* One measurable row for the L10 grid (v2 mockup), wired to the server payload. Values are stored
+   ascending and reversed ONLY here at render (Part 0.3). All arithmetic — cumulative / pace / gap /
+   required / verdict / trend — is server-side; this renders r.cumulative[wkey]. */
 import { Fragment } from "react";
-import { C, FD, FB, FM, band, verdictStyle, fmtV, sgn, isPct } from "./scorecardMath.js";
-import { Avatar, Chip, tdL, tdC, cumCell } from "./Parts.jsx";
+import { sgn } from "./scorecardMath.js";
+import {
+  T, NUM, LBL, tone, Chevron, Pip, PaceBar, StatusTag,
+  W_IDX, W_NAME, W_OWN, W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK, ROW_H,
+} from "./l10tokens.jsx";
 
-export default function ScorecardRow({ r, wkey, weeks, offset, counted, earlier, cum, open, toggle, sourceLabel }) {
+export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cumOpen, expanded, onToggle }) {
   const cRaw = r.cumulative ? r.cumulative[wkey] : null;
-  const c = cRaw && cRaw.attain != null ? cRaw : null;    // no scoreable goal → render as not-cumulative
-  const b = c && band(c.attain), v = c && verdictStyle(c.verdict);
-  const na = <span style={{ fontFamily: FB, fontSize: 11.5, color: C.muted }}>–</span>;
+  const c = cRaw && cRaw.attain != null ? cRaw : null;    // no scoreable goal → not a cumulative row
   const rate = r.type === "rate";
-  const vals = r.values.slice(offset).slice().reverse();   // render newest first; storage ascending
-  const wgoals = (r.week_goals || []).slice(offset).slice().reverse();   // each week's period goal
-  const wk = weeks.slice().reverse();                      // index-aligned to vals
-  const hand = !r.auto;      // HAND only on rows still entered by hand (no live resolver)
-  const snap = r.type === "snapshot";
+  const pct = c ? Math.round(c.attain) : null;
+
+  const vals = (r.values || []).slice().reverse();          // newest first (storage ascending)
+  const goals = (r.week_goals || []).slice().reverse();
+  const t = r.trend_4v4;
+  const nonNull = (r.values || []).filter((x) => x !== null && x !== undefined);
 
   return (
     <Fragment>
-      <tr style={{ background: open ? C.hairSoft : "transparent" }}>
-        <td style={{ ...tdL, paddingLeft: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button onClick={toggle} aria-label="Show detail" aria-expanded={open} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, width: 12,
-              fontFamily: FM, fontSize: 12, color: C.muted, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</button>
-            {r.stage && <span style={{ fontFamily: FM, fontSize: 9, color: C.muted }}>{r.stage}</span>}
-            <span style={{ fontFamily: FB, fontSize: 13, color: C.ink }}>{r.measurable}</span>
-            {snap && <Chip dash>SNAPSHOT</Chip>}
-            {hand && <Chip dash>HAND</Chip>}
-            {r.cumulative_goal != null && <Chip dash>{`${r.cumulative_goal}/QTR`}</Chip>}
-            {c && r.streak >= 3 && <Chip ink={C.poppyInk} bg={C.poppyBg}>IDS {r.streak}</Chip>}
+      <div className="l10-row" style={{ display: "flex", height: ROW_H, borderBottom: `1px solid ${T.lineSoft}` }}>
+        {/* ------------------------------- rail ------------------------------ */}
+        <div
+          className="l10-rail l10-cell"
+          style={{ position: "sticky", left: 0, zIndex: 4, width: RAIL, flexShrink: 0, display: "flex", alignItems: "center", background: T.paper, borderRight: `1px solid ${T.line}` }}
+        >
+          <button
+            onClick={onToggle}
+            className="l10-btn"
+            aria-expanded={expanded}
+            aria-label={`Detail for ${r.measurable}`}
+            style={{ width: W_IDX, flexShrink: 0, height: "100%", border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+          >
+            <Chevron open={expanded} />
+          </button>
+
+          <div style={{ width: W_NAME, flexShrink: 0, minWidth: 0, display: "flex", alignItems: "center", gap: 6, paddingRight: 8 }}>
+            <span title={r.measurable} style={{ fontSize: 13.5, fontWeight: 500, color: T.ink, letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {r.measurable}
+            </span>
+            {r.cumulative_goal != null && (
+              <span style={{ ...NUM, flexShrink: 0, fontSize: 9, fontWeight: 600, letterSpacing: "0.04em", color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1.5px 4px" }}>{r.cumulative_goal}/QTR</span>
+            )}
+            {r.streak >= 3 && (
+              <span style={{ ...NUM, flexShrink: 0, fontSize: 9, fontWeight: 600, letterSpacing: "0.05em", color: T.warn, background: T.warnBg, borderRadius: 3, padding: "1.5px 4px" }}>IDS {r.streak}</span>
+            )}
           </div>
-          {r.note && <div style={{ fontFamily: FB, fontSize: 10.5, color: C.muted, marginTop: 2, paddingLeft: 20 }}>{r.note}</div>}
-        </td>
-        <td style={tdC}><Avatar t={r.owner && r.owner.initials} /></td>
-        <td style={{ ...tdC, fontFamily: FM, fontSize: 11.5, color: C.slate }}>≥{r.goal}{isPct(r) ? "%" : ""}</td>
 
-        {cum ? (
-          <>
-            <td style={{ ...cumCell, borderLeft: `1px solid ${C.hair}`, paddingLeft: 14, fontFamily: FM, fontSize: 11.5, color: C.body }}>
-              {c ? (rate ? `${c.actual.toFixed(1)}% avg` : `${c.actual} of ${c.target}`) : na}
-            </td>
-            <td style={cumCell}>
-              {c ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                  <div style={{ position: "relative", height: 9, background: C.hairSoft, borderRadius: 99, overflow: "hidden", flex: "1 1 auto", minWidth: 44 }}>
-                    <div style={{ width: `${(Math.min(125, Math.max(0, c.attain)) / 125) * 100}%`, height: "100%", background: b.bar, borderRadius: 99 }} />
-                    <div style={{ position: "absolute", left: "80%", top: 0, width: 1, height: "100%", background: C.slate, opacity: .4 }} />
-                  </div>
-                  <span style={{ fontFamily: FD, fontSize: 15, fontWeight: 600, color: b.ink, fontVariantNumeric: "tabular-nums", flex: "0 0 auto" }}>{c.attain.toFixed(0)}%</span>
-                </div>
-              ) : na}
-            </td>
-            <td style={{ ...cumCell, textAlign: "center" }}>{c ? <DirInline d={r.trend_4v4} /> : na}</td>
-            <td style={{ ...cumCell, textAlign: "right", fontFamily: FM, fontSize: 12, color: !c ? C.muted : c.gap >= 0 ? C.meadowInk : C.poppyInk }}>
-              {c ? (rate ? `${sgn(c.gap, 1)} pt` : sgn(c.gap)) : na}
-            </td>
-            <td style={{ ...cumCell, paddingRight: 12 }}>
-              {c ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {v && v.t !== "Ahead" && (
-                    <span style={{ fontFamily: FM, fontSize: 11.5, color: C.slate, flex: "0 0 auto" }}>
-                      {rate ? `${c.required.toFixed(0)}% avg` : `${c.required.toFixed(0)}/wk`}
-                    </span>
-                  )}
-                  {v && <Chip ink={v.ink} bg={v.bg}>{v.t.toUpperCase()}</Chip>}
-                </div>
-              ) : <span style={{ fontFamily: FB, fontSize: 11.5, color: C.muted }}>not cumulative</span>}
-            </td>
-          </>
-        ) : (
-          <td style={{ padding: 0, borderBottom: `1px solid ${C.hairSoft}`, borderLeft: `1px solid ${C.hair}`, borderRight: `1px solid ${C.hair}`, textAlign: "center" }}>
-            {c && <span title={`${c.attain.toFixed(0)}% cumulative`} style={{ display: "inline-block", width: 3, height: 16, borderRadius: 99, background: b.bar }} />}
-          </td>
-        )}
+          <div style={{ width: W_OWN, flexShrink: 0, display: "flex", justifyContent: "center" }}>
+            <div
+              style={{
+                width: 22, height: 22, borderRadius: "50%", background: T.shell, border: `1px solid ${T.line}`,
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: T.inkSoft,
+              }}
+            >
+              {r.owner && r.owner.initials}
+            </div>
+          </div>
 
-        {vals.map((val, i) => {
-          const wgoal = wgoals[i] == null ? r.goal : wgoals[i];   // that week's period goal (honor a 0)
-          const bb = val === null || val === undefined || !wgoal ? null : band((val / wgoal) * 100);
-          const inWin = counted.has(wk[i].n);
+          <div style={{ width: W_GOAL, flexShrink: 0, textAlign: "right", paddingRight: 10 }}>
+            <span style={{ fontSize: 11, color: T.faint, marginRight: 1 }}>{r.direction === "lte" ? "≤" : "≥"}</span>
+            <span style={{ ...NUM, fontSize: 12.5, fontWeight: 500, color: T.inkSoft }}>
+              {r.goal}
+              {rate ? "%" : ""}
+            </span>
+          </div>
+
+          <Pip pct={pct} />
+        </div>
+
+        {/* ---------------------------- cumulative --------------------------- */}
+        <div className={`l10-clip${cumOpen ? " is-open" : ""}`} style={{ width: cumOpen ? CUM : 0 }}>
+          <div
+            className="l10-fade l10-cell"
+            style={{ width: CUM, height: "100%", display: "flex", alignItems: "center", background: T.rail, borderRight: `1px solid ${T.line}`, opacity: cumOpen ? 1 : 0 }}
+          >
+            {c ? (
+              <>
+                <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "baseline", gap: 4 }}>
+                  <span style={{ ...NUM, fontSize: 13.5, fontWeight: 600, color: T.ink }}>{rate ? `${c.actual.toFixed(1)}%` : c.actual}</span>
+                  <span style={{ ...NUM, fontSize: 10.5, color: T.faint }}>{rate ? "avg" : `of ${c.target}`}</span>
+                </div>
+                <PaceBar pct={pct} />
+                <div style={{ width: C_TREND, flexShrink: 0, textAlign: "right", ...NUM, fontSize: 11.5, color: t == null || Math.abs(t) < 3 ? T.faint : t > 0 ? T.good : T.bad }}>
+                  {t == null || Math.abs(t) < 3 ? "—" : `${t > 0 ? "↑" : "↓"}${Math.abs(Math.round(t))}`}
+                </div>
+                <div style={{ width: C_GAP, flexShrink: 0, textAlign: "right", ...NUM, fontSize: 12.5, fontWeight: 500, color: c.gap >= 0 ? T.good : T.bad }}>
+                  {rate ? `${sgn(c.gap, 1)}` : sgn(c.gap)}
+                </div>
+                <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "center", gap: 7 }}>
+                  <span style={{ ...NUM, fontSize: 12, fontWeight: 500, color: (c.verdict !== "ahead" && c.required != null) ? T.inkSoft : T.faint }}>
+                    {c.verdict !== "ahead" && c.required != null ? (rate ? `${c.required.toFixed(0)}% avg` : `${c.required.toFixed(0)}/wk`) : "—"}
+                  </span>
+                  <StatusTag verdict={c.verdict} />
+                </div>
+              </>
+            ) : (
+              <div style={{ paddingLeft: 14, fontSize: 11.5, color: T.faint }}>not cumulative</div>
+            )}
+          </div>
+        </div>
+
+        {/* ------------------------------- weeks ----------------------------- */}
+        {weeksDesc.map((w, i) => {
+          const v = vals[i];
+          const wgoal = goals[i] == null ? r.goal : goals[i];
+          const tn = tone(v, wgoal, r.direction);
+          const inWin = counted.has(w.n);
+          const isNull = v === null || v === undefined;
           return (
-            <td key={i} style={{ ...tdC, fontFamily: FD, fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",
-              color: bb ? bb.ink : C.muted, background: bb ? bb.bg : "transparent", opacity: cum && !inWin ? .4 : 1 }}>
-              {fmtV(r, val)}
-            </td>
+            <div
+              key={w.n}
+              className="l10-wkcol l10-cell"
+              style={{
+                width: WK, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                background: tn.bg, borderLeft: `1px solid ${T.paper}`, opacity: inWin ? 1 : 0.3, transition: "opacity 260ms ease",
+              }}
+            >
+              <span style={{ ...NUM, fontSize: 12.5, fontWeight: isNull ? 400 : 600, color: tn.fg, letterSpacing: "-0.01em" }}>
+                {isNull ? "—" : rate ? `${v}%` : v}
+              </span>
+            </div>
           );
         })}
-        {earlier > 0 && <td style={{ padding: 0, borderBottom: `1px solid ${C.hairSoft}`, background: C.parchment }} />}
-      </tr>
+      </div>
 
-      {open && (
-        <tr>
-          <td colSpan={3 + (cum ? 5 + (earlier > 0 ? 1 : 0) : 1) + weeks.length} style={{ padding: 0, borderBottom: `1px solid ${C.hair}` }}>
-            <div style={{ background: C.hairSoft, padding: "14px 22px 14px 34px", display: "flex", gap: 30, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 320px", minWidth: 260 }}>
-                <Lbl>Direction</Lbl>
-                <div style={{ fontFamily: FB, fontSize: 12.5, color: C.body, lineHeight: 1.6, marginTop: 7 }}>
-                  {snap ? "Snapshot metric. It is a level, not a weekly count, so there is nothing to accumulate."
-                    : r.trend_4v4 === null || r.trend_4v4 === undefined ? "Not enough history to compare four week blocks."
-                    : Math.abs(r.trend_4v4) < 3 ? "Flat. The last four weeks match the four before."
-                    : r.trend_4v4 > 0 ? `Improving. The last four weeks ran ${r.trend_4v4.toFixed(0)} points better than the four before.`
-                    : `Still falling. The last four weeks ran ${Math.abs(r.trend_4v4).toFixed(0)} points worse than the four before, so the gap is widening.`}
-                </div>
-                {c && r.streak > 0 && (
-                  <div style={{ fontFamily: FB, fontSize: 12.5, color: r.streak >= 3 ? C.poppyInk : C.slate, marginTop: 7 }}>
-                    Off goal {r.streak} {r.streak === 1 ? "week" : "weeks"} running.{r.streak >= 3 ? " EOS says take it to IDS." : ""}
-                  </div>
-                )}
-              </div>
-              {c && (
-                <div style={{ flex: "1 1 300px", minWidth: 260 }}>
-                  <Lbl>The recovery maths</Lbl>
-                  <div style={{ fontFamily: FB, fontSize: 12.5, color: C.body, lineHeight: 1.6, marginTop: 7 }}>
-                    {c.gap >= 0
-                      ? `Running ${sgn(c.gap, rate ? 1 : 0)}${rate ? " points" : ""} ${c.period ? "ahead of pace" : "above goal"} across ${c.n} weeks. Hold ${rate ? r.goal : (c.pace ?? r.goal)}${rate ? "%" : ""} a week and it stays there.`
-                      : c.required == null
-                      ? `No weeks left ${c.period ? "in the period" : "this quarter"} to close the ${Math.abs(c.gap).toFixed(rate ? 1 : 0)}${rate ? " point" : ""} gap.`
-                      : `${c.required.toFixed(0)}${rate ? "%" : ""} a week closes the ${Math.abs(c.gap).toFixed(rate ? 1 : 0)}${rate ? " point" : ""} gap. The best single week in this window was ${c.best}${rate ? "%" : ""}.`}
-                  </div>
-                </div>
+      {/* ------------------------------ drill-in ----------------------------- */}
+      {expanded && (
+        <div style={{ display: "flex", borderBottom: `1px solid ${T.line}`, background: T.shell }}>
+          <div style={{ position: "sticky", left: 0, zIndex: 4, width: RAIL + (cumOpen ? CUM : 0), flexShrink: 0, padding: "13px 18px", background: T.shell, borderRight: `1px solid ${T.line}` }}>
+            <div style={{ ...LBL, marginBottom: 5 }}>{r.measurable} · detail</div>
+            <div style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.5 }}>
+              {nonNull.length ? (
+                <>
+                  Best <strong style={NUM}>{Math.max(...nonNull)}{rate ? "%" : ""}</strong> · worst{" "}
+                  <strong style={NUM}>{Math.min(...nonNull)}{rate ? "%" : ""}</strong> ·{" "}
+                  <strong style={NUM}>{nonNull.length}</strong> week{nonNull.length === 1 ? "" : "s"} with data · {r.auto ? "auto-sourced" : "hand-entered"}, owned by {initials}.
+                </>
+              ) : (
+                <>No data yet · {r.auto ? "auto-sourced" : "hand-entered"}, owned by {initials}.</>
               )}
-              <div style={{ flex: "0 1 170px" }}>
-                <Lbl>Source</Lbl>
-                <div style={{ fontFamily: FB, fontSize: 12.5, color: C.body, marginTop: 7 }}>{sourceLabel(r.source)}</div>
-                <div style={{ fontFamily: FB, fontSize: 11.5, color: C.muted, marginTop: 3 }}>
-                  {hand ? "No feed, typed each Monday" : (r.source_synced_at ? "Synced" : "Auto-sourced")}
-                </div>
-              </div>
             </div>
-          </td>
-        </tr>
+          </div>
+        </div>
       )}
     </Fragment>
   );
-}
-
-function Lbl({ children }) {
-  return <div style={{ fontFamily: FM, fontSize: 9.5, letterSpacing: ".15em", textTransform: "uppercase", color: C.muted }}>{children}</div>;
-}
-function DirInline({ d }) {
-  if (d === undefined || d === null) return <span style={{ fontFamily: FM, fontSize: 11, color: C.muted }}>–</span>;
-  const flat = Math.abs(d) < 3, col = flat ? C.muted : d > 0 ? C.meadow : C.poppyInk;
-  return <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontFamily: FM, fontSize: 11, color: col }}>
-    <span style={{ fontSize: 12, lineHeight: 1 }}>{flat ? "→" : d > 0 ? "↑" : "↓"}</span>{!flat && <span>{Math.abs(d).toFixed(0)}</span>}</span>;
 }

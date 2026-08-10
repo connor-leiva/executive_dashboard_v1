@@ -1,220 +1,341 @@
-/* The L10 Scorecard grid (SPEC 1.3). Week over week, newest LEFT (Part 0.3: stored ascending,
-   reversed only at render), a collapsible cumulative panel, three-band color via band(), and a
-   per-team Move card. All math is server-side; this renders data.groups[*].rows[*].cumulative. */
-import { useState, Fragment } from "react";
+/* The L10 Scorecard grid (SPEC 1.3) — v2 layout from the approved mockup: a frozen rail, an animated
+   collapsible cumulative panel, edge-fade shadows and a single horizontal scroller so every week and
+   the cumulative pane are reachable without hiding columns. Newest week LEFT (Part 0.3: stored
+   ascending, reversed only at render). All math is server-side; this renders data.groups[*].rows[*].
+   Office headshots are kept in the group bar (the mockup dropped them). */
+import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useScorecard } from "./useScorecard.js";
-import { C, FD, FB, FM, band } from "./scorecardMath.js";
-import { Card, thL, thC, thCum, groupTh, OwnerBadge } from "./Parts.jsx";
+import { fileUrl } from "../api.js";
+import {
+  T, FONT, NUM, EASE, DUR, LBL, Chevron,
+  W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK,
+} from "./l10tokens.jsx";
 import ScorecardRow from "./ScorecardRow.jsx";
 import MoveCard from "./MoveCard.jsx";
 import ShareButton from "./ShareButton.jsx";
 import ScorecardSettings from "./ScorecardSettings.jsx";
 
-const VIS_OPEN = 6, VIS_SHUT = 13;   // weeks shown when the panel is open / shut (Part 1.3)
-const SRC_LABEL = { sisu: "Sisu", fub: "Follow Up Boss", ghl: "GoHighLevel", manual: "Entered by hand" };
-const sourceLabel = (s) => SRC_LABEL[s] || s;
-
-// colgroup percentages sum to 100 in every state, so freed width lands on the weeks (Part 1.3).
-function widths(cum, nWeeks, earlier) {
-  if (!cum) return [...[30, 3.5, 4.5, 2], ...Array(nWeeks).fill((100 - 40) / nWeeks)];
-  const fixed = earlier ? [18, 3, 4, 8, 12.5, 4.5, 5.5, 14.5] : [18, 3, 4, 8, 13, 4.5, 5.5, 15];
-  const used = fixed.reduce((a, b) => a + b, 0) + (earlier ? 2.5 : 0);
-  return [...fixed, ...Array(nWeeks).fill((100 - used) / nWeeks), ...(earlier ? [2.5] : [])];
-}
-
 export default function Scorecard({ role, shareToken = null }) {
   const { data, reload } = useScorecard(13, shareToken);
   const isAdmin = !shareToken && (role === "owner" || role === "admin");   // no Share/Settings inside an embed
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [win, setWin] = useState(13);        // window: 4 | 13 | "qtd"
-  const [cum, setCum] = useState(true);      // cumulative panel open
-  const [hideOk, setHideOk] = useState(false);
-  const [open, setOpen] = useState({});
 
-  if (!data) return <Card style={{ height: 280 }} pad={0}><div className="cc-skel" style={{ height: "100%" }} /></Card>;
+  const [cumOpen, setCumOpen] = useState(true);
+  const [rangeId, setRangeId] = useState("13");   // "4" | "13" | "qtd"
+  const [onlyOff, setOnlyOff] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [edge, setEdge] = useState({ left: false, right: false });
+
+  const scroller = useRef(null);
+  const raf = useRef(0);
+
+  /* load DM Sans via a deduped <link> (no @import layout shift) */
+  useEffect(() => {
+    const id = "l10-dm-sans";
+    if (document.getElementById(id)) return;
+    const l = document.createElement("link");
+    l.id = id;
+    l.rel = "stylesheet";
+    l.href = "https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap";
+    document.head.appendChild(l);
+  }, []);
+
+  const measure = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    setEdge({ left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+  }, []);
+
+  /* keep measuring across the width animation so the fades never go stale */
+  const trackAnimation = useCallback(() => {
+    cancelAnimationFrame(raf.current);
+    const start = performance.now();
+    const tick = () => {
+      measure();
+      if (performance.now() - start < DUR + 60) raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+  }, [measure]);
+
+  useLayoutEffect(() => {
+    measure();
+    const el = scroller.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => { ro.disconnect(); cancelAnimationFrame(raf.current); };
+  }, [measure, data, cumOpen, rangeId, onlyOff]);
+
+  const toggleCum = () => { setCumOpen((o) => !o); trackAnimation(); };
+
+  const weeks = (data && data.weeks) || [];
+  const weeksDesc = weeks.slice().reverse();                     // newest first (Part 0.3)
+  const quarterStart = data && data.quarter ? data.quarter.start : null;
+  const windows = (data && data.windows) || [4, 13, "qtd"];
+  const win = rangeId === "qtd" ? "qtd" : Number(rangeId);
+  const wkey = rangeId === "qtd" ? "qtd" : `w${rangeId}`;
+
+  const counted = useMemo(() => {
+    if (rangeId === "qtd") return new Set(weeks.filter((w) => quarterStart && w.start >= quarterStart).map((w) => w.n));
+    return new Set(weeksDesc.slice(0, Number(rangeId)).map((w) => w.n));
+  }, [rangeId, weeks, weeksDesc, quarterStart]);
+  const countedN = rangeId === "qtd" ? counted.size : Math.min(Number(rangeId), weeks.length);
+
+  const cumAttain = (r) => (r.cumulative && r.cumulative[wkey] && r.cumulative[wkey].attain != null ? r.cumulative[wkey].attain : null);
+  const view = useMemo(() => {
+    if (!data || !data.groups) return [];
+    return data.groups.map((g) => {
+      const off = g.rows.filter((r) => { const a = cumAttain(r); return a != null && a < 100; }).length;
+      // "Only what is off" keeps rows with no scoreable pace (snapshots / goal-0 / no data) visible,
+      // as before — they aren't "off", so hiding them would falsely read as all-clear.
+      const rows = onlyOff ? g.rows.filter((r) => { const a = cumAttain(r); return a == null || a < 100; }) : g.rows;
+      return { ...g, rows, off };
+    });
+  }, [data, wkey, onlyOff]);
+
+  if (!data) return <div style={{ fontFamily: FONT }}><div className="cc-skel" style={{ height: 320, borderRadius: 12 }} /></div>;
   if (!data.groups || data.groups.length === 0) {
     return (
-      <Card style={{ textAlign: "center", padding: "40px 28px" }}>
-        <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: C.ink }}>No measurables yet</div>
-        <div style={{ fontFamily: FB, fontSize: 12.5, color: C.slate, marginTop: 8 }}>This scorecard hasn't been configured. Seed the measurables to see the grid.</div>
-      </Card>
+      <div className="l10" style={{ fontFamily: FONT, color: T.ink }}>
+        <div style={{ background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, padding: "44px 28px", textAlign: "center" }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>No measurables yet</div>
+          <div style={{ fontSize: 12.5, color: T.muted, marginTop: 8 }}>This scorecard hasn't been configured. Seed the measurables to see the grid.</div>
+        </div>
+      </div>
     );
   }
 
-  const weeksAll = data.weeks || [];
-  const vis = cum ? VIS_OPEN : VIS_SHUT;
-  const weeksVisible = weeksAll.slice(-vis);
-  const weeksDesc = weeksVisible.slice().reverse();          // newest first, for the header
-  const offset = weeksAll.length - weeksVisible.length;
-  const numeric = typeof win === "number";
-  const wkey = numeric ? `w${win}` : "qtd";
-  const counted = new Set(numeric
-    ? weeksAll.slice(-win).map((w) => w.n)
-    : weeksAll.filter((w) => w.start >= data.quarter.start).map((w) => w.n));
-  const earlier = cum && numeric ? Math.max(0, win - vis) : 0;
-  const cols = widths(cum, weeksVisible.length, earlier);
-  const NCOL = 3 + (cum ? 5 + (earlier > 0 ? 1 : 0) : 1) + weeksVisible.length;
-  const qtdThin = win === "qtd" && (data.quarter.weeks_closed || 0) < 3;
-  const rowsOf = (g) => hideOk
-    ? g.rows.filter((r) => { const c = r.cumulative && r.cumulative[wkey]; return !c || c.attain < 100; })
-    : g.rows;
-  const winLabel = (w) => (w === "qtd" ? "QTD" : `${w} wks`);
+  const totalW = RAIL + (cumOpen ? CUM : 0) + weeksDesc.length * WK;
+  const liveN = data.current_week;
+  const qtdThin = rangeId === "qtd" && data.quarter && (data.quarter.weeks_closed || 0) < 3;
 
   return (
     <>
       {isAdmin && settingsOpen && (
         <ScorecardSettings groups={data.groups} onClose={() => setSettingsOpen(false)} onChanged={reload} />
       )}
+
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
         {data.groups.filter((g) => g.is_team_room).map((g) => (
           <MoveCard key={g.key} group={g} wkey={`w${data.default_window}`} />
         ))}
       </div>
 
-      <Card pad={0}>
-        <div style={{ padding: "15px 20px", borderBottom: `1px solid ${C.hair}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: FD, fontSize: 15, fontWeight: 600, color: C.ink }}>L10 Scorecard</span>
-            <span style={{ fontFamily: FB, fontSize: 11.5, color: C.slate }}>Week {data.current_week} newest. Click any measurable for the detail.</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: FB, fontSize: 12, color: C.slate, cursor: "pointer" }}>
-              <input type="checkbox" checked={hideOk} onChange={(e) => setHideOk(e.target.checked)} /> Only what is off
-            </label>
-            {isAdmin && (
-              <button onClick={() => setSettingsOpen((v) => !v)} style={{ fontFamily: FM, fontSize: 11.5,
-                color: settingsOpen ? C.ink : C.slate, background: "none", border: `1px solid ${C.hair}`,
-                borderRadius: 8, padding: "5px 11px", cursor: "pointer" }}>Settings</button>
-            )}
-            {isAdmin && <ShareButton />}
-          </div>
-        </div>
+      <div className="l10" style={{ fontFamily: FONT, color: T.ink }}>
+        <style>{`
+          .l10, .l10 *, .l10 *::before, .l10 *::after { box-sizing: border-box; }
+          .l10-scroll{
+            overflow-x:auto; overflow-y:hidden;
+            scroll-snap-type:x proximity; scroll-padding-left:${RAIL}px;
+            overscroll-behavior-x:contain; scrollbar-width:thin; scrollbar-color:#DCD5C7 transparent;
+          }
+          .l10-scroll::-webkit-scrollbar{ height:9px; }
+          .l10-scroll::-webkit-scrollbar-track{ background:transparent; }
+          .l10-scroll::-webkit-scrollbar-thumb{ background:#DCD5C7; border-radius:5px; border:2px solid ${T.paper}; }
+          .l10-scroll::-webkit-scrollbar-thumb:hover{ background:#C9C0AE; }
+          .l10-wkcol{ scroll-snap-align:start; }
+          .l10-clip{ overflow:hidden; flex-shrink:0; transition:width ${DUR}ms ${EASE}; }
+          .l10-fade{ transition:opacity 90ms ease 0ms; }
+          .l10-clip.is-open .l10-fade{ transition:opacity 160ms ease 140ms; }
+          .l10-cell{ position:relative; }
+          .l10-cell::after{ content:''; position:absolute; inset:0; pointer-events:none; background:rgba(18,41,31,0.05); opacity:0; transition:opacity 110ms ease; }
+          .l10-row:hover .l10-cell::after{ opacity:1; }
+          .l10-row:hover .l10-rail{ background:#FAF7F0; }
+          .l10-btn:focus-visible{ outline:2px solid ${T.forest}; outline-offset:2px; border-radius:5px; }
+          @media (prefers-reduced-motion: reduce){ .l10 *, .l10 *::after{ transition-duration:1ms !important; animation-duration:1ms !important; } }
+        `}</style>
 
-        {qtdThin && cum && (
-          <div style={{ background: C.daffodilBg, borderBottom: `1px solid ${C.hair}`, padding: "13px 20px" }}>
-            <div style={{ fontFamily: FM, fontSize: 9.5, letterSpacing: ".15em", textTransform: "uppercase", color: C.amberInk }}>Why this panel just went quiet</div>
-            <div style={{ fontFamily: FB, fontSize: 12.5, color: C.body, lineHeight: 1.55, marginTop: 6 }}>
-              The quarter turned over, so quarter to date is only {data.quarter.weeks_closed} week{data.quarter.weeks_closed === 1 ? "" : "s"} deep. It resets the
-              cumulative read at the moment a multi-week hole matters most. Keep QTD for the rock review; use the 13-week window for the L10.
+        <div style={{ background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, boxShadow: "0 1px 2px rgba(20,35,28,0.04), 0 8px 24px -12px rgba(20,35,28,0.10)", overflow: "hidden" }}>
+          {/* --------------------------- title bar --------------------------- */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12, minWidth: 0 }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, letterSpacing: "-0.015em", whiteSpace: "nowrap" }}>L10 Scorecard</h2>
+              <span style={{ fontSize: 12.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                Week {liveN} is newest. Select any measurable to open its detail.
+              </span>
             </div>
-          </div>
-        )}
 
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed", minWidth: cum ? 1120 : 860 }}>
-            <colgroup>{cols.map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}</colgroup>
-            <thead>
-              <tr>
-                <th colSpan={3} style={{ ...groupTh, paddingLeft: 12 }}>Measurable</th>
-                {cum ? (
-                  <th colSpan={5 + (earlier > 0 ? 1 : 0)} style={{ ...groupTh, background: C.mist, borderLeft: `1px solid ${C.hair}`, borderRight: `1px solid ${C.hair}`, paddingLeft: 14 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 11, flexWrap: "wrap" }}>
-                      <button onClick={() => setCum(false)} style={panelBtn} aria-expanded="true" title="Shut the panel, show more weeks">‹ Cumulative</button>
-                      <span style={{ display: "flex", gap: 5 }}>
-                        {(data.windows || [4, 13, "qtd"]).map((k) => (
-                          <button key={String(k)} onClick={() => setWin(k)} style={segBtn(win === k)}>{winLabel(k)}</button>
-                        ))}
-                      </span>
-                      <span style={{ fontFamily: FB, fontSize: 11, textTransform: "none", letterSpacing: 0, color: C.slate, fontWeight: 400 }}>
-                        {earlier > 0 ? `${win} weeks counted, ${vis} shown` : "totals across the weeks marked below"}
-                      </span>
-                    </div>
-                  </th>
-                ) : (
-                  <th style={{ ...groupTh, background: C.mist, borderLeft: `1px solid ${C.hair}`, borderRight: `1px solid ${C.hair}`, padding: 0 }}>
-                    <button onClick={() => setCum(true)} title="Open the cumulative panel" style={{ ...panelBtn, padding: "6px 2px", width: "100%", justifyContent: "center" }} aria-expanded="false">›</button>
-                  </th>
-                )}
-                <th colSpan={weeksVisible.length} style={groupTh}>Week by week · newest first · last {vis}</th>
-              </tr>
-              <tr>
-                <th style={{ ...thL, paddingLeft: 32 }} />
-                <th style={thC}>Own</th>
-                <th style={thC}>Goal</th>
-                {cum ? (
-                  <>
-                    <th style={{ ...thCum, borderLeft: `1px solid ${C.hair}`, paddingLeft: 14 }}>Actual</th>
-                    <th style={thCum}>Pace to goal</th>
-                    <th style={{ ...thCum, textAlign: "center" }}>4 wk</th>
-                    <th style={{ ...thCum, textAlign: "right" }}>Gap</th>
-                    <th style={{ ...thCum, paddingRight: 12 }}>To recover</th>
-                  </>
-                ) : (
-                  <th style={{ ...thCum, padding: 0, borderLeft: `1px solid ${C.hair}`, borderRight: `1px solid ${C.hair}` }} />
-                )}
-                {weeksDesc.map((w) => {
-                  const inWin = cum && counted.has(w.n);
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ display: "flex", background: T.shell, borderRadius: 7, padding: 2, gap: 2 }}>
+                {windows.map((k) => {
+                  const id = String(k);
+                  const on = id === rangeId;
                   return (
-                    <th key={w.n} style={{ ...thC, background: inWin ? C.parchment : "transparent",
-                      borderBottom: inWin ? `2px solid ${C.evergreen}` : `1px solid ${C.hair}` }}>
-                      <div style={{ fontFamily: FM, fontSize: 9.5, color: inWin || !cum ? C.ink : C.muted }}>W{w.n}</div>
-                      <div style={{ fontFamily: FB, fontSize: 10, color: C.muted, fontWeight: 400 }}>{w.label}</div>
-                    </th>
+                    <button
+                      key={id}
+                      onClick={() => setRangeId(id)}
+                      className="l10-btn"
+                      style={{
+                        border: "none", font: "inherit", fontSize: 11.5, fontWeight: on ? 600 : 500,
+                        padding: "4px 11px", borderRadius: 5, cursor: "pointer",
+                        background: on ? T.paper : "transparent", color: on ? T.ink : T.muted,
+                        boxShadow: on ? "0 1px 2px rgba(20,35,28,0.10)" : "none",
+                        transition: `background 180ms ${EASE}, color 180ms ${EASE}`,
+                      }}
+                    >
+                      {k === "qtd" ? "QTD" : `${k} wks`}
+                    </button>
                   );
                 })}
-                {earlier > 0 && (
-                  <th title={`${earlier} counted weeks older than W${weeksVisible[0].n}`}
-                    style={{ ...thC, background: C.parchment, borderBottom: `2px solid ${C.evergreen}`, padding: "8px 2px" }}>
-                    <div style={{ fontFamily: FM, fontSize: 9, color: C.ink }}>+{earlier}</div>
-                    <div style={{ fontFamily: FB, fontSize: 9.5, color: C.muted, fontWeight: 400 }}>older</div>
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {data.groups.map((g) => {
-                const rows = rowsOf(g);
-                const owner = g.owner && g.owner.name;
-                return (
-                  <FragmentGroup key={g.key} g={g} owner={owner} NCOL={NCOL}>
-                    {rows.length === 0 && (
-                      <tr><td colSpan={NCOL} style={{ ...thC, fontFamily: FB, fontSize: 12, color: C.meadowInk, padding: "14px 8px" }}>Everything at or above goal.</td></tr>
-                    )}
-                    {rows.map((r) => (
-                      <ScorecardRow key={r.id} r={r} wkey={wkey} weeks={weeksVisible} offset={offset} counted={counted}
-                        earlier={earlier} cum={cum} open={!!open[r.id]} sourceLabel={sourceLabel}
-                        toggle={() => setOpen((o) => ({ ...o, [r.id]: !o[r.id] }))} />
-                    ))}
-                  </FragmentGroup>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+              </div>
+              <span style={{ ...NUM, fontSize: 11.5, color: T.faint, whiteSpace: "nowrap" }}>
+                {countedN} week{countedN === 1 ? "" : "s"} counted{qtdThin ? " · quarter just turned" : ""}
+              </span>
+            </div>
 
-        <div style={{ padding: "13px 20px 16px", borderTop: `1px solid ${C.hair}`, display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center", fontFamily: FB, fontSize: 11.5, color: C.slate }}>
-          <Legend b={band(105)} label="At or above" />
-          <Legend b={band(90)} label="80 to 99" />
-          <Legend b={band(60)} label="Under 80" />
-          <span style={{ color: C.muted }}>Weeks run newest first. {cum ? `Panel open — the grid holds the last ${vis} weeks; the panel carries the longer history. Weeks under the dark rule feed the totals.` : `Panel shut — all ${vis} weeks on screen. The coloured tick carries each row's pace to goal.`}</span>
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: T.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}>
+                <input type="checkbox" checked={onlyOff} onChange={(e) => setOnlyOff(e.target.checked)} style={{ width: 14, height: 14, accentColor: T.forest, cursor: "pointer" }} />
+                Only what is off
+              </label>
+              {isAdmin && (
+                <button
+                  onClick={() => setSettingsOpen((v) => !v)}
+                  className="l10-btn"
+                  style={{ font: "inherit", fontSize: 12.5, fontWeight: 500, padding: "6px 13px", borderRadius: 6, border: `1px solid ${settingsOpen ? T.forest : T.line}`, background: "transparent", color: settingsOpen ? T.forest : T.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}
+                >
+                  Settings
+                </button>
+              )}
+              {isAdmin && <ShareButton />}
+            </div>
+          </div>
+
+          {/* --------------------------- scroll region --------------------------- */}
+          <div style={{ position: "relative" }}>
+            <div ref={scroller} className="l10-scroll" onScroll={measure}>
+              <div style={{ width: totalW, minWidth: "100%" }}>
+                <ColumnHeaders cumOpen={cumOpen} onToggleCum={toggleCum} weeksDesc={weeksDesc} liveN={liveN} />
+                {view.map((g) => (
+                  <div key={g.key}>
+                    <GroupBar group={g} width={totalW} off={g.off} />
+                    {g.rows.length === 0 && (
+                      <div style={{ display: "flex", borderBottom: `1px solid ${T.lineSoft}` }}>
+                        <div style={{ position: "sticky", left: 0, width: RAIL, flexShrink: 0, padding: "12px 16px", background: T.paper, fontSize: 12, color: T.good, borderRight: `1px solid ${T.line}` }}>Everything at or above goal.</div>
+                        <div style={{ flex: 1, background: T.paper }} />
+                      </div>
+                    )}
+                    {g.rows.map((r) => {
+                      const key = `${g.key}-${r.id}`;
+                      return (
+                        <ScorecardRow
+                          key={key}
+                          r={r}
+                          initials={(r.owner && r.owner.initials) || ""}
+                          wkey={wkey}
+                          weeksDesc={weeksDesc}
+                          counted={counted}
+                          cumOpen={cumOpen}
+                          expanded={expanded === key}
+                          onToggle={() => setExpanded(expanded === key ? null : key)}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: RAIL, width: 24, pointerEvents: "none", background: "linear-gradient(90deg, rgba(20,35,28,0.08), rgba(20,35,28,0))", opacity: edge.left ? 1 : 0, transition: "opacity 200ms ease" }} />
+            <div style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: 44, pointerEvents: "none", background: `linear-gradient(270deg, ${T.paper} 18%, rgba(255,253,249,0))`, opacity: edge.right ? 1 : 0, transition: "opacity 200ms ease" }} />
+          </div>
+
+          {/* -------------------------------- footer ----------------------------- */}
+          <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "10px 20px", borderTop: `1px solid ${T.line}`, background: T.rail, flexWrap: "wrap" }}>
+            {[["At or above goal", T.good], ["Within 20%", T.warn], ["Off pace", T.bad]].map(([label, c]) => (
+              <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: c, opacity: 0.85 }} />
+                <span style={{ fontSize: 11.5, color: T.muted }}>{label}</span>
+              </div>
+            ))}
+            <span style={{ marginLeft: "auto", fontSize: 11.5, color: T.faint }}>Cumulative totals count only weeks with data.</span>
+          </div>
         </div>
-      </Card>
+      </div>
     </>
   );
 }
 
-function FragmentGroup({ g, owner, NCOL, children }) {
+/* --------------------------------- header --------------------------------- */
+
+function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveN }) {
   return (
-    <Fragment>
-      <tr>
-        <td colSpan={NCOL} style={{ padding: 0 }}>
-          <div style={{ background: C.evergreen, padding: "9px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: FD, fontSize: 12, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase", color: C.onDark }}>{g.name}</span>
-            {g.owner ? <OwnerBadge owner={g.owner} dark size={22} />
-                     : <span style={{ fontFamily: FB, fontSize: 11, color: C.daffodil }}>Unassigned</span>}
-            {g.read && <span style={{ fontFamily: FB, fontSize: 11.5, color: C.onDarkMute, lineHeight: 1.45, flex: "1 1 320px", minWidth: 240 }}>{g.read}</span>}
+    <div style={{ display: "flex", height: 46, borderBottom: `1px solid ${T.line}` }}>
+      <div
+        className="l10-rail"
+        style={{ position: "sticky", left: 0, zIndex: 6, width: RAIL, flexShrink: 0, display: "flex", alignItems: "center", background: T.rail, borderRight: `1px solid ${T.line}` }}
+      >
+        <button
+          onClick={onToggleCum}
+          className="l10-btn"
+          aria-expanded={cumOpen}
+          style={{
+            marginLeft: 12, display: "flex", alignItems: "center", gap: 6, height: 26, padding: "0 9px 0 7px",
+            border: `1px solid ${cumOpen ? T.forest : T.line}`, background: cumOpen ? T.forest : "transparent",
+            color: cumOpen ? T.paper : T.inkSoft, borderRadius: 5, cursor: "pointer", font: "inherit",
+            fontSize: 10, fontWeight: 600, letterSpacing: "0.075em", textTransform: "uppercase",
+            transition: `background 220ms ${EASE}, border-color 220ms ${EASE}, color 220ms ${EASE}`,
+          }}
+        >
+          <Chevron open={cumOpen} size={10} color={cumOpen ? T.paper : T.muted} />
+          Cumulative
+        </button>
+        <div style={{ marginLeft: "auto", marginRight: 10, display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={LBL}>Own</span>
+          <span style={{ ...LBL, width: W_GOAL - 22, textAlign: "right" }}>Goal</span>
+        </div>
+      </div>
+
+      <div className={`l10-clip${cumOpen ? " is-open" : ""}`} style={{ width: cumOpen ? CUM : 0 }}>
+        <div className="l10-fade" style={{ width: CUM, height: "100%", display: "flex", alignItems: "center", background: T.shell, borderRight: `1px solid ${T.line}`, opacity: cumOpen ? 1 : 0 }}>
+          <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, ...LBL }}>Actual</div>
+          <div style={{ width: C_PACE, flexShrink: 0, ...LBL }}>Pace to goal</div>
+          <div style={{ width: C_TREND, flexShrink: 0, ...LBL, textAlign: "right" }}>Trend</div>
+          <div style={{ width: C_GAP, flexShrink: 0, ...LBL, textAlign: "right" }}>Gap</div>
+          <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 14, ...LBL }}>To recover</div>
+        </div>
+      </div>
+
+      {weeksDesc.map((w) => {
+        const live = w.n === liveN;
+        return (
+          <div
+            key={w.n}
+            className="l10-wkcol"
+            style={{
+              width: WK, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1,
+              background: live ? T.shell : "transparent", borderLeft: `1px solid ${live ? T.line : "transparent"}`,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              {live && <span style={{ width: 4, height: 4, borderRadius: "50%", background: T.good }} />}
+              <span style={{ ...NUM, ...LBL, color: live ? T.inkSoft : T.faint }}>W{w.n}</span>
+            </div>
+            <span style={{ ...NUM, fontSize: 9.5, color: T.faint }}>{w.label}</span>
           </div>
-        </td>
-      </tr>
-      {children}
-    </Fragment>
+        );
+      })}
+    </div>
   );
 }
-function Legend({ b, label }) {
-  return <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-    <span style={{ width: 15, height: 15, borderRadius: 4, background: b.bg, border: `1px solid ${b.bar}` }} />{label}</span>;
+
+/* --------------------------------- group ---------------------------------- */
+
+function GroupBar({ group, width, off }) {
+  const o = group.owner;
+  const src = o && o.photo_url ? fileUrl(o.photo_url) : null;
+  return (
+    <div style={{ display: "flex", height: 34, background: T.forest, width, alignItems: "center" }}>
+      <div style={{ position: "sticky", left: 0, zIndex: 5, width: RAIL, flexShrink: 0, height: "100%", display: "flex", alignItems: "center", gap: 9, padding: "0 12px 0 14px", background: T.forest }}>
+        {o && (src
+          ? <img src={src} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(255,253,249,0.25)", flexShrink: 0 }} />
+          : <span style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(255,253,249,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: T.paper, flexShrink: 0 }}>{((o.name || "·")[0] || "·").toUpperCase()}</span>)}
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.11em", textTransform: "uppercase", color: T.paper, whiteSpace: "nowrap" }}>{group.name}</span>
+        {o && o.name && <span style={{ fontSize: 11.5, color: "rgba(255,253,249,0.5)", whiteSpace: "nowrap" }}>{o.name}</span>}
+        <span style={{ ...NUM, marginLeft: "auto", fontSize: 9.5, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", color: off ? "rgba(255,253,249,0.7)" : "rgba(255,253,249,0.4)" }}>
+          {off} off pace
+        </span>
+      </div>
+    </div>
+  );
 }
-const segBtn = (on) => ({ fontFamily: FB, fontSize: 11.5, padding: "4px 10px", borderRadius: 6, cursor: "pointer", letterSpacing: 0, textTransform: "none",
-  border: `1px solid ${on ? C.evergreen : C.hair}`, background: on ? C.evergreen : C.surface, color: on ? C.onDark : C.slate, fontWeight: 400 });
-const panelBtn = { display: "inline-flex", alignItems: "center", gap: 5, fontFamily: FM, fontSize: 9.5, letterSpacing: ".13em", textTransform: "uppercase",
-  color: C.ink, background: "none", border: "none", cursor: "pointer", padding: 0 };
