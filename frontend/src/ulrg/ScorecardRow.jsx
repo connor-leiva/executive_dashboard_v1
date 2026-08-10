@@ -8,7 +8,7 @@ import {
   W_IDX, W_NAME, W_OWN, W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK, ROW_H,
 } from "./l10tokens.jsx";
 
-export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cumOpen, expanded, onToggle }) {
+export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cumOpen, expanded, onToggle, onDrill, cumLabel }) {
   const cRaw = r.cumulative ? r.cumulative[wkey] : null;
   const c = cRaw && cRaw.attain != null ? cRaw : null;    // no scoreable goal → not a cumulative row
   const rate = r.type === "rate";
@@ -18,6 +18,19 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
   const goals = (r.week_goals || []).slice().reverse();
   const t = r.trend_4v4;
   const nonNull = (r.values || []).filter((x) => x !== null && x !== undefined);
+
+  // Drill-down: click any figure → the records behind it (auto) or its weekly value(s) to edit (manual).
+  const _wk = (w, v) => ({ n: w.n, start: w.start, end: w.end, label: w.label, value: v == null ? null : v });
+  const cellDrill = (i) => onDrill && onDrill({ r, ws: weeksDesc[i].start, we: weeksDesc[i].end,
+    label: `W${weeksDesc[i].n} · ${weeksDesc[i].label}`, weeks: [_wk(weeksDesc[i], vals[i])] });
+  const cumDrill = () => {
+    if (!onDrill) return;
+    const cw = weeksDesc.map((w, i) => ({ w, v: vals[i] })).filter(({ w }) => counted.has(w.n))
+      .sort((a, b) => (a.w.start < b.w.start ? -1 : 1));
+    if (!cw.length) return;
+    onDrill({ r, ws: cw[0].w.start, we: cw[cw.length - 1].w.end, label: cumLabel || "Cumulative",
+      weeks: cw.map(({ w, v }) => _wk(w, v)) });
+  };
 
   return (
     <Fragment>
@@ -75,7 +88,9 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
         {cumOpen && (
           <div
             className="l10-cell"
-            style={{ width: CUM, flexShrink: 0, height: "100%", display: "flex", alignItems: "center", background: T.rail, borderRight: `1px solid ${T.line}` }}
+            onClick={onDrill ? cumDrill : undefined}
+            title={onDrill ? "Click to see what's behind this" : undefined}
+            style={{ width: CUM, flexShrink: 0, height: "100%", display: "flex", alignItems: "center", background: T.rail, borderRight: `1px solid ${T.line}`, cursor: onDrill ? "pointer" : "default" }}
           >
             {c ? (
               <>
@@ -114,9 +129,11 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
             <div
               key={w.n}
               className="l10-wkcol l10-cell"
+              onClick={onDrill ? () => cellDrill(i) : undefined}
               style={{
                 width: WK, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 background: tn.bg, borderLeft: `1px solid ${T.paper}`, opacity: inWin ? 1 : 0.3, transition: "opacity 260ms ease",
+                cursor: onDrill ? "pointer" : "default",
               }}
             >
               <span style={{ ...NUM, fontSize: 12.5, fontWeight: isNull ? 400 : 600, color: tn.fg, letterSpacing: "-0.01em" }}>

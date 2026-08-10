@@ -11,6 +11,7 @@ import {
   W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK,
 } from "./l10tokens.jsx";
 import ScorecardRow from "./ScorecardRow.jsx";
+import DrillDrawer from "./DrillDrawer.jsx";
 import MoveCard from "./MoveCard.jsx";
 import ShareButton from "./ShareButton.jsx";
 import ScorecardSettings from "./ScorecardSettings.jsx";
@@ -24,6 +25,7 @@ export default function Scorecard({ role, shareToken = null }) {
   const [onlyOff, setOnlyOff] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [drill, setDrill] = useState(null);   // {r, ws, we, label, weeks} — the clicked figure's drill-down
   const [edge, setEdge] = useState({ left: false, right: false });
 
   const scroller = useRef(null);
@@ -74,6 +76,7 @@ export default function Scorecard({ role, shareToken = null }) {
   const windows = (data && data.windows) || [4, 13, "qtd"];
   const win = rangeId === "qtd" ? "qtd" : Number(rangeId);
   const wkey = rangeId === "qtd" ? "qtd" : `w${rangeId}`;
+  const cumLabel = rangeId === "qtd" ? "Quarter to date" : `Last ${rangeId} weeks`;
 
   const counted = useMemo(() => {
     if (rangeId === "qtd") return new Set(weeks.filter((w) => quarterStart && w.start >= quarterStart).map((w) => w.n));
@@ -111,6 +114,9 @@ export default function Scorecard({ role, shareToken = null }) {
 
   return (
     <>
+      {drill && (
+        <DrillDrawer drill={drill} canEdit={isAdmin} onClose={() => setDrill(null)} onSaved={reload} />
+      )}
       {isAdmin && settingsOpen && (
         <ScorecardSettings groups={data.groups} onClose={() => setSettingsOpen(false)} onChanged={reload} />
       )}
@@ -228,6 +234,8 @@ export default function Scorecard({ role, shareToken = null }) {
                           cumOpen={cumOpen}
                           expanded={expanded === key}
                           onToggle={() => setExpanded(expanded === key ? null : key)}
+                          onDrill={shareToken ? null : setDrill}
+                          cumLabel={cumLabel}
                         />
                       );
                     })}

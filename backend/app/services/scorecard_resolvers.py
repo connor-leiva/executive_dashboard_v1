@@ -57,6 +57,28 @@ async def _sisu_live(s, tenant_id, business_id) -> bool:
     return row is not None
 
 
+def _window_filters(key: str, week_start: dt.date, week_end: dt.date):
+    """The per-deal WHERE clauses + the anchoring date column behind a resolver key. Shared by the
+    COUNT resolver and the drill-down RECORD list so the two can never drift (the list a user clicks
+    into is exactly the deals the count counted). Office restriction is applied separately. Returns
+    (clauses, date_col) or (None, None) for an unknown key."""
+    if key in ("ulrg_homes_closed", "ulrg_team_homes_closed"):
+        return ([Transaction.status == "closed", Transaction.sale_price > 0,   # real sales; drops $0 referrals
+                 Transaction.close_date >= week_start, Transaction.close_date <= week_end],
+                Transaction.close_date)
+    if key == "ulrg_team_under_contract":
+        return ([Transaction.sale_price > 0,
+                 Transaction.contract_date >= week_start, Transaction.contract_date <= week_end],
+                Transaction.contract_date)
+    if key == "ulrg_team_appts_met":
+        return ([Transaction.appt_met_date >= week_start, Transaction.appt_met_date <= week_end],
+                Transaction.appt_met_date)
+    if key == "ulrg_team_signed":
+        return ([Transaction.signed_date >= week_start, Transaction.signed_date <= week_end],
+                Transaction.signed_date)
+    return None, None
+
+
 @resolver("ulrg_homes_closed")
 async def homes_closed(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
     """Homes closed in the week — count of Sisu `Transaction`s with status=closed and a real sale
@@ -69,13 +91,9 @@ async def homes_closed(s, tenant_id, business_id, week_start: dt.date, week_end:
     when Sisu isn't a live feed; a live week with no closings is a real 0."""
     if not await _sisu_live(s, tenant_id, business_id):
         return None
+    clauses, _ = _window_filters("ulrg_homes_closed", week_start, week_end)
     n = await s.scalar(select(func.count()).select_from(Transaction).where(
-        Transaction.tenant_id == tenant_id,
-        Transaction.business_id == business_id,
-        Transaction.status == "closed",
-        Transaction.sale_price > 0,                     # real sales only (excludes $0 outbound referrals)
-        Transaction.close_date >= week_start,
-        Transaction.close_date <= week_end))
+        Transaction.tenant_id == tenant_id, Transaction.business_id == business_id, *clauses))
     return float(n)   # func.count() is never None; a live week with 0 closings stays a real 0
 
 
@@ -114,9 +132,8 @@ async def _team_count(s, tenant_id, business_id, group, extra) -> float | None:
 async def team_homes_closed(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
     """Per-team Homes Sold — closed real sales in the week whose agent is in this team's Sisu office
     (group.sisu_group_id). Same real-sale rule as the Overall row; scoped to the office's agents."""
-    return await _team_count(s, tenant_id, business_id, group, [
-        Transaction.status == "closed", Transaction.sale_price > 0,
-        Transaction.close_date >= week_start, Transaction.close_date <= week_end])
+    return await _team_count(s, tenant_id, business_id, group,
+                             _window_filters("ulrg_team_homes_closed", week_start, week_end)[0])
 
 
 @resolver("ulrg_team_under_contract")
@@ -124,9 +141,8 @@ async def team_under_contract(s, tenant_id, business_id, week_start: dt.date, we
     """Per-team Under Contract — deals that WENT under contract in the week (contract_date in the
     window) whose agent is in this team's office. A weekly flow of new contracts; sale_price > 0
     drops $0 referrals (contract price)."""
-    return await _team_count(s, tenant_id, business_id, group, [
-        Transaction.sale_price > 0,
-        Transaction.contract_date >= week_start, Transaction.contract_date <= week_end])
+    return await _team_count(s, tenant_id, business_id, group,
+                             _window_filters("ulrg_team_under_contract", week_start, week_end)[0])
 
 
 @resolver("ulrg_team_appts_met")
@@ -135,16 +151,44 @@ async def team_appts_met(s, tenant_id, business_id, week_start: dt.date, week_en
     `appt_met_date` in the window) whose agent is in this team's office. Counts the dated event, not
     the current pipeline stage, so a deal that has since progressed still counts for its appt week.
     No sale_price gate — an appointment isn't a sale."""
-    return await _team_count(s, tenant_id, business_id, group, [
-        Transaction.appt_met_date >= week_start, Transaction.appt_met_date <= week_end])
+    return await _team_count(s, tenant_id, business_id, group,
+                             _window_filters("ulrg_team_appts_met", week_start, week_end)[0])
 
 
 @resolver("ulrg_team_signed")
 async def team_signed(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
     """Per-team Clients Signed — buyer/listing agreements signed in the week (Sisu `signed_dt` →
     `signed_date` in the window) whose agent is in this team's office. Dated event, not current stage."""
-    return await _team_count(s, tenant_id, business_id, group, [
-        Transaction.signed_date >= week_start, Transaction.signed_date <= week_end])
+    return await _team_count(s, tenant_id, business_id, group,
+                             _window_filters("ulrg_team_signed", week_start, week_end)[0])
+
+
+async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.date, week_end: dt.date,
+                           group=None, limit: int = 500):
+    """The underlying Sisu deals behind a resolver's count for a (metric, window) — powers the grid
+    drill-down. Same WHERE clauses as the count (via `_window_filters`) + the same office restriction
+    for per-team keys, so the list is exactly what was counted. Returns [] for an office that maps to
+    no agents (or an unmapped/overall-only key with no records), None for an unknown key."""
+    clauses, date_col = _window_filters(key, week_start, week_end)
+    if clauses is None:
+        return None
+    q = (select(Transaction, Agent.name).outerjoin(Agent, Transaction.agent_id == Agent.id)
+         .where(Transaction.tenant_id == tenant_id, Transaction.business_id == business_id, *clauses))
+    if key.startswith("ulrg_team_"):
+        sgid = (group or {}).get("sisu_group_id")
+        ids = await _office_agent_ids(s, tenant_id, sgid) if sgid is not None else None
+        if not ids:                                     # unmapped office or roster not synced → no rows
+            return []
+        q = q.where(Transaction.agent_id.in_(ids))
+    q = q.order_by(date_col.desc()).limit(limit)
+    rows = (await s.execute(q)).all()
+    out = []
+    for txn, agent_name in rows:
+        d = getattr(txn, date_col.key)
+        out.append({"id": txn.external_id, "client": txn.buyer_name, "agent": agent_name,
+                    "date": d.isoformat() if d else None, "address": txn.address,
+                    "sale_price": float(txn.sale_price) if txn.sale_price is not None else None})
+    return out
 
 
 # ── runner (called by the worker) ────────────────────────────────────────────

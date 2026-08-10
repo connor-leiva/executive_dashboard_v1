@@ -24,6 +24,7 @@ from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, S
                       ScorecardGoal, ShareLink)
 from ..services import binder_storage, scorecard
 from ..services.audit import audit
+from ..services.scorecard_resolvers import resolver_records
 
 router = APIRouter(prefix="/ulrg", tags=["ulrg"])
 
@@ -42,6 +43,32 @@ async def get_scorecard(weeks: int = Query(13, ge=1, le=52),
                         s: AsyncSession = Depends(get_session)):
     b = await _ulrg_business(s, user.tenant_id)
     return await scorecard.build_scorecard(s, user.tenant_id, b.id, weeks)
+
+
+@router.get("/metric/{metric_id}/records")
+async def metric_records(metric_id: str, week_start: str, week_end: str,
+                         user: User = Depends(require_tab("ulrg")),
+                         s: AsyncSession = Depends(get_session)):
+    """The underlying Sisu deals behind a figure — the grid drill-down (auth-only; carries client
+    names, so it's never exposed on the public embed). Auto/resolver metrics return the deals that
+    make up the count for [week_start, week_end]; a manual metric has no source records (the client
+    opens the value editor instead)."""
+    row = (await s.execute(
+        select(ScorecardMetric, ScorecardGroup.business_id, ScorecardGroup.sisu_group_id)
+        .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
+        .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.id == metric_id))).first()
+    if not row:
+        raise HTTPException(404, "Unknown metric")
+    m, business_id, sisu_group_id = row
+    if not m.resolver_key:
+        return {"source": "manual", "measurable": m.name, "records": []}
+    try:
+        ws, we = dt.date.fromisoformat(week_start), dt.date.fromisoformat(week_end)
+    except ValueError:
+        raise HTTPException(400, "week_start / week_end must be ISO dates")
+    recs = await resolver_records(s, user.tenant_id, business_id, m.resolver_key, ws, we,
+                                  group={"sisu_group_id": sisu_group_id})
+    return {"source": "resolver", "measurable": m.name, "records": recs or []}
 
 
 class ValueIn(BaseModel):

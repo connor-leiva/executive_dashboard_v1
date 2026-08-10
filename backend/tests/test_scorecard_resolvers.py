@@ -291,6 +291,21 @@ async def test_team_appts_met_and_signed_use_their_dates(team_env):
     assert sg == 1.0   # d1 signed this week; prior-week signing excluded
 
 
+async def test_resolver_records_match_the_count(team_env):
+    e = team_env
+    async with SessionLocal() as s:
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "r1", close_date=MON)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][1], "closed", "r2", close_date=SUN)
+        await _txn_agent(s, e["tid"], e["bid"], e["s"], "closed", "r3", close_date=MON)   # other office → excluded
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "r0", close_date=MON, sale_price=0)  # $0 → excluded
+        await s.commit()
+        n = await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)
+        recs = await R.resolver_records(s, e["tid"], e["bid"], "ulrg_team_homes_closed", MON, SUN, group=DAVIS)
+    assert n == len(recs) == 2.0                            # the drill-down list is exactly the count
+    assert {r["id"] for r in recs} == {"r1", "r2"}          # same office/real-sale filter as the count
+    assert all("date" in r and "sale_price" in r and "agent" in r for r in recs)
+
+
 async def test_team_live_zero_vs_unsynced_roster_and_unmapped_group(team_env):
     e = team_env
     # Davis agents exist but nothing closed this week → real 0 (not a gap)
