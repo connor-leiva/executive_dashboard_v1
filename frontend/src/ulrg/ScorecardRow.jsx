@@ -72,10 +72,10 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
         </div>
 
         {/* ---------------------------- cumulative --------------------------- */}
-        <div className={`l10-clip${cumOpen ? " is-open" : ""}`} style={{ maxWidth: cumOpen ? CUM : 0 }}>
+        {cumOpen && (
           <div
-            className="l10-fade l10-cell"
-            style={{ width: CUM, height: "100%", display: "flex", alignItems: "center", background: T.rail, borderRight: `1px solid ${T.line}`, opacity: cumOpen ? 1 : 0 }}
+            className="l10-cell"
+            style={{ width: CUM, flexShrink: 0, height: "100%", display: "flex", alignItems: "center", background: T.rail, borderRight: `1px solid ${T.line}` }}
           >
             {c ? (
               <>
@@ -101,7 +101,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
               <div style={{ paddingLeft: 14, fontSize: 11.5, color: T.faint }}>not cumulative</div>
             )}
           </div>
-        </div>
+        )}
 
         {/* ------------------------------- weeks ----------------------------- */}
         {weeksDesc.map((w, i) => {
