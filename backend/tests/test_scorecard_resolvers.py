@@ -310,6 +310,10 @@ async def test_team_sympli_attach_reuses_flywheel_capture(team_env):
         rate = await R.team_sympli_attach(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)
         # Davis financeable buys = s1,s2,s3 (s4 cash excluded); captured = s1,s2 → 2/3
         assert rate == 66.7
+        # the drill lists the SAME denominator, each flagged captured, so it reads back as the rate
+        recs = await R.resolver_records(s, e["tid"], e["bid"], "ulrg_team_sympli_attach", MON, SUN, group=DAVIS)
+        assert len(recs) == 3 and sum(1 for x in recs if x["captured"]) == 2   # 2 of 3 = 66.7%
+        assert {x["id"] for x in recs} == {"s1", "s2", "s3"}                    # s4 cash + s5 other-office excluded
         # a week with no financeable buyer closings → None (a rate has no denominator), not 0
         assert await R.team_sympli_attach(s, e["tid"], e["bid"],
                                           dt.date(2026, 7, 6), dt.date(2026, 7, 12), group=DAVIS) is None
@@ -331,6 +335,9 @@ async def test_team_meraki_attach_is_title_vendor_share(team_env):
         await s.commit()
         # Davis classifiable closings = m1,m2,m3 (m4 unknown excluded); Meraki = m1,m2 → 2/3
         assert await R.team_meraki_attach(s, e["tid"], e["bid"], MON, SUN, group=DAVIS) == 66.7
+        recs = await R.resolver_records(s, e["tid"], e["bid"], "ulrg_team_meraki_attach", MON, SUN, group=DAVIS)
+        assert len(recs) == 3 and sum(1 for x in recs if x["captured"]) == 2   # m1,m2 title=Meraki; m4/m6 excluded
+        assert {x["id"] for x in recs} == {"m1", "m2", "m3"}
         # not configured → None (can't classify without the vid list), even with closings present
         integ.config = {}
         await s.commit()

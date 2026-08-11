@@ -44,6 +44,12 @@ function Records({ r, ws, we }) {
 
   if (recs === null) return <div style={muted}>Loading records…</div>;
   if (!recs.length) return <div style={muted}>No records from Sisu in this window.</div>;
+  // attach-rate drill → the denominator deals, each flagged `captured` (the numerator subset), so the
+  // list reads back as the rate. Count metrics have no `captured` field → plain "N records".
+  const attach = "captured" in recs[0];
+  const vendor = /sympli/i.test(r.measurable) ? "Sympli" : /meraki/i.test(r.measurable) ? "Meraki" : "Attached";
+  const capped = recs.filter((x) => x.captured).length;
+  const pct = recs.length ? Math.round((capped / recs.length) * 1000) / 10 : 0;
   const sorted = [...recs].sort((a, b) =>
     sort === "date"
       ? String(b.date || "").localeCompare(String(a.date || ""))            // newest first
@@ -51,7 +57,9 @@ function Records({ r, ws, we }) {
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-        <div style={LBL}>{recs.length} record{recs.length === 1 ? "" : "s"} · from Sisu</div>
+        <div style={LBL}>{attach
+          ? `${capped} of ${recs.length} used ${vendor} · ${pct}%`
+          : `${recs.length} record${recs.length === 1 ? "" : "s"} · from Sisu`}</div>
         <div style={{ display: "flex", gap: 2, background: T.shell, borderRadius: 6, padding: 2, flexShrink: 0 }}>
           {["name", "date"].map((k) => (
             <button key={k} onClick={() => setSort(k)} style={{
@@ -68,8 +76,9 @@ function Records({ r, ws, we }) {
             <span style={{ fontSize: 13, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.client || "—"}</span>
             <span style={{ ...NUM, fontSize: 11.5, color: T.muted, flexShrink: 0 }}>{fmtDate(x.date)}</span>
           </div>
-          <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 3 }}>
-            {x.agent || "—"}{x.address ? ` · ${x.address}` : ""}{x.sale_price ? ` · $${Math.round(x.sale_price).toLocaleString()}` : ""}
+          <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {attach && <Tag on={x.captured} label={x.captured ? vendor : "Other"} />}
+            <span>{x.agent || "—"}{x.address ? ` · ${x.address}` : ""}{x.sale_price ? ` · $${Math.round(x.sale_price).toLocaleString()}` : ""}</span>
           </div>
         </div>
       ))}
@@ -122,6 +131,18 @@ function ManualWeeks({ drill, canEdit, onSaved }) {
       ))}
       {!canEdit && <div style={{ ...muted, marginTop: 10 }}>This measurable is typed by hand — no source records to open.</div>}
     </>
+  );
+}
+
+function Tag({ on, label }) {
+  return (
+    <span style={{
+      fontFamily: FONT, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.03em", textTransform: "uppercase",
+      padding: "1px 6px", borderRadius: 10, whiteSpace: "nowrap", flexShrink: 0,
+      color: on ? T.good : T.muted, background: "transparent",
+      border: `1px solid ${on ? T.good : T.line}` }}>
+      {on ? `✓ ${label}` : label}
+    </span>
   );
 }
 

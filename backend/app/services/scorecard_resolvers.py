@@ -163,12 +163,72 @@ async def team_signed(s, tenant_id, business_id, week_start: dt.date, week_end: 
                              _window_filters("ulrg_team_signed", week_start, week_end)[0])
 
 
+async def _agent_names(s, tenant_id, ids: set) -> dict:
+    if not ids:
+        return {}
+    return {aid: nm for aid, nm in (await s.execute(
+        select(Agent.id, Agent.name).where(Agent.id.in_(ids)))).all()}
+
+
+async def _sympli_records(s, tenant_id, week_start, week_end, group, limit):
+    """Drill for the Sympli attach rate: the FINANCEABLE buyer closings that formed the denominator
+    (via the shared flywheel capture), each flagged `captured` = it used Sympli (the numerator). So
+    `captured of total` reads back exactly as the rate. Overall (no office) → all agents."""
+    from .metrics import build_sympli_ctx, sympli_capture
+    ctx = await build_sympli_ctx(s, tenant_id)
+    if ctx is None:
+        return []
+    sgid = (group or {}).get("sisu_group_id")
+    if sgid is None:
+        agent_ids = None                                # Overall → all agents = the org flywheel set
+    else:
+        agent_ids = await _office_agent_ids(s, tenant_id, sgid)
+        if not agent_ids:                               # unmapped office / roster not synced
+            return []
+    cap = await sympli_capture(ctx, s, tenant_id, week_start, week_end, agent_ids=agent_ids)
+    cap_ids = cap["cap_ids"]
+    fin = sorted(cap["fin"], key=lambda t: (t.close_date or dt.date.min), reverse=True)[:limit]
+    names = await _agent_names(s, tenant_id, {t.agent_id for t in fin if t.agent_id})
+    return [{"id": t.external_id, "client": t.buyer_name, "agent": names.get(t.agent_id),
+             "date": t.close_date.isoformat() if t.close_date else None, "address": t.address,
+             "sale_price": float(t.sale_price) if t.sale_price is not None else None,
+             "captured": t.id in cap_ids} for t in fin]
+
+
+async def _meraki_records(s, tenant_id, business_id, week_start, week_end, group, limit):
+    """Drill for the Meraki (title) attach rate: the office's closings that RECORDED a title company
+    (the denominator), each flagged `captured` = title_vid ∈ meraki_title_vids (the numerator)."""
+    integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
+    meraki = {int(v) for v in ((integ.config or {}).get("meraki_title_vids") or [])} if integ else set()
+    q = (select(Transaction, Agent.name).outerjoin(Agent, Transaction.agent_id == Agent.id)
+         .where(Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
+                Transaction.status == "closed", Transaction.title_vid.is_not(None),
+                Transaction.close_date >= week_start, Transaction.close_date <= week_end))
+    sgid = (group or {}).get("sisu_group_id")
+    if sgid is not None:
+        ids = await _office_agent_ids(s, tenant_id, sgid)
+        if not ids:
+            return []
+        q = q.where(Transaction.agent_id.in_(ids))
+    rows = (await s.execute(q.order_by(Transaction.close_date.desc()).limit(limit))).all()
+    return [{"id": t.external_id, "client": t.buyer_name, "agent": nm,
+             "date": t.close_date.isoformat() if t.close_date else None, "address": t.address,
+             "sale_price": float(t.sale_price) if t.sale_price is not None else None,
+             "captured": t.title_vid in meraki} for t, nm in rows]
+
+
 async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.date, week_end: dt.date,
                            group=None, limit: int = 500):
-    """The underlying Sisu deals behind a resolver's count for a (metric, window) — powers the grid
-    drill-down. Same WHERE clauses as the count (via `_window_filters`) + the same office restriction
-    for per-team keys, so the list is exactly what was counted. Returns [] for an office that maps to
-    no agents (or an unmapped/overall-only key with no records), None for an unknown key."""
+    """The underlying Sisu deals behind a resolver's figure for a (metric, window) — powers the grid
+    drill-down. For COUNT keys, the same WHERE clauses as the count (via `_window_filters`) + the same
+    office restriction, so the list is exactly what was counted. For the two RATE keys (attach rates)
+    it's the denominator deals, each flagged `captured` (numerator subset). Returns [] for an office
+    that maps to no agents (or an unmapped/overall-only key with no records), None for an unknown key."""
+    if key == "ulrg_team_sympli_attach":
+        return await _sympli_records(s, tenant_id, week_start, week_end, group, limit)
+    if key == "ulrg_team_meraki_attach":
+        return await _meraki_records(s, tenant_id, business_id, week_start, week_end, group, limit)
     clauses, date_col = _window_filters(key, week_start, week_end)
     if clauses is None:
         return None
