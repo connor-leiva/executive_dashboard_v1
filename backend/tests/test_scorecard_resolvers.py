@@ -200,11 +200,11 @@ DAVIS = {"key": "davis", "sisu_group_id": DAVIS_GID}
 
 async def _txn_agent(s, tid, bid, agent_id, status, ext, close_date=None,
                      contract_date=None, sale_price=350000, appt_met_date=None, signed_date=None,
-                     side=None, mortgage_vid=None, buyer_email=None):
+                     side=None, mortgage_vid=None, title_vid=None, buyer_email=None):
     s.add(Transaction(tenant_id=tid, business_id=bid, source="sisu", external_id=ext, status=status,
                       close_date=close_date, contract_date=contract_date, sale_price=sale_price,
                       agent_id=agent_id, appt_met_date=appt_met_date, signed_date=signed_date,
-                      side=side, mortgage_vid=mortgage_vid, buyer_email=buyer_email))
+                      side=side, mortgage_vid=mortgage_vid, title_vid=title_vid, buyer_email=buyer_email))
 
 
 @pytest.fixture
@@ -312,6 +312,37 @@ async def test_team_sympli_attach_reuses_flywheel_capture(team_env):
         assert rate == 66.7
         # a week with no financeable buyer closings → None (a rate has no denominator), not 0
         assert await R.team_sympli_attach(s, e["tid"], e["bid"],
+                                          dt.date(2026, 7, 6), dt.date(2026, 7, 12), group=DAVIS) is None
+
+
+async def test_team_meraki_attach_is_title_vendor_share(team_env):
+    e = team_env
+    async with SessionLocal() as s:
+        integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == e["tid"], Integration.provider == "sisu"))).scalar_one()
+        integ.config = {"meraki_title_vids": [43830]}
+        # Davis closings this week by title vendor: 2 Meraki (43830), 1 competitor (55), 1 unknown (None)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "m1", close_date=WED, title_vid=43830)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][1], "closed", "m2", close_date=WED, title_vid=43830)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "m3", close_date=WED, title_vid=55)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "m4", close_date=WED, title_vid=None)  # unknown → out of denom
+        await _txn_agent(s, e["tid"], e["bid"], e["s"], "closed", "m5", close_date=WED, title_vid=43830)    # other office
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "pending", "m6", close_date=None, contract_date=WED, title_vid=43830)  # not closed
+        await s.commit()
+        # Davis classifiable closings = m1,m2,m3 (m4 unknown excluded); Meraki = m1,m2 → 2/3
+        assert await R.team_meraki_attach(s, e["tid"], e["bid"], MON, SUN, group=DAVIS) == 66.7
+        # not configured → None (can't classify without the vid list), even with closings present
+        integ.config = {}
+        await s.commit()
+        assert await R.team_meraki_attach(s, e["tid"], e["bid"], MON, SUN, group=DAVIS) is None
+
+    # a fresh week with no closings that recorded a title vendor → None (a gap), not 0%
+    async with SessionLocal() as s:
+        integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == e["tid"], Integration.provider == "sisu"))).scalar_one()
+        integ.config = {"meraki_title_vids": [43830]}
+        await s.commit()
+        assert await R.team_meraki_attach(s, e["tid"], e["bid"],
                                           dt.date(2026, 7, 6), dt.date(2026, 7, 12), group=DAVIS) is None
 
 

@@ -291,6 +291,10 @@ def map_client(c: dict) -> dict:
         # keys to match a ULRG buyer to a funded Sympli loan.
         "mortgage_vid": (int(c["mortgage_company_vid"])
                          if str(c.get("mortgage_company_vid") or "").isdigit() else None),
+        # title vendor the deal used — drives the Meraki (title) attach rate. isdigit() is False
+        # for Sisu's negative sentinels (-1 "none"/-2 "unknown"), so those land as None (not a vendor).
+        "title_vid": (int(c["title_company_vid"])
+                      if str(c.get("title_company_vid") or "").isdigit() else None),
         "buyer_email2": _clip(c.get("second_contact_email"), 255),
         "buyer_phone": _digits10(c.get("mobile_phone")),
         "agent_external_id": str(aid) if aid else None,

@@ -216,6 +216,40 @@ async def team_sympli_attach(s, tenant_id, business_id, week_start: dt.date, wee
     return round(len(cap["cap_ids"]) / fin * 100, 1) if fin else None
 
 
+@resolver("ulrg_team_meraki_attach")
+async def team_meraki_attach(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Meraki (title) attach % for the week. Unlike Sympli, title isn't in the referral flywheel — it's
+    a straight vendor-share over the deals themselves: of this office's closings that recorded a title
+    company, the share that used Meraki (title_vid ∈ the tenant's meraki_title_vids). Per office, or ALL
+    agents for the Overall row. Closings whose title vendor is unknown (Sisu's -1/-2 sentinels land as a
+    null title_vid) drop out of the denominator — we don't dilute the rate with deals we can't classify.
+
+    meraki_title_vids is carried on the Sisu integration config (set from the seed via --wire): the Sisu
+    vendor directory 404s for this account, so the ids can't be auto-derived like Sympli's are. Returns
+    None when not configured, the roster isn't synced, or no classifiable closings that week."""
+    if not await _sisu_live(s, tenant_id, business_id):
+        return None
+    integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
+    meraki = {int(v) for v in ((integ.config or {}).get("meraki_title_vids") or [])} if integ else set()
+    if not meraki:
+        return None
+    q = select(Transaction.title_vid).where(
+        Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
+        Transaction.status == "closed", Transaction.title_vid.is_not(None),
+        Transaction.close_date >= week_start, Transaction.close_date <= week_end)
+    sgid = (group or {}).get("sisu_group_id")
+    if sgid is not None:                                 # per-office (Overall passes no group → all agents)
+        agent_ids = await _office_agent_ids(s, tenant_id, sgid)
+        if not agent_ids:                               # roster not synced, or office has no agents
+            return None
+        q = q.where(Transaction.agent_id.in_(agent_ids))
+    vids = (await s.execute(q)).scalars().all()
+    if not vids:                                        # no classifiable closings → a gap, not a 0%
+        return None
+    return round(sum(1 for v in vids if v in meraki) / len(vids) * 100, 1)
+
+
 # ── runner (called by the worker) ────────────────────────────────────────────
 LOOKBACK_WEEKS = 3     # re-resolve the open week + the 2 before it every day, so a missed Monday
                        # run or a late Sisu sync self-heals — writes are idempotent upserts.

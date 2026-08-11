@@ -176,6 +176,7 @@ class Transaction(Base):
     buyer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Attachment-flywheel join keys (Sisu vendor pick + extra borrower contacts).
     mortgage_vid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title_vid: Mapped[int | None] = mapped_column(Integer, nullable=True)   # Sisu title_company_vid → Meraki attach
     buyer_email2: Mapped[str | None] = mapped_column(String(255), nullable=True)
     buyer_phone: Mapped[str | None] = mapped_column(String(16), nullable=True)
     agent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent.id"), nullable=True)

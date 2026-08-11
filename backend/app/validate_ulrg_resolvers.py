@@ -40,6 +40,8 @@ def _resolver_for(group_key: str, name: str) -> str | None:
     n = name.lower()
     if "sympli" in n and ("attach" in n or "mortgage" in n):
         return "ulrg_team_sympli_attach"                    # per-office AND overall (resolver handles both)
+    if "meraki" in n:
+        return "ulrg_team_meraki_attach"                    # title attach — per-office AND overall
     if group_key == "overall" and "homes" in n:
         return "ulrg_homes_closed"
     if group_key in ("davis", "slc", "utco"):

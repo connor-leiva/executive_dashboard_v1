@@ -24,6 +24,9 @@
   "2026-07-20",
   "2026-07-27"
  ],
+ "meraki_title_vids": [
+  43830
+ ],
  "fiscal_quarters": [
   {
    "key": "2026Q2",
@@ -256,6 +259,7 @@
     },
     {
      "name": "Meraki Attach Rate",
+     "resolver_key": "ulrg_team_meraki_attach",
      "goal": 60.0,
      "type": "rate",
      "stage": null,
@@ -509,6 +513,7 @@
     },
     {
      "name": "Attach Rate Meraki",
+     "resolver_key": "ulrg_team_meraki_attach",
      "goal": 60.0,
      "type": "rate",
      "stage": null,
@@ -693,6 +698,7 @@
     },
     {
      "name": "Attach Rate Meraki",
+     "resolver_key": "ulrg_team_meraki_attach",
      "goal": 60.0,
      "type": "rate",
      "stage": null,
@@ -908,6 +914,7 @@
     },
     {
      "name": "Meraki Attach Rate - Utah Life",
+     "resolver_key": "ulrg_team_meraki_attach",
      "goal": 60.0,
      "type": "rate",
      "stage": null,

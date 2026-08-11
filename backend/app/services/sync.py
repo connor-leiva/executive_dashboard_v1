@@ -253,7 +253,7 @@ async def _upsert_many(s: AsyncSession, model, rows: list[dict], index_elements,
 
 _TXN_UPDATE_KEYS = [
     "side", "status", "gci", "agent_commission", "sale_price", "address", "buyer_name",
-    "buyer_email", "mortgage_vid", "buyer_email2", "buyer_phone",
+    "buyer_email", "mortgage_vid", "title_vid", "buyer_email2", "buyer_phone",
     "agent_id", "contract_date", "close_date", "expected_close_date",
     "appt_set_date", "appt_met_date", "signed_date", "lead_date", "listing_date", "sisu_status_code",
 ]
@@ -322,7 +322,8 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
              gci=t.get("gci"), agent_commission=t.get("agent_commission"),
              sale_price=t.get("sale_price"), address=t.get("address"),
              buyer_name=t.get("buyer_name"), buyer_email=t.get("buyer_email"),
-             mortgage_vid=t.get("mortgage_vid"), buyer_email2=t.get("buyer_email2"),
+             mortgage_vid=t.get("mortgage_vid"), title_vid=t.get("title_vid"),
+             buyer_email2=t.get("buyer_email2"),
              buyer_phone=t.get("buyer_phone"),
              agent_id=agent_map.get(t.get("agent_external_id")),
              contract_date=t.get("contract_date"), close_date=t.get("close_date"),

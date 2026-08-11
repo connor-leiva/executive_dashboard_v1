@@ -29,7 +29,7 @@ from sqlalchemy import select, delete
 
 from .config import settings
 from .db import SessionLocal
-from .models import Tenant, Business, ScorecardGroup, ScorecardMetric, ScorecardValue
+from .models import Tenant, Business, Integration, ScorecardGroup, ScorecardMetric, ScorecardValue
 
 _DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "ulrg_scorecard_seed.json")
 
@@ -37,6 +37,23 @@ _DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "ulrg_scorecard_see
 def _load_data() -> dict:
     with open(_DATA_PATH, encoding="utf-8") as f:
         return json.load(f)
+
+
+async def _apply_meraki_vids(s, tenant_id, data: dict) -> None:
+    """Carry the seed's meraki_title_vids onto the Sisu integration config so the Meraki (title)
+    attach resolver can classify closings. The Sisu vendor directory 404s for this account, so these
+    ids are curated in the seed rather than auto-derived (Sympli's are). Merge-set (survives the
+    sync's vendor cfg.update, which only touches the mortgage keys); a no-op if Sisu isn't connected."""
+    vids = data.get("meraki_title_vids")
+    if not vids:
+        return
+    integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
+    if integ is None:
+        return
+    cfg = dict(integ.config or {})
+    cfg["meraki_title_vids"] = list(vids)
+    integ.config = cfg
 
 
 async def load_ulrg_scorecard(s, tenant_id) -> int:
@@ -79,6 +96,7 @@ async def load_ulrg_scorecard(s, tenant_id) -> int:
     cfg = dict(tenant.config or {})
     cfg["fiscal_quarters"] = data["fiscal_quarters"]   # the scorecard seed owns these — overwrite so a reseed corrects them
     tenant.config = cfg
+    await _apply_meraki_vids(s, tenant_id, data)        # Meraki title vids → Sisu integ config
     await s.commit()
     return n_values
 
@@ -112,6 +130,7 @@ async def wire_resolvers(s, tenant_id) -> tuple[int, int]:
             if rk is not None:                           # only flip the rows the JSON marks
                 met.resolver_key = rk
                 m_wired += 1
+    await _apply_meraki_vids(s, tenant_id, data)          # Meraki title vids → Sisu integ config
     await s.commit()
     return g_mapped, m_wired
 
