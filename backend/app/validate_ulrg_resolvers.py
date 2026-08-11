@@ -35,7 +35,8 @@ from .services.sync import sync_agent_offices
 
 def _resolver_for(group_key: str, name: str) -> str | None:
     """Map a live metric to the resolver we intend to flip it to (metrics don't set resolver_key
-    until validated). Overall homes → business-wide; each team's Homes-Sold / Under-Contract → per-team."""
+    until validated). Overall homes → business-wide; each team's Homes-Sold / Under-Contract /
+    Appointments-Met / Clients-Signed → per-team."""
     n = name.lower()
     if group_key == "overall" and "homes" in n:
         return "ulrg_homes_closed"
@@ -44,6 +45,10 @@ def _resolver_for(group_key: str, name: str) -> str | None:
             return "ulrg_team_homes_closed"
         if "under contract" in n:
             return "ulrg_team_under_contract"
+        if "appointments met" in n and "recruiting" not in n:   # not "Recruiting Appointments Met"
+            return "ulrg_team_appts_met"
+        if "signed" in n:                                        # "Clients Signed" / "Signed Units"
+            return "ulrg_team_signed"
     return None
 
 
