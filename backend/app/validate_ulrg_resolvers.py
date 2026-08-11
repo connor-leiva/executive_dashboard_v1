@@ -38,6 +38,8 @@ def _resolver_for(group_key: str, name: str) -> str | None:
     until validated). Overall homes → business-wide; each team's Homes-Sold / Under-Contract /
     Appointments-Met / Clients-Signed → per-team."""
     n = name.lower()
+    if "sympli" in n and ("attach" in n or "mortgage" in n):
+        return "ulrg_team_sympli_attach"                    # per-office AND overall (resolver handles both)
     if group_key == "overall" and "homes" in n:
         return "ulrg_homes_closed"
     if group_key in ("davis", "slc", "utco"):

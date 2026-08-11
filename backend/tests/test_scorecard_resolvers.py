@@ -199,10 +199,12 @@ DAVIS = {"key": "davis", "sisu_group_id": DAVIS_GID}
 
 
 async def _txn_agent(s, tid, bid, agent_id, status, ext, close_date=None,
-                     contract_date=None, sale_price=350000, appt_met_date=None, signed_date=None):
+                     contract_date=None, sale_price=350000, appt_met_date=None, signed_date=None,
+                     side=None, mortgage_vid=None, buyer_email=None):
     s.add(Transaction(tenant_id=tid, business_id=bid, source="sisu", external_id=ext, status=status,
                       close_date=close_date, contract_date=contract_date, sale_price=sale_price,
-                      agent_id=agent_id, appt_met_date=appt_met_date, signed_date=signed_date))
+                      agent_id=agent_id, appt_met_date=appt_met_date, signed_date=signed_date,
+                      side=side, mortgage_vid=mortgage_vid, buyer_email=buyer_email))
 
 
 @pytest.fixture
@@ -289,6 +291,28 @@ async def test_team_appts_met_and_signed_use_their_dates(team_env):
         sg = await R.team_signed(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)
     assert am == 2.0   # d1 (Wed) + d2 (Mon), both Davis; other office & prior week excluded
     assert sg == 1.0   # d1 signed this week; prior-week signing excluded
+
+
+async def test_team_sympli_attach_reuses_flywheel_capture(team_env):
+    e = team_env
+    async with SessionLocal() as s:
+        s.add(Business(tenant_id=e["tid"], key="sympli", name="Sympli", tag="mtg"))
+        integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == e["tid"], Integration.provider == "sisu"))).scalar_one()
+        integ.config = {"sympli_mortgage_vids": [777], "cash_vids": [999], "lender_names": {}}
+        # Davis buyer closings this week: 2 via Sympli (777), 1 competitor (555), 1 cash (999 → excluded)
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "s1", close_date=WED, side="buy", mortgage_vid=777, buyer_email="a@x.com")
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][1], "closed", "s2", close_date=WED, side="buy", mortgage_vid=777, buyer_email="b@x.com")
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "s3", close_date=WED, side="buy", mortgage_vid=555, buyer_email="c@x.com")
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "s4", close_date=WED, side="buy", mortgage_vid=999, buyer_email="d@x.com")
+        await _txn_agent(s, e["tid"], e["bid"], e["s"], "closed", "s5", close_date=WED, side="buy", mortgage_vid=777, buyer_email="e@x.com")   # other office
+        await s.commit()
+        rate = await R.team_sympli_attach(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)
+        # Davis financeable buys = s1,s2,s3 (s4 cash excluded); captured = s1,s2 → 2/3
+        assert rate == 66.7
+        # a week with no financeable buyer closings → None (a rate has no denominator), not 0
+        assert await R.team_sympli_attach(s, e["tid"], e["bid"],
+                                          dt.date(2026, 7, 6), dt.date(2026, 7, 12), group=DAVIS) is None
 
 
 async def test_resolver_records_match_the_count(team_env):

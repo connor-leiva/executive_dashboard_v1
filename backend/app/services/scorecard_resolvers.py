@@ -191,6 +191,31 @@ async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.d
     return out
 
 
+@resolver("ulrg_team_sympli_attach")
+async def team_sympli_attach(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Sympli attach % for the week — the SAME flywheel capture (signal A: Sympli vid ∪ C: funded-loan
+    link, over the financeable buyer-closing denominator), scoped to this office's agents (or ALL agents
+    for the Overall row). Reuses metrics.sympli_capture, so the scorecard always reconciles with the org
+    flywheel card. Returns None when not wired, the roster isn't synced, or there were no financeable
+    buyer closings that week — a rate has no meaning without a denominator (that's a gap, not a 0%)."""
+    if not await _sisu_live(s, tenant_id, business_id):
+        return None
+    from .metrics import build_sympli_ctx, sympli_capture
+    ctx = await build_sympli_ctx(s, tenant_id)
+    if ctx is None:
+        return None
+    sgid = (group or {}).get("sisu_group_id")
+    if sgid is None:
+        agent_ids = None                                # Overall → all agents = the org flywheel number
+    else:
+        agent_ids = await _office_agent_ids(s, tenant_id, sgid)
+        if not agent_ids:                               # roster not synced, or office has no agents
+            return None
+    cap = await sympli_capture(ctx, s, tenant_id, week_start, week_end, agent_ids=agent_ids)
+    fin = len(cap["fin"])
+    return round(len(cap["cap_ids"]) / fin * 100, 1) if fin else None
+
+
 # ── runner (called by the worker) ────────────────────────────────────────────
 LOOKBACK_WEEKS = 3     # re-resolve the open week + the 2 before it every day, so a missed Monday
                        # run or a late Sisu sync self-heals — writes are idempotent upserts.

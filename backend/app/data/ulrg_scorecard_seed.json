@@ -221,6 +221,7 @@
     },
     {
      "name": "Attach Rate Sympli",
+     "resolver_key": "ulrg_team_sympli_attach",
      "goal": 40.0,
      "type": "rate",
      "stage": null,
@@ -473,6 +474,7 @@
     },
     {
      "name": "Attach Rate Sympli",
+     "resolver_key": "ulrg_team_sympli_attach",
      "goal": 40.0,
      "type": "rate",
      "stage": null,
@@ -725,6 +727,7 @@
     },
     {
      "name": "Sympli Attach Rate",
+     "resolver_key": "ulrg_team_sympli_attach",
      "goal": 40.0,
      "type": "rate",
      "stage": null,
@@ -939,6 +942,7 @@
     },
     {
      "name": "Sympli Mortgage - Utah Life",
+     "resolver_key": "ulrg_team_sympli_attach",
      "goal": 40.0,
      "type": "rate",
      "stage": null,
