@@ -75,7 +75,7 @@ const VERDICT = {
   ahead: { label: "Ahead", kind: "good" },
   catchable: { label: "Catchable", kind: "good" },
   stretch: { label: "Stretch", kind: "warn" },
-  reset: { label: "Reset goal", kind: "bad" },
+  reset: { label: "Reset", kind: "bad" },
 };
 
 /* ------------------------------- primitives ------------------------------- */
@@ -139,15 +139,15 @@ export function StatusTag({ verdict }) {
   return (
     <span
       style={{
-        fontSize: 9.5,
+        fontSize: 8,
         fontWeight: 600,
-        letterSpacing: "0.055em",
+        letterSpacing: "0.02em",
         textTransform: "uppercase",
         color: t.fg,
         background: s.kind === "good" ? t.bg : "transparent",
         border: `1px solid ${s.kind === "good" ? "transparent" : t.fg}`,
         borderRadius: 3,
-        padding: "1.5px 5px",
+        padding: "1px 4px",
         whiteSpace: "nowrap",
         opacity: s.kind === "good" ? 1 : 0.72,
       }}

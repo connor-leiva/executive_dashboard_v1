@@ -32,6 +32,7 @@ export default function DrillDrawer({ drill, canEdit, onClose, onSaved }) {
 
 function Records({ r, ws, we }) {
   const [recs, setRecs] = useState(null);
+  const [sort, setSort] = useState("name");   // alphabetical by default; toggle to date
   useEffect(() => {
     let ok = true;
     setRecs(null);
@@ -43,10 +44,25 @@ function Records({ r, ws, we }) {
 
   if (recs === null) return <div style={muted}>Loading records…</div>;
   if (!recs.length) return <div style={muted}>No records from Sisu in this window.</div>;
+  const sorted = [...recs].sort((a, b) =>
+    sort === "date"
+      ? String(b.date || "").localeCompare(String(a.date || ""))            // newest first
+      : String(a.client || "~").localeCompare(String(b.client || "~"), undefined, { sensitivity: "base" }));  // A→Z, blanks last
   return (
     <>
-      <div style={{ ...LBL, marginBottom: 6 }}>{recs.length} record{recs.length === 1 ? "" : "s"} · from Sisu</div>
-      {recs.map((x) => (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+        <div style={LBL}>{recs.length} record{recs.length === 1 ? "" : "s"} · from Sisu</div>
+        <div style={{ display: "flex", gap: 2, background: T.shell, borderRadius: 6, padding: 2, flexShrink: 0 }}>
+          {["name", "date"].map((k) => (
+            <button key={k} onClick={() => setSort(k)} style={{
+              fontFamily: FONT, fontSize: 10.5, textTransform: "capitalize", border: "none", cursor: "pointer",
+              padding: "3px 9px", borderRadius: 4, fontWeight: sort === k ? 600 : 500,
+              background: sort === k ? T.paper : "transparent", color: sort === k ? T.ink : T.muted,
+              boxShadow: sort === k ? "0 1px 2px rgba(20,35,28,0.1)" : "none" }}>{k}</button>
+          ))}
+        </div>
+      </div>
+      {sorted.map((x) => (
         <div key={x.id} style={{ padding: "10px 0", borderBottom: `1px solid ${T.lineSoft}` }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.client || "—"}</span>

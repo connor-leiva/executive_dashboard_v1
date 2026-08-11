@@ -1571,6 +1571,20 @@ async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, peri
         Integration.status.in_(("connected", "error"))))).scalars().all()
     for integ in integs:
         await _sync_integration(s, tenant_id, integ, period_start, period_end)
+    # Sisu just synced → recompute the ULRG scorecard now, so late/backdated entries (agents enter
+    # their week's numbers over the following days) show at the Tuesday review rather than only at the
+    # daily 5:15am tick. Cheap — small count queries over the 3-week look-back — and a no-op for a
+    # tenant with no resolver-backed metrics. Isolated so a resolver fault never fails the sync.
+    if any(i.provider == "sisu" for i in integs):
+        try:
+            from zoneinfo import ZoneInfo
+            from ..config import settings
+            from ..db import SessionLocal
+            from .scorecard_resolvers import run_resolvers
+            today = dt.datetime.now(ZoneInfo(settings.BILLING_TIMEZONE)).date()
+            await run_resolvers(SessionLocal, tenant_id, today)
+        except Exception as e:  # noqa: BLE001 — the scorecard recompute must never break the sync
+            print(f"[sync] scorecard recompute skipped for {tenant_id}: {e}", flush=True)
     if any(i.provider == "qbo" for i in integs):       # Books deterministic scan after txn sync
         from .books_scan import run_scan
         await run_scan(s, tenant_id)
