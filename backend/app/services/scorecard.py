@@ -250,8 +250,15 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
 
     all_weeks = sorted({v.week_start for v in values})
     weeks = all_weeks[-weeks_param:] if weeks_param else all_weeks
+    # The in-progress week never counts toward the cumulative/pace — the team reviews COMPLETED weeks
+    # (Mon–Sun) at their Tuesday L10, so a week only enters the totals once it has fully closed. The
+    # current week's cell still shows its running tally; it's just excluded until its Sunday passes.
+    cur_week_start = today - dt.timedelta(days=today.weekday())   # Monday of the week containing today
+    def _done(w) -> bool:
+        return w < cur_week_start
     weeks_out = [{"n": w.isocalendar()[1], "start": w.isoformat(),
-                  "end": (w + dt.timedelta(days=6)).isoformat(), "label": f"{w.month}/{w.day:02d}"}
+                  "end": (w + dt.timedelta(days=6)).isoformat(), "label": f"{w.month}/{w.day:02d}",
+                  "complete": _done(w)}
                  for w in weeks]
     wkey = f"w{weeks_param}"
 
@@ -259,7 +266,8 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
         if m.type == "snapshot":
             return None
         d = m.direction
-        in_q = [vmap.get(m.id, {}).get(w) for w in all_weeks if w >= q["start_date"]]
+        in_q = [vmap.get(m.id, {}).get(w) if _done(w) else None
+                for w in all_weeks if w >= q["start_date"]]
         qtd = None if q["weeks_closed"] < 2 else cumulative_block(in_q, goal, m.type, d, len(in_q), wl)
         return {"w4": cumulative_block(all_vals, goal, m.type, d, 4, wl),
                 wkey: cumulative_block(all_vals, goal, m.type, d, weeks_param, wl), "qtd": qtd}
@@ -268,7 +276,9 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
     for g in groups:
         rows, move_rows = [], []
         for m in by_group.get(g.id, []):
-            all_vals = [vmap.get(m.id, {}).get(w) for w in all_weeks]
+            # null the in-progress week (keep its calendar slot so the rolling window doesn't shift;
+            # _clean drops it, and miss_streak/trend skip None) — it counts only once it has closed.
+            all_vals = [vmap.get(m.id, {}).get(w) if _done(w) else None for w in all_weeks]
             default_goal, d = float(m.goal), m.direction
             goal = _goal_for(m.id, cur_key, default_goal)   # WEEKLY goal: cells + display + streak
             # A flow metric with a period-TOTAL goal becomes a quarter thermometer: count only weeks
@@ -277,8 +287,8 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
             cum_goal = cmap.get((str(m.id), cur_key)) if m.type == "flow" else None
             if cum_goal is not None:
                 cum_basis = cum_goal / q["weeks_total"]      # steady per-week pace (drives trend)
-                period_vals = [vmap.get(m.id, {}).get(w) for w in all_weeks
-                               if q["start_date"] <= w <= q_end]
+                period_vals = [vmap.get(m.id, {}).get(w) if _done(w) else None
+                               for w in all_weeks if q["start_date"] <= w <= q_end]
                 pb = period_block(period_vals, cum_goal, q["weeks_total"], q["weeks_closed"], wl)
                 cum = {"w4": pb, wkey: pb, "qtd": pb}
             else:

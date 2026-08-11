@@ -1,6 +1,9 @@
 """Scorecard self-service office config (Phase A): edit owner full name (owner/admin) + upload a
 headshot served publicly (for the app AND the read-only embed)."""
 import datetime as dt
+import uuid
+from decimal import Decimal
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
@@ -8,8 +11,9 @@ from sqlalchemy import select
 from app.main import app
 from app.seed import seed
 from app.db import SessionLocal
-from app.models import Tenant
+from app.models import Tenant, Business, ScorecardGroup, ScorecardMetric, ScorecardValue
 from app.seed_ulrg_scorecard import load_ulrg_scorecard
+from app.services.scorecard import build_scorecard
 
 TRANSPORT = ASGITransport(app=app)
 
@@ -221,6 +225,33 @@ async def test_rename_measurable():
         assert (await c.patch(f"/api/v1/ulrg/metric/{mid}", headers=_H(tok), json={"name": "   "})).status_code == 400
         # restore (module-scoped seed is shared across tests)
         await c.patch(f"/api/v1/ulrg/metric/{mid}", headers=_H(tok), json={"name": original})
+
+
+async def test_in_progress_week_excluded_from_cumulative():
+    """A week counts toward the cumulative/pace only once it has fully CLOSED (Connor's L10 cadence:
+    the team reviews completed Mon–Sun weeks at the Tuesday meeting). The in-progress week still shows
+    as a cell but is excluded from actual/target/pace — so 33+17 reads '50 of 60', never '50 of 90'."""
+    async with SessionLocal() as s:
+        t = Tenant(slug=f"cw-{uuid.uuid4().hex[:8]}", name="Cadence")
+        s.add(t); await s.flush()
+        t.config = {"fiscal_quarters": [{"key": "2026Q3", "start": "2026-07-27", "end": "2026-10-30"}]}
+        b = Business(tenant_id=t.id, key="ulrg", name="ULRG", tag="re"); s.add(b); await s.flush()
+        g = ScorecardGroup(tenant_id=t.id, business_id=b.id, key="davis", name="Davis", is_team_room=True)
+        s.add(g); await s.flush()
+        m = ScorecardMetric(tenant_id=t.id, group_id=g.id, name="Appointments Met", goal=Decimal("30"),
+                            direction="gte", type="flow", active=True)
+        s.add(m); await s.flush()
+        # two closed weeks (7/27, 8/3) + the current in-progress week (8/10)
+        for ws, v in {dt.date(2026, 7, 27): 33, dt.date(2026, 8, 3): 17, dt.date(2026, 8, 10): 0}.items():
+            s.add(ScorecardValue(tenant_id=t.id, metric_id=m.id, week_start=ws, value=Decimal(v), source="resolver"))
+        await s.commit()
+        d = await build_scorecard(s, t.id, b.id, 13, today=dt.date(2026, 8, 11))   # Tue inside the 8/10 week
+
+    c = d["groups"][0]["rows"][0]["cumulative"]["w13"]
+    assert c["actual"] == 50 and c["target"] == 60          # 33+17 vs 30×2 — the 8/10 week does NOT count
+    assert c["n"] == 2 and round(c["attain"]) == 83         # not 56% (which counting the 0 week would give)
+    assert d["weeks"][-1]["start"] == "2026-08-10" and d["weeks"][-1]["complete"] is False   # shows, flagged
+    assert d["weeks"][-2]["complete"] is True
 
 
 async def test_current_period_goal_zero_does_not_crash():

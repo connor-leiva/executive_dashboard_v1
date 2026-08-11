@@ -78,11 +78,13 @@ export default function Scorecard({ role, shareToken = null }) {
   const wkey = rangeId === "qtd" ? "qtd" : `w${rangeId}`;
   const cumLabel = rangeId === "qtd" ? "Quarter to date" : `Last ${rangeId} weeks`;
 
+  // The in-progress week (complete === false) shows but never counts — matches the server's pace math.
   const counted = useMemo(() => {
-    if (rangeId === "qtd") return new Set(weeks.filter((w) => quarterStart && w.start >= quarterStart).map((w) => w.n));
-    return new Set(weeksDesc.slice(0, Number(rangeId)).map((w) => w.n));
-  }, [rangeId, weeks, weeksDesc, quarterStart]);
-  const countedN = rangeId === "qtd" ? counted.size : Math.min(Number(rangeId), weeks.length);
+    const done = weeksDesc.filter((w) => w.complete !== false);   // newest-first, completed weeks only
+    if (rangeId === "qtd") return new Set(done.filter((w) => quarterStart && w.start >= quarterStart).map((w) => w.n));
+    return new Set(done.slice(0, Number(rangeId)).map((w) => w.n));
+  }, [rangeId, weeksDesc, quarterStart]);
+  const countedN = counted.size;
 
   const cumAttain = (r) => (r.cumulative && r.cumulative[wkey] && r.cumulative[wkey].attain != null ? r.cumulative[wkey].attain : null);
   const view = useMemo(() => {
