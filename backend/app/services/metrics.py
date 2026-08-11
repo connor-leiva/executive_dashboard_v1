@@ -898,18 +898,28 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         areas["forum"] = sb.model_copy(update={
             "key": "forum", "name": "The Forum", "tag": forum_tag,
             "accent": "#FFDD1F", "ink": "#6D5336"})   # daffodil (Forum identity)
+        # A QBO entity literally named "beCollective" / "The Edge" auto-slugs (integrations
+        # ._slugify) to the SAME key as these synthesized program tabs, so the businesses loop
+        # above already built areas["becollective"]/["edge"] carrying that entity's P&L. PRESERVE
+        # those financials instead of clobbering them — the routing loop below skips this business
+        # (its display_tab defaults to its own, colliding key → tab == key → continue), so nothing
+        # would otherwise re-attach the P&L, and the tab shows "awaiting QBO" despite a healthy sync.
+        def _prog_financials(prev):
+            if prev is None or prev.revenue is None:
+                return {"sources": ["Go High Level"], "revenue": None, "noi": None,
+                        "margin": None, "pl": []}
+            return {"sources": ["Go High Level", "QuickBooks"], "revenue": prev.revenue,
+                    "noi": prev.noi, "margin": prev.margin, "pl": prev.pl}
         areas["becollective"] = AreaPayload(
             id=sb.id, key="becollective", name="beCollective",
             tag=(f"Community · {bc_members} members" if bc_members else "Community · GHL segment"),
             status="opportunity", accent="#FFBA9F", ink="#6D5336",
-            sources=["Go High Level"], revenue=None, noi=None, margin=None,
-            trend=sb.trend, pl=[], ops=[], funnel=None)
+            trend=sb.trend, ops=[], funnel=None, **_prog_financials(areas.get("becollective")))
         areas["edge"] = AreaPayload(
             id=sb.id, key="edge", name="The Edge",
             tag=(f"Membership · {edge_members} members" if edge_members else "Membership · GHL segment"),
             status="opportunity", accent="#B26248", ink="#6D5336",
-            sources=["Go High Level"], revenue=None, noi=None, margin=None,
-            trend=sb.trend, pl=[], ops=[], funnel=None)
+            trend=sb.trend, ops=[], funnel=None, **_prog_financials(areas.get("edge")))
 
         # Springb's own P&L defaults to the forum view (above). If it's been re-routed
         # to another page, move its financial there and leave forum's financial empty

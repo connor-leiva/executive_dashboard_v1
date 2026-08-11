@@ -87,6 +87,41 @@ async def test_display_tab_routing_and_portfolio_gating():
             await s.commit()
 
 
+async def test_becollective_qbo_slug_collision_still_shows_pl():
+    """Regression: a QBO entity literally named 'beCollective' auto-slugs to key 'becollective',
+    colliding with the synthesized beCollective program tab. Its Booked P&L must still render on
+    that tab. Previously the springb split clobbered areas['becollective'] to pl=[] and the
+    routing loop skipped it (display_tab == key), so it showed 'awaiting QBO' despite a healthy
+    sync. Same guard covers a 'The Edge' entity slugging to 'edge'."""
+    from app.services.metrics import build_dashboard, _pl_period
+    ps, pe = _pl_period("mtd")
+    async with SessionLocal() as s:
+        tid = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one().id
+        b = Business(tenant_id=tid, key="becollective", name="beCollective", tag="QuickBooks entity",
+                     kind="membership", display_tab="becollective", include_in_portfolio=True,
+                     sort_order=30, config={})
+        s.add(b)
+        await s.flush()
+        bid = b.id
+        s.add(PLSnapshot(tenant_id=tid, business_id=bid, period_start=ps, period_end=pe, source="qbo",
+                         revenue=Decimal(80000), cogs=Decimal(20000), gross_profit=Decimal(60000),
+                         opex=Decimal(15000), noi=Decimal(45000), books_closed=True))
+        await s.commit()
+    try:
+        async with SessionLocal() as s:
+            areas = (await build_dashboard(s, tid, "mtd")).model_dump()["areas"]
+            bc = areas["becollective"]
+            assert bc["revenue"] == 80000, f"QBO P&L should reach the tab, got {bc['revenue']}"
+            assert bc["pl"], "beCollective P&L rows missing — still 'awaiting QBO'"
+            assert "QuickBooks" in bc["sources"]
+            assert bc["name"] == "beCollective"        # still the program-tab identity, not raw entity
+    finally:
+        async with SessionLocal() as s:
+            await s.execute(delete(PLSnapshot).where(PLSnapshot.business_id == bid))
+            await s.execute(delete(Business).where(Business.id == bid))
+            await s.commit()
+
+
 async def test_membership_entity_financials_are_booked_only():
     """A membership entity's /financials is its QBO Booked P&L alone — no Sisu-shaped
     Live/Projection lenses computed off zero transactions."""
