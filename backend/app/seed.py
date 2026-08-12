@@ -531,7 +531,16 @@ async def seed():
                 window_start=dt.date(2026, 8, 11), window_end=dt.date(2026, 9, 12),
                 goal_arr=Decimal(1_000_000), ticket_pif=Decimal(12000), ticket_plan=Decimal(14000),
                 plan_installments=12, mix_pif=Decimal("0.5"),
-                pipeline_match="Be Collective August 2026 Sales Funnel", cohort_value="Aug 2026",
+                # Sales Desk pricing v2 (§5) + tz for the prose Call Time. price_map supersedes the
+                # two-price model; four types, Monthly/Custom provisional.
+                price_map={
+                    "PIF":      {"acv": 12000, "upfront": 12000, "monthly": 0,    "months": 0,  "provisional": False},
+                    "Financed": {"acv": 14000, "upfront": 5000,  "monthly": 750,  "months": 12, "provisional": False},
+                    "Monthly":  {"acv": 14400, "upfront": 1200,  "monthly": 1200, "months": 12, "provisional": True},
+                    "Custom":   {"acv": None,  "upfront": None,  "monthly": None, "months": 0,  "provisional": True},
+                }, default_tz="America/Denver",
+                # §9.1: the live sales pipeline (the old seeded name read zero opportunities).
+                pipeline_match="be Collective Experience #1 Sales", cohort_value="Aug 2026",
                 # Seat-primary: the headline goal is 100 women, ARR is derived.
                 goal_basis="seats", seat_goal=100, pace_model="curve",
                 # The Shift — the lead-up webinar that feeds memberships (2,000 regs → 100 seats).

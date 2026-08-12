@@ -85,6 +85,20 @@ async def active_launch(key: str, user: User = Depends(current_user),
     return await compute_launch(s, user.tenant_id, launch)
 
 
+@router.get("/businesses/{key}/launches/active/sales-desk")
+async def active_sales_desk(key: str, user: User = Depends(current_user),
+                            s: AsyncSession = Depends(get_session)):
+    """The Sales Desk payload (SPEC-becollective-salesdesk §8) — rep throughput + schedule,
+    all computed from the SalesCall event log. 404 when no launch is active (section absent)."""
+    from ..services.sales_desk import compute_sales_desk
+    b = await _biz(s, user.tenant_id, key)
+    await assert_tab(user, s, _launch_tab(b))
+    launch = await active_launch_for(s, user.tenant_id, b.id)
+    if not launch:
+        raise HTTPException(404, "No active launch")
+    return await compute_sales_desk(s, user.tenant_id, launch)
+
+
 @router.get("/businesses/{key}/launches/active/drill/{metric}")
 async def drill_active_launch(key: str, metric: str, user: User = Depends(current_user),
                               s: AsyncSession = Depends(get_session)):

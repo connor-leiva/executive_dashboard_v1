@@ -623,6 +623,7 @@ class SalesCall(Base):
     call_time_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # parsed; null if unparseable
     outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)           # Showed | No Show | Cancelled | Rescheduled
     outcome_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)      # when Acumyn first observed it
+    payment_type: Mapped[str | None] = mapped_column(String(24), nullable=True)      # PIF | Financed | Monthly | Custom (§6.1) — feeds the payment mix
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     is_current: Mapped[bool] = mapped_column(Boolean, default=True)                  # false once superseded by a rebook
     __table_args__ = (UniqueConstraint("tenant_id", "opportunity_id", "booking_id",
