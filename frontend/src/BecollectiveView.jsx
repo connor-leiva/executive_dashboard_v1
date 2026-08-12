@@ -4,7 +4,9 @@
 import { useEffect, useState } from "react";
 import ForumView from "./ForumView.jsx";
 import LaunchSection, { LaunchEmpty } from "./LaunchSection.jsx";
+import SalesDeskSection from "./SalesDeskSection.jsx";
 import { useLaunch } from "./useLaunch.js";
+import { useSalesDesk } from "./useSalesDesk.js";
 import { T } from "./theme.js";
 import SubTabs from "./SubTabs.jsx";
 
@@ -20,9 +22,10 @@ const BC_DRILL_MAP = {
   mrr: "bc_mrr", monthly: "bc_monthly", pastdue: "bc_pastdue",
 };
 
-function SubNav({ page, setPage, hasLaunch }) {
+function SubNav({ page, setPage, hasLaunch, hasSales }) {
   const tabs = [{ k: "overview", label: "Overview" }];
   if (hasLaunch) tabs.push({ k: "launch", label: "Launch" });
+  if (hasSales) tabs.push({ k: "sales", label: "Sales Desk" });     // §8 — rep throughput
   return <SubTabs tabs={tabs} active={page} onChange={setPage} />;   // one shared switcher
 }
 
@@ -30,14 +33,18 @@ export default function BecollectiveView({ data, area, onDrill, deckSlots, drill
                                           rosterKey = "bc_roster", role }) {
   const [page, setPage] = useState("overview");
   const launch = useLaunch(drillBusiness);
+  const sales = useSalesDesk(drillBusiness);
   const isEditor = !role || role === "owner" || role === "admin";
   // Editors always get the Launch tab (to create one); everyone else only when it exists.
   const showLaunchTab = (launch.exists && (launch.data || launch.loading)) || isEditor;
+  // The Sales Desk is launch-scoped: it appears whenever a launch is live (no create flow).
+  const showSalesTab = sales.exists && (sales.data || sales.loading);
 
-  // If the launch is absent AND the user can't create one, fall back to Overview.
+  // If the current sub-tab disappears (or the user can't create a launch), fall back to Overview.
   useEffect(() => {
     if (page === "launch" && launch.exists === false && !isEditor) setPage("overview");
-  }, [page, launch.exists, isEditor]);
+    if (page === "sales" && sales.exists === false) setPage("overview");
+  }, [page, launch.exists, sales.exists, isEditor]);
 
   const overview = (
     <ForumView key="becollective" data={data} area={area} onDrill={onDrill}
@@ -45,20 +52,28 @@ export default function BecollectiveView({ data, area, onDrill, deckSlots, drill
       drillBusiness={drillBusiness} rosterKey={rosterKey} drillMap={BC_DRILL_MAP} />
   );
 
-  let launchPane = overview;
+  let pane = overview;
   if (page === "launch") {
     if (launch.data) {
-      launchPane = <LaunchSection data={launch.data} usingSample={launch.usingSample} role={role}
+      pane = <LaunchSection data={launch.data} usingSample={launch.usingSample} role={role}
         businessKey={drillBusiness} onSaved={launch.reload} />;
     } else if (launch.exists === false && isEditor) {
-      launchPane = <LaunchEmpty businessKey={drillBusiness} onCreated={launch.reload} />;
+      pane = <LaunchEmpty businessKey={drillBusiness} onCreated={launch.reload} />;
+    }
+  } else if (page === "sales") {
+    if (sales.data) {
+      pane = <SalesDeskSection data={sales.data} usingSample={sales.usingSample} />;
+    } else {
+      pane = <div style={{ padding: 20, color: T.muted, fontSize: 13 }}>
+        {sales.loading ? "Loading the Sales Desk…" : "No active launch — the Sales Desk appears once a cohort launch is live."}
+      </div>;
     }
   }
 
   return (
     <div>
-      <SubNav page={page} setPage={setPage} hasLaunch={showLaunchTab} />
-      {launchPane}
+      <SubNav page={page} setPage={setPage} hasLaunch={showLaunchTab} hasSales={showSalesTab} />
+      {pane}
     </div>
   );
 }
