@@ -574,6 +574,13 @@ class Launch(Base):
     shift_pace_tolerance: Mapped[Decimal] = mapped_column(Numeric(4, 3), default=Decimal("0.080"))
     stage_map: Mapped[dict] = mapped_column(JSONType)                          # group -> [raw stage substrings]
     payment_plan_map: Mapped[dict] = mapped_column(JSONType)                   # {"pif":[...], "plan":[...]}
+    # ── Sales Desk / pricing v2 (SPEC-becollective-salesdesk §4–5). price_map supersedes the
+    #    two-price ticket_pif/ticket_plan model above (kept until the compute rewrite lands, so
+    #    the live Launch tab keeps working); default_tz localizes the prose Call Time; and
+    #    history_since marks the first sync with the append-only SalesCall event log live. ──
+    price_map: Mapped[dict | None] = mapped_column(JSONType, nullable=True)    # {type:{acv,upfront,monthly,months,provisional}}
+    default_tz: Mapped[str] = mapped_column(String(48), default="America/Denver")
+    history_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # first sync with the event log live
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -594,6 +601,56 @@ class LaunchWeekly(Base):
     enrolled_cum: Mapped[int] = mapped_column(Integer, default=0)  # cumulative enrolled seats at week end
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint("launch_id", "week_start", name="uq_launch_week"),)
+
+
+# ── Sales Desk (SPEC-becollective-salesdesk §4) — the rep-level call-throughput view.
+#    GHL holds only CURRENT state (Call Outcome is the latest value); the Desk needs HISTORY,
+#    so it maintains an append-only event log built by diffing successive syncs. Every rate on
+#    the tab is computed from this log, never from live GHL fields. ────────────────────────────
+class SalesCall(Base):
+    """One row per distinct booking attempt. Append-only in spirit: a rebook creates a NEW row
+    rather than mutating the old one, so a no-show survives a later show (spec §3)."""
+    __tablename__ = "sales_call"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    launch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("launch.id", ondelete="CASCADE"), index=True)
+    opportunity_id: Mapped[str] = mapped_column(String(64), index=True)              # GHL opp id
+    contact_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    contact_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    booking_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    rep_email: Mapped[str | None] = mapped_column(String(160), index=True, nullable=True)
+    call_time_raw: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    call_time_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # parsed; null if unparseable
+    outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)           # Showed | No Show | Cancelled | Rescheduled
+    outcome_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)      # when Acumyn first observed it
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)                  # false once superseded by a rebook
+    __table_args__ = (UniqueConstraint("tenant_id", "opportunity_id", "booking_id",
+                                       name="uq_sales_call_booking"),)
+
+
+class SalesCallChange(Base):
+    """Audit of every field change the sync observed. Diagnostics + the Data Health strip;
+    never the basis for headline counts (spec §4)."""
+    __tablename__ = "sales_call_change"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    sales_call_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sales_call.id", ondelete="CASCADE"), index=True)
+    field: Mapped[str] = mapped_column(String(32))                                   # outcome | rep_email | booking_id | call_time
+    old_value: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    new_value: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SalesRep(Base):
+    """Rep roster: email is the key, display name is presentation (spec §4)."""
+    __tablename__ = "sales_rep"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(160))
+    display_name: Mapped[str] = mapped_column(String(80))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    __table_args__ = (UniqueConstraint("tenant_id", "email", name="uq_sales_rep_email"),)
 
 
 # ── AI Employees (SPEC-ai-employees-tab §3) ──────────────────────────────────
