@@ -907,6 +907,15 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
         n_records += await snapshot_launch_opps(
             s, tenant_id, biz, opps, stage_name, pipeline_name, plan_by_contact,
             financed_contacts, location_id=location_id)
+        # Sales Desk (SPEC-becollective-salesdesk §6): diff the launch pipeline's opps into the
+        # append-only SalesCall event log. Isolated so a Desk failure never breaks the bc sync.
+        try:
+            from .sales_desk import sync_sales_calls
+            warn = await sync_sales_calls(s, tenant_id, biz, token, location_id, opps, pipeline_name)
+            if warn:
+                print(f"[ghl_bc] sales desk warnings: {warn}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[ghl_bc] sales desk skipped: {e}", flush=True)
     except Exception as e:  # noqa: BLE001 — opportunities scope optional
         print(f"[ghl_bc] opportunities/launch skipped: {e}", flush=True)
 
