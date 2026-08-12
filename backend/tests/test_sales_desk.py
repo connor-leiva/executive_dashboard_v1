@@ -40,6 +40,7 @@ async def _fresh_launch():
         L = Launch(tenant_id=biz.tenant_id, business_id=biz.id, name="SD", program="beCollective",
                    window_start=dt.date(2026, 8, 11), window_end=dt.date(2026, 9, 12),
                    goal_arr=1_000_000, ticket_pif=12000, ticket_plan=14000, price_map=PRICE_MAP,
+                   goal_basis="seats", seat_goal=100,
                    pipeline_match="be collective experience #1 sales",
                    stage_map=DEFAULT_STAGE_MAP, payment_plan_map=DEFAULT_PAYMENT_PLAN_MAP,
                    default_tz="America/Denver")
@@ -201,6 +202,30 @@ async def test_compute_math_and_payload_shape():
     labels = [w["label"] for w in d["warnings"]]
     assert "bookings with no rep" in labels and "rep not in the roster" in labels
     assert set(d) >= {"totals", "reps", "calls", "no_shows", "payment_mix", "warnings", "history_since"}
+
+
+async def test_launch_arr_cash_goal_from_price_map_four_type():
+    """§9.3/9.4/9.5 — with logged Payment Types, the Launch tab's ARR, cash, and goal come from
+    the four-type price_map (real counts), not the assumed two-price mix."""
+    from app.services.launch import compute_launch
+    tid, lid = await _fresh_launch()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        for opp, pay in (("o1", "PIF"), ("o2", "Financed")):
+            s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="bc_launch_opp",
+                               external_id=opp, name=opp, status="won",
+                               meta={"launch_id": str(lid), "group": "enrolled"}))
+            s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=opp, booking_id="bk" + opp,
+                            rep_email="a@x.com", outcome="Showed", payment_type=pay, is_current=True,
+                            call_time_utc=dt.datetime(2026, 8, 18, tzinfo=U)))
+        await s.commit()
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        d = await compute_launch(s, tid, L, today=dt.date(2026, 8, 20))
+    assert d["enrolled"]["arr"] == 26000                       # 12000 PIF + 14000 Financed (real counts)
+    assert d["enrolled"]["mix"] == {"PIF": 1, "Financed": 1} and d["enrolled"]["seats"] == 2
+    assert d["cash"] == {"collected": 17000, "source": "upfront"}   # §9.4 — 12000 + 5000 upfront
+    assert d["blended_seat"] == 13000.0                         # (12000 + 14000) / 2
+    assert d["derived_goal_arr"] == 1_300_000                   # §9.5 — 100 seats × 13000, not "$1M"
 
 
 async def test_show_rate_is_null_not_zero_on_empty_denominator():

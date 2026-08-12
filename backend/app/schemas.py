@@ -321,6 +321,8 @@ class LaunchConfigOut(BaseModel):
     ticket_plan: float
     plan_installments: int
     mix_pif: float
+    price_map: dict = {}             # §5 four-type pricing {type:{acv,upfront,monthly,months,provisional}}
+    default_tz: str = "America/Denver"
     pipeline_match: str
     cohort_value: str | None = None
     pace_model: str
@@ -392,6 +394,7 @@ class LaunchGroup(BaseModel):
     plan: int
     seats: int
     arr: float
+    mix: dict = {}          # four-type counts {PIF, Financed, Monthly, Custom} (§9.3); {} on the legacy path
 
 
 class DecidingGroup(BaseModel):
@@ -445,6 +448,7 @@ class LaunchResponse(BaseModel):
     pct_to_goal_seats: float = 0.0
     seats_remaining: int
     arr_remaining: float
+    derived_goal_arr: float = 0.0    # §9.5 — seat_goal × blended (the real goal, ≈ $1.3M), not hardcoded
     cash: CashOut
     momentum: MomentumOut
     warnings: list[str]
@@ -464,6 +468,8 @@ class LaunchUpsert(BaseModel):
     ticket_plan: float | None = None
     plan_installments: int | None = None
     mix_pif: float | None = None
+    price_map: dict | None = None
+    default_tz: str | None = None
     pipeline_match: str | None = None
     cohort_value: str | None = None
     pace_model: str | None = None

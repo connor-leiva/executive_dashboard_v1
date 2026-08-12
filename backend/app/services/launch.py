@@ -24,8 +24,10 @@ DEFAULT_STAGE_MAP = {
     "booked": ["scheduled appointment", "appointment"],
     "booked_app": ["application", "app submitted", "app in"],   # sub-signal: booked + application in
     "deciding": ["needs decision", "decision"],
-    "committed": ["payment sent"],
-    "enrolled": ["payment received", "custom payment", "won: onboarded", "onboarded"],
+    # §9.2: Payment Received is COMMITTED (paid, contract sent) — not yet enrolled. The dead
+    # "Payment Sent" stages are kept but nothing writes them. Enrolled = Won: Onboarded only.
+    "committed": ["payment received", "custom payment", "payment sent"],
+    "enrolled": ["won: onboarded", "onboarded"],
     "noshow": ["no show", "cancel"],
     "nurture": ["future cohort", "nurture"],
     "lost": ["lost", "dq", "abandon"],
@@ -303,7 +305,9 @@ def config_out(launch: Launch) -> dict:
             "window_start": launch.window_start.isoformat(), "window_end": launch.window_end.isoformat(),
             "goal_arr": _f(launch.goal_arr), "ticket_pif": _f(launch.ticket_pif),
             "ticket_plan": _f(launch.ticket_plan), "plan_installments": launch.plan_installments,
-            "mix_pif": _f(launch.mix_pif), "pipeline_match": launch.pipeline_match,
+            "mix_pif": _f(launch.mix_pif), "price_map": launch.price_map or {},
+            "default_tz": getattr(launch, "default_tz", None) or "America/Denver",
+            "pipeline_match": launch.pipeline_match,
             "cohort_value": launch.cohort_value, "pace_model": launch.pace_model,
             "pace_tolerance": _f(launch.pace_tolerance),
             "goal_basis": getattr(launch, "goal_basis", "arr"), "seat_goal": launch.seat_goal,
@@ -324,8 +328,27 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
     g = group_counts(opps)
     enr_split, com_split = payment_split(opps, "enrolled"), payment_split(opps, "committed")
 
-    mix_pif = _f(launch.mix_pif)
-    blended = (mix_pif * _f(launch.ticket_pif) + (1 - mix_pif) * _f(launch.ticket_plan)) or 1.0
+    # §9.3 — price ARR off the REAL four-type enrolment counts (price_map) when the Payment Type
+    # is logged; fall back to the legacy two-price estimate otherwise, so the live tab never
+    # regresses to $0. blended (§7's shared figure) comes from the same real counts.
+    price_map = launch.price_map or {}
+    grp_counts: dict = {}
+    if price_map:
+        from .sales_desk import payment_counts_by_group, blended_price, PAYMENT_TYPES
+        grp_counts = await payment_counts_by_group(s, tenant_id, launch)
+        blended = blended_price(price_map, grp_counts.get("enrolled") or Counter())[0] or 1.0
+    else:
+        mix_pif = _f(launch.mix_pif)
+        blended = (mix_pif * _f(launch.ticket_pif) + (1 - mix_pif) * _f(launch.ticket_plan)) or 1.0
+
+    def _price_group(group, legacy_split):
+        counts = grp_counts.get(group) if price_map else None
+        if counts:                                     # four-type ARR from the real Payment Type
+            arr = sum(((price_map.get(t) or {}).get("acv") or 0) * counts.get(t, 0) for t in PAYMENT_TYPES)
+            return {"pif": counts.get("PIF", 0), "plan": counts.get("Financed", 0) + counts.get("Monthly", 0),
+                    "seats": sum(counts.values()), "arr": arr, "mix": dict(counts)}
+        return _priced(legacy_split, launch)           # legacy two-price fallback (unchanged; mix omitted)
+
     # Seat-primary launches target a member count directly (e.g. "100 women"); ARR-primary
     # ones back the seat target out of the goal / blended price.
     if getattr(launch, "goal_basis", "arr") == "seats" and launch.seat_goal:
@@ -333,8 +356,16 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
     else:
         seat_target = max(1, math.ceil(_f(launch.goal_arr) / blended))
 
-    enrolled, committed = _priced(enr_split, launch), _priced(com_split, launch)
+    enrolled, committed = _price_group("enrolled", enr_split), _price_group("committed", com_split)
     deciding = {"count": g["deciding"], "arr": g["deciding"] * blended}
+    # §9.5 — the goal is DERIVED (seat_goal × blended ≈ $1.3M at 100 seats), never a hardcoded "$1M".
+    derived_goal_arr = round((launch.seat_goal or seat_target) * blended)
+    enr_counts = grp_counts.get("enrolled") if price_map else None
+    if enr_counts:                                     # §9.4 — cash = sum(upfront × count)
+        cash = {"collected": round(sum(((price_map.get(t) or {}).get("upfront") or 0) * enr_counts.get(t, 0)
+                                       for t in PAYMENT_TYPES)), "source": "upfront"}
+    else:
+        cash = await collected_cash(s, tenant_id, launch, enr_split)
 
     win = window_status(launch, today)
     goal = _f(launch.goal_arr)
@@ -386,7 +417,8 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
         "pct_to_goal_seats": round((enrolled["seats"] / seat_target) if seat_target else 0.0, 4),
         "seats_remaining": max(0, seat_target - enrolled["seats"]),
         "arr_remaining": round(max(0.0, goal - enrolled["arr"]), 2),
-        "cash": await collected_cash(s, tenant_id, launch, enr_split),
+        "derived_goal_arr": derived_goal_arr,
+        "cash": cash,
         "momentum": await momentum_series(s, tenant_id, launch),
         "warnings": warnings,
     }

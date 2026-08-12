@@ -278,6 +278,29 @@ def blended_price(price_map: dict, counts: dict | None = None) -> tuple[float, b
     return (sum(base) / len(base) if base else 0.0), False
 
 
+async def payment_counts_by_group(s: AsyncSession, tenant_id, launch) -> dict:
+    """{group: Counter(four-type payment)} for committed + enrolled opps, from each opp's current
+    SalesCall.payment_type. Shared by the Launch ARR (§9.3) and the Desk payment mix — one source
+    of truth for how members pay. Empty for a group whose opps have no logged Payment Type yet."""
+    lid = str(launch.id)
+    groups = {r.external_id: (r.meta or {}).get("group") for r in
+              (await s.execute(select(MetricRecord).where(
+                  MetricRecord.tenant_id == tenant_id, MetricRecord.source == "ghl",
+                  MetricRecord.kind == "bc_launch_opp"))).scalars()
+              if (r.meta or {}).get("launch_id") == lid}
+    pay = {c.opportunity_id: c.payment_type for c in
+           (await s.execute(select(SalesCall).where(
+               SalesCall.launch_id == launch.id, SalesCall.is_current.is_(True)))).scalars()
+           if c.payment_type}
+    out: dict = {}
+    for opp, grp in groups.items():
+        if grp in ("committed", "enrolled"):
+            pt = pay.get(opp)
+            if pt in PAYMENT_TYPES:
+                out.setdefault(grp, Counter())[pt] += 1
+    return out
+
+
 def _pay_note(p: dict) -> str:
     acv, up, mo = p.get("acv"), p.get("upfront"), p.get("monthly")
     if acv is None:
