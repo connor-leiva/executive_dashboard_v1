@@ -255,6 +255,37 @@ async def test_sales_desk_route_returns_full_payload():
     assert j["totals"]["booked"] >= 4
 
 
+async def test_rep_roster_edit_is_owner_admin_only_and_audited():
+    """§11.7 / §12 — roster display-name edits are owner/admin only, audited; the change sticks."""
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.models import AuditLog, User
+    from app.security import hash_pw
+    await _fresh_launch()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(SalesRep))
+        await s.execute(delete(User).where(User.email == "sdmember@x.com"))
+        s.add(SalesRep(tenant_id=biz.tenant_id, email="rep1@x.com", display_name="rep1@x.com", is_active=True))
+        s.add(User(tenant_id=biz.tenant_id, email="sdmember@x.com", name="M",
+                   password_hash=hash_pw("password123"), role="member", status="active"))
+        await s.commit()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        otok = (await c.post("/api/v1/auth/login", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})).json()["token"]
+        mtok = (await c.post("/api/v1/auth/login", json={"email": "sdmember@x.com", "password": "password123"})).json()["token"]
+        body = {"reps": [{"email": "rep1@x.com", "display_name": "Rep One", "is_active": True}]}
+        rm = await c.put("/api/v1/businesses/springb/sales-desk/reps", json=body,
+                         headers={"Authorization": f"Bearer {mtok}"})
+        assert rm.status_code == 403                                   # member rejected
+        ro = await c.put("/api/v1/businesses/springb/sales-desk/reps", json=body,
+                         headers={"Authorization": f"Bearer {otok}"})
+        assert ro.status_code == 200 and ro.json()["updated"] == 1     # owner accepted
+        g = await c.get("/api/v1/businesses/springb/sales-desk/reps", headers={"Authorization": f"Bearer {otok}"})
+        assert any(x["email"] == "rep1@x.com" and x["display_name"] == "Rep One" for x in g.json())
+    async with SessionLocal() as s:
+        assert (await s.execute(select(AuditLog).where(AuditLog.action == "sales_rep.roster_updated"))).scalars().first()
+
+
 async def test_seed_reps_from_users_upserts_display_names():
     tid, _ = await _fresh_launch()
     async with SessionLocal() as s:

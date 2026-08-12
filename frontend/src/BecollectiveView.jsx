@@ -62,7 +62,8 @@ export default function BecollectiveView({ data, area, onDrill, deckSlots, drill
     }
   } else if (page === "sales") {
     if (sales.data) {
-      pane = <SalesDeskSection data={sales.data} usingSample={sales.usingSample} />;
+      pane = <SalesDeskSection data={sales.data} usingSample={sales.usingSample} role={role}
+        businessKey={drillBusiness} onSaved={sales.reload} />;
     } else {
       pane = <div style={{ padding: 20, color: T.muted, fontSize: 13 }}>
         {sales.loading ? "Loading the Sales Desk…" : "No active launch — the Sales Desk appears once a cohort launch is live."}

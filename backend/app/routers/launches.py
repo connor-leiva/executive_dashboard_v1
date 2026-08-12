@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import current_user, require_role, assert_tab
-from ..models import User, Business, Launch
+from ..models import User, Business, Launch, SalesRep
 from ..schemas import LaunchResponse, LaunchUpsert
 from ..services.audit import audit
 from ..services.launch import (
@@ -97,6 +97,47 @@ async def active_sales_desk(key: str, user: User = Depends(current_user),
     if not launch:
         raise HTTPException(404, "No active launch")
     return await compute_sales_desk(s, user.tenant_id, launch)
+
+
+@router.get("/businesses/{key}/sales-desk/reps")
+async def list_sales_reps(key: str, user: User = Depends(current_user),
+                          s: AsyncSession = Depends(get_session)):
+    """The rep roster (email → display name), auto-seeded from the GHL directory. Viewable by
+    anyone with the tab; edited only by owner/admin (§11.7)."""
+    b = await _biz(s, user.tenant_id, key)
+    await assert_tab(user, s, _launch_tab(b))
+    reps = (await s.execute(select(SalesRep).where(SalesRep.tenant_id == user.tenant_id)
+            .order_by(SalesRep.display_name))).scalars().all()
+    return [{"email": r.email, "display_name": r.display_name, "is_active": r.is_active} for r in reps]
+
+
+@router.put("/businesses/{key}/sales-desk/reps")
+async def update_sales_reps(key: str, body: dict, user: User = Depends(require_role("owner", "admin")),
+                            s: AsyncSession = Depends(get_session)):
+    """Bulk upsert rep display names / active flags. Presentation only — never call data.
+    Owner/admin, audited (§11.7 / §12 roles+audit)."""
+    await _biz(s, user.tenant_id, key)
+    existing = {(r.email or "").lower(): r for r in
+                (await s.execute(select(SalesRep).where(SalesRep.tenant_id == user.tenant_id))).scalars()}
+    changed = []
+    for item in (body.get("reps") or []):
+        email = (item.get("email") or "").strip()
+        if not email:
+            continue
+        name = ((item.get("display_name") or "").strip() or email)[:80]
+        active = bool(item.get("is_active", True))
+        cur = existing.get(email.lower())
+        if cur is None:
+            s.add(SalesRep(tenant_id=user.tenant_id, email=email, display_name=name, is_active=active))
+            changed.append(email)
+        elif cur.display_name != name or cur.is_active != active:
+            cur.display_name, cur.is_active = name, active
+            changed.append(email)
+    if changed:
+        audit(s, user.tenant_id, user.id, "sales_rep.roster_updated", "sales_rep", None,
+              {"emails": sorted(changed)[:50]})
+    await s.commit()
+    return {"updated": len(changed)}
 
 
 @router.get("/businesses/{key}/launches/active/drill/{metric}")

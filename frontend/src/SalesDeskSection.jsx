@@ -2,8 +2,9 @@
    Built from becollective-salesdesk-v2.jsx with the brand deferrals applied: tokens come
    from theme.js by role (no local C, no font import, no hex literals). Everything is
    pre-computed server-side from the SalesCall event log; this component only renders it. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { T, alpha } from "./theme.js";
+import { getJSON, putJSON } from "./api";
 
 const kM = (n) => {
   const a = Math.abs(Math.round(n || 0));
@@ -31,8 +32,10 @@ const RepName = ({ email, name, unmapped, unassigned }) =>
     : name ? name
       : <><span className="rawmail">{email}</span>{unmapped && <span className="flagchip">unmapped</span>}</>;
 
-export default function SalesDeskSection({ data, usingSample }) {
+export default function SalesDeskSection({ data, usingSample, role, businessKey = "springb", onSaved }) {
   const [sel, setSel] = useState(null);          // selected rep_email (client-side board filter)
+  const [rosterOpen, setRosterOpen] = useState(false);
+  const isEditor = !role || role === "owner" || role === "admin";
   const t = data.totals;
   const tz = data.default_tz || "America/Denver";
   const now = new Date(data.as_of || Date.now());
@@ -159,6 +162,7 @@ export default function SalesDeskSection({ data, usingSample }) {
                 <span className="sd-sub">
                   {sel ? <>filtering · <button className="sd-clear" onClick={() => setSel(null)}>clear</button></>
                     : "click a rep to filter the boards below"}
+                  {isEditor && <> · <button className="sd-clear" onClick={() => setRosterOpen(true)}>manage reps</button></>}
                 </span>
               </div>
               <div className="sd-tblwrap">
@@ -267,6 +271,81 @@ export default function SalesDeskSection({ data, usingSample }) {
           <b>Where the numbers come from:</b> the booking webhook writes rep, booking ID, and call time onto each
           deal, and outcomes route through the sales workflow. Acumyn logs every change it observes, so history
           survives even though GHL stores only the latest value. This desk reads; it never writes to GHL.
+        </div>
+
+        {rosterOpen && (
+          <RepRosterDrawer businessKey={businessKey} usingSample={usingSample}
+            onClose={() => setRosterOpen(false)} onSaved={onSaved} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* Owner/admin roster editor — display names for the leaderboard (§11.7). Emails come from
+   the booking and are read-only; the roster auto-seeds from the team directory. */
+function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
+  const [rows, setRows] = useState(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (usingSample) { setRows([]); return; }
+    let alive = true;
+    getJSON(`/businesses/${businessKey}/sales-desk/reps`)
+      .then((d) => { if (alive) setRows(d); })
+      .catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [businessKey, usingSample]);
+
+  const patch = (i, k, v) => setRows((r) => r.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const save = async () => {
+    setSaving(true);
+    try { await putJSON(`/businesses/${businessKey}/sales-desk/reps`, { reps: rows }); onSaved && onSaved(); onClose(); }
+    catch (e) { /* leave the drawer open on failure */ }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="sd-modal" onClick={onClose}>
+      <style>{`
+        .sd-modal { position:fixed; inset:0; background:${alpha(T.evergreen, .32)}; display:flex;
+          align-items:flex-start; justify-content:center; padding:64px 16px; z-index:60; }
+        .sd-box { background:${T.white}; border:1px solid ${T.line}; border-radius:16px; padding:18px 20px;
+          width:100%; max-width:520px; max-height:80vh; overflow:auto; box-shadow:0 24px 60px ${alpha(T.evergreen, .18)}; }
+        .sd-rrow { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
+        .sd-rrow:last-of-type { border-bottom:none; }
+        .sd-input { font:inherit; font-size:12.5px; color:${T.ink}; border:1px solid ${T.line}; border-radius:8px;
+          padding:6px 9px; width:190px; background:${T.white}; }
+        .sd-input:focus { outline:none; border-color:${T.petalDeep}; }
+        .sd-active { font-size:11px; color:${T.tertiary}; display:flex; align-items:center; gap:5px; flex:none; }
+        .sd-btn { font:inherit; font-size:12px; font-weight:700; border:none; border-radius:9px; padding:8px 15px;
+          background:${T.evergreen}; color:${T.onDark}; cursor:pointer; }
+        .sd-btn:disabled { opacity:.5; cursor:default; }
+        .sd-btn.ghost { background:transparent; color:${T.tertiary}; border:1px solid ${T.line}; }
+      `}</style>
+      <div className="sd-box" onClick={(e) => e.stopPropagation()}>
+        <div className="sd-head"><span className="sd-title">Rep Roster</span>
+          <button className="sd-clear" onClick={onClose}>close</button></div>
+        <div className="sd-sub" style={{ marginBottom: 10 }}>
+          Display names shown on the leaderboard. The email comes from the booking (read-only) and the roster
+          auto-seeds from your team directory — edit a name or deactivate a rep who's left.
+        </div>
+        {rows === null && <div className="sd-empty">Loading…</div>}
+        {rows && rows.length === 0 && (
+          <div className="sd-empty">{usingSample ? "Editing is disabled in sample mode." : "No reps yet — they appear once bookings sync."}</div>
+        )}
+        {(rows || []).map((r, i) => (
+          <div className="sd-rrow" key={r.email}>
+            <span className="rawmail" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{r.email}</span>
+            <input className="sd-input" value={r.display_name || ""} placeholder={r.email}
+              onChange={(e) => patch(i, "display_name", e.target.value)} />
+            <label className="sd-active"><input type="checkbox" checked={r.is_active !== false}
+              onChange={(e) => patch(i, "is_active", e.target.checked)} /> active</label>
+          </div>
+        ))}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+          <button className="sd-btn ghost" onClick={onClose}>Cancel</button>
+          <button className="sd-btn" disabled={saving || usingSample || !rows || rows.length === 0} onClick={save}>
+            {saving ? "Saving…" : "Save"}</button>
         </div>
       </div>
     </div>
