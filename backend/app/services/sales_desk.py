@@ -22,12 +22,15 @@ from ..integrations import ghl
 from ..models import MetricRecord, SalesCall, SalesCallChange, SalesRep
 
 # ── config, not inlined (§12): the outcome vocabulary lives here once ──────────────────────
-CANON_OUTCOMES = ("Showed", "No Show", "Cancelled", "Rescheduled")
+# The four canonical outcomes. Everything downstream compares against THESE names, never a
+# bare literal, so the vocabulary is defined in exactly one place.
+OUT_SHOWED, OUT_NO_SHOW, OUT_CANCELLED, OUT_RESCHEDULED = "Showed", "No Show", "Cancelled", "Rescheduled"
+CANON_OUTCOMES = (OUT_SHOWED, OUT_NO_SHOW, OUT_CANCELLED, OUT_RESCHEDULED)
 DEFAULT_OUTCOME_MAP = {
-    "showed": "Showed", "show": "Showed", "attended": "Showed",
-    "no show": "No Show", "noshow": "No Show", "no-show": "No Show",
-    "cancelled": "Cancelled", "canceled": "Cancelled", "cancel": "Cancelled",
-    "rescheduled": "Rescheduled", "reschedule": "Rescheduled", "resched": "Rescheduled",
+    "showed": OUT_SHOWED, "show": OUT_SHOWED, "attended": OUT_SHOWED,
+    "no show": OUT_NO_SHOW, "noshow": OUT_NO_SHOW, "no-show": OUT_NO_SHOW,
+    "cancelled": OUT_CANCELLED, "canceled": OUT_CANCELLED, "cancel": OUT_CANCELLED,
+    "rescheduled": OUT_RESCHEDULED, "reschedule": OUT_RESCHEDULED, "resched": OUT_RESCHEDULED,
 }
 # semantic key -> the opportunity fieldKey suffix / name substrings used to resolve its id
 _SC_FIELDS = {
@@ -344,7 +347,7 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     def opp_rep(opp_id):
         """§6.4 — credit the rep on the most-recent-HELD call; fall back to the current field."""
         rows = calls_by_opp.get(opp_id, [])
-        held = [r for r in rows if r.outcome == "Showed" and r.call_time_utc]
+        held = [r for r in rows if r.outcome == OUT_SHOWED and r.call_time_utc]
         if held:
             return max(held, key=lambda r: _aw(r.call_time_utc)).rep_email
         cur = [r for r in rows if r.is_current and r.rep_email] or [r for r in rows if r.rep_email]
@@ -359,13 +362,13 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     for c in calls:                                    # every booking attempt counts, incl. superseded (§7)
         b = bucket(c.rep_email)
         b["booked"] += 1
-        if c.outcome == "Showed":
+        if c.outcome == OUT_SHOWED:
             b["held"] += 1
-        elif c.outcome == "No Show":
+        elif c.outcome == OUT_NO_SHOW:
             b["noshow"] += 1
-        elif c.outcome == "Cancelled":
+        elif c.outcome == OUT_CANCELLED:
             b["cancelled"] += 1
-        elif c.outcome == "Rescheduled":
+        elif c.outcome == OUT_RESCHEDULED:
             b["resched"] += 1
         elif c.outcome is None and c.call_time_utc:
             b["upcoming" if _aw(c.call_time_utc) >= now else "pending"] += 1
@@ -432,7 +435,7 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
 
     # no-show recovery: rebooked = a different booking exists for the same opportunity (§8)
     ns_out = []
-    for c in (c for c in calls if c.outcome == "No Show"):
+    for c in (c for c in calls if c.outcome == OUT_NO_SHOW):
         ref = _aw(c.call_time_utc) or _aw(c.first_seen_at)
         ns_out.append(dict(
             contact_name=c.contact_name, rep_email=c.rep_email, display_name=dname(c.rep_email),

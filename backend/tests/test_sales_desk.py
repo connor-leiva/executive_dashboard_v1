@@ -228,6 +228,49 @@ async def test_launch_arr_cash_goal_from_price_map_four_type():
     assert d["derived_goal_arr"] == 1_300_000                   # §9.5 — 100 seats × 13000, not "$1M"
 
 
+async def test_won_without_payment_is_a_seat_but_unpriced_and_repricing_never_recounts():
+    """§12 — a won deal with no Payment Type still counts as a seat, adds nothing to priced_arr,
+    and raises a warning; and editing price_map reprices blended/on-the-table WITHOUT touching
+    any call count."""
+    tid, lid = await _fresh_launch()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(SalesRep))
+        s.add(SalesRep(tenant_id=tid, email="a@x.com", display_name="Rep A", is_active=True))
+
+        def SC(opp, pay):
+            return SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=opp, booking_id="b" + opp,
+                             rep_email="a@x.com", outcome="Showed", payment_type=pay, is_current=True,
+                             contact_name=opp, call_time_utc=dt.datetime(2026, 8, 18, tzinfo=U),
+                             outcome_at=dt.datetime(2026, 8, 19, tzinfo=U))
+        s.add_all([SC("o1", "PIF"), SC("o2", None)])                 # o2 = won with NO payment type
+        for opp, grp in (("o1", "enrolled"), ("o2", "enrolled"), ("o5", "deciding")):
+            s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="bc_launch_opp",
+                               external_id=opp, name=opp, status="open",
+                               meta={"launch_id": str(lid), "group": grp}))
+        await s.commit()
+
+    NOW = dt.datetime(2026, 8, 20, 12, tzinfo=U)
+    async with SessionLocal() as s:
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        d1 = await sd.compute_sales_desk(s, tid, L, now=NOW)
+
+        assert d1["totals"]["won"] == 2                          # both are seats
+        assert d1["priced_arr"] == 12000                        # PIF only; the null-pay seat adds nothing
+        wpay = next(w for w in d1["warnings"] if w["label"] == "won with no payment type")
+        assert wpay["n"] == 1
+        assert d1["totals"]["blended"] == 12000 and d1["totals"]["on_the_table"] == 12000  # 1 deciding × 12000
+
+        # bump the PIF price → blended/on-the-table move, but no count changes
+        L.price_map = {**PRICE_MAP, "PIF": {**PRICE_MAP["PIF"], "acv": 20000, "upfront": 20000}}
+        d2 = await sd.compute_sales_desk(s, tid, L, now=NOW)
+
+    assert (d2["totals"]["blended"], d2["totals"]["on_the_table"], d2["priced_arr"]) == (20000, 20000, 20000)
+    assert d2["totals"]["won"] == d1["totals"]["won"]           # repricing never recounts
+    assert d2["totals"]["booked"] == d1["totals"]["booked"] == 2
+    assert d2["totals"]["held"] == d1["totals"]["held"] == 2
+
+
 async def test_show_rate_is_null_not_zero_on_empty_denominator():
     tid, lid = await _fresh_launch()
     async with SessionLocal() as s:
