@@ -42,8 +42,14 @@ _SC_FIELDS = {
     "payment_type": ("payment type",),
     "cohort":       ("cohort",),
 }
-# "Friday, August 14, 2026 at 8:30 AM" — the prose GHL writes for Call Time (no offset).
+# "Friday, August 14, 2026 at 8:30 AM" — the prose GHL writes for Call Time. Some bookings append
+# the attendee's zone ("… 8:30 AM EDT"); when present it's the REAL zone and we honor it.
 _CALL_TIME_FMT = "%A, %B %d, %Y at %I:%M %p"
+_TZ_ABBR = {                                          # US zone abbreviations → fixed UTC offset (hrs)
+    "EDT": -4, "EST": -5, "CDT": -5, "CST": -6, "MDT": -6, "MST": -7, "PDT": -7, "PST": -8,
+    "AKDT": -8, "AKST": -9, "HDT": -9, "HST": -10, "UTC": 0, "GMT": 0,
+}
+_TZ_SUFFIX = re.compile(r"\s+([A-Z]{2,4})$")
 
 
 def _clean(v) -> str | None:
@@ -120,14 +126,21 @@ def norm_payment(raw) -> str | None:
 
 def parse_call_time(raw: str | None, tz: dt.tzinfo) -> tuple[dt.datetime | None, bool]:
     """Prose Call Time -> UTC. (utc_datetime|None, ok). ok=False only on a genuine parse
-    failure (a warning); an empty input is ok=True (nothing to parse). Never guesses (§6.3)."""
+    failure (a warning); an empty input is ok=True (nothing to parse). A trailing zone
+    abbreviation ("… 8:30 AM EDT") pins the real zone; otherwise the launch tz is assumed."""
     if not raw:
         return None, True
+    s = str(raw).strip()
+    tzinfo = tz
+    m = _TZ_SUFFIX.search(s)                          # "AM"/"PM" fall through — not in _TZ_ABBR
+    if m and m.group(1) in _TZ_ABBR:
+        tzinfo = dt.timezone(dt.timedelta(hours=_TZ_ABBR[m.group(1)]))
+        s = s[:m.start()].strip()
     try:
-        naive = dt.datetime.strptime(str(raw).strip(), _CALL_TIME_FMT)
+        naive = dt.datetime.strptime(s, _CALL_TIME_FMT)
     except (ValueError, TypeError):
         return None, False
-    return naive.replace(tzinfo=tz).astimezone(dt.timezone.utc), True
+    return naive.replace(tzinfo=tzinfo).astimezone(dt.timezone.utc), True
 
 
 def salescall_field_ids(defs: list[dict], overrides: dict | None = None) -> dict:
@@ -166,7 +179,7 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
         existing[(sc.opportunity_id, sc.booking_id)] = sc
         by_opp.setdefault(sc.opportunity_id, []).append(sc)
 
-    for r in records:
+    async def _apply_one(r: dict) -> None:
         oid = str(r["opportunity_id"])
         booking = _clean(r.get("booking_id"))
         rep = _clean(r.get("rep_email"))
@@ -179,7 +192,7 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
 
         if not booking:
             if not (outcome or rep):
-                continue                       # early opt-in, nothing to log yet
+                return                         # early opt-in, nothing to log yet
             warn["booking_id_missing"] += 1    # counted, but still logged with booking_id=None (§6.2)
 
         key = (oid, booking)
@@ -199,7 +212,7 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
             await s.flush()                    # assign sc.id so subsequent change-logs can reference it
             existing[key] = sc
             by_opp.setdefault(oid, []).append(sc)
-            continue
+            return
 
         # Existing row — diff each field and log observed changes.
         if outcome and outcome != sc.outcome:
@@ -216,6 +229,15 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
         if payment and payment != sc.payment_type:
             _log(s, tenant_id, sc, "payment_type", sc.payment_type, payment)
             sc.payment_type = payment
+
+    # Each opp is isolated in a SAVEPOINT: one malformed record rolls back ONLY itself (counted
+    # in warn) instead of aborting the whole run — a single bad opp used to discard every update.
+    for r in records:
+        try:
+            async with s.begin_nested():
+                await _apply_one(r)
+        except Exception:                      # noqa: BLE001 — surface as a count, keep processing
+            warn["record_error"] += 1
 
     await s.commit()
     return dict(warn)
@@ -260,10 +282,13 @@ async def sync_sales_calls(s: AsyncSession, tenant_id, business_id, token: str, 
         print(f"[ghl_bc] rep roster seed skipped: {e}", flush=True)
 
     launch_opps = [o for o in opps if not match or match in (pipeline_name.get(o.get("pipelineId")) or "").lower()]
-    records = []
+    records, fetch_failed = [], 0
     for o in launch_opps:
         detail = await ghl.get_opportunity(token, location_id, str(o.get("id")))
-        cf = ghl.opp_custom_values(detail or {})
+        if detail is None:                  # rate-limited / errored fetch (after retries). SKIP it —
+            fetch_failed += 1               # a bare record would look like an empty opp and quietly
+            continue                        # drop a real booking; leaving the prior row is correct.
+        cf = ghl.opp_custom_values(detail)
         records.append({
             "opportunity_id": str(o.get("id")),
             "contact_id": str(o.get("contactId") or ""),
@@ -276,6 +301,8 @@ async def sync_sales_calls(s: AsyncSession, tenant_id, business_id, token: str, 
         })
 
     warn = await apply_sales_diff(s, tenant_id, launch, records, tz)
+    if fetch_failed:                        # visible in logs + Data Health — never a silent drop
+        warn["opp_fetch_failed"] = fetch_failed
     if launch.history_since is None:            # mark the first sync with the log live (§3)
         launch.history_since = _utcnow()
         await s.commit()

@@ -65,6 +65,17 @@ def test_parse_call_time_denver_to_utc():
     assert sd.parse_call_time("", DENVER) == (None, True)              # nothing to parse ≠ failure
 
 
+def test_parse_call_time_honors_zone_suffix():
+    # a trailing zone abbreviation pins the REAL zone, overriding the launch default (Denver)
+    utc, ok = sd.parse_call_time("Friday, August 14, 2026 at 11:00 AM EDT", DENVER)
+    assert ok and utc.hour == 15 and utc.minute == 0                   # 11:00 EDT (UTC-4) → 15:00 UTC
+    utc2, ok2 = sd.parse_call_time("Thursday, August 13, 2026 at 5:00 PM MST", DENVER)
+    assert ok2 and utc2.hour == 0 and utc2.day == 14                   # 17:00 MST (UTC-7) → 00:00 UTC next day
+    # no suffix → still the launch tz (unchanged behavior); "AM"/"PM" never mistaken for a zone
+    utc3, ok3 = sd.parse_call_time("Friday, August 14, 2026 at 8:30 AM", DENVER)
+    assert ok3 and utc3.hour == 14 and utc3.minute == 30
+
+
 def test_title_name_standardizes_lead_names():
     tn = sd.title_name
     assert tn("Dalila OROZCO") == "Dalila Orozco"        # all-caps surname → Title Case
@@ -185,6 +196,21 @@ async def _seed_desk_scenario():
                                meta={"launch_id": str(lid), "group": grp}))
         await s.commit()
     return tid, lid
+
+
+async def test_apply_sales_diff_isolates_a_bad_record():
+    """Per-record savepoint: one malformed record rolls back only itself (counted in warn) —
+    the good records in the same batch still land."""
+    tid, lid = await _fresh_launch()
+    good = _rec("oppGood", "bA", outcome="Showed")
+    bad = {"booking_id": "bB", "outcome_raw": "Showed"}          # no 'opportunity_id' → KeyError
+    async with SessionLocal() as s:
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        warn = await sd.apply_sales_diff(s, tid, L, [bad, good], DENVER)  # bad one FIRST
+    assert warn.get("record_error") == 1
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(SalesCall).where(SalesCall.launch_id == lid))).scalars().all()
+    assert len(rows) == 1 and rows[0].opportunity_id == "oppGood" and rows[0].outcome == "Showed"
 
 
 async def test_compute_math_and_payload_shape():

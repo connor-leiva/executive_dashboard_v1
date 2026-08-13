@@ -12,6 +12,8 @@ Confirm endpoint shape against highlevel.stoplight.io if a pull returns nothing.
 """
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
 GHL_BASE = "https://services.leadconnectorhq.com"
@@ -83,15 +85,24 @@ def opp_custom_values(opp: dict) -> dict:
     return out
 
 
-async def get_opportunity(token: str, location_id: str, opp_id: str) -> dict:
+async def get_opportunity(token: str, location_id: str, opp_id: str) -> dict | None:
     """A single opportunity's DETAIL — carries the opportunity custom-field VALUES that the
-    /opportunities/search list omits (Sales Rep, Booking ID, Call Time, Call Outcome, …)."""
+    /opportunities/search list omits (Sales Rep, Booking ID, Call Time, Call Outcome, …).
+
+    Retries transient failures (429 rate-limit / 5xx) with backoff. Returns None on a
+    persistent failure — distinct from a real (populated) opp — so callers don't mistake a
+    rate-limited fetch for a blank opportunity and silently drop it."""
     async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.get(f"{GHL_BASE}/opportunities/{opp_id}", headers=_headers(token))
-        if r.status_code != 200:
-            return {}
-        body = r.json() or {}
-        return body.get("opportunity") or body
+        for attempt in range(4):
+            r = await c.get(f"{GHL_BASE}/opportunities/{opp_id}", headers=_headers(token))
+            if r.status_code == 200:
+                body = r.json() or {}
+                return body.get("opportunity") or body
+            if r.status_code in (429, 500, 502, 503, 504) and attempt < 3:
+                await asyncio.sleep(0.4 * (attempt + 1))       # 0.4s, 0.8s, 1.2s backoff
+                continue
+            return None                                        # persistent failure — not a blank opp
+    return None
 
 
 async def get_users(token: str, location_id: str) -> list[dict]:

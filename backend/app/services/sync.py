@@ -912,10 +912,10 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
         try:
             from .sales_desk import sync_sales_calls
             warn = await sync_sales_calls(s, tenant_id, biz, token, location_id, opps, pipeline_name)
-            if warn:
-                print(f"[ghl_bc] sales desk warnings: {warn}", flush=True)
-        except Exception as e:  # noqa: BLE001
-            print(f"[ghl_bc] sales desk skipped: {e}", flush=True)
+            print(f"[ghl_bc] sales desk synced (warnings: {dict(warn) or 'none'})", flush=True)
+        except Exception as e:  # noqa: BLE001 — never break the bc sync, but make the failure loud
+            import traceback
+            print(f"[ghl_bc] sales desk FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}", flush=True)
     except Exception as e:  # noqa: BLE001 — opportunities scope optional
         print(f"[ghl_bc] opportunities/launch skipped: {e}", flush=True)
 
