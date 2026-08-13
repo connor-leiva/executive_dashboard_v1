@@ -2,9 +2,10 @@
    Built from becollective-salesdesk-v2.jsx with the brand deferrals applied: tokens come
    from theme.js by role (no local C, no font import, no hex literals). Everything is
    pre-computed server-side from the SalesCall event log; this component only renders it. */
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { T, alpha } from "./theme.js";
 import { getJSON, putJSON } from "./api";
+import { DrillRecords, DrillCalc } from "./LaunchSection.jsx";
 
 const kM = (n) => {
   const a = Math.abs(Math.round(n || 0));
@@ -26,6 +27,54 @@ function fmtCall(iso, tz, now) {
   return { day, time: new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(d) };
 }
 
+/* Every figure drills into its calls/opps or its formula — same pattern as the Launch tab.
+   <N m="metric" rep="email?"> wraps a value; the context carries the opener. */
+const SDDrillCtx = createContext(null);
+function N({ m, rep, children, title }) {
+  const open = useContext(SDDrillCtx);
+  if (!open || !m) return <>{children}</>;
+  const fire = () => open({ metric: m, rep });
+  return (
+    <span className="num" role="button" tabIndex={0} title={title || "Drill in"}
+      onClick={(e) => { e.stopPropagation(); fire(); }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); fire(); } }}>
+      {children}
+    </span>
+  );
+}
+
+function SDDrawer({ drill, businessKey, usingSample, onClose }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    if (usingSample) { setErr("sample"); return () => { alive = false; }; }
+    setD(null); setErr(null);
+    const q = drill.rep ? `?rep=${encodeURIComponent(drill.rep)}` : "";
+    getJSON(`/businesses/${businessKey}/launches/active/sales-desk/drill/${encodeURIComponent(drill.metric)}${q}`)
+      .then((r) => alive && setD(r))
+      .catch((e) => alive && setErr(e.detail || e.message || "Failed to load"));
+    return () => { alive = false; };
+  }, [drill, businessKey, usingSample]);
+  return (
+    <div className="drx-scrim" onClick={onClose}>
+      <div className="drx" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div className="drx-head">
+          <span className="drx-title">{d?.title || "Drill-down"}</span>
+          <button className="drx-x" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="drx-body">
+          {err === "sample" && <div className="drx-note">Drill-down loads with live data (this is sample mode).</div>}
+          {err && err !== "sample" && <div className="drx-note">{err}</div>}
+          {!d && !err && <div className="drx-note">Loading…</div>}
+          {d && d.type === "records" && <DrillRecords d={d} />}
+          {d && d.type === "calc" && <DrillCalc d={d} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const repKey = (r) => (r.unassigned ? "__unassigned__" : r.rep_email);
 const RepName = ({ email, name, unmapped, unassigned }) =>
   unassigned ? <>Unassigned <span className="flagchip">no host</span></>
@@ -35,6 +84,7 @@ const RepName = ({ email, name, unmapped, unassigned }) =>
 export default function SalesDeskSection({ data, usingSample, role, businessKey = "springb", onSaved }) {
   const [sel, setSel] = useState(null);          // selected rep_email (client-side board filter)
   const [rosterOpen, setRosterOpen] = useState(false);
+  const [drill, setDrill] = useState(null);      // {metric, rep} currently drilled into
   const isEditor = !role || role === "owner" || role === "admin";
   const t = data.totals;
   const tz = data.default_tz || "America/Denver";
@@ -47,6 +97,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
   const barTone = [T.meadow, T.meadowBg, alpha(T.teal, 0.6), T.line];
 
   return (
+    <SDDrillCtx.Provider value={setDrill}>
     <div className="sd-root">
       <style>{`
         .sd-root { color:${T.ink}; }
@@ -129,6 +180,38 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-hl { font-size:12.5px; font-weight:600; color:${T.ink}; }
         .sd-hint { display:block; font-size:11px; color:${T.muted}; margin-top:1px; }
         .sd-empty { font-size:12.5px; color:${T.muted}; padding:10px 2px; }
+
+        .sd-root .num { cursor:pointer; border-radius:3px; box-shadow:inset 0 -1px 0 ${alpha(T.muted, 0)}; }
+        .sd-root .num:hover { box-shadow:inset 0 -1.5px 0 currentColor; }
+        .sd-root .num:focus-visible { outline:2px solid ${T.petal}; outline-offset:2px; }
+        .drx-scrim { position:fixed; inset:0; background:${alpha(T.evergreen, .32)}; z-index:70;
+          display:flex; justify-content:flex-end; }
+        .drx { width:min(440px,92vw); height:100%; background:${T.white}; display:flex; flex-direction:column;
+          box-shadow:-24px 0 60px ${alpha(T.evergreen, .18)}; }
+        .drx-head { display:flex; justify-content:space-between; align-items:center; padding:16px 20px;
+          border-bottom:1px solid ${T.line}; }
+        .drx-title { font-family:Poppins,sans-serif; font-size:14px; font-weight:700; color:${T.ink}; }
+        .drx-x { border:none; background:none; font-size:15px; color:${T.tertiary}; cursor:pointer; }
+        .drx-body { padding:18px 20px; overflow-y:auto; }
+        .drx-val { font-family:Poppins,sans-serif; font-size:30px; font-weight:700; color:${T.ink};
+          letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+        .drx-sub { font-size:12px; color:${T.muted}; margin:2px 0 12px; }
+        .drx-steps { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; margin-bottom:12px; }
+        .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:12.5px;
+          border-bottom:1px solid ${alpha(T.line, .5)}; }
+        .drx-step:last-child { border-bottom:none; }
+        .drx-step span { color:${T.secondary}; } .drx-step b { color:${T.ink}; font-family:Poppins,sans-serif;
+          font-weight:600; text-align:right; }
+        .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:${T.teal};
+          background:${alpha(T.teal, .07)}; border-radius:8px; padding:8px 11px; margin-bottom:10px; }
+        .drx-note, .drx-note2 { font-size:11.5px; color:${T.muted}; line-height:1.5; }
+        .drx-empty { font-size:12.5px; color:${T.muted}; padding:12px 0; }
+        .drx-tblwrap { overflow-x:auto; }
+        .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
+        .drx-tbl th { text-align:left; font-size:10px; font-weight:700; letter-spacing:.05em;
+          text-transform:uppercase; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${alpha(T.line, .5)}; color:${T.secondary}; }
+        .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
         .sd-foot { font-size:11px; color:${T.muted}; margin-top:16px; line-height:1.6; } .sd-foot b { color:${T.tertiary}; }
         @media (max-width:760px){ .sd-kpis, .sd-mix { grid-template-columns:1fr 1fr; } .sd-cols { grid-template-columns:1fr; } }
       `}</style>
@@ -145,15 +228,19 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         </div>
 
         <div className="sd-kpis">
-          <div className="sd-kpi"><div className="sd-kpi-l">Calls booked</div><div className="sd-kpi-v">{t.booked}</div>
-            <div className="sd-kpi-s">{t.upcoming} still upcoming</div></div>
+          <div className="sd-kpi"><div className="sd-kpi-l">Calls booked</div>
+            <div className="sd-kpi-v"><N m="kpi.booked">{t.booked}</N></div>
+            <div className="sd-kpi-s"><N m="kpi.upcoming">{t.upcoming}</N> still upcoming</div></div>
           <div className="sd-kpi"><div className="sd-kpi-l">Show rate</div>
-            <div className={`sd-kpi-v ${t.show_rate == null ? "" : t.show_rate >= 70 ? "good" : "warn"}`}>{pct(t.show_rate)}</div>
-            <div className="sd-kpi-s">{t.held} held · {t.no_show} no-show · {t.cancelled} cancelled</div></div>
-          <div className="sd-kpi"><div className="sd-kpi-l">Close rate</div><div className="sd-kpi-v">{pct(t.close_rate)}</div>
-            <div className="sd-kpi-s">{t.won} won of {t.held} held</div></div>
-          <div className="sd-kpi"><div className="sd-kpi-l">On the table</div><div className="sd-kpi-v">{kM(t.on_the_table)}</div>
-            <div className="sd-kpi-s">{t.deciding} deciding × {kM(t.blended)}{t.blended_provisional ? " *" : ""} blended</div></div>
+            <div className={`sd-kpi-v ${t.show_rate == null ? "" : t.show_rate >= 70 ? "good" : "warn"}`}>
+              <N m="kpi.show_rate">{pct(t.show_rate)}</N></div>
+            <div className="sd-kpi-s"><N m="kpi.held">{t.held} held</N> · <N m="kpi.no_show">{t.no_show} no-show</N> · <N m="kpi.cancelled">{t.cancelled} cancelled</N></div></div>
+          <div className="sd-kpi"><div className="sd-kpi-l">Close rate</div>
+            <div className="sd-kpi-v"><N m="kpi.close_rate">{pct(t.close_rate)}</N></div>
+            <div className="sd-kpi-s"><N m="kpi.won">{t.won} won</N> of <N m="kpi.held">{t.held} held</N></div></div>
+          <div className="sd-kpi"><div className="sd-kpi-l">On the table</div>
+            <div className="sd-kpi-v"><N m="kpi.on_the_table">{kM(t.on_the_table)}</N></div>
+            <div className="sd-kpi-s"><N m="kpi.in_play">{t.deciding} deciding</N> × <N m="kpi.blended">{kM(t.blended)}{t.blended_provisional ? " *" : ""} blended</N></div></div>
         </div>
 
         {!anyCalls ? (
@@ -182,10 +269,15 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                         <tr key={k || "u"} className={`click ${sel === k ? "sel" : ""}`}
                             onClick={() => setSel(sel === k ? null : k)}>
                           <td><RepName email={r.rep_email} name={r.display_name} unmapped={r.unmapped} unassigned={r.unassigned} /></td>
-                          <td>{r.booked}</td><td>{r.held}</td><td>{r.noshow}</td><td>{r.cancelled}</td><td>{r.resched}</td>
-                          <td>{r.show_rate == null ? "-" : <span className={`rate ${r.show_rate >= 70 ? "good" : "warn"}`}>{Math.round(r.show_rate)}%</span>}</td>
-                          <td>{r.inplay}</td><td><span className="em">{r.won}</span></td>
-                          <td>{r.close_rate == null ? "-" : <span className={`rate ${r.close_rate >= 50 ? "good" : ""}`}>{Math.round(r.close_rate)}%</span>}</td>
+                          <td><N m="kpi.booked" rep={k}>{r.booked}</N></td>
+                          <td><N m="kpi.held" rep={k}>{r.held}</N></td>
+                          <td><N m="kpi.no_show" rep={k}>{r.noshow}</N></td>
+                          <td><N m="kpi.cancelled" rep={k}>{r.cancelled}</N></td>
+                          <td><N m="kpi.rescheduled" rep={k}>{r.resched}</N></td>
+                          <td>{r.show_rate == null ? "-" : <N m="kpi.show_rate" rep={k}><span className={`rate ${r.show_rate >= 70 ? "good" : "warn"}`}>{Math.round(r.show_rate)}%</span></N>}</td>
+                          <td><N m="kpi.in_play" rep={k}>{r.inplay}</N></td>
+                          <td><N m="kpi.won" rep={k}><span className="em">{r.won}</span></N></td>
+                          <td>{r.close_rate == null ? "-" : <N m="kpi.close_rate" rep={k}><span className={`rate ${r.close_rate >= 50 ? "good" : ""}`}>{Math.round(r.close_rate)}%</span></N>}</td>
                         </tr>
                       );
                     })}
@@ -222,7 +314,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
               <div>
                 <div className="sd-card">
                   <div className="sd-head"><span className="sd-title">No-Show Recovery</span>
-                    <span className="sd-sub">{noshows.filter((n) => !n.rebooked).length} to chase</span></div>
+                    <span className="sd-sub"><N m="recovery.chase">{noshows.filter((n) => !n.rebooked).length} to chase</N></span></div>
                   {noshows.length === 0 && <div className="sd-empty">None.</div>}
                   {noshows.map((n, i) => (
                     <div className="sd-lr" key={i}>
@@ -239,8 +331,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                   {(data.warnings || []).length === 0 && <div className="sd-empty">All clear.</div>}
                   {(data.warnings || []).map((h, i) => (
                     <div className="sd-hrow" key={i}>
-                      <span className="sd-hn">{h.n}</span>
-                      <span><span className="sd-hl">{h.label}</span><span className="sd-hint">{h.hint}</span></span>
+                      <span className="sd-hn"><N m={h.key}>{h.n}</N></span>
+                      <span><N m={h.key}><span className="sd-hl">{h.label}</span></N><span className="sd-hint">{h.hint}</span></span>
                     </div>
                   ))}
                 </div>
@@ -254,7 +346,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                 {data.payment_mix.map((m) => (
                   <div className="sd-mixcell" key={m.type}>
                     <div className="sd-mix-t">{m.type}{m.provisional && <span className="prov">provisional</span>}</div>
-                    <div className="sd-mix-n">{m.count}</div>
+                    <div className="sd-mix-n"><N m={`mix.${m.type}`}>{m.count}</N></div>
                     <div className="sd-mix-s">{m.note}</div>
                   </div>
                 ))}
@@ -265,8 +357,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                 ))}
               </div>
               <div className="sd-mixfoot">
-                <b>{kM(data.upfront_total)}</b> collected at signing across these members, against{" "}
-                <b>{kM(data.priced_arr)}</b> of priced annual value. Monthly is annualized pending confirmation;
+                <N m="money.upfront"><b>{kM(data.upfront_total)}</b></N> collected at signing across these members, against{" "}
+                <N m="money.priced_arr"><b>{kM(data.priced_arr)}</b></N> of priced annual value. Monthly is annualized pending confirmation;
                 Custom is unpriced and excluded from both figures.
               </div>
             </div>
@@ -283,8 +375,13 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
           <RepRosterDrawer businessKey={businessKey} usingSample={usingSample}
             onClose={() => setRosterOpen(false)} onSaved={onSaved} />
         )}
+        {drill && (
+          <SDDrawer drill={drill} businessKey={businessKey} usingSample={usingSample}
+            onClose={() => setDrill(null)} />
+        )}
       </div>
     </div>
+    </SDDrillCtx.Provider>
   );
 }
 

@@ -512,19 +512,19 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
                      and _aw(c.call_time_utc) < now - dt.timedelta(hours=24))
     unparsed = sum(1 for c in calls if c.call_time_raw and not c.call_time_utc)
     if no_rep:
-        warnings.append(dict(n=no_rep, label="bookings with no rep",
+        warnings.append(dict(n=no_rep, label="bookings with no rep", key="dh.no_rep",
                              hint="host unassigned in the portal — attribution blank"))
     if unmapped_emails:
-        warnings.append(dict(n=len(unmapped_emails), label="rep not in the roster",
+        warnings.append(dict(n=len(unmapped_emails), label="rep not in the roster", key="dh.unmapped",
                              hint=(", ".join(unmapped_emails)[:110] + " — add a display name in settings")))
     if pending_24:
-        warnings.append(dict(n=pending_24, label="outcomes pending > 24h",
+        warnings.append(dict(n=pending_24, label="outcomes pending > 24h", key="dh.pending24",
                              hint="call time passed, no outcome logged yet"))
     if won_no_pay:
-        warnings.append(dict(n=won_no_pay, label="won with no payment type",
+        warnings.append(dict(n=won_no_pay, label="won with no payment type", key="dh.won_no_pay",
                              hint="Custom Payment has no 5.x workflow — unpriced in ARR"))
     if unparsed:
-        warnings.append(dict(n=unparsed, label="call times unparsed",
+        warnings.append(dict(n=unparsed, label="call times unparsed", key="dh.unparsed",
                              hint="prose format not recognized — shown as raw text"))
 
     return dict(
@@ -533,3 +533,209 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
         totals=totals, reps=rep_rows, calls=calls_out, no_shows=ns_out,
         payment_mix=payment_mix, upfront_total=round(upfront_total), priced_arr=round(priced_arr),
         warnings=warnings)
+
+
+# ── drill (§8 — what's behind a number; same records/calc shapes the Launch drawer renders) ──
+async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep: str | None = None,
+                           now: dt.datetime | None = None) -> dict:
+    """Every figure on the Sales Desk resolves to its underlying calls/opps (records) or its
+    formula (calc). `rep` scopes call-backed metrics to one leaderboard row ('__unassigned__'
+    matches the null-rep bucket)."""
+    from fastapi import HTTPException
+
+    now = now or _utcnow()
+    tzname = launch.default_tz or "America/Denver"
+    calls = list((await s.execute(select(SalesCall).where(SalesCall.launch_id == launch.id))).scalars())
+    roster = {(r.email or "").lower(): r.display_name for r in
+              (await s.execute(select(SalesRep).where(SalesRep.tenant_id == tenant_id))).scalars()}
+
+    def dname(email):
+        return roster.get((email or "").lower()) if email else None
+
+    def rep_label(email):
+        return dname(email) or email or "Unassigned"
+
+    if rep == "__unassigned__":
+        calls = [c for c in calls if not c.rep_email]
+    elif rep:
+        calls = [c for c in calls if (c.rep_email or "").lower() == rep.lower()]
+    scope = f" — {rep_label(None if rep == '__unassigned__' else rep)}" if rep else ""
+
+    lid = str(launch.id)
+    opp_recs = [r for r in (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.source == "ghl",
+        MetricRecord.kind == "bc_launch_opp"))).scalars() if (r.meta or {}).get("launch_id") == lid]
+    calls_by_opp: dict = {}
+    for c in calls:
+        calls_by_opp.setdefault(c.opportunity_id, []).append(c)
+
+    def opp_rep(opp_id):
+        rows = calls_by_opp.get(opp_id, [])
+        held = [r for r in rows if r.outcome == OUT_SHOWED and r.call_time_utc]
+        if held:
+            return max(held, key=lambda r: _aw(r.call_time_utc)).rep_email
+        cur = [r for r in rows if r.is_current and r.rep_email] or [r for r in rows if r.rep_email]
+        return cur[0].rep_email if cur else None
+
+    def in_rep_scope(opp_id):
+        if not rep:
+            return True
+        r = opp_rep(opp_id)
+        return (r is None) if rep == "__unassigned__" else ((r or "").lower() == rep.lower())
+
+    def records(title, subtitle, rows, columns):
+        return {"metric": metric, "type": "records", "title": title, "subtitle": subtitle,
+                "count": len(rows), "columns": columns, "rows": rows}
+
+    def calc(title, value, steps, formula=None, note=None):
+        return {"metric": metric, "type": "calc", "title": title, "value": str(value),
+                "steps": steps, "formula": formula, "note": note}
+
+    def call_row(c):
+        t = _aw(c.call_time_utc)
+        status = c.outcome or ("Upcoming" if t and t >= now else "Pending" if t else "Unscheduled")
+        return {"contact": title_name(c.contact_name) or "-", "rep": rep_label(c.rep_email),
+                "time": (t.isoformat()[:16].replace("T", " ") + " UTC") if t else (c.call_time_raw or "—"),
+                "status": status, "current": c.is_current}
+
+    CALL_COLS = ["contact", "rep", "time", "status", "current"]
+
+    def call_records(title, rows_calls, subtitle=None):
+        rows = [call_row(c) for c in sorted(rows_calls, key=lambda c: (_aw(c.call_time_utc) or now))]
+        return records(title + scope, subtitle or f"{len(rows)} calls | launch to date", rows, CALL_COLS)
+
+    def opp_rows(group, pay_filter=None):
+        out = []
+        for r in opp_recs:
+            meta = r.meta or {}
+            if meta.get("group") != group or not in_rep_scope(r.external_id):
+                continue
+            cur = [c for c in calls_by_opp.get(r.external_id, []) if c.is_current]
+            pay = cur[0].payment_type if cur else None
+            if pay_filter and pay != pay_filter:
+                continue
+            out.append({"name": title_name(r.name) or "-", "rep": rep_label(opp_rep(r.external_id)),
+                        "stage": meta.get("stage"), "payment": pay, "url": r.source_url})
+        return out
+
+    OPP_COLS = ["name", "rep", "stage", "payment", "url"]
+    outcome_of = {"kpi.held": OUT_SHOWED, "kpi.no_show": OUT_NO_SHOW,
+                  "kpi.cancelled": OUT_CANCELLED, "kpi.rescheduled": OUT_RESCHEDULED}
+    held = [c for c in calls if c.outcome == OUT_SHOWED]
+    noshow = [c for c in calls if c.outcome == OUT_NO_SHOW]
+    cancelled = [c for c in calls if c.outcome == OUT_CANCELLED]
+    price_map = launch.price_map or {}
+
+    if metric == "kpi.booked":
+        return call_records("Calls booked", calls,
+                            "every booking attempt, incl. superseded rebooks | event log")
+    if metric == "kpi.upcoming":
+        return call_records("Upcoming calls",
+                            [c for c in calls if c.is_current and c.outcome is None
+                             and c.call_time_utc and _aw(c.call_time_utc) >= now])
+    if metric == "kpi.pending":
+        return call_records("Awaiting outcome",
+                            [c for c in calls if c.outcome is None and c.call_time_utc
+                             and _aw(c.call_time_utc) < now])
+    if metric in outcome_of:
+        oc = outcome_of[metric]
+        return call_records(oc, [c for c in calls if c.outcome == oc])
+    if metric == "kpi.show_rate":
+        res = len(held) + len(noshow) + len(cancelled)
+        v = f"{round(100 * len(held) / res)}%" if res else "—"
+        return calc("Show rate" + scope, v,
+                    [{"label": "Held (Showed)", "value": len(held)},
+                     {"label": "No-show", "value": len(noshow)},
+                     {"label": "Cancelled", "value": len(cancelled)},
+                     {"label": "Resolved calls", "value": res}],
+                    formula="held / (held + no-show + cancelled)",
+                    note="Upcoming and pending calls are excluded from the denominator.")
+    if metric == "kpi.close_rate":
+        won_n = sum(1 for r in opp_recs if (r.meta or {}).get("group") == "enrolled"
+                    and in_rep_scope(r.external_id))
+        v = f"{round(100 * won_n / len(held))}%" if held else "—"
+        return calc("Close rate" + scope, v,
+                    [{"label": "Won (enrolled)", "value": won_n},
+                     {"label": "Held calls", "value": len(held)}],
+                    formula="won / held")
+    if metric == "kpi.won":
+        rows = opp_rows("enrolled")
+        return records("Won" + scope, f"{len(rows)} enrolled | {launch.pipeline_match}", rows, OPP_COLS)
+    if metric == "kpi.in_play":
+        rows = opp_rows("deciding")
+        return records("In play" + scope, f"{len(rows)} deciding | {launch.pipeline_match}", rows, OPP_COLS)
+    if metric == "kpi.on_the_table":
+        deciding_n = sum(1 for r in opp_recs if (r.meta or {}).get("group") == "deciding"
+                         and in_rep_scope(r.external_id))
+        counts = await payment_counts_by_group(s, tenant_id, launch)
+        blended, prov = blended_price(price_map, counts.get("enrolled") or Counter())
+        return calc("On the table" + scope, f"${round(deciding_n * blended):,.0f}",
+                    [{"label": "Deciding opps", "value": deciding_n},
+                     {"label": "Blended seat value", "value": f"${round(blended):,.0f}"}],
+                    formula="deciding × blended",
+                    note="Blended is provisional until priced enrollments exist." if prov else None)
+    if metric == "kpi.blended":
+        counts = await payment_counts_by_group(s, tenant_id, launch)
+        enr = counts.get("enrolled") or Counter()
+        blended, prov = blended_price(price_map, enr)
+        steps = [{"label": f"{t} × {enr.get(t, 0)}",
+                  "value": f"${((price_map.get(t) or {}).get('acv') or 0):,.0f}"}
+                 for t in PAYMENT_TYPES if (price_map.get(t) or {}).get("acv") is not None]
+        return calc("Blended seat value", f"${round(blended):,.0f}", steps,
+                    formula="sum(acv × count) / priced enrollments"
+                            if sum(enr.values()) else "mean acv of non-provisional priced types",
+                    note="Provisional — no priced enrollments yet." if prov else None)
+    if metric.startswith("mix."):
+        t = metric.split(".", 1)[1]
+        if t not in PAYMENT_TYPES:
+            raise HTTPException(404, "Unknown payment type")
+        rows = opp_rows("enrolled", pay_filter=t)
+        return records(f"{t} members", _pay_note(price_map.get(t) or {}), rows, OPP_COLS)
+    if metric in ("money.upfront", "money.priced_arr"):
+        counts = await payment_counts_by_group(s, tenant_id, launch)
+        enr = counts.get("enrolled") or Counter()
+        fld = "upfront" if metric == "money.upfront" else "acv"
+        steps = [{"label": f"{t} × {enr.get(t, 0)}", "value": f"${((price_map.get(t) or {}).get(fld) or 0):,.0f}"}
+                 for t in PAYMENT_TYPES if (price_map.get(t) or {}).get(fld) is not None]
+        total = sum(((price_map.get(t) or {}).get(fld) or 0) * enr.get(t, 0) for t in PAYMENT_TYPES)
+        return calc("Collected at signing" if fld == "upfront" else "Priced annual value",
+                    f"${round(total):,.0f}", steps, formula=f"sum({fld} × enrolled count)",
+                    note="Custom is unpriced and excluded.")
+    if metric in ("recovery.chase", "recovery.all"):
+        rows = []
+        for c in noshow:
+            rebooked = any(o.booking_id != c.booking_id for o in calls_by_opp.get(c.opportunity_id, []))
+            if metric == "recovery.chase" and rebooked:
+                continue
+            ref = _aw(c.call_time_utc) or _aw(c.first_seen_at)
+            rows.append({"contact": title_name(c.contact_name) or "-", "rep": rep_label(c.rep_email),
+                         "days_since": max(0, (now - ref).days) if ref else 0, "rebooked": rebooked})
+        title = "No-shows to chase" if metric == "recovery.chase" else "All no-shows"
+        return records(title + scope, f"{len(rows)} | rebooked = a newer booking exists for the same opp",
+                       rows, ["contact", "rep", "days_since", "rebooked"])
+    if metric == "dh.no_rep":
+        return call_records("Bookings with no rep",
+                            [c for c in calls if c.is_current and not c.rep_email],
+                            "the Sales Rep field is blank on these opps — fill it in GHL")
+    if metric == "dh.unmapped":
+        emails = sorted({c.rep_email for c in calls
+                         if c.rep_email and not roster.get((c.rep_email or "").lower())})
+        rows = [{"email": e, "calls": sum(1 for c in calls if (c.rep_email or "").lower() == e.lower())}
+                for e in emails]
+        return records("Reps not in the roster", "name them via manage reps on the leaderboard",
+                       rows, ["email", "calls"])
+    if metric == "dh.pending24":
+        return call_records("Outcomes pending > 24h",
+                            [c for c in calls if c.outcome is None and c.call_time_utc
+                             and _aw(c.call_time_utc) < now - dt.timedelta(hours=24)],
+                            "call time passed over a day ago with no outcome logged")
+    if metric == "dh.won_no_pay":
+        rows = [r for r in opp_rows("enrolled") if not r["payment"]]
+        return records("Won with no payment type", "set Payment Type on the opp in GHL", rows, OPP_COLS)
+    if metric == "dh.unparsed":
+        rows = [{"contact": title_name(c.contact_name) or "-", "rep": rep_label(c.rep_email),
+                 "raw_call_time": c.call_time_raw, "current": c.is_current}
+                for c in calls if c.call_time_raw and not c.call_time_utc]
+        return records("Call times unparsed", f"raw text stored as-is | launch tz {tzname}",
+                       rows, ["contact", "rep", "raw_call_time", "current"])
+    raise HTTPException(404, "Unknown metric")

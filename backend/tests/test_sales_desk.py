@@ -375,6 +375,83 @@ async def test_show_rate_is_null_not_zero_on_empty_denominator():
     assert d["totals"]["show_rate"] is None and d["totals"]["close_rate"] is None   # dash, never 0%
 
 
+def test_classify_stage_committed_means_paid():
+    """Connor's rule (2026-08-13): a SENT payment link isn't cash — Deciding. Committed is
+    strictly cash-received-unsigned; Enrolled is signed+onboarded only."""
+    from app.services.launch import classify_stage, DEFAULT_STAGE_MAP as M
+    assert classify_stage("Payment Sent: PIF", M)[0] == "deciding"
+    assert classify_stage("Payment Sent: Financed", M)[0] == "deciding"
+    assert classify_stage("Payment Received - Contract Sent", M)[0] == "committed"
+    assert classify_stage("Won: Onboarded", M)[0] == "enrolled"
+    assert classify_stage("Scheduled Appointment - App Submitted", M) == ("booked", True)
+    assert classify_stage("Appointment No Show / Cancel", M)[0] == "noshow"
+    assert classify_stage("Future Cohort - Nuture", M)[0] == "nurture"      # their spelling
+    assert classify_stage("Lost: DQ / Abandon", M)[0] == "lost"
+
+
+async def test_cash_spans_committed_and_enrolled():
+    """§9.4 under Committed-=-paid: cash = upfronts of EVERYONE who paid, committed included."""
+    from app.services.launch import compute_launch
+    tid, lid = await _fresh_launch()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        for opp, grp, pay in (("o1", "committed", "PIF"), ("o2", "enrolled", "Financed")):
+            s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="bc_launch_opp",
+                               external_id=opp, name=opp, status="open",
+                               meta={"launch_id": str(lid), "group": grp}))
+            s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=opp, booking_id="b" + opp,
+                            rep_email="a@x.com", outcome="Showed", payment_type=pay, is_current=True,
+                            call_time_utc=dt.datetime(2026, 8, 18, tzinfo=U)))
+        await s.commit()
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        d = await compute_launch(s, tid, L, today=dt.date(2026, 8, 20))
+    assert d["committed"]["arr"] == 12000 and d["enrolled"]["arr"] == 14000
+    assert d["cash"] == {"collected": 17000, "source": "upfront"}   # 12000 PIF + 5000 Financed upfront
+
+
+async def test_drill_sales_desk_metrics():
+    """§8 drills — records for call/opp metrics (rep-scopable), calc for derived figures."""
+    tid, lid = await _seed_desk_scenario()
+    NOW = dt.datetime(2026, 8, 20, 12, tzinfo=U)
+    async with SessionLocal() as s:
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        booked = await sd.drill_sales_desk(s, tid, L, "kpi.booked", now=NOW)
+        booked_a = await sd.drill_sales_desk(s, tid, L, "kpi.booked", rep="a@x.com", now=NOW)
+        booked_u = await sd.drill_sales_desk(s, tid, L, "kpi.booked", rep="__unassigned__", now=NOW)
+        show = await sd.drill_sales_desk(s, tid, L, "kpi.show_rate", now=NOW)
+        won = await sd.drill_sales_desk(s, tid, L, "kpi.won", now=NOW)
+        mix_pif = await sd.drill_sales_desk(s, tid, L, "mix.PIF", now=NOW)
+        no_rep = await sd.drill_sales_desk(s, tid, L, "dh.no_rep", now=NOW)
+
+    assert booked["type"] == "records" and booked["count"] == 4          # all four calls
+    assert booked_a["count"] == 2 and booked_u["count"] == 1             # rep + unassigned scoping
+    assert show["type"] == "calc" and show["value"] == "50%"             # 1 held / (1+1) resolved
+    assert won["count"] == 1 and won["rows"][0]["payment"] == "PIF"      # o1, event-log payment
+    assert mix_pif["count"] == 1
+    assert no_rep["count"] == 1                                          # o4 has no rep
+    with pytest.raises(Exception):
+        async with SessionLocal() as s:
+            L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+            await sd.drill_sales_desk(s, tid, L, "nope", now=NOW)        # unknown metric → 404
+
+
+async def test_drill_route_serves_and_404s():
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    await _seed_desk_scenario()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        tok = (await c.post("/api/v1/auth/login",
+                            json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})).json()["token"]
+        H = {"Authorization": f"Bearer {tok}"}
+        r = await c.get("/api/v1/businesses/springb/launches/active/sales-desk/drill/kpi.booked", headers=H)
+        assert r.status_code == 200 and r.json()["type"] == "records" and r.json()["count"] == 4
+        r2 = await c.get("/api/v1/businesses/springb/launches/active/sales-desk/drill/kpi.booked",
+                         params={"rep": "a@x.com"}, headers=H)
+        assert r2.json()["count"] == 2
+        r3 = await c.get("/api/v1/businesses/springb/launches/active/sales-desk/drill/nope", headers=H)
+        assert r3.status_code == 404
+
+
 async def test_sales_desk_route_returns_full_payload():
     from httpx import AsyncClient, ASGITransport
     from app.main import app

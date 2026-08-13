@@ -99,6 +99,21 @@ async def active_sales_desk(key: str, user: User = Depends(current_user),
     return await compute_sales_desk(s, user.tenant_id, launch)
 
 
+@router.get("/businesses/{key}/launches/active/sales-desk/drill/{metric}")
+async def drill_active_sales_desk(key: str, metric: str, rep: str | None = None,
+                                  user: User = Depends(current_user),
+                                  s: AsyncSession = Depends(get_session)):
+    """What's behind a number on the Sales Desk — its calls/opps or its calculation. `rep`
+    scopes call-backed metrics to one leaderboard row ('__unassigned__' = the null-rep bucket)."""
+    from ..services.sales_desk import drill_sales_desk
+    b = await _biz(s, user.tenant_id, key)
+    await assert_tab(user, s, _launch_tab(b))
+    launch = await active_launch_for(s, user.tenant_id, b.id)
+    if not launch:
+        raise HTTPException(404, "No active launch")
+    return await drill_sales_desk(s, user.tenant_id, launch, metric, rep=rep)
+
+
 @router.get("/businesses/{key}/sales-desk/reps")
 async def list_sales_reps(key: str, user: User = Depends(current_user),
                           s: AsyncSession = Depends(get_session)):
