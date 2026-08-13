@@ -239,12 +239,16 @@ function Momentum({ mom }) {
 }
 
 function CashLine({ cfg, D, cash }) {
-  const pct = D.enrolledArr ? Math.min(100, (cash.collected / D.enrolledArr) * 100) : 0;
+  // Base = the priced value of everyone who has PAID (committed = cash received, unsigned;
+  // enrolled = signed). Measuring collected against enrolled-only zeroes out the moment a
+  // payer sits in Committed awaiting signature.
+  const paidArr = (D.enrolledArr || 0) + (D.committedArr || 0);
+  const pct = paidArr ? Math.min(100, (cash.collected / paidArr) * 100) : 0;
   return (
     <div className="cash">
       <div className="cash-top">
         <span className="cash-l">Cash collected{cash.source === "estimate" ? " · est." : ""}</span>
-        <span className="cash-v"><b><Num metric="cash">{kMoney(cash.collected)}</Num></b> <em>of {kMoney(D.enrolledArr)} enrolled</em></span>
+        <span className="cash-v"><b><Num metric="cash">{kMoney(cash.collected)}</Num></b> <em>of {kMoney(paidArr)} committed + enrolled</em></span>
       </div>
       <div className="cash-bar"><span className="cash-fill" style={{ width: `${pct}%` }} /></div>
       <div className="cash-note">

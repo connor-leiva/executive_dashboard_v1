@@ -583,6 +583,17 @@ async def drill_launch(s, tenant_id, launch: Launch, metric: str, today=None) ->
                     formula="value = deciding count x blended price")
 
     if metric == "cash":
+        if d["cash"].get("source") == "upfront":
+            # Four-type path: real upfronts across EVERYONE who has paid (committed + enrolled).
+            pm = launch.price_map or {}
+            paid = Counter(d["enrolled"].get("mix") or {}) + Counter(d["committed"].get("mix") or {})
+            steps = [{"label": f"{t} × {n}", "value": _usd0((pm.get(t) or {}).get("upfront") or 0)}
+                     for t, n in sorted(paid.items())]
+            steps.append({"label": "Base", "value": "committed + enrolled — everyone who has paid"})
+            return calc("Cash collected", _usd0(d["cash"]["collected"]), steps,
+                        formula="sum(upfront × paid seats)",
+                        note="Committed = cash received, contract unsigned. The balance of "
+                             "financed/monthly seats arrives across the payment schedule.")
         inst = launch.plan_installments or 1
         return calc("Cash collected (estimate)", _usd0(d["cash"]["collected"]),
                     [{"label": "PIF seats (full)", "value": f"{d['enrolled']['pif']} x {_usd0(pif)}"},

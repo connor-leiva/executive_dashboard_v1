@@ -408,6 +408,14 @@ async def test_cash_spans_committed_and_enrolled():
     assert d["committed"]["arr"] == 12000 and d["enrolled"]["arr"] == 14000
     assert d["cash"] == {"collected": 17000, "source": "upfront"}   # 12000 PIF + 5000 Financed upfront
 
+    # the cash drill explains the same math over the same base
+    from app.services.launch import drill_launch
+    async with SessionLocal() as s:
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        dr = await drill_launch(s, tid, L, "cash", today=dt.date(2026, 8, 20))
+    assert dr["value"] == "$17,000" and dr["formula"] == "sum(upfront × paid seats)"
+    assert any("committed + enrolled" in str(st["value"]) for st in dr["steps"])
+
 
 async def test_drill_sales_desk_metrics():
     """§8 drills — records for call/opp metrics (rep-scopable), calc for derived figures."""
