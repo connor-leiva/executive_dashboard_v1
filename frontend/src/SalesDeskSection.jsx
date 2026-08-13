@@ -297,6 +297,9 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
   }, [businessKey, usingSample]);
 
   const patch = (i, k, v) => setRows((r) => r.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  // "still needs a name" clears live as you type, so the banner/chip/border reflect the draft.
+  const stillNeeds = (r) => r.unmapped && !(r.display_name && r.display_name.trim());
+  const needing = (rows || []).filter(stillNeeds).length;
   const save = async () => {
     setSaving(true);
     try { await putJSON(`/businesses/${businessKey}/sales-desk/reps`, { reps: rows }); onSaved && onSaved(); onClose(); }
@@ -311,12 +314,18 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
           align-items:flex-start; justify-content:center; padding:64px 16px; z-index:60; }
         .sd-box { background:${T.white}; border:1px solid ${T.line}; border-radius:16px; padding:18px 20px;
           width:100%; max-width:520px; max-height:80vh; overflow:auto; box-shadow:0 24px 60px ${alpha(T.evergreen, .18)}; }
+        .sd-needs { font-size:11.5px; color:${T.amber}; background:${T.amberBg};
+          border:1px solid ${alpha(T.amber, .28)}; border-radius:9px; padding:8px 11px; margin-bottom:10px; line-height:1.45; }
         .sd-rrow { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
         .sd-rrow:last-of-type { border-bottom:none; }
+        .sd-rrow.needs .sd-input { border-color:${alpha(T.amber, .55)}; }
+        .sd-rmail { flex:1; min-width:0; display:flex; align-items:center; gap:7px; overflow:hidden; }
+        .sd-rmail .rawmail { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .sd-input { font:inherit; font-size:12.5px; color:${T.ink}; border:1px solid ${T.line}; border-radius:8px;
-          padding:6px 9px; width:190px; background:${T.white}; }
+          padding:6px 9px; width:190px; flex:none; background:${T.white}; }
         .sd-input:focus { outline:none; border-color:${T.petalDeep}; }
         .sd-active { font-size:11px; color:${T.tertiary}; display:flex; align-items:center; gap:5px; flex:none; }
+        .sd-active.off { opacity:.4; }
         .sd-btn { font:inherit; font-size:12px; font-weight:700; border:none; border-radius:9px; padding:8px 15px;
           background:${T.evergreen}; color:${T.onDark}; cursor:pointer; }
         .sd-btn:disabled { opacity:.5; cursor:default; }
@@ -326,20 +335,32 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
         <div className="sd-head"><span className="sd-title">Rep Roster</span>
           <button className="sd-clear" onClick={onClose}>close</button></div>
         <div className="sd-sub" style={{ marginBottom: 10 }}>
-          Display names shown on the leaderboard. The email comes from the booking (read-only) and the roster
-          auto-seeds from your team directory — edit a name or deactivate a rep who's left.
+          Display names shown on the leaderboard. The email is the rep's own <b>Sales Rep</b> value on the
+          booking (read-only) — it isn't always a team-directory address, so anyone booking calls appears here.
+          Name them or deactivate a rep who's left.
         </div>
+        {needing > 0 && (
+          <div className="sd-needs">
+            {needing} rep{needing > 1 ? "s are" : " is"} booking calls but not named yet — listed first. Give them
+            a name and they'll replace the raw email on the leaderboard.
+          </div>
+        )}
         {rows === null && <div className="sd-empty">Loading…</div>}
         {rows && rows.length === 0 && (
           <div className="sd-empty">{usingSample ? "Editing is disabled in sample mode." : "No reps yet — they appear once bookings sync."}</div>
         )}
         {(rows || []).map((r, i) => (
-          <div className="sd-rrow" key={r.email}>
-            <span className="rawmail" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{r.email}</span>
-            <input className="sd-input" value={r.display_name || ""} placeholder={r.email}
+          <div className={`sd-rrow${stillNeeds(r) ? " needs" : ""}`} key={r.email}>
+            <span className="sd-rmail">
+              <span className="rawmail">{r.email}</span>
+              {stillNeeds(r) && <span className="flagchip">on calls · unnamed</span>}
+            </span>
+            <input className="sd-input" value={r.display_name || ""} placeholder={r.unmapped ? "Add a name" : r.email}
               onChange={(e) => patch(i, "display_name", e.target.value)} />
-            <label className="sd-active"><input type="checkbox" checked={r.is_active !== false}
-              onChange={(e) => patch(i, "is_active", e.target.checked)} /> active</label>
+            {/* 'active' has no roster row to persist to until the rep is named, so it's disabled there. */}
+            <label className={`sd-active${stillNeeds(r) ? " off" : ""}`}>
+              <input type="checkbox" checked={r.is_active !== false} disabled={stillNeeds(r)}
+                onChange={(e) => patch(i, "is_active", e.target.checked)} /> active</label>
           </div>
         ))}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>

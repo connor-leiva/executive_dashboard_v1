@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import current_user, require_role, assert_tab
-from ..models import User, Business, Launch, SalesRep
+from ..models import User, Business, Launch, SalesCall, SalesRep
 from ..schemas import LaunchResponse, LaunchUpsert
 from ..services.audit import audit
 from ..services.launch import (
@@ -102,13 +102,36 @@ async def active_sales_desk(key: str, user: User = Depends(current_user),
 @router.get("/businesses/{key}/sales-desk/reps")
 async def list_sales_reps(key: str, user: User = Depends(current_user),
                           s: AsyncSession = Depends(get_session)):
-    """The rep roster (email → display name), auto-seeded from the GHL directory. Viewable by
-    anyone with the tab; edited only by owner/admin (§11.7)."""
+    """The rep roster (email → display name). Seeded from the GHL directory, but the roster is
+    the UNION of that directory and every email seen on a call for the active launch — the
+    `Sales Rep` field is free-form, so it routinely carries reps the directory doesn't have.
+    Those surface here `unmapped` (no display name yet) so they can be named; naming one upserts
+    a SalesRep row. Viewable with the tab; edited only by owner/admin (§11.7)."""
     b = await _biz(s, user.tenant_id, key)
     await assert_tab(user, s, _launch_tab(b))
-    reps = (await s.execute(select(SalesRep).where(SalesRep.tenant_id == user.tenant_id)
-            .order_by(SalesRep.display_name))).scalars().all()
-    return [{"email": r.email, "display_name": r.display_name, "is_active": r.is_active} for r in reps]
+    reps = (await s.execute(select(SalesRep).where(
+        SalesRep.tenant_id == user.tenant_id))).scalars().all()
+
+    # Every rep actually on a call for the active launch, so non-directory reps can be mapped.
+    call_emails: list[str] = []
+    launch = await active_launch_for(s, user.tenant_id, b.id)
+    if launch:
+        call_emails = [e for e in (await s.execute(select(SalesCall.rep_email).where(
+            SalesCall.tenant_id == user.tenant_id, SalesCall.launch_id == launch.id,
+            SalesCall.rep_email.is_not(None)).distinct())).scalars().all() if e]
+    on_calls = {e.lower() for e in call_emails}
+
+    out = [{"email": r.email, "display_name": r.display_name, "is_active": r.is_active,
+            "on_calls": (r.email or "").lower() in on_calls, "unmapped": False} for r in reps]
+    seen = {(r["email"] or "").lower() for r in out}
+    for e in call_emails:                                  # call-reps with no roster row yet
+        if e.lower() not in seen:
+            seen.add(e.lower())
+            out.append({"email": e, "display_name": None, "is_active": True,
+                        "on_calls": True, "unmapped": True})
+    # Needs-a-name first (on a call, not yet named), then the rest alphabetically.
+    out.sort(key=lambda r: (not r["unmapped"], (r["display_name"] or r["email"] or "").lower()))
+    return out
 
 
 @router.put("/businesses/{key}/sales-desk/reps")
@@ -124,15 +147,22 @@ async def update_sales_reps(key: str, body: dict, user: User = Depends(require_r
         email = (item.get("email") or "").strip()
         if not email:
             continue
-        name = ((item.get("display_name") or "").strip() or email)[:80]
-        active = bool(item.get("is_active", True))
+        raw = (item.get("display_name") or "").strip()
         cur = existing.get(email.lower())
         if cur is None:
-            s.add(SalesRep(tenant_id=user.tenant_id, email=email, display_name=name, is_active=active))
+            if not raw:                          # unmapped rep left unnamed — don't create a ghost row
+                continue
+            rep = SalesRep(tenant_id=user.tenant_id, email=email, display_name=raw[:80],
+                           is_active=bool(item.get("is_active", True)))
+            s.add(rep)
+            existing[email.lower()] = rep        # a repeat of this email in the same body now updates it
             changed.append(email)
-        elif cur.display_name != name or cur.is_active != active:
-            cur.display_name, cur.is_active = name, active
-            changed.append(email)
+        else:
+            name = (raw or cur.display_name or email)[:80]                       # a blank keeps the name
+            active = bool(item["is_active"]) if "is_active" in item else cur.is_active  # omitted → unchanged
+            if cur.display_name != name or cur.is_active != active:
+                cur.display_name, cur.is_active = name, active
+                changed.append(email)
     if changed:
         audit(s, user.tenant_id, user.id, "sales_rep.roster_updated", "sales_rep", None,
               {"emails": sorted(changed)[:50]})

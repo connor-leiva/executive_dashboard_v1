@@ -329,6 +329,94 @@ async def test_rep_roster_edit_is_owner_admin_only_and_audited():
         assert (await s.execute(select(AuditLog).where(AuditLog.action == "sales_rep.roster_updated"))).scalars().first()
 
 
+async def test_roster_surfaces_call_reps_outside_the_directory_and_naming_maps_them():
+    """§11.7 — the `Sales Rep` field is free-form, so reps booking calls are often NOT in the GHL
+    directory. The roster must still list them (unmapped, needs-name-first) so they can be named;
+    naming one upserts a SalesRep and it stops being unmapped, while an unmapped rep left unnamed
+    makes no ghost row."""
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    tid, lid = await _fresh_launch()
+    async with SessionLocal() as s:
+        await s.execute(delete(SalesRep))
+        s.add(SalesRep(tenant_id=tid, email="dir@springb.com", display_name="Dir Member", is_active=True))
+        for opp, rep in (("o1", "jplove1978@gmail.com"), ("o2", "ikwillsey@gmail.com")):
+            s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=opp, booking_id="b" + opp,
+                            rep_email=rep, outcome=None, is_current=True, contact_name=opp,
+                            call_time_utc=dt.datetime(2026, 8, 21, tzinfo=U)))
+        await s.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        tok = (await c.post("/api/v1/auth/login",
+                            json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})).json()["token"]
+        H = {"Authorization": f"Bearer {tok}"}
+        g1 = (await c.get("/api/v1/businesses/springb/sales-desk/reps", headers=H)).json()
+        by = {r["email"]: r for r in g1}
+        assert by["jplove1978@gmail.com"]["unmapped"] is True and by["jplove1978@gmail.com"]["display_name"] is None
+        assert by["ikwillsey@gmail.com"]["unmapped"] is True
+        assert by["dir@springb.com"]["unmapped"] is False
+        assert [r["email"] for r in g1][:2] == sorted(["jplove1978@gmail.com", "ikwillsey@gmail.com"])  # needs-name first
+
+        body = {"reps": [
+            {"email": "jplove1978@gmail.com", "display_name": "J.P. Love", "is_active": True},
+            {"email": "ikwillsey@gmail.com", "display_name": "", "is_active": True},      # left unnamed
+            {"email": "dir@springb.com", "display_name": "Dir Member", "is_active": True},
+        ]}
+        r = await c.put("/api/v1/businesses/springb/sales-desk/reps", json=body, headers=H)
+        assert r.status_code == 200 and r.json()["updated"] == 1                          # only the named one changed
+
+        g2 = {x["email"]: x for x in (await c.get("/api/v1/businesses/springb/sales-desk/reps", headers=H)).json()}
+        assert g2["jplove1978@gmail.com"]["display_name"] == "J.P. Love" and g2["jplove1978@gmail.com"]["unmapped"] is False
+        assert g2["ikwillsey@gmail.com"]["unmapped"] is True                              # still surfaced, no ghost
+
+    async with SessionLocal() as s:
+        emails = {r.email for r in
+                  (await s.execute(select(SalesRep).where(SalesRep.tenant_id == tid))).scalars().all()}
+        assert "jplove1978@gmail.com" in emails and "ikwillsey@gmail.com" not in emails   # upsert vs no ghost
+
+
+async def test_roster_case_insensitive_collapse_blank_preserve_and_dup_safe():
+    """§11.7 hardening — a SalesCall rep_email differing only in CASE from a directory SalesRep
+    collapses to ONE roster row; a blank name never wipes an already-named rep; and the same email
+    repeated in one PUT body upserts once (no IntegrityError / no duplicate row)."""
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    tid, lid = await _fresh_launch()
+    async with SessionLocal() as s:
+        await s.execute(delete(SalesRep))
+        s.add(SalesRep(tenant_id=tid, email="Rep@X.com", display_name="Rep Case", is_active=True))
+        s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="o1", booking_id="b1",
+                        rep_email="rep@x.com", outcome=None, is_current=True, contact_name="o1",
+                        call_time_utc=dt.datetime(2026, 8, 21, tzinfo=U)))         # same rep, lowercased
+        await s.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        tok = (await c.post("/api/v1/auth/login",
+                            json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})).json()["token"]
+        H = {"Authorization": f"Bearer {tok}"}
+        g = (await c.get("/api/v1/businesses/springb/sales-desk/reps", headers=H)).json()
+        rep_rows = [r for r in g if (r["email"] or "").lower() == "rep@x.com"]
+        assert len(rep_rows) == 1                                    # case-variant collapses to one row
+        assert rep_rows[0]["unmapped"] is False and rep_rows[0]["on_calls"] is True
+
+        # a blank name against the already-named rep must NOT wipe it
+        r = await c.put("/api/v1/businesses/springb/sales-desk/reps",
+                        json={"reps": [{"email": "Rep@X.com", "display_name": "", "is_active": True}]}, headers=H)
+        assert r.status_code == 200 and r.json()["updated"] == 0     # blank == no change
+        g2 = {x["email"]: x for x in (await c.get("/api/v1/businesses/springb/sales-desk/reps", headers=H)).json()}
+        assert g2["Rep@X.com"]["display_name"] == "Rep Case"         # preserved
+
+        # the same email twice in one body upserts once, no 500
+        r3 = await c.put("/api/v1/businesses/springb/sales-desk/reps", json={"reps": [
+            {"email": "New@Rep.com", "display_name": "First"},
+            {"email": "new@rep.com", "display_name": "Second"}]}, headers=H)
+        assert r3.status_code == 200
+
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(SalesRep).where(SalesRep.tenant_id == tid))).scalars().all()
+        assert len([x for x in rows if (x.email or "").lower() == "new@rep.com"]) == 1   # one row, no dup
+
+
 async def test_seed_reps_from_users_upserts_display_names():
     tid, _ = await _fresh_launch()
     async with SessionLocal() as s:
