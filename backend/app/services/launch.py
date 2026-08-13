@@ -392,7 +392,7 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
     if g["uncategorized"]:
         warnings.append(f"{g['uncategorized']} stages unmapped")
     unknown_pt = sum(1 for o in opps if o.get("group") in ("committed", "enrolled")
-                     and o.get("payment_type") not in ("pif", "plan"))
+                     and o.get("payment_type") not in ("pif", "plan", "custom"))
     if unknown_pt:
         warnings.append(f"{unknown_pt} opps unknown payment type")
 

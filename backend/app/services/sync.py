@@ -695,7 +695,7 @@ async def snapshot_launch_opps(s: AsyncSession, tenant_id, biz, opps: list[dict]
     Read-only against GHL; classification is stage_map-driven (no stage literals here).
     Returns the number of launch-opp records written (0 when no active launch)."""
     from .launch import active_launch_for, classify_stage, classify_payment
-    from ..models import LaunchWeekly
+    from ..models import LaunchWeekly, SalesCall
 
     today = today or dt.date.today()
     launch = await active_launch_for(s, tenant_id, biz, today)
@@ -707,6 +707,15 @@ async def snapshot_launch_opps(s: AsyncSession, tenant_id, biz, opps: list[dict]
     stage_map = launch.stage_map or {}
     ppm = launch.payment_plan_map or {}
     grace = dt.timedelta(days=launch.won_grace_days or 0)
+
+    # The Sales Desk event log is the AUTHORITY on how a member pays (the rep sets Payment Type
+    # on the opp; sync_sales_calls records it). Prefer it over the legacy contact-field/tag/stage
+    # classifier so the drill + "unknown payment type" warning agree with the Desk's payment mix.
+    _sc_legacy = {"PIF": "pif", "Financed": "plan", "Monthly": "plan", "Custom": "custom"}
+    sc_pay = {c.opportunity_id: _sc_legacy.get(c.payment_type) for c in
+              (await s.execute(select(SalesCall).where(
+                  SalesCall.launch_id == launch.id, SalesCall.is_current.is_(True)))).scalars()
+              if c.payment_type}
 
     rows, wk_optins, wk_calls, wk_closes, enrolled_cum = [], 0, 0, 0, 0
     monday = today - dt.timedelta(days=today.weekday())
@@ -720,7 +729,8 @@ async def snapshot_launch_opps(s: AsyncSession, tenant_id, biz, opps: list[dict]
         financed = cid in financed_contacts
         pay = None
         if group in ("committed", "enrolled"):
-            pay = classify_payment(plan_by_contact.get(cid), financed, ppm, stage.lower())
+            pay = (sc_pay.get(str(o.get("id")))
+                   or classify_payment(plan_by_contact.get(cid), financed, ppm, stage.lower()))
         won = _parse_ghl_dt(o.get("lastStatusChangeAt"))
         if group == "enrolled" and won and not (launch.window_start <= won <= launch.window_end + grace):
             continue                       # won outside this cohort's window → not ours
@@ -903,12 +913,10 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
         fin = sum(1 for m in memberships if m["meta"]["payment"] == "monthly")
         print(f"[ghl_bc] {len(memberships)} memberships (value ${value:,.0f}, {fin} financed), "
               f"{len(onboarded)} onboarded, {len(recruiting)} recruiting", flush=True)
-        # Launch section (Section 7): snapshot the active cohort launch's pipeline opps.
-        n_records += await snapshot_launch_opps(
-            s, tenant_id, biz, opps, stage_name, pipeline_name, plan_by_contact,
-            financed_contacts, location_id=location_id)
         # Sales Desk (SPEC-becollective-salesdesk §6): diff the launch pipeline's opps into the
-        # append-only SalesCall event log. Isolated so a Desk failure never breaks the bc sync.
+        # append-only SalesCall event log. Runs BEFORE the launch snapshot so a Payment Type set
+        # today reaches the snapshot's payment classification in the SAME sync (no one-cycle lag).
+        # Isolated so a Desk failure never breaks the bc sync.
         try:
             from .sales_desk import sync_sales_calls
             warn = await sync_sales_calls(s, tenant_id, biz, token, location_id, opps, pipeline_name)
@@ -916,6 +924,10 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
         except Exception as e:  # noqa: BLE001 — never break the bc sync, but make the failure loud
             import traceback
             print(f"[ghl_bc] sales desk FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}", flush=True)
+        # Launch section (Section 7): snapshot the active cohort launch's pipeline opps.
+        n_records += await snapshot_launch_opps(
+            s, tenant_id, biz, opps, stage_name, pipeline_name, plan_by_contact,
+            financed_contacts, location_id=location_id)
     except Exception as e:  # noqa: BLE001 — opportunities scope optional
         print(f"[ghl_bc] opportunities/launch skipped: {e}", flush=True)
 

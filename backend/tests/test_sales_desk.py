@@ -198,6 +198,58 @@ async def _seed_desk_scenario():
     return tid, lid
 
 
+async def test_backfill_reparses_stored_call_times_that_never_resolved():
+    """Rows written before a parser improvement keep call_time_utc NULL (the diff only re-parses
+    on a CHANGED raw). The backfill pass heals them — including superseded rows."""
+    tid, lid = await _fresh_launch()
+    async with SessionLocal() as s:
+        s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="oZ", booking_id="bOld",
+                        rep_email="a@x.com", call_time_raw="Thursday, August 13, 2026 at 5:00 PM MST",
+                        call_time_utc=None, outcome="No Show", is_current=False))   # superseded
+        s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="oZ", booking_id="bNew",
+                        rep_email="a@x.com", call_time_raw="Friday, August 14, 2026 at 11:00 AM EDT",
+                        call_time_utc=None, outcome=None, is_current=True))
+        await s.commit()
+    async with SessionLocal() as s:
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        await sd.apply_sales_diff(s, tid, L, [], DENVER)               # no records — pure backfill
+    async with SessionLocal() as s:
+        rows = {r.booking_id: r for r in (await s.execute(
+            select(SalesCall).where(SalesCall.launch_id == lid))).scalars()}
+    assert rows["bOld"].call_time_utc is not None                      # 17:00 MST → 00:00 UTC
+    assert rows["bNew"].call_time_utc is not None and rows["bNew"].call_time_utc.hour == 15
+
+
+async def test_snapshot_prefers_salescall_payment_and_clears_unknown_warning():
+    """The Launch snapshot's payment classification (drill PAYMENT column + the 'unknown payment
+    type' banner) must prefer the Sales Desk event log — the rep's Payment Type on the opp —
+    over the legacy contact-field/tag/stage classifier."""
+    from app.services.sync import snapshot_launch_opps
+    from app.services.launch import compute_launch
+    tid, lid = await _fresh_launch()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="oAmy", booking_id="bAmy",
+                        rep_email="a@x.com", outcome="Showed", payment_type="PIF", is_current=True,
+                        call_time_utc=dt.datetime(2026, 8, 12, tzinfo=U)))
+        await s.commit()
+        # stage carries no payment keyword and the contact has no plan field/tag — the legacy
+        # classifier returns None; only the SalesCall PIF can classify this opp.
+        opp = {"id": "oAmy", "contactId": "c1", "status": "open",
+               "pipelineId": "P1", "pipelineStageId": "S1"}
+        n = await snapshot_launch_opps(
+            s, tid, biz.id, [opp], {"S1": "Payment Received - Contract Sent"},
+            {"P1": "be Collective Experience #1 Sales"}, {}, set(), today=dt.date(2026, 8, 13))
+        assert n == 1
+        rec = (await s.execute(select(MetricRecord).where(
+            MetricRecord.kind == "bc_launch_opp", MetricRecord.external_id == "oAmy"))).scalar_one()
+        assert (rec.meta or {}).get("group") == "committed"
+        assert (rec.meta or {}).get("payment_type") == "pif"           # from the event log
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        d = await compute_launch(s, tid, L, today=dt.date(2026, 8, 13))
+    assert not any("unknown payment type" in w for w in d["warnings"])  # the banner clears
+
+
 async def test_apply_sales_diff_isolates_a_bad_record():
     """Per-record savepoint: one malformed record rolls back only itself (counted in warn) —
     the good records in the same batch still land."""

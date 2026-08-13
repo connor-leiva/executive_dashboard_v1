@@ -178,6 +178,14 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
     for sc in (await s.execute(select(SalesCall).where(SalesCall.launch_id == launch.id))).scalars():
         existing[(sc.opportunity_id, sc.booking_id)] = sc
         by_opp.setdefault(sc.opportunity_id, []).append(sc)
+        # Backfill: the diff below only re-parses a call time when its RAW STRING changes, so a
+        # row stored before a parser improvement (e.g. zoned "… 8:30 AM EDT") would keep a NULL
+        # call_time_utc forever. Re-parse stored raws that never resolved — including superseded
+        # rows, which the per-record loop never revisits.
+        if sc.call_time_raw and sc.call_time_utc is None:
+            utc, ok = parse_call_time(sc.call_time_raw, tz)
+            if ok and utc:
+                sc.call_time_utc = utc
 
     async def _apply_one(r: dict) -> None:
         oid = str(r["opportunity_id"])
