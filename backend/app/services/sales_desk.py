@@ -12,6 +12,7 @@ DETAIL endpoint — the /opportunities/search list omits their values.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections import Counter
 from zoneinfo import ZoneInfo
 
@@ -48,6 +49,25 @@ _CALL_TIME_FMT = "%A, %B %d, %Y at %I:%M %p"
 def _clean(v) -> str | None:
     s = str(v).strip() if v is not None else ""
     return s or None
+
+
+def title_name(name: str | None) -> str | None:
+    """Standardize a lead name to Title Case for display: 'Dalila OROZCO' -> 'Dalila Orozco',
+    'nina watson' -> 'Nina Watson'. Leaves intentional intercaps ('McKinnon', 'JaRelle') and
+    short all-caps initials ('MJ', 'C.') alone, and capitalizes across hyphens/apostrophes
+    ('bayer-carney' -> 'Bayer-Carney', "o'brien" -> "O'Brien"). Presentation only — the stored
+    SalesCall.contact_name is untouched."""
+    if not name or not name.strip():
+        return name
+
+    def token(tok: str) -> str:
+        if any(c.islower() for c in tok) and any(c.isupper() for c in tok[1:]):
+            return tok                                        # McKinnon, DeShawn, JaRelle
+        if tok.replace(".", "").isupper() and len(tok.replace(".", "")) <= 2:
+            return tok                                        # initials: MJ, JP, C.
+        return re.sub(r"[A-Za-z]+", lambda m: m.group(0)[:1].upper() + m.group(0)[1:].lower(), tok)
+
+    return " ".join(token(t) for t in name.split(" "))
 
 
 def _utcnow() -> dt.datetime:
@@ -426,7 +446,7 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
 
     def call_row(c, uns=False):
         return dict(call_time_utc=(c.call_time_utc.isoformat() if c.call_time_utc else None),
-                    contact_name=c.contact_name, rep_email=c.rep_email, display_name=dname(c.rep_email),
+                    contact_name=title_name(c.contact_name), rep_email=c.rep_email, display_name=dname(c.rep_email),
                     outcome=c.outcome, unscheduled=uns, unmapped=unmapped(c.rep_email))
     board = sorted((c for c in calls if c.is_current and c.call_time_utc
                     and day_start <= _aw(c.call_time_utc) <= win_end), key=lambda c: _aw(c.call_time_utc))
@@ -438,7 +458,7 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     for c in (c for c in calls if c.outcome == OUT_NO_SHOW):
         ref = _aw(c.call_time_utc) or _aw(c.first_seen_at)
         ns_out.append(dict(
-            contact_name=c.contact_name, rep_email=c.rep_email, display_name=dname(c.rep_email),
+            contact_name=title_name(c.contact_name), rep_email=c.rep_email, display_name=dname(c.rep_email),
             days_since=max(0, (now - ref).days) if ref else 0,
             rebooked=any(o.booking_id != c.booking_id for o in calls_by_opp.get(c.opportunity_id, [])),
             opportunity_id=c.opportunity_id, unmapped=unmapped(c.rep_email)))

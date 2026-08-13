@@ -93,7 +93,11 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .rawmail { font-family:'Courier New',monospace; font-size:11px; color:${T.tertiary}; font-weight:500; }
         .sd-tfoot td { border-bottom:none; color:${T.tertiary}; font-size:11px; padding-top:10px; text-align:left; }
 
-        .sd-cols { display:grid; grid-template-columns:1.35fr 1fr; gap:14px; }
+        .sd-cols { display:grid; grid-template-columns:1.35fr 1fr; gap:14px; align-items:start; }
+        .sd-scroll { max-height:360px; overflow-y:auto; margin-right:-8px; padding-right:8px; }
+        .sd-scroll::-webkit-scrollbar { width:7px; }
+        .sd-scroll::-webkit-scrollbar-thumb { background:${alpha(T.tertiary, .35)}; border-radius:99px; }
+        .sd-scroll::-webkit-scrollbar-track { background:transparent; }
         .sd-lr { display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid ${alpha(T.line, .5)}; }
         .sd-lr:last-child { border-bottom:none; }
         .sd-lr-t { font-size:11px; color:${T.muted}; width:118px; flex:none; }
@@ -197,20 +201,22 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
             <div className="sd-cols">
               <div className="sd-card">
                 <div className="sd-head"><span className="sd-title">Call Board</span>
-                  <span className="sd-sub">next 48 hours{sel ? " · filtered" : ""}</span></div>
+                  <span className="sd-sub">next 48 hours{sel ? " · filtered" : ""}{calls.length ? ` · ${calls.length}` : ""}</span></div>
                 {calls.length === 0 && <div className="sd-empty">No calls for this rep in the window.</div>}
-                {calls.map((c, i) => {
-                  const f = fmtCall(c.call_time_utc, tz, now);
-                  return (
-                    <div className="sd-lr" key={i}>
-                      <span className="sd-lr-t">{c.unscheduled ? "Unscheduled" : `${f.day} · ${f.time}`}</span>
-                      <span className="sd-lr-who">{c.contact_name}
-                        <em className={c.unmapped ? "rawmail" : ""}>{c.display_name || c.rep_email || "Unassigned"}</em></span>
-                      <span className={`sd-oc ${!c.rep_email ? "flag" : c.outcome ? OUT_TONE[c.outcome] : "pend"}`}>
-                        {!c.rep_email ? "No rep" : c.outcome || "Pending"}</span>
-                    </div>
-                  );
-                })}
+                <div className="sd-scroll">
+                  {calls.map((c, i) => {
+                    const f = fmtCall(c.call_time_utc, tz, now);
+                    return (
+                      <div className="sd-lr" key={i}>
+                        <span className="sd-lr-t">{c.unscheduled ? "Unscheduled" : `${f.day} · ${f.time}`}</span>
+                        <span className="sd-lr-who">{c.contact_name}
+                          <em className={c.unmapped ? "rawmail" : ""}>{c.display_name || c.rep_email || "Unassigned"}</em></span>
+                        <span className={`sd-oc ${!c.rep_email ? "flag" : c.outcome ? OUT_TONE[c.outcome] : "pend"}`}>
+                          {!c.rep_email ? "No rep" : c.outcome || "Pending"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>

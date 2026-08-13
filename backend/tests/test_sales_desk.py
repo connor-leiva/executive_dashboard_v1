@@ -65,6 +65,20 @@ def test_parse_call_time_denver_to_utc():
     assert sd.parse_call_time("", DENVER) == (None, True)              # nothing to parse ≠ failure
 
 
+def test_title_name_standardizes_lead_names():
+    tn = sd.title_name
+    assert tn("Dalila OROZCO") == "Dalila Orozco"        # all-caps surname → Title Case
+    assert tn("nina watson") == "Nina Watson"            # all-lowercase → Title Case
+    assert tn("KATHLEEN HUEBNER") == "Kathleen Huebner"
+    assert tn("Karrie McKinnon") == "Karrie McKinnon"    # intentional intercap preserved
+    assert tn("JaRelle Bailey") == "JaRelle Bailey"
+    assert tn("Salle MJ Bayer-Carney") == "Salle MJ Bayer-Carney"   # initials + hyphen kept
+    assert tn("bayer-carney") == "Bayer-Carney"          # capitalize across a hyphen
+    assert tn("o'brien") == "O'Brien"                    # capitalize after an apostrophe
+    assert tn("Dori C Davenport") == "Dori C Davenport"  # single-letter middle initial
+    assert tn(None) is None and tn("") == ""             # empties pass through untouched
+
+
 def test_norm_outcome_from_config():
     assert sd.norm_outcome("Showed") == "Showed"
     assert sd.norm_outcome("no show") == "No Show"
