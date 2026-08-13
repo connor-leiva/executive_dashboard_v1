@@ -323,6 +323,7 @@ class LaunchConfigOut(BaseModel):
     mix_pif: float
     price_map: dict = {}             # §5 four-type pricing {type:{acv,upfront,monthly,months,provisional}}
     default_tz: str = "America/Denver"
+    stage_map: dict = {}             # group -> stage-name substrings (the funnel's source of truth)
     pipeline_match: str
     cohort_value: str | None = None
     pace_model: str

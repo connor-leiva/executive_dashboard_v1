@@ -356,7 +356,8 @@ async def test_sync_snapshot_from_ghl_opps():
     stage_name = {"s_lead": "Opt In - No Call Booked",
                   "s_book": "Scheduled Appointment - App Submitted",
                   "s_dec": "Appointment Complete - Needs Decision",
-                  "s_com": "Payment Sent: Financed",
+                  # Committed = cash received (2026-08-13 rule); "Payment Sent" now sits in Deciding.
+                  "s_com": "Payment Received - Contract Sent",
                   "s_enr": "Won: Onboarded", "s_ns": "Appointment No Show / Cancel"}
     plan_by_contact = {"cP": "pif", "cF": "monthly"}     # Payment Plan field values
     W = "2026-08-20"                                       # in this ISO week + in window

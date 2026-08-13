@@ -23,10 +23,10 @@ DEFAULT_STAGE_MAP = {
     "leads": ["opt in"],
     "booked": ["scheduled appointment", "appointment"],
     "booked_app": ["application", "app submitted", "app in"],   # sub-signal: booked + application in
-    "deciding": ["needs decision", "decision"],
-    # §9.2: Payment Received is COMMITTED (paid, contract sent) — not yet enrolled. The dead
-    # "Payment Sent" stages are kept but nothing writes them. Enrolled = Won: Onboarded only.
-    "committed": ["payment received", "custom payment", "payment sent"],
+    # A SENT payment link isn't cash — it can be abandoned. Payment Sent stays with the closers
+    # (Deciding, "on the table"); Committed is strictly cash-received-but-unsigned.
+    "deciding": ["needs decision", "decision", "payment sent"],
+    "committed": ["payment received", "custom payment"],
     "enrolled": ["won: onboarded", "onboarded"],
     "noshow": ["no show", "cancel"],
     "nurture": ["future cohort", "nurture"],
@@ -307,6 +307,7 @@ def config_out(launch: Launch) -> dict:
             "ticket_plan": _f(launch.ticket_plan), "plan_installments": launch.plan_installments,
             "mix_pif": _f(launch.mix_pif), "price_map": launch.price_map or {},
             "default_tz": getattr(launch, "default_tz", None) or "America/Denver",
+            "stage_map": launch.stage_map or DEFAULT_STAGE_MAP,
             "pipeline_match": launch.pipeline_match,
             "cohort_value": launch.cohort_value, "pace_model": launch.pace_model,
             "pace_tolerance": _f(launch.pace_tolerance),
@@ -360,9 +361,12 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
     deciding = {"count": g["deciding"], "arr": g["deciding"] * blended}
     # §9.5 — the goal is DERIVED (seat_goal × blended ≈ $1.3M at 100 seats), never a hardcoded "$1M".
     derived_goal_arr = round((launch.seat_goal or seat_target) * blended)
-    enr_counts = grp_counts.get("enrolled") if price_map else None
-    if enr_counts:                                     # §9.4 — cash = sum(upfront × count)
-        cash = {"collected": round(sum(((price_map.get(t) or {}).get("upfront") or 0) * enr_counts.get(t, 0)
+    # §9.4 — cash = sum(upfront × count) over EVERYONE who has paid: Committed (cash received,
+    # contract unsigned) + Enrolled. Committed IS paid by definition, so cash must include it.
+    paid_counts = Counter(grp_counts.get("enrolled") or {}) + Counter(grp_counts.get("committed") or {}) \
+        if price_map else Counter()
+    if paid_counts:
+        cash = {"collected": round(sum(((price_map.get(t) or {}).get("upfront") or 0) * paid_counts.get(t, 0)
                                        for t in PAYMENT_TYPES)), "source": "upfront"}
     else:
         cash = await collected_cash(s, tenant_id, launch, enr_split)

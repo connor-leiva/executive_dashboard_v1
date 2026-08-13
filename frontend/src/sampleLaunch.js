@@ -20,6 +20,14 @@ const sampleLaunch = {
     goal_basis: "seats", seat_goal: 100,
     shift_name: "The Shift", shift_event_date: "2026-08-11", shift_goal: 2000,
     shift_reg_tag: "the shift", shift_actual: 175, shift_pace_curve: CURVE, shift_pace_tolerance: 0.08,
+    stage_map: {                                   // mirrors the server default (Committed = paid)
+      leads: ["opt in"], booked: ["scheduled appointment", "appointment"],
+      booked_app: ["application", "app submitted", "app in"],
+      deciding: ["needs decision", "decision", "payment sent"],
+      committed: ["payment received", "custom payment"], enrolled: ["won: onboarded", "onboarded"],
+      noshow: ["no show", "cancel"], nurture: ["future cohort", "nurture"],
+      lost: ["lost", "dq", "abandon"],
+    },
   },
   goal_basis: "seats",
   shift: {

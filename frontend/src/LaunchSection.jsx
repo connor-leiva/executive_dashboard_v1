@@ -425,12 +425,18 @@ function Field({ label, children, hint }) {
   );
 }
 
-const STAGE_ROWS = [
-  ["Leads", "marketing", "opt in"],
-  ["Booked", "setters", "scheduled appointment"],
-  ["Deciding", "closers", "needs decision"],
-  ["Committed", "payment ops", "payment sent"],
-  ["Enrolled", "won", "payment received · won: onboarded"],
+/* The editable stage-grouping rows: [stage_map key, label, owner, hint]. Matching is
+   case-insensitive substring against the GHL stage name; comma-separate multiple. */
+const STAGE_GROUPS = [
+  ["leads", "Leads", "marketing", "opted in, no call yet"],
+  ["booked", "Booked", "setters", "call scheduled"],
+  ["booked_app", "— app in", "sub-signal", "still Booked; counts toward “apps in”"],
+  ["deciding", "Deciding", "closers", "call held or payment link out — on the table"],
+  ["committed", "Committed", "payment ops", "cash received, agreement not signed"],
+  ["enrolled", "Enrolled", "won", "signed + onboarded — the only “won”"],
+  ["noshow", "No-show / cancel", "outside funnel", "feeds awaiting-rebook"],
+  ["nurture", "Warm reserve", "outside funnel", "future-cohort nurture"],
+  ["lost", "Lost", "outside funnel", "DQ / abandon"],
 ];
 
 function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSaved }) {
@@ -449,6 +455,10 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
   const set = (patch) => setF((c) => ({ ...c, ...patch }));
+  // Stage grouping — edited as comma-separated substrings, stored as arrays on stage_map.
+  const [sm, setSm] = useState(() => Object.fromEntries(
+    STAGE_GROUPS.map(([k]) => [k, ((cfg.stage_map || {})[k] || []).join(", ")])));
+  const setSmKey = (k, v) => setSm((c) => ({ ...c, [k]: v }));
 
   const mixPif = f.mix_pct / 100;
   const blended = mixPif * f.ticket_pif + (1 - mixPif) * f.ticket_plan;
@@ -469,6 +479,8 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
         shift_name: f.shift_name || null, shift_event_date: f.shift_event_date || null,
         shift_goal: +f.shift_goal || null, shift_reg_tag: f.shift_reg_tag || null,
         shift_actual: f.shift_actual === "" ? null : +f.shift_actual,
+        stage_map: { ...(cfg.stage_map || {}), ...Object.fromEntries(STAGE_GROUPS.map(([k]) =>
+          [k, sm[k].split(",").map((x) => x.trim().toLowerCase()).filter(Boolean)])) },
       });
       onSaved && onSaved();
       onClose();
@@ -586,16 +598,19 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
           <input className="in" value={f.cohort_value} onChange={(e) => set({ cohort_value: e.target.value })} />
         </Field>
 
-        <div className="dr-sec">Stage grouping <em className="ro">source of truth: stage_map</em></div>
+        <div className="dr-sec">Stage grouping <em className="ro">substring match, case-insensitive · comma-separate</em></div>
         <div className="map">
-          {STAGE_ROWS.map(([g, owner, match]) => (
-            <div key={g} className="map-row">
-              <span className="map-g">{g}<em>{owner}</em></span>
-              <span className="map-m">{match}</span>
+          {STAGE_GROUPS.map(([k, label, owner, hint]) => (
+            <div key={k} className="map-row">
+              <span className="map-g" title={hint}>{label}<em>{owner}</em></span>
+              <input className="in map-in" value={sm[k]} placeholder="no stages map here"
+                onChange={(e) => setSmKey(k, e.target.value)} />
             </div>
           ))}
         </div>
-        <div className="map-note">No-show, nurture, and lost stages sit outside the funnel by design.</div>
+        <div className="map-note">A GHL stage joins a group when its name contains any listed phrase.
+          Committed = cash received (unsigned) · Enrolled = signed + onboarded. No-show, nurture, and
+          lost sit outside the funnel by design.</div>
 
         {err && <div className="dr-err">{err}</div>}
         <div className="dr-actions">
@@ -610,8 +625,9 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
   );
 }
 
-/* ── drill drawer: shows what's behind a clicked number (records or calc) ── */
-function DrillRecords({ d }) {
+/* ── drill drawer: shows what's behind a clicked number (records or calc) ──
+   Exported: the Sales Desk drawer renders the same two payload shapes. */
+export function DrillRecords({ d }) {
   const cols = d.columns || [];
   return (
     <>
@@ -641,7 +657,7 @@ function DrillRecords({ d }) {
   );
 }
 
-function DrillCalc({ d }) {
+export function DrillCalc({ d }) {
   return (
     <>
       <div className="drx-val">{d.value}</div>
@@ -980,7 +996,8 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .map-row:last-child { border-bottom:none; }
         .bcl .map-g { font-size:12px; font-weight:600; color:${T.secondary}; } .bcl .map-g em { font-style:normal; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:${T.muted}; margin-left:8px; }
         .bcl .map-m { font-size:11px; color:${T.muted}; }
-        .bcl .map-note { font-size:10.5px; color:${T.muted}; margin-top:8px; }
+        .bcl .map-in { width:58%; flex:none; font-size:11.5px; padding:5px 9px; }
+        .bcl .map-note { font-size:10.5px; color:${T.muted}; margin-top:8px; line-height:1.5; }
         .bcl .dr-err { font-size:11.5px; color:${T.poppyText}; margin-top:12px; }
         .bcl .dr-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
         .bcl .btn { font-family:inherit; font-size:12px; font-weight:600; border-radius:8px; padding:8px 14px; cursor:pointer; border:1px solid transparent; }
