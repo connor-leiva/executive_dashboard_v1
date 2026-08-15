@@ -6,6 +6,7 @@ import CommandCenter from "./CommandCenter.jsx";
 import Settings from "./Settings.jsx";
 import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
 import ShareScorecard from "./ulrg/ShareScorecard.jsx";
+import ShareDesk from "./ShareDesk.jsx";
 import { SpringSignature } from "./Brand.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -102,6 +103,7 @@ export function App() {
         <Route path="/accept-invite" element={<AcceptInvite onDone={() => setAuthed(true)} />} />
         <Route path="/reset-password" element={<ResetPassword onDone={() => setAuthed(true)} />} />
         <Route path="/share/:token" element={<ShareScorecard />} />       {/* public embed — no login */}
+        <Route path="/desk/:token" element={<ShareDesk />} />             {/* rep's own Sales Desk — no login */}
         {needsLogin ? (
           <Route path="*" element={<Login onLogin={() => setAuthed(true)} />} />
         ) : (

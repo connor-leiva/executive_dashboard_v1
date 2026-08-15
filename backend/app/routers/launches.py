@@ -9,9 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import secrets
+
+from ..config import settings
 from ..db import get_session
 from ..deps import current_user, require_role, assert_tab
-from ..models import User, Business, Launch, SalesCall, SalesRep
+from ..models import User, Business, Launch, SalesCall, SalesRep, ShareLink
 from ..schemas import LaunchResponse, LaunchUpsert
 from ..services.audit import audit
 from ..services.launch import (
@@ -183,6 +186,59 @@ async def update_sales_reps(key: str, body: dict, user: User = Depends(require_r
               {"emails": sorted(changed)[:50]})
     await s.commit()
     return {"updated": len(changed)}
+
+
+def _desk_share_url(token: str) -> str:
+    return f"{settings.APP_PUBLIC_URL.rstrip('/')}/desk/{token}"
+
+
+@router.get("/businesses/{key}/sales-desk/reps/share")
+async def list_rep_shares(key: str, user: User = Depends(require_role("owner", "admin")),
+                          s: AsyncSession = Depends(get_session)):
+    """Live per-rep share links (email → url), owner/admin. Feeds the manage-reps drawer."""
+    await _biz(s, user.tenant_id, key)
+    rows = (await s.execute(select(ShareLink).where(
+        ShareLink.tenant_id == user.tenant_id, ShareLink.scope == "sd_rep",
+        ShareLink.revoked_at.is_(None)))).scalars().all()
+    return {(l.scope_ref or "").lower(): _desk_share_url(l.token) for l in rows if l.scope_ref}
+
+
+@router.post("/businesses/{key}/sales-desk/reps/share", status_code=201)
+async def create_rep_share(key: str, body: dict, user: User = Depends(require_role("owner", "admin")),
+                           s: AsyncSession = Depends(get_session)):
+    """Mint (or return the live) personal share link for one rep — their own numbers only.
+    Owner/admin, audited. Body: {email}."""
+    await _biz(s, user.tenant_id, key)
+    email = (body.get("email") or "").strip()
+    if not email:
+        raise HTTPException(400, "email required")
+    live = (await s.execute(select(ShareLink).where(
+        ShareLink.tenant_id == user.tenant_id, ShareLink.scope == "sd_rep",
+        ShareLink.scope_ref == email.lower(), ShareLink.revoked_at.is_(None)))).scalars().first()
+    if live:
+        return {"email": email, "url": _desk_share_url(live.token), "existing": True}
+    link = ShareLink(tenant_id=user.tenant_id, scope="sd_rep", scope_ref=email.lower(),
+                     token=secrets.token_urlsafe(24), created_by=user.id)
+    s.add(link)
+    audit(s, user.tenant_id, user.id, "sales_rep.share_created", "share_link", None, {"email": email})
+    await s.commit()
+    return {"email": email, "url": _desk_share_url(link.token), "existing": False}
+
+
+@router.delete("/businesses/{key}/sales-desk/reps/share", status_code=204)
+async def revoke_rep_share(key: str, email: str, user: User = Depends(require_role("owner", "admin")),
+                           s: AsyncSession = Depends(get_session)):
+    """Revoke a rep's share link — the URL then 404s everywhere. Owner/admin, audited."""
+    import datetime as _dt
+    await _biz(s, user.tenant_id, key)
+    rows = (await s.execute(select(ShareLink).where(
+        ShareLink.tenant_id == user.tenant_id, ShareLink.scope == "sd_rep",
+        ShareLink.scope_ref == email.strip().lower(), ShareLink.revoked_at.is_(None)))).scalars().all()
+    for l in rows:
+        l.revoked_at = _dt.datetime.now(_dt.timezone.utc)
+    if rows:
+        audit(s, user.tenant_id, user.id, "sales_rep.share_revoked", "share_link", None, {"email": email})
+    await s.commit()
 
 
 @router.get("/businesses/{key}/launches/active/drill/{metric}")

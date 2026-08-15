@@ -7,16 +7,17 @@ const sampleSalesDesk = {
   as_of: _iso(20, 18, 0),
   default_tz: "America/Denver",
   totals: {
-    booked: 59, held: 13, no_show: 6, cancelled: 2, rescheduled: 4, upcoming: 34, pending: 4,
-    deciding: 5, won: 20, show_rate: 61.9, close_rate: 66.7, blended: 13000,
+    booked: 59, held: 13, no_show: 6, cancelled: 2, upcoming: 34, pending: 4,
+    deciding: 5, likely_yes: 2, likely_no: 1, link_sent: 2, paid: 3, won: 20,
+    show_rate: 61.9, close_rate: 66.7, blended: 13000,
     blended_provisional: false, on_the_table: 65000,
   },
   reps: [
-    { rep_email: "aimee@purposeledperformance.com", display_name: "Aimee Stephens", booked: 19, held: 13, noshow: 3, cancelled: 1, resched: 2, upcoming: 2, inplay: 5, won: 8, show_rate: 76.5, close_rate: 61.5, unmapped: false, unassigned: false },
-    { rep_email: "brianna@springb.com", display_name: "Brianna Wood", booked: 16, held: 10, noshow: 3, cancelled: 1, resched: 1, upcoming: 2, inplay: 4, won: 6, show_rate: 71.4, close_rate: 60.0, unmapped: false, unassigned: false },
-    { rep_email: "michele@authenticitysells.ai", display_name: "Michele Torres", booked: 13, held: 8, noshow: 2, cancelled: 1, resched: 0, upcoming: 2, inplay: 4, won: 4, show_rate: 72.7, close_rate: 50.0, unmapped: false, unassigned: false },
-    { rep_email: "allison@empirepartners.io", display_name: null, booked: 9, held: 5, noshow: 2, cancelled: 0, resched: 1, upcoming: 1, inplay: 3, won: 2, show_rate: 71.4, close_rate: 40.0, unmapped: true, unassigned: false },
-    { rep_email: null, display_name: null, booked: 2, held: 0, noshow: 1, cancelled: 0, resched: 0, upcoming: 1, inplay: 0, won: 0, show_rate: null, close_rate: null, unmapped: false, unassigned: true },
+    { rep_email: "aimee@purposeledperformance.com", display_name: "Aimee Stephens", booked: 19, held: 13, noshow: 3, cancelled: 1, upcoming: 2, likely_yes: 1, likely_no: 0, link_sent: 1, paid: 2, won: 8, show_rate: 76.5, close_rate: 61.5, unmapped: false, unassigned: false },
+    { rep_email: "brianna@springb.com", display_name: "Brianna Wood", booked: 16, held: 10, noshow: 3, cancelled: 1, upcoming: 2, likely_yes: 1, likely_no: 1, link_sent: 0, paid: 1, won: 6, show_rate: 71.4, close_rate: 60.0, unmapped: false, unassigned: false },
+    { rep_email: "michele@authenticitysells.ai", display_name: "Michele Torres", booked: 13, held: 8, noshow: 2, cancelled: 1, upcoming: 2, likely_yes: 0, likely_no: 0, link_sent: 1, paid: 0, won: 4, show_rate: 72.7, close_rate: 50.0, unmapped: false, unassigned: false },
+    { rep_email: "allison@empirepartners.io", display_name: null, booked: 9, held: 5, noshow: 2, cancelled: 0, upcoming: 1, likely_yes: 0, likely_no: 0, link_sent: 0, paid: 0, won: 2, show_rate: 71.4, close_rate: 40.0, unmapped: true, unassigned: false },
+    { rep_email: null, display_name: null, booked: 2, held: 0, noshow: 1, cancelled: 0, upcoming: 1, likely_yes: 0, likely_no: 0, link_sent: 0, paid: 0, won: 0, show_rate: null, close_rate: null, unmapped: false, unassigned: true },
   ],
   calls: [
     { call_time_utc: _iso(20, 16, 0), contact_name: "R. Delgado", rep_email: "aimee@purposeledperformance.com", display_name: "Aimee Stephens", outcome: "Showed", unscheduled: false, unmapped: false },
@@ -40,9 +41,9 @@ const sampleSalesDesk = {
   upfront_total: 143600,
   priced_arr: 250800,
   warnings: [
-    { n: 2, label: "bookings with no rep", hint: "host unassigned in the portal — attribution blank" },
-    { n: 1, label: "rep not in the roster", hint: "allison@empirepartners.io — add a display name in settings" },
-    { n: 1, label: "won with no payment type", hint: "Custom Payment has no 5.x workflow — unpriced in ARR" },
+    { n: 2, label: "bookings with no rep", key: "dh.no_rep", hint: "host unassigned in the portal — attribution blank" },
+    { n: 1, label: "rep not in the roster", key: "dh.unmapped", hint: "allison@empirepartners.io — add a display name in settings" },
+    { n: 1, label: "won with no payment type", key: "dh.won_no_pay", hint: "Custom Payment has no 5.x workflow — unpriced in ARR" },
   ],
 };
 

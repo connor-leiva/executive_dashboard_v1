@@ -22,15 +22,21 @@ GROUPS = ("leads", "booked", "deciding", "committed", "enrolled",
 DEFAULT_STAGE_MAP = {
     "leads": ["opt in"],
     "booked": ["scheduled appointment", "appointment"],
-    "booked_app": ["application", "app submitted", "app in"],   # sub-signal: booked + application in
-    # A SENT payment link isn't cash — it can be abandoned. Payment Sent stays with the closers
-    # (Deciding, "on the table"); Committed is strictly cash-received-but-unsigned.
-    "deciding": ["needs decision", "decision", "payment sent"],
+    "booked_app": [],                       # apps-in sub-signal retired 2026-08-14 (No App vs App
+                                            # Submitted combined) — phrases here re-enable the tag
+    # Post-call the opp sits in an "Appointment Complete - …" disposition until cash lands.
+    # A SENT payment link isn't cash; Committed is strictly cash-received-but-unsigned.
+    "deciding": ["appointment complete", "needs decision", "decision"],
     "committed": ["payment received", "custom payment"],
     "enrolled": ["won: onboarded", "onboarded"],
     "noshow": ["no show", "cancel"],
     "nurture": ["future cohort", "nurture"],
     "lost": ["lost", "dq", "abandon"],
+    # Sales Desk disposition columns (§8 rework) — sub-signals WITHIN deciding/committed; the
+    # funnel ignores them, the rep leaderboard buckets by them.
+    "likely_yes": ["likely yes"],
+    "likely_no": ["likely no"],
+    "link_sent": ["payment link", "link sent"],
 }
 DEFAULT_PAYMENT_PLAN_MAP = {"pif": ["paid in full", "pif"],
                             "plan": ["payment plan", "financed", "monthly", "plan"]}
@@ -387,7 +393,8 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
         elif key == "deciding":
             cnt, tag = g["deciding"], (f"{_kmoney(deciding['arr'])} on the table" if g["deciding"] else None)
         elif key == "booked":
-            cnt, tag = g["booked"], (f"{booked_app} of {g['booked']} apps in" if g["booked"] else None)
+            # apps-in tag only when the booked_app sub-signal is configured (retired by default)
+            cnt, tag = g["booked"], (f"{booked_app} of {g['booked']} apps in" if booked_app else None)
         else:
             cnt, tag = g["leads"], None
         return {"key": key, "label": label, "owner": owner, "count": cnt, "tag": tag}

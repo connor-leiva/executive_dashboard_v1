@@ -4,7 +4,7 @@
    pre-computed server-side from the SalesCall event log; this component only renders it. */
 import { createContext, useContext, useEffect, useState } from "react";
 import { T, alpha } from "./theme.js";
-import { getJSON, putJSON } from "./api";
+import { getJSON, putJSON, postJSON, delJSON } from "./api";
 import { DrillRecords, DrillCalc } from "./LaunchSection.jsx";
 
 const kM = (n) => {
@@ -259,8 +259,9 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
               <div className="sd-tblwrap">
                 <table className="sd-tbl">
                   <thead><tr>
-                    <th>Rep</th><th>Booked</th><th>Held</th><th>No-show</th><th>Canc</th><th>Resch</th>
-                    <th>Show %</th><th>In play</th><th>Won</th><th>Close %</th>
+                    <th>Rep</th><th>Booked</th><th>Held</th><th>No-show</th><th>Canc</th>
+                    <th>Show %</th><th>Likely Yes</th><th>Likely No</th><th>Link Sent</th>
+                    <th>Paid</th><th>Won</th><th>Close %</th>
                   </tr></thead>
                   <tbody>
                     {data.reps.map((r) => {
@@ -273,9 +274,11 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                           <td><N m="kpi.held" rep={k}>{r.held}</N></td>
                           <td><N m="kpi.no_show" rep={k}>{r.noshow}</N></td>
                           <td><N m="kpi.cancelled" rep={k}>{r.cancelled}</N></td>
-                          <td><N m="kpi.rescheduled" rep={k}>{r.resched}</N></td>
                           <td>{r.show_rate == null ? "-" : <N m="kpi.show_rate" rep={k}><span className={`rate ${r.show_rate >= 70 ? "good" : "warn"}`}>{Math.round(r.show_rate)}%</span></N>}</td>
-                          <td><N m="kpi.in_play" rep={k}>{r.inplay}</N></td>
+                          <td><N m="kpi.likely_yes" rep={k}>{r.likely_yes}</N></td>
+                          <td><N m="kpi.likely_no" rep={k}>{r.likely_no}</N></td>
+                          <td><N m="kpi.link_sent" rep={k}>{r.link_sent}</N></td>
+                          <td><N m="kpi.paid" rep={k}>{r.paid}</N></td>
                           <td><N m="kpi.won" rep={k}><span className="em">{r.won}</span></N></td>
                           <td>{r.close_rate == null ? "-" : <N m="kpi.close_rate" rep={k}><span className={`rate ${r.close_rate >= 50 ? "good" : ""}`}>{Math.round(r.close_rate)}%</span></N>}</td>
                         </tr>
@@ -390,14 +393,33 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
 function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
   const [rows, setRows] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [shares, setShares] = useState({});      // rep email (lower) -> personal share URL
+  const [copied, setCopied] = useState(null);
   useEffect(() => {
     if (usingSample) { setRows([]); return; }
     let alive = true;
     getJSON(`/businesses/${businessKey}/sales-desk/reps`)
       .then((d) => { if (alive) setRows(d); })
       .catch(() => { if (alive) setRows([]); });
+    getJSON(`/businesses/${businessKey}/sales-desk/reps/share`)
+      .then((d) => { if (alive) setShares(d || {}); })
+      .catch(() => {});                           // non-owner or offline — just no share column
     return () => { alive = false; };
   }, [businessKey, usingSample]);
+
+  const copy = async (email, url) => {
+    try { await navigator.clipboard.writeText(url); setCopied(email); setTimeout(() => setCopied(null), 1500); }
+    catch (e) { window.prompt("Copy the link:", url); }
+  };
+  const makeLink = async (email) => {
+    const r = await postJSON(`/businesses/${businessKey}/sales-desk/reps/share`, { email });
+    setShares((c) => ({ ...c, [email.toLowerCase()]: r.url }));
+    copy(email, r.url);
+  };
+  const revoke = async (email) => {
+    await delJSON(`/businesses/${businessKey}/sales-desk/reps/share?email=${encodeURIComponent(email)}`);
+    setShares((c) => { const n = { ...c }; delete n[email.toLowerCase()]; return n; });
+  };
 
   const patch = (i, k, v) => setRows((r) => r.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
   // "still needs a name" clears live as you type, so the banner/chip/border reflect the draft.
@@ -419,9 +441,12 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
           width:100%; max-width:520px; max-height:80vh; overflow:auto; box-shadow:0 24px 60px ${alpha(T.evergreen, .18)}; }
         .sd-needs { font-size:11.5px; color:${T.amber}; background:${T.amberBg};
           border:1px solid ${alpha(T.amber, .28)}; border-radius:9px; padding:8px 11px; margin-bottom:10px; line-height:1.45; }
-        .sd-rrow { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
-        .sd-rrow:last-of-type { border-bottom:none; }
-        .sd-rrow.needs .sd-input { border-color:${alpha(T.amber, .55)}; }
+        .sd-rrow { display:flex; align-items:center; gap:10px; padding:8px 0 2px; }
+        .sd-rrow2 { border-bottom:1px solid ${alpha(T.line, .5)}; padding-bottom:6px; }
+        .sd-rrow2:last-of-type { border-bottom:none; }
+        .sd-rrow2.needs .sd-input { border-color:${alpha(T.amber, .55)}; }
+        .sd-sharerow { font-size:10.5px; color:${T.muted}; padding-left:2px; }
+        .sd-sharerow .sd-clear.warn { color:${T.amber}; }
         .sd-rmail { flex:1; min-width:0; display:flex; align-items:center; gap:7px; overflow:hidden; }
         .sd-rmail .rawmail { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .sd-input { font:inherit; font-size:12.5px; color:${T.ink}; border:1px solid ${T.line}; border-radius:8px;
@@ -452,20 +477,34 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
         {rows && rows.length === 0 && (
           <div className="sd-empty">{usingSample ? "Editing is disabled in sample mode." : "No reps yet — they appear once bookings sync."}</div>
         )}
-        {(rows || []).map((r, i) => (
-          <div className={`sd-rrow${stillNeeds(r) ? " needs" : ""}`} key={r.email}>
-            <span className="sd-rmail">
-              <span className="rawmail">{r.email}</span>
-              {stillNeeds(r) && <span className="flagchip">on calls · unnamed</span>}
-            </span>
-            <input className="sd-input" value={r.display_name || ""} placeholder={r.unmapped ? "Add a name" : r.email}
-              onChange={(e) => patch(i, "display_name", e.target.value)} />
-            {/* 'active' has no roster row to persist to until the rep is named, so it's disabled there. */}
-            <label className={`sd-active${stillNeeds(r) ? " off" : ""}`}>
-              <input type="checkbox" checked={r.is_active !== false} disabled={stillNeeds(r)}
-                onChange={(e) => patch(i, "is_active", e.target.checked)} /> active</label>
+        {(rows || []).map((r, i) => {
+          const url = shares[(r.email || "").toLowerCase()];
+          return (
+          <div className={`sd-rrow2${stillNeeds(r) ? " needs" : ""}`} key={r.email}>
+            <div className="sd-rrow">
+              <span className="sd-rmail">
+                <span className="rawmail">{r.email}</span>
+                {stillNeeds(r) && <span className="flagchip">on calls · unnamed</span>}
+              </span>
+              <input className="sd-input" value={r.display_name || ""} placeholder={r.unmapped ? "Add a name" : r.email}
+                onChange={(e) => patch(i, "display_name", e.target.value)} />
+              {/* 'active' has no roster row to persist to until the rep is named, so it's disabled there. */}
+              <label className={`sd-active${stillNeeds(r) ? " off" : ""}`}>
+                <input type="checkbox" checked={r.is_active !== false} disabled={stillNeeds(r)}
+                  onChange={(e) => patch(i, "is_active", e.target.checked)} /> active</label>
+            </div>
+            <div className="sd-sharerow">
+              {url ? (
+                <>personal link · <button className="sd-clear" onClick={() => copy(r.email, url)}>
+                  {copied === r.email ? "copied ✓" : "copy"}</button> · {" "}
+                <button className="sd-clear warn" onClick={() => revoke(r.email)}>revoke</button></>
+              ) : (
+                <button className="sd-clear" onClick={() => makeLink(r.email)}>create personal link</button>
+              )}
+            </div>
           </div>
-        ))}
+          );
+        })}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
           <button className="sd-btn ghost" onClick={onClose}>Cancel</button>
           <button className="sd-btn" disabled={saving || usingSample || !rows || rows.length === 0} onClick={save}>

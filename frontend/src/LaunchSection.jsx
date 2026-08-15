@@ -441,6 +441,9 @@ const STAGE_GROUPS = [
   ["noshow", "No-show / cancel", "outside funnel", "feeds awaiting-rebook"],
   ["nurture", "Warm reserve", "outside funnel", "future-cohort nurture"],
   ["lost", "Lost", "outside funnel", "DQ / abandon"],
+  ["likely_yes", "— Likely Yes", "desk column", "deciding sub-signal for the rep leaderboard"],
+  ["likely_no", "— Likely No", "desk column", "deciding sub-signal for the rep leaderboard"],
+  ["link_sent", "— Link Sent", "desk column", "deciding sub-signal for the rep leaderboard"],
 ];
 
 function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSaved }) {

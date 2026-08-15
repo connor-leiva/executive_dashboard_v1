@@ -190,10 +190,11 @@ async def _seed_desk_scenario():
             SC("o3", "b3", "z@x.com", None, dt.datetime(2026, 8, 21, 10, tzinfo=U)),   # unmapped rep, upcoming
             SC("o4", None, None, None, None),                                          # Unassigned, unscheduled
         ])
-        for opp, grp in (("o1", "enrolled"), ("o5", "deciding")):
+        for opp, grp, stage in (("o1", "enrolled", "Won: Onboarded"),
+                                ("o5", "deciding", "Appointment Complete - Likely Yes")):
             s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="bc_launch_opp",
                                external_id=opp, name=opp, status="open",
-                               meta={"launch_id": str(lid), "group": grp}))
+                               meta={"launch_id": str(lid), "group": grp, "stage": stage}))
         await s.commit()
     return tid, lid
 
@@ -281,7 +282,8 @@ async def test_compute_math_and_payload_shape():
     assert reps["a@x.com"]["won"] == 1 and reps["a@x.com"]["show_rate"] == 50.0
     assert reps["a@x.com"]["display_name"] == "Rep A" and reps["a@x.com"]["unmapped"] is False
     assert reps["z@x.com"]["unmapped"] is True and reps["z@x.com"]["upcoming"] == 1
-    assert reps[None]["unassigned"] is True and reps[None]["inplay"] == 1
+    assert reps[None]["unassigned"] is True and reps[None]["likely_yes"] == 1   # o5's disposition
+    assert t["likely_yes"] == 1 and t["likely_no"] == 0 and t["link_sent"] == 0 and t["paid"] == 0
 
     mix = {m["type"]: m for m in d["payment_mix"]}
     assert mix["PIF"]["count"] == 1 and mix["Custom"]["acv"] is None and mix["Monthly"]["provisional"] is True
@@ -376,14 +378,17 @@ async def test_show_rate_is_null_not_zero_on_empty_denominator():
 
 
 def test_classify_stage_committed_means_paid():
-    """Connor's rule (2026-08-13): a SENT payment link isn't cash — Deciding. Committed is
-    strictly cash-received-unsigned; Enrolled is signed+onboarded only."""
+    """Connor's rules: Committed is strictly cash-received-unsigned; Enrolled is signed+onboarded
+    only; the 2026-08-14 pipeline's post-call dispositions all sit in Deciding (a sent payment
+    link isn't cash); the apps-in sub-signal is retired."""
     from app.services.launch import classify_stage, DEFAULT_STAGE_MAP as M
-    assert classify_stage("Payment Sent: PIF", M)[0] == "deciding"
-    assert classify_stage("Payment Sent: Financed", M)[0] == "deciding"
+    assert classify_stage("Appointment Complete - Likely Yes", M)[0] == "deciding"
+    assert classify_stage("Appointment Complete - Likely No", M)[0] == "deciding"
+    assert classify_stage("Appointment Complete - Payment Link Sent", M)[0] == "deciding"
     assert classify_stage("Payment Received - Contract Sent", M)[0] == "committed"
     assert classify_stage("Won: Onboarded", M)[0] == "enrolled"
-    assert classify_stage("Scheduled Appointment - App Submitted", M) == ("booked", True)
+    assert classify_stage("Scheduled Appointment - App Submitted", M) == ("booked", False)  # apps-in retired
+    assert classify_stage("Scheduled Appointment - No App", M) == ("booked", False)
     assert classify_stage("Appointment No Show / Cancel", M)[0] == "noshow"
     assert classify_stage("Future Cohort - Nuture", M)[0] == "nurture"      # their spelling
     assert classify_stage("Lost: DQ / Abandon", M)[0] == "lost"
@@ -441,6 +446,86 @@ async def test_drill_sales_desk_metrics():
         async with SessionLocal() as s:
             L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
             await sd.drill_sales_desk(s, tid, L, "nope", now=NOW)        # unknown metric → 404
+
+
+async def test_leaderboard_dispositions_paid_and_deactivated():
+    """§8 rework — deciding opps bucket into Likely Yes / Likely No / Link Sent by stage,
+    committed = Paid; a deactivated rep leaves the leaderboard (calls still in totals) and
+    Data Health says so."""
+    tid, lid = await _fresh_launch()
+    NOW = dt.datetime(2026, 8, 20, 12, tzinfo=U)
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(SalesRep))
+        s.add(SalesRep(tenant_id=tid, email="a@x.com", display_name="Rep A", is_active=True))
+        s.add(SalesRep(tenant_id=tid, email="test@x.com", display_name="TEST", is_active=False))
+
+        def SC(opp, rep, outcome="Showed"):
+            return SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=opp, booking_id="b" + opp,
+                             rep_email=rep, outcome=outcome, is_current=True, contact_name=opp,
+                             call_time_utc=dt.datetime(2026, 8, 18, 10, tzinfo=U),
+                             outcome_at=dt.datetime(2026, 8, 18, 11, tzinfo=U))
+        s.add_all([SC("oy", "a@x.com"), SC("on", "a@x.com"), SC("ol", "a@x.com"),
+                   SC("op", "a@x.com"), SC("ot", "test@x.com")])
+        STAGES = (("oy", "deciding", "Appointment Complete - Likely Yes"),
+                  ("on", "deciding", "Appointment Complete - Likely No"),
+                  ("ol", "deciding", "Appointment Complete - Payment Link Sent"),
+                  ("op", "committed", "Payment Received - Contract Sent"))
+        for opp, grp, stage in STAGES:
+            s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="bc_launch_opp",
+                               external_id=opp, name=opp, status="open",
+                               meta={"launch_id": str(lid), "group": grp, "stage": stage}))
+        await s.commit()
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        d = await sd.compute_sales_desk(s, tid, L, now=NOW)
+
+    a = next(r for r in d["reps"] if r["rep_email"] == "a@x.com")
+    assert (a["likely_yes"], a["likely_no"], a["link_sent"], a["paid"]) == (1, 1, 1, 1)
+    assert "resched" not in a and "inplay" not in a                    # retired columns gone
+    assert all(r["rep_email"] != "test@x.com" for r in d["reps"])      # deactivated rep hidden
+    assert d["totals"]["booked"] == 5                                  # …but their call still counts
+    assert any(w["key"] == "dh.deactivated" and w["n"] == 1 for w in d["warnings"])
+
+    # disposition + paid drills return the exact opps
+    async with SessionLocal() as s:
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        ly = await sd.drill_sales_desk(s, tid, L, "kpi.likely_yes", now=NOW)
+        paid = await sd.drill_sales_desk(s, tid, L, "kpi.paid", now=NOW)
+    assert ly["count"] == 1 and ly["rows"][0]["name"] == "Oy"
+    assert paid["count"] == 1 and paid["rows"][0]["name"] == "Op"
+
+
+async def test_rep_share_link_scopes_and_revokes():
+    """Per-rep share page: owner mints a token; the public payload carries ONLY that rep's
+    calls; member can't mint; revoke kills the URL (404)."""
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    tid, lid = await _seed_desk_scenario()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        tok = (await c.post("/api/v1/auth/login",
+                            json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})).json()["token"]
+        H = {"Authorization": f"Bearer {tok}"}
+        r = await c.post("/api/v1/businesses/springb/sales-desk/reps/share",
+                         json={"email": "a@x.com"}, headers=H)
+        assert r.status_code == 201
+        url = r.json()["url"]
+        share_token = url.rstrip("/").split("/")[-1]
+
+        pub = await c.get(f"/api/v1/share/{share_token}/desk")         # no auth header
+        assert pub.status_code == 200
+        j = pub.json()
+        assert j["display_name"] == "Rep A" and j["rep"]["booked"] == 2
+        assert all((x.get("rep_email") or "").lower() == "a@x.com" for x in j["calls"])
+        assert "reps" not in j and "payment_mix" not in j              # nobody else's numbers, no money
+
+        listing = await c.get("/api/v1/businesses/springb/sales-desk/reps/share", headers=H)
+        assert "a@x.com" in listing.json()
+
+        rv = await c.delete("/api/v1/businesses/springb/sales-desk/reps/share",
+                            params={"email": "a@x.com"}, headers=H)
+        assert rv.status_code == 204
+        dead = await c.get(f"/api/v1/share/{share_token}/desk")
+        assert dead.status_code == 404                                 # revoked link goes dark
 
 
 async def test_drill_route_serves_and_404s():

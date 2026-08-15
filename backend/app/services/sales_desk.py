@@ -383,17 +383,22 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     lid = str(launch.id)
 
     calls = list((await s.execute(select(SalesCall).where(SalesCall.launch_id == launch.id))).scalars())
-    roster = {(r.email or "").lower(): r.display_name for r in
+    roster = {(r.email or "").lower(): (r.display_name, r.is_active) for r in
               (await s.execute(select(SalesRep).where(SalesRep.tenant_id == tenant_id))).scalars()}
     opp_recs = [r for r in (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.source == "ghl",
         MetricRecord.kind == "bc_launch_opp"))).scalars() if (r.meta or {}).get("launch_id") == lid]
 
     def dname(email):
-        return roster.get((email or "").lower()) if email else None
+        e = roster.get((email or "").lower()) if email else None
+        return e[0] if e else None
 
     def unmapped(email):
-        return bool(email and not roster.get((email or "").lower()))
+        return bool(email and (email or "").lower() not in roster)
+
+    def deactivated(email):
+        e = roster.get((email or "").lower()) if email else None
+        return bool(e and e[1] is False)
 
     calls_by_opp: dict = {}
     for c in calls:
@@ -411,8 +416,9 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     reps: dict = {}
 
     def bucket(email):
-        return reps.setdefault(email, dict(booked=0, held=0, noshow=0, cancelled=0, resched=0,
-                                           upcoming=0, pending=0, inplay=0, won=0))
+        return reps.setdefault(email, dict(booked=0, held=0, noshow=0, cancelled=0,
+                                           upcoming=0, pending=0, likely_yes=0, likely_no=0,
+                                           link_sent=0, paid=0, won=0))
 
     for c in calls:                                    # every booking attempt counts, incl. superseded (§7)
         b = bucket(c.rep_email)
@@ -423,15 +429,29 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
             b["noshow"] += 1
         elif c.outcome == OUT_CANCELLED:
             b["cancelled"] += 1
-        elif c.outcome == OUT_RESCHEDULED:
-            b["resched"] += 1
-        elif c.outcome is None and c.call_time_utc:
-            b["upcoming" if _aw(c.call_time_utc) >= now else "pending"] += 1
+        elif c.outcome is None and c.call_time_utc:    # Rescheduled retired from display 2026-08-14;
+            b["upcoming" if _aw(c.call_time_utc) >= now else "pending"] += 1   # legacy values still stored
+
+    # Post-call dispositions (§8 rework): a deciding opp sits in Likely Yes / Likely No /
+    # Link Sent by PIPELINE STAGE; a committed opp is Paid. Phrases live in stage_map (§12).
+    smap = launch.stage_map or {}
+
+    def disposition(stage):
+        low = (stage or "").lower()
+        for key in ("likely_yes", "likely_no", "link_sent"):
+            if any(p in low for p in (smap.get(key) or [])):
+                return key
+        return None
 
     deciding = [r for r in opp_recs if (r.meta or {}).get("group") == "deciding"]
+    committed = [r for r in opp_recs if (r.meta or {}).get("group") == "committed"]
     won = [r for r in opp_recs if (r.meta or {}).get("group") == "enrolled"]
     for r in deciding:
-        bucket(opp_rep(r.external_id))["inplay"] += 1
+        d = disposition((r.meta or {}).get("stage"))
+        if d:
+            bucket(opp_rep(r.external_id))[d] += 1
+    for r in committed:
+        bucket(opp_rep(r.external_id))["paid"] += 1
     for r in won:
         bucket(opp_rep(r.external_id))["won"] += 1
 
@@ -454,23 +474,31 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
                         for t in PAYMENT_TYPES if (price_map.get(t) or {}).get("upfront") is not None)
 
     tsum = {k: sum(b[k] for b in reps.values()) for k in
-            ("booked", "held", "noshow", "cancelled", "resched", "upcoming", "pending", "won")}
+            ("booked", "held", "noshow", "cancelled", "upcoming", "pending",
+             "likely_yes", "likely_no", "link_sent", "paid", "won")}
     resolved = tsum["held"] + tsum["noshow"] + tsum["cancelled"]
     totals = dict(
         booked=tsum["booked"], held=tsum["held"], no_show=tsum["noshow"], cancelled=tsum["cancelled"],
-        rescheduled=tsum["resched"], upcoming=tsum["upcoming"], pending=tsum["pending"],
-        deciding=deciding_count, won=tsum["won"],
+        upcoming=tsum["upcoming"], pending=tsum["pending"],
+        deciding=deciding_count, likely_yes=tsum["likely_yes"], likely_no=tsum["likely_no"],
+        link_sent=tsum["link_sent"], paid=tsum["paid"], won=tsum["won"],
         show_rate=_rate(tsum["held"], resolved), close_rate=_rate(tsum["won"], tsum["held"]),
         blended=round(blended), blended_provisional=blended_prov,
         on_the_table=round(deciding_count * blended))
 
+    # Deactivated reps (manage reps → active off) leave the leaderboard; their calls still count
+    # in the totals above, and Data Health says so — nothing silently vanishes.
+    hidden_calls = sum(b["booked"] for email, b in reps.items() if deactivated(email))
     rep_rows = []
     for email, b in reps.items():
+        if deactivated(email):
+            continue
         res = b["held"] + b["noshow"] + b["cancelled"]
         rep_rows.append(dict(
             rep_email=email, display_name=dname(email),
             booked=b["booked"], held=b["held"], noshow=b["noshow"], cancelled=b["cancelled"],
-            resched=b["resched"], upcoming=b["upcoming"], inplay=b["inplay"], won=b["won"],
+            upcoming=b["upcoming"], likely_yes=b["likely_yes"], likely_no=b["likely_no"],
+            link_sent=b["link_sent"], paid=b["paid"], won=b["won"],
             show_rate=_rate(b["held"], res), close_rate=_rate(b["won"], b["held"]),
             unmapped=unmapped(email), unassigned=(email is None)))
     rep_rows.sort(key=lambda r: (r["unassigned"], -r["booked"]))   # Unassigned always shown, last
@@ -526,6 +554,9 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     if unparsed:
         warnings.append(dict(n=unparsed, label="call times unparsed", key="dh.unparsed",
                              hint="prose format not recognized — shown as raw text"))
+    if hidden_calls:
+        warnings.append(dict(n=hidden_calls, label="calls from deactivated reps", key="dh.deactivated",
+                             hint="hidden from the leaderboard — still counted in the totals"))
 
     return dict(
         history_since=(launch.history_since.isoformat() if launch.history_since else None),
@@ -546,11 +577,12 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
     now = now or _utcnow()
     tzname = launch.default_tz or "America/Denver"
     calls = list((await s.execute(select(SalesCall).where(SalesCall.launch_id == launch.id))).scalars())
-    roster = {(r.email or "").lower(): r.display_name for r in
+    roster = {(r.email or "").lower(): (r.display_name, r.is_active) for r in
               (await s.execute(select(SalesRep).where(SalesRep.tenant_id == tenant_id))).scalars()}
 
     def dname(email):
-        return roster.get((email or "").lower()) if email else None
+        e = roster.get((email or "").lower()) if email else None
+        return e[0] if e else None
 
     def rep_label(email):
         return dname(email) or email or "Unassigned"
@@ -604,11 +636,13 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
         rows = [call_row(c) for c in sorted(rows_calls, key=lambda c: (_aw(c.call_time_utc) or now))]
         return records(title + scope, subtitle or f"{len(rows)} calls | launch to date", rows, CALL_COLS)
 
-    def opp_rows(group, pay_filter=None):
+    def opp_rows(group, pay_filter=None, stage_pred=None):
         out = []
         for r in opp_recs:
             meta = r.meta or {}
             if meta.get("group") != group or not in_rep_scope(r.external_id):
+                continue
+            if stage_pred and not stage_pred(meta.get("stage")):
                 continue
             cur = [c for c in calls_by_opp.get(r.external_id, []) if c.is_current]
             pay = cur[0].payment_type if cur else None
@@ -664,6 +698,17 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
     if metric == "kpi.in_play":
         rows = opp_rows("deciding")
         return records("In play" + scope, f"{len(rows)} deciding | {launch.pipeline_match}", rows, OPP_COLS)
+    if metric in ("kpi.likely_yes", "kpi.likely_no", "kpi.link_sent"):
+        key = metric.split(".", 1)[1]
+        smap = launch.stage_map or {}
+        phrases = smap.get(key) or []
+        rows = opp_rows("deciding", stage_pred=lambda st: any(p in (st or "").lower() for p in phrases))
+        label = {"likely_yes": "Likely Yes", "likely_no": "Likely No", "link_sent": "Payment Link Sent"}[key]
+        return records(label + scope, f"{len(rows)} deciding in this disposition", rows, OPP_COLS)
+    if metric == "kpi.paid":
+        rows = opp_rows("committed")
+        return records("Paid — contract out" + scope,
+                       f"{len(rows)} committed (cash received, unsigned)", rows, OPP_COLS)
     if metric == "kpi.on_the_table":
         deciding_n = sum(1 for r in opp_recs if (r.meta or {}).get("group") == "deciding"
                          and in_rep_scope(r.external_id))
@@ -738,4 +783,29 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
                 for c in calls if c.call_time_raw and not c.call_time_utc]
         return records("Call times unparsed", f"raw text stored as-is | launch tz {tzname}",
                        rows, ["contact", "rep", "raw_call_time", "current"])
+    if metric == "dh.deactivated":
+        deact = {e for e, v in roster.items() if v[1] is False}
+        return call_records("Calls from deactivated reps",
+                            [c for c in calls if (c.rep_email or "").lower() in deact],
+                            "hidden from the leaderboard — still counted in the totals")
     raise HTTPException(404, "Unknown metric")
+
+
+# ── rep share page (own numbers only — read-only, token-scoped; see routers/share.py) ─────
+async def compute_rep_desk(s: AsyncSession, tenant_id, launch, rep_email: str,
+                           today: dt.date | None = None, now: dt.datetime | None = None) -> dict:
+    """One rep's slice of the Sales Desk for their personal share link: their leaderboard row,
+    their call board, and their no-shows to chase. No other reps, no money totals — the page
+    is distributable without granting dashboard access."""
+    d = await compute_sales_desk(s, tenant_id, launch, today=today, now=now)
+    low = (rep_email or "").lower()
+    row = next((r for r in d["reps"] if (r["rep_email"] or "").lower() == low), None)
+    if row is None:                     # roster row exists but no calls yet — an empty slate
+        row = dict(rep_email=rep_email, display_name=None, booked=0, held=0, noshow=0,
+                   cancelled=0, upcoming=0, likely_yes=0, likely_no=0, link_sent=0, paid=0,
+                   won=0, show_rate=None, close_rate=None, unmapped=False, unassigned=False)
+    return dict(
+        launch_name=launch.name, as_of=d["as_of"], default_tz=d["default_tz"],
+        display_name=row.get("display_name") or rep_email, rep=row,
+        calls=[c for c in d["calls"] if (c.get("rep_email") or "").lower() == low],
+        no_shows=[n for n in d["no_shows"] if (n.get("rep_email") or "").lower() == low])

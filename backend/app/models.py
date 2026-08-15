@@ -910,8 +910,8 @@ class ShareLink(Base):
     __tablename__ = "share_link"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
-    scope: Mapped[str] = mapped_column(String(24))               # ulrg_scorecard | ulrg_team
-    scope_ref: Mapped[str | None] = mapped_column(String(40), nullable=True)   # team key when ulrg_team
+    scope: Mapped[str] = mapped_column(String(24))               # ulrg_scorecard | ulrg_team | sd_rep
+    scope_ref: Mapped[str | None] = mapped_column(String(160), nullable=True)  # team key | rep email (sd_rep)
     token: Mapped[str] = mapped_column(String(64), unique=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

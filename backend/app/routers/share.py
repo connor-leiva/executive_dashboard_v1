@@ -66,6 +66,26 @@ async def shared_room(token: str, s: AsyncSession = Depends(get_session)):
     raise HTTPException(404, "Not found")                 # Team Rooms are Step 6; no room payload yet
 
 
+@router.get("/{token}/desk")
+async def shared_rep_desk(token: str, response: Response, s: AsyncSession = Depends(get_session)):
+    """A sales rep's OWN slice of the beCollective Sales Desk (scope 'sd_rep', scope_ref = their
+    email). Read-only, no auth — the token IS the credential; revoke kills it everywhere."""
+    from ..services.launch import active_launch_for
+    from ..services.sales_desk import compute_rep_desk
+
+    link = await _resolve(s, token)
+    if link.scope != "sd_rep" or not link.scope_ref:
+        raise HTTPException(404, "Not found")
+    b = (await s.execute(select(Business).where(
+        Business.tenant_id == link.tenant_id, Business.key == "springb"))).scalar_one_or_none()
+    launch = b and await active_launch_for(s, link.tenant_id, b.id)
+    if not launch:
+        raise HTTPException(404, "Not found")             # no active launch → the page goes dark
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return await compute_rep_desk(s, link.tenant_id, launch, link.scope_ref)
+
+
 @page_router.get("/share/{token}")
 async def share_page(token: str, s: AsyncSession = Depends(get_session)):
     """Old backend share URLs → the web-app embed page (which renders the real read-only Scorecard).

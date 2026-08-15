@@ -389,7 +389,7 @@ async def test_sync_snapshot_from_ghl_opps():
         d = await compute_launch(s, tenant_id, launch, today=ASOF)
     stages = {f["key"]: f for f in d["funnel"]}
     assert stages["leads"]["count"] == 3
-    assert stages["booked"]["count"] == 2 and stages["booked"]["tag"] == "2 of 2 apps in"
+    assert stages["booked"]["count"] == 2 and stages["booked"]["tag"] is None   # apps-in retired
     assert d["deciding"]["count"] == 2
     assert d["committed"] == {"pif": 1, "plan": 0, "seats": 1, "arr": 12000.0}
     assert d["enrolled"] == {"pif": 1, "plan": 1, "seats": 2, "arr": 26000.0}
