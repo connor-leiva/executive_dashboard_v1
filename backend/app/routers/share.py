@@ -66,12 +66,9 @@ async def shared_room(token: str, s: AsyncSession = Depends(get_session)):
     raise HTTPException(404, "Not found")                 # Team Rooms are Step 6; no room payload yet
 
 
-@router.get("/{token}/desk")
-async def shared_rep_desk(token: str, response: Response, s: AsyncSession = Depends(get_session)):
-    """A sales rep's OWN slice of the beCollective Sales Desk (scope 'sd_rep', scope_ref = their
-    email). Read-only, no auth — the token IS the credential; revoke kills it everywhere."""
+async def _rep_link_launch(s: AsyncSession, token: str):
+    """Resolve a live sd_rep token to (link, active launch) or 404."""
     from ..services.launch import active_launch_for
-    from ..services.sales_desk import compute_rep_desk
 
     link = await _resolve(s, token)
     if link.scope != "sd_rep" or not link.scope_ref:
@@ -81,9 +78,44 @@ async def shared_rep_desk(token: str, response: Response, s: AsyncSession = Depe
     launch = b and await active_launch_for(s, link.tenant_id, b.id)
     if not launch:
         raise HTTPException(404, "Not found")             # no active launch → the page goes dark
+    return link, launch
+
+
+@router.get("/{token}/desk")
+async def shared_rep_desk(token: str, response: Response, s: AsyncSession = Depends(get_session)):
+    """A sales rep's OWN slice of the beCollective Sales Desk (scope 'sd_rep', scope_ref = their
+    email). Read-only, no auth — the token IS the credential; revoke kills it everywhere."""
+    from ..services.sales_desk import compute_rep_desk
+
+    link, launch = await _rep_link_launch(s, token)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     return await compute_rep_desk(s, link.tenant_id, launch, link.scope_ref)
+
+
+# Metrics a rep may drill on their own page — their calls/opps and their rates ONLY. Team-level
+# figures (pricing, payment mix, money totals, roster health) are deliberately absent; an
+# unlisted metric 404s so the page can't be used to walk the rest of the desk.
+_REP_DRILL_METRICS = frozenset({
+    "kpi.booked", "kpi.upcoming", "kpi.pending", "kpi.held", "kpi.no_show", "kpi.cancelled",
+    "kpi.show_rate", "kpi.close_rate", "kpi.won", "kpi.likely_yes", "kpi.likely_no",
+    "kpi.link_sent", "kpi.paid", "recovery.chase", "recovery.all",
+})
+
+
+@router.get("/{token}/desk/drill/{metric}")
+async def shared_rep_desk_drill(token: str, metric: str, response: Response,
+                                s: AsyncSession = Depends(get_session)):
+    """Who's behind a number on the rep's page — the same records/calc drawer the dashboard
+    renders, with the rep scope FORCED from the token (the client can't choose a rep)."""
+    from ..services.sales_desk import drill_sales_desk
+
+    link, launch = await _rep_link_launch(s, token)
+    if metric not in _REP_DRILL_METRICS:
+        raise HTTPException(404, "Not found")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return await drill_sales_desk(s, link.tenant_id, launch, metric, rep=link.scope_ref)
 
 
 @page_router.get("/share/{token}")

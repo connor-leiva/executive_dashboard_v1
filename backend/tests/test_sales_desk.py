@@ -521,11 +521,26 @@ async def test_rep_share_link_scopes_and_revokes():
         listing = await c.get("/api/v1/businesses/springb/sales-desk/reps/share", headers=H)
         assert "a@x.com" in listing.json()
 
+        # public DRILL: rep scope forced by the token — only their calls, no auth
+        dr = await c.get(f"/api/v1/share/{share_token}/desk/drill/kpi.booked")
+        assert dr.status_code == 200
+        dj = dr.json()
+        assert dj["type"] == "records" and dj["count"] == 2            # a@x.com's two calls only
+        assert all("Rep A" in (row.get("rep") or "") for row in dj["rows"])
+        held = await c.get(f"/api/v1/share/{share_token}/desk/drill/kpi.won")
+        assert held.status_code == 200 and held.json()["count"] == 1   # who paid/won — the ask
+        # team-level metrics are NOT exposed on a rep token
+        for forbidden in ("money.upfront", "mix.PIF", "dh.unmapped", "kpi.blended"):
+            fb = await c.get(f"/api/v1/share/{share_token}/desk/drill/{forbidden}")
+            assert fb.status_code == 404, forbidden
+
         rv = await c.delete("/api/v1/businesses/springb/sales-desk/reps/share",
                             params={"email": "a@x.com"}, headers=H)
         assert rv.status_code == 204
         dead = await c.get(f"/api/v1/share/{share_token}/desk")
         assert dead.status_code == 404                                 # revoked link goes dark
+        dead2 = await c.get(f"/api/v1/share/{share_token}/desk/drill/kpi.booked")
+        assert dead2.status_code == 404                                # …and so does its drill
 
 
 async def test_drill_route_serves_and_404s():
