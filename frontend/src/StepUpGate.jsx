@@ -53,7 +53,8 @@ export default function StepUpGate({ scope, title, blurb, usingSample, children 
   };
 
   const input = {
-    width: "100%", fontFamily: "Inter,sans-serif", fontSize: 16, letterSpacing: ".18em",
+    width: "100%", boxSizing: "border-box",          // no global border-box reset in this app
+    fontFamily: "Inter,sans-serif", fontSize: 16, letterSpacing: ".18em",
     textAlign: "center", padding: "11px 12px", border: `1px solid ${T.line}`,
     borderRadius: 9, color: T.ink, background: T.white,
   };

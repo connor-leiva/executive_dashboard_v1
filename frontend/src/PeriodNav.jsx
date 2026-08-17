@@ -153,9 +153,12 @@ export default function PeriodNav({
     border: `1px solid ${T.line}`, borderRadius: 10, background: T.parchment,
     cursor: "pointer", fontFamily: font,
   };
+  // No global border-box reset in this app, so width:100% + padding + border would overflow
+  // the popover and shove the native calendar icon past its edge.
   const dateInput = {
-    width: "100%", fontFamily: font, fontSize: 12, padding: "6px 9px",
-    border: `1px solid ${T.line}`, borderRadius: 7, color: T.ink, background: T.white,
+    width: "100%", boxSizing: "border-box", fontFamily: font, fontSize: 12,
+    padding: "7px 9px", border: `1px solid ${T.line}`, borderRadius: 7,
+    color: T.ink, background: T.white, accentColor: T.evergreen,
   };
 
   return (
