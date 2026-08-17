@@ -16,6 +16,7 @@ import EdgeView from "./EdgeView.jsx";
 import Books from "./books/Books.jsx";
 import Binder from "./Binder.jsx";
 import StepUpGate from "./StepUpGate.jsx";
+import PeriodNav, { periodKey, fromPeriodKey } from "./PeriodNav.jsx";
 import AIEmployees from "./AIEmployees.jsx";
 import { useAiEmployees } from "./useAiEmployees.js";
 import Assistant from "./Assistant.jsx";
@@ -50,14 +51,6 @@ function dotFor(businessKey) {
     default:
       return T.evergreen;
   }
-}
-
-// "2026-03-31" → "Mar 31, 2026"
-function formatAsOf(iso) {
-  if (!iso) return "";
-  const d = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 // "2026-03-31" → "March 2026"
@@ -1036,98 +1029,6 @@ function useMe() {
 
 /* ── shell ─────────────────────────────────────────────────── */
 
-/* Period vocabulary. A custom range rides the same single string the whole product already
-   passes end to end, encoded "c:YYYY-MM-DD:YYYY-MM-DD" — so nothing downstream changes. */
-const PERIODS = [
-  { k: "mtd", label: "Month" },
-  { k: "qtd", label: "Quarter" },
-  { k: "ytd", label: "YTD" },
-  { k: "year", label: "Year" },
-  { k: "last_month", label: "Last month" },
-];
-const isCustom = (v) => typeof v === "string" && v.startsWith("c:");
-const customParts = (v) => (isCustom(v) ? v.slice(2).split(":") : ["", ""]);
-const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const shortDate = (iso) => {
-  const [y, m, d] = (iso || "").split("-").map(Number);
-  return y ? `${MONTH_ABBR[m - 1]} ${d}` : "";
-};
-
-function PeriodSelector({ value, onChange }) {
-  const [open, setOpen] = useState(false);
-  const [from, setFrom] = useState(() => customParts(value)[0]);
-  const [to, setTo] = useState(() => customParts(value)[1]);
-  const custom = isCustom(value);
-  const moreActive = custom || value === "next_month";
-  const moreLabel = custom
-    ? `${shortDate(customParts(value)[0])} – ${shortDate(customParts(value)[1])}`
-    : value === "next_month" ? "Next month" : "Custom";
-  const apply = () => { if (from && to && to >= from) { onChange(`c:${from}:${to}`); setOpen(false); } };
-
-  const btn = (active) => ({
-    fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600,
-    color: active ? T.onDark : T.slate, background: active ? T.evergreen : "transparent",
-    border: "none", borderRadius: 6, padding: "5px 11px", cursor: "pointer",
-  });
-
-  return (
-    <div style={{ position: "relative", display: "inline-flex" }}>
-      <div style={{ display: "inline-flex", background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: 2, gap: 2 }}>
-        {PERIODS.map((p) => (
-          <button key={p.k} onClick={() => onChange(p.k)} className="cc-nav" style={btn(p.k === value)}>
-            {p.label}
-          </button>
-        ))}
-        <button className="cc-nav" onClick={() => setOpen((o) => !o)} style={btn(moreActive)}
-          title="Next month or a custom date range">{moreLabel} ▾</button>
-      </div>
-
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-          <div style={{
-            position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 41, width: 250,
-            background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, padding: 12,
-            boxShadow: `0 18px 40px ${alpha(T.evergreen, 0.16)}`,
-          }}>
-            <button className="cc-nav" onClick={() => { onChange("next_month"); setOpen(false); }}
-              style={{
-                display: "block", width: "100%", textAlign: "left", fontFamily: "Inter,sans-serif",
-                fontSize: 12.5, fontWeight: 600, color: value === "next_month" ? T.evergreen : T.ink,
-                background: "transparent", border: "none", borderRadius: 6, padding: "7px 8px", cursor: "pointer",
-              }}>Next month <span style={{ color: T.muted, fontWeight: 500 }}>· what's set to land</span></button>
-
-            <div style={{ height: 1, background: T.line, margin: "8px 0" }} />
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.tertiary, marginBottom: 6 }}>
-              Custom range
-            </div>
-            <label style={{ display: "block", fontSize: 10.5, color: T.muted, marginBottom: 2 }}>From</label>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{
-              width: "100%", fontFamily: "Inter,sans-serif", fontSize: 12, padding: "5px 8px",
-              border: `1px solid ${T.line}`, borderRadius: 7, marginBottom: 7, color: T.ink,
-            }} />
-            <label style={{ display: "block", fontSize: 10.5, color: T.muted, marginBottom: 2 }}>To</label>
-            <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={{
-              width: "100%", fontFamily: "Inter,sans-serif", fontSize: 12, padding: "5px 8px",
-              border: `1px solid ${T.line}`, borderRadius: 7, marginBottom: 10, color: T.ink,
-            }} />
-            <button onClick={apply} disabled={!from || !to || to < from} style={{
-              width: "100%", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700,
-              color: T.onDark, background: (!from || !to || to < from) ? T.muted : T.evergreen,
-              border: "none", borderRadius: 7, padding: "7px 0",
-              cursor: (!from || !to || to < from) ? "default" : "pointer",
-            }}>Apply range</button>
-            <div style={{ fontSize: 10, color: T.muted, marginTop: 8, lineHeight: 1.45 }}>
-              Booked (QuickBooks) P&amp;L is snapshot per standard period — a custom or future
-              window shows the live/cash view instead.
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 const NAV = [
   { k: "overview", label: "Portfolio", dot: T.parchment },
   { k: "ulrg", label: "ULRG + Team", dot: T.meadow },
@@ -1144,11 +1045,14 @@ const NAV = [
 const navTab = (k) => (k === "overview" ? "portfolio" : k);
 
 export default function CommandCenter() {
-  const [periodKey, setPeriodKey] = useState("mtd");
-  const { data, loading, error, usingSample, retry } = useDashboard(periodKey);
-  const forum = useForum(periodKey);
-  const becollective = useBecollective(periodKey);
-  const edge = useEdge(periodKey);
+  // The period is owned as a granularity + an anchor date, which is what lets the ‹ › stepper
+  // walk through past windows. The single API string is derived from it (see PeriodNav).
+  const [span, setSpan] = useState(() => fromPeriodKey("mtd"));
+  const periodKeyStr = periodKey(span.grain, span.anchor, span.custom);
+  const { data, loading, error, usingSample, retry } = useDashboard(periodKeyStr);
+  const forum = useForum(periodKeyStr);
+  const becollective = useBecollective(periodKeyStr);
+  const edge = useEdge(periodKeyStr);
   const [view, setView] = useState("overview");
   const [refreshing, setRefreshing] = useState(false);
   const [drill, setDrill] = useState(null);       // { key, business, agentId, lo, stage, source } for the audit drawer
@@ -1191,7 +1095,7 @@ export default function CommandCenter() {
     if (!API_BASE || refreshing) return;
     setRefreshing(true);
     try {
-      const { job_id } = await postJSON(`/sync/all?period=${periodKey}`);
+      const { job_id } = await postJSON(`/sync/all?period=${periodKeyStr}`);
       for (let i = 0; i < 60; i++) {          // poll up to ~2 min
         await new Promise((r) => setTimeout(r, 2000));
         const st = await getJSON(`/sync/status/${job_id}`);
@@ -1225,10 +1129,10 @@ export default function CommandCenter() {
         deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="edge_roster" />
     : <SkeletonDashboard />;
   else if (activeView === "ulrg") content = <UlrgTabs role={user?.role}
-    overview={<AreaDetail area={areas.ulrg} onDrill={onDrill} period={periodKey} />} />;
-  else if (activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
+    overview={<AreaDetail area={areas.ulrg} onDrill={onDrill} period={periodKeyStr} />} />;
+  else if (activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
-  else if (activeView === "books") content = <Books period={periodKey} role={user?.role} />;
+  else if (activeView === "books") content = <Books period={periodKeyStr} role={user?.role} />;
   else if (activeView === "binder") content = (
     // Binder holds entity/compliance records — gated by a second factor, not just tab access.
     <StepUpGate scope="binder" usingSample={usingSample} title="Binder is locked"
@@ -1237,7 +1141,7 @@ export default function CommandCenter() {
     </StepUpGate>
   );
   else if (activeView === "ai_employees") content = <AIEmployees data={ai.data} loading={ai.loading} error={ai.error} reload={ai.reload} role={user?.role} />;
-  else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
+  else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
 
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
@@ -1306,68 +1210,28 @@ export default function CommandCenter() {
 
         {/* Main */}
         <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 26px", borderBottom: `1px solid ${T.line}`, background: T.white, flexWrap: "wrap", gap: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {/* A to-date window is "as of <today>"; a whole/forward/custom window is a RANGE,
-                  where a single date would imply data through a date that hasn't happened. */}
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate }}>
-                {period && period.key && period.key !== "mtd" && period.key !== "qtd" && period.key !== "ytd" ? "Showing" : "As of"}
-              </span>
-              {period
-                ? <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>
-                    {period.key && period.key !== "mtd" && period.key !== "qtd" && period.key !== "ytd"
-                      ? period.label : formatAsOf(period.as_of)}
-                  </span>
-                : <Skel w={92} h={14} style={{ display: "inline-block" }} />}
-              <PeriodSelector value={periodKey} onChange={setPeriodKey} />
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginRight: 2 }}>Live from</span>
-              {period
-                ? (sources || []).map((s) => {
-                    const stale = s.status === "connected" && s.last_synced &&
-                      Date.now() - new Date(s.last_synced).getTime() > 2 * 3600 * 1000;
-                    const dot = s.status !== "connected" ? T.muted : stale ? "#FFDD1F" : T.meadow;
-                    const tip = s.last_synced ? `${s.name} · synced ${relativeTime(s.last_synced)}` : `${s.name} · ${s.status}`;
-                    return (
-                      <span key={s.name} title={tip} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: 99, background: dot }} /><Source name={s.name} />
-                      </span>
-                    );
-                  })
-                : [0, 1, 2].map((i) => <Skel key={i} w={72} h={18} style={{ display: "inline-block" }} />)}
-              <span style={{ width: 6 }} />
-              {updated && !refreshing && (
-                <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>Updated {relativeTime(updated)}</span>
-              )}
-              <button
-                onClick={doRefresh}
-                disabled={!API_BASE || refreshing}
-                title={API_BASE ? "Sync all sources" : "Available on the live app"}
-                className="cc-nav"
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter,sans-serif",
-                  fontSize: 12, fontWeight: 600, color: API_BASE ? T.slate : T.muted,
-                  background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8,
-                  padding: "5px 10px", cursor: API_BASE && !refreshing ? "pointer" : "not-allowed",
-                }}
-              >
-                <span style={{ display: "inline-flex", animation: refreshing ? "cc-spin 0.9s linear infinite" : "none" }}><Icon name="sync" size={13} color={API_BASE ? T.slate : T.muted} /></span>
-                {refreshing ? "Refreshing…" : "Refresh"}
-              </button>
-              <UserMenu user={user} />
-            </div>
-          </div>
+          {/* The window value + stepper lead; granularity is a control beside it; the sources
+              list collapses behind a status chip. `serverLabel` is what the API says it
+              actually computed, so the bar can't describe a window the data isn't. */}
+          <PeriodNav
+            grain={span.grain} anchor={span.anchor} custom={span.custom}
+            onChange={({ grain, anchor, custom }) => setSpan({ grain, anchor, custom })}
+            serverLabel={period?.label}
+            sources={sources || []} loading={!period}
+            refreshing={refreshing} onRefresh={doRefresh} apiEnabled={Boolean(API_BASE)}
+            updated={updated}
+            accountSlot={<UserMenu user={user} />}
+          />
 
           <div style={{ padding: 26, maxWidth: 1100 }}>{content}</div>
         </main>
       </div>
 
       {["forum_roster", "bc_roster", "edge_roster"].includes(drill?.key)
-        ? <RosterDrawer metricKey={drill.key} business={drill?.business} period={periodKey} onClose={() => setDrill(null)} />
-        : <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} stage={drill?.stage} source={drill?.source} stream={drill?.stream} month={drill?.month} period={periodKey} onClose={() => setDrill(null)} />}
+        ? <RosterDrawer metricKey={drill.key} business={drill?.business} period={periodKeyStr} onClose={() => setDrill(null)} />
+        : <AuditDrawer metricKey={drill?.key} business={drill?.business} agentId={drill?.agentId} lo={drill?.lo} stage={drill?.stage} source={drill?.source} stream={drill?.stream} month={drill?.month} period={periodKeyStr} onClose={() => setDrill(null)} />}
 
-      <Assistant period={periodKey} />
+      <Assistant period={periodKeyStr} />
     </div>
   );
 }
