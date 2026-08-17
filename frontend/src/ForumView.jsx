@@ -738,12 +738,22 @@ const CSS = `
   .bar b { min-width:34px; text-align:right; font-family:Poppins,sans-serif; font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums; }
 
   .cashcols { display:flex; align-items:flex-end; gap:8px; height:132px; margin-bottom:10px; }
-  .cashcol { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; height:100%; background:none; border:none; padding:0; cursor:pointer; }
-  .cashcol-v { font-family:Poppins,sans-serif; font-size:9.5px; font-weight:600; color:${C.ink}; min-height:12px; }
+  /* On a phone the card gives this chart ~220px; twelve equal columns crush to 11px and the
+     month labels clip to nothing. Give each column a legible floor and let the strip scroll —
+     all twelve months stay reachable by swiping instead of becoming unreadable slivers. */
+  @media (max-width: 700px) {
+    .cashcols { overflow-x:auto; height:146px; align-items:flex-end;
+                scrollbar-width:thin; -webkit-overflow-scrolling:touch; }
+    .cashcols .cashcol { flex:0 0 34px; }   /* outranks the base .cashcol rule below */
+  }
+  .cashcol { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; height:100%; background:none; border:none; padding:0; cursor:pointer; }
+  .cashcol-v { font-family:Poppins,sans-serif; font-size:9.5px; font-weight:600; color:${C.ink};
+    min-height:12px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .cashcol-track { width:100%; max-width:44px; flex:1; display:flex; align-items:flex-end; background:${C.parchment}; border-radius:7px; overflow:hidden; box-shadow:inset 0 1px 2px rgba(0,46,44,.05); }
   .cashcol-fill { width:100%; border-radius:7px 7px 0 0; transition:height .8s cubic-bezier(.22,1,.36,1); box-shadow:inset 0 1px 0 rgba(255,255,255,.3); overflow:hidden; }
   .cashcol:hover .cashcol-fill { filter:brightness(.94); }
-  .cashcol-m { font-family:Inter,sans-serif; font-size:9.5px; color:${C.muted}; }
+  .cashcol-m { font-family:Inter,sans-serif; font-size:9.5px; color:${C.muted};
+    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   .stack { display:flex; height:14px; border-radius:7px; overflow:hidden; gap:2px; margin-bottom:12px; box-shadow:inset 0 1px 2px rgba(0,46,44,.06); }
   .stack-seg { transition:width .8s cubic-bezier(.22,1,.36,1); box-shadow:inset 0 1px 0 rgba(255,255,255,.2); min-width:2px; }

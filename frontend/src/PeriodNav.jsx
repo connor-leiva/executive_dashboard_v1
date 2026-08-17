@@ -176,6 +176,13 @@ export default function PeriodNav({
           /* the chip keeps its status dot; the words go */
           .pn-srclabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
         }
+        /* Touch: comfortable targets, and 16px fields — iOS auto-zooms the page on focus
+           for anything smaller, which then leaves the layout scrolled sideways. */
+        @media (pointer: coarse), (max-width: 700px) {
+          .pn-seg { height: 38px !important; padding: 0 15px !important; }
+          .pn-chip { height: 40px !important; }
+          .pn-bar input[type="date"] { font-size: 16px !important; padding: 9px !important; }
+        }
       `}</style>
       <div className="pn-bar" style={bar}>
         <div className="pn-left" style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0, flexWrap: "wrap", padding: "12px 0" }}>
@@ -237,7 +244,7 @@ export default function PeriodNav({
           <div style={{ display: "flex", alignItems: "center", gap: 2, padding: 3, background: T.parchment, borderRadius: 11 }}
                role="tablist" aria-label="Period granularity">
             {GRAINS.map(([k, label]) => (
-              <button key={k} role="tab" aria-selected={k === grain} className="cc-nav"
+              <button key={k} role="tab" aria-selected={k === grain} className="cc-nav pn-seg"
                 style={seg(k === grain)} onClick={() => emit(k, anchor)}>{label}</button>
             ))}
           </div>
@@ -261,7 +268,7 @@ export default function PeriodNav({
         </div>
 
         <div className="pn-right" style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, padding: "12px 0" }}>
-          <button style={chip} className="cc-nav" onClick={() => setSourcesOpen((v) => !v)}
+          <button style={chip} className="cc-nav pn-chip" onClick={() => setSourcesOpen((v) => !v)}
             aria-expanded={sourcesOpen} aria-controls="cc-source-drawer">
             <span aria-hidden style={{
               width: 7, height: 7, borderRadius: 99, background: STATUS_COLOR[worst],

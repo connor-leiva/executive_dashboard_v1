@@ -455,6 +455,11 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
         .sd-input:focus { outline:none; border-color:${T.petalDeep}; }
         .sd-active { font-size:11px; color:${T.tertiary}; display:flex; align-items:center; gap:5px; flex:none; }
         .sd-active.off { opacity:.4; }
+        @media (pointer: coarse), (max-width:700px) {
+          .sd-input { font-size:16px; padding:9px 10px; }        /* no iOS focus zoom */
+          .sd-rrow { flex-wrap:wrap; }
+          .sd-input { width:100%; }
+        }
         .sd-btn { font:inherit; font-size:12px; font-weight:700; border:none; border-radius:9px; padding:8px 15px;
           background:${T.evergreen}; color:${T.onDark}; cursor:pointer; }
         .sd-btn:disabled { opacity:.5; cursor:default; }

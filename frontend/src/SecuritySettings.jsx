@@ -11,8 +11,11 @@ const box = {
 };
 const label = { fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, color: T.tertiary, marginBottom: 6, display: "block" };
 const input = {
-  fontFamily: "Inter,sans-serif", fontSize: 14, padding: "9px 11px",
-  border: `1px solid ${T.line}`, borderRadius: 9, color: T.ink, background: T.white, width: 190,
+  // 16px: iOS zooms the whole page when a focused field is smaller, which then leaves the
+  // layout scrolled sideways. maxWidth so it can't overflow a phone-width card.
+  fontFamily: "Inter,sans-serif", fontSize: 16, padding: "9px 11px", boxSizing: "border-box",
+  border: `1px solid ${T.line}`, borderRadius: 9, color: T.ink, background: T.white,
+  width: 190, maxWidth: "100%",
 };
 const button = (tone = "primary", disabled = false) => ({
   fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 700, border: "none", borderRadius: 9,

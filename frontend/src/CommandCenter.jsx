@@ -123,7 +123,9 @@ function PanelLabel({ children, accent }) {
 }
 
 function Card({ children, style }) {
-  return <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 22, ...style }}>{children}</div>;
+  // border-box so the 22px padding sits INSIDE the width — several cards carry a
+  // minWidth: 300 that would otherwise render 344 and overflow a phone column.
+  return <div style={{ boxSizing: "border-box", background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 22, ...style }}>{children}</div>;
 }
 
 /* ── P&L ───────────────────────────────────────────────────── */
