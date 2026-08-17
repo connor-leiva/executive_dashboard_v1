@@ -32,16 +32,25 @@ DEFAULT_OUTCOME_MAP = {
     "no show": OUT_NO_SHOW, "noshow": OUT_NO_SHOW, "no-show": OUT_NO_SHOW,
     "cancelled": OUT_CANCELLED, "canceled": OUT_CANCELLED, "cancel": OUT_CANCELLED,
     "rescheduled": OUT_RESCHEDULED, "reschedule": OUT_RESCHEDULED, "resched": OUT_RESCHEDULED,
-    # Call Outcome is a free-TEXT field, and reps write the DISPOSITION they reached rather
-    # than whether the call happened (measured live 2026-08-16: 19 opps carried these). Every
-    # one of them means the call was HELD — the disposition itself is tracked separately by
-    # the stage-driven Likely Yes / Likely No / Link Sent columns.
-    "deciding likely yes": OUT_SHOWED, "likely yes": OUT_SHOWED,
-    "deciding likely no": OUT_SHOWED, "likely no": OUT_SHOWED,
-    "payment link sent": OUT_SHOWED, "payment sent": OUT_SHOWED, "link sent": OUT_SHOWED,
-    "not now future cohort": OUT_SHOWED, "future cohort": OUT_SHOWED, "not now": OUT_SHOWED,
-    "deciding": OUT_SHOWED, "needs decision": OUT_SHOWED,
 }
+# Reps record the DISPOSITION they reached in Call Outcome, using the same vocabulary as the
+# pipeline stages. That vocabulary is already configured once, in the launch's stage_map (and
+# editable in Stage Grouping) — so the outcome field DERIVES from it rather than keeping a
+# second hardcoded copy that would drift the moment someone renames a stage.
+# Reaching any of these means the call was HELD; which disposition it was is already carried
+# by the stage-driven Likely Yes / Likely No / Link Sent columns.
+HELD_DISPOSITION_KEYS = ("deciding", "likely_yes", "likely_no", "link_sent", "nurture")
+
+
+def held_phrases_for(launch) -> tuple:
+    """This tenant's disposition vocabulary from stage_map — the phrases that, written into
+    Call Outcome, mean the call was held. Matched as substrings, exactly like the stage
+    classifier, so the configured phrase "likely yes" recognizes "Deciding - Likely Yes"."""
+    smap = (getattr(launch, "stage_map", None) or {})
+    return tuple(_outcome_key(p) for k in HELD_DISPOSITION_KEYS
+                 for p in (smap.get(k) or []) if _outcome_key(p))
+
+
 # semantic key -> the opportunity fieldKey suffix / name substrings used to resolve its id
 _SC_FIELDS = {
     "sales_rep":    ("sales rep",),
@@ -110,19 +119,26 @@ def _outcome_key(raw) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(raw).strip().lower()).strip()
 
 
-def norm_outcome(raw, omap: dict | None = None) -> str | None:
+def norm_outcome(raw, omap: dict | None = None, held_phrases: tuple = ()) -> str | None:
     """Map a raw Call Outcome value to a canonical outcome, or None. Config-driven (§12).
-    Call Outcome is a free-text field, so match on a separator/case-insensitive key."""
+
+    `held_phrases` is the tenant's disposition vocabulary (see held_phrases_for) — reps write
+    the disposition they reached, and reaching one means the call happened. Matched by
+    substring, like stages, but only AFTER the explicit outcomes so a phrase can never
+    shadow "No Show" / "Cancelled"."""
     if not raw:
         return None
     omap = omap or DEFAULT_OUTCOME_MAP
     key = _outcome_key(raw)
-    if key in omap:
-        return omap[key]
-    # tolerate map keys written with their own separators
     normalized_map = {_outcome_key(k): v for k, v in omap.items()}
     if key in normalized_map:
         return normalized_map[key]
+    for phrase, out in normalized_map.items():          # "No Show - left voicemail"
+        if out in (OUT_NO_SHOW, OUT_CANCELLED) and phrase in key:
+            return out
+    for phrase in held_phrases:                          # the configured dispositions
+        if phrase in key:
+            return OUT_SHOWED
     canon = str(raw).strip()
     return canon if canon in CANON_OUTCOMES else None
 
@@ -192,6 +208,9 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
     call_time_raw, outcome_raw}. Returns Data-Health warning counts."""
     now = now or _utcnow()
     warn: Counter = Counter()
+    # The tenant's own disposition vocabulary (Stage Grouping) — one source of truth for both
+    # the pipeline stages and what reps type into Call Outcome.
+    held_phrases = held_phrases_for(launch)
 
     existing: dict = {}
     by_opp: dict = {}
@@ -212,7 +231,7 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
         booking = _clean(r.get("booking_id"))
         rep = _clean(r.get("rep_email"))
         raw_ct = _clean(r.get("call_time_raw"))
-        outcome = norm_outcome(r.get("outcome_raw"))
+        outcome = norm_outcome(r.get("outcome_raw"), held_phrases=held_phrases)
         payment = norm_payment(r.get("payment_type_raw"))
         ct_utc, ok = parse_call_time(raw_ct, tz)
         if raw_ct and not ok:

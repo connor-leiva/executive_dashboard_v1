@@ -99,18 +99,34 @@ def test_norm_outcome_from_config():
     assert sd.norm_outcome(None) is None
 
 
-def test_norm_outcome_understands_what_reps_actually_type():
-    """Call Outcome is free TEXT and reps write the DISPOSITION they reached, not whether the
-    call happened. Measured live 2026-08-16: 19 opps carried values the map didn't know, so
-    real outcomes were silently discarded (Jennifer Steele read as "no outcome logged" while
-    her field said "Payment Link Sent"). All of these mean the call was HELD."""
+class _L:                       # a stand-in launch carrying just a stage_map
+    def __init__(self, stage_map): self.stage_map = stage_map
+
+
+def test_outcome_vocabulary_comes_from_stage_grouping_not_a_second_copy():
+    """Reps write the DISPOSITION they reached into Call Outcome, using the SAME words as the
+    pipeline stages — a vocabulary already configured once in stage_map (editable in Stage
+    Grouping). The outcome field derives from it, so there's no second list to drift.
+
+    Connor, 2026-08-16: Jennifer Steele read as "no outcome logged" while her field said
+    "Payment Link Sent" — the value was there, the vocabulary was too narrow."""
+    held = sd.held_phrases_for(_L(DEFAULT_STAGE_MAP))
     for raw in ("Payment Link Sent", "payment_link_sent", "PAYMENT LINK SENT",
-                "Deciding - Likely Yes", "Deciding - Likely No", "Not Now - Future Cohort"):
-        assert sd.norm_outcome(raw) == "Showed", raw
-    # separator/case tolerance shouldn't swallow the genuinely different outcomes
-    assert sd.norm_outcome("No_Show") == "No Show"
-    assert sd.norm_outcome("cancelled") == "Cancelled"
-    assert sd.norm_outcome("something nobody mapped") is None
+                "Deciding - Likely Yes", "Deciding - Likely No",
+                "Not Now - Future Cohort", "Appointment Complete - Likely Yes"):
+        assert sd.norm_outcome(raw, held_phrases=held) == "Showed", raw
+
+    # the explicit outcomes still win — a disposition phrase must never shadow them
+    assert sd.norm_outcome("No_Show", held_phrases=held) == "No Show"
+    assert sd.norm_outcome("No Show - left a voicemail", held_phrases=held) == "No Show"
+    assert sd.norm_outcome("cancelled", held_phrases=held) == "Cancelled"
+    assert sd.norm_outcome("something nobody mapped", held_phrases=held) is None
+
+    # ONE source of truth: renaming a disposition in Stage Grouping teaches the outcome field
+    custom = dict(DEFAULT_STAGE_MAP, link_sent=["contract out"])
+    held2 = sd.held_phrases_for(_L(custom))
+    assert sd.norm_outcome("Contract Out", held_phrases=held2) == "Showed"
+    assert sd.norm_outcome("Contract Out", held_phrases=held) is None   # not yet configured
 
 
 def test_field_ids_resolved_by_fieldkey():
