@@ -99,6 +99,20 @@ def test_norm_outcome_from_config():
     assert sd.norm_outcome(None) is None
 
 
+def test_norm_outcome_understands_what_reps_actually_type():
+    """Call Outcome is free TEXT and reps write the DISPOSITION they reached, not whether the
+    call happened. Measured live 2026-08-16: 19 opps carried values the map didn't know, so
+    real outcomes were silently discarded (Jennifer Steele read as "no outcome logged" while
+    her field said "Payment Link Sent"). All of these mean the call was HELD."""
+    for raw in ("Payment Link Sent", "payment_link_sent", "PAYMENT LINK SENT",
+                "Deciding - Likely Yes", "Deciding - Likely No", "Not Now - Future Cohort"):
+        assert sd.norm_outcome(raw) == "Showed", raw
+    # separator/case tolerance shouldn't swallow the genuinely different outcomes
+    assert sd.norm_outcome("No_Show") == "No Show"
+    assert sd.norm_outcome("cancelled") == "Cancelled"
+    assert sd.norm_outcome("something nobody mapped") is None
+
+
 def test_field_ids_resolved_by_fieldkey():
     defs = [{"id": "F1", "name": "Sales Rep", "fieldKey": "opportunity.sales_rep"},
             {"id": "F2", "name": "Booking ID", "fieldKey": "opportunity.booking_id"},
@@ -158,6 +172,24 @@ async def test_outcome_change_is_logged_once_null_to_value():
         assert outcome_changes[0].old_value is None and outcome_changes[0].new_value == "Showed"
         sc = (await s.execute(select(SalesCall).where(SalesCall.opportunity_id == "oppY"))).scalar_one()
         assert sc.outcome == "Showed" and sc.outcome_at is not None
+
+
+async def test_unmappable_outcome_is_counted_not_silently_dropped():
+    """The failure mode that hid 19 real outcomes: a populated value we can't map used to
+    vanish without a trace. It must show up in the sync warnings."""
+    tid, lid = await _fresh_launch()
+    async with SessionLocal() as s:
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        warn = await sd.apply_sales_diff(s, tid, L, [
+            _rec("oppA", "bA", outcome="Some Brand New Disposition"),
+            _rec("oppB", "bB", outcome="Payment Link Sent"),      # now mapped -> no warning
+        ], DENVER)
+    assert warn.get("outcome_unmapped") == 1, warn
+    async with SessionLocal() as s:
+        rows = {r.opportunity_id: r for r in (await s.execute(
+            select(SalesCall).where(SalesCall.launch_id == lid))).scalars()}
+    assert rows["oppB"].outcome == "Showed"        # the disposition means the call was held
+    assert rows["oppA"].outcome is None            # unknown stays unknown, but is now REPORTED
 
 
 async def test_missing_booking_id_still_counts_with_warning():

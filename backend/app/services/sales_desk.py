@@ -32,6 +32,15 @@ DEFAULT_OUTCOME_MAP = {
     "no show": OUT_NO_SHOW, "noshow": OUT_NO_SHOW, "no-show": OUT_NO_SHOW,
     "cancelled": OUT_CANCELLED, "canceled": OUT_CANCELLED, "cancel": OUT_CANCELLED,
     "rescheduled": OUT_RESCHEDULED, "reschedule": OUT_RESCHEDULED, "resched": OUT_RESCHEDULED,
+    # Call Outcome is a free-TEXT field, and reps write the DISPOSITION they reached rather
+    # than whether the call happened (measured live 2026-08-16: 19 opps carried these). Every
+    # one of them means the call was HELD — the disposition itself is tracked separately by
+    # the stage-driven Likely Yes / Likely No / Link Sent columns.
+    "deciding likely yes": OUT_SHOWED, "likely yes": OUT_SHOWED,
+    "deciding likely no": OUT_SHOWED, "likely no": OUT_SHOWED,
+    "payment link sent": OUT_SHOWED, "payment sent": OUT_SHOWED, "link sent": OUT_SHOWED,
+    "not now future cohort": OUT_SHOWED, "future cohort": OUT_SHOWED, "not now": OUT_SHOWED,
+    "deciding": OUT_SHOWED, "needs decision": OUT_SHOWED,
 }
 # semantic key -> the opportunity fieldKey suffix / name substrings used to resolve its id
 _SC_FIELDS = {
@@ -95,14 +104,25 @@ def _tz(name: str) -> dt.tzinfo:
         return ZoneInfo("America/Denver")
 
 
+def _outcome_key(raw) -> str:
+    """Normalize for lookup: case, and any separator reps type ('payment_link_sent',
+    'Payment Link Sent', 'Deciding - Likely Yes') collapse to the same key."""
+    return re.sub(r"[^a-z0-9]+", " ", str(raw).strip().lower()).strip()
+
+
 def norm_outcome(raw, omap: dict | None = None) -> str | None:
-    """Map a raw Call Outcome value to a canonical outcome, or None. Config-driven (§12)."""
+    """Map a raw Call Outcome value to a canonical outcome, or None. Config-driven (§12).
+    Call Outcome is a free-text field, so match on a separator/case-insensitive key."""
     if not raw:
         return None
     omap = omap or DEFAULT_OUTCOME_MAP
-    key = str(raw).strip().lower()
+    key = _outcome_key(raw)
     if key in omap:
         return omap[key]
+    # tolerate map keys written with their own separators
+    normalized_map = {_outcome_key(k): v for k, v in omap.items()}
+    if key in normalized_map:
+        return normalized_map[key]
     canon = str(raw).strip()
     return canon if canon in CANON_OUTCOMES else None
 
@@ -197,6 +217,10 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
         ct_utc, ok = parse_call_time(raw_ct, tz)
         if raw_ct and not ok:
             warn["call_time_unparsed"] += 1
+        # A populated outcome we can't map used to be discarded silently, which is how 19 real
+        # dispositions went missing. Count them so a new vocabulary shows up in the sync log.
+        if _clean(r.get("outcome_raw")) and outcome is None:
+            warn["outcome_unmapped"] += 1
 
         if not booking:
             if not (outcome or rep):
