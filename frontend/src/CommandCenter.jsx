@@ -1054,6 +1054,10 @@ export default function CommandCenter() {
   const becollective = useBecollective(periodKeyStr);
   const edge = useEdge(periodKeyStr);
   const [view, setView] = useState("overview");
+  // Off-canvas rail on phones/tablets. Selecting a destination closes it, so the drawer
+  // never sits over the content you just asked for.
+  const [navOpen, setNavOpen] = useState(false);
+  const goTo = (k) => { setView(k); setNavOpen(false); };
   const [refreshing, setRefreshing] = useState(false);
   const [drill, setDrill] = useState(null);       // { key, business, agentId, lo, stage, source } for the audit drawer
   const onDrill = (key, business, agentId, lo, opts) => setDrill(key ? { key, business, agentId, lo, ...(opts || {}) } : null);
@@ -1116,7 +1120,7 @@ export default function CommandCenter() {
   let content;
   if (busy) content = <SkeletonDashboard />;
   else if (error && !data) content = <ErrorState onRetry={retry} />;
-  else if (activeView === "overview") content = <Overview data={data} onOpen={setView} onDrill={onDrill} />;
+  else if (activeView === "overview") content = <Overview data={data} onOpen={goTo} onDrill={onDrill} />;
   else if (activeView === "forum") content = forum.data
     ? <ForumView key="forum" data={forum.data} area={areas?.forum} onDrill={onDrill} />
     : <SkeletonDashboard />;
@@ -1164,11 +1168,38 @@ export default function CommandCenter() {
         @media (max-width: 820px) { .cc-cards { grid-template-columns: 1fr; } }
         @media (max-width: 560px) { .cc-score { grid-template-columns: 1fr; } }
         @media (prefers-reduced-motion: reduce) { .cc-card, .cc-nav { transition: none; } .cc-card:hover { transform: none; } .cc-skel { animation: none; } }
+
+        /* ── shell ──────────────────────────────────────────────────────────────────────
+           These live in CSS rather than inline styles precisely so the media query can
+           override them — an inline style would always win. Desktop: a static rail beside
+           the content. Phone/tablet: the rail becomes an off-canvas drawer, because at
+           375px a fixed 224px rail leaves the content ~100px and nothing is usable. */
+        .cc-shell { display: flex; min-height: 100vh; }
+        .cc-rail {
+          width: 224px; flex-shrink: 0; background: ${T.evergreen};
+          padding: 24px 16px; display: flex; flex-direction: column;
+          box-sizing: border-box;          /* no global reset — padding must not widen the rail */
+        }
+        .cc-scrim { display: none; }
+        .cc-burger { display: none; }
+        @media (max-width: 900px) {
+          .cc-rail {
+            position: fixed; inset: 0 auto 0 0; z-index: 60; width: min(268px, 82vw);
+            overflow-y: auto; transform: translateX(-100%);
+            transition: transform .22s ease; box-shadow: 0 0 40px rgba(0,46,44,.28);
+          }
+          .cc-rail.open { transform: none; }
+          .cc-scrim { display: block; position: fixed; inset: 0; z-index: 55;
+                      background: rgba(0,46,44,.38); }
+          .cc-burger { display: inline-flex; }
+        }
+        @media (prefers-reduced-motion: reduce) { .cc-rail { transition: none; } }
       `}</style>
 
-      <div style={{ display: "flex", minHeight: "100vh" }}>
+      <div className="cc-shell">
+        {navOpen && <div className="cc-scrim" onClick={() => setNavOpen(false)} aria-hidden />}
         {/* Rail */}
-        <aside style={{ width: 224, background: T.evergreen, padding: "24px 16px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        <aside className={`cc-rail${navOpen ? " open" : ""}`} aria-label="Sections">
           <div style={{ padding: "0 8px 22px" }}>
             <SpringSignature tone="light" height={30} />
             <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 6, textTransform: "uppercase" }}>Command Center</div>
@@ -1176,7 +1207,7 @@ export default function CommandCenter() {
           {navItems.map((n) => {
             const active = activeView === n.k;
             return (
-              <button key={n.k} className="cc-nav" onClick={() => setView(n.k)} style={{
+              <button key={n.k} className="cc-nav" onClick={() => goTo(n.k)} style={{
                 display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
                 background: active ? "rgba(248,245,242,0.10)" : "transparent", border: "none",
                 borderLeft: active ? `3px solid ${T.poppy}` : "3px solid transparent", borderRadius: 8,
@@ -1221,6 +1252,23 @@ export default function CommandCenter() {
             refreshing={refreshing} onRefresh={doRefresh} apiEnabled={Boolean(API_BASE)}
             updated={updated}
             accountSlot={<UserMenu user={user} />}
+            menuSlot={
+              <button className="cc-burger cc-nav" onClick={() => setNavOpen(true)}
+                aria-label="Open sections menu" aria-expanded={navOpen} style={{
+                  width: 38, height: 38, alignItems: "center", justifyContent: "center",
+                  border: `1px solid ${T.line}`, borderRadius: 10, background: T.parchment,
+                  cursor: "pointer", flexShrink: 0, padding: 0,
+                }}>
+                <span aria-hidden style={{ display: "block", width: 16 }}>
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} style={{
+                      display: "block", height: 2, borderRadius: 2, background: T.slate,
+                      marginTop: i ? 3 : 0,
+                    }} />
+                  ))}
+                </span>
+              </button>
+            }
           />
 
           <div style={{ padding: 26, maxWidth: 1100 }}>{content}</div>

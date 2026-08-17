@@ -91,7 +91,7 @@ export default function PeriodNav({
   serverLabel,                      // what the SERVER says the window is (authoritative)
   sources = [], loading = false,
   refreshing = false, onRefresh, apiEnabled = true, updated,
-  accountSlot,
+  accountSlot, menuSlot,
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -163,8 +163,23 @@ export default function PeriodNav({
 
   return (
     <header>
-      <div style={bar}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0, flexWrap: "wrap", padding: "12px 0" }}>
+      <style>{`
+        /* On a phone the bar wraps to ~270px tall — a third of the screen. Drop the pieces
+           that repeat what the window button already says, and tighten the rest. */
+        @media (max-width: 700px) {
+          .pn-note { display: none !important; }
+          .pn-bar { padding: 0 14px !important; gap: 10px !important; }
+          .pn-left, .pn-right { padding: 8px 0 !important; gap: 8px !important; }
+          .pn-srclabel { font-size: 12px !important; }
+        }
+        @media (max-width: 430px) {
+          /* the chip keeps its status dot; the words go */
+          .pn-srclabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+        }
+      `}</style>
+      <div className="pn-bar" style={bar}>
+        <div className="pn-left" style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0, flexWrap: "wrap", padding: "12px 0" }}>
+          {menuSlot}
           {/* value + stepper — walking periods without changing granularity */}
           <div style={{ position: "relative", display: "flex" }}>
             <div style={{
@@ -237,23 +252,23 @@ export default function PeriodNav({
               }}>Today</button>
           )}
 
-          <div style={{ width: 1, height: 22, background: T.line }} aria-hidden />
+          <div className="pn-note" style={{ width: 1, height: 22, background: T.line }} aria-hidden />
           {/* what the SERVER actually computed — the honest label for the data on screen */}
-          <div style={{
+          <div className="pn-note" style={{
             fontFamily: font, fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase",
             color: T.muted, whiteSpace: "nowrap",
           }}>{serverLabel || (loading ? "Loading…" : "")}</div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, padding: "12px 0" }}>
+        <div className="pn-right" style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, padding: "12px 0" }}>
           <button style={chip} className="cc-nav" onClick={() => setSourcesOpen((v) => !v)}
             aria-expanded={sourcesOpen} aria-controls="cc-source-drawer">
             <span aria-hidden style={{
               width: 7, height: 7, borderRadius: 99, background: STATUS_COLOR[worst],
               boxShadow: `0 0 0 3px ${alpha(STATUS_COLOR[worst], 0.18)}`,
             }} />
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.slate }}>{srcLabel}</span>
-            {oldest && <span style={{ fontSize: 11.5, color: T.muted }}>· {relativeTime(new Date(oldest).toISOString())}</span>}
+            <span className="pn-srclabel" style={{ fontSize: 12.5, fontWeight: 600, color: T.slate }}>{srcLabel}</span>
+            {oldest && <span className="pn-note" style={{ fontSize: 11.5, color: T.muted }}>· {relativeTime(new Date(oldest).toISOString())}</span>}
           </button>
 
           <button onClick={onRefresh} disabled={!apiEnabled || refreshing} className="cc-nav"

@@ -144,7 +144,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .rawmail { font-family:'Courier New',monospace; font-size:11px; color:${T.tertiary}; font-weight:500; }
         .sd-tfoot td { border-bottom:none; color:${T.tertiary}; font-size:11px; padding-top:10px; text-align:left; }
 
-        .sd-cols { display:grid; grid-template-columns:1.35fr 1fr; gap:14px; align-items:start; }
+        .sd-cols { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:14px; align-items:start; }
         .sd-scroll { max-height:360px; overflow-y:auto; margin-right:-8px; padding-right:8px; }
         .sd-scroll::-webkit-scrollbar { width:7px; }
         .sd-scroll::-webkit-scrollbar-thumb { background:${alpha(T.tertiary, .35)}; border-radius:99px; }
@@ -213,7 +213,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${alpha(T.line, .5)}; color:${T.secondary}; }
         .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
         .sd-foot { font-size:11px; color:${T.muted}; margin-top:16px; line-height:1.6; } .sd-foot b { color:${T.tertiary}; }
-        @media (max-width:760px){ .sd-kpis, .sd-mix { grid-template-columns:1fr 1fr; } .sd-cols { grid-template-columns:1fr; } }
+        @media (max-width:760px){ .sd-kpis, .sd-mix { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+          .sd-cols { grid-template-columns:minmax(0,1fr); } }
       `}</style>
 
       <div className="sd-mod">

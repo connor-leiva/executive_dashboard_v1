@@ -169,7 +169,9 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
 
         <Trajectory lenses={lenses} order={order} active={act} />
 
-        <div className="sel" style={{ gridTemplateColumns: `repeat(${order.length},1fr)` }}>
+        {/* minmax(0,…) not 1fr: a grid track's default minimum is min-content, so a wide
+            lens label pushes the track past its container and scrolls the page. */}
+        <div className="sel" style={{ gridTemplateColumns: `repeat(${order.length},minmax(0,1fr))` }}>
           {order.map((k) => {
             const x = disp(k);
             return (
