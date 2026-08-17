@@ -190,7 +190,7 @@ async def _sympli_records(s, tenant_id, week_start, week_end, group, limit):
     fin = sorted(cap["fin"], key=lambda t: (t.close_date or dt.date.min), reverse=True)[:limit]
     names = await _agent_names(s, tenant_id, {t.agent_id for t in fin if t.agent_id})
     return [{"id": t.external_id, "client": t.buyer_name, "agent": names.get(t.agent_id),
-             "date": t.close_date.isoformat() if t.close_date else None, "address": t.address,
+             "date": t.close_date.isoformat() if t.close_date else None, "address": t.address, "side": t.side,
              "sale_price": float(t.sale_price) if t.sale_price is not None else None,
              "captured": t.id in cap_ids} for t in fin]
 
@@ -213,7 +213,7 @@ async def _meraki_records(s, tenant_id, business_id, week_start, week_end, group
         q = q.where(Transaction.agent_id.in_(ids))
     rows = (await s.execute(q.order_by(Transaction.close_date.desc()).limit(limit))).all()
     return [{"id": t.external_id, "client": t.buyer_name, "agent": nm,
-             "date": t.close_date.isoformat() if t.close_date else None, "address": t.address,
+             "date": t.close_date.isoformat() if t.close_date else None, "address": t.address, "side": t.side,
              "sale_price": float(t.sale_price) if t.sale_price is not None else None,
              "captured": t.title_vid in meraki} for t, nm in rows]
 
@@ -246,7 +246,7 @@ async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.d
     for txn, agent_name in rows:
         d = getattr(txn, date_col.key)
         out.append({"id": txn.external_id, "client": txn.buyer_name, "agent": agent_name,
-                    "date": d.isoformat() if d else None, "address": txn.address,
+                    "date": d.isoformat() if d else None, "address": txn.address, "side": txn.side,
                     "sale_price": float(txn.sale_price) if txn.sale_price is not None else None})
     return out
 

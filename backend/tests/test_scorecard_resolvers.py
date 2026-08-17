@@ -314,6 +314,15 @@ async def test_team_sympli_attach_reuses_flywheel_capture(team_env):
         recs = await R.resolver_records(s, e["tid"], e["bid"], "ulrg_team_sympli_attach", MON, SUN, group=DAVIS)
         assert len(recs) == 3 and sum(1 for x in recs if x["captured"]) == 2   # 2 of 3 = 66.7%
         assert {x["id"] for x in recs} == {"s1", "s2", "s3"}                    # s4 cash + s5 other-office excluded
+
+        # a sell-side LISTING (Connor's "Anderson" case): counts as a home sold, but has no ULRG buyer
+        # to finance → present in Homes Sold, absent from the Sympli denominator. Records carry `side`.
+        await _txn_agent(s, e["tid"], e["bid"], e["d"][0], "closed", "sell1", close_date=WED, side="sell")
+        await s.commit()
+        homes = await R.resolver_records(s, e["tid"], e["bid"], "ulrg_team_homes_closed", MON, SUN, group=DAVIS)
+        symp = await R.resolver_records(s, e["tid"], e["bid"], "ulrg_team_sympli_attach", MON, SUN, group=DAVIS)
+        assert "sell1" in {x["id"] for x in homes} and "sell1" not in {x["id"] for x in symp}
+        assert next(x["side"] for x in homes if x["id"] == "sell1") == "sell"   # drawer can tag it "Listing"
         # a week with no financeable buyer closings → None (a rate has no denominator), not 0
         assert await R.team_sympli_attach(s, e["tid"], e["bid"],
                                           dt.date(2026, 7, 6), dt.date(2026, 7, 12), group=DAVIS) is None

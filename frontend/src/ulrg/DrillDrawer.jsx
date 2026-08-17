@@ -50,6 +50,12 @@ function Records({ r, ws, we }) {
   const vendor = /sympli/i.test(r.measurable) ? "Sympli" : /meraki/i.test(r.measurable) ? "Meraki" : "Attached";
   const capped = recs.filter((x) => x.captured).length;
   const pct = recs.length ? Math.round((capped / recs.length) * 1000) / 10 : 0;
+  // Why the denominator differs from Homes Sold: Sympli is buyer-side only (you can't attach a mortgage
+  // to a listing); Meraki (title) applies to every closing. Stated so the two drawers reconcile.
+  const denomNote = !attach ? null
+    : /sympli/i.test(r.measurable) ? "Buyer-side closings — a listing has no buyer to finance"
+    : /meraki/i.test(r.measurable) ? "Closings that recorded a title company"
+    : null;
   const sorted = [...recs].sort((a, b) =>
     sort === "date"
       ? String(b.date || "").localeCompare(String(a.date || ""))            // newest first
@@ -70,6 +76,7 @@ function Records({ r, ws, we }) {
           ))}
         </div>
       </div>
+      {denomNote && <div style={{ fontSize: 11, color: T.muted, marginTop: -2, marginBottom: 8 }}>{denomNote}</div>}
       {sorted.map((x) => (
         <div key={x.id} style={{ padding: "10px 0", borderBottom: `1px solid ${T.lineSoft}` }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -78,6 +85,7 @@ function Records({ r, ws, we }) {
           </div>
           <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {attach && <Tag on={x.captured} label={x.captured ? vendor : "Other"} />}
+            {x.side === "sell" && <Tag on={false} label="Listing" />}
             <span>{x.agent || "—"}{x.address ? ` · ${x.address}` : ""}{x.sale_price ? ` · $${Math.round(x.sale_price).toLocaleString()}` : ""}</span>
           </div>
         </div>
