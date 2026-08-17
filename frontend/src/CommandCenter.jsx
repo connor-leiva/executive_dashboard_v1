@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { T, STATUS, usd, signed, relativeTime } from "./theme.js";
+import { T, STATUS, usd, signed, relativeTime, alpha } from "./theme.js";
 import { useDashboard } from "./useDashboard.js";
 import { useForum } from "./useForum.js";
 import { useBecollective } from "./useBecollective.js";
@@ -1035,26 +1035,94 @@ function useMe() {
 
 /* ── shell ─────────────────────────────────────────────────── */
 
+/* Period vocabulary. A custom range rides the same single string the whole product already
+   passes end to end, encoded "c:YYYY-MM-DD:YYYY-MM-DD" — so nothing downstream changes. */
 const PERIODS = [
   { k: "mtd", label: "Month" },
   { k: "qtd", label: "Quarter" },
-  { k: "ytd", label: "Year" },
+  { k: "ytd", label: "YTD" },
+  { k: "year", label: "Year" },
   { k: "last_month", label: "Last month" },
 ];
+const isCustom = (v) => typeof v === "string" && v.startsWith("c:");
+const customParts = (v) => (isCustom(v) ? v.slice(2).split(":") : ["", ""]);
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const shortDate = (iso) => {
+  const [y, m, d] = (iso || "").split("-").map(Number);
+  return y ? `${MONTH_ABBR[m - 1]} ${d}` : "";
+};
 
 function PeriodSelector({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState(() => customParts(value)[0]);
+  const [to, setTo] = useState(() => customParts(value)[1]);
+  const custom = isCustom(value);
+  const moreActive = custom || value === "next_month";
+  const moreLabel = custom
+    ? `${shortDate(customParts(value)[0])} – ${shortDate(customParts(value)[1])}`
+    : value === "next_month" ? "Next month" : "Custom";
+  const apply = () => { if (from && to && to >= from) { onChange(`c:${from}:${to}`); setOpen(false); } };
+
+  const btn = (active) => ({
+    fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600,
+    color: active ? T.onDark : T.slate, background: active ? T.evergreen : "transparent",
+    border: "none", borderRadius: 6, padding: "5px 11px", cursor: "pointer",
+  });
+
   return (
-    <div style={{ display: "inline-flex", background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: 2, gap: 2 }}>
-      {PERIODS.map((p) => {
-        const active = p.k === value;
-        return (
-          <button key={p.k} onClick={() => onChange(p.k)} className="cc-nav" style={{
-            fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600,
-            color: active ? T.onDark : T.slate, background: active ? T.evergreen : "transparent",
-            border: "none", borderRadius: 6, padding: "5px 11px", cursor: "pointer",
-          }}>{p.label}</button>
-        );
-      })}
+    <div style={{ position: "relative", display: "inline-flex" }}>
+      <div style={{ display: "inline-flex", background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: 2, gap: 2 }}>
+        {PERIODS.map((p) => (
+          <button key={p.k} onClick={() => onChange(p.k)} className="cc-nav" style={btn(p.k === value)}>
+            {p.label}
+          </button>
+        ))}
+        <button className="cc-nav" onClick={() => setOpen((o) => !o)} style={btn(moreActive)}
+          title="Next month or a custom date range">{moreLabel} ▾</button>
+      </div>
+
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div style={{
+            position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 41, width: 250,
+            background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, padding: 12,
+            boxShadow: `0 18px 40px ${alpha(T.evergreen, 0.16)}`,
+          }}>
+            <button className="cc-nav" onClick={() => { onChange("next_month"); setOpen(false); }}
+              style={{
+                display: "block", width: "100%", textAlign: "left", fontFamily: "Inter,sans-serif",
+                fontSize: 12.5, fontWeight: 600, color: value === "next_month" ? T.evergreen : T.ink,
+                background: "transparent", border: "none", borderRadius: 6, padding: "7px 8px", cursor: "pointer",
+              }}>Next month <span style={{ color: T.muted, fontWeight: 500 }}>· what's set to land</span></button>
+
+            <div style={{ height: 1, background: T.line, margin: "8px 0" }} />
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.tertiary, marginBottom: 6 }}>
+              Custom range
+            </div>
+            <label style={{ display: "block", fontSize: 10.5, color: T.muted, marginBottom: 2 }}>From</label>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{
+              width: "100%", fontFamily: "Inter,sans-serif", fontSize: 12, padding: "5px 8px",
+              border: `1px solid ${T.line}`, borderRadius: 7, marginBottom: 7, color: T.ink,
+            }} />
+            <label style={{ display: "block", fontSize: 10.5, color: T.muted, marginBottom: 2 }}>To</label>
+            <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={{
+              width: "100%", fontFamily: "Inter,sans-serif", fontSize: 12, padding: "5px 8px",
+              border: `1px solid ${T.line}`, borderRadius: 7, marginBottom: 10, color: T.ink,
+            }} />
+            <button onClick={apply} disabled={!from || !to || to < from} style={{
+              width: "100%", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700,
+              color: T.onDark, background: (!from || !to || to < from) ? T.muted : T.evergreen,
+              border: "none", borderRadius: 7, padding: "7px 0",
+              cursor: (!from || !to || to < from) ? "default" : "pointer",
+            }}>Apply range</button>
+            <div style={{ fontSize: 10, color: T.muted, marginTop: 8, lineHeight: 1.45 }}>
+              Booked (QuickBooks) P&amp;L is snapshot per standard period — a custom or future
+              window shows the live/cash view instead.
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1233,9 +1301,16 @@ export default function CommandCenter() {
         <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 26px", borderBottom: `1px solid ${T.line}`, background: T.white, flexWrap: "wrap", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate }}>As of</span>
+              {/* A to-date window is "as of <today>"; a whole/forward/custom window is a RANGE,
+                  where a single date would imply data through a date that hasn't happened. */}
+              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate }}>
+                {period && period.key && period.key !== "mtd" && period.key !== "qtd" && period.key !== "ytd" ? "Showing" : "As of"}
+              </span>
               {period
-                ? <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{formatAsOf(period.as_of)}</span>
+                ? <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>
+                    {period.key && period.key !== "mtd" && period.key !== "qtd" && period.key !== "ytd"
+                      ? period.label : formatAsOf(period.as_of)}
+                  </span>
                 : <Skel w={92} h={14} style={{ display: "inline-block" }} />}
               <PeriodSelector value={periodKey} onChange={setPeriodKey} />
             </div>

@@ -25,7 +25,12 @@ const PRES = {
             desc: "Posted to QuickBooks so far" },
 };
 const ORDER = ["live", "projection", "booked"];
-const FLAG_LABEL = { close_in_progress: "Close in progress" };
+const FLAG_LABEL = {
+  close_in_progress: "Close in progress",
+  // QuickBooks snapshots only the standard periods; for a custom/forward window the booked
+  // zeros are ABSENCE, not a $0 result — say so rather than render a phantom loss.
+  no_snapshot: "No QuickBooks snapshot for this range",
+};
 
 const fmt = (n) => Math.abs(Math.round(n)).toLocaleString("en-US");
 const money = (n) => (n < 0 ? `($${fmt(n)})` : `$${fmt(n)}`);

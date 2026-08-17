@@ -14,19 +14,17 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Transaction, PLSnapshot, Business, MetricRecord
+from .metrics import period_label, has_booked_snapshot, is_forward
 
 
 def _period(period: str) -> tuple[dt.date, dt.date, bool]:
-    t = dt.date.today()
-    if period == "last_month":
-        first = t.replace(day=1)
-        end = first - dt.timedelta(days=1)
-        return end.replace(day=1), end, False
-    if period == "qtd":
-        return t.replace(month=((t.month - 1) // 3) * 3 + 1, day=1), t, True
-    if period == "ytd":
-        return t.replace(month=1, day=1), t, True
-    return t.replace(day=1), t, True   # mtd
+    """(start, end, is_current) — delegates to the ONE period resolver so custom ranges and
+    the year/next-month windows behave identically here and on the dashboard.
+    is_current = the window is still open (pending deals can land in it), which reproduces the
+    old per-period booleans exactly: mtd/qtd/ytd end today, last_month ended before it."""
+    from .metrics import _period_range
+    start, end = _period_range(period)
+    return start, end, end >= dt.date.today()
 
 
 def _projection_end(period: str, start: dt.date, end: dt.date) -> dt.date:
@@ -34,15 +32,10 @@ def _projection_end(period: str, start: dt.date, end: dt.date) -> dt.date:
     Closed deals + the Booked snapshot are "as of today" (end); the Projection
     counts everything pending expected to close anywhere in the *whole* period —
     matching Sisu's month view (Status End Date = the last of the month), not
-    just up to today (early in a month that would exclude nearly all pending)."""
-    if period == "qtd":
-        m = ((start.month - 1) // 3) * 3 + 3
-        return dt.date(start.year, m, calendar.monthrange(start.year, m)[1])
-    if period == "ytd":
-        return dt.date(start.year, 12, 31)
-    if period == "last_month":
-        return end
-    return dt.date(start.year, start.month, calendar.monthrange(start.year, start.month)[1])  # mtd
+    just up to today (early in a month that would exclude nearly all pending).
+    That calendar end is exactly the P&L snapshot key's end."""
+    from .metrics import _pl_period
+    return _pl_period(period)[1]
 
 
 async def expense_run_rate(s: AsyncSession, tenant_id, business: Business, end: dt.date) -> tuple[float, str]:
@@ -93,13 +86,18 @@ async def _booked_lens(s, tenant_id, business_id, period):
         PLSnapshot.period_start == pl_start, PLSnapshot.period_end == pl_end))).scalar_one_or_none()
     if snap:
         return dict(rev=float(snap.revenue), cost=float(snap.cogs), gross=float(snap.gross_profit),
-                    opex=float(snap.opex), noi=float(snap.noi), closed=bool(snap.books_closed))
-    return dict(rev=0.0, cost=0.0, gross=0.0, opex=0.0, noi=0.0, closed=False)
+                    opex=float(snap.opex), noi=float(snap.noi), closed=bool(snap.books_closed),
+                    unavailable=False)
+    # QuickBooks only snapshots the standard periods. For a custom/forward window the zeros
+    # below are ABSENCE, not a real $0 — flag it so the UI says so instead of reporting a loss.
+    return dict(rev=0.0, cost=0.0, gross=0.0, opex=0.0, noi=0.0, closed=False,
+                unavailable=not has_booked_snapshot(period))
 
 
 def _booked_rows(b):
     return {"profit": b["noi"], "units": None,
-            "flag": None if b["closed"] else "close_in_progress", "rows": [
+            "flag": "no_snapshot" if b.get("unavailable") else (None if b["closed"] else "close_in_progress"),
+            "rows": [
                 {"l": "Revenue", "v": b["rev"], "kind": "rev", "key": "revenue"},
                 {"l": "Cost of sale", "v": -b["cost"], "kind": "ded", "key": "cogs"},
                 {"l": "Gross profit", "v": b["gross"], "kind": "sub", "key": "gross_profit"},
@@ -137,7 +135,8 @@ def _sympli_booked_rows(b, jv_share):
     else; NOI × jv_share is Spring's cut — the same shape as the Live lens."""
     noi = b["noi"]
     return {"profit": noi, "units": None,
-            "flag": None if b["closed"] else "close_in_progress", "rows": [
+            "flag": "no_snapshot" if b.get("unavailable") else (None if b["closed"] else "close_in_progress"),
+            "rows": [
                 {"l": "Commission revenue", "v": b["rev"], "kind": "rev", "key": "revenue"},
                 {"l": "Loan officer comp", "v": -b["cost"], "kind": "ded", "key": "cogs"},
                 {"l": "Net commission", "v": b["gross"], "kind": "sub", "key": "gross_profit"},
@@ -190,8 +189,10 @@ async def _sympli_financials(s, tenant_id, business, period, start, end, is_curr
     b = await _booked_lens(s, tenant_id, business.id, period)
     booked = _sympli_booked_rows(b, jv_share)
     return {
-        "period": {"label": period.upper(), "start": start.isoformat(), "end": end.isoformat(),
-                   "is_current": is_current},
+        "period": {"label": period_label(period), "key": period,
+                   "start": start.isoformat(), "end": end.isoformat(),
+                   "is_current": is_current, "booked_available": has_booked_snapshot(period),
+                   "forward": is_forward(period)},
         "expense_run_rate": 0.0, "expense_run_rate_source": "n/a",
         "expense_months": 1, "period_expenses": 0.0,
         "lenses": {
@@ -215,8 +216,10 @@ async def _membership_financials(s, tenant_id, business, period, start, end, is_
     b = await _booked_lens(s, tenant_id, business.id, period)
     booked = _booked_rows(b)
     return {
-        "period": {"label": period.upper(), "start": start.isoformat(), "end": end.isoformat(),
-                   "is_current": is_current},
+        "period": {"label": period_label(period), "key": period,
+                   "start": start.isoformat(), "end": end.isoformat(),
+                   "is_current": is_current, "booked_available": has_booked_snapshot(period),
+                   "forward": is_forward(period)},
         "expense_run_rate": 0.0, "expense_run_rate_source": "n/a",
         "expense_months": 1, "period_expenses": 0.0,
         "lenses": {
@@ -258,20 +261,13 @@ async def compute_financials(s: AsyncSession, tenant_id, business: Business, per
     proj_profit = proj_net - period_expenses
 
     # BOOKED — the period's QuickBooks snapshot (keyed on the calendar period).
-    from .metrics import _pl_period
-    pl_start, pl_end = _pl_period(period)
-    snap = (await s.execute(select(PLSnapshot).where(
-        PLSnapshot.tenant_id == tenant_id, PLSnapshot.business_id == business.id,
-        PLSnapshot.period_start == pl_start, PLSnapshot.period_end == pl_end))).scalar_one_or_none()
-    if snap:
-        b = dict(rev=float(snap.revenue), cost=float(snap.cogs), gross=float(snap.gross_profit),
-                 opex=float(snap.opex), noi=float(snap.noi), closed=bool(snap.books_closed))
-    else:
-        b = dict(rev=0.0, cost=0.0, gross=0.0, opex=0.0, noi=0.0, closed=False)
+    b = await _booked_lens(s, tenant_id, business.id, period)
 
     return {
-        "period": {"label": period.upper(), "start": start.isoformat(), "end": end.isoformat(),
-                   "is_current": is_current},
+        "period": {"label": period_label(period), "key": period,
+                   "start": start.isoformat(), "end": end.isoformat(),
+                   "is_current": is_current, "booked_available": has_booked_snapshot(period),
+                   "forward": is_forward(period)},
         "expense_run_rate": run_rate, "expense_run_rate_source": rr_src,
         "expense_months": months, "period_expenses": period_expenses,
         "lenses": {
@@ -291,13 +287,7 @@ async def compute_financials(s: AsyncSession, tenant_id, business: Business, per
                 {"l": ("Est. expenses" if months == 1 else f"Est. expenses · {months} mo"),
                  "v": -period_expenses, "kind": "ded", "est": True, "key": "fin_expenses"},
                 {"l": "Projected profit", "v": proj_profit, "kind": "tot"}]},
-            "booked": {"profit": b["noi"], "units": None,
-                "flag": None if b["closed"] else "close_in_progress", "rows": [
-                {"l": "Revenue", "v": b["rev"], "kind": "rev", "key": "revenue"},
-                {"l": "Cost of sale", "v": -b["cost"], "kind": "ded", "key": "cogs"},
-                {"l": "Gross profit", "v": b["gross"], "kind": "sub", "key": "gross_profit"},
-                {"l": "Operating expenses", "v": -b["opex"], "kind": "ded", "key": "opex"},
-                {"l": "Net operating income", "v": b["noi"], "kind": "tot", "key": "noi"}]},
+            "booked": _booked_rows(b),          # one builder — keeps the no_snapshot flag honest
         },
         "reconciliation": {"sisu_closed": g_gci, "qbo_booked": b["rev"],
                            "gap_gci": g_gci - b["rev"], "gap_profit": live_profit - b["noi"]},

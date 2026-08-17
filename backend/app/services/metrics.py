@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
+import re
 import uuid
 from collections import Counter
 
@@ -40,22 +41,73 @@ _PL_LABELS = {
 }
 _PERIOD_LABELS = {
     "mtd": "Month to date", "qtd": "Quarter to date",
-    "ytd": "Year to date", "last_month": "Last month",
+    "ytd": "Year to date", "year": "Full year", "last_month": "Last month",
+    "next_month": "Next month",
 }
+# Periods QuickBooks snapshots exist for (see sync._QBO_PERIODS). Anything else — a custom
+# range or a forward window — has no BOOKED P&L; those surfaces flag it instead of implying $0.
+SNAPSHOT_PERIODS = frozenset({"mtd", "qtd", "ytd", "year", "last_month"})
+# Forward-looking windows: actuals don't exist yet, so money surfaces read as pipeline, not fact.
+FORWARD_PERIODS = frozenset({"next_month"})
 _APPOINTMENT_STAGES = ("Appointment", "Appointment Set", "Met")
 
 
 # ── period / formatting ───────────────────────────────────────────
+# The whole product passes ONE period string end to end (?period=…). A custom range rides
+# the same wire encoded as "c:YYYY-MM-DD:YYYY-MM-DD", so every call site that merely forwards
+# `period` keeps working untouched. Malformed input resolves to MTD rather than 500ing — and
+# because the payload echoes the resolved range back, the UI can never silently mislabel it.
+_CUSTOM_RE = re.compile(r"^c:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$")
+_MAX_CUSTOM_DAYS = 366 * 5
+
+
+def custom_period(start: dt.date, end: dt.date) -> str:
+    """Encode a date range as a period string."""
+    return f"c:{start.isoformat()}:{end.isoformat()}"
+
+
+def parse_custom(period: str | None) -> tuple[dt.date, dt.date] | None:
+    """(start, end) for an encoded custom range; None when `period` isn't one (or is
+    malformed / reversed / absurdly long — those fall back to the default period)."""
+    if not period or not period.startswith("c:"):
+        return None
+    m = _CUSTOM_RE.match(period)
+    if not m:
+        return None
+    try:
+        start = dt.date.fromisoformat(m.group(1))
+        end = dt.date.fromisoformat(m.group(2))
+    except ValueError:
+        return None
+    if end < start or (end - start).days > _MAX_CUSTOM_DAYS:
+        return None
+    return start, end
+
+
+def _month_end(d: dt.date) -> dt.date:
+    return dt.date(d.year, d.month, calendar.monthrange(d.year, d.month)[1])
+
+
 def _period_range(period: str):
+    """(start, end) of the window a period covers. `end` is 'today' for to-date windows so
+    the Sisu 'so far' queries stay honest; whole/forward windows carry their calendar end."""
     today = dt.date.today()
+    custom = parse_custom(period)
+    if custom:
+        return custom
     if period == "ytd":
         return today.replace(month=1, day=1), today
+    if period == "year":                                   # the FULL calendar year
+        return dt.date(today.year, 1, 1), dt.date(today.year, 12, 31)
     if period == "qtd":
         return today.replace(month=((today.month - 1) // 3) * 3 + 1, day=1), today
     if period == "last_month":
         first = today.replace(day=1)
         last_end = first - dt.timedelta(days=1)
         return last_end.replace(day=1), last_end
+    if period == "next_month":                             # forward window — pipeline, not actuals
+        first_next = _month_end(today) + dt.timedelta(days=1)
+        return first_next, _month_end(first_next)
     return today.replace(day=1), today  # mtd
 
 
@@ -63,16 +115,65 @@ def _pl_period(period: str) -> tuple[dt.date, dt.date]:
     """(period_start, CALENDAR period-end) — the key a QBO snapshot is stored and
     read under. Unlike _period_range (whose end is 'today', for the Sisu "so far"
     queries), this end is the fixed month/quarter/year end — so a snapshot doesn't
-    go missing when viewed a day after it was synced."""
+    go missing when viewed a day after it was synced. Custom/forward windows have no
+    snapshot; they return their own range and callers flag the booked lens instead."""
     start, end = _period_range(period)
+    if parse_custom(period) or period == "next_month":
+        return start, end
     if period == "qtd":
         m = ((start.month - 1) // 3) * 3 + 3
         return start, dt.date(start.year, m, calendar.monthrange(start.year, m)[1])
-    if period == "ytd":
-        return start, dt.date(start.year, 12, 31)
+    if period in ("ytd", "year"):               # same calendar key → 'year' reuses ytd's snapshot
+        return dt.date(start.year, 1, 1), dt.date(start.year, 12, 31)
     if period == "last_month":
         return start, end                       # already a full calendar month
-    return start, dt.date(start.year, start.month, calendar.monthrange(start.year, start.month)[1])  # mtd
+    return start, _month_end(start)             # mtd
+
+
+KNOWN_PERIODS = frozenset({"mtd", "qtd", "ytd", "year", "last_month", "next_month"})
+DEFAULT_PERIOD = "mtd"
+
+
+def canonical_period(period: str | None) -> str:
+    """The period actually applied. Anything unrecognized (typo, stale bookmark, malformed
+    custom range) resolves to the default — and every label/flag/echo derives from THIS, so
+    the range shown, the label shown, and the data returned can never disagree."""
+    if parse_custom(period):
+        return period
+    return period if period in KNOWN_PERIODS else DEFAULT_PERIOD
+
+
+def has_booked_snapshot(period: str) -> bool:
+    """Whether QuickBooks stores a P&L snapshot for this period (see sync._QBO_PERIODS)."""
+    return canonical_period(period) in SNAPSHOT_PERIODS
+
+
+def is_forward(period: str) -> bool:
+    """Whether the window is entirely in the future (actuals can't exist yet)."""
+    if period in FORWARD_PERIODS:
+        return True
+    custom = parse_custom(period)
+    return bool(custom and custom[0] > dt.date.today())
+
+
+def _mdy(d: dt.date, with_year: bool = True) -> str:
+    """'Jan 5' / 'Jan 5, 2026' — no zero padding, no platform-specific strftime flags."""
+    return f"{calendar.month_abbr[d.month]} {d.day}" + (f", {d.year}" if with_year else "")
+
+
+def period_label(period: str) -> str:
+    """Human label for the period actually applied, including an encoded custom range."""
+    period = canonical_period(period)
+    custom = parse_custom(period)
+    if custom:
+        start, end = custom
+        return f"{_mdy(start, start.year != end.year)} – {_mdy(end)}"
+    if period == "year":
+        return f"Full year {dt.date.today().year}"
+    if period == "next_month":
+        first_next = _month_end(dt.date.today()) + dt.timedelta(days=1)
+        return f"{calendar.month_name[first_next.month]} {first_next.year}"
+    return _PERIOD_LABELS.get(period, period.upper())
 
 
 def _compact_usd(n: float | None) -> str:
@@ -281,7 +382,15 @@ async def _arive_kpis(s, tenant_id, business_id, start, end, states=None) -> dic
 
 
 _FW_PERIOD_LABEL = {"mtd": "this month", "qtd": "this quarter",
-                    "ytd": "this year", "last_month": "last month"}
+                    "ytd": "this year", "year": "this year", "last_month": "last month",
+                    "next_month": "next month"}
+
+
+def _fw_label(period: str) -> str:
+    """Flywheel's inline scope phrase ('this month'), including custom ranges."""
+    custom = parse_custom(period)
+    return f"{_mdy(custom[0], False)}–{_mdy(custom[1], False)}" if custom \
+        else _FW_PERIOD_LABEL.get(period, "this period")
 
 
 def _prior_range(period, start, end):
@@ -529,7 +638,7 @@ async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
     referral_no_deal = sum(1 for f in sympli_referred if f.external_id not in cur["matched"])
 
     return Flywheel(
-        available=True, period_label=_FW_PERIOD_LABEL.get(period, "this period"),
+        available=True, period_label=_fw_label(period),
         buyer_closings=n_fin, captured=n_cap, lost=lost_n, capture_pct=capture_pct,
         capture_target=target, attach_delta_pts=attach_delta, per_loan_share=share,
         gap_dollars=gap_dollars, gap_at_target=gap_at_target, per_point_value=per_point,
@@ -778,7 +887,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             active_listings = await _active_listings(s, tenant_id, b.id, cutoff)
             producing, total = await _producing_agents(s, tenant_id, b.id, start, end)
             ops = _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings,
-                            producing, total, _PERIOD_LABELS.get(period, period.upper()))
+                            producing, total, period_label(period))
             funnel = await _funnel(s, tenant_id, b.id, start, end)
             sc.update(ulrg_gci=gci, ulrg_closed=closed, ulrg_pending=pending,
                       ulrg_pipeline=pipeline, producing=producing, total_agents=total)
@@ -793,7 +902,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                     await s.rollback()
                     ak = None
                 if ak and ak["loans"] > 0:                 # Arive is synced → live pipeline
-                    plabel = _PERIOD_LABELS.get(period, period)
+                    plabel = period_label(period)
                     ops = [
                         OpTile(label="Funded Loans", value=str(ak["funded_count"]), sub=plabel, key="funded_loans"),
                         OpTile(label="Loan Volume", value=_compact_usd(ak["funded_volume"]), key="loan_volume"),
@@ -826,7 +935,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                         OpTile(label="Forum ARR", value=_compact_usd(k["arr"]),
                                sub=f"{k['memberships']} memberships", key="forum_arr"),
                         OpTile(label="New Members", value=str(k["new_members"]),
-                               sub=_PERIOD_LABELS.get(period, period), key="new_members"),
+                               sub=period_label(period), key="new_members"),
                         OpTile(label="Renewals Due", value=str(k["renewals_due"]),
                                sub=dt.date.today().strftime("%B"), key="renewals_due"),
                         OpTile(label="Registered", value=str(k["registered"]),
@@ -992,8 +1101,11 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
     )
 
     return DashboardResponse(
-        period={"label": _PERIOD_LABELS.get(period, period.upper()), "as_of": end.isoformat(),
-                "start": start.isoformat(), "end": end.isoformat()},
+        # Echo the RESOLVED window back: the UI labels from this, so a period the server
+        # didn't understand can never be shown as though it were applied.
+        period={"label": period_label(period), "as_of": end.isoformat(),
+                "start": start.isoformat(), "end": end.isoformat(), "key": canonical_period(period),
+                "booked_available": has_booked_snapshot(period), "forward": is_forward(period)},
         portfolio=Portfolio(
             revenue=portfolio_rev or None, noi=portfolio_noi or None,
             margin=portfolio_margin if portfolio_rev else None, mom=mom,
