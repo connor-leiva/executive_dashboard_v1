@@ -710,3 +710,63 @@ async def test_seed_reps_from_users_upserts_display_names():
         assert reps["aimee@purposeledperformance.com"] == "Aimee Stephens"
     async with SessionLocal() as s:                                 # idempotent re-run adds nothing
         assert await sd.seed_reps_from_users(s, tid, users) == 0
+
+
+async def test_stage_implies_the_outcome_when_the_field_is_blank():
+    """Connor, 2026-08-16: Jennifer Steele showed as "outcome pending > 24h" while sitting in
+    "Payment Link Sent" — she'd obviously been on the call. Reps advance the card and often
+    never fill Call Outcome (22 live opps were in that state), which ALSO under-counted held,
+    show rate and close rate. The stage is the reliable signal: a call whose opp has advanced
+    counts as held. A superseded no-show must still survive a rebook."""
+    tid, lid = await _fresh_launch()
+    NOW = dt.datetime(2026, 8, 20, 12, tzinfo=U)
+    old = dt.datetime(2026, 8, 18, 10, tzinfo=U)          # >24h before NOW
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(SalesRep))
+        s.add(SalesRep(tenant_id=tid, email="a@x.com", display_name="Rep A", is_active=True))
+
+        def SC(opp, bk, outcome=None, current=True):
+            return SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=opp, booking_id=bk,
+                             rep_email="a@x.com", outcome=outcome, is_current=current,
+                             contact_name=opp, call_time_utc=old,
+                             outcome_at=(dt.datetime(2026, 8, 19, tzinfo=U) if outcome else None))
+        onboard = SC("onboard", "b0")                      # today -> lands on the 48h call board
+        onboard.call_time_utc = dt.datetime(2026, 8, 20, 9, tzinfo=U)
+        s.add_all([
+            SC("advanced", "b1"),                          # blank field, but the card moved on
+            SC("stillbooked", "b2"),                       # blank field, card never moved
+            SC("rebooked", "bOld", outcome="No Show", current=False),   # superseded no-show
+            SC("rebooked", "bNew"),                        # the rebook; opp later advanced
+            onboard,
+        ])
+        for opp, grp, stage in (("advanced", "deciding", "Appointment Complete - Payment Link Sent"),
+                                ("stillbooked", "booked", "Scheduled Appointment - No App"),
+                                ("onboard", "deciding", "Appointment Complete - Payment Link Sent"),
+                                ("rebooked", "deciding", "Appointment Complete - Likely Yes")):
+            s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="bc_launch_opp",
+                               external_id=opp, name=opp, status="open",
+                               meta={"launch_id": str(lid), "group": grp, "stage": stage}))
+        await s.commit()
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        d = await sd.compute_sales_desk(s, tid, L, now=NOW)
+
+    t = d["totals"]
+    # the advanced call and the current rebook both count as held; the blank still-booked one doesn't
+    assert t["held"] == 3, t                      # advanced + rebook + today's advanced call
+    assert t["no_show"] == 1                      # the superseded row KEEPS its no-show (§3)
+    assert t["pending"] == 1                      # only the genuinely un-actioned call
+    pend = [w for w in d["warnings"] if w["key"] == "dh.pending24"]
+    assert pend and pend[0]["n"] == 1, d["warnings"]        # was 3 before this fix
+
+    # the call board reports the implied outcome rather than "Pending"
+    board = {c["contact_name"]: c["outcome"] for c in d["calls"]}
+    assert board.get("Onboard") == "Showed", board       # not "Pending"
+
+    # and the drill agrees with the tile that opens it
+    async with SessionLocal() as s:
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        held_drill = await sd.drill_sales_desk(s, tid, L, "kpi.held", now=NOW)
+        pend_drill = await sd.drill_sales_desk(s, tid, L, "dh.pending24", now=NOW)
+    assert held_drill["count"] == 3 and pend_drill["count"] == 1
+    assert {r["contact"] for r in pend_drill["rows"]} == {"Stillbooked"}

@@ -404,10 +404,27 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     for c in calls:
         calls_by_opp.setdefault(c.opportunity_id, []).append(c)
 
+    # The Call Outcome FIELD is unreliable — reps advance the card and often never fill it
+    # (measured 2026-08-16: 22 opps sat in a post-call stage with the field blank). The STAGE
+    # is the reliable signal: you cannot reach a post-call group without the call happening.
+    # So a current call whose opp has advanced counts as HELD even with a blank field.
+    HELD_IMPLYING_GROUPS = ("deciding", "committed", "enrolled")
+    opp_group = {r.external_id: (r.meta or {}).get("group") for r in opp_recs}
+
+    def effective_outcome(c):
+        """The outcome to REPORT for a call: the logged value wins; otherwise the pipeline
+        implies it. Only the CURRENT call can be upgraded, so a superseded no-show still
+        survives a rebook (§3) — this never overwrites an explicit outcome."""
+        if c.outcome:
+            return c.outcome
+        if c.is_current and opp_group.get(c.opportunity_id) in HELD_IMPLYING_GROUPS:
+            return OUT_SHOWED
+        return None
+
     def opp_rep(opp_id):
         """§6.4 — credit the rep on the most-recent-HELD call; fall back to the current field."""
         rows = calls_by_opp.get(opp_id, [])
-        held = [r for r in rows if r.outcome == OUT_SHOWED and r.call_time_utc]
+        held = [r for r in rows if effective_outcome(r) == OUT_SHOWED and r.call_time_utc]
         if held:
             return max(held, key=lambda r: _aw(r.call_time_utc)).rep_email
         cur = [r for r in rows if r.is_current and r.rep_email] or [r for r in rows if r.rep_email]
@@ -423,13 +440,14 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     for c in calls:                                    # every booking attempt counts, incl. superseded (§7)
         b = bucket(c.rep_email)
         b["booked"] += 1
-        if c.outcome == OUT_SHOWED:
+        oc = effective_outcome(c)
+        if oc == OUT_SHOWED:
             b["held"] += 1
-        elif c.outcome == OUT_NO_SHOW:
+        elif oc == OUT_NO_SHOW:
             b["noshow"] += 1
-        elif c.outcome == OUT_CANCELLED:
+        elif oc == OUT_CANCELLED:
             b["cancelled"] += 1
-        elif c.outcome is None and c.call_time_utc:    # Rescheduled retired from display 2026-08-14;
+        elif oc is None and c.call_time_utc:           # Rescheduled retired from display 2026-08-14;
             b["upcoming" if _aw(c.call_time_utc) >= now else "pending"] += 1   # legacy values still stored
 
     # Post-call dispositions (§8 rework): a deciding opp sits in Likely Yes / Likely No /
@@ -510,15 +528,16 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     def call_row(c, uns=False):
         return dict(call_time_utc=(c.call_time_utc.isoformat() if c.call_time_utc else None),
                     contact_name=title_name(c.contact_name), rep_email=c.rep_email, display_name=dname(c.rep_email),
-                    outcome=c.outcome, unscheduled=uns, unmapped=unmapped(c.rep_email))
+                    outcome=effective_outcome(c), unscheduled=uns, unmapped=unmapped(c.rep_email))
     board = sorted((c for c in calls if c.is_current and c.call_time_utc
                     and day_start <= _aw(c.call_time_utc) <= win_end), key=lambda c: _aw(c.call_time_utc))
-    unsched = [c for c in calls if c.is_current and c.call_time_utc is None and c.outcome is None]
+    unsched = [c for c in calls if c.is_current and c.call_time_utc is None
+               and effective_outcome(c) is None]
     calls_out = [call_row(c) for c in board] + [call_row(c, True) for c in unsched]
 
     # no-show recovery: rebooked = a different booking exists for the same opportunity (§8)
     ns_out = []
-    for c in (c for c in calls if c.outcome == OUT_NO_SHOW):
+    for c in (c for c in calls if effective_outcome(c) == OUT_NO_SHOW):
         ref = _aw(c.call_time_utc) or _aw(c.first_seen_at)
         ns_out.append(dict(
             contact_name=title_name(c.contact_name), rep_email=c.rep_email, display_name=dname(c.rep_email),
@@ -536,7 +555,7 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     warnings = []
     no_rep = sum(1 for c in calls if c.is_current and not c.rep_email)
     unmapped_emails = sorted({c.rep_email for c in calls if unmapped(c.rep_email)})
-    pending_24 = sum(1 for c in calls if c.outcome is None and c.call_time_utc
+    pending_24 = sum(1 for c in calls if effective_outcome(c) is None and c.call_time_utc
                      and _aw(c.call_time_utc) < now - dt.timedelta(hours=24))
     unparsed = sum(1 for c in calls if c.call_time_raw and not c.call_time_utc)
     if no_rep:
@@ -601,9 +620,21 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
     for c in calls:
         calls_by_opp.setdefault(c.opportunity_id, []).append(c)
 
+    # Same rule as compute_sales_desk: the stage implies the outcome when the field is blank,
+    # so a drawer can never disagree with the number that opened it.
+    HELD_IMPLYING_GROUPS = ("deciding", "committed", "enrolled")
+    opp_group = {r.external_id: (r.meta or {}).get("group") for r in opp_recs}
+
+    def effective_outcome(c):
+        if c.outcome:
+            return c.outcome
+        if c.is_current and opp_group.get(c.opportunity_id) in HELD_IMPLYING_GROUPS:
+            return OUT_SHOWED
+        return None
+
     def opp_rep(opp_id):
         rows = calls_by_opp.get(opp_id, [])
-        held = [r for r in rows if r.outcome == OUT_SHOWED and r.call_time_utc]
+        held = [r for r in rows if effective_outcome(r) == OUT_SHOWED and r.call_time_utc]
         if held:
             return max(held, key=lambda r: _aw(r.call_time_utc)).rep_email
         cur = [r for r in rows if r.is_current and r.rep_email] or [r for r in rows if r.rep_email]
@@ -625,7 +656,7 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
 
     def call_row(c):
         t = _aw(c.call_time_utc)
-        status = c.outcome or ("Upcoming" if t and t >= now else "Pending" if t else "Unscheduled")
+        status = effective_outcome(c) or ("Upcoming" if t and t >= now else "Pending" if t else "Unscheduled")
         return {"contact": title_name(c.contact_name) or "-", "rep": rep_label(c.rep_email),
                 "time": (t.isoformat()[:16].replace("T", " ") + " UTC") if t else (c.call_time_raw or "—"),
                 "status": status, "current": c.is_current}
@@ -655,9 +686,9 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
     OPP_COLS = ["name", "rep", "stage", "payment", "url"]
     outcome_of = {"kpi.held": OUT_SHOWED, "kpi.no_show": OUT_NO_SHOW,
                   "kpi.cancelled": OUT_CANCELLED, "kpi.rescheduled": OUT_RESCHEDULED}
-    held = [c for c in calls if c.outcome == OUT_SHOWED]
-    noshow = [c for c in calls if c.outcome == OUT_NO_SHOW]
-    cancelled = [c for c in calls if c.outcome == OUT_CANCELLED]
+    held = [c for c in calls if effective_outcome(c) == OUT_SHOWED]
+    noshow = [c for c in calls if effective_outcome(c) == OUT_NO_SHOW]
+    cancelled = [c for c in calls if effective_outcome(c) == OUT_CANCELLED]
     price_map = launch.price_map or {}
 
     if metric == "kpi.booked":
@@ -665,15 +696,15 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
                             "every booking attempt, incl. superseded rebooks | event log")
     if metric == "kpi.upcoming":
         return call_records("Upcoming calls",
-                            [c for c in calls if c.is_current and c.outcome is None
+                            [c for c in calls if c.is_current and effective_outcome(c) is None
                              and c.call_time_utc and _aw(c.call_time_utc) >= now])
     if metric == "kpi.pending":
         return call_records("Awaiting outcome",
-                            [c for c in calls if c.outcome is None and c.call_time_utc
+                            [c for c in calls if effective_outcome(c) is None and c.call_time_utc
                              and _aw(c.call_time_utc) < now])
     if metric in outcome_of:
         oc = outcome_of[metric]
-        return call_records(oc, [c for c in calls if c.outcome == oc])
+        return call_records(oc, [c for c in calls if effective_outcome(c) == oc])
     if metric == "kpi.show_rate":
         res = len(held) + len(noshow) + len(cancelled)
         v = f"{round(100 * len(held) / res)}%" if res else "—"
@@ -771,7 +802,7 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
                        rows, ["email", "calls"])
     if metric == "dh.pending24":
         return call_records("Outcomes pending > 24h",
-                            [c for c in calls if c.outcome is None and c.call_time_utc
+                            [c for c in calls if effective_outcome(c) is None and c.call_time_utc
                              and _aw(c.call_time_utc) < now - dt.timedelta(hours=24)],
                             "call time passed over a day ago with no outcome logged")
     if metric == "dh.won_no_pay":
