@@ -9,7 +9,7 @@ from .config import settings
 from .db import engine
 from .models import Base
 from .tenancy import resolve_tenant
-from .routers import auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share
+from .routers import auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp
 
 log = logging.getLogger("app")
 
@@ -69,6 +69,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth.router, prefix="/api/v1")
+    app.include_router(totp.router, prefix="/api/v1")
     app.include_router(dashboard.router, prefix="/api/v1")
     app.include_router(businesses.router, prefix="/api/v1")
     app.include_router(integrations.router, prefix="/api/v1")

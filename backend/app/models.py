@@ -59,6 +59,15 @@ class User(Base):
     action_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)     # sha256 of invite/reset token
     action_token_purpose: Mapped[str | None] = mapped_column(String(16), nullable=True)  # invite | reset
     action_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # ── TOTP second factor (step-up for the Binder section) ──
+    # The secret is Fernet-encrypted at rest, never stored or logged in plaintext. Enrollment is
+    # only live once totp_confirmed_at is set (a started-but-unconfirmed secret can't unlock).
+    totp_secret_enc: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    totp_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    totp_recovery: Mapped[list | None] = mapped_column(JSONType, nullable=True)   # sha256 of unused codes
+    totp_last_used: Mapped[str | None] = mapped_column(String(12), nullable=True)  # replay guard: last code
+    totp_failed: Mapped[int] = mapped_column(Integer, default=0)
+    totp_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint("tenant_id", "email", name="uq_user_tenant_email"),)
 

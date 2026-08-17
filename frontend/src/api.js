@@ -1,6 +1,33 @@
 const API = import.meta.env.VITE_API_BASE; // e.g. https://api.springb.com/api/v1
 const TOKEN_KEY = "cc_token";
 
+/* ── step-up (second factor) grants ──────────────────────────────────────────────
+   A section behind a second factor (Binder) answers 428 until the request carries a
+   live grant. Grants live in sessionStorage, NOT localStorage: closing the tab
+   re-locks the section, and the grant never outlives the browsing session. */
+const stepUpKey = (scope) => `cc_stepup_${scope}`;
+export const setStepUp = (scope, token) => sessionStorage.setItem(stepUpKey(scope), token);
+export const getStepUp = (scope) => sessionStorage.getItem(stepUpKey(scope));
+export const clearStepUp = (scope) => sessionStorage.removeItem(stepUpKey(scope));
+export const STEP_UP_STATUS = 428;
+
+/* Which step-up scope a request belongs to. The assistant is included on purpose: it can
+   read Binder data, so it must carry the same proof (the server decides what to include). */
+function scopeForPath(path) {
+  if (path.startsWith("/binder")) return "binder";
+  if (path.startsWith("/assistant")) return "binder";
+  return null;
+}
+
+function authHeaders(path, extra) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const h = { ...(extra || {}), Authorization: `Bearer ${token}` };
+  const scope = scopeForPath(path);
+  const grant = scope ? getStepUp(scope) : null;
+  if (grant) h["X-Step-Up"] = grant;
+  return h;
+}
+
 export const API_BASE = API;
 
 // Absolute URL for a server-relative media/file path (the API already returns a token-gated
@@ -11,68 +38,72 @@ export function fileUrl(relPath) {
 
 // Multipart upload (media library). No Content-Type header — the browser sets the boundary.
 export async function uploadFile(path, formData) {
-  const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${API}${path}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(path),
     body: formData,
   });
-  if (!res.ok) await throwFor(res);
+  if (!res.ok) await throwFor(res, path);
   return res.json();
 }
 
 // Turn a non-2xx response into an Error carrying both the HTTP status and the
 // server's `detail` string, so callers can show the real reason ("A user with
 // that email already exists") instead of a generic message.
-async function throwFor(res) {
+async function throwFor(res, path) {
   const raw = await res.text();
   let detail = raw;
   try { detail = JSON.parse(raw).detail ?? raw; } catch { /* not JSON */ }
   const err = new Error(`${res.status} ${detail}`);
   err.status = res.status;
   err.detail = detail;
+  // A grant can expire mid-session. Drop it and tell the gate to re-lock, so the user gets
+  // the code prompt instead of a dead screen full of errors.
+  if (res.status === STEP_UP_STATUS) {
+    const scope = scopeForPath(path || "");
+    if (scope) {
+      clearStepUp(scope);
+      window.dispatchEvent(new CustomEvent("cc:step-up-required", { detail: { scope } }));
+    }
+  }
   throw err;
 }
 
 export async function getJSON(path) {
-  const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${API}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(path),
   });
-  if (!res.ok) await throwFor(res);
+  if (!res.ok) await throwFor(res, path);
   return res.json();
 }
 
 // Fetch a binary response (e.g. a stored document) with auth, as a Blob the caller can turn
 // into an object URL for inline preview. Same error surfacing as getJSON.
 export async function getBlob(path) {
-  const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${API}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(path),
   });
-  if (!res.ok) await throwFor(res);
+  if (!res.ok) await throwFor(res, path);
   return res.blob();
 }
 
 export async function postJSON(path, body) {
-  const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${API}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: authHeaders(path, { "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) await throwFor(res);
+  if (!res.ok) await throwFor(res, path);
   return res.json();
 }
 
 export async function putJSON(path, body) {
-  const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${API}${path}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: authHeaders(path, { "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) await throwFor(res);
+  if (!res.ok) await throwFor(res, path);
   return res.json();
 }
 
@@ -89,10 +120,9 @@ export async function login(email, password) {
 }
 
 export async function patchJSON(path, body) {
-  const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${API}${path}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: authHeaders(path, { "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -104,12 +134,11 @@ export async function patchJSON(path, body) {
 }
 
 export async function delJSON(path) {
-  const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${API}${path}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(path),
   });
-  if (!res.ok) await throwFor(res);
+  if (!res.ok) await throwFor(res, path);
   return res.json();
 }
 
@@ -148,6 +177,9 @@ export function setToken(token) {
 
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
+  // Never leave a section unlocked for whoever logs in next on this machine.
+  Object.keys(sessionStorage).filter((k) => k.startsWith("cc_stepup_"))
+    .forEach((k) => sessionStorage.removeItem(k));
 }
 
 export function hasToken() {

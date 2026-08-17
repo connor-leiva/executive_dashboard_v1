@@ -13,14 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_session, SessionLocal
-from ..deps import require_tab, require_role
+from ..deps import require_tab_with_step_up, require_role
 from ..models import User, Tenant, BinderDocument
 from ..services import binder, binder_ingest, binder_storage
 
 log = logging.getLogger("app")
 router = APIRouter(prefix="/binder", tags=["binder"])
 
-binder_user = require_tab("binder")     # members with the binder grant + owners/admins
+# Every Binder route depends on this ONE symbol, so the section can't grow a route that
+# forgets the second factor: tab grant AND a live step-up (see deps.require_step_up).
+binder_user = require_tab_with_step_up("binder", "binder")
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024     # 25 MB — comfortably covers scanned filings/policies
 

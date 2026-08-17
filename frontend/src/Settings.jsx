@@ -4,6 +4,7 @@ import { T, PROVIDER_NAME, relativeTime } from "./theme.js";
 import { getJSON, postJSON, putJSON, patchJSON, delJSON } from "./api.js";
 import { Icon } from "./Brand.jsx";
 import AISettings from "./AISettings.jsx";
+import SecuritySettings from "./SecuritySettings.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -46,13 +47,15 @@ function ensureProviders(rows) {
 
 // Members get a lone Account entry; owners/admins get the full management set.
 function subnavFor(role, aiOn) {
-  if (role === "member") return [{ to: "/settings/account", label: "Account" }];
+  if (role === "member") return [{ to: "/settings/security", label: "Security" },
+                                 { to: "/settings/account", label: "Account" }];
   const nav = [
     { to: "/settings/integrations", label: "Integrations" },
     { to: "/settings/users", label: "Team" },
     { to: "/settings/businesses", label: "Businesses" },
   ];
   if (aiOn) nav.push({ to: "/settings/ai", label: "AI Employees" });
+  nav.push({ to: "/settings/security", label: "Security" });
   nav.push({ to: "/settings/account", label: "Account" });
   return nav;
 }
@@ -1485,6 +1488,7 @@ export default function Settings() {
     <SettingsShell role={role} aiOn={aiOn}>
       <Routes>
         <Route path="account" element={<AccountPage />} />
+        <Route path="security" element={<SecuritySettings />} />
         {isAdmin && <Route path="integrations" element={<IntegrationsPage />} />}
         {isAdmin && <Route path="users" element={<UsersPage />} />}
         {isAdmin && <Route path="businesses" element={<BusinessesPage />} />}

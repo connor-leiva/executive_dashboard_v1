@@ -1,12 +1,12 @@
 import uuid
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session
-from .security import read_token
+from .security import read_token, read_capability
 from .models import User
 from .tenancy import current_tenant_id
 from .services.tabs import tenant_tabs, effective_tabs
@@ -65,6 +65,63 @@ async def assert_tab(user: User, s: AsyncSession, tab: str) -> None:
 def require_tab(tab: str):
     """Visibility guard for a fixed-tab route (forum, becollective, flywheel)."""
     async def dep(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)) -> User:
+        await assert_tab(user, s, tab)
+        return user
+    return dep
+
+
+# ── step-up (second factor) for a sensitive section ───────────────────────────────────────
+# Tab access says WHO may see a section; a step-up says they proved it again, recently. The
+# grant is the existing short-lived capability token (security.make_capability), minted only
+# by the section's /unlock route after a TOTP check, and sent back on the X-Step-Up header.
+STEP_UP_REQUIRED = 428          # Precondition Required — the client shows the code prompt
+# The sections that demand a second factor, and how long one unlock lasts. Defined HERE (not
+# in the totp router) so both the guards and the router read the same list without a cycle.
+STEP_UP_SCOPES = {"binder": 20}                 # scope -> grant minutes
+STEP_UP_SCOPE_NAMES = tuple(STEP_UP_SCOPES)
+
+
+def require_step_up(scope: str):
+    """Guard a section behind a live step-up grant for `scope`. 428 (not 403) so the client
+    can tell 'prove it again' apart from 'you don't have access'."""
+    async def dep(user: User = Depends(current_user),
+                  x_step_up: str | None = Header(default=None)) -> User:
+        if not x_step_up:
+            raise HTTPException(STEP_UP_REQUIRED, f"{scope} is locked — verification required")
+        try:
+            data = read_capability(x_step_up, f"stepup:{scope}")
+        except Exception:
+            raise HTTPException(STEP_UP_REQUIRED, "Verification expired — enter a new code")
+        # The grant is bound to the user AND their token_version, so disabling the account or
+        # rotating credentials kills an outstanding unlock too.
+        if data.get("sub") != str(user.id) or int(data.get("ver", -1)) != int(user.token_version or 0):
+            raise HTTPException(STEP_UP_REQUIRED, "Verification no longer valid")
+        return user
+    return dep
+
+
+def verified_scopes(header: str | None, user: User) -> set[str]:
+    """Which step-up scopes THIS request has proved — for routes that merely need to know
+    (e.g. the assistant deciding whether it may load a locked section's data). Never raises:
+    a missing/expired/foreign grant simply proves nothing."""
+    if not header:
+        return set()
+    for scope in STEP_UP_SCOPE_NAMES:
+        try:
+            data = read_capability(header, f"stepup:{scope}")
+        except Exception:
+            continue
+        if (data.get("sub") == str(user.id)
+                and int(data.get("ver", -1)) == int(user.token_version or 0)):
+            return {scope}
+    return set()
+
+
+def require_tab_with_step_up(tab: str, scope: str):
+    """Both gates: the tab grant AND a live step-up. One symbol so every route in a section
+    is covered by a single dependency (no route can be added that forgets the second factor)."""
+    async def dep(user: User = Depends(require_step_up(scope)),
+                  s: AsyncSession = Depends(get_session)) -> User:
         await assert_tab(user, s, tab)
         return user
     return dep

@@ -15,6 +15,7 @@ import BecollectiveView from "./BecollectiveView.jsx";
 import EdgeView from "./EdgeView.jsx";
 import Books from "./books/Books.jsx";
 import Binder from "./Binder.jsx";
+import StepUpGate from "./StepUpGate.jsx";
 import AIEmployees from "./AIEmployees.jsx";
 import { useAiEmployees } from "./useAiEmployees.js";
 import Assistant from "./Assistant.jsx";
@@ -1228,7 +1229,13 @@ export default function CommandCenter() {
   else if (activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
   else if (activeView === "books") content = <Books period={periodKey} role={user?.role} />;
-  else if (activeView === "binder") content = <Binder role={user?.role} />;
+  else if (activeView === "binder") content = (
+    // Binder holds entity/compliance records — gated by a second factor, not just tab access.
+    <StepUpGate scope="binder" usingSample={usingSample} title="Binder is locked"
+      blurb="This section holds your legal-entity and compliance records. Confirm it's you to open it — the unlock lasts 20 minutes.">
+      <Binder role={user?.role} />
+    </StepUpGate>
+  );
   else if (activeView === "ai_employees") content = <AIEmployees data={ai.data} loading={ai.loading} error={ai.error} reload={ai.reload} role={user?.role} />;
   else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKey} />;
 

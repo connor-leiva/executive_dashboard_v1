@@ -28,3 +28,17 @@ for _p in (_TEST_DB,
         _p.unlink()
     except FileNotFoundError:
         pass
+
+
+def binder_headers(token: str) -> dict:
+    """Auth headers PLUS a live Binder step-up grant.
+
+    Binder sits behind a second factor (see deps.require_tab_with_step_up). Enforcement of
+    that gate is covered by test_totp_stepup.py; every other Binder test is about what lives
+    BEHIND the gate, so it mints the grant directly instead of re-running enrollment.
+    """
+    from app.security import read_token, make_capability
+    payload = read_token(token)
+    grant = make_capability("stepup:binder", minutes=20,
+                            sub=payload["sub"], ver=int(payload.get("ver", 0)))
+    return {"Authorization": f"Bearer {token}", "X-Step-Up": grant}

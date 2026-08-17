@@ -67,6 +67,44 @@ def hash_action_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+# ── TOTP second factor (RFC 6238) — used for the Binder step-up unlock ────────────────────
+TOTP_ISSUER = "Acumyn"
+RECOVERY_CODE_COUNT = 10
+
+
+def new_totp_secret() -> str:
+    """A fresh base32 secret. Store it ENCRYPTED (enc()); never log or return it twice."""
+    import pyotp
+    return pyotp.random_base32()
+
+
+def totp_uri(secret: str, email: str) -> str:
+    """otpauth:// provisioning URI — the client renders the QR, so no server-side QR dep."""
+    import pyotp
+    return pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=TOTP_ISSUER)
+
+
+def verify_totp(secret: str, code: str) -> bool:
+    """Check a 6-digit code, allowing ±1 step (30s) for clock drift."""
+    import pyotp
+    code = (code or "").strip().replace(" ", "")
+    if not code.isdigit():
+        return False
+    return pyotp.TOTP(secret).verify(code, valid_window=1)
+
+
+def new_recovery_codes(n: int = RECOVERY_CODE_COUNT) -> tuple[list[str], list[str]]:
+    """(codes shown to the user ONCE, sha256 hashes to store). Without these, a lost phone
+    means nobody can open the section again without a database edit."""
+    raw = [f"{secrets.token_hex(2)}-{secrets.token_hex(2)}" for _ in range(n)]
+    return raw, [recovery_hash(c) for c in raw]
+
+
+def recovery_hash(code: str) -> str:
+    """Normalize before hashing so a user can retype a code with stray case/spaces."""
+    return hashlib.sha256((code or "").strip().lower().encode()).hexdigest()
+
+
 def enc(s: str) -> str:
     return _fernet.encrypt(s.encode()).decode()
 

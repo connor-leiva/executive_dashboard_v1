@@ -18,6 +18,7 @@ from app.models import (Tenant, User, Business, LegalEntity, BinderDocument, Obl
                         ClosePeriod)
 from app.security import make_token, hash_pw
 from app.services import binder_storage, binder, binder_extract
+from .conftest import binder_headers
 
 TRANSPORT = ASGITransport(app=app)
 
@@ -34,7 +35,7 @@ def _client():
 
 
 def _H(t):
-    return {"Authorization": f"Bearer {t}"}
+    return binder_headers(t)          # auth + the Binder step-up grant
 
 
 async def _tid():

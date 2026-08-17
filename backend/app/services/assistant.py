@@ -98,8 +98,11 @@ def _scope_dashboard(d, tabs):
     return d
 
 
-async def _build_context(s, user: User, period: str):
-    """Return (context_dict, tabs) — the data this user is allowed to see."""
+async def _build_context(s, user: User, period: str, step_up: set | None = None):
+    """Return (context_dict, tabs) — the data this user is allowed to see.
+    `step_up` carries the sections the caller has re-verified for this request; a section
+    behind a second factor is withheld without it, so the assistant can't be used as a
+    side door into data the section itself would have locked."""
     all_tabs = await tenant_tabs(s, user.tenant_id)
     tabs = list(all_tabs) if user.role in ("owner", "admin") else effective_tabs(user, all_tabs)
 
@@ -130,7 +133,7 @@ async def _build_context(s, user: User, period: str):
         data["forum_detail"] = await build_forum(s, user.tenant_id, period)
     if "becollective" in tabs:
         data["becollective_detail"] = await build_becollective(s, user.tenant_id, period)
-    if "binder" in tabs:
+    if "binder" in tabs and "binder" in (step_up or set()):
         from .binder import build_assistant_summary
         data["binder_detail"] = await build_assistant_summary(s, user.tenant_id)
 
@@ -191,8 +194,9 @@ async def _run_tool(s, user: User, allowed_tabs: list[str], period: str, inp: di
     return detail
 
 
-async def ask(s, user: User, question: str, history: list[dict] | None = None, period: str = "mtd") -> dict:
-    ctx, tabs = await _build_context(s, user, period)
+async def ask(s, user: User, question: str, history: list[dict] | None = None, period: str = "mtd",
+              step_up: set | None = None) -> dict:
+    ctx, tabs = await _build_context(s, user, period, step_up)
     system = _system_prompt(ctx, period)
 
     messages: list[dict] = []
