@@ -28,3 +28,5 @@ backend/probe_bc_utm.py
 
 # Recall.ai bot ledger (local, per-machine)
 backend/scripts/.recall_bots.json
+# Booking exports contain client names/emails — never commit
+backend/scripts/*.csv
