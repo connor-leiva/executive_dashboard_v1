@@ -63,6 +63,9 @@ _SC_FIELDS = {
     "call_outcome": ("call outcome",),
     "payment_type": ("payment type",),
     "cohort":       ("cohort",),
+    # Where the call actually happens. Connor named it "Appointment Link" in GHL and fills it
+    # from the booking webhook's Location Text; the aliases cover the obvious renames.
+    "meeting_url":  ("appointment link", "meeting link", "meeting url"),
 }
 # "Friday, August 14, 2026 at 8:30 AM" — the prose GHL writes for Call Time. Some bookings append
 # the attendee's zone ("… 8:30 AM EDT"); when present it's the REAL zone and we honor it.
