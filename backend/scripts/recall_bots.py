@@ -84,11 +84,14 @@ def main():
     ap.add_argument("--from-csv")
     ap.add_argument("--check", action="store_true", help="verify the API key and region, then exit")
     ap.add_argument("--test-url", help="send ONE bot to this meeting now (coordinate first!)")
-    # The timezone the CSV's clock times are written in. Verified 2026-08-18 by diffing 14
-    # bookings against GHL's Call Time: the sales portal renders CENTRAL, not Mountain.
-    # Getting this wrong sends every bot an hour late, silently.
+    # !! The sales portal renders times in the VIEWER'S BROWSER timezone - there is no fixed
+    # zone and no stored per-rep zone. Confirmed 2026-08-18: all 41 zone-suffixed bookings
+    # across all 7 reps resolved to one identical offset (UTC-5), which is the exporter's
+    # machine, not the reps'. So --tz must be whoever pulled the CSV. Default is Connor's
+    # (America/Chicago). Hand the export to someone in another zone and every bot is wrong,
+    # with nothing to notice.
     ap.add_argument("--tz", default="America/Chicago",
-                    help="timezone the CSV times are in (sales portal renders Central)")
+                    help="timezone of whoever EXPORTED the CSV (portal renders in the viewer's zone)")
     ap.add_argument("--region", default=os.getenv("RECALL_REGION", "us-west-2"))
     ap.add_argument("--lead", type=int, default=15, help="minutes before start to join")
     ap.add_argument("--go", action="store_true", help="actually create bots")
