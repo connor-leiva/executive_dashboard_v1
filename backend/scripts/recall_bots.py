@@ -8,7 +8,7 @@ Dry-run by default. Nothing is sent to Recall until you pass --go.
 Bot ids are recorded in scripts/.recall_bots.json so re-running never double-books.
 
 CSV columns (header row required): when,name,rep,meeting_url[,status]
-  when   = "2026-08-21 09:00"  (local, in --tz)
+  when   = "2026-08-21 09:00"  (clock time as the portal shows it; see --tz)
   status = optional; anything cancelled/rescheduled/no-show is skipped
 """
 import argparse, csv, datetime as dt, json, os, pathlib, re, sys
@@ -84,7 +84,11 @@ def main():
     ap.add_argument("--from-csv")
     ap.add_argument("--check", action="store_true", help="verify the API key and region, then exit")
     ap.add_argument("--test-url", help="send ONE bot to this meeting now (coordinate first!)")
-    ap.add_argument("--tz", default="America/Denver")
+    # The timezone the CSV's clock times are written in. Verified 2026-08-18 by diffing 14
+    # bookings against GHL's Call Time: the sales portal renders CENTRAL, not Mountain.
+    # Getting this wrong sends every bot an hour late, silently.
+    ap.add_argument("--tz", default="America/Chicago",
+                    help="timezone the CSV times are in (sales portal renders Central)")
     ap.add_argument("--region", default=os.getenv("RECALL_REGION", "us-west-2"))
     ap.add_argument("--lead", type=int, default=15, help="minutes before start to join")
     ap.add_argument("--go", action="store_true", help="actually create bots")
