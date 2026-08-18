@@ -134,7 +134,7 @@ def main():
         sys.exit("nothing to do: pass --check, --test-url, or --from-csv")
 
     rows = list(csv.DictReader(open(a.from_csv, encoding="utf-8-sig")))
-    ledger, made, skipped = load_ledger(), 0, 0
+    ledger, made, skipped, planned = load_ledger(), 0, 0, []
 
     with httpx.Client(timeout=30) as client:
         for row in rows:
@@ -159,6 +159,7 @@ def main():
             # Recall wants >=10 min of lead time for a guaranteed on-time join.
             join_at = max(start - dt.timedelta(minutes=a.lead), now + dt.timedelta(minutes=11))
             join_utc = join_at.astimezone(dt.timezone.utc)
+            planned.append((url, join_at, start, name))
             if not a.go:
                 print(f"  PLAN  {start:%a %m/%d %H:%M}  {name[:26]:<26} join {join_utc:%m/%d %H:%MZ}  {url[:46]}")
                 made += 1
@@ -169,6 +170,23 @@ def main():
                 save_ledger(ledger)
                 print(f"  BOT   {start:%a %m/%d %H:%M}  {name[:26]:<26} -> {bot}")
                 made += 1
+
+    # Three reps run every call through one static personal room, so two bots can be sitting
+    # in the SAME room at once - both record the same conversation and you cannot tell which
+    # recording belongs to which prospect. Warn loudly; the real fix is per-meeting links.
+    clashes = []
+    for i, (u1, j1, s1, n1) in enumerate(planned):
+        for u2, j2, s2, n2 in planned[i + 1:]:
+            if u1 == u2 and j2 < s1 + dt.timedelta(minutes=45) and j2 >= j1:
+                clashes.append((n1, s1, n2, j2))
+    if clashes:
+        print("\n  WARNING - same room, overlapping bots:")
+        for n1, s1, n2, j2 in clashes:
+            mins = int((s1 + dt.timedelta(minutes=45) - j2).total_seconds() // 60)
+            print(f"    {n2}'s bot joins {j2:%a %H:%M} while {n1}'s call ({s1:%H:%M}) may still"
+                  f" be running - {mins} min of overlap")
+        print("    both bots record the same room. Re-run with --lead 5 to shrink the window,")
+        print("    or move that rep to per-meeting Zoom links.")
 
     verb = "would create" if not a.go else "created"
     print(f"\n{verb} {made} bot(s); skipped {skipped}.  ledger: {LEDGER}")
