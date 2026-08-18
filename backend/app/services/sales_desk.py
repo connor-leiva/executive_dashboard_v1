@@ -32,6 +32,10 @@ DEFAULT_OUTCOME_MAP = {
     "no show": OUT_NO_SHOW, "noshow": OUT_NO_SHOW, "no-show": OUT_NO_SHOW,
     "cancelled": OUT_CANCELLED, "canceled": OUT_CANCELLED, "cancel": OUT_CANCELLED,
     "rescheduled": OUT_RESCHEDULED, "reschedule": OUT_RESCHEDULED, "resched": OUT_RESCHEDULED,
+    # Outcome-only values: the sales portal offers these but NO pipeline stage matches them,
+    # so stage_map can't supply them (and putting them there would mis-bucket the funnel if a
+    # stage were ever named this). Reaching a decision means the call happened.
+    "decided no": OUT_SHOWED, "decided yes": OUT_SHOWED, "decided": OUT_SHOWED,
 }
 # Reps record the DISPOSITION they reached in Call Outcome, using the same vocabulary as the
 # pipeline stages. That vocabulary is already configured once, in the launch's stage_map (and

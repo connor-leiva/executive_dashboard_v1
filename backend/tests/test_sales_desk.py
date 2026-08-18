@@ -122,6 +122,11 @@ def test_outcome_vocabulary_comes_from_stage_grouping_not_a_second_copy():
     assert sd.norm_outcome("cancelled", held_phrases=held) == "Cancelled"
     assert sd.norm_outcome("something nobody mapped", held_phrases=held) is None
 
+    # "Decided No" is offered by the sales portal but matches NO pipeline stage, so it lives
+    # in the outcome map rather than stage_map (Connor's portal export, 2026-08-18).
+    assert sd.norm_outcome("Decided No", held_phrases=held) == "Showed"
+    assert sd.norm_outcome("Decided Yes", held_phrases=held) == "Showed"
+
     # ONE source of truth: renaming a disposition in Stage Grouping teaches the outcome field
     custom = dict(DEFAULT_STAGE_MAP, link_sent=["contract out"])
     held2 = sd.held_phrases_for(_L(custom))
