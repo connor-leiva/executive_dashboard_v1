@@ -19,6 +19,7 @@ import ScorecardSettings from "./ScorecardSettings.jsx";
 export default function Scorecard({ role, shareToken = null }) {
   const { data, reload } = useScorecard(13, shareToken);
   const isAdmin = !shareToken && (role === "owner" || role === "admin");   // no Share/Settings inside an embed
+  const canEditValues = !shareToken;   // hand-entered KPIs are self-serve: anyone with scorecard access edits them (server enforces the same; auto rows stay admin-only)
 
   const [cumOpen, setCumOpen] = useState(true);
   const [rangeId, setRangeId] = useState("13");   // "4" | "13" | "qtd"
@@ -117,7 +118,7 @@ export default function Scorecard({ role, shareToken = null }) {
   return (
     <>
       {drill && (
-        <DrillDrawer drill={drill} canEdit={isAdmin} onClose={() => setDrill(null)} onSaved={reload} />
+        <DrillDrawer drill={drill} canEdit={canEditValues} onClose={() => setDrill(null)} onSaved={reload} />
       )}
       {isAdmin && settingsOpen && (
         <ScorecardSettings groups={data.groups} onClose={() => setSettingsOpen(false)} onChanged={reload} />

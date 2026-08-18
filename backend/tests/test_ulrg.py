@@ -6,7 +6,8 @@ from sqlalchemy import select
 from app.main import app
 from app.seed import seed
 from app.db import SessionLocal
-from app.models import Tenant, ScorecardMetric
+from app.models import Tenant, ScorecardMetric, User
+from app.security import hash_pw, make_token
 from app.seed_ulrg_scorecard import load_ulrg_scorecard
 
 TRANSPORT = ASGITransport(app=app)
@@ -33,6 +34,17 @@ async def _owner_token():
 
 def _H(t):
     return {"Authorization": f"Bearer {t}"}
+
+
+async def _mk_user(email, role="member", tabs=None):
+    """Create a user directly (test setup) and return a bearer token."""
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        u = User(tenant_id=t.id, email=email.lower(), name=email.split("@")[0],
+                 password_hash=hash_pw("password123"), role=role, status="active",
+                 tab_access=tabs, token_version=0)
+        s.add(u); await s.commit()
+        return make_token(u.id, t.id, 0)
 
 
 async def test_scorecard_payload_shape_and_snapshot_rule():
@@ -71,3 +83,27 @@ async def test_manual_value_entry_and_role_gate():
         v = (await s.execute(select(ScorecardValue).where(
             ScorecardValue.metric_id == mid, ScorecardValue.week_start == dt.date(2026, 7, 27)))).scalar_one()
         assert float(v.value) == 41 and v.source == "manual"
+
+
+async def test_manual_kpis_are_self_serve_but_auto_rows_stay_admin_only():
+    owner = await _owner_token()
+    member = await _mk_user("kpi-member@x.com", tabs=["ulrg"])       # can see the scorecard
+    outsider = await _mk_user("no-ulrg@x.com", tabs=["forum"])       # cannot
+    async with _client() as c:
+        rows = [row for g in (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()["groups"]
+                for row in g["rows"]]
+        manual = next(r for r in rows if not r["auto"])
+        auto = next(r for r in rows if r["auto"])
+
+        # a member who has scorecard access may edit a HAND-ENTERED measurable (the KPI they own)
+        r = await c.post("/api/v1/ulrg/scorecard/values", headers=_H(member),
+                         json={"metric_id": manual["id"], "week_start": "2026-07-27", "value": 7})
+        assert r.status_code == 201
+        # …but must NOT hand-override an auto (resolver-sourced) row
+        r = await c.post("/api/v1/ulrg/scorecard/values", headers=_H(member),
+                         json={"metric_id": auto["id"], "week_start": "2026-07-27", "value": 7})
+        assert r.status_code == 403
+        # …and someone without ULRG access can't edit at all (require_tab gates the route)
+        r = await c.post("/api/v1/ulrg/scorecard/values", headers=_H(outsider),
+                         json={"metric_id": manual["id"], "week_start": "2026-07-27", "value": 7})
+        assert r.status_code == 403

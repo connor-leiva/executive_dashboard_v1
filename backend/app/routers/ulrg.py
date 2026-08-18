@@ -78,16 +78,19 @@ class ValueIn(BaseModel):
 
 
 @router.post("/scorecard/values", status_code=201)
-async def set_value(body: ValueIn, user: User = Depends(current_user),
+async def set_value(body: ValueIn, user: User = Depends(require_tab("ulrg")),
                     s: AsyncSession = Depends(get_session)):
-    """Manual entry (Part 3.3). Owner/admin, or the metric's owner. A manual write to a
-    resolver-sourced metric wins until the next resolver run; that conflict is logged (audited)."""
+    """Manual entry (Part 3.3). SELF-SERVE: anyone who can see the scorecard (require_tab) may edit a
+    hand-entered measurable — these are KPIs individuals own and update themselves, not an admin-only
+    task. An AUTO (resolver-sourced) row stays locked to owner/admin (or the metric's owner): a member
+    must not hand-override a live feed — that's an audited correction, and the next resolver run would
+    revert it anyway."""
     m = (await s.execute(select(ScorecardMetric).where(
         ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.id == body.metric_id))).scalar_one_or_none()
     if not m:
         raise HTTPException(404, "Unknown metric")
-    if user.role not in ("owner", "admin") and m.owner_user_id != user.id:
-        raise HTTPException(403, "Not allowed to edit this metric")
+    if m.resolver_key and user.role not in ("owner", "admin") and m.owner_user_id != user.id:
+        raise HTTPException(403, "This measurable is auto-sourced — only an owner or admin can override it")
     try:
         wk = dt.date.fromisoformat(body.week_start)
     except ValueError:
