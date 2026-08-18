@@ -25,3 +25,6 @@ consent_audit_out/
 frontend/brand-src/
 LAUNCH-TAB-UI-BRIEF.md
 backend/probe_bc_utm.py
+
+# Recall.ai bot ledger (local, per-machine)
+backend/scripts/.recall_bots.json
