@@ -72,7 +72,7 @@ def create_bot(client, base, key, meeting_url, join_at_utc, label):
     }
     r = client.post(f"{base}/api/v1/bot/", headers={"Authorization": f"Token {key}"}, json=payload)
     if r.status_code >= 300:
-        # Print the API's own error verbatim — a wrong recording_config key shows up here,
+        # Print the API's own error verbatim - a wrong recording_config key shows up here,
         # which is faster than guessing at the schema.
         print(f"    !! {r.status_code} {r.text[:400]}")
         return None
@@ -82,6 +82,8 @@ def create_bot(client, base, key, meeting_url, join_at_utc, label):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--from-csv")
+    ap.add_argument("--check", action="store_true", help="verify the API key and region, then exit")
+    ap.add_argument("--test-url", help="send ONE bot to this meeting now (coordinate first!)")
     ap.add_argument("--tz", default="America/Denver")
     ap.add_argument("--region", default=os.getenv("RECALL_REGION", "us-west-2"))
     ap.add_argument("--lead", type=int, default=15, help="minutes before start to join")
@@ -96,6 +98,40 @@ def main():
 
     # Vanity / redirect links -> the real room. Add a line per rep who uses one.
     overrides = {"allisonhare.com/zoom": "https://us02web.zoom.us/j/9507511092"}
+
+    # --check and --test-url keep the operator out of curl, whose quoting differs between
+    # PowerShell and bash. Same command shape everywhere.
+    if a.check:
+        with httpx.Client(timeout=30) as c:
+            try:
+                r = c.get(f"{base}/api/v1/bot/", headers={"Authorization": f"Token {key}"})
+            except Exception as e:
+                sys.exit(f"FAIL  could not reach {base}  -  check --region "
+                         f"(yours is '{a.region}').  {e}")
+        if r.status_code == 200:
+            n = len((r.json() or {}).get("results", []) if isinstance(r.json(), dict) else r.json() or [])
+            print(f"PASS  key works, region '{a.region}' is right.  {n} bot(s) on the account so far.")
+            return
+        if r.status_code in (401, 403):
+            sys.exit(f"FAIL  {r.status_code} - the key was rejected. Copy it again from the dashboard.")
+        sys.exit(f"FAIL  {r.status_code} - probably the wrong region. {r.text[:200]}")
+
+    if a.test_url:
+        url = resolve_url(a.test_url, overrides)
+        if not url:
+            sys.exit(f"that doesn't look like a joinable meeting link: {a.test_url}")
+        print(f"sending one bot to {url} now.")
+        print("make sure whoever owns that room is expecting it - a personal room may have a")
+        print("real call in it, and the bot would join uninvited.")
+        if input("type YES to send: ").strip() != "YES":
+            sys.exit("cancelled.")
+        with httpx.Client(timeout=30) as c:
+            bot = create_bot(c, base, key, url, dt.datetime.now(dt.timezone.utc), "test")
+        print(f"bot {bot} sent - watch the meeting for it." if bot else "no bot created (see error above).")
+        return
+
+    if not a.from_csv:
+        sys.exit("nothing to do: pass --check, --test-url, or --from-csv")
 
     rows = list(csv.DictReader(open(a.from_csv, encoding="utf-8-sig")))
     ledger, made, skipped = load_ledger(), 0, 0
@@ -116,7 +152,7 @@ def main():
             elif start <= now:                                    why = "already started"
             elif not url:                                         why = f"no joinable link ({row.get('meeting_url','')[:40]})"
             if why:
-                print(f"  skip  {start:%a %m/%d %H:%M}  {name[:26]:<26} — {why}")
+                print(f"  skip  {start:%a %m/%d %H:%M}  {name[:26]:<26} - {why}")
                 skipped += 1
                 continue
 
