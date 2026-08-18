@@ -85,6 +85,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
   const [sel, setSel] = useState(null);          // selected rep_email (client-side board filter)
   const [rosterOpen, setRosterOpen] = useState(false);
   const [drill, setDrill] = useState(null);      // {metric, rep} currently drilled into
+  const [openRep, setOpenRep] = useState(null);  // rep card expanded on phones
   const isEditor = !role || role === "owner" || role === "admin";
   const t = data.totals;
   const tz = data.default_tz || "America/Denver";
@@ -128,6 +129,27 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-clear { border:none; background:none; font:inherit; font-size:11px; font-weight:600; color:${T.petalDeep}; cursor:pointer; padding:0; }
 
         .sd-tblwrap { overflow-x:auto; }
+        .sd-cards { display:none; }
+        .sd-c { border:1px solid ${T.line}; border-radius:12px; padding:11px 12px; margin-bottom:9px; }
+        .sd-c.sel { border-color:${T.petalDeep}; background:${alpha(T.petal, .07)}; }
+        .sd-c-top { display:flex; align-items:center; gap:8px; margin-bottom:9px; }
+        .sd-c-name { flex:1; min-width:0; text-align:left; font:inherit; font-size:13.5px; font-weight:600;
+          color:${T.ink}; background:none; border:none; padding:0; cursor:pointer; }
+        .sd-c-more { flex:none; font:inherit; font-size:11px; font-weight:600; color:${T.petalDeep};
+          background:none; border:none; padding:6px 2px; cursor:pointer; min-height:34px; }
+        .sd-c-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+        .sd-c-grid.more { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:10px;
+          padding-top:10px; border-top:1px solid ${alpha(T.line, .7)}; }
+        .sd-c-stat { min-width:0; }
+        .sd-c-l { display:block; font-size:9.5px; font-weight:700; letter-spacing:.07em;
+          text-transform:uppercase; color:${T.tertiary}; }
+        .sd-c-v { display:block; font-family:Poppins,sans-serif; font-size:17px; font-weight:700;
+          margin-top:2px; font-variant-numeric:tabular-nums; color:${T.ink}; }
+        .sd-c-foot { font-size:10.5px; color:${T.tertiary}; line-height:1.5; margin-top:4px; }
+        @media (max-width:700px) {
+          .sd-tblwrap { display:none; }      /* 12 columns never read well on a phone */
+          .sd-cards { display:block; }
+        }
         .sd-tbl { width:100%; border-collapse:collapse; }
         .sd-tbl th { font-size:10px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:${T.muted};
           text-align:right; padding:6px 7px; border-bottom:1px solid ${T.line}; white-space:nowrap; }
@@ -257,6 +279,59 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                   {isEditor && <> · <button className="sd-clear" onClick={() => setRosterOpen(true)}>manage reps</button></>}
                 </span>
               </div>
+              {/* Phones get a card per rep instead of a 12-column table: the four numbers you'd
+                  actually check standing up, with the rest one tap away. Both render; the
+                  media query shows exactly one. */}
+              <div className="sd-cards">
+                {data.reps.map((r) => {
+                  const k = repKey(r);
+                  const openCard = openRep === (k || "__u");
+                  const stat = (label, node) => (
+                    <div className="sd-c-stat" key={label}>
+                      <span className="sd-c-l">{label}</span>
+                      <span className="sd-c-v">{node}</span>
+                    </div>
+                  );
+                  return (
+                    <div className={`sd-c${sel === k ? " sel" : ""}`} key={k || "u"}>
+                      <div className="sd-c-top">
+                        <button className="sd-c-name" onClick={() => setSel(sel === k ? null : k)}>
+                          <RepName email={r.rep_email} name={r.display_name} unmapped={r.unmapped} unassigned={r.unassigned} />
+                        </button>
+                        <button className="sd-c-more" aria-expanded={openCard}
+                          aria-label={openCard ? "Hide detail" : "Show detail"}
+                          onClick={() => setOpenRep(openCard ? null : (k || "__u"))}>
+                          {openCard ? "Less ⌃" : "More ⌄"}
+                        </button>
+                      </div>
+                      <div className="sd-c-grid">
+                        {stat("Booked", <N m="kpi.booked" rep={k}>{r.booked}</N>)}
+                        {stat("Held", <N m="kpi.held" rep={k}>{r.held}</N>)}
+                        {stat("Show %", r.show_rate == null ? "-" :
+                          <N m="kpi.show_rate" rep={k}><span className={`rate ${r.show_rate >= 70 ? "good" : "warn"}`}>{Math.round(r.show_rate)}%</span></N>)}
+                        {stat("Won", <N m="kpi.won" rep={k}><span className="em">{r.won}</span></N>)}
+                      </div>
+                      {openCard && (
+                        <div className="sd-c-grid more">
+                          {stat("No-show", <N m="kpi.no_show" rep={k}>{r.noshow}</N>)}
+                          {stat("Canc", <N m="kpi.cancelled" rep={k}>{r.cancelled}</N>)}
+                          {stat("Likely Yes", <N m="kpi.likely_yes" rep={k}>{r.likely_yes}</N>)}
+                          {stat("Likely No", <N m="kpi.likely_no" rep={k}>{r.likely_no}</N>)}
+                          {stat("Link Sent", <N m="kpi.link_sent" rep={k}>{r.link_sent}</N>)}
+                          {stat("Paid", <N m="kpi.paid" rep={k}>{r.paid}</N>)}
+                          {stat("Close %", r.close_rate == null ? "-" :
+                            <N m="kpi.close_rate" rep={k}><span className={`rate ${r.close_rate >= 50 ? "good" : ""}`}>{Math.round(r.close_rate)}%</span></N>)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                <div className="sd-c-foot">
+                  Counts are launch-to-date calls from Acumyn's own event log, so a rebooked no-show
+                  still counts as a no-show. Show rate = held / (held + no-show + cancelled).
+                </div>
+              </div>
+
               <div className="sd-tblwrap">
                 <table className="sd-tbl">
                   <thead><tr>
@@ -285,7 +360,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                         </tr>
                       );
                     })}
-                    <tr className="sd-tfoot"><td colSpan="10">
+                    <tr className="sd-tfoot"><td colSpan="12">
                       Counts are launch-to-date calls from Acumyn's own event log, so a rebooked no-show still
                       counts as a no-show. Show rate = held / (held + no-show + cancelled).
                     </td></tr>
