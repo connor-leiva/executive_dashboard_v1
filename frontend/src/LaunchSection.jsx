@@ -704,16 +704,27 @@ function RecordingPlayer({ businessKey, callId, title, onClose }) {
           {err && <span style={{ color: T.onDark, fontSize: 12.5, padding: 40, textAlign: "center" }}>{err}</span>}
         </div>
 
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-          padding: "10px 16px", fontSize: 11, color: T.muted,
-        }}>
-          <span>Streamed from Recall — the link expires after a few hours and is re-issued each time.</span>
-          {url && <a href={url} download style={{ color: T.teal, fontWeight: 600, whiteSpace: "nowrap" }}>Download</a>}
-        </div>
+        {url && (
+          <div style={{ display: "flex", justifyContent: "flex-end", padding: "9px 16px" }}>
+            <a href={url} download style={{ fontSize: 11, fontWeight: 600, color: T.teal }}>Download</a>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+/* "Casey Styers — Call Recording · Wed, Aug 19 at 10:30 AM" — the two things you need to
+   know which call you are looking at. Rendered in the launch's timezone, not UTC. */
+export function recordingTitle(name, whenIso, tz) {
+  const who = (name || "Call").trim();
+  if (!whenIso) return `${who} — Call Recording`;
+  const d = new Date(whenIso);
+  if (isNaN(d)) return `${who} — Call Recording`;
+  const opts = { timeZone: tz || undefined };
+  const day = new Intl.DateTimeFormat("en-US", { ...opts, weekday: "short", month: "short", day: "numeric" }).format(d);
+  const time = new Intl.DateTimeFormat("en-US", { ...opts, hour: "numeric", minute: "2-digit" }).format(d);
+  return `${who} — Call Recording · ${day} at ${time}`;
 }
 
 /* The link that opens it. The media URL is never stored - it is minted per click. */
@@ -728,7 +739,7 @@ export function WatchLink({ businessKey, callId, label = "Watch ↗", title }) {
   );
 }
 
-export function DrillRecords({ d, businessKey = "springb" }) {
+export function DrillRecords({ d, businessKey = "springb", tz }) {
   const cols = d.columns || [];
   return (
     <>
@@ -750,7 +761,7 @@ export function DrillRecords({ d, businessKey = "springb" }) {
                            baked into this payload would be dead by tomorrow. */
                         : (typeof r[c] === "string" && r[c].startsWith("rec:"))
                           ? <WatchLink businessKey={businessKey} callId={r[c].slice(4)}
-                                        title={r.contact ? `${r.contact} — call recording` : undefined} />
+                                        title={recordingTitle(r.contact, r.when_iso, tz)} />
                           : (typeof r[c] === "string" && /^https?:\/\//.test(r[c]))
                             ? <a href={r[c]} target="_blank" rel="noreferrer">Watch ↗</a>
                             : (r[c] === true ? "✓" : r[c] === false || r[c] == null || r[c] === "" ? "—" : r[c])}

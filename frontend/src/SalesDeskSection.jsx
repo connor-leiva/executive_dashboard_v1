@@ -5,7 +5,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { T, alpha } from "./theme.js";
 import { getJSON, putJSON, postJSON, delJSON } from "./api";
-import { DrillRecords, DrillCalc, WatchLink } from "./LaunchSection.jsx";
+import { DrillRecords, DrillCalc, WatchLink, recordingTitle } from "./LaunchSection.jsx";
 
 const kM = (n) => {
   const a = Math.abs(Math.round(n || 0));
@@ -43,7 +43,7 @@ function N({ m, rep, children, title }) {
   );
 }
 
-function SDDrawer({ drill, businessKey, usingSample, onClose }) {
+function SDDrawer({ drill, businessKey, usingSample, tz, onClose }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
   useEffect(() => {
@@ -67,7 +67,7 @@ function SDDrawer({ drill, businessKey, usingSample, onClose }) {
           {err === "sample" && <div className="drx-note">Drill-down loads with live data (this is sample mode).</div>}
           {err && err !== "sample" && <div className="drx-note">{err}</div>}
           {!d && !err && <div className="drx-note">Loading…</div>}
-          {d && d.type === "records" && <DrillRecords d={d} businessKey={businessKey} />}
+          {d && d.type === "records" && <DrillRecords d={d} businessKey={businessKey} tz={tz} />}
           {d && d.type === "calc" && <DrillCalc d={d} />}
         </div>
       </div>
@@ -427,7 +427,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                         {c.recording_id && c.recording_status === "done"
                           ? <span className="sd-rec" title="Watch the recording">
                               <WatchLink businessKey={businessKey} callId={c.recording_id} label="▶"
-                                         title={c.contact_name ? `${c.contact_name} — call recording` : undefined} />
+                                         title={recordingTitle(c.contact_name, c.call_time_utc, tz)} />
                             </span>
                           : c.recording_status === "waiting"
                             ? <span className="sd-rec wait" title="Bot is in the waiting room — admit it">◷</span>
@@ -504,7 +504,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
             onClose={() => setRosterOpen(false)} onSaved={onSaved} />
         )}
         {drill && (
-          <SDDrawer drill={drill} businessKey={businessKey} usingSample={usingSample}
+          <SDDrawer drill={drill} businessKey={businessKey} usingSample={usingSample} tz={tz}
             onClose={() => setDrill(null)} />
         )}
       </div>

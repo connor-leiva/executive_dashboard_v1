@@ -751,6 +751,9 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
         if rec_on:
             row["recording"] = (f"rec:{c.id}" if c.recording_status == "done"
                                 else (c.recording_status or "—"))
+            # Not a column - carried so the player can title itself with the appointment
+            # time in the launch's timezone rather than the UTC string the table shows.
+            row["when_iso"] = t.isoformat() if t else None
         return row
 
     CALL_COLS = ["contact", "rep", "time", "status", "current"] + (["recording"] if rec_on else [])
