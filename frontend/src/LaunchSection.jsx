@@ -677,7 +677,7 @@ function TalkRatio({ speakers }) {
    The transcript sits beside it and is the point: nobody reads 45 minutes, so every line is
    a seek target. Styles are inline on purpose - the .drx-* drawer CSS is scoped per-file and
    this renders from both the Launch and Sales Desk tabs. */
-function RecordingPlayer({ businessKey, callId, title, onClose }) {
+function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
   const [url, setUrl] = useState(null);
   const [err, setErr] = useState(null);
   const [retried, setRetried] = useState(false);
@@ -770,6 +770,10 @@ function RecordingPlayer({ businessKey, callId, title, onClose }) {
               {url && (
                 <video ref={videoRef} src={url} controls autoPlay preload="metadata"
                        onError={onVideoError}
+                       onLoadedMetadata={(e) => {
+                         // Arriving from a search hit: land on the sentence, not the top.
+                         if (startAt > 0) { e.currentTarget.currentTime = startAt; }
+                       }}
                        onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
                        style={{ width: "100%", maxHeight: "62vh", display: "block" }} />
               )}
@@ -854,13 +858,13 @@ export function recordingTitle(name, whenIso, tz) {
 }
 
 /* The link that opens it. The media URL is never stored - it is minted per click. */
-export function WatchLink({ businessKey, callId, label = "Watch ↗", title }) {
+export function WatchLink({ businessKey, callId, label = "Watch ↗", title, startAt, children }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <a href="#" onClick={(e) => { e.preventDefault(); setOpen(true); }}>{label}</a>
+      <a href="#" onClick={(e) => { e.preventDefault(); setOpen(true); }}>{children || label}</a>
       {open && <RecordingPlayer businessKey={businessKey} callId={callId} title={title}
-                                onClose={() => setOpen(false)} />}
+                                startAt={startAt} onClose={() => setOpen(false)} />}
     </>
   );
 }

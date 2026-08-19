@@ -103,6 +103,129 @@ function LinkRecordings({ businessKey, onDone }) {
   );
 }
 
+/* ── Search every call ─────────────────────────────────────────────────────────────────────
+   The transcript panel makes ONE call navigable. This makes the corpus answerable: "which
+   calls did price come up on" is a question the Desk could not answer before, and the notes
+   field never could - reps write what they remember, not what was said.
+
+   A result names the call AND the moments, and a moment opens the player on that sentence.
+   Anything less is a list of calls to go scrub through by hand. */
+function fmtHit(sec) {
+  const s = Math.max(0, Math.round(sec || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function Highlight({ text, term }) {
+  const i = term ? text.toLowerCase().indexOf(term.toLowerCase()) : -1;
+  if (i < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark style={{ background: alpha(T.daffodil, 0.55), color: T.ink, padding: "0 1px" }}>
+        {text.slice(i, i + term.length)}
+      </mark>
+      {text.slice(i + term.length)}
+    </>
+  );
+}
+
+function CallSearch({ businessKey, tz, usingSample }) {
+  const [q, setQ] = useState("");
+  const [res, setRes] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const run = async (e) => {
+    e?.preventDefault?.();
+    const term = q.trim();
+    if (term.length < 2 || busy) return;
+    setBusy(true); setErr(null);
+    try {
+      setRes(await getJSON(
+        `/businesses/${businessKey}/launches/active/sales-desk/search?q=${encodeURIComponent(term)}`));
+    } catch (e2) {
+      setErr(e2.detail || e2.message || "Search failed");
+    } finally { setBusy(false); }
+  };
+
+  const clear = () => { setQ(""); setRes(null); setErr(null); };
+
+  return (
+    <>
+      <form onSubmit={run} style={{ display: "flex", gap: 7, alignItems: "center" }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)}
+               placeholder="Search what was said on any call…"
+               style={{
+                 fontFamily: "Inter,sans-serif", fontSize: 12.5, padding: "7px 11px",
+                 border: `1px solid ${T.line}`, borderRadius: 9, color: T.ink,
+                 background: T.white, width: 250, maxWidth: "52vw", boxSizing: "border-box",
+               }} />
+        <button type="submit" disabled={busy || q.trim().length < 2} className="sd-clear"
+                style={{ opacity: busy || q.trim().length < 2 ? 0.45 : 1 }}>
+          {busy ? "searching…" : "search"}
+        </button>
+        {res && <button type="button" className="sd-clear" onClick={clear}>clear</button>}
+      </form>
+
+      {(res || err) && (
+        <div className="drx-scrim" onClick={clear}>
+          <div className="drx" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="drx-head">
+              <span className="drx-title">
+                {err ? "Search" : `“${res.q}” — ${res.count} call${res.count === 1 ? "" : "s"}`}
+              </span>
+              <button className="drx-x" onClick={clear} aria-label="Close">✕</button>
+            </div>
+            <div className="drx-body">
+              {err && <div className="drx-note">{err}</div>}
+              {res && res.too_short && <div className="drx-note">Type at least two characters.</div>}
+              {res && !res.too_short && res.count === 0 && (
+                <div className="drx-empty">Nothing said that in any recorded call.</div>
+              )}
+              {res && (res.calls || []).map((c) => (
+                <div key={c.call_id} style={{
+                  padding: "10px 2px", borderBottom: `1px solid ${alpha(T.line, 0.5)}`,
+                }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+                    {c.contact}
+                    <span style={{ fontWeight: 500, color: T.muted, marginLeft: 7, fontSize: 11 }}>
+                      {c.when_iso
+                        ? new Intl.DateTimeFormat("en-US", {
+                            timeZone: tz || undefined, month: "short", day: "numeric",
+                            hour: "numeric", minute: "2-digit",
+                          }).format(new Date(c.when_iso))
+                        : "—"}
+                      {c.outcome ? ` · ${c.outcome}` : ""}
+                      {c.total_hits > c.hits.length ? ` · ${c.total_hits} mentions` : ""}
+                    </span>
+                  </div>
+                  {c.hits.map((h, i) => (
+                    <div key={i} style={{ marginTop: 6, paddingLeft: 2 }}>
+                      <WatchLink businessKey={businessKey} callId={c.call_id} startAt={h.start}
+                                 title={recordingTitle(c.contact, c.when_iso, tz)}>
+                        <span style={{ fontSize: 11, color: T.tertiary,
+                                       fontVariantNumeric: "tabular-nums" }}>{fmtHit(h.start)}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6,
+                                       color: h.is_host ? T.evergreen : T.teal }}>{h.speaker}</span>
+                      </WatchLink>
+                      <div style={{ fontSize: 12, color: T.slate, lineHeight: 1.45, marginTop: 1 }}>
+                        <Highlight text={h.text} term={res.q} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {res && res.truncated && (
+                <div className="drx-note">Showing the most recent {(res.calls || []).length}.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 const repKey = (r) => (r.unassigned ? "__unassigned__" : r.rep_email);
 const RepName = ({ email, name, unmapped, unassigned }) =>
   unassigned ? <>Unassigned <span className="flagchip">no host</span></>
@@ -285,6 +408,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
           <span className="sd-ctx-h">beCollective</span>
           <span className="sd-ctx-s">Sales Desk · rep throughput &amp; call schedule · launch to date</span>
           <span className="sd-spacer" />
+          {!usingSample && <CallSearch businessKey={businessKey} tz={tz} usingSample={usingSample} />}
           <span className="sd-pill"><span className="pdot" />In launch window</span>
         </div>
 

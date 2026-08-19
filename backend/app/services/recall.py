@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import CallTranscript, SalesCall
+from .sales_desk import title_name
 
 # Statuses we store. Recall emits more; these are the ones that mean something operationally.
 ST_SCHEDULED, ST_WAITING, ST_RECORDING = "scheduled", "waiting", "recording"
@@ -562,6 +563,63 @@ async def purge_expired_transcripts(s: AsyncSession, now: dt.datetime | None = N
         await s.commit()
         print(f"[recall] purged {len(rows)} transcript(s) past retention", flush=True)
     return len(rows)
+
+
+# ── search across the corpus (Phase 2) ────────────────────────────────────────────────────
+# A result that only says WHICH call mentioned something is a wall of text with extra steps.
+# What makes this useful is landing on the moment, so every hit carries its offset and the
+# UI opens the player there.
+SEARCH_MIN_CHARS = 2
+SEARCH_MAX_CALLS = 60
+SEARCH_MAX_HITS = 6
+
+
+async def search_transcripts(s: AsyncSession, tenant_id, launch_id, q: str) -> dict:
+    """Find calls whose transcript contains `q`, with the moments it was said.
+
+    ILIKE over the stored text rather than a full-text index: at ~250 calls a month this is
+    a scan of a few thousand rows and is honest about what it does. If the corpus grows past
+    that, the upgrade is a Postgres tsvector column on the same data - no shape change here.
+    """
+    q = (q or "").strip()
+    if len(q) < SEARCH_MIN_CHARS:
+        return {"q": q, "count": 0, "calls": [], "too_short": True}
+
+    rows = (await s.execute(
+        select(CallTranscript, SalesCall)
+        .join(SalesCall, SalesCall.id == CallTranscript.sales_call_id)
+        .where(CallTranscript.tenant_id == tenant_id,
+               SalesCall.launch_id == launch_id,
+               CallTranscript.text.ilike(f"%{q}%"))
+    )).all()
+
+    needle = q.lower()
+    calls = []
+    for tr, sc in rows:
+        hits = []
+        for seg in (tr.segments or []):
+            if needle in (seg.get("text") or "").lower():
+                hits.append({"start": seg.get("start"), "speaker": seg.get("speaker"),
+                             "is_host": seg.get("is_host"), "text": seg.get("text")})
+                if len(hits) >= SEARCH_MAX_HITS:
+                    break
+        if not hits:
+            continue                     # matched the flattened "Speaker: " prefix only
+        t = sc.call_time_utc
+        calls.append({
+            "call_id": str(sc.id),
+            "contact": title_name(sc.contact_name) or "-",
+            "rep_email": sc.rep_email,
+            "outcome": sc.outcome,
+            "when_iso": (t if t is None or t.tzinfo else t.replace(tzinfo=dt.timezone.utc)).isoformat() if t else None,
+            "hits": hits,
+            "total_hits": sum(1 for seg in (tr.segments or [])
+                              if needle in (seg.get("text") or "").lower()),
+        })
+
+    calls.sort(key=lambda c: c["when_iso"] or "", reverse=True)
+    return {"q": q, "count": len(calls), "calls": calls[:SEARCH_MAX_CALLS],
+            "truncated": len(calls) > SEARCH_MAX_CALLS}
 
 
 async def apply_bot_status(s: AsyncSession, bot_id: str, status: str,

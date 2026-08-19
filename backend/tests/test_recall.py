@@ -851,3 +851,81 @@ async def test_retention_actually_deletes(monkeypatch):
         n = await recall.purge_expired_transcripts(s, now=NOW)
         left = (await s.execute(select(CallTranscript))).scalars().all()
     assert n == 1 and left == []
+
+
+async def test_search_finds_the_call_and_the_moment(monkeypatch):
+    """A result that only names the call leaves you scrubbing a 20-minute recording for it.
+    Every hit carries its offset so the player can open on the sentence."""
+    from app.models import CallTranscript
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 12, tzinfo=U)
+
+    async def add(name, when, utts):
+        async with SessionLocal() as s:
+            sc = SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=name, booking_id=name,
+                           contact_name=name, rep_email="a@x.com", is_current=True,
+                           outcome="Showed", call_time_utc=when)
+            s.add(sc)
+            await s.flush()
+            parsed = recall.parse_transcript(utts)
+            s.add(CallTranscript(tenant_id=tid, sales_call_id=sc.id, segments=parsed["segments"],
+                                 text=parsed["text"], speakers=parsed["speakers"],
+                                 duration_s=parsed["duration_s"]))
+            await s.commit()
+
+    await add("Casey Styers", NOW - dt.timedelta(days=1), [
+        _utt("Aimee", True, [("what brought you in", 10.0, 12.0)]),
+        _utt("Casey Styers", False, [("so what does it cost", 60.0, 62.0)]),
+        _utt("Aimee", True, [("twelve thousand or a payment plan", 90.0, 95.0)]),
+    ])
+    await add("Nellie Krueger", NOW - dt.timedelta(days=2), [
+        _utt("Nellie Krueger", False, [("I love the community idea", 5.0, 8.0)]),
+    ])
+
+    async with SessionLocal() as s:
+        r = await recall.search_transcripts(s, tid, lid, "payment plan")
+    assert r["count"] == 1, r
+    call = r["calls"][0]
+    assert call["contact"] == "Casey Styers"
+    assert call["hits"][0]["start"] == 90.0            # the MOMENT, not just the call
+    assert call["hits"][0]["is_host"] is True          # said by the rep
+    assert "twelve thousand" in call["hits"][0]["text"]
+
+    # case-insensitive, and a term in neither call finds nothing
+    async with SessionLocal() as s:
+        assert (await recall.search_transcripts(s, tid, lid, "PAYMENT PLAN"))["count"] == 1
+        assert (await recall.search_transcripts(s, tid, lid, "refund policy"))["count"] == 0
+        # a term in both returns both, newest first ("cost" / "community")
+        both = await recall.search_transcripts(s, tid, lid, "co")
+        assert [c["contact"] for c in both["calls"]] == ["Casey Styers", "Nellie Krueger"]
+
+
+async def test_search_refuses_a_query_too_short_to_mean_anything():
+    """Without this, an empty box scans every transcript in the corpus on each keystroke."""
+    tid, lid = await _launch()
+    async with SessionLocal() as s:
+        for q in ("", " ", "a"):
+            r = await recall.search_transcripts(s, tid, lid, q)
+            assert r["too_short"] and r["count"] == 0, q
+
+
+async def test_search_never_leaks_across_launches():
+    """Transcripts are visible to anyone with the tab - that is scoped to THIS launch, not
+    to every call the tenant has ever recorded."""
+    from app.models import CallTranscript
+    tid, lid = await _launch()
+    async with SessionLocal() as s:
+        sc = SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="x", booking_id="x",
+                       contact_name="Mine", is_current=True,
+                       call_time_utc=dt.datetime(2026, 8, 19, tzinfo=U))
+        s.add(sc)
+        await s.flush()
+        s.add(CallTranscript(tenant_id=tid, sales_call_id=sc.id, text="secret word here",
+                             segments=[{"start": 1.0, "speaker": "A", "is_host": False,
+                                        "text": "secret word here"}]))
+        await s.commit()
+    import uuid as _uuid
+    async with SessionLocal() as s:
+        mine = await recall.search_transcripts(s, tid, lid, "secret")
+        other = await recall.search_transcripts(s, tid, _uuid.uuid4(), "secret")
+    assert mine["count"] == 1 and other["count"] == 0

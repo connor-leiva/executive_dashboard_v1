@@ -118,6 +118,24 @@ async def drill_active_sales_desk(key: str, metric: str, rep: str | None = None,
     return await drill_sales_desk(s, user.tenant_id, launch, metric, rep=rep)
 
 
+@router.get("/businesses/{key}/launches/active/sales-desk/search")
+async def sales_desk_search(key: str, q: str = "",
+                            user: User = Depends(current_user),
+                            s: AsyncSession = Depends(get_session)):
+    """Search every stored transcript in the active launch.
+
+    Returns the calls AND the moments, because a result that only names the call leaves you
+    scrubbing for it. Tab-gated like the rest of the Desk; never on the public share routes.
+    """
+    from ..services.recall import search_transcripts
+    b = await _biz(s, user.tenant_id, key)
+    await assert_tab(user, s, _launch_tab(b))
+    launch = await active_launch_for(s, user.tenant_id, b.id)
+    if not launch:
+        raise HTTPException(404, "No active launch")
+    return await search_transcripts(s, user.tenant_id, launch.id, q)
+
+
 @router.get("/businesses/{key}/launches/active/sales-desk/transcript/{call_id}")
 async def sales_desk_transcript(key: str, call_id: uuid.UUID,
                                 user: User = Depends(current_user),
