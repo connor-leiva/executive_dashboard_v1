@@ -13,7 +13,7 @@ from sqlalchemy import select, delete
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Business, Launch, SalesCall
+from app.models import Business, CallTranscript, Launch, SalesCall
 from app.seed import seed
 from app.services import recall
 from app.services.launch import DEFAULT_STAGE_MAP, DEFAULT_PAYMENT_PLAN_MAP
@@ -30,6 +30,7 @@ async def _seeded():
 async def _launch():
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(CallTranscript))     # bulk delete does not cascade on SQLite
         await s.execute(delete(SalesCall))
         await s.execute(delete(Launch).where(Launch.business_id == biz.id))
         L = Launch(tenant_id=biz.tenant_id, business_id=biz.id, name="R", program="beCollective",
@@ -736,3 +737,117 @@ async def test_a_bot_already_linked_to_another_call_is_never_re_claimed(monkeypa
         got = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
     assert got["Alreadylinked"] == "bot-10"
     assert got["Neighbour"] != "bot-10", "a bot must belong to exactly one call"
+
+
+# ── transcripts (Phase 1) ─────────────────────────────────────────────────────────────────
+
+def _utt(name, host, chunks):
+    """One entry in Recall's real payload shape, confirmed against a live call 2026-08-19."""
+    return {"participant": {"name": name, "is_host": host, "email": None},
+            "words": [{"text": t,
+                       "start_timestamp": {"relative": a, "absolute": "2026-08-19T14:41:50Z"},
+                       "end_timestamp": {"relative": b, "absolute": "2026-08-19T14:41:55Z"}}
+                      for t, a, b in chunks],
+            "language_code": "en-US"}
+
+
+def test_transcript_parses_recalls_real_shape():
+    """Not a guess: a LIST of utterances, each with participant.name / is_host and a words[]
+    whose entries are caption CHUNKS (35 chars over 4.4s in the sample), timed by
+    start_timestamp.relative - seconds from the top of the recording, which is what the
+    player seeks to."""
+    doc = [
+        _utt("Casey Styers", False, [("so what does it actually cost", 0.06, 4.44)]),
+        _utt("Casey Styers", False, [("like all in", 5.0, 6.5)]),          # merges with above
+        _utt("Brianna Wood", True, [("twelve thousand", 8.0, 11.0), ("or a plan", 11.1, 13.0)]),
+        _utt("Casey Styers", False, [("thats a third of what I make", 40.0, 45.0)]),  # gap: own turn
+    ]
+    r = recall.parse_transcript(doc)
+    segs = r["segments"]
+    assert [s["speaker"] for s in segs] == ["Casey Styers", "Brianna Wood", "Casey Styers"]
+    assert segs[0]["text"] == "so what does it actually cost like all in"
+    assert segs[0]["start"] == 0.06 and segs[0]["end"] == 6.5
+    assert segs[1]["is_host"] is True                       # is_host marks the REP
+    assert r["duration_s"] == 45
+    # talk ratio comes free from the same data
+    assert r["speakers"]["Brianna Wood"]["seconds"] == 5.0
+    assert round(r["speakers"]["Casey Styers"]["seconds"], 1) == 11.4
+    # flattened for search
+    assert "twelve thousand" in r["text"] and "Brianna Wood:" in r["text"]
+
+
+def test_transcript_parser_survives_junk():
+    """It runs unattended on every finished call; one odd payload must not stall the tick."""
+    assert recall.parse_transcript([])["segments"] == []
+    assert recall.parse_transcript(None)["segments"] == []
+    assert recall.parse_transcript([{"participant": {"name": "X"}}])["segments"] == []   # no words
+    assert recall.parse_transcript(["nonsense", 7])["segments"] == []
+    # an entry with no name still counts rather than being dropped
+    r = recall.parse_transcript([_utt("", False, [("hello", 1.0, 2.0)])])
+    assert r["segments"][0]["speaker"] == "Unknown"
+
+
+async def test_transcripts_are_stored_once_with_a_retention_date(monkeypatch):
+    """Connor's decisions: store (so the corpus is queryable) and keep one year. The purge
+    date is written at insert time - a verbatim record of a client conversation must not
+    outlive its policy because nobody remembered to apply one later."""
+    from app.models import CallTranscript
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 18, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_TRANSCRIPT_RETAIN_DAYS", 365)
+
+    async with SessionLocal() as s:
+        s.add_all([
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="d", booking_id="d",
+                      contact_name="Done", is_current=True, call_time_utc=NOW,
+                      recall_bot_id="bot-done", recording_status="done"),
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="w", booking_id="w",
+                      contact_name="Waiting", is_current=True, call_time_utc=NOW,
+                      recall_bot_id="bot-wait", recording_status="waiting"),
+        ])
+        await s.commit()
+
+    parsed = recall.parse_transcript([_utt("Rep", True, [("hi", 0.0, 1.0)])])
+
+    async def fake_fetch(bot_id):
+        return parsed if bot_id == "bot-done" else None
+    monkeypatch.setattr(recall, "fetch_transcript", fake_fetch)
+
+    async with SessionLocal() as s:
+        stat = await recall.store_transcripts(s, now=NOW)
+        rows = (await s.execute(select(CallTranscript))).scalars().all()
+    assert stat.get("transcripts_stored") == 1, stat
+    assert len(rows) == 1                                   # only the finished recording
+    want = NOW + dt.timedelta(days=365)
+    got = rows[0].purge_after
+    got = got if got.tzinfo else got.replace(tzinfo=U)      # SQLite returns naive
+    assert got == want
+    assert rows[0].text and rows[0].duration_s == 1
+
+    # a second pass must not duplicate it
+    async with SessionLocal() as s:
+        again = await recall.store_transcripts(s, now=NOW)
+        rows = (await s.execute(select(CallTranscript))).scalars().all()
+    assert not again.get("transcripts_stored") and len(rows) == 1
+
+
+async def test_retention_actually_deletes(monkeypatch):
+    """A retention policy that is never enforced is just a comment."""
+    from app.models import CallTranscript
+    tid, lid = await _launch()
+    NOW = dt.datetime(2027, 9, 1, tzinfo=U)
+    async with SessionLocal() as s:
+        sc = SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="o", booking_id="o",
+                       contact_name="Old", is_current=True, call_time_utc=NOW)
+        s.add(sc)
+        await s.flush()
+        s.add_all([
+            CallTranscript(tenant_id=tid, sales_call_id=sc.id, text="expired",
+                           purge_after=NOW - dt.timedelta(days=1)),
+        ])
+        await s.commit()
+    async with SessionLocal() as s:
+        n = await recall.purge_expired_transcripts(s, now=NOW)
+        left = (await s.execute(select(CallTranscript))).scalars().all()
+    assert n == 1 and left == []

@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import SalesCall
+from ..models import CallTranscript, SalesCall
 
 # Statuses we store. Recall emits more; these are the ones that mean something operationally.
 ST_SCHEDULED, ST_WAITING, ST_RECORDING = "scheduled", "waiting", "recording"
@@ -423,6 +423,145 @@ async def fresh_recording_url(bot_id: str) -> str | None:
         if isinstance(body.get(k), str):
             return body[k]
     return None
+
+
+# ── transcripts ───────────────────────────────────────────────────────────────────────────
+# Shape confirmed against a real call (2026-08-19), not guessed: the payload is a LIST of
+# utterances, each carrying participant {name, is_host, ...} and a words[] array whose
+# entries hold text plus start/end timestamps. Despite the field name a "word" is a caption
+# chunk - 35 characters over 4.4 seconds in the sample - because the provider is
+# meeting_captions. `relative` is seconds from the top of the recording, which is exactly
+# what the player needs to seek.
+_MERGE_GAP_S = 3.0        # join a speaker's consecutive chunks into readable paragraphs...
+_MERGE_MAX_S = 45.0       # ...but never so long that seeking loses precision
+
+
+def parse_transcript(doc) -> dict:
+    """Recall's transcript payload -> segments the UI can render and seek to."""
+    if not isinstance(doc, list):
+        doc = (doc or {}).get("transcript") or (doc or {}).get("results") or []
+    raw = []
+    for item in doc:
+        if not isinstance(item, dict):
+            continue
+        part = item.get("participant") or {}
+        speaker = (part.get("name") or "").strip() or "Unknown"
+        words = [w for w in (item.get("words") or []) if isinstance(w, dict)]
+        if not words:
+            continue
+
+        def rel(w, key):
+            v = (w.get(key) or {})
+            return v.get("relative") if isinstance(v, dict) else None
+
+        start = rel(words[0], "start_timestamp")
+        end = rel(words[-1], "end_timestamp")
+        text = " ".join((w.get("text") or "").strip() for w in words).strip()
+        if not text or start is None:
+            continue
+        raw.append({"speaker": speaker, "is_host": bool(part.get("is_host")),
+                    "start": float(start), "end": float(end if end is not None else start),
+                    "text": text})
+
+    raw.sort(key=lambda x: x["start"])
+    segments: list = []
+    for seg in raw:
+        prev = segments[-1] if segments else None
+        if (prev and prev["speaker"] == seg["speaker"]
+                and seg["start"] - prev["end"] <= _MERGE_GAP_S
+                and seg["end"] - prev["start"] <= _MERGE_MAX_S):
+            prev["end"] = seg["end"]
+            prev["text"] = f"{prev['text']} {seg['text']}".strip()
+        else:
+            segments.append(dict(seg))
+
+    # Talk ratio comes free: seconds of speech per person, and is_host marks the rep.
+    speakers: dict = {}
+    for seg in segments:
+        e = speakers.setdefault(seg["speaker"], {"seconds": 0.0, "is_host": seg["is_host"]})
+        e["seconds"] = round(e["seconds"] + max(0.0, seg["end"] - seg["start"]), 1)
+    for seg in segments:
+        seg["start"], seg["end"] = round(seg["start"], 2), round(seg["end"], 2)
+
+    return {
+        "segments": segments,
+        "text": "\n".join(f"{s['speaker']}: {s['text']}" for s in segments),
+        "speakers": speakers,
+        "duration_s": int(round(max((s["end"] for s in segments), default=0))),
+    }
+
+
+async def fetch_transcript(bot_id: str) -> dict | None:
+    """Download and parse one bot's transcript, or None if there isn't one yet."""
+    if not (settings.RECALL_API_KEY and bot_id):
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=60) as c:
+            r = await c.get(f"{_base()}/api/v1/bot/{bot_id}/",
+                            headers={"Authorization": f"Token {settings.RECALL_API_KEY}"})
+            r.raise_for_status()
+            body = r.json()
+            for rec in (body.get("recordings") or []):
+                tr = ((rec.get("media_shortcuts") or {}).get("transcript") or {})
+                if ((tr.get("status") or {}).get("code")) != "done":
+                    continue
+                url = (tr.get("data") or {}).get("download_url")
+                if not url:
+                    continue
+                t = await c.get(url)
+                t.raise_for_status()
+                return parse_transcript(t.json())
+    except Exception as e:                              # noqa: BLE001 — surface as "not yet"
+        print(f"[recall] transcript fetch failed for {bot_id}: {type(e).__name__}: {e}", flush=True)
+    return None
+
+
+async def store_transcripts(s: AsyncSession, now: dt.datetime | None = None) -> dict:
+    """Fetch and store transcripts for finished recordings that do not have one yet.
+
+    Retention is written at insert time, never inferred later: a verbatim record of a client
+    conversation should not outlive its policy because nobody remembered to apply one.
+    """
+    if not settings.RECALL_API_KEY:
+        return {}
+    now = now or dt.datetime.now(dt.timezone.utc)
+    have = set((await s.execute(select(CallTranscript.sales_call_id))).scalars())
+    rows = (await s.execute(
+        select(SalesCall).where(
+            SalesCall.recall_bot_id.is_not(None),
+            SalesCall.recording_status == ST_DONE,
+        ))).scalars().all()
+    todo = [c for c in rows if c.id not in have][:settings.RECALL_TRANSCRIPT_BATCH]
+    stat: dict = {}
+    for sc in todo:
+        parsed = await fetch_transcript(sc.recall_bot_id)
+        if not parsed or not parsed.get("segments"):
+            stat["transcript_not_ready"] = stat.get("transcript_not_ready", 0) + 1
+            continue
+        s.add(CallTranscript(
+            tenant_id=sc.tenant_id, sales_call_id=sc.id, recall_bot_id=sc.recall_bot_id,
+            segments=parsed["segments"], text=parsed["text"], speakers=parsed["speakers"],
+            duration_s=parsed["duration_s"],
+            purge_after=now + dt.timedelta(days=settings.RECALL_TRANSCRIPT_RETAIN_DAYS)))
+        stat["transcripts_stored"] = stat.get("transcripts_stored", 0) + 1
+    if stat.get("transcripts_stored"):
+        await s.commit()
+    return stat
+
+
+async def purge_expired_transcripts(s: AsyncSession, now: dt.datetime | None = None) -> int:
+    """Delete transcripts past their retention date. Connor set one year."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    rows = (await s.execute(
+        select(CallTranscript).where(
+            CallTranscript.purge_after.is_not(None),
+            CallTranscript.purge_after <= now))).scalars().all()
+    for t in rows:
+        await s.delete(t)
+    if rows:
+        await s.commit()
+        print(f"[recall] purged {len(rows)} transcript(s) past retention", flush=True)
+    return len(rows)
 
 
 async def apply_bot_status(s: AsyncSession, bot_id: str, status: str,

@@ -155,6 +155,10 @@ class Settings(BaseSettings):
     RECALL_URL_OVERRIDES: str = ""            # "vanity.com/zoom=https://real,..." for redirect links
     RECALL_ADOPT_LOOKBACK_DAYS: int = 14      # link bots created outside the app to PAST calls too
     RECALL_ADOPT_LOOKAHEAD_DAYS: int = 30     # ...and to calls further out than the scheduling window
+    # Transcripts are STORED (Connor, 2026-08-19) so the corpus can be searched and analysed.
+    # Retention is a deliberate policy, not an oversight - one year, enforced by a purge job.
+    RECALL_TRANSCRIPT_RETAIN_DAYS: int = 365
+    RECALL_TRANSCRIPT_BATCH: int = 25         # per tick, so a backlog never stalls the worker
 
     DEV_TENANT_SLUG: str = "springb"
     SINGLE_TENANT_FALLBACK: bool = True

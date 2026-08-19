@@ -15,7 +15,7 @@ import secrets
 from ..config import settings
 from ..db import get_session
 from ..deps import current_user, require_role, assert_tab
-from ..models import User, Business, Launch, SalesCall, SalesRep, ShareLink
+from ..models import CallTranscript, User, Business, Launch, SalesCall, SalesRep, ShareLink
 from ..schemas import LaunchResponse, LaunchUpsert
 from ..services.audit import audit
 from ..services.launch import (
@@ -116,6 +116,35 @@ async def drill_active_sales_desk(key: str, metric: str, rep: str | None = None,
     if not launch:
         raise HTTPException(404, "No active launch")
     return await drill_sales_desk(s, user.tenant_id, launch, metric, rep=rep)
+
+
+@router.get("/businesses/{key}/launches/active/sales-desk/transcript/{call_id}")
+async def sales_desk_transcript(key: str, call_id: uuid.UUID,
+                                user: User = Depends(current_user),
+                                s: AsyncSession = Depends(get_session)):
+    """One call's stored transcript: speaker-labelled segments with seek offsets.
+
+    Visible to anyone with the Sales Desk tab (Connor, 2026-08-19) - authorization is the
+    tab, as with every other figure on it. Never served from the public share routes.
+    """
+    b = await _biz(s, user.tenant_id, key)
+    await assert_tab(user, s, _launch_tab(b))
+    launch = await active_launch_for(s, user.tenant_id, b.id)
+    if not launch:
+        raise HTTPException(404, "No active launch")
+    sc = (await s.execute(select(SalesCall).where(
+        SalesCall.id == call_id,
+        SalesCall.tenant_id == user.tenant_id,
+        SalesCall.launch_id == launch.id))).scalar_one_or_none()
+    if sc is None:
+        raise HTTPException(404, "No such call")
+    tr = (await s.execute(select(CallTranscript).where(
+        CallTranscript.sales_call_id == sc.id,
+        CallTranscript.tenant_id == user.tenant_id))).scalar_one_or_none()
+    if tr is None:
+        raise HTTPException(404, "No transcript for this call yet")
+    return {"segments": tr.segments or [], "speakers": tr.speakers or {},
+            "duration_s": tr.duration_s}
 
 
 @router.post("/businesses/{key}/launches/active/sales-desk/recordings/link")

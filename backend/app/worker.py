@@ -105,6 +105,26 @@ async def recall_tick():
         print(f"[recall] {stat}", flush=True)
 
 
+async def transcript_tick():
+    """Store transcripts for finished recordings, and purge any past their retention date.
+
+    Both halves run together on purpose: the job that CREATES the records is the job that
+    expires them, so retention can't quietly stop being enforced while ingestion continues.
+    """
+    if not settings.RECALL_API_KEY:
+        return
+    from .services.recall import purge_expired_transcripts, store_transcripts
+    async with SessionLocal() as s:
+        try:
+            stat = await store_transcripts(s)
+            purged = await purge_expired_transcripts(s)
+        except Exception as e:                       # noqa: BLE001 - never kill the scheduler
+            print(f"[recall] transcript tick failed: {type(e).__name__}: {e}", flush=True)
+            return
+    if stat or purged:
+        print(f"[recall] transcripts {stat} purged={purged}", flush=True)
+
+
 def build_scheduler() -> AsyncIOScheduler:
     """Configure the scheduler with the sync tick, the daily agent-roster + scorecard-resolver ticks,
     and (when the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`)
@@ -118,6 +138,9 @@ def build_scheduler() -> AsyncIOScheduler:
     if settings.RECALL_API_KEY:
         sched.add_job(recall_tick, "interval", minutes=settings.RECALL_TICK_MINUTES,
                       next_run_time=dt.datetime.now())
+        # Transcripts land minutes after a call ends, so this need not be as eager as the
+        # bot scheduler - and it carries the retention purge with it.
+        sched.add_job(transcript_tick, "interval", minutes=15, next_run_time=dt.datetime.now())
     if settings.AI_EMPLOYEES_ENABLED:
         sched.add_job(ai_dispatch, "interval", minutes=1, next_run_time=dt.datetime.now())
         sched.add_job(ai_execute, "interval", seconds=15, next_run_time=dt.datetime.now())
