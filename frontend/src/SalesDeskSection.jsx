@@ -196,7 +196,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-bar span { display:block; height:100%; }
         .sd-mixfoot { font-size:11px; color:${T.tertiary}; } .sd-mixfoot b { font-family:Poppins,sans-serif; color:${T.ink}; }
 
-        .sd-health { background:${T.white}; border:1px solid ${alpha(T.amber, .3)}; border-radius:16px; padding:16px 20px; }
+        .sd-health { background:${T.white}; border:1px solid ${alpha(T.amber, .3)}; border-radius:16px;
+          padding:18px 20px 16px; }
         .sd-health .sd-title { color:${T.amber}; }
         .sd-hrow { display:flex; gap:11px; align-items:baseline; padding:9px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
         /* The last row's padding would stack on the card's own, so the block looked
@@ -421,7 +422,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                   ))}
                 </div>
 
-                <div className="sd-health" style={{ marginTop: 14 }}>
+                <div className="sd-health">
                   <div className="sd-head" style={{ marginBottom: 10 }}><span className="sd-title">Data Health</span></div>
                   {(data.warnings || []).length === 0 && <div className="sd-empty">All clear.</div>}
                   {(data.warnings || []).map((h, i) => (
