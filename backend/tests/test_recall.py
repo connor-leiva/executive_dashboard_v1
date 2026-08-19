@@ -293,3 +293,42 @@ async def test_two_calls_in_one_shared_room_cannot_claim_the_same_bot(monkeypatc
 
 async def _resp(r):
     return r
+
+
+async def test_the_bot_joins_before_the_call_not_after_it(monkeypatch):
+    """Recall guarantees an on-time join only when join_at is >=10 minutes out, so a call has
+    to be picked up while it is still that far away. A window of lead+tick alone meant every
+    call was found with ~10 minutes left, floored to now+11, and the bot walked in AFTER the
+    call had started - on every booking, with nothing to indicate it."""
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 12, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_LEAD_MINUTES", 5)
+    monkeypatch.setattr(settings, "RECALL_TICK_MINUTES", 5)
+
+    start = NOW + dt.timedelta(minutes=18)          # a normal call, found on an ordinary tick
+    async with SessionLocal() as s:
+        s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="p", booking_id="p",
+                        contact_name="Punctual", meeting_url=ZOOM, is_current=True,
+                        call_time_utc=start))
+        await s.commit()
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"results": []}
+    monkeypatch.setattr(httpx.AsyncClient, "get", lambda self, url, **kw: _resp(FakeResp()))
+    sent = []
+
+    async def fake_create(client, url, join_at):
+        sent.append(join_at)
+        return "bot-x", ""
+    monkeypatch.setattr(recall, "create_bot", fake_create)
+
+    async with SessionLocal() as s:
+        await recall.schedule_due_bots(s, now=NOW)
+
+    assert sent, "the call was never picked up"
+    join_at = sent[0]
+    assert join_at < start, "the bot must join BEFORE the call starts"
+    assert join_at >= NOW + dt.timedelta(minutes=10), "Recall needs >=10 min of lead"
+    assert join_at == start - dt.timedelta(minutes=5), "and it should honour the configured lead"

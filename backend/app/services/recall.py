@@ -223,7 +223,11 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
         return {}
     now = now or dt.datetime.now(dt.timezone.utc)
     lead = dt.timedelta(minutes=settings.RECALL_LEAD_MINUTES)
-    horizon = now + lead + dt.timedelta(minutes=settings.RECALL_TICK_MINUTES)
+    # Recall only guarantees an on-time join when join_at is >=10 min out, so a call has to be
+    # picked up while it is still (lead + 10) minutes away. With a horizon of just lead+tick, a
+    # call entering the window would be floored to now+11 - i.e. the bot arrives AFTER the call
+    # started, on every single booking. The extra 10 minutes is what makes the lead real.
+    horizon = now + lead + dt.timedelta(minutes=settings.RECALL_TICK_MINUTES + 10)
 
     rows = (await s.execute(
         select(SalesCall).where(
