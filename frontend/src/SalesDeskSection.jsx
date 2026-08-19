@@ -374,8 +374,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
             <div className="sd-cols">
               <div className="sd-card">
                 <div className="sd-head"><span className="sd-title">Call Board</span>
-                  <span className="sd-sub">next 48 hours{sel ? " · filtered" : ""}{calls.length ? ` · ${calls.length}` : ""}</span></div>
-                {calls.length === 0 && <div className="sd-empty">No calls for this rep in the window.</div>}
+                  <span className="sd-sub">all upcoming{sel ? " · filtered" : ""}{calls.length ? ` · ${calls.length}` : ""}</span></div>
+                {calls.length === 0 && <div className="sd-empty">No upcoming calls for this rep.</div>}
                 <div className="sd-scroll">
                   {calls.map((c, i) => {
                     const f = fmtCall(c.call_time_utc, tz, now);

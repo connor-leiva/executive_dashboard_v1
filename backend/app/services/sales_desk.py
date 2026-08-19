@@ -579,7 +579,9 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     rep_rows.sort(key=lambda r: (r["unassigned"], -r["booked"]))   # Unassigned always shown, last
 
     # call board: today → +48h, current bookings, by call time; unscheduled last (§8)
-    win_end = now + dt.timedelta(hours=48)
+    # The board runs from the start of today with NO upper bound - Connor wants every
+    # upcoming call visible, not a 48-hour slice, since the far-out ones are exactly the
+    # bookings that go stale unnoticed. The card scrolls, so length is not a layout problem.
     day_start = dt.datetime.combine(today, dt.time.min, tzinfo=dt.timezone.utc)
 
     def call_row(c, uns=False):
@@ -588,7 +590,7 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
                     outcome=effective_outcome(c), unscheduled=uns, unmapped=unmapped(c.rep_email),
                     recording_url=c.recording_url, recording_status=c.recording_status)
     board = sorted((c for c in calls if c.is_current and c.call_time_utc
-                    and day_start <= _aw(c.call_time_utc) <= win_end), key=lambda c: _aw(c.call_time_utc))
+                    and _aw(c.call_time_utc) >= day_start), key=lambda c: _aw(c.call_time_utc))
     unsched = [c for c in calls if c.is_current and c.call_time_utc is None
                and effective_outcome(c) is None]
     calls_out = [call_row(c) for c in board] + [call_row(c, True) for c in unsched]

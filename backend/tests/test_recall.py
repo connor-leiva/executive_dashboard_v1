@@ -332,3 +332,22 @@ async def test_the_bot_joins_before_the_call_not_after_it(monkeypatch):
     assert join_at < start, "the bot must join BEFORE the call starts"
     assert join_at >= NOW + dt.timedelta(minutes=10), "Recall needs >=10 min of lead"
     assert join_at == start - dt.timedelta(minutes=5), "and it should honour the configured lead"
+
+
+async def test_the_call_board_shows_every_upcoming_call_not_a_48_hour_slice():
+    """Connor, 2026-08-18: the far-out bookings are exactly the ones that go stale unnoticed,
+    so the board runs from the start of today with no upper bound."""
+    from app.services import sales_desk as sd
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 12, tzinfo=U)
+    async with SessionLocal() as s:
+        for name, days in (("EarlierToday", -0.2), ("Tomorrow", 1), ("NextWeek", 7), ("Fortnight", 15)):
+            s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=name, booking_id=name,
+                            contact_name=name, rep_email="a@x.com", is_current=True,
+                            call_time_utc=NOW + dt.timedelta(days=days)))
+        await s.commit()
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        d = await sd.compute_sales_desk(s, tid, L, now=NOW)
+
+    on_board = [c["contact_name"] for c in d["calls"]]
+    assert on_board == ["EarlierToday", "Tomorrow", "NextWeek", "Fortnight"], on_board
