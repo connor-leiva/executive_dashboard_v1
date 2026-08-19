@@ -162,7 +162,7 @@ async def sales_desk_transcript(key: str, call_id: uuid.UUID,
     if tr is None:
         raise HTTPException(404, "No transcript for this call yet")
     return {"segments": tr.segments or [], "speakers": tr.speakers or {},
-            "duration_s": tr.duration_s}
+            "duration_s": tr.duration_s, "chapters": tr.chapters or []}
 
 
 @router.post("/businesses/{key}/launches/active/sales-desk/recordings/link")

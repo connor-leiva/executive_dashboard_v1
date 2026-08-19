@@ -159,6 +159,12 @@ class Settings(BaseSettings):
     # Retention is a deliberate policy, not an oversight - one year, enforced by a purge job.
     RECALL_TRANSCRIPT_RETAIN_DAYS: int = 365
     RECALL_TRANSCRIPT_BATCH: int = 25         # per tick, so a backlog never stalls the worker
+    # Chapters (topic segmentation for the review player). Reuses ANTHROPIC_API_KEY and is a
+    # no-op without it. Haiku by default: chaptering is a well-bounded task and this runs once
+    # per call, so the cheaper model is the right one — set to "" to fall back to
+    # ASSISTANT_MODEL, or name any model to override.
+    RECALL_CHAPTER_MODEL: str = "claude-haiku-4-5-20251001"
+    RECALL_CHAPTER_BATCH: int = 15            # per tick; one model call each
 
     DEV_TENANT_SLUG: str = "springb"
     SINGLE_TENANT_FALLBACK: bool = True

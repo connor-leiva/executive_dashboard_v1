@@ -670,6 +670,12 @@ class CallTranscript(Base):
     segments: Mapped[list | None] = mapped_column(JSONType, nullable=True)
     text: Mapped[str | None] = mapped_column(Text, nullable=True)          # flattened, for search
     speakers: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # {name: seconds} -> talk ratio
+    # [{start, title, len}] — topic segmentation, generated once from `segments` after the
+    # transcript lands. Nullable on purpose and never backfilled on read: null means "not
+    # generated yet", [] means "generated and this call had no discernible structure", and the
+    # UI hides the rail for both. Lives on this row so it purges with the words it describes.
+    chapters: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    chapters_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # A verbatim record of a client conversation is not something to keep by accident. The

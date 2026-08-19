@@ -113,6 +113,7 @@ async def transcript_tick():
     """
     if not settings.RECALL_API_KEY:
         return
+    from .services.call_chapters import generate_pending
     from .services.recall import purge_expired_transcripts, store_transcripts
     async with SessionLocal() as s:
         try:
@@ -121,6 +122,13 @@ async def transcript_tick():
         except Exception as e:                       # noqa: BLE001 - never kill the scheduler
             print(f"[recall] transcript tick failed: {type(e).__name__}: {e}", flush=True)
             return
+        # Chaptering is a separate try: it talks to a different vendor and is the only part of
+        # this tick that can fail on its own. A model outage must not take storage or, worse,
+        # the retention purge down with it.
+        try:
+            stat |= await generate_pending(s)
+        except Exception as e:                       # noqa: BLE001
+            print(f"[chapters] tick failed: {type(e).__name__}: {e}", flush=True)
     if stat or purged:
         print(f"[recall] transcripts {stat} purged={purged}", flush=True)
 
