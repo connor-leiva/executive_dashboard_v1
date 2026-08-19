@@ -153,6 +153,7 @@ class Settings(BaseSettings):
     RECALL_TICK_MINUTES: int = 5              # scheduler cadence; also sets the lookahead window
     RECALL_WEBHOOK_SECRET: str = ""           # shared secret on the status-change callback
     RECALL_URL_OVERRIDES: str = ""            # "vanity.com/zoom=https://real,..." for redirect links
+    RECALL_ADOPT_LOOKBACK_DAYS: int = 14      # link bots created outside the app to PAST calls too
 
     DEV_TENANT_SLUG: str = "springb"
     SINGLE_TENANT_FALLBACK: bool = True

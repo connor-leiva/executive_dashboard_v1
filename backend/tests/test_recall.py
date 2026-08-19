@@ -446,3 +446,54 @@ async def test_create_bot_sends_automatic_leave_where_recall_reads_it(monkeypatc
     assert sent["recording_config"]["transcript"]["provider"] == {"meeting_captions": {}}
     assert sent["bot_name"] == "Spring - Call Notetaker"      # the disclosure attendees see
     assert sent["join_at"] == "2026-08-20T14:00:00Z"
+
+
+async def test_a_past_call_gets_its_backfill_bot_linked_with_the_real_status(monkeypatch):
+    """The 14 bots created by scripts/recall_bots.py never touched the database, so their
+    calls have recall_bot_id NULL. Adoption originally only looked at the SCHEDULING window,
+    which is future-only - so a call that had already happened could never be linked and its
+    recording was orphaned permanently. The webhook doesn't rescue it either: it only fires on
+    NEW status changes, so a call that finished before we knew the bot never gets an update.
+    """
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 18, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_LEAD_MINUTES", 5)
+    monkeypatch.setattr(settings, "RECALL_TICK_MINUTES", 5)
+    monkeypatch.setattr(settings, "RECALL_ADOPT_LOOKBACK_DAYS", 14)
+
+    ran = NOW - dt.timedelta(hours=4)                      # this morning's call, already done
+    async with SessionLocal() as s:
+        s.add_all([
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="k", booking_id="k",
+                      contact_name="Kristen", meeting_url=ZOOM, is_current=True,
+                      call_time_utc=ran, outcome="Showed"),
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="old", booking_id="old",
+                      contact_name="Ancient", meeting_url=ZOOM, is_current=True,
+                      call_time_utc=NOW - dt.timedelta(days=40)),      # outside the lookback
+        ])
+        await s.commit()
+
+    existing = [{"id": "bot-kristen", "meeting_url": ZOOM,
+                 "join_at": (ran - dt.timedelta(minutes=5)).isoformat(),
+                 "recordings": [{"status": {"code": "done"}}]}]
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"results": existing}
+    monkeypatch.setattr(httpx.AsyncClient, "get", lambda self, url, **kw: _resp(FakeResp()))
+
+    async def boom(*a, **k):
+        raise AssertionError("a past call must never be scheduled a new bot")
+    monkeypatch.setattr(recall, "create_bot", boom)
+
+    async with SessionLocal() as s:
+        stat = await recall.schedule_due_bots(s, now=NOW)
+        rows = {c.contact_name: c for c in (await s.execute(select(SalesCall))).scalars()}
+
+    assert stat.get("recall_bots_adopted") == 1, stat
+    k = rows["Kristen"]
+    assert k.recall_bot_id == "bot-kristen"
+    # ...and marked DONE from the bot itself, not left at "scheduled" with no recording
+    assert k.recording_status == "done" and k.recording_at is not None
+    assert rows["Ancient"].recall_bot_id is None          # lookback is bounded

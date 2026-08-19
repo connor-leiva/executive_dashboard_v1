@@ -162,6 +162,25 @@ def _parse_iso(v) -> dt.datetime | None:
     return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
 
 
+def bot_status(b: dict) -> str:
+    """Our status for a bot, read from its payload.
+
+    Adoption has to set this from the bot itself. The webhook only fires on NEW status
+    changes, so a call that finished before we ever knew about the bot would otherwise sit
+    at "scheduled" forever and never show its recording.
+    """
+    for rec in (b.get("recordings") or []):
+        code = ((rec.get("status") or {}).get("code") or "")
+        if code:
+            return _STATUS_MAP.get(code, code[:32])
+    changes = b.get("status_changes") or []
+    if changes:
+        code = (changes[-1] or {}).get("code") or ""
+        if code:
+            return _STATUS_MAP.get(code, code[:32])
+    return ST_SCHEDULED
+
+
 async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
     """Link bots Recall already has to the calls they belong to.
 
@@ -205,11 +224,15 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
             if j and abs(call_at - j) <= tol:
                 pairs.append((abs(call_at - j), str(b["id"]), sc))
 
+    by_id = {str(b.get("id")): b for b in (bots or []) if b.get("id")}
     adopted, used_bots, used_calls = 0, set(), set()
     for _, bot_id, sc in sorted(pairs, key=lambda x: x[0]):
         if bot_id in used_bots or id(sc) in used_calls:
             continue
-        sc.recall_bot_id, sc.recording_status = bot_id, ST_SCHEDULED
+        sc.recall_bot_id = bot_id
+        sc.recording_status = bot_status(by_id.get(bot_id) or {})
+        if sc.recording_status in (ST_RECORDING, ST_DONE) and sc.recording_at is None:
+            sc.recording_at = dt.datetime.now(dt.timezone.utc)
         used_bots.add(bot_id)
         used_calls.add(id(sc))
         adopted += 1
@@ -234,22 +257,33 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
     # started, on every single booking. The extra 10 minutes is what makes the lead real.
     horizon = now + lead + dt.timedelta(minutes=settings.RECALL_TICK_MINUTES + 10)
 
-    rows = (await s.execute(
+    # Two different questions, two different windows.
+    #
+    # Adoption looks BACKWARD as well: bots created outside the app (the one-off backfill)
+    # belong to calls that have already happened, and if we only ever look forward those
+    # recordings are orphaned permanently - the webhook reports a bot id nothing recognises
+    # and the call shows no recording, forever.
+    lookback = now - dt.timedelta(days=settings.RECALL_ADOPT_LOOKBACK_DAYS)
+    candidates = (await s.execute(
         select(SalesCall).where(
             SalesCall.is_current.is_(True),
             SalesCall.recall_bot_id.is_(None),
             SalesCall.meeting_url.is_not(None),
             SalesCall.call_time_utc.is_not(None),
-            SalesCall.call_time_utc > now,                  # never chase a call already underway
+            SalesCall.call_time_utc >= lookback,
             SalesCall.call_time_utc <= horizon,
         ))).scalars().all()
+    # Scheduling only ever looks forward - never chase a call already under way.
+    rows = [c for c in candidates
+            if (c.call_time_utc if c.call_time_utc.tzinfo
+                else c.call_time_utc.replace(tzinfo=dt.timezone.utc)) > now]
 
     stat: dict = {}
-    if not rows:
+    if not candidates:
         return stat
     async with httpx.AsyncClient(timeout=30) as client:
-        # Before booking anything, find out what Recall already has for these calls.
-        adopted = await adopt_existing_bots(client, rows)
+        # Before booking anything, find out what Recall already has - for past calls too.
+        adopted = await adopt_existing_bots(client, candidates)
         if adopted:
             stat["recall_bots_adopted"] = adopted
             await s.commit()
