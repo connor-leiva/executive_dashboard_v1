@@ -154,8 +154,15 @@ async def sales_desk_recording(key: str, call_id: uuid.UUID,
     from ..services.recall import fresh_recording_url
     b = await _biz(s, user.tenant_id, key)
     await assert_tab(user, s, _launch_tab(b))
+    # Scope to THIS business's launch. Checking the tab on one business and then reading a
+    # call by id alone let a tab grant on one business reach another's recordings.
+    launch = await active_launch_for(s, user.tenant_id, b.id)
+    if not launch:
+        raise HTTPException(404, "No active launch")
     sc = (await s.execute(select(SalesCall).where(
-        SalesCall.id == call_id, SalesCall.tenant_id == user.tenant_id))).scalar_one_or_none()
+        SalesCall.id == call_id,
+        SalesCall.tenant_id == user.tenant_id,
+        SalesCall.launch_id == launch.id))).scalar_one_or_none()
     if sc is None:
         raise HTTPException(404, "No such call")
     if not sc.recall_bot_id:

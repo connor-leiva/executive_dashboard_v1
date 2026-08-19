@@ -634,9 +634,17 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     # didn't admit it from the waiting room. Only counts calls whose time has passed, and
     # only once recording is switched on, so it stays silent for tenants without it.
     recorded_any = any(c.recall_bot_id for c in calls)
+    # Only calls that actually HAD a bot and have had time to finish. Counting every held call
+    # that never had one turned this into a tally of the pre-integration backlog - 50 of them -
+    # which buries the handful that are real waiting-room failures. In-flight statuses are
+    # excluded for the same reason: a call that just ended is not yet a problem.
+    IN_FLIGHT = ("scheduled", "recording")
+    settled = now - dt.timedelta(hours=2)
     no_recording = [c for c in calls
-                    if recorded_any and effective_outcome(c) == OUT_SHOWED and c.call_time_utc
-                    and _aw(c.call_time_utc) < now and c.recording_status != "done"]
+                    if c.recall_bot_id and effective_outcome(c) == OUT_SHOWED and c.call_time_utc
+                    and _aw(c.call_time_utc) < settled
+                    and c.recording_status != "done"
+                    and c.recording_status not in IN_FLIGHT]
     if no_recording:
         warnings.append(dict(n=len(no_recording), label="held calls with no recording",
                              key="dh.no_recording",
@@ -885,10 +893,14 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
         return records("Reps not in the roster", "name them via manage reps on the leaderboard",
                        rows, ["email", "calls"])
     if metric == "dh.no_recording":
+        settled = now - dt.timedelta(hours=2)
         return call_records("Held calls with no recording",
-                            [c for c in calls if effective_outcome(c) == OUT_SHOWED and c.call_time_utc
-                             and _aw(c.call_time_utc) < now and c.recording_status != "done"],
-                            "the call happened but no recording came back - check the waiting room")
+                            [c for c in calls
+                             if c.recall_bot_id and effective_outcome(c) == OUT_SHOWED
+                             and c.call_time_utc and _aw(c.call_time_utc) < settled
+                             and c.recording_status != "done"
+                             and c.recording_status not in ("scheduled", "recording")],
+                            "a bot was booked but no recording came back - check the waiting room")
     if metric == "dh.pending24":
         return call_records("Outcomes pending > 24h",
                             [c for c in calls if effective_outcome(c) is None and c.call_time_utc

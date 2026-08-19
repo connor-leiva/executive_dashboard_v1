@@ -46,8 +46,13 @@ async def recall_status(request: Request, s: AsyncSession = Depends(get_session)
     # ours to control. Read defensively rather than pinning one layout.
     bot_id = (_dig(body, "data", "bot", "id") or _dig(body, "data", "bot_id")
               or _dig(body, "bot_id") or _dig(body, "data", "id"))
-    status = (_dig(body, "data", "status", "code") or _dig(body, "data", "status")
-              or _dig(body, "event") or "")
+    status = (_dig(body, "data", "status", "code") or _dig(body, "data", "data", "code")
+              or _dig(body, "data", "status") or _dig(body, "event") or "")
+    # Modern deliveries name the event "bot.done" / "recording.done"; the bare code is the
+    # last segment. Without this the dotted name was stored verbatim, never matched the
+    # status map, and no call ever reached "done".
+    if isinstance(status, str) and "." in status:
+        status = status.rsplit(".", 1)[-1]
     media = (_dig(body, "data", "recording", "url") or _dig(body, "data", "video_url")
              or _dig(body, "data", "media_url"))
     if not bot_id or not isinstance(status, str):

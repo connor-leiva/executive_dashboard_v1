@@ -27,14 +27,18 @@ from ..models import SalesCall
 
 # Statuses we store. Recall emits more; these are the ones that mean something operationally.
 ST_SCHEDULED, ST_WAITING, ST_RECORDING = "scheduled", "waiting", "recording"
-ST_DONE, ST_FAILED = "done", "failed"
+ST_DONE, ST_FAILED, ST_ENDED = "done", "failed", "ended"
 
 # Recall's status_change events -> our vocabulary. Anything unmapped is stored verbatim so a
 # new event name shows up in the data instead of vanishing.
 _STATUS_MAP = {
     "joining_call": ST_SCHEDULED, "in_waiting_room": ST_WAITING,
     "in_call_not_recording": ST_WAITING, "recording_permission_denied": ST_FAILED,
-    "in_call_recording": ST_RECORDING, "call_ended": ST_DONE, "done": ST_DONE,
+    # call_ended says the bot LEFT the call - it is not evidence that anything was recorded.
+    # A bot that sat in the waiting room and was never admitted emits it too, so mapping it to
+    # "done" reported that call as recorded and silenced the no-recording warning for exactly
+    # the failure the warning exists to catch.
+    "in_call_recording": ST_RECORDING, "call_ended": ST_ENDED, "done": ST_DONE,
     "analysis_done": ST_DONE, "fatal": ST_FAILED, "media_expired": ST_FAILED,
 }
 
@@ -193,8 +197,16 @@ def bot_status(b: dict) -> str:
     """
     for rec in (b.get("recordings") or []):
         code = ((rec.get("status") or {}).get("code") or "")
-        if code:
-            return _STATUS_MAP.get(code, code[:32])
+        if not code:
+            continue
+        mapped = _STATUS_MAP.get(code, code[:32])
+        # "done" is a claim that a recording exists, so only make it when media is actually
+        # attached. A recording row can complete with nothing in it.
+        # Presence, not truthiness: an empty dict is a real media entry, and the live payload
+        # carries audio_mixed = None for absent media.
+        if mapped == ST_DONE and (rec.get("media_shortcuts") or {}).get("video_mixed") is None:
+            return ST_ENDED
+        return mapped
     changes = b.get("status_changes") or []
     if changes:
         code = (changes[-1] or {}).get("code") or ""
@@ -203,7 +215,8 @@ def bot_status(b: dict) -> str:
     return ST_SCHEDULED
 
 
-async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
+async def adopt_existing_bots(client: httpx.AsyncClient, rows: list,
+                              taken: set | None = None) -> int:
     """Link bots Recall already has to the calls they belong to.
 
     Bots booked outside the app - the one-off backfill in scripts/recall_bots.py, or a
@@ -233,6 +246,11 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
     # Tolerance sits below the 30-minute spacing those shared rooms actually run at, so a
     # neighbouring call can never be mistaken for this one.
     tol = dt.timedelta(minutes=20)
+    # Every bot is booked to join BEFORE its call, so the expected join time is
+    # call_at - lead. Ranking on abs(call_at - join_at) scored a correct pairing at `lead`
+    # rather than 0, which put a neighbouring call in a shared room at the same distance -
+    # at lead 15 with 30-minute spacing the two tie exactly and insertion order decides.
+    lead = dt.timedelta(minutes=settings.RECALL_LEAD_MINUTES)
     pairs = []
     for sc in rows:
         if sc.recall_bot_id:
@@ -251,15 +269,26 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
             if want and _bot_url(b) != want:
                 continue
             j = _parse_iso(b.get("join_at")) or _parse_iso(b.get("created_at"))
-            if j and abs(call_at - j) <= tol:
+            if not j:
+                continue
+            # A bot joins at or before its call. One scheduled AFTER this call started
+            # belongs to a later booking, so never let it win on raw distance.
+            if j > call_at + dt.timedelta(minutes=2):
+                continue
+            gap = abs((call_at - lead) - j)
+            if gap <= tol:
                 # Prefer a URL-confirmed pairing when both are candidates for the same bot.
-                rank = abs(call_at - j) + (dt.timedelta(0) if want else dt.timedelta(seconds=1))
+                rank = gap + (dt.timedelta(0) if want else dt.timedelta(seconds=1))
                 pairs.append((rank, str(b["id"]), sc))
 
     by_id = {str(b.get("id")): b for b in (bots or []) if b.get("id")}
     print(f"[recall] adoption: {len(rows)} unlinked call(s) vs {len(bots or [])} bot(s) on the "
           f"account, {len(pairs)} candidate pairing(s)", flush=True)
-    adopted, used_bots, used_calls = 0, set(), set()
+    # Seed with bots ALREADY linked to other calls. used_bots alone only dedupes within one
+    # pass, so on a later tick a neighbouring call could re-claim a bot that already belongs
+    # to someone else - two rows sharing a bot id, one client's Watch link playing another's
+    # conversation, and the robbed call never booking a bot of its own.
+    adopted, used_bots, used_calls = 0, set(taken or ()), set()
     for _, bot_id, sc in sorted(pairs, key=lambda x: x[0]):
         if bot_id in used_bots or id(sc) in used_calls:
             continue
@@ -328,7 +357,11 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
         return stat
     async with httpx.AsyncClient(timeout=30) as client:
         # Before booking anything, find out what Recall already has - for past calls too.
-        adopted = await adopt_existing_bots(client, candidates)
+        taken = set((await s.execute(
+            select(SalesCall.recall_bot_id).where(
+                SalesCall.tenant_id == candidates[0].tenant_id,
+                SalesCall.recall_bot_id.is_not(None)))).scalars())
+        adopted = await adopt_existing_bots(client, candidates, taken)
         if adopted:
             stat["recall_bots_adopted"] = adopted
             await s.commit()

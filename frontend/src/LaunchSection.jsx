@@ -645,7 +645,11 @@ export function WatchLink({ businessKey, callId, label = "Watch ↗" }) {
     e.preventDefault();
     if (busy) return;
     setBusy(true); setErr(null);
-    const w = window.open("", "_blank", "noopener");
+    // NOT the "noopener" feature: with it window.open returns null, the handle is lost, and
+    // the else-branch below navigates the dashboard itself to the video. Null the opener on
+    // the handle instead.
+    const w = window.open("", "_blank");
+    if (w) w.opener = null;
     try {
       const r = await getJSON(`/businesses/${businessKey}/launches/active/sales-desk/recording/${callId}`);
       if (w) w.location = r.url; else window.location = r.url;

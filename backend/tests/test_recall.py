@@ -476,7 +476,8 @@ async def test_a_past_call_gets_its_backfill_bot_linked_with_the_real_status(mon
 
     existing = [{"id": "bot-kristen", "meeting_url": ZOOM,
                  "join_at": (ran - dt.timedelta(minutes=5)).isoformat(),
-                 "recordings": [{"status": {"code": "done"}}]}]
+                 "recordings": [{"status": {"code": "done"},
+                                 "media_shortcuts": {"video_mixed": {"data": {}}}}]}]
 
     class FakeResp:
         def raise_for_status(self): pass
@@ -521,7 +522,8 @@ async def test_a_call_with_no_stored_link_can_still_be_adopted(monkeypatch):
 
     existing = [{"id": "bot-kristen", "meeting_url": "https://meet.google.com/tuz-dhwp-zrw",
                  "join_at": (ran - dt.timedelta(minutes=5)).isoformat(),
-                 "recordings": [{"status": {"code": "done"}}]}]
+                 "recordings": [{"status": {"code": "done"},
+                                 "media_shortcuts": {"video_mixed": {"data": {}}}}]}]
 
     class FakeResp:
         def raise_for_status(self): pass
@@ -558,7 +560,8 @@ async def test_a_url_confirmed_pairing_wins_over_a_time_only_one(monkeypatch):
         await s.commit()
 
     existing = [{"id": "bot-1", "meeting_url": ZOOM, "join_at": (ran - dt.timedelta(minutes=5)).isoformat(),
-                 "recordings": [{"status": {"code": "done"}}]}]
+                 "recordings": [{"status": {"code": "done"},
+                                 "media_shortcuts": {"video_mixed": {"data": {}}}}]}]
 
     class FakeResp:
         def raise_for_status(self): pass
@@ -629,3 +632,107 @@ async def test_a_future_call_with_an_existing_bot_is_linked_before_it_is_due(mon
 
     assert stat.get("recall_bots_adopted") == 1, stat
     assert sc.recall_bot_id == "bot-far" and sc.recording_status == "scheduled"
+
+
+# ── from the adversarial audit, 2026-08-19: seven confirmed, all but one silent ──────────
+
+def test_call_ended_is_not_proof_that_anything_was_recorded():
+    """A bot that sat in the waiting room and was never admitted still emits call_ended.
+    Mapping that to "done" reported the call as recorded and silenced the no-recording
+    warning for exactly the failure the warning exists to catch."""
+    assert recall._STATUS_MAP["call_ended"] == recall.ST_ENDED
+    never_admitted = {"status_changes": [{"code": "in_waiting_room"}, {"code": "call_ended"}]}
+    assert recall.bot_status(never_admitted) == recall.ST_ENDED
+    # a completed recording row with no media attached is not "done" either
+    assert recall.bot_status({"recordings": [{"status": {"code": "done"}}]}) == recall.ST_ENDED
+    assert recall.bot_status({"recordings": [{"status": {"code": "done"},
+                                              "media_shortcuts": {"video_mixed": None}}]}) == recall.ST_ENDED
+    # ...but media present, even as an empty dict, is
+    assert recall.bot_status({"recordings": [{"status": {"code": "done"},
+                                              "media_shortcuts": {"video_mixed": {}}}]}) == recall.ST_DONE
+
+
+async def test_matching_accounts_for_the_lead_the_bot_was_booked_with(monkeypatch):
+    """Bots are booked to join BEFORE the call. Ranking on abs(call_at - join_at) scored a
+    correct pairing at `lead` rather than 0, putting a neighbouring call in the same shared
+    room at the same distance - at lead 15 with 30-minute spacing the two tie exactly and
+    insertion order decides which client's recording lands on which call."""
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 9, 40, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_LEAD_MINUTES", 15)     # the backfill script's default
+    monkeypatch.setattr(settings, "RECALL_TICK_MINUTES", 120)
+    monkeypatch.setattr(settings, "RECALL_ADOPT_LOOKBACK_DAYS", 14)
+    monkeypatch.setattr(settings, "RECALL_ADOPT_LOOKAHEAD_DAYS", 30)
+
+    ten = dt.datetime(2026, 8, 19, 10, tzinfo=U)
+    async with SessionLocal() as s:
+        s.add_all([
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="a", booking_id="a",
+                      contact_name="Ten", meeting_url=ZOOM, is_current=True, call_time_utc=ten),
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="b", booking_id="b",
+                      contact_name="Tenthirty", meeting_url=ZOOM, is_current=True,
+                      call_time_utc=ten + dt.timedelta(minutes=30)),
+        ])
+        await s.commit()
+
+    MU = {"meeting_id": "8021825042", "platform": "zoom"}
+    # newest-first, the order that used to make the 10:00 call adopt the 10:30 call's bot
+    existing = [
+        {"id": "bot-1030", "meeting_url": MU, "join_at": (ten + dt.timedelta(minutes=15)).isoformat()},
+        {"id": "bot-1000", "meeting_url": MU, "join_at": (ten - dt.timedelta(minutes=15)).isoformat()},
+    ]
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"results": existing}
+    monkeypatch.setattr(httpx.AsyncClient, "get", lambda self, url, **kw: _resp(FakeResp()))
+    monkeypatch.setattr(recall, "create_bot",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("both already have bots")))
+
+    async with SessionLocal() as s:
+        await recall.schedule_due_bots(s, now=NOW)
+        got = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
+    assert got["Ten"] == "bot-1000", got
+    assert got["Tenthirty"] == "bot-1030", got
+
+
+async def test_a_bot_already_linked_to_another_call_is_never_re_claimed(monkeypatch):
+    """used_bots only dedupes within a single pass, so on a LATER tick a neighbouring call
+    could claim a bot that already belongs to someone else: two rows sharing a bot id, one
+    client's Watch link playing another's conversation, and the robbed call never booking
+    a bot of its own."""
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 12, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_LEAD_MINUTES", 5)
+    monkeypatch.setattr(settings, "RECALL_TICK_MINUTES", 5)
+    monkeypatch.setattr(settings, "RECALL_ADOPT_LOOKBACK_DAYS", 14)
+    monkeypatch.setattr(settings, "RECALL_ADOPT_LOOKAHEAD_DAYS", 30)
+
+    ten = dt.datetime(2026, 8, 19, 10, tzinfo=U)
+    async with SessionLocal() as s:
+        s.add_all([
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="linked", booking_id="linked",
+                      contact_name="Alreadylinked", meeting_url=ZOOM, is_current=True,
+                      call_time_utc=ten, recall_bot_id="bot-10", recording_status="recording"),
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="near", booking_id="near",
+                      contact_name="Neighbour", meeting_url=ZOOM, is_current=True,
+                      call_time_utc=ten + dt.timedelta(minutes=15)),
+        ])
+        await s.commit()
+
+    existing = [{"id": "bot-10", "meeting_url": {"meeting_id": "8021825042", "platform": "zoom"},
+                 "join_at": (ten - dt.timedelta(minutes=5)).isoformat()}]
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"results": existing}
+    monkeypatch.setattr(httpx.AsyncClient, "get", lambda self, url, **kw: _resp(FakeResp()))
+    monkeypatch.setattr(recall, "create_bot", lambda *a, **k: _resp(("bot-new", "")))
+
+    async with SessionLocal() as s:
+        await recall.schedule_due_bots(s, now=NOW)
+        got = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
+    assert got["Alreadylinked"] == "bot-10"
+    assert got["Neighbour"] != "bot-10", "a bot must belong to exactly one call"
