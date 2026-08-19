@@ -6,7 +6,7 @@
    script wordmark. ARR ("annualized revenue added" — Spring's loose usage) is the headline;
    cash collected is a demoted line. The settings drawer PUTs config and refetches. */
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { T, alpha } from "./theme.js";
+import { T, alpha, usd } from "./theme.js";
 import { SpringSignature } from "./Brand.jsx";
 import { putJSON, postJSON, getJSON } from "./api.js";
 
@@ -640,32 +640,192 @@ function fmtClock(sec) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/* Talk ratio, straight out of the transcript's own timings. is_host marks the rep, so this
-   needs no extra call and no extra cost — and it is the one coaching number you cannot get
-   from a recording by watching it. */
-function TalkRatio({ speakers }) {
-  const rows = Object.entries(speakers || {});
-  if (rows.length < 2) return null;
-  const total = rows.reduce((a, [, v]) => a + (v.seconds || 0), 0) || 1;
+/* "18 min 13 sec" — the header wants length in words; the transport wants a clock. */
+function fmtLong(sec) {
+  if (!sec) return null;
+  const s = Math.round(sec);
+  const m = Math.floor(s / 60);
+  return m ? `${m} min ${s % 60} sec` : `${s} sec`;
+}
+
+const MONO = { fontVariantNumeric: "tabular-nums", letterSpacing: ".02em" };
+const MICRO = {
+  fontSize: 10.5, fontWeight: 700, letterSpacing: ".14em",
+  textTransform: "uppercase", color: T.muted,
+};
+
+/* Side-by-side needs ~900px to hold a watchable video AND a readable transcript. Below that
+   they stack, because a 452px transcript beside a 1px video is not a layout - it is what a
+   fixed width does to a flex sibling that is allowed to shrink to nothing. */
+function useNarrow(px = 900) {
+  const [narrow, setNarrow] = useState(
+    typeof window !== "undefined" && window.matchMedia(`(max-width: ${px}px)`).matches);
+  useEffect(() => {
+    const m = window.matchMedia(`(max-width: ${px}px)`);
+    // Both signals on purpose. `change` is the right event, but it does not fire under the
+    // device emulation the browser checks run through, and a layout that only reflows on a
+    // full remount is a layout nobody can verify.
+    const on = () => setNarrow(m.matches);
+    m.addEventListener("change", on);
+    window.addEventListener("resize", on);
+    on();
+    return () => { m.removeEventListener("change", on); window.removeEventListener("resize", on); };
+  }, [px]);
+  return narrow;
+}
+
+/* A labelled rule — "TALK RATIO ────────── note". Heads each block under the video. */
+function RuleLabel({ children, note }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px" }}>
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".09em",
-                     textTransform: "uppercase", color: T.tertiary, flex: "none" }}>Talk ratio</span>
-      <div style={{ display: "flex", flex: 1, height: 8, borderRadius: 99, overflow: "hidden" }}>
-        {rows.map(([name, v], i) => (
-          <div key={name} title={`${name} — ${fmtClock(v.seconds)}`}
-               style={{ width: `${((v.seconds || 0) / total) * 100}%`,
-                        background: v.is_host ? T.evergreen : alpha(T.teal, 0.45) }} />
-        ))}
-      </div>
-      <span style={{ fontSize: 11, color: T.muted, flex: "none" }}>
-        {rows.map(([name, v]) => `${name.split(" ")[0]} ${Math.round(((v.seconds || 0) / total) * 100)}%`).join(" · ")}
-      </span>
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <span style={MICRO}>{children}</span>
+      <div style={{ flex: 1, height: 1, background: T.line }} />
+      {note && <span style={{ fontSize: 12.5, color: T.muted }}>{note}</span>}
     </div>
   );
 }
 
-/* ── Recording playback ────────────────────────────────────────────────────────────────────
+/* Derived from the transcript we already store — no extra call, no extra cost. Longest
+   monologue and question count are the two numbers a coach reaches for first, and neither is
+   visible by watching the recording. */
+function insightsFrom(segments, speakers) {
+  if (!segments.length) return null;
+  let best = { who: null, len: 0, at: 0 }, run = null;
+  segments.forEach((s, i) => {
+    const end = i + 1 < segments.length ? segments[i + 1].start : s.start;
+    if (run && run.who === s.speaker) run.end = end;
+    else run = { who: s.speaker, start: s.start, end };
+    if (run.end - run.start > best.len) {
+      best = { who: run.who, len: run.end - run.start, at: run.start };
+    }
+  });
+  const asks = segments.filter((s) => (s.text || "").includes("?"));
+  const host = Object.entries(speakers || {}).find(([, v]) => v.is_host)?.[0];
+  return { monologue: best, questions: asks.length, host,
+           byHost: asks.filter((s) => s.speaker === host).length };
+}
+
+/* Chapters. Rendered only when the transcript carries them — an empty chapter rail is worse
+   than none, because it reads as "this call had no structure" rather than "not generated". */
+function Chapters({ chapters, at, onSeek }) {
+  if (!chapters?.length) return null;
+  const current = chapters.filter((c) => c.start <= at).pop() || chapters[0];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+      <RuleLabel>Chapters</RuleLabel>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {chapters.map((c, i) => {
+          const on = c.start === current.start;
+          return (
+            <button key={i} onClick={() => onSeek(c.start)} style={{
+              display: "flex", alignItems: "center", gap: 11, width: "100%", textAlign: "left",
+              border: `1px solid ${on ? T.sprout : T.line}`, borderRadius: 10,
+              background: on ? T.meadowBg : T.white, padding: "9px 12px", cursor: "pointer",
+              fontFamily: "Inter,sans-serif",
+            }}>
+              <span style={{ ...MONO, fontSize: 11.5, color: T.muted, width: 38, flex: "none" }}>
+                {fmtClock(c.start)}
+              </span>
+              <span style={{ width: 3, height: 18, borderRadius: 2, flex: "none",
+                             background: on ? T.meadow : T.line }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 500, color: T.ink,
+                             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {c.title}
+              </span>
+              {c.len != null && (
+                <span style={{ fontSize: 12, color: T.muted, flex: "none" }}>{fmtClock(c.len)}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* Custom transport. The native controls cannot carry chapter ticks on the scrubber, which is
+   the one affordance that makes a 20-minute call skimmable. Keyboard is wired back by hand
+   (space, arrows) so replacing the native chrome does not cost accessibility. */
+function Transport({ videoRef, at, dur, chapters, playing, onToggle }) {
+  const [rate, setRate] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const barRef = useRef(null);
+  const pct = dur ? (at / dur) * 100 : 0;
+
+  const scrub = (e) => {
+    const b = barRef.current, v = videoRef.current;
+    if (!b || !v || !dur) return;
+    const r = b.getBoundingClientRect();
+    v.currentTime = Math.max(0, Math.min(dur, ((e.clientX - r.left) / r.width) * dur));
+  };
+  const cycleRate = () => {
+    const next = { 1: 1.25, 1.25: 1.5, 1.5: 2, 2: 1 }[rate];
+    setRate(next);
+    if (videoRef.current) videoRef.current.playbackRate = next;
+  };
+  const toggleMute = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = !v.muted;
+    setMuted(v.muted);
+  };
+  const chapterNow = chapters?.length
+    ? (chapters.filter((c) => c.start <= at).pop() || chapters[0]).title : null;
+
+  const btn = {
+    height: 30, padding: "0 10px", border: `1px solid ${T.line}`, borderRadius: 8,
+    background: T.white, cursor: "pointer", color: T.tertiary, fontSize: 12,
+    fontFamily: "Inter,sans-serif",
+  };
+  return (
+    <div style={{ padding: "14px 20px 12px", background: T.white, flex: "none",
+                  display: "flex", alignItems: "center", gap: 14 }}>
+      <button onClick={onToggle} aria-label={playing ? "Pause" : "Play"} style={{
+        width: 38, height: 38, flex: "none", border: 0, borderRadius: "50%",
+        background: T.evergreen, color: T.onDark, cursor: "pointer", fontSize: 13,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>{playing ? "❚❚" : "▶"}</button>
+
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 7 }}>
+        <div ref={barRef} onClick={scrub} style={{
+          position: "relative", height: 6, borderRadius: 999, background: T.line, cursor: "pointer",
+        }}>
+          <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`,
+                        borderRadius: 999, background: T.evergreen }} />
+          {(chapters || []).slice(1).map((c, i) => (
+            <span key={i} title={c.title} style={{
+              position: "absolute", top: -3, left: `${dur ? (c.start / dur) * 100 : 0}%`,
+              width: 2, height: 12, borderRadius: 1, background: T.muted,
+            }} />
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <span style={{ ...MONO, fontSize: 11.5, color: T.tertiary }}>
+            {fmtClock(at)} / {fmtClock(dur)}
+          </span>
+          {chapterNow && (
+            <span style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase",
+                           color: T.muted, minWidth: 0, overflow: "hidden",
+                           textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chapterNow}</span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 7, flex: "none" }}>
+        <button onClick={cycleRate} style={{ ...btn, ...MONO, fontSize: 11.5, color: T.secondary }}>
+          {rate}×
+        </button>
+        <button onClick={toggleMute} aria-label="Mute" style={{ ...btn, width: 30, padding: 0 }}>
+          {muted ? "🔇" : "🔊"}
+        </button>
+        <button aria-label="Fullscreen" style={{ ...btn, width: 30, padding: 0 }}
+                onClick={() => videoRef.current?.requestFullscreen?.()}>⤢</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Call review ───────────────────────────────────────────────────────────────────────────
    Recall hands back a signed S3 URL to the raw mp4 and offers no player of its own. Opening
    that URL in a tab is at the browser's mercy - Content-Disposition made it DOWNLOAD rather
    than play. Used as the src of a <video> it streams instead, because S3 serves range
@@ -674,24 +834,32 @@ function TalkRatio({ speakers }) {
    The URL expires after 5 hours, so it is fetched when the player opens - never stored - and
    refetched once if playback fails, which is what an expiry looks like mid-session.
 
-   The transcript sits beside it and is the point: nobody reads 45 minutes, so every line is
-   a seek target. Styles are inline on purpose - the .drx-* drawer CSS is scoped per-file and
-   this renders from both the Launch and Sales Desk tabs. */
+   The space under the video is the review: who it was with, how it ended, who talked, where
+   the call turned. The transcript beside it is the point - nobody reads 45 minutes, so every
+   line is a seek target. Styles are inline on purpose: the .drx-* drawer CSS is scoped
+   per-file and this renders from both the Launch and Sales Desk tabs. */
 function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
   const [url, setUrl] = useState(null);
+  const [meta, setMeta] = useState(null);
   const [err, setErr] = useState(null);
   const [retried, setRetried] = useState(false);
-  const [tr, setTr] = useState(null);          // {segments, speakers, duration_s} | "none"
+  const [tr, setTr] = useState(null);          // {segments, speakers, duration_s, chapters} | "none"
   const [q, setQ] = useState("");
-  const [at, setAt] = useState(0);             // playhead, drives the active line
+  const [who, setWho] = useState("all");
+  const [at, setAt] = useState(0);
+  const [dur, setDur] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [copied, setCopied] = useState(false);
   const videoRef = useRef(null);
   const activeRef = useRef(null);
+  const narrow = useNarrow();
 
   const load = async () => {
     setErr(null);
     try {
       const r = await getJSON(`/businesses/${businessKey}/launches/active/sales-desk/recording/${callId}`);
       setUrl(r.url);
+      if (r.call) setMeta(r.call);
     } catch (e) {
       setErr(e.detail || e.message || "No recording available");
     }
@@ -706,8 +874,22 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
     return () => { alive = false; };
   }, [callId, businessKey]);
 
+  const toggle = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {}); else v.pause();
+  };
+
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e) => {
+      if (e.key === "Escape") return onClose();
+      if (e.target && e.target.tagName === "INPUT") return;
+      const v = videoRef.current;
+      if (!v) return;
+      if (e.key === " ") { e.preventDefault(); toggle(); }
+      if (e.key === "ArrowRight") v.currentTime = Math.min(v.duration || 0, v.currentTime + 5);
+      if (e.key === "ArrowLeft") v.currentTime = Math.max(0, v.currentTime - 5);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -720,8 +902,12 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
   };
 
   const segments = (tr && tr !== "none" && tr.segments) || [];
+  const speakers = (tr && tr !== "none" && tr.speakers) || {};
+  const chapters = (tr && tr !== "none" && tr.chapters) || [];
+  const names = Object.keys(speakers);
   const needle = q.trim().toLowerCase();
-  const shown = needle ? segments.filter((s) => s.text.toLowerCase().includes(needle)) : segments;
+  const shown = segments.filter((s) =>
+    (who === "all" || s.speaker === who) && (!needle || (s.text || "").toLowerCase().includes(needle)));
   const activeIdx = segments.findIndex((s, i) =>
     at >= s.start && (i === segments.length - 1 || at < segments[i + 1].start));
 
@@ -736,109 +922,274 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
   const seek = (s) => {
     const v = videoRef.current;
     if (!v) return;
-    v.currentTime = s.start;
+    v.currentTime = s;
     v.play().catch(() => {});
   };
 
+  const copyLink = () => {
+    const u = `${location.origin}${location.pathname}?call=${callId}`;
+    navigator.clipboard?.writeText(u).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }).catch(() => {});
+  };
+
   const hasTranscript = segments.length > 0;
+  const ins = insightsFrom(segments, speakers);
+  const total = dur || (tr && tr !== "none" && tr.duration_s) || 0;
+  const heading = meta?.contact || (title || "Call Recording").split(" — ")[0];
+  const when = meta?.when_iso ? new Date(meta.when_iso) : null;
+  const sub = [
+    when && new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(when),
+    when && new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(when),
+    fmtLong(total),
+    meta?.rep && `with ${meta.rep}`,
+  ].filter(Boolean).join(" · ");
+
+  const hdrBtn = {
+    height: 34, padding: "0 13px", border: `1px solid ${T.line}`, borderRadius: 9,
+    background: T.white, cursor: "pointer", fontFamily: "Inter,sans-serif",
+    fontSize: 13, fontWeight: 500, color: T.secondary, whiteSpace: "nowrap",
+  };
 
   return (
     <div onClick={onClose} style={{
-      position: "fixed", inset: 0, zIndex: 90, background: alpha(T.evergreen, 0.55),
+      position: "fixed", inset: 0, zIndex: 90, background: alpha(T.evergreen, 0.62),
       display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
     }}>
       <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style={{
-        width: hasTranscript ? "min(1120px, 96vw)" : "min(920px, 96vw)",
-        background: T.white, borderRadius: 16, overflow: "hidden",
-        boxShadow: `0 24px 60px ${alpha(T.evergreen, 0.3)}`,
+        width: hasTranscript ? "min(1300px, 96vw)" : "min(900px, 96vw)",
+        background: T.parchment, borderRadius: 16, overflow: "hidden",
+        boxShadow: `0 30px 70px ${alpha(T.evergreen, 0.45)}`,
+        display: "flex", flexDirection: "column", maxHeight: "94vh",
       }}>
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          gap: 12, padding: "13px 16px", borderBottom: `1px solid ${T.line}`,
-        }}>
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600, color: T.ink }}>
-            {title || "Call Recording"}
-          </span>
-          <button onClick={onClose} aria-label="Close" style={{
-            border: "none", background: "none", cursor: "pointer", fontSize: 15, color: T.muted,
-          }}>✕</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 20px",
+                      background: T.white, borderBottom: `1px solid ${T.line}`, flex: "none" }}>
+          <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 700,
+                             color: T.ink, letterSpacing: "-.02em" }}>{heading}</span>
+              {meta?.outcome && (
+                <span style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 9px",
+                               borderRadius: 999, background: T.meadowBg, fontSize: 11.5,
+                               fontWeight: 600, color: T.meadowInk }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.meadow }} />
+                  {meta.outcome}
+                </span>
+              )}
+              {meta?.payment_type && (
+                <span style={{ padding: "3px 9px", borderRadius: 999, background: T.page,
+                               fontSize: 11.5, fontWeight: 500, color: T.tertiary }}>
+                  {meta.payment_type}{meta.payment_acv ? ` · ${usd(meta.payment_acv)}` : ""}
+                </span>
+              )}
+            </div>
+            <div style={{ ...MONO, fontSize: 11.5, color: T.muted }}>{sub}</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
+            <button style={hdrBtn} onClick={copyLink}>{copied ? "Copied" : "Copy link"}</button>
+            {url && (
+              <a href={url} download style={{ ...hdrBtn, display: "flex", alignItems: "center",
+                                              textDecoration: "none" }}>Download</a>
+            )}
+            <button onClick={onClose} aria-label="Close"
+                    style={{ ...hdrBtn, width: 34, padding: 0, fontSize: 15, color: T.tertiary,
+                             justifyContent: "center" }}>✕</button>
+          </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "stretch", minHeight: 0 }}>
-          <div style={{ flex: hasTranscript ? "1 1 62%" : "1 1 100%", minWidth: 0 }}>
-            <div style={{ background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ display: "flex", alignItems: "stretch", minHeight: 0, flex: 1,
+                      flexDirection: narrow ? "column" : "row" }}>
+          <div style={{ flex: narrow ? "none" : 1, minWidth: 0, display: "flex",
+                        flexDirection: "column", overflowY: "auto",
+                        borderRight: hasTranscript && !narrow ? `1px solid ${T.line}` : "none",
+                        borderBottom: hasTranscript && narrow ? `1px solid ${T.line}` : "none" }}>
+            <div style={{ position: "relative", background: T.evergreen, flex: "none" }}>
               {url && (
-                <video ref={videoRef} src={url} controls autoPlay preload="metadata"
+                <video ref={videoRef} src={url} autoPlay preload="metadata"
                        onError={onVideoError}
                        onLoadedMetadata={(e) => {
-                         // Arriving from a search hit: land on the sentence, not the top.
-                         if (startAt > 0) { e.currentTarget.currentTime = startAt; }
+                         // A stream still buffering reports Infinity; the transcript's own
+                         // duration is the honest fallback rather than a NaN scrubber.
+                         const d = e.currentTarget.duration;
+                         setDur(Number.isFinite(d) ? d : 0);
+                         if (startAt) e.currentTarget.currentTime = startAt;
                        }}
+                       onPlay={() => setPlaying(true)}
+                       onPause={() => setPlaying(false)}
+                       onClick={toggle}
                        onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
-                       style={{ width: "100%", maxHeight: "62vh", display: "block" }} />
+                       style={{ width: "100%", maxHeight: "56vh", display: "block", cursor: "pointer" }} />
               )}
-              {!url && !err && <span style={{ color: T.onDark, fontSize: 12.5, padding: 60 }}>Loading recording…</span>}
-              {err && <span style={{ color: T.onDark, fontSize: 12.5, padding: 60, textAlign: "center" }}>{err}</span>}
+              {!url && !err && (
+                <div style={{ color: T.onDark, fontSize: 12.5, padding: 70, textAlign: "center" }}>
+                  Loading recording…
+                </div>
+              )}
+              {err && (
+                <div style={{ color: T.onDark, fontSize: 12.5, padding: 70, textAlign: "center" }}>
+                  {err}
+                </div>
+              )}
             </div>
-            {tr && tr !== "none" && <TalkRatio speakers={tr.speakers} />}
+
+            {url && <Transport videoRef={videoRef} at={at} dur={total} chapters={chapters}
+                               playing={playing} onToggle={toggle} />}
+
+            {hasTranscript && (
+              <div style={{ padding: "16px 20px 20px", background: T.white,
+                            borderTop: `1px solid ${T.line}`,
+                            display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  <RuleLabel note={ins?.host ? `${ins.host.split(" ")[0]} led the call` : null}>
+                    Talk ratio
+                  </RuleLabel>
+                  <div style={{ display: "flex", height: 34, borderRadius: 10, overflow: "hidden",
+                                border: `1px solid ${T.line}` }}>
+                    {Object.entries(speakers).map(([name, v]) => {
+                      const tot = Object.values(speakers).reduce((a, x) => a + (x.seconds || 0), 0) || 1;
+                      const w = ((v.seconds || 0) / tot) * 100;
+                      return (
+                        <div key={name} title={`${name} — ${fmtClock(v.seconds)}`} style={{
+                          width: `${w}%`, background: v.is_host ? T.evergreen : T.sprout,
+                          display: "flex", alignItems: "center",
+                          justifyContent: v.is_host ? "flex-end" : "flex-start",
+                          padding: "0 12px", fontSize: 12.5, fontWeight: 600,
+                          color: v.is_host ? T.onDark : T.secondary,
+                          whiteSpace: "nowrap", overflow: "hidden",
+                        }}>{w >= 14 ? `${name.split(" ")[0]} ${Math.round(w)}%` : ""}</div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {ins && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 12 }}>
+                    {[
+                      { label: "Outcome",
+                        value: meta?.payment_type || meta?.outcome || "—",
+                        note: meta?.payment_acv ? `${usd(meta.payment_acv)} at signing`
+                                                : (meta?.payment_type ? meta.outcome || "" : "") },
+                      { label: "Longest monologue", value: fmtClock(ins.monologue.len),
+                        note: `${(ins.monologue.who || "").split(" ")[0]} · from ${fmtClock(ins.monologue.at)}` },
+                      { label: "Questions asked", value: String(ins.questions),
+                        note: ins.host ? `${ins.byHost} by ${ins.host.split(" ")[0]}` : "" },
+                    ].map((c) => (
+                      <div key={c.label} style={{
+                        border: `1px solid ${T.line}`, borderRadius: 12, background: T.parchment,
+                        padding: "12px 14px", display: "flex", flexDirection: "column", gap: 3,
+                      }}>
+                        <div style={{ ...MICRO, fontSize: 10 }}>{c.label}</div>
+                        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 19, fontWeight: 700,
+                                      color: T.ink, letterSpacing: "-.02em" }}>{c.value}</div>
+                        <div style={{ fontSize: 12, color: T.muted }}>{c.note}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <Chapters chapters={chapters} at={at} onSeek={seek} />
+              </div>
+            )}
           </div>
 
           {hasTranscript && (
-            <div style={{
-              flex: "1 1 38%", minWidth: 300, maxHeight: "68vh", display: "flex",
-              flexDirection: "column", borderLeft: `1px solid ${T.line}`,
-            }}>
-              <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.line}` }}>
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this call…"
-                       style={{
-                         width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif",
-                         fontSize: 12.5, padding: "7px 10px", border: `1px solid ${T.line}`,
-                         borderRadius: 8, color: T.ink, background: T.white,
-                       }} />
-                {needle && (
-                  <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
-                    {shown.length} of {segments.length} lines
-                  </div>
-                )}
+            <div style={{ width: narrow ? "100%" : 452, flex: narrow ? "1 1 auto" : "none",
+                          minWidth: 0, minHeight: narrow ? 220 : 0, display: "flex",
+                          flexDirection: "column", background: T.parchment }}>
+              <div style={{ padding: "14px 18px", background: T.white,
+                            borderBottom: `1px solid ${T.line}`, flex: "none",
+                            display: "flex", flexDirection: "column", gap: 11 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 9, height: 36,
+                              border: `1px solid ${T.line}`, borderRadius: 10,
+                              background: T.parchment, padding: "0 11px" }}>
+                  <span style={{ fontSize: 12, color: T.muted }}>⌕</span>
+                  <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this call"
+                         style={{ flex: 1, minWidth: 0, border: 0, outline: "none",
+                                  background: "transparent", fontFamily: "Inter,sans-serif",
+                                  fontSize: 13.5, color: T.ink }} />
+                  {needle && (
+                    <span style={{ ...MONO, fontSize: 11, color: T.muted, flex: "none" }}>
+                      {shown.length} hit{shown.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  {["all", ...names].map((n) => {
+                    const on = who === n;
+                    return (
+                      <button key={n} onClick={() => setWho(n)} style={{
+                        height: 28, padding: "0 11px", border: 0, borderRadius: 999,
+                        cursor: "pointer", fontFamily: "Inter,sans-serif", fontSize: 12.5,
+                        fontWeight: on ? 600 : 500, whiteSpace: "nowrap",
+                        background: on ? T.evergreen : T.page,
+                        color: on ? T.onDark : T.tertiary,
+                      }}>{n === "all" ? "Both speakers" : n.split(" ")[0]}</button>
+                    );
+                  })}
+                  <div style={{ flex: 1 }} />
+                  {(needle || who !== "all") && (
+                    <button onClick={() => { setQ(""); setWho("all"); }} style={{
+                      border: 0, background: "transparent", padding: 0, cursor: "pointer",
+                      fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.teal,
+                      textDecoration: "underline", textUnderlineOffset: 3,
+                    }}>Reset</button>
+                  )}
+                </div>
               </div>
-              <div style={{ overflowY: "auto", padding: "4px 6px 10px" }}>
+
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "6px 0 14px" }}>
                 {shown.map((s) => {
                   const i = segments.indexOf(s);
                   const active = i === activeIdx && !needle;
                   return (
-                    <div key={i} ref={active ? activeRef : null} onClick={() => seek(s)}
-                         title="Jump to this moment"
-                         style={{
-                           padding: "7px 8px", borderRadius: 7, cursor: "pointer",
-                           background: active ? alpha(T.teal, 0.1) : "transparent",
+                    <div key={i} ref={active ? activeRef : null} onClick={() => seek(s.start)}
+                         title="Jump to this moment" style={{
+                           display: "flex", gap: 10, padding: "11px 18px 11px 14px", cursor: "pointer",
+                           background: active ? T.white : "transparent",
+                           borderLeft: `3px solid ${active ? T.evergreen : "transparent"}`,
+                           boxShadow: active ? `inset 0 0 0 1px ${T.line}` : "none",
                          }}>
-                      <div style={{ fontSize: 10.5, color: T.tertiary, marginBottom: 2 }}>
-                        <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtClock(s.start)}</span>
-                        {"  "}
-                        <span style={{ fontWeight: 700, color: s.is_host ? T.evergreen : T.teal }}>
-                          {s.speaker}
-                        </span>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center",
+                                    gap: 5, flex: "none", width: 44 }}>
+                        <span style={{ ...MONO, fontSize: 11, color: T.muted }}>{fmtClock(s.start)}</span>
+                        <span style={{ width: 3, flex: 1, minHeight: 14, borderRadius: 2,
+                                       background: s.is_host ? T.evergreen : T.sprout,
+                                       opacity: active ? 1 : 0.5 }} />
                       </div>
-                      <div style={{ fontSize: 12.5, color: T.ink, lineHeight: 1.45 }}>{s.text}</div>
+                      <div style={{ minWidth: 0, flex: 1, display: "flex",
+                                    flexDirection: "column", gap: 3 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 600,
+                                         color: s.is_host ? T.ink : T.meadowInk }}>{s.speaker}</span>
+                          {s.tag && (
+                            <span style={{ fontSize: 9.5, letterSpacing: ".12em",
+                                           textTransform: "uppercase", color: T.muted,
+                                           padding: "2px 6px", border: `1px solid ${T.line}`,
+                                           borderRadius: 5 }}>{s.tag}</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 13.5, lineHeight: 1.55,
+                                      color: active ? T.ink : T.slate }}>{s.text}</div>
+                      </div>
                     </div>
                   );
                 })}
-                {needle && shown.length === 0 && (
-                  <div style={{ fontSize: 12.5, color: T.muted, padding: "14px 8px" }}>
-                    Nothing matching “{q}” in this call.
+                {shown.length === 0 && (
+                  <div style={{ padding: "40px 24px", textAlign: "center", display: "flex",
+                                flexDirection: "column", gap: 8 }}>
+                    <div style={{ fontSize: 14.5, fontWeight: 600, color: T.ink }}>
+                      No matches in this call
+                    </div>
+                    <div style={{ fontSize: 13, color: T.muted }}>
+                      Try a shorter phrase, or reset the speaker filter.
+                    </div>
                   </div>
                 )}
               </div>
             </div>
           )}
         </div>
-
-        {url && (
-          <div style={{ display: "flex", justifyContent: "flex-end", padding: "9px 16px",
-                        borderTop: `1px solid ${T.line}` }}>
-            <a href={url} download style={{ fontSize: 11, fontWeight: 600, color: T.teal }}>Download</a>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -219,7 +219,21 @@ async def sales_desk_recording(key: str, call_id: uuid.UUID,
         # Bot exists but no media: still in the waiting room, or the recording aged out of
         # Recall's retention window. Say which rather than returning a dead link.
         raise HTTPException(409, f"No playable recording yet (status: {sc.recording_status or 'unknown'})")
-    return {"url": url}
+    # The player's header is part of reviewing a call - who it was with, how it ended, what
+    # they bought. Served here rather than threaded through every caller as props, because
+    # WatchLink is rendered from the call board, the drill rows and the search hits, and only
+    # one of those ever had the outcome to hand.
+    rep = None
+    if sc.rep_email:
+        rep = (await s.execute(select(SalesRep.display_name).where(
+            SalesRep.tenant_id == user.tenant_id,
+            SalesRep.email == sc.rep_email))).scalar_one_or_none()
+    acv = ((launch.price_map or {}).get(sc.payment_type) or {}).get("acv") if sc.payment_type else None
+    return {"url": url, "call": {
+        "contact": sc.contact_name, "when_iso": (sc.call_time_utc.isoformat() if sc.call_time_utc else None),
+        "outcome": sc.outcome, "payment_type": sc.payment_type, "payment_acv": acv,
+        "rep": rep or sc.rep_email, "status": sc.recording_status,
+    }}
 
 
 @router.get("/businesses/{key}/sales-desk/reps")
