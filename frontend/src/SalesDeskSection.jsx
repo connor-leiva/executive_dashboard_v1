@@ -75,6 +75,34 @@ function SDDrawer({ drill, businessKey, usingSample, onClose }) {
   );
 }
 
+/* Recordings are linked to calls by the worker every few minutes. On Railway env vars are
+   per-service, so an API that has RECALL_API_KEY and a worker that doesn't looks exactly
+   like a bug in the matching. This runs the same pass on demand and reports what it saw. */
+function LinkRecordings({ businessKey, onDone }) {
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    if (busy) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await postJSON(`/businesses/${businessKey}/launches/active/sales-desk/recordings/link`, {});
+      const n = r.recall_bots_adopted || 0;
+      setMsg(n ? `linked ${n}` : `nothing to link (${r.candidates ?? 0} unlinked calls)`);
+      if (n && onDone) onDone();
+    } catch (e) {
+      setMsg(e.detail || e.message || "failed");
+    } finally { setBusy(false); }
+  };
+  return (
+    <span className="sd-sub">
+      {msg && <span style={{ marginRight: 8 }}>{msg}</span>}
+      <button className="sd-clear" onClick={run} disabled={busy}>
+        {busy ? "linking…" : "link recordings"}
+      </button>
+    </span>
+  );
+}
+
 const repKey = (r) => (r.unassigned ? "__unassigned__" : r.rep_email);
 const RepName = ({ email, name, unmapped, unassigned }) =>
   unassigned ? <>Unassigned <span className="flagchip">no host</span></>
@@ -425,7 +453,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                 </div>
 
                 <div className="sd-card sd-health">
-                  <div className="sd-head"><span className="sd-title">Data Health</span></div>
+                  <div className="sd-head"><span className="sd-title">Data Health</span>
+                    {isEditor && <LinkRecordings businessKey={businessKey} onDone={onSaved} />}</div>
                   {(data.warnings || []).length === 0 && <div className="sd-empty">All clear.</div>}
                   {(data.warnings || []).map((h, i) => (
                     <div className="sd-hrow" key={i}>

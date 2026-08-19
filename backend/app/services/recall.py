@@ -204,6 +204,9 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
         return 0
     payload = r.json()
     bots = payload.get("results") if isinstance(payload, dict) else payload
+    if isinstance(payload, dict) and payload.get("next"):
+        # Only the first page is read; say so rather than silently ignoring older bots.
+        print("[recall] more bots exist beyond the first page - raise page_size", flush=True)
 
     # Tolerance sits below the 30-minute spacing those shared rooms actually run at, so a
     # neighbouring call can never be mistaken for this one.
@@ -232,6 +235,8 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
                 pairs.append((rank, str(b["id"]), sc))
 
     by_id = {str(b.get("id")): b for b in (bots or []) if b.get("id")}
+    print(f"[recall] adoption: {len(rows)} unlinked call(s) vs {len(bots or [])} bot(s) on the "
+          f"account, {len(pairs)} candidate pairing(s)", flush=True)
     adopted, used_bots, used_calls = 0, set(), set()
     for _, bot_id, sc in sorted(pairs, key=lambda x: x[0]):
         if bot_id in used_bots or id(sc) in used_calls:
@@ -288,7 +293,9 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
             if c.meeting_url and (c.call_time_utc if c.call_time_utc.tzinfo
                                   else c.call_time_utc.replace(tzinfo=dt.timezone.utc)) > now]
 
-    stat: dict = {}
+    # Report what was CONSIDERED, not just what happened. "0 bots created" reads identically
+    # whether there was nothing to do, the job never ran, or every match silently failed.
+    stat: dict = {"candidates": len(candidates), "schedulable": len(rows)}
     if not candidates:
         return stat
     async with httpx.AsyncClient(timeout=30) as client:

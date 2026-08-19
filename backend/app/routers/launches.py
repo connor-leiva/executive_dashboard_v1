@@ -118,6 +118,27 @@ async def drill_active_sales_desk(key: str, metric: str, rep: str | None = None,
     return await drill_sales_desk(s, user.tenant_id, launch, metric, rep=rep)
 
 
+@router.post("/businesses/{key}/launches/active/sales-desk/recordings/link")
+async def link_recordings(key: str, user: User = Depends(current_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Link calls to the recording bots Recall already has, on demand.
+
+    The worker does this every few minutes, but only if a scheduler is actually running with
+    RECALL_API_KEY in ITS environment - on Railway env vars are per-service, so an API that
+    has the key and a worker that doesn't looks exactly like a matching bug. This makes the
+    same pass runnable from the dashboard and, more usefully, makes it SAY what it saw:
+    how many unlinked calls, how many bots, how many matched.
+    """
+    from ..services.recall import schedule_due_bots
+    b = await _biz(s, user.tenant_id, key)
+    await assert_tab(user, s, _launch_tab(b))
+    if user.role not in ("owner", "admin"):
+        raise HTTPException(403, "Owner or admin only")
+    if not settings.RECALL_API_KEY:
+        raise HTTPException(409, "RECALL_API_KEY is not set on this service")
+    return await schedule_due_bots(s)
+
+
 @router.get("/businesses/{key}/launches/active/sales-desk/recording/{call_id}")
 async def sales_desk_recording(key: str, call_id: uuid.UUID,
                                user: User = Depends(current_user),
