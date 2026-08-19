@@ -142,16 +142,38 @@ async def create_bot(client: httpx.AsyncClient, meeting_url: str, join_at: dt.da
     return (r.json() or {}).get("id"), ""
 
 
+# Zoom puts the id after /j/, Google Meet uses the whole final path segment. Anything else
+# falls back to the URL itself, lowercased.
+_ZOOM_ID = re.compile(r"zoom\.us/(?:j|s|w)/(\d+)")
+_MEET_ID = re.compile(r"meet\.google\.com/([a-z0-9-]+)", re.I)
+
+
+def meeting_key(value) -> str | None:
+    """One comparable identity for a meeting, from either side of the match.
+
+    Recall returns meeting_url as an OBJECT - {meeting_id, platform} - while we store the
+    full joinable URL from GHL. Comparing those directly can never be equal, so every call
+    that had a link skipped every bot and 114 unlinked calls matched nothing. Reduce both to
+    the meeting id instead.
+    """
+    if isinstance(value, dict):                      # a bot's meeting_url
+        for k in ("meeting_id", "id"):
+            v = value.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip().lower()
+        value = value.get("meeting_url") or value.get("url")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    u = value.strip()
+    m = _ZOOM_ID.search(u) or _MEET_ID.search(u)
+    if m:
+        return m.group(1).lower()
+    return u.split("?")[0].rstrip("/").lower()
+
+
 def _bot_url(b: dict) -> str | None:
-    """meeting_url has appeared as a bare string and as an object; read either."""
-    mu = b.get("meeting_url")
-    if isinstance(mu, str):
-        return mu
-    if isinstance(mu, dict):
-        for k in ("meeting_url", "url", "meeting_id"):
-            if isinstance(mu.get(k), str):
-                return mu[k]
-    return None
+    """The bot's meeting identity, comparable with meeting_key() of a stored URL."""
+    return meeting_key(b.get("meeting_url"))
 
 
 def _parse_iso(v) -> dt.datetime | None:
@@ -222,7 +244,7 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
         # A call booked before GHL carried the Appointment Link has no stored URL. Fall back
         # to matching on time alone: the greedy one-bot-one-call pass below still keeps two
         # neighbouring calls from claiming the same bot.
-        want = resolve_meeting_url(sc.meeting_url)
+        want = meeting_key(resolve_meeting_url(sc.meeting_url))
         for b in (bots or []):
             if not b.get("id"):
                 continue
@@ -276,6 +298,10 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
     # recordings are orphaned permanently - the webhook reports a bot id nothing recognises
     # and the call shows no recording, forever.
     lookback = now - dt.timedelta(days=settings.RECALL_ADOPT_LOOKBACK_DAYS)
+    # Adoption also reaches FORWARD past the scheduling horizon. The backfill booked bots for
+    # calls up to nine days out; without this they stay unlinked until each call is minutes
+    # away, so the Desk shows no recording status for any of them in the meantime.
+    adopt_until = now + dt.timedelta(days=settings.RECALL_ADOPT_LOOKAHEAD_DAYS)
     # NOTE: adoption deliberately does NOT require meeting_url. Every booking made before the
     # Appointment Link field existed in GHL has none, and those are exactly the calls the
     # backfill bots belong to - requiring it made them permanently unmatchable.
@@ -285,13 +311,15 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
             SalesCall.recall_bot_id.is_(None),
             SalesCall.call_time_utc.is_not(None),
             SalesCall.call_time_utc >= lookback,
-            SalesCall.call_time_utc <= horizon,
+            SalesCall.call_time_utc <= adopt_until,
         ))).scalars().all()
-    # Scheduling only ever looks forward, and DOES need a URL - you cannot send a bot without
-    # somewhere to send it.
-    rows = [c for c in candidates
-            if c.meeting_url and (c.call_time_utc if c.call_time_utc.tzinfo
-                                  else c.call_time_utc.replace(tzinfo=dt.timezone.utc)) > now]
+    # Scheduling is the narrow case: forward only, inside the horizon, and it DOES need a URL
+    # - you cannot send a bot without somewhere to send it. Adoption's window is far wider,
+    # so this must re-apply the horizon rather than inherit it.
+    def _at(c):
+        t = c.call_time_utc
+        return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+    rows = [c for c in candidates if c.meeting_url and now < _at(c) <= horizon]
 
     # Report what was CONSIDERED, not just what happened. "0 bots created" reads identically
     # whether there was nothing to do, the job never ran, or every match silently failed.

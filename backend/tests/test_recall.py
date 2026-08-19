@@ -570,3 +570,62 @@ async def test_a_url_confirmed_pairing_wins_over_a_time_only_one(monkeypatch):
         await recall.schedule_due_bots(s, now=NOW)
         rows = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
     assert rows["HasUrl"] == "bot-1" and rows["NoUrl"] is None
+
+
+def test_meeting_identity_survives_recalls_object_shape():
+    """The bug behind "114 unlinked calls, nothing matched": Recall returns meeting_url as
+    {meeting_id, platform} while we store the full joinable URL from GHL. Compared directly
+    they can never be equal, so every call that HAD a link skipped every bot."""
+    ZM = "https://us06web.zoom.us/j/8021825042?pwd=vE8R4HEUA5VxiAd9Abq8zi7WbLFMb4.1"
+    MEET = "https://meet.google.com/tuz-dhwp-zrw"
+    assert recall.meeting_key(ZM) == recall._bot_url({"meeting_url": {"meeting_id": "8021825042",
+                                                                     "platform": "zoom"}})
+    assert recall.meeting_key(MEET) == recall._bot_url({"meeting_url": {"meeting_id": "tuz-dhwp-zrw",
+                                                                       "platform": "google_meet"}})
+    # a different room must still NOT match
+    assert recall.meeting_key(ZM) != recall._bot_url({"meeting_url": {"meeting_id": "9507511092"}})
+    # the same room reached by different hosts/query strings is one identity
+    assert recall.meeting_key("https://us02web.zoom.us/j/9507511092") == \
+           recall.meeting_key("https://us02web.zoom.us/j/9507511092?pwd=zzz")
+    assert recall.meeting_key(None) is None
+
+
+async def test_a_future_call_with_an_existing_bot_is_linked_before_it_is_due(monkeypatch):
+    """The backfill booked bots up to nine days out. Adoption used to reach only ~20 minutes
+    forward, so those calls sat unlinked - no recording status anywhere on the Desk - until
+    each one was nearly starting."""
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 18, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_ADOPT_LOOKBACK_DAYS", 14)
+    monkeypatch.setattr(settings, "RECALL_ADOPT_LOOKAHEAD_DAYS", 30)
+    monkeypatch.setattr(settings, "RECALL_LEAD_MINUTES", 5)
+    monkeypatch.setattr(settings, "RECALL_TICK_MINUTES", 5)
+
+    far = dt.datetime(2026, 8, 28, 14, tzinfo=U)          # nine days out
+    async with SessionLocal() as s:
+        s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="f", booking_id="f",
+                        contact_name="Kristina", meeting_url=ZOOM, is_current=True,
+                        call_time_utc=far))
+        await s.commit()
+
+    existing = [{"id": "bot-far",
+                 "meeting_url": {"meeting_id": "8021825042", "platform": "zoom"},
+                 "join_at": (far - dt.timedelta(minutes=5)).isoformat(),
+                 "status_changes": [{"code": "joining_call"}]}]
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"results": existing}
+    monkeypatch.setattr(httpx.AsyncClient, "get", lambda self, url, **kw: _resp(FakeResp()))
+
+    async def boom(*a, **k):
+        raise AssertionError("it already has a bot - never book a second")
+    monkeypatch.setattr(recall, "create_bot", boom)
+
+    async with SessionLocal() as s:
+        stat = await recall.schedule_due_bots(s, now=NOW)
+        sc = (await s.execute(select(SalesCall))).scalars().first()
+
+    assert stat.get("recall_bots_adopted") == 1, stat
+    assert sc.recall_bot_id == "bot-far" and sc.recording_status == "scheduled"
