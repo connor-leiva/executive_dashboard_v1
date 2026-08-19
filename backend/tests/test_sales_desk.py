@@ -784,8 +784,8 @@ async def test_stage_implies_the_outcome_when_the_field_is_blank():
                              rep_email="a@x.com", outcome=outcome, is_current=current,
                              contact_name=opp, call_time_utc=old,
                              outcome_at=(dt.datetime(2026, 8, 19, tzinfo=U) if outcome else None))
-        onboard = SC("onboard", "b0")                      # today -> lands on the 48h call board
-        onboard.call_time_utc = dt.datetime(2026, 8, 20, 9, tzinfo=U)
+        onboard = SC("onboard", "b0")                      # just wrapped -> still on the board
+        onboard.call_time_utc = NOW - dt.timedelta(minutes=30)
         s.add_all([
             SC("advanced", "b1"),                          # blank field, but the card moved on
             SC("stillbooked", "b2"),                       # blank field, card never moved

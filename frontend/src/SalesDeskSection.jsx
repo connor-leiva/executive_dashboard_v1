@@ -380,7 +380,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
             <div className="sd-cols">
               <div className="sd-card">
                 <div className="sd-head"><span className="sd-title">Call Board</span>
-                  <span className="sd-sub">all upcoming{sel ? " · filtered" : ""}{calls.length ? ` · ${calls.length}` : ""}</span></div>
+                  <span className="sd-sub">in progress & upcoming{sel ? " · filtered" : ""}{calls.length ? ` · ${calls.length}` : ""}</span></div>
                 {calls.length === 0 && <div className="sd-empty">No upcoming calls for this rep.</div>}
                 <div className="sd-scroll">
                   {calls.map((c, i) => {

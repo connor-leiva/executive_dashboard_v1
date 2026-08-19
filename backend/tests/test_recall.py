@@ -334,14 +334,15 @@ async def test_the_bot_joins_before_the_call_not_after_it(monkeypatch):
     assert join_at == start - dt.timedelta(minutes=5), "and it should honour the configured lead"
 
 
-async def test_the_call_board_shows_every_upcoming_call_not_a_48_hour_slice():
+async def test_the_call_board_has_no_upper_bound():
     """Connor, 2026-08-18: the far-out bookings are exactly the ones that go stale unnoticed,
-    so the board runs from the start of today with no upper bound."""
+    so nothing is cut off at 48 hours. (Where the board STARTS is pinned separately, in
+    test_the_board_is_the_schedule_not_a_history.)"""
     from app.services import sales_desk as sd
     tid, lid = await _launch()
     NOW = dt.datetime(2026, 8, 19, 12, tzinfo=U)
     async with SessionLocal() as s:
-        for name, days in (("EarlierToday", -0.2), ("Tomorrow", 1), ("NextWeek", 7), ("Fortnight", 15)):
+        for name, days in (("Tomorrow", 1), ("Week", 7), ("Fortnight", 15), ("Month", 32)):
             s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=name, booking_id=name,
                             contact_name=name, rep_email="a@x.com", is_current=True,
                             call_time_utc=NOW + dt.timedelta(days=days)))
@@ -350,4 +351,39 @@ async def test_the_call_board_shows_every_upcoming_call_not_a_48_hour_slice():
         d = await sd.compute_sales_desk(s, tid, L, now=NOW)
 
     on_board = [c["contact_name"] for c in d["calls"]]
-    assert on_board == ["EarlierToday", "Tomorrow", "NextWeek", "Fortnight"], on_board
+    assert on_board == ["Tomorrow", "Week", "Fortnight", "Month"], on_board
+
+
+async def test_the_board_is_the_schedule_not_a_history():
+    """Connor: a finished call showing a recording inside a pane labelled "upcoming" reads as
+    a bug. The board keeps a short look-back so a call already under way stays visible - that
+    is when "the bot is in the waiting room, go admit it" matters - but this morning's
+    finished calls belong in the drills, not here."""
+    from app.services import sales_desk as sd
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 20, 15, tzinfo=U)
+    async with SessionLocal() as s:
+        def C(name, mins, **kw):
+            return SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=name, booking_id=name,
+                             contact_name=name, rep_email="a@x.com", is_current=True,
+                             call_time_utc=NOW + dt.timedelta(minutes=mins), **kw)
+        s.add_all([
+            C("Morning", -300, outcome="Showed", recall_bot_id="b1",
+              recording_status="done", recording_url="https://rec/1"),   # done hours ago
+            C("Live", -20, recall_bot_id="b2", recording_status="waiting"),
+            C("Soon", 30), C("Distant", 60 * 24 * 7),
+        ])
+        await s.commit()
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        d = await sd.compute_sales_desk(s, tid, L, now=NOW)
+
+    board = [c["contact_name"] for c in d["calls"]]
+    assert board == ["Live", "Soon", "Distant"], board
+    assert "Morning" not in board
+    # ...but it is still reachable, with its recording, from the all-calls drill
+    async with SessionLocal() as s:
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        drill = await sd.drill_sales_desk(s, tid, L, "kpi.booked", now=NOW)
+    got = {r["contact"]: r.get("recording") for r in drill["rows"]}
+    assert got.get("Morning") == "https://rec/1"
+    assert len(drill["rows"]) == 4
