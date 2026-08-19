@@ -647,6 +647,36 @@ class SalesCall(Base):
                                        name="uq_sales_call_booking"),)
 
 
+class CallTranscript(Base):
+    """The words of one recorded call, stored so the corpus can be queried.
+
+    Deliberately one row per CALL, not per segment: ~250 calls a month means ~3k rows a year
+    rather than a million, and every question worth asking ("which calls mentioned price")
+    is a search over `text` followed by a jump into `segments` for the moment.
+
+    Connor's calls (2026-08-19): store rather than fetch-on-demand, because search and
+    trend analysis are the whole point; keep for ONE YEAR, hence purge_after; visible to
+    anyone with Sales Desk access, so there is no per-rep scoping here - authorization is
+    the tab, exactly like the rest of the Desk. Never exposed on the public share pages.
+    """
+    __tablename__ = "call_transcript"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    sales_call_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sales_call.id", ondelete="CASCADE"), index=True, unique=True)
+    recall_bot_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    # [{speaker, start, end, text}] — start/end are seconds from the top of the recording, so
+    # a click in the UI can seek the video straight to that moment.
+    segments: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)          # flattened, for search
+    speakers: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # {name: seconds} -> talk ratio
+    duration_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # A verbatim record of a client conversation is not something to keep by accident. The
+    # purge job deletes on this date; it is set at write time, never inferred later.
+    purge_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, nullable=True)
+
+
 class SalesCallChange(Base):
     """Audit of every field change the sync observed. Diagnostics + the Data Health strip;
     never the basis for headline counts (spec §4)."""
