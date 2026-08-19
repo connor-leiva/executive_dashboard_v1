@@ -634,7 +634,31 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
 
 /* ── drill drawer: shows what's behind a clicked number (records or calc) ──
    Exported: the Sales Desk drawer renders the same two payload shapes. */
-export function DrillRecords({ d }) {
+/* Recall's media URLs are signed and expire after 5 hours, so we never render a stored one.
+   This asks the API for a fresh link at the moment of the click and opens it. The window is
+   opened first and pointed afterwards, because a popup blocked for opening "late" is the
+   classic way this breaks in Safari. */
+export function WatchLink({ businessKey, callId, label = "Watch ↗" }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const go = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true); setErr(null);
+    const w = window.open("", "_blank", "noopener");
+    try {
+      const r = await getJSON(`/businesses/${businessKey}/launches/active/sales-desk/recording/${callId}`);
+      if (w) w.location = r.url; else window.location = r.url;
+    } catch (e2) {
+      if (w) w.close();
+      setErr(e2.detail || e2.message || "No recording");
+    } finally { setBusy(false); }
+  };
+  if (err) return <span title={err} style={{ color: T.amber }}>unavailable</span>;
+  return <a href="#" onClick={go}>{busy ? "…" : label}</a>;
+}
+
+export function DrillRecords({ d, businessKey = "springb" }) {
   const cols = d.columns || [];
   return (
     <>
@@ -651,12 +675,14 @@ export function DrillRecords({ d }) {
                     <td key={c}>
                       {c === "url"
                         ? (r.url ? <a href={r.url} target="_blank" rel="noreferrer">GHL ↗</a> : "—")
-                        /* Any column may carry a link — recordings do. A bare URL in a cell is
-                           unreadable, so render it as one; non-URL values (a bot still sitting
-                           in a waiting room) fall through and read as plain status text. */
-                        : (typeof r[c] === "string" && /^https?:\/\//.test(r[c]))
-                          ? <a href={r[c]} target="_blank" rel="noreferrer">Watch ↗</a>
-                          : (r[c] === true ? "✓" : r[c] === false || r[c] == null || r[c] === "" ? "—" : r[c])}
+                        /* "rec:<call id>" — the link is minted on click, never stored. Recall
+                           signs its media URLs and they expire after 5 hours, so anything
+                           baked into this payload would be dead by tomorrow. */
+                        : (typeof r[c] === "string" && r[c].startsWith("rec:"))
+                          ? <WatchLink businessKey={businessKey} callId={r[c].slice(4)} />
+                          : (typeof r[c] === "string" && /^https?:\/\//.test(r[c]))
+                            ? <a href={r[c]} target="_blank" rel="noreferrer">Watch ↗</a>
+                            : (r[c] === true ? "✓" : r[c] === false || r[c] == null || r[c] === "" ? "—" : r[c])}
                     </td>
                   ))}
                 </tr>

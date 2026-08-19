@@ -274,6 +274,40 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
     return stat
 
 
+async def fresh_recording_url(bot_id: str) -> str | None:
+    """A playable link for a bot's recording, fetched fresh.
+
+    Recall hands back SIGNED S3 URLs that expire after 5 hours, so a stored one is a link
+    that works this afternoon and 404s tomorrow. Their guidance is to fetch a new one every
+    time someone wants to watch, which is what this does. The signature is self-contained, so
+    the resulting link plays for anyone who has it - no Recall account needed, which matters
+    when the whole team shares one login.
+    """
+    if not (settings.RECALL_API_KEY and bot_id):
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.get(f"{_base()}/api/v1/bot/{bot_id}/",
+                            headers={"Authorization": f"Token {settings.RECALL_API_KEY}"})
+            r.raise_for_status()
+            body = r.json()
+    except Exception as e:                              # noqa: BLE001 — surface as "no link"
+        print(f"[recall] could not refresh media url for {bot_id}: {type(e).__name__}: {e}", flush=True)
+        return None
+
+    # Current shape: recordings[].media_shortcuts.video_mixed.data.download_url.
+    # Older bots expose a flat video_url. Try both rather than pin one layout.
+    for rec in (body.get("recordings") or []):
+        data = (((rec.get("media_shortcuts") or {}).get("video_mixed") or {}).get("data") or {})
+        for k in ("download_url", "url"):
+            if isinstance(data.get(k), str):
+                return data[k]
+    for k in ("video_url", "video_mixed_url"):
+        if isinstance(body.get(k), str):
+            return body[k]
+    return None
+
+
 async def apply_bot_status(s: AsyncSession, bot_id: str, status: str,
                            recording_url: str | None = None) -> bool:
     """Record what Recall told us about one bot. Returns False if we don't know the bot."""

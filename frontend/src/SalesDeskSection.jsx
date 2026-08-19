@@ -5,7 +5,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { T, alpha } from "./theme.js";
 import { getJSON, putJSON, postJSON, delJSON } from "./api";
-import { DrillRecords, DrillCalc } from "./LaunchSection.jsx";
+import { DrillRecords, DrillCalc, WatchLink } from "./LaunchSection.jsx";
 
 const kM = (n) => {
   const a = Math.abs(Math.round(n || 0));
@@ -67,7 +67,7 @@ function SDDrawer({ drill, businessKey, usingSample, onClose }) {
           {err === "sample" && <div className="drx-note">Drill-down loads with live data (this is sample mode).</div>}
           {err && err !== "sample" && <div className="drx-note">{err}</div>}
           {!d && !err && <div className="drx-note">Loading…</div>}
-          {d && d.type === "records" && <DrillRecords d={d} />}
+          {d && d.type === "records" && <DrillRecords d={d} businessKey={businessKey} />}
           {d && d.type === "calc" && <DrillCalc d={d} />}
         </div>
       </div>
@@ -396,9 +396,10 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                           {!c.rep_email ? "No rep" : c.outcome || "Pending"}</span>
                         {/* Recording, when there is one. Absent for every call until bots are
                             switched on, so the row is unchanged for anyone not using them. */}
-                        {c.recording_url
-                          ? <a className="sd-rec" href={c.recording_url} target="_blank" rel="noreferrer"
-                               title="Watch the recording">▶</a>
+                        {c.recording_id && c.recording_status === "done"
+                          ? <span className="sd-rec" title="Watch the recording">
+                              <WatchLink businessKey={businessKey} callId={c.recording_id} label="▶" />
+                            </span>
                           : c.recording_status === "waiting"
                             ? <span className="sd-rec wait" title="Bot is in the waiting room — admit it">◷</span>
                             : null}

@@ -590,7 +590,11 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
         return dict(call_time_utc=(c.call_time_utc.isoformat() if c.call_time_utc else None),
                     contact_name=title_name(c.contact_name), rep_email=c.rep_email, display_name=dname(c.rep_email),
                     outcome=effective_outcome(c), unscheduled=uns, unmapped=unmapped(c.rep_email),
-                    recording_url=c.recording_url, recording_status=c.recording_status)
+                    # Not the stored media URL: Recall signs those and they expire after 5
+                    # hours, so a link rendered now is dead by tomorrow. The id lets the UI
+                    # ask for a fresh one at click time.
+                    recording_id=(str(c.id) if c.recall_bot_id else None),
+                    recording_status=c.recording_status)
     board = sorted((c for c in calls if c.is_current and c.call_time_utc
                     and _aw(c.call_time_utc) >= board_start), key=lambda c: _aw(c.call_time_utc))
     unsched = [c for c in calls if c.is_current and c.call_time_utc is None
@@ -737,7 +741,8 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
                "time": (t.isoformat()[:16].replace("T", " ") + " UTC") if t else (c.call_time_raw or "—"),
                "status": status, "current": c.is_current}
         if rec_on:
-            row["recording"] = c.recording_url or (c.recording_status or "—")
+            row["recording"] = (f"rec:{c.id}" if c.recording_status == "done"
+                                else (c.recording_status or "—"))
         return row
 
     CALL_COLS = ["contact", "rep", "time", "status", "current"] + (["recording"] if rec_on else [])

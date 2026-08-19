@@ -5,6 +5,7 @@ landing page that isn't a meeting, a second bot for a call that already has one,
 call whose recording never came back and nobody noticed.
 """
 import datetime as dt
+import json
 
 import httpx
 import pytest
@@ -385,5 +386,32 @@ async def test_the_board_is_the_schedule_not_a_history():
         L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
         drill = await sd.drill_sales_desk(s, tid, L, "kpi.booked", now=NOW)
     got = {r["contact"]: r.get("recording") for r in drill["rows"]}
-    assert got.get("Morning") == "https://rec/1"
+    # NOT the stored media URL: Recall signs those and they die after 5 hours, so the payload
+    # carries the call id and the link is minted when somebody actually clicks.
+    assert got.get("Morning", "").startswith("rec:")
+    assert "https://" not in str(got.get("Morning"))
     assert len(drill["rows"]) == 4
+
+
+async def test_expiring_media_urls_are_never_baked_into_the_payload():
+    """Recall's media URLs are signed S3 links that expire after 5 hours. Rendering a stored
+    one gives a link that works this afternoon and 404s tomorrow, with nothing to indicate
+    why - so the payload carries an id and the link is minted at click time."""
+    from app.services import sales_desk as sd
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 20, 12, tzinfo=U)
+    async with SessionLocal() as s:
+        s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="o", booking_id="b",
+                        contact_name="Watched", rep_email="a@x.com", outcome="Showed",
+                        call_time_utc=NOW - dt.timedelta(minutes=20), is_current=True,
+                        recall_bot_id="bot-9", recording_status="done",
+                        recording_url="https://s3.example/signed?X-Amz-Expires=18000"))
+        await s.commit()
+        L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
+        d = await sd.compute_sales_desk(s, tid, L, now=NOW)
+        drill = await sd.drill_sales_desk(s, tid, L, "kpi.booked", now=NOW)
+
+    blob = json.dumps({"board": d["calls"], "drill": drill["rows"]})
+    assert "X-Amz-Expires" not in blob and "s3.example" not in blob, "an expiring URL leaked"
+    assert d["calls"][0]["recording_id"], "the board needs the id to mint a link"
+    assert drill["rows"][0]["recording"].startswith("rec:")

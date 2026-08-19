@@ -2,6 +2,7 @@
 
 View is gated on the program tab (becollective); edits are owner/admin and audited.
 Reroute/pricing edits never touch synced opp data — they only reprice on the next read."""
+import uuid
 import datetime as dt
 from decimal import Decimal, InvalidOperation
 
@@ -115,6 +116,35 @@ async def drill_active_sales_desk(key: str, metric: str, rep: str | None = None,
     if not launch:
         raise HTTPException(404, "No active launch")
     return await drill_sales_desk(s, user.tenant_id, launch, metric, rep=rep)
+
+
+@router.get("/businesses/{key}/launches/active/sales-desk/recording/{call_id}")
+async def sales_desk_recording(key: str, call_id: uuid.UUID,
+                               user: User = Depends(current_user),
+                               s: AsyncSession = Depends(get_session)):
+    """A playable link for one call's recording, minted on demand.
+
+    Recall's media URLs are signed and expire after 5 hours, so we deliberately do NOT hand
+    the stored one to the browser - it would be a link that works this afternoon and dies
+    overnight. The dashboard asks for a fresh one at the moment somebody clicks. Access is
+    gated by the same tab permission as the rest of the Desk, so a rep can watch their own
+    calls without anyone sharing the single Recall login.
+    """
+    from ..services.recall import fresh_recording_url
+    b = await _biz(s, user.tenant_id, key)
+    await assert_tab(user, s, _launch_tab(b))
+    sc = (await s.execute(select(SalesCall).where(
+        SalesCall.id == call_id, SalesCall.tenant_id == user.tenant_id))).scalar_one_or_none()
+    if sc is None:
+        raise HTTPException(404, "No such call")
+    if not sc.recall_bot_id:
+        raise HTTPException(404, "No recording for this call")
+    url = await fresh_recording_url(sc.recall_bot_id)
+    if not url:
+        # Bot exists but no media: still in the waiting room, or the recording aged out of
+        # Recall's retention window. Say which rather than returning a dead link.
+        raise HTTPException(409, f"No playable recording yet (status: {sc.recording_status or 'unknown'})")
+    return {"url": url}
 
 
 @router.get("/businesses/{key}/sales-desk/reps")
