@@ -166,6 +166,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .rawmail { font-family:'Courier New',monospace; font-size:11px; color:${T.tertiary}; font-weight:500; }
         .sd-tfoot td { border-bottom:none; color:${T.tertiary}; font-size:11px; padding-top:10px; text-align:left; }
 
+        .sd-rec { margin-left:6px; font-size:12px; text-decoration:none; color:${T.teal}; }
+        .sd-rec.wait { color:${T.amber}; cursor:default; }
         .sd-cols { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:14px; align-items:start; }
         .sd-scroll { max-height:360px; overflow-y:auto; margin-right:-8px; padding-right:8px; }
         .sd-scroll::-webkit-scrollbar { width:7px; }
@@ -384,6 +386,14 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                           <em className={c.unmapped ? "rawmail" : ""}>{c.display_name || c.rep_email || "Unassigned"}</em></span>
                         <span className={`sd-oc ${!c.rep_email ? "flag" : c.outcome ? OUT_TONE[c.outcome] : "pend"}`}>
                           {!c.rep_email ? "No rep" : c.outcome || "Pending"}</span>
+                        {/* Recording, when there is one. Absent for every call until bots are
+                            switched on, so the row is unchanged for anyone not using them. */}
+                        {c.recording_url
+                          ? <a className="sd-rec" href={c.recording_url} target="_blank" rel="noreferrer"
+                               title="Watch the recording">▶</a>
+                          : c.recording_status === "waiting"
+                            ? <span className="sd-rec wait" title="Bot is in the waiting room — admit it">◷</span>
+                            : null}
                       </div>
                     );
                   })}

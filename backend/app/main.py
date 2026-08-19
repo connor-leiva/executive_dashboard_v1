@@ -9,7 +9,7 @@ from .config import settings
 from .db import engine
 from .models import Base
 from .tenancy import resolve_tenant
-from .routers import auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp
+from .routers import recall as recall_router, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp
 
 log = logging.getLogger("app")
 
@@ -80,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(launches.router, prefix="/api/v1")
     app.include_router(ai_employees.router, prefix="/api/v1")
     app.include_router(ulrg.router, prefix="/api/v1")
+    app.include_router(recall_router.router, prefix="/api/v1")   # /api/v1/webhooks/recall (secret-gated)
     app.include_router(share.router, prefix="/api/v1")   # /api/v1/share/{token}/scorecard (no auth)
     app.include_router(share.page_router)                 # /share/{token} — embeddable page + CSP
 

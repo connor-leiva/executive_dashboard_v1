@@ -140,6 +140,16 @@ class Settings(BaseSettings):
     # Single-tenant fallback: when a request Host doesn't match a `domain` row,
     # resolve to this tenant slug. Safe while there is one tenant (Spring); set
     # SINGLE_TENANT_FALLBACK=false once real multitenancy + custom domains land.
+    # ── Recall.ai call recording. Empty API key = the whole feature is inert, which is the
+    # right default: no key, no bots, no spend, no consent exposure.
+    RECALL_API_KEY: str = ""
+    RECALL_REGION: str = "us-west-2"
+    RECALL_BOT_NAME: str = "Call Notetaker"   # attendees SEE this - it is the disclosure surface
+    RECALL_LEAD_MINUTES: int = 5              # how early the bot joins
+    RECALL_TICK_MINUTES: int = 5              # scheduler cadence; also sets the lookahead window
+    RECALL_WEBHOOK_SECRET: str = ""           # shared secret on the status-change callback
+    RECALL_URL_OVERRIDES: str = ""            # "vanity.com/zoom=https://real,..." for redirect links
+
     DEV_TENANT_SLUG: str = "springb"
     SINGLE_TENANT_FALLBACK: bool = True
 

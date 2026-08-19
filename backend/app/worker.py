@@ -86,6 +86,25 @@ async def ai_execute():
                 print(f"[ai_execute] tenant {t.id}: {type(e).__name__}: {e}", flush=True)
 
 
+async def recall_tick():
+    """Book recording bots for Alignment Calls about to start.
+
+    Runs often and does almost nothing most times: it only touches calls inside a short
+    lookahead window that have a meeting link and no bot yet. Inert without RECALL_API_KEY.
+    """
+    if not settings.RECALL_API_KEY:
+        return
+    from .services.recall import schedule_due_bots
+    async with SessionLocal() as s:
+        try:
+            stat = await schedule_due_bots(s)
+        except Exception as e:                       # noqa: BLE001 — never kill the scheduler
+            print(f"[recall] tick failed: {type(e).__name__}: {e}", flush=True)
+            return
+    if stat:
+        print(f"[recall] {stat}", flush=True)
+
+
 def build_scheduler() -> AsyncIOScheduler:
     """Configure the scheduler with the sync tick, the daily agent-roster + scorecard-resolver ticks,
     and (when the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`)
@@ -96,6 +115,9 @@ def build_scheduler() -> AsyncIOScheduler:
     _tz = ZoneInfo(settings.BILLING_TIMEZONE)
     sched.add_job(roster_tick, "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
     sched.add_job(scorecard_tick, "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
+    if settings.RECALL_API_KEY:
+        sched.add_job(recall_tick, "interval", minutes=settings.RECALL_TICK_MINUTES,
+                      next_run_time=dt.datetime.now())
     if settings.AI_EMPLOYEES_ENABLED:
         sched.add_job(ai_dispatch, "interval", minutes=1, next_run_time=dt.datetime.now())
         sched.add_job(ai_execute, "interval", seconds=15, next_run_time=dt.datetime.now())

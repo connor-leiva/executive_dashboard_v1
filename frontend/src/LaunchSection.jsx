@@ -651,7 +651,12 @@ export function DrillRecords({ d }) {
                     <td key={c}>
                       {c === "url"
                         ? (r.url ? <a href={r.url} target="_blank" rel="noreferrer">GHL ↗</a> : "—")
-                        : (r[c] === true ? "✓" : r[c] === false || r[c] == null || r[c] === "" ? "—" : r[c])}
+                        /* Any column may carry a link — recordings do. A bare URL in a cell is
+                           unreadable, so render it as one; non-URL values (a bot still sitting
+                           in a waiting room) fall through and read as plain status text. */
+                        : (typeof r[c] === "string" && /^https?:\/\//.test(r[c]))
+                          ? <a href={r[c]} target="_blank" rel="noreferrer">Watch ↗</a>
+                          : (r[c] === true ? "✓" : r[c] === false || r[c] == null || r[c] === "" ? "—" : r[c])}
                     </td>
                   ))}
                 </tr>

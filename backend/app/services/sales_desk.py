@@ -240,6 +240,7 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
         raw_ct = _clean(r.get("call_time_raw"))
         outcome = norm_outcome(r.get("outcome_raw"), held_phrases=held_phrases)
         payment = norm_payment(r.get("payment_type_raw"))
+        meeting = (_clean(r.get("meeting_url")) or "")[:512] or None
         ct_utc, ok = parse_call_time(raw_ct, tz)
         if raw_ct and not ok:
             warn["call_time_unparsed"] += 1
@@ -265,7 +266,8 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
                 tenant_id=tenant_id, launch_id=launch.id, opportunity_id=oid,
                 contact_id=_clean(r.get("contact_id")), contact_name=(_clean(r.get("contact_name")) or "")[:160],
                 booking_id=booking, rep_email=rep, call_time_raw=raw_ct, call_time_utc=ct_utc,
-                outcome=outcome, outcome_at=(now if outcome else None), payment_type=payment, is_current=True)
+                outcome=outcome, outcome_at=(now if outcome else None), payment_type=payment,
+                meeting_url=meeting, is_current=True)
             s.add(sc)
             await s.flush()                    # assign sc.id so subsequent change-logs can reference it
             existing[key] = sc
@@ -278,6 +280,10 @@ async def apply_sales_diff(s: AsyncSession, tenant_id, launch, records: list[dic
                 warn["outcome_reversed"] += 1
             _log(s, tenant_id, sc, "outcome", sc.outcome, outcome)
             sc.outcome, sc.outcome_at = outcome, now
+        if meeting and meeting != sc.meeting_url:
+            # A rebook can move the call to a different room. Track it so a bot scheduled
+            # later goes to the right place; no change-log entry - it is plumbing, not history.
+            sc.meeting_url = meeting
         if rep and rep != sc.rep_email:
             _log(s, tenant_id, sc, "rep_email", sc.rep_email, rep)
             sc.rep_email = rep
@@ -356,6 +362,7 @@ async def sync_sales_calls(s: AsyncSession, tenant_id, business_id, token: str, 
             "call_time_raw": cf.get(fid.get("call_time")),
             "outcome_raw": cf.get(fid.get("call_outcome")),
             "payment_type_raw": cf.get(fid.get("payment_type")),
+            "meeting_url": cf.get(fid.get("meeting_url")),
         })
 
     warn = await apply_sales_diff(s, tenant_id, launch, records, tz)
@@ -578,7 +585,8 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     def call_row(c, uns=False):
         return dict(call_time_utc=(c.call_time_utc.isoformat() if c.call_time_utc else None),
                     contact_name=title_name(c.contact_name), rep_email=c.rep_email, display_name=dname(c.rep_email),
-                    outcome=effective_outcome(c), unscheduled=uns, unmapped=unmapped(c.rep_email))
+                    outcome=effective_outcome(c), unscheduled=uns, unmapped=unmapped(c.rep_email),
+                    recording_url=c.recording_url, recording_status=c.recording_status)
     board = sorted((c for c in calls if c.is_current and c.call_time_utc
                     and day_start <= _aw(c.call_time_utc) <= win_end), key=lambda c: _aw(c.call_time_utc))
     unsched = [c for c in calls if c.is_current and c.call_time_utc is None
@@ -614,6 +622,17 @@ async def compute_sales_desk(s: AsyncSession, tenant_id, launch, today: dt.date 
     if unmapped_emails:
         warnings.append(dict(n=len(unmapped_emails), label="rep not in the roster", key="dh.unmapped",
                              hint=(", ".join(unmapped_emails)[:110] + " — add a display name in settings")))
+    # A held call with no recording means the bot never got in - almost always a rep who
+    # didn't admit it from the waiting room. Only counts calls whose time has passed, and
+    # only once recording is switched on, so it stays silent for tenants without it.
+    recorded_any = any(c.recall_bot_id for c in calls)
+    no_recording = [c for c in calls
+                    if recorded_any and effective_outcome(c) == OUT_SHOWED and c.call_time_utc
+                    and _aw(c.call_time_utc) < now and c.recording_status != "done"]
+    if no_recording:
+        warnings.append(dict(n=len(no_recording), label="held calls with no recording",
+                             key="dh.no_recording",
+                             hint="bot never joined - usually not admitted from the waiting room"))
     if pending_24:
         warnings.append(dict(n=pending_24, label="outcomes pending > 24h", key="dh.pending24",
                              hint="call time passed, no outcome logged yet"))
@@ -704,14 +723,20 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
         return {"metric": metric, "type": "calc", "title": title, "value": str(value),
                 "steps": steps, "formula": formula, "note": note}
 
+    # Only widen the drawers once recording is live, so tenants without it see no dead column.
+    rec_on = any(c.recall_bot_id for c in calls)
+
     def call_row(c):
         t = _aw(c.call_time_utc)
         status = effective_outcome(c) or ("Upcoming" if t and t >= now else "Pending" if t else "Unscheduled")
-        return {"contact": title_name(c.contact_name) or "-", "rep": rep_label(c.rep_email),
-                "time": (t.isoformat()[:16].replace("T", " ") + " UTC") if t else (c.call_time_raw or "—"),
-                "status": status, "current": c.is_current}
+        row = {"contact": title_name(c.contact_name) or "-", "rep": rep_label(c.rep_email),
+               "time": (t.isoformat()[:16].replace("T", " ") + " UTC") if t else (c.call_time_raw or "—"),
+               "status": status, "current": c.is_current}
+        if rec_on:
+            row["recording"] = c.recording_url or (c.recording_status or "—")
+        return row
 
-    CALL_COLS = ["contact", "rep", "time", "status", "current"]
+    CALL_COLS = ["contact", "rep", "time", "status", "current"] + (["recording"] if rec_on else [])
 
     def call_records(title, rows_calls, subtitle=None):
         rows = [call_row(c) for c in sorted(rows_calls, key=lambda c: (_aw(c.call_time_utc) or now))]
@@ -850,6 +875,11 @@ async def drill_sales_desk(s: AsyncSession, tenant_id, launch, metric: str, rep:
                 for e in emails]
         return records("Reps not in the roster", "name them via manage reps on the leaderboard",
                        rows, ["email", "calls"])
+    if metric == "dh.no_recording":
+        return call_records("Held calls with no recording",
+                            [c for c in calls if effective_outcome(c) == OUT_SHOWED and c.call_time_utc
+                             and _aw(c.call_time_utc) < now and c.recording_status != "done"],
+                            "the call happened but no recording came back - check the waiting room")
     if metric == "dh.pending24":
         return call_records("Outcomes pending > 24h",
                             [c for c in calls if effective_outcome(c) is None and c.call_time_utc

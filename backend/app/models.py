@@ -633,6 +633,14 @@ class SalesCall(Base):
     outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)           # Showed | No Show | Cancelled | Rescheduled
     outcome_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)      # when Acumyn first observed it
     payment_type: Mapped[str | None] = mapped_column(String(24), nullable=True)      # PIF | Financed | Monthly | Custom (§6.1) — feeds the payment mix
+    # ── recording. meeting_url arrives from GHL's "Appointment Link" the moment the call is
+    # booked; everything below is written by the bot scheduler and the Recall webhook. All
+    # nullable — a call with no recording is normal, not an error.
+    meeting_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    recall_bot_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    recording_status: Mapped[str | None] = mapped_column(String(32), nullable=True)  # scheduled | waiting | recording | done | failed
+    recording_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    recording_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     is_current: Mapped[bool] = mapped_column(Boolean, default=True)                  # false once superseded by a rebook
     __table_args__ = (UniqueConstraint("tenant_id", "opportunity_id", "booking_id",
