@@ -25,10 +25,13 @@ BOT_NAME = os.getenv("RECALL_BOT_NAME", "Spring — Call Notetaker")
 
 # Recall bills per recorded hour, so a bot that sits in an empty personal room costs real
 # money. These three timeouts are the whole cost story. Seconds.
+# Top-level field on the bot, NOT part of recording_config, and everyone_left_timeout takes
+# an object. Sent the wrong way Recall accepts the request and silently uses its own
+# defaults - confirmed against a real bot's payload on 2026-08-19.
 AUTOMATIC_LEAVE = {
-    "waiting_room_timeout": 900,     # rep never admits it -> give up after 15 min
-    "noone_joined_timeout": 900,     # nobody shows -> don't record an empty room
-    "everyone_left_timeout": 120,    # call ends -> stop promptly
+    "waiting_room_timeout": 900,                  # rep never admits it -> give up
+    "noone_joined_timeout": 900,                  # nobody shows -> don't record an empty room
+    "everyone_left_timeout": {"timeout": 60},     # call ends -> stop promptly
 }
 
 TEST_PATTERNS = (r"\(test\)", r"team\+test@", r"\btest\b")
@@ -67,8 +70,8 @@ def create_bot(client, base, key, meeting_url, join_at_utc, label):
         "join_at": join_at_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "recording_config": {
             "transcript": {"provider": {"meeting_captions": {}}},
-            "automatic_leave": AUTOMATIC_LEAVE,
         },
+        "automatic_leave": AUTOMATIC_LEAVE,
     }
     r = client.post(f"{base}/api/v1/bot/", headers={"Authorization": f"Token {key}"}, json=payload)
     if r.status_code >= 300:

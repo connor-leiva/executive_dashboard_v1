@@ -38,12 +38,17 @@ _STATUS_MAP = {
     "analysis_done": ST_DONE, "fatal": ST_FAILED, "media_expired": ST_FAILED,
 }
 
-# A bot that sits in an empty personal room bills by the hour. These three timeouts are the
-# whole cost story. Seconds.
+# A bot that sits in an empty personal room bills by the hour, so these bound the waste.
+#
+# Two things learned from a REAL bot's payload (2026-08-19), both of which had silently made
+# this block a no-op: automatic_leave is a TOP-LEVEL field on the bot, not part of
+# recording_config, and everyone_left_timeout takes an object rather than a number. Sent the
+# wrong way, Recall accepts the request and quietly applies its own defaults - the values
+# looked configured here while 1200/1200/2 were actually in force.
 AUTOMATIC_LEAVE = {
-    "waiting_room_timeout": 900,      # rep never admits it -> give up
-    "noone_joined_timeout": 900,      # nobody shows -> don't record an empty room
-    "everyone_left_timeout": 120,     # call ends -> stop promptly
+    "waiting_room_timeout": 900,                  # rep never admits it -> give up (default 1200)
+    "noone_joined_timeout": 900,                  # nobody shows -> don't record an empty room
+    "everyone_left_timeout": {"timeout": 60},     # call ends -> stop promptly (default 2s)
 }
 
 _JOINABLE = re.compile(r"(zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com)")
@@ -123,8 +128,8 @@ async def create_bot(client: httpx.AsyncClient, meeting_url: str, join_at: dt.da
         "join_at": join_at.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "recording_config": {
             "transcript": {"provider": {"meeting_captions": {}}},
-            "automatic_leave": AUTOMATIC_LEAVE,
         },
+        "automatic_leave": AUTOMATIC_LEAVE,       # top level - see the note on AUTOMATIC_LEAVE
     }
     try:
         r = await client.post(f"{_base()}/api/v1/bot/",

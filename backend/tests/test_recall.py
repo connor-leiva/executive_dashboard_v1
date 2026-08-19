@@ -415,3 +415,34 @@ async def test_expiring_media_urls_are_never_baked_into_the_payload():
     assert "X-Amz-Expires" not in blob and "s3.example" not in blob, "an expiring URL leaked"
     assert d["calls"][0]["recording_id"], "the board needs the id to mint a link"
     assert drill["rows"][0]["recording"].startswith("rec:")
+
+
+async def test_create_bot_sends_automatic_leave_where_recall_reads_it(monkeypatch):
+    """Verified against a real bot's payload (2026-08-19): automatic_leave is a TOP-LEVEL
+    field and everyone_left_timeout takes an object. Nested under recording_config, as it
+    was, Recall accepts the request and silently applies its own defaults - so the timeouts
+    read as configured here while 1200/1200/2 were actually in force. Nothing surfaces that."""
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_BOT_NAME", "Spring - Call Notetaker")
+    sent = {}
+
+    class FakeResp:
+        status_code = 200
+        def json(self): return {"id": "bot-z"}
+
+    class FakeClient:
+        async def post(self, url, headers=None, json=None):
+            sent.update(json or {})
+            return FakeResp()
+
+    bot, err = await recall.create_bot(FakeClient(), "https://us06web.zoom.us/j/1",
+                                       dt.datetime(2026, 8, 20, 14, tzinfo=U))
+    assert bot == "bot-z" and not err
+    assert "automatic_leave" not in sent.get("recording_config", {}), "nested = silently ignored"
+    al = sent["automatic_leave"]
+    assert al["waiting_room_timeout"] == 900
+    assert isinstance(al["everyone_left_timeout"], dict), "a bare number is ignored"
+    # the transcript config DOES belong under recording_config - that one was right
+    assert sent["recording_config"]["transcript"]["provider"] == {"meeting_captions": {}}
+    assert sent["bot_name"] == "Spring - Call Notetaker"      # the disclosure attendees see
+    assert sent["join_at"] == "2026-08-20T14:00:00Z"
