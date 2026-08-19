@@ -212,17 +212,24 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
     for sc in rows:
         if sc.recall_bot_id:
             continue
-        want = resolve_meeting_url(sc.meeting_url)
         call_at = sc.call_time_utc
-        if not want or not call_at:
+        if not call_at:
             continue
         call_at = call_at if call_at.tzinfo else call_at.replace(tzinfo=dt.timezone.utc)
+        # A call booked before GHL carried the Appointment Link has no stored URL. Fall back
+        # to matching on time alone: the greedy one-bot-one-call pass below still keeps two
+        # neighbouring calls from claiming the same bot.
+        want = resolve_meeting_url(sc.meeting_url)
         for b in (bots or []):
-            if not b.get("id") or _bot_url(b) != want:
+            if not b.get("id"):
+                continue
+            if want and _bot_url(b) != want:
                 continue
             j = _parse_iso(b.get("join_at")) or _parse_iso(b.get("created_at"))
             if j and abs(call_at - j) <= tol:
-                pairs.append((abs(call_at - j), str(b["id"]), sc))
+                # Prefer a URL-confirmed pairing when both are candidates for the same bot.
+                rank = abs(call_at - j) + (dt.timedelta(0) if want else dt.timedelta(seconds=1))
+                pairs.append((rank, str(b["id"]), sc))
 
     by_id = {str(b.get("id")): b for b in (bots or []) if b.get("id")}
     adopted, used_bots, used_calls = 0, set(), set()
@@ -264,19 +271,22 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
     # recordings are orphaned permanently - the webhook reports a bot id nothing recognises
     # and the call shows no recording, forever.
     lookback = now - dt.timedelta(days=settings.RECALL_ADOPT_LOOKBACK_DAYS)
+    # NOTE: adoption deliberately does NOT require meeting_url. Every booking made before the
+    # Appointment Link field existed in GHL has none, and those are exactly the calls the
+    # backfill bots belong to - requiring it made them permanently unmatchable.
     candidates = (await s.execute(
         select(SalesCall).where(
             SalesCall.is_current.is_(True),
             SalesCall.recall_bot_id.is_(None),
-            SalesCall.meeting_url.is_not(None),
             SalesCall.call_time_utc.is_not(None),
             SalesCall.call_time_utc >= lookback,
             SalesCall.call_time_utc <= horizon,
         ))).scalars().all()
-    # Scheduling only ever looks forward - never chase a call already under way.
+    # Scheduling only ever looks forward, and DOES need a URL - you cannot send a bot without
+    # somewhere to send it.
     rows = [c for c in candidates
-            if (c.call_time_utc if c.call_time_utc.tzinfo
-                else c.call_time_utc.replace(tzinfo=dt.timezone.utc)) > now]
+            if c.meeting_url and (c.call_time_utc if c.call_time_utc.tzinfo
+                                  else c.call_time_utc.replace(tzinfo=dt.timezone.utc)) > now]
 
     stat: dict = {}
     if not candidates:

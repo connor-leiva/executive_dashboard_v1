@@ -497,3 +497,76 @@ async def test_a_past_call_gets_its_backfill_bot_linked_with_the_real_status(mon
     # ...and marked DONE from the bot itself, not left at "scheduled" with no recording
     assert k.recording_status == "done" and k.recording_at is not None
     assert rows["Ancient"].recall_bot_id is None          # lookback is bounded
+
+
+async def test_a_call_with_no_stored_link_can_still_be_adopted(monkeypatch):
+    """Every booking made before the Appointment Link field existed in GHL has meeting_url
+    NULL - and those are exactly the calls the 14 backfill bots belong to. Requiring the URL
+    for adoption made them permanently unmatchable, which is why Kristen's recording never
+    appeared. Time alone identifies them; the greedy pass still stops two calls sharing a bot.
+    """
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 18, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_ADOPT_LOOKBACK_DAYS", 14)
+    monkeypatch.setattr(settings, "RECALL_LEAD_MINUTES", 5)
+    monkeypatch.setattr(settings, "RECALL_TICK_MINUTES", 5)
+
+    ran = dt.datetime(2026, 8, 19, 14, 30, tzinfo=U)          # Kristen's real call time
+    async with SessionLocal() as s:
+        s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="k", booking_id="k",
+                        contact_name="Kristen", rep_email="b@x.com", meeting_url=None,
+                        is_current=True, call_time_utc=ran, outcome="No Show"))
+        await s.commit()
+
+    existing = [{"id": "bot-kristen", "meeting_url": "https://meet.google.com/tuz-dhwp-zrw",
+                 "join_at": (ran - dt.timedelta(minutes=5)).isoformat(),
+                 "recordings": [{"status": {"code": "done"}}]}]
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"results": existing}
+    monkeypatch.setattr(httpx.AsyncClient, "get", lambda self, url, **kw: _resp(FakeResp()))
+
+    async def boom(*a, **k):
+        raise AssertionError("nothing here should be sent a new bot")
+    monkeypatch.setattr(recall, "create_bot", boom)
+
+    async with SessionLocal() as s:
+        stat = await recall.schedule_due_bots(s, now=NOW)
+        sc = (await s.execute(select(SalesCall))).scalars().first()
+
+    assert stat.get("recall_bots_adopted") == 1, stat
+    assert sc.recall_bot_id == "bot-kristen" and sc.recording_status == "done"
+
+
+async def test_a_url_confirmed_pairing_wins_over_a_time_only_one(monkeypatch):
+    """When two calls could claim one bot, the one whose stored URL actually matches should
+    get it - otherwise a URL-less neighbour can steal a recording that isn't its."""
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 18, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_ADOPT_LOOKBACK_DAYS", 14)
+    ran = dt.datetime(2026, 8, 19, 14, 30, tzinfo=U)
+    async with SessionLocal() as s:
+        s.add_all([
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="url", booking_id="url",
+                      contact_name="HasUrl", meeting_url=ZOOM, is_current=True, call_time_utc=ran),
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="bare", booking_id="bare",
+                      contact_name="NoUrl", meeting_url=None, is_current=True, call_time_utc=ran),
+        ])
+        await s.commit()
+
+    existing = [{"id": "bot-1", "meeting_url": ZOOM, "join_at": (ran - dt.timedelta(minutes=5)).isoformat(),
+                 "recordings": [{"status": {"code": "done"}}]}]
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"results": existing}
+    monkeypatch.setattr(httpx.AsyncClient, "get", lambda self, url, **kw: _resp(FakeResp()))
+    monkeypatch.setattr(recall, "create_bot", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
+
+    async with SessionLocal() as s:
+        await recall.schedule_due_bots(s, now=NOW)
+        rows = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
+    assert rows["HasUrl"] == "bot-1" and rows["NoUrl"] is None
