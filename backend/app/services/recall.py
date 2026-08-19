@@ -12,7 +12,10 @@ Everything about WHEN and WHETHER to record lives here; the caller just supplies
 """
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import hashlib
+import hmac
 import re
 
 import httpx
@@ -69,6 +72,45 @@ def resolve_meeting_url(raw: str | None) -> str | None:
     return u if _JOINABLE.search(u) else None
 
 
+# ── webhook authenticity ──────────────────────────────────────────────────────────────────
+# Recall signs webhooks with the workspace "Verification Secret" (whsec_...) using the
+# Standard Webhooks scheme: HMAC-SHA256 over "{id}.{timestamp}.{body}", base64, sent as a
+# space-separated list of "v1,<sig>". It does NOT send a bearer token or a custom header, so
+# comparing a shared secret would reject every real delivery.
+_SIG_TOLERANCE_S = 300          # reject replays; Standard Webhooks recommends 5 minutes
+
+
+def _hdr(headers, name: str) -> str:
+    """Both spellings are in the wild: svix-id (original) and webhook-id (the standard)."""
+    return headers.get(f"svix-{name}") or headers.get(f"webhook-{name}") or ""
+
+
+def verify_signature(secret: str, headers, body: bytes, now: dt.datetime | None = None) -> bool:
+    """True if this really came from Recall, unmodified and recent."""
+    msg_id, ts, sigs = _hdr(headers, "id"), _hdr(headers, "timestamp"), _hdr(headers, "signature")
+    if not (secret and msg_id and ts and sigs):
+        return False
+    try:
+        sent = int(ts)
+    except ValueError:
+        return False
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if abs(int(now.timestamp()) - sent) > _SIG_TOLERANCE_S:
+        return False
+    try:
+        key = base64.b64decode(secret.split("_", 1)[1] if secret.startswith("whsec_") else secret)
+    except Exception:                                   # noqa: BLE001 — malformed secret
+        return False
+    signed = f"{msg_id}.{ts}.".encode() + body
+    expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
+    # A webhook may carry several signatures during a secret rotation; any valid one passes.
+    for part in sigs.split():
+        _, _, val = part.partition(",")
+        if val and hmac.compare_digest(val, expected):
+            return True
+    return False
+
+
 def _base() -> str:
     return f"https://{settings.RECALL_REGION or 'us-west-2'}.recall.ai"
 
@@ -93,6 +135,81 @@ async def create_bot(client: httpx.AsyncClient, meeting_url: str, join_at: dt.da
     if r.status_code >= 300:
         return None, f"{r.status_code} {r.text[:200]}"
     return (r.json() or {}).get("id"), ""
+
+
+def _bot_url(b: dict) -> str | None:
+    """meeting_url has appeared as a bare string and as an object; read either."""
+    mu = b.get("meeting_url")
+    if isinstance(mu, str):
+        return mu
+    if isinstance(mu, dict):
+        for k in ("meeting_url", "url", "meeting_id"):
+            if isinstance(mu.get(k), str):
+                return mu[k]
+    return None
+
+
+def _parse_iso(v) -> dt.datetime | None:
+    try:
+        d = dt.datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+
+
+async def adopt_existing_bots(client: httpx.AsyncClient, rows: list) -> int:
+    """Link bots Recall already has to the calls they belong to.
+
+    Bots booked outside the app - the one-off backfill in scripts/recall_bots.py, or a
+    retried tick - are invisible to the database, so without this the scheduler would send a
+    SECOND bot to the same call. Recall is the source of truth for what exists, not a local
+    ledger, so ask it.
+
+    Three reps run every call through ONE static personal room, so a URL match is ambiguous
+    and the join time has to identify the booking. Matching is greedy on the smallest gap and
+    each bot is claimed once, because otherwise two calls 30 minutes apart in the same room
+    both "match" the same bot and one of them silently goes unrecorded.
+    """
+    try:
+        r = await client.get(f"{_base()}/api/v1/bot/",
+                             headers={"Authorization": f"Token {settings.RECALL_API_KEY}"},
+                             params={"page_size": 200})
+        r.raise_for_status()
+    except Exception as e:                                  # noqa: BLE001 — never block scheduling
+        print(f"[recall] could not list existing bots: {type(e).__name__}: {e}", flush=True)
+        return 0
+    payload = r.json()
+    bots = payload.get("results") if isinstance(payload, dict) else payload
+
+    # Tolerance sits below the 30-minute spacing those shared rooms actually run at, so a
+    # neighbouring call can never be mistaken for this one.
+    tol = dt.timedelta(minutes=20)
+    pairs = []
+    for sc in rows:
+        if sc.recall_bot_id:
+            continue
+        want = resolve_meeting_url(sc.meeting_url)
+        call_at = sc.call_time_utc
+        if not want or not call_at:
+            continue
+        call_at = call_at if call_at.tzinfo else call_at.replace(tzinfo=dt.timezone.utc)
+        for b in (bots or []):
+            if not b.get("id") or _bot_url(b) != want:
+                continue
+            j = _parse_iso(b.get("join_at")) or _parse_iso(b.get("created_at"))
+            if j and abs(call_at - j) <= tol:
+                pairs.append((abs(call_at - j), str(b["id"]), sc))
+
+    adopted, used_bots, used_calls = 0, set(), set()
+    for _, bot_id, sc in sorted(pairs, key=lambda x: x[0]):
+        if bot_id in used_bots or id(sc) in used_calls:
+            continue
+        sc.recall_bot_id, sc.recording_status = bot_id, ST_SCHEDULED
+        used_bots.add(bot_id)
+        used_calls.add(id(sc))
+        adopted += 1
+        print(f"[recall] adopted existing bot {bot_id} for {sc.contact_name!r}", flush=True)
+    return adopted
 
 
 async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> dict:
@@ -122,7 +239,14 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
     if not rows:
         return stat
     async with httpx.AsyncClient(timeout=30) as client:
+        # Before booking anything, find out what Recall already has for these calls.
+        adopted = await adopt_existing_bots(client, rows)
+        if adopted:
+            stat["recall_bots_adopted"] = adopted
+            await s.commit()
         for sc in rows:
+            if sc.recall_bot_id:                    # just adopted - already covered
+                continue
             if _TEST_ROW.search(sc.contact_name or ""):
                 stat["recall_test_skipped"] = stat.get("recall_test_skipped", 0) + 1
                 continue

@@ -6,6 +6,7 @@ call whose recording never came back and nobody noticed.
 """
 import datetime as dt
 
+import httpx
 import pytest
 from sqlalchemy import select, delete
 
@@ -171,3 +172,124 @@ async def test_the_recording_column_stays_hidden_until_recording_is_live():
         drill = await sd.drill_sales_desk(s, tid, L, "kpi.held", now=NOW)
     assert not [x for x in d["warnings"] if x["key"] == "dh.no_recording"]
     assert "recording" not in drill["columns"]
+
+
+async def test_a_bot_recall_already_has_is_adopted_not_duplicated(monkeypatch):
+    """The 14 backfill bots were booked by a standalone script and never touched the database,
+    so recall_bot_id is NULL on those rows. Without adoption the scheduler books a SECOND bot
+    for every one of them - two bots in the call, and double the bill."""
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 12, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_LEAD_MINUTES", 5)
+    monkeypatch.setattr(settings, "RECALL_TICK_MINUTES", 5)
+
+    async with SessionLocal() as s:
+        s.add_all([
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="a", booking_id="a",
+                      contact_name="Backfilled", meeting_url=ZOOM, is_current=True,
+                      call_time_utc=NOW + dt.timedelta(minutes=8)),
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="b", booking_id="b",
+                      contact_name="Brand New", meeting_url=ZOOM, is_current=True,
+                      call_time_utc=NOW + dt.timedelta(minutes=9)),
+        ])
+        await s.commit()
+
+    # Recall already holds a bot for the first call, in the SAME room as the second - so the
+    # URL cannot disambiguate them and the join time has to.
+    existing = [{"id": "bot-backfill", "meeting_url": ZOOM,
+                 "join_at": (NOW + dt.timedelta(minutes=3)).isoformat()}]
+
+    class FakeResp:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self): return {"results": existing}
+
+    async def fake_get(url, **kw): return FakeResp()
+    created = []
+
+    async def fake_create(client, url, join_at):
+        created.append(url)
+        return f"bot-new-{len(created)}", ""
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", lambda self, url, **kw: fake_get(url, **kw))
+    monkeypatch.setattr(recall, "create_bot", fake_create)
+
+    async with SessionLocal() as s:
+        stat = await recall.schedule_due_bots(s, now=NOW)
+        rows = {c.contact_name: c for c in (await s.execute(select(SalesCall))).scalars()}
+
+    assert stat.get("recall_bots_adopted") == 1, stat
+    assert rows["Backfilled"].recall_bot_id == "bot-backfill"   # linked, NOT re-booked
+    assert len(created) == 1                                    # only the genuinely new call
+    assert rows["Brand New"].recall_bot_id == "bot-new-1"
+
+
+def test_webhook_signature_is_verified_the_way_recall_actually_signs():
+    """Recall signs with the workspace Verification Secret (whsec_...). An earlier version of
+    this endpoint compared a custom header, which would have rejected every real delivery."""
+    import base64, hashlib, hmac
+    key = base64.b64encode(b"k" * 24).decode()
+    secret = "whsec_" + key
+    body, mid = b'{"data":{"bot":{"id":"b1"}}}', "msg_2"
+    ts = str(int(dt.datetime.now(U).timestamp()))
+    sig = base64.b64encode(
+        hmac.new(base64.b64decode(key), f"{mid}.{ts}.".encode() + body, hashlib.sha256).digest()).decode()
+    H = {"svix-id": mid, "svix-timestamp": ts, "svix-signature": f"v1,{sig}"}
+
+    assert recall.verify_signature(secret, H, body) is True
+    assert recall.verify_signature(secret, H, b'{"data":{"bot":{"id":"HACKED"}}}') is False
+    assert recall.verify_signature(secret, {**H, "svix-signature": "v1,bogus"}, body) is False
+    # a replayed delivery from an hour ago must not be accepted
+    old = str(int(ts) - 3600)
+    assert recall.verify_signature(secret, {**H, "svix-timestamp": old}, body) is False
+    assert recall.verify_signature("", H, body) is False
+    # the Standard Webhooks spelling is equivalent
+    assert recall.verify_signature(
+        secret, {"webhook-id": mid, "webhook-timestamp": ts, "webhook-signature": f"v1,{sig}"}, body) is True
+
+
+async def test_two_calls_in_one_shared_room_cannot_claim_the_same_bot(monkeypatch):
+    """Aimee, Michele and Ingrid each run EVERY call through one static personal room, 30
+    minutes apart. If adoption matched on URL alone, the 10:00 and 10:30 calls would both
+    claim the 10:00 bot and the 10:30 call would go unrecorded with nothing to show for it."""
+    tid, lid = await _launch()
+    NOW = dt.datetime(2026, 8, 19, 9, 50, tzinfo=U)
+    monkeypatch.setattr(settings, "RECALL_API_KEY", "k")
+    monkeypatch.setattr(settings, "RECALL_LEAD_MINUTES", 5)
+    monkeypatch.setattr(settings, "RECALL_TICK_MINUTES", 45)   # wide enough to see both
+
+    ten = dt.datetime(2026, 8, 19, 10, tzinfo=U)
+    async with SessionLocal() as s:
+        s.add_all([
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="x", booking_id="x",
+                      contact_name="Ten", meeting_url=ZOOM, is_current=True, call_time_utc=ten),
+            SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="y", booking_id="y",
+                      contact_name="TenThirty", meeting_url=ZOOM, is_current=True,
+                      call_time_utc=ten + dt.timedelta(minutes=30)),
+        ])
+        await s.commit()
+
+    existing = [{"id": "bot-10", "meeting_url": ZOOM, "join_at": (ten - dt.timedelta(minutes=5)).isoformat()},
+                {"id": "bot-1030", "meeting_url": ZOOM,
+                 "join_at": (ten + dt.timedelta(minutes=25)).isoformat()}]
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"results": existing}
+    monkeypatch.setattr(httpx.AsyncClient, "get", lambda self, url, **kw: _resp(FakeResp()))
+
+    async def boom(*a, **k):
+        raise AssertionError("should not book a new bot - both calls already have one")
+    monkeypatch.setattr(recall, "create_bot", boom)
+
+    async with SessionLocal() as s:
+        stat = await recall.schedule_due_bots(s, now=NOW)
+        rows = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
+
+    assert stat.get("recall_bots_adopted") == 2, stat
+    assert rows["Ten"] == "bot-10" and rows["TenThirty"] == "bot-1030"   # each to its own
+
+
+async def _resp(r):
+    return r

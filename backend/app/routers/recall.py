@@ -4,11 +4,15 @@ Recall posts here whenever a bot changes state. That is the only way we learn a 
 a waiting room and was never admitted, which is the failure mode the recorded-vs-booked
 report exists to catch.
 
-404s unless RECALL_WEBHOOK_SECRET is set and matches, so an unconfigured deploy exposes
-nothing. Always answers 200 for a well-formed post — a webhook that 500s gets retried, and
-an unknown bot id is not an error worth retrying (it may be the one-off test bot).
+Recall signs each delivery with the workspace Verification Secret (whsec_...), so we verify
+the signature rather than compare a shared header. 404s when the secret isn't configured, so
+an unconfigured deploy exposes nothing. Always answers 200 for a well-formed, authentic post
+— a webhook that 500s gets retried, and an unknown bot id is not worth retrying (it is
+expected for the bots created by scripts/recall_bots.py).
 """
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -25,12 +29,18 @@ def _dig(d: dict, *path, default=None):
 
 
 @router.post("/webhooks/recall")
-async def recall_status(request: Request,
-                        x_recall_secret: str = Header(default=""),
-                        s: AsyncSession = Depends(get_session)):
-    if not settings.RECALL_WEBHOOK_SECRET or x_recall_secret != settings.RECALL_WEBHOOK_SECRET:
+async def recall_status(request: Request, s: AsyncSession = Depends(get_session)):
+    if not settings.RECALL_WEBHOOK_SECRET:
         raise HTTPException(404, "Not found")
-    body = await request.json()
+    raw = await request.body()
+    if not recall.verify_signature(settings.RECALL_WEBHOOK_SECRET, request.headers, raw):
+        # 401, not 404: the endpoint exists and Recall should surface the failure in its logs
+        # rather than quietly retrying against what looks like a missing route.
+        raise HTTPException(401, "Bad signature")
+    try:
+        body = json.loads(raw or b"{}")
+    except ValueError:
+        return {"ok": False, "reason": "not json"}
 
     # Recall has shipped more than one envelope shape over the years, and the payload is not
     # ours to control. Read defensively rather than pinning one layout.
