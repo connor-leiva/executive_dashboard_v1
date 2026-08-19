@@ -5,7 +5,7 @@
    hero watermark is the production Spring mark (SpringSignature) rather than a mocked
    script wordmark. ARR ("annualized revenue added" — Spring's loose usage) is the headline;
    cash collected is a demoted line. The settings drawer PUTs config and refetches. */
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { T, alpha } from "./theme.js";
 import { SpringSignature } from "./Brand.jsx";
 import { putJSON, postJSON, getJSON } from "./api.js";
@@ -634,6 +634,37 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
 
 /* ── drill drawer: shows what's behind a clicked number (records or calc) ──
    Exported: the Sales Desk drawer renders the same two payload shapes. */
+function fmtClock(sec) {
+  if (sec == null || isNaN(sec)) return "";
+  const s = Math.max(0, Math.round(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/* Talk ratio, straight out of the transcript's own timings. is_host marks the rep, so this
+   needs no extra call and no extra cost — and it is the one coaching number you cannot get
+   from a recording by watching it. */
+function TalkRatio({ speakers }) {
+  const rows = Object.entries(speakers || {});
+  if (rows.length < 2) return null;
+  const total = rows.reduce((a, [, v]) => a + (v.seconds || 0), 0) || 1;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px" }}>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".09em",
+                     textTransform: "uppercase", color: T.tertiary, flex: "none" }}>Talk ratio</span>
+      <div style={{ display: "flex", flex: 1, height: 8, borderRadius: 99, overflow: "hidden" }}>
+        {rows.map(([name, v], i) => (
+          <div key={name} title={`${name} — ${fmtClock(v.seconds)}`}
+               style={{ width: `${((v.seconds || 0) / total) * 100}%`,
+                        background: v.is_host ? T.evergreen : alpha(T.teal, 0.45) }} />
+        ))}
+      </div>
+      <span style={{ fontSize: 11, color: T.muted, flex: "none" }}>
+        {rows.map(([name, v]) => `${name.split(" ")[0]} ${Math.round(((v.seconds || 0) / total) * 100)}%`).join(" · ")}
+      </span>
+    </div>
+  );
+}
+
 /* ── Recording playback ────────────────────────────────────────────────────────────────────
    Recall hands back a signed S3 URL to the raw mp4 and offers no player of its own. Opening
    that URL in a tab is at the browser's mercy - Content-Disposition made it DOWNLOAD rather
@@ -643,12 +674,18 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
    The URL expires after 5 hours, so it is fetched when the player opens - never stored - and
    refetched once if playback fails, which is what an expiry looks like mid-session.
 
-   Styles are inline on purpose: the .drx-* drawer CSS is scoped per-file and this component
-   is rendered from both the Launch and Sales Desk tabs. */
+   The transcript sits beside it and is the point: nobody reads 45 minutes, so every line is
+   a seek target. Styles are inline on purpose - the .drx-* drawer CSS is scoped per-file and
+   this renders from both the Launch and Sales Desk tabs. */
 function RecordingPlayer({ businessKey, callId, title, onClose }) {
   const [url, setUrl] = useState(null);
   const [err, setErr] = useState(null);
   const [retried, setRetried] = useState(false);
+  const [tr, setTr] = useState(null);          // {segments, speakers, duration_s} | "none"
+  const [q, setQ] = useState("");
+  const [at, setAt] = useState(0);             // playhead, drives the active line
+  const videoRef = useRef(null);
+  const activeRef = useRef(null);
 
   const load = async () => {
     setErr(null);
@@ -660,6 +697,14 @@ function RecordingPlayer({ businessKey, callId, title, onClose }) {
     }
   };
   useEffect(() => { load(); }, [callId]);
+
+  useEffect(() => {
+    let alive = true;
+    getJSON(`/businesses/${businessKey}/launches/active/sales-desk/transcript/${callId}`)
+      .then((t) => alive && setTr(t))
+      .catch(() => alive && setTr("none"));     // not transcribed yet is normal, not an error
+    return () => { alive = false; };
+  }, [callId, businessKey]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -674,13 +719,37 @@ function RecordingPlayer({ businessKey, callId, title, onClose }) {
     setRetried(true); setUrl(null); load();
   };
 
+  const segments = (tr && tr !== "none" && tr.segments) || [];
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? segments.filter((s) => s.text.toLowerCase().includes(needle)) : segments;
+  const activeIdx = segments.findIndex((s, i) =>
+    at >= s.start && (i === segments.length - 1 || at < segments[i + 1].start));
+
+  // Follow playback, but not while the reader is searching - yanking the list out from under
+  // someone reading results is worse than losing the sync.
+  useEffect(() => {
+    if (!needle && activeRef.current) {
+      activeRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [activeIdx, needle]);
+
+  const seek = (s) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = s.start;
+    v.play().catch(() => {});
+  };
+
+  const hasTranscript = segments.length > 0;
+
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, zIndex: 90, background: alpha(T.evergreen, 0.55),
       display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
     }}>
       <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style={{
-        width: "min(920px, 96vw)", background: T.white, borderRadius: 16, overflow: "hidden",
+        width: hasTranscript ? "min(1120px, 96vw)" : "min(920px, 96vw)",
+        background: T.white, borderRadius: 16, overflow: "hidden",
         boxShadow: `0 24px 60px ${alpha(T.evergreen, 0.3)}`,
       }}>
         <div style={{
@@ -688,24 +757,81 @@ function RecordingPlayer({ businessKey, callId, title, onClose }) {
           gap: 12, padding: "13px 16px", borderBottom: `1px solid ${T.line}`,
         }}>
           <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600, color: T.ink }}>
-            {title || "Call recording"}
+            {title || "Call Recording"}
           </span>
           <button onClick={onClose} aria-label="Close" style={{
             border: "none", background: "none", cursor: "pointer", fontSize: 15, color: T.muted,
           }}>✕</button>
         </div>
 
-        <div style={{ background: "#000", minHeight: 240, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {url && (
-            <video src={url} controls autoPlay preload="metadata" onError={onVideoError}
-                   style={{ width: "100%", maxHeight: "68vh", display: "block" }} />
+        <div style={{ display: "flex", alignItems: "stretch", minHeight: 0 }}>
+          <div style={{ flex: hasTranscript ? "1 1 62%" : "1 1 100%", minWidth: 0 }}>
+            <div style={{ background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {url && (
+                <video ref={videoRef} src={url} controls autoPlay preload="metadata"
+                       onError={onVideoError}
+                       onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
+                       style={{ width: "100%", maxHeight: "62vh", display: "block" }} />
+              )}
+              {!url && !err && <span style={{ color: T.onDark, fontSize: 12.5, padding: 60 }}>Loading recording…</span>}
+              {err && <span style={{ color: T.onDark, fontSize: 12.5, padding: 60, textAlign: "center" }}>{err}</span>}
+            </div>
+            {tr && tr !== "none" && <TalkRatio speakers={tr.speakers} />}
+          </div>
+
+          {hasTranscript && (
+            <div style={{
+              flex: "1 1 38%", minWidth: 300, maxHeight: "68vh", display: "flex",
+              flexDirection: "column", borderLeft: `1px solid ${T.line}`,
+            }}>
+              <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.line}` }}>
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this call…"
+                       style={{
+                         width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif",
+                         fontSize: 12.5, padding: "7px 10px", border: `1px solid ${T.line}`,
+                         borderRadius: 8, color: T.ink, background: T.white,
+                       }} />
+                {needle && (
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
+                    {shown.length} of {segments.length} lines
+                  </div>
+                )}
+              </div>
+              <div style={{ overflowY: "auto", padding: "4px 6px 10px" }}>
+                {shown.map((s) => {
+                  const i = segments.indexOf(s);
+                  const active = i === activeIdx && !needle;
+                  return (
+                    <div key={i} ref={active ? activeRef : null} onClick={() => seek(s)}
+                         title="Jump to this moment"
+                         style={{
+                           padding: "7px 8px", borderRadius: 7, cursor: "pointer",
+                           background: active ? alpha(T.teal, 0.1) : "transparent",
+                         }}>
+                      <div style={{ fontSize: 10.5, color: T.tertiary, marginBottom: 2 }}>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtClock(s.start)}</span>
+                        {"  "}
+                        <span style={{ fontWeight: 700, color: s.is_host ? T.evergreen : T.teal }}>
+                          {s.speaker}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: T.ink, lineHeight: 1.45 }}>{s.text}</div>
+                    </div>
+                  );
+                })}
+                {needle && shown.length === 0 && (
+                  <div style={{ fontSize: 12.5, color: T.muted, padding: "14px 8px" }}>
+                    Nothing matching “{q}” in this call.
+                  </div>
+                )}
+              </div>
+            </div>
           )}
-          {!url && !err && <span style={{ color: T.onDark, fontSize: 12.5, padding: 40 }}>Loading recording…</span>}
-          {err && <span style={{ color: T.onDark, fontSize: 12.5, padding: 40, textAlign: "center" }}>{err}</span>}
         </div>
 
         {url && (
-          <div style={{ display: "flex", justifyContent: "flex-end", padding: "9px 16px" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", padding: "9px 16px",
+                        borderTop: `1px solid ${T.line}` }}>
             <a href={url} download style={{ fontSize: 11, fontWeight: 600, color: T.teal }}>Download</a>
           </div>
         )}
