@@ -426,7 +426,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                             switched on, so the row is unchanged for anyone not using them. */}
                         {c.recording_id && c.recording_status === "done"
                           ? <span className="sd-rec" title="Watch the recording">
-                              <WatchLink businessKey={businessKey} callId={c.recording_id} label="▶" />
+                              <WatchLink businessKey={businessKey} callId={c.recording_id} label="▶"
+                                         title={c.contact_name ? `${c.contact_name} — call recording` : undefined} />
                             </span>
                           : c.recording_status === "waiting"
                             ? <span className="sd-rec wait" title="Bot is in the waiting room — admit it">◷</span>

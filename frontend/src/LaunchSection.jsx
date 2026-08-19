@@ -634,32 +634,98 @@ function SettingsDrawer({ cfg, launchId, businessKey, canPersist, onClose, onSav
 
 /* ── drill drawer: shows what's behind a clicked number (records or calc) ──
    Exported: the Sales Desk drawer renders the same two payload shapes. */
-/* Recall's media URLs are signed and expire after 5 hours, so we never render a stored one.
-   This asks the API for a fresh link at the moment of the click and opens it. The window is
-   opened first and pointed afterwards, because a popup blocked for opening "late" is the
-   classic way this breaks in Safari. */
-export function WatchLink({ businessKey, callId, label = "Watch ↗" }) {
-  const [busy, setBusy] = useState(false);
+/* ── Recording playback ────────────────────────────────────────────────────────────────────
+   Recall hands back a signed S3 URL to the raw mp4 and offers no player of its own. Opening
+   that URL in a tab is at the browser's mercy - Content-Disposition made it DOWNLOAD rather
+   than play. Used as the src of a <video> it streams instead, because S3 serves range
+   requests, so the call plays in place and nothing lands in anyone's Downloads folder.
+
+   The URL expires after 5 hours, so it is fetched when the player opens - never stored - and
+   refetched once if playback fails, which is what an expiry looks like mid-session.
+
+   Styles are inline on purpose: the .drx-* drawer CSS is scoped per-file and this component
+   is rendered from both the Launch and Sales Desk tabs. */
+function RecordingPlayer({ businessKey, callId, title, onClose }) {
+  const [url, setUrl] = useState(null);
   const [err, setErr] = useState(null);
-  const go = async (e) => {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true); setErr(null);
-    // NOT the "noopener" feature: with it window.open returns null, the handle is lost, and
-    // the else-branch below navigates the dashboard itself to the video. Null the opener on
-    // the handle instead.
-    const w = window.open("", "_blank");
-    if (w) w.opener = null;
+  const [retried, setRetried] = useState(false);
+
+  const load = async () => {
+    setErr(null);
     try {
       const r = await getJSON(`/businesses/${businessKey}/launches/active/sales-desk/recording/${callId}`);
-      if (w) w.location = r.url; else window.location = r.url;
-    } catch (e2) {
-      if (w) w.close();
-      setErr(e2.detail || e2.message || "No recording");
-    } finally { setBusy(false); }
+      setUrl(r.url);
+    } catch (e) {
+      setErr(e.detail || e.message || "No recording available");
+    }
   };
-  if (err) return <span title={err} style={{ color: T.amber }}>unavailable</span>;
-  return <a href="#" onClick={go}>{busy ? "…" : label}</a>;
+  useEffect(() => { load(); }, [callId]);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // A signed URL that expired while the drawer sat open fails as a media error, not an HTTP
+  // one - so retry once with a fresh link before telling anyone it is broken.
+  const onVideoError = () => {
+    if (retried) { setErr("This recording could not be played."); return; }
+    setRetried(true); setUrl(null); load();
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 90, background: alpha(T.evergreen, 0.55),
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style={{
+        width: "min(920px, 96vw)", background: T.white, borderRadius: 16, overflow: "hidden",
+        boxShadow: `0 24px 60px ${alpha(T.evergreen, 0.3)}`,
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: 12, padding: "13px 16px", borderBottom: `1px solid ${T.line}`,
+        }}>
+          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600, color: T.ink }}>
+            {title || "Call recording"}
+          </span>
+          <button onClick={onClose} aria-label="Close" style={{
+            border: "none", background: "none", cursor: "pointer", fontSize: 15, color: T.muted,
+          }}>✕</button>
+        </div>
+
+        <div style={{ background: "#000", minHeight: 240, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {url && (
+            <video src={url} controls autoPlay preload="metadata" onError={onVideoError}
+                   style={{ width: "100%", maxHeight: "68vh", display: "block" }} />
+          )}
+          {!url && !err && <span style={{ color: T.onDark, fontSize: 12.5, padding: 40 }}>Loading recording…</span>}
+          {err && <span style={{ color: T.onDark, fontSize: 12.5, padding: 40, textAlign: "center" }}>{err}</span>}
+        </div>
+
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+          padding: "10px 16px", fontSize: 11, color: T.muted,
+        }}>
+          <span>Streamed from Recall — the link expires after a few hours and is re-issued each time.</span>
+          {url && <a href={url} download style={{ color: T.teal, fontWeight: 600, whiteSpace: "nowrap" }}>Download</a>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* The link that opens it. The media URL is never stored - it is minted per click. */
+export function WatchLink({ businessKey, callId, label = "Watch ↗", title }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <a href="#" onClick={(e) => { e.preventDefault(); setOpen(true); }}>{label}</a>
+      {open && <RecordingPlayer businessKey={businessKey} callId={callId} title={title}
+                                onClose={() => setOpen(false)} />}
+    </>
+  );
 }
 
 export function DrillRecords({ d, businessKey = "springb" }) {
@@ -683,7 +749,8 @@ export function DrillRecords({ d, businessKey = "springb" }) {
                            signs its media URLs and they expire after 5 hours, so anything
                            baked into this payload would be dead by tomorrow. */
                         : (typeof r[c] === "string" && r[c].startsWith("rec:"))
-                          ? <WatchLink businessKey={businessKey} callId={r[c].slice(4)} />
+                          ? <WatchLink businessKey={businessKey} callId={r[c].slice(4)}
+                                        title={r.contact ? `${r.contact} — call recording` : undefined} />
                           : (typeof r[c] === "string" && /^https?:\/\//.test(r[c]))
                             ? <a href={r[c]} target="_blank" rel="noreferrer">Watch ↗</a>
                             : (r[c] === true ? "✓" : r[c] === false || r[c] == null || r[c] === "" ? "—" : r[c])}
