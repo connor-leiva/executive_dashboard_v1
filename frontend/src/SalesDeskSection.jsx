@@ -198,11 +198,17 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
 
         .sd-health { background:${T.white}; border:1px solid ${alpha(T.amber, .3)}; border-radius:16px; padding:16px 20px; }
         .sd-health .sd-title { color:${T.amber}; }
-        .sd-hrow { display:flex; gap:10px; align-items:baseline; padding:7px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
-        .sd-hrow:last-child { border-bottom:none; }
-        .sd-hn { font-family:Poppins,sans-serif; font-size:17px; font-weight:700; color:${T.amber}; width:24px; flex:none; text-align:right; }
-        .sd-hl { font-size:12.5px; font-weight:600; color:${T.ink}; }
-        .sd-hint { display:block; font-size:11px; color:${T.muted}; margin-top:1px; }
+        .sd-hrow { display:flex; gap:11px; align-items:baseline; padding:9px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
+        /* The last row's padding would stack on the card's own, so the block looked
+           bottom-heavy against a 16px top inset. */
+        .sd-hrow:last-child { border-bottom:none; padding-bottom:1px; }
+        /* line-height matters here: Poppins at 17px defaults to a ~26px box beside a 15px
+           label, and on a shared baseline the number visibly floats above the text it
+           belongs to. min-width, not width, so a three-digit count doesn't break the column. */
+        .sd-hn { font-family:Poppins,sans-serif; font-size:17px; font-weight:700; line-height:1.2;
+          color:${T.amber}; min-width:26px; flex:none; text-align:right; }
+        .sd-hl { font-size:12.5px; font-weight:600; color:${T.ink}; line-height:1.35; }
+        .sd-hint { display:block; font-size:11px; color:${T.muted}; margin-top:3px; line-height:1.45; }
         .sd-empty { font-size:12.5px; color:${T.muted}; padding:10px 2px; }
 
         .sd-root .num { cursor:pointer; border-radius:3px; box-shadow:inset 0 -1px 0 ${alpha(T.muted, 0)}; }
@@ -416,7 +422,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                 </div>
 
                 <div className="sd-health" style={{ marginTop: 14 }}>
-                  <div className="sd-head" style={{ marginBottom: 6 }}><span className="sd-title">Data Health</span></div>
+                  <div className="sd-head" style={{ marginBottom: 10 }}><span className="sd-title">Data Health</span></div>
                   {(data.warnings || []).length === 0 && <div className="sd-empty">All clear.</div>}
                   {(data.warnings || []).map((h, i) => (
                     <div className="sd-hrow" key={i}>

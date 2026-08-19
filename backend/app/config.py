@@ -34,7 +34,11 @@ class Settings(BaseSettings):
     # A valid dev Fernet key (32 url-safe base64 bytes). Override in prod.
     FERNET_KEY: str = "ioZZk-alzy9XSx8YtiFHOJyUldLmcz4SkPKrWwIR4xE="
     ENV: str = "development"
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # 5173 = vite dev, 4173 = vite preview. The preview serves the PRODUCTION build, which is
+    # where UI work actually gets verified, so leaving it out meant every such check died on a
+    # CORS preflight before showing anything.
+    ALLOWED_ORIGINS: str = ("http://localhost:5173,http://127.0.0.1:5173,"
+                            "http://localhost:4173,http://127.0.0.1:4173")
     PUBLIC_API_BASE: str = "http://localhost:8000"
 
     # QuickBooks
