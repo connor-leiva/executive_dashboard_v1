@@ -196,13 +196,14 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-bar span { display:block; height:100%; }
         .sd-mixfoot { font-size:11px; color:${T.tertiary}; } .sd-mixfoot b { font-family:Poppins,sans-serif; color:${T.ink}; }
 
-        .sd-health { background:${T.white}; border:1px solid ${alpha(T.amber, .3)}; border-radius:16px;
-          padding:18px 20px 16px; }
+        /* Data Health IS an .sd-card - it just wears an amber border. Everything about its
+           box (shadow, radius, padding, margin) comes from .sd-card so the two cards stacked
+           in this column can never drift apart again. */
+        .sd-health { border-color:${alpha(T.amber, .3)}; }
         .sd-health .sd-title { color:${T.amber}; }
-        .sd-hrow { display:flex; gap:11px; align-items:baseline; padding:9px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
-        /* The last row's padding would stack on the card's own, so the block looked
-           bottom-heavy against a 16px top inset. */
-        .sd-hrow:last-child { border-bottom:none; padding-bottom:1px; }
+        /* Same box metrics as .sd-lr, the row used by every other stacked card. */
+        .sd-hrow { display:flex; gap:10px; align-items:baseline; padding:9px 2px; border-bottom:1px solid ${alpha(T.line, .5)}; }
+        .sd-hrow:last-child { border-bottom:none; }
         /* line-height matters here: Poppins at 17px defaults to a ~26px box beside a 15px
            label, and on a shared baseline the number visibly floats above the text it
            belongs to. min-width, not width, so a three-digit count doesn't break the column. */
@@ -422,8 +423,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                   ))}
                 </div>
 
-                <div className="sd-health">
-                  <div className="sd-head" style={{ marginBottom: 10 }}><span className="sd-title">Data Health</span></div>
+                <div className="sd-card sd-health">
+                  <div className="sd-head"><span className="sd-title">Data Health</span></div>
                   {(data.warnings || []).length === 0 && <div className="sd-empty">All clear.</div>}
                   {(data.warnings || []).map((h, i) => (
                     <div className="sd-hrow" key={i}>
