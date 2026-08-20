@@ -45,7 +45,8 @@ ENTITIES = [
     ("springb", "Spring B", "coa-spring-b.csv"),
     ("sympli", "Sympli Mortgage", "coa-sympli-mortgage.csv"),
     ("becollective", "beCollective", "coa-becollective.csv"),
-    ("forum", "The Forum", "coa-the-forum.csv"),
+    ("the_forum", "The Forum", "coa-the-forum.csv"),      # note the underscore, that is the key
+
 ]
 
 IGNORE = "IGNORE"
@@ -249,7 +250,7 @@ def build_workbook(accounts, branch_rows, chart, suggest, out_path):
                    "yes" if a.activity else "", cover,
                    "" if cover else display.get(s["code"], "") if s else "",
                    "", "" if cover else (s["why"] if s else "no suggestion"),
-                   a.qbo_account_id])
+                   a.qbo_account_id, a.entity_key])
     for row in ac.iter_rows(min_row=2, max_row=ac.max_row):
         row[3].number_format = MONEY
         row[8].font = MUTE
@@ -305,7 +306,7 @@ def build_workbook(accounts, branch_rows, chart, suggest, out_path):
             st.cell(row=st.max_row, column=1).font = Font(bold=True)
         st.cell(row=st.max_row, column=1).alignment = Alignment(wrap_text=True, vertical="top")
 
-    wb.move_sheet("Start here", offset=-3)
+    wb._sheets = [wb[t] for t in ("Start here", "1 Rules", "2 Accounts", "Chart")]
     wb.save(out_path)
     return {"accounts": len(accounts), "live": live, "branches": len(branch_rows),
             "covered": covered}
@@ -485,7 +486,7 @@ def main() -> None:
     ap.add_argument("--out", default=str(DEFAULT_OUT), help="where to write the worksheet")
     ap.add_argument("--source", choices=("discovery", "api"), default="discovery",
                     help="discovery (default, offline, carries activity) or api (live charts)")
-    ap.add_argument("--base-url", default="https://api.springb.com/api/v1")
+    ap.add_argument("--base-url", default="https://api.acumyn.io/api/v1")
     ap.add_argument("--email")
     ap.add_argument("--token", help="a bearer token, instead of logging in")
     args = ap.parse_args()
