@@ -6,14 +6,17 @@ import BooksHome from "./BooksHome.jsx";
 import BooksPL from "./BooksPL.jsx";
 import BooksQueue from "./BooksQueue.jsx";
 import BooksIC from "./BooksIC.jsx";
+import BooksMapping from "./BooksMapping.jsx";
 import { font, T } from "./ui.jsx";
 
-const PAGE_TITLE = { home: null, pl: "Profit & loss", queue: "Approval queue", ic: "Intercompany" };
+const PAGE_TITLE = { home: null, pl: "Profit & loss", queue: "Approval queue",
+  ic: "Intercompany", mapping: "Chart mapping" };
 
 function SubNav({ page, setPage, counts }) {
   const items = [["home", "Home"], ["pl", "P&L"],
     ["queue", `Queue${counts.queue ? ` · ${counts.queue}` : ""}`],
-    ["ic", `Intercompany${counts.ic ? ` · ${counts.ic}` : ""}`]];
+    ["ic", `Intercompany${counts.ic ? ` · ${counts.ic}` : ""}`],
+    ["mapping", "Mapping"]];
   return (
     <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
       {items.map(([k, l]) => (
@@ -48,6 +51,7 @@ export default function Books({ period = "mtd", role }) {
       {page === "pl" && <BooksPL period={period} />}
       {page === "queue" && <BooksQueue isCFO={isCFO} />}
       {page === "ic" && <BooksIC isCFO={isCFO} />}
+      {page === "mapping" && <BooksMapping isCFO={isCFO} />}
     </div>
   );
 }

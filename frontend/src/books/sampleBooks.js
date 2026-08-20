@@ -112,3 +112,70 @@ export const sampleIC = {
   ],
   blocking: { open: 1, amount: 15000 },
 };
+
+/* ── Chart of accounts mapping (Phase 2) ────────────────────────────────────────────────
+   Offline/demo payload. Shapes match /books/coa and /books/coa/map exactly, and the
+   accounts are the ones Phase 0 actually found on ULRG — the number lives in the NAME,
+   nesting runs deep, and 69000 appears twice. */
+export const sampleCoaEntities = {
+  entities: [
+    { id: "b-ulrg", key: "ulrg", name: "ULRG + Team", archetype: "transactional", qbo_connected: true,
+      counts: { total: 271, mapped: 118, ignored: 9, unmapped: 144 } },
+    { id: "b-springb", key: "springb", name: "Spring B", archetype: "program", qbo_connected: true,
+      counts: { total: 186, mapped: 62, ignored: 4, unmapped: 120 } },
+    { id: "b-sympli", key: "sympli", name: "Sympli Mortgage", archetype: "transactional", qbo_connected: true,
+      counts: { total: 155, mapped: 0, ignored: 0, unmapped: 155 } },
+  ],
+};
+
+const STD = [
+  { id: "s-7010", code: "7010", name: "Rent", bucket: "occupancy", statement: "pl", section: "opex", is_active: true, definition: null },
+  { id: "s-8050", code: "8050", name: "Contract Labor, Named Contractors", bucket: "salaries_wages", statement: "pl", section: "opex", is_active: true, definition: null },
+  { id: "s-8060", code: "8060", name: "Contract Labor, Virtual Assistants", bucket: "salaries_wages", statement: "pl", section: "opex", is_active: true, definition: null },
+  { id: "s-8610", code: "8610", name: "Other Insurance", bucket: "general_admin", statement: "pl", section: "opex", is_active: true, definition: null },
+  { id: "s-8690", code: "8690", name: "Other General and Administrative", bucket: "general_admin", statement: "pl", section: "opex", is_active: true, definition: null },
+  { id: "s-4010", code: "4010", name: "Gross Commission Income, Listing Side", bucket: "revenue_transactional", statement: "pl", section: "revenue", is_active: true, definition: null },
+  { id: "s-9910", code: "9910", name: "Other Expense", bucket: "other_expense", statement: "pl", section: "other_expense", is_active: true, definition: null },
+  { id: "s-2200", code: "2200", name: "Accrued Liabilities", bucket: "balance_sheet", statement: "bs", section: "liability", is_active: true, definition: null },
+];
+
+const acct = (o) => ({ qbo_active: true, is_ignored: false, ignore_reason: null, mapped_via: null,
+  rule_id: null, standard_account_id: null, code: null, standard_name: null, suggestion: null, ...o });
+
+export const sampleCoaMap = {
+  business: { id: "b-ulrg", key: "ulrg", name: "ULRG + Team", archetype: "transactional" },
+  counts: { total: 8, mapped: 3, ignored: 1, unmapped: 4, by_rule: 2 },
+  accounts: [
+    acct({ qbo_account_id: "289", name: "41200 Sales Income", fqn: "41000 Gross Commission Income:41200 Sales Income",
+      type: "Income", depth: 2, standard_account_id: "s-4010", code: "4010",
+      standard_name: "Gross Commission Income, Listing Side", mapped_via: "manual" }),
+    acct({ qbo_account_id: "301", name: "Ana Ruiz", fqn: "61300 Contract Labor:Virtual Assistants:Ana Ruiz",
+      type: "Expense", depth: 3, standard_account_id: "s-8060", code: "8060",
+      standard_name: "Contract Labor, Virtual Assistants", mapped_via: "rule", rule_id: "r-va" }),
+    acct({ qbo_account_id: "302", name: "Diego Marin", fqn: "61300 Contract Labor:Virtual Assistants:Diego Marin",
+      type: "Expense", depth: 3, standard_account_id: "s-8060", code: "8060",
+      standard_name: "Contract Labor, Virtual Assistants", mapped_via: "rule", rule_id: "r-va" }),
+    acct({ qbo_account_id: "310", name: "Kofi Mensah", fqn: "61300 Contract Labor:Mentor Bonuses:Kofi Mensah",
+      type: "Expense", depth: 3,
+      suggestion: { code: "8050", name: "Contract Labor, Named Contractors", standard_account_id: "s-8050",
+        confidence: "keyword", why: "contains “contract labor”" } }),
+    acct({ qbo_account_id: "400", name: "69000 Other Expense", fqn: "69000 Other Expense", type: "Other Expense", depth: 1,
+      suggestion: { code: "9910", name: "Other Expense", standard_account_id: "s-9910",
+        confidence: "exact", why: "name matches exactly" } }),
+    acct({ qbo_account_id: "401", name: "69000 Insurance", fqn: "69000 Insurance", type: "Expense", depth: 1,
+      suggestion: { code: "8610", name: "Other Insurance", standard_account_id: "s-8610",
+        confidence: "keyword", why: "contains “insurance”" } }),
+    acct({ qbo_account_id: "500", name: "Rent", fqn: "63000 Occupancy:Rent", type: "Expense", depth: 2,
+      suggestion: { code: "7010", name: "Rent", standard_account_id: "s-7010",
+        confidence: "exact", why: "name matches exactly" } }),
+    acct({ qbo_account_id: "900", name: "Old Payroll Clearing", fqn: "Old Payroll Clearing",
+      type: "Other Current Liability", depth: 1, qbo_active: false, is_ignored: true,
+      ignore_reason: "Dead clearing account, zero balance since 2024" }),
+  ],
+  standard: STD,
+  rules: [
+    { id: "r-va", pattern: "61300 Contract Labor:Virtual Assistants:", match_type: "prefix",
+      business_id: "b-ulrg", business_key: "ulrg", standard_account_id: "s-8060", code: "8060",
+      is_active: true, note: "Phase 0: the VAs live in this subtree", covers: 2 },
+  ],
+};
