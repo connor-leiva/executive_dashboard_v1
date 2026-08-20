@@ -157,7 +157,13 @@ async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None, help="YYYY-MM-DD in the launch timezone (default: today)")
     ap.add_argument("--tz", default="America/Denver")
+    ap.add_argument("--overrides", default=None,
+                    help="RECALL_URL_OVERRIDES as deployed, e.g. \"vanity.com/zoom=https://real\". "
+                         "Without it a vanity link reads UNRESOLVED here while it resolves fine "
+                         "in prod.")
     a = ap.parse_args()
+    if a.overrides:
+        settings.RECALL_URL_OVERRIDES = a.overrides
     tz = _tz(a.tz)
     now = dt.datetime.now(dt.timezone.utc)
     day = dt.date.fromisoformat(a.date) if a.date else now.astimezone(tz).date()
@@ -169,9 +175,9 @@ async def main():
                      ).astimezone(tz).date() == day]
     print(f"{day} ({a.tz})   calls booked: {len(calls)}   bots on the account for that day: {len(same_day)}")
     if not settings.RECALL_URL_OVERRIDES:
-        print("NOTE: RECALL_URL_OVERRIDES is empty in THIS environment. Vanity links resolve")
-        print("      only where it is set, so run this where the worker runs before believing")
-        print("      an UNRESOLVED verdict.")
+        print("NOTE: RECALL_URL_OVERRIDES is empty HERE, which is not the same as empty in prod.")
+        print("      Pass --overrides with the deployed value; otherwise every vanity link")
+        print("      reads UNRESOLVED in this report while booking perfectly well in Railway.")
     print()
     print(f"  {'time':<9}{'who':<26}{'rep':<13}{'room':<15}{'verdict':<12}why")
     counts = {}
