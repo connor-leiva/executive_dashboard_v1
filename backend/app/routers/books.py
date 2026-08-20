@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..deps import require_tab, require_role
 from ..models import User
-from ..services import books
+from ..services import books, coa_map
 from ..services.books_scan import create_ic_rule, update_ic_rule
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -152,3 +152,109 @@ async def patch_rule(rule_id: uuid.UUID, body: RulePatch,
     if rule is None:
         raise HTTPException(404, "Not found")
     return {"ok": True, "id": str(rule.id)}
+
+
+# ── Chart of accounts mapping (SPEC-coa-mapping-provenance 5.5) ───────────────
+# Reads and per-account decisions are the bookkeeper's daily work, so they sit behind the
+# books tab. Rules are structural — one pattern silently maps every account a future hire
+# creates — so they take the same owner/admin gate as the intercompany rules above.
+
+class MapIn(BaseModel):
+    business_id: uuid.UUID
+    qbo_account_ids: list[str]
+    standard_account_id: uuid.UUID | None = None      # null unmaps
+
+
+class IgnoreIn(BaseModel):
+    business_id: uuid.UUID
+    qbo_account_ids: list[str]
+    reason: str
+
+
+class CoaRuleIn(BaseModel):
+    pattern: str
+    standard_account_id: uuid.UUID
+    business_id: uuid.UUID | None = None              # null = every entity in the tenant
+    note: str | None = None
+
+
+class CoaRulePatch(BaseModel):
+    pattern: str | None = None
+    standard_account_id: uuid.UUID | None = None
+    note: str | None = None
+    is_active: bool | None = None
+
+
+@router.get("/coa")
+async def coa_entities(user: User = Depends(books_user),
+                       s: AsyncSession = Depends(get_session)):
+    return {"entities": await coa_map.mapping_entities(s, user.tenant_id)}
+
+
+@router.get("/coa/map")
+async def coa_mapping(business_id: uuid.UUID, user: User = Depends(books_user),
+                      s: AsyncSession = Depends(get_session)):
+    try:
+        return await coa_map.mapping_overview(s, user.tenant_id, business_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.post("/coa/map")
+async def coa_set_mapping(body: MapIn, user: User = Depends(books_user),
+                          s: AsyncSession = Depends(get_session)):
+    try:
+        n = await coa_map.set_mapping(s, user.tenant_id, user, body.business_id,
+                                      body.qbo_account_ids, body.standard_account_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "updated": n}
+
+
+@router.post("/coa/ignore")
+async def coa_ignore(body: IgnoreIn, user: User = Depends(books_user),
+                     s: AsyncSession = Depends(get_session)):
+    try:
+        n = await coa_map.set_ignored(s, user.tenant_id, user, body.business_id,
+                                      body.qbo_account_ids, body.reason)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "updated": n}
+
+
+@router.post("/coa/rules")                            # CFO only
+async def coa_create_rule(body: CoaRuleIn,
+                          user: User = Depends(require_role("owner", "admin")),
+                          s: AsyncSession = Depends(get_session)):
+    try:
+        rule = await coa_map.create_rule(s, user.tenant_id, user, body.pattern,
+                                         body.standard_account_id,
+                                         business_id=body.business_id, note=body.note)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "id": str(rule.id)}
+
+
+@router.patch("/coa/rules/{rule_id}")                 # CFO only
+async def coa_patch_rule(rule_id: uuid.UUID, body: CoaRulePatch,
+                         user: User = Depends(require_role("owner", "admin")),
+                         s: AsyncSession = Depends(get_session)):
+    # exclude_unset, not exclude_none: `is_active: false` is a real edit and exclude_none
+    # would drop it. Only the keys the client actually sent reach the service.
+    fields = body.model_dump(exclude_unset=True)
+    try:
+        rule = await coa_map.update_rule(s, user.tenant_id, user, rule_id, **fields)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "id": str(rule.id)}
+
+
+@router.delete("/coa/rules/{rule_id}")                # CFO only
+async def coa_delete_rule(rule_id: uuid.UUID,
+                          user: User = Depends(require_role("owner", "admin")),
+                          s: AsyncSession = Depends(get_session)):
+    try:
+        await coa_map.delete_rule(s, user.tenant_id, user, rule_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}

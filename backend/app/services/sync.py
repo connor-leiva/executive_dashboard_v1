@@ -1572,6 +1572,11 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
                     integ.config = {**(integ.config or {}), "books_backfill_start": bf}
                 from .books_sync import run_books_syncs        # local import avoids a cycle
                 await run_books_syncs(s, tenant_id, integ, since=prev_synced)
+                # The chart map runs LAST and on its own SyncRun. It is the newest and least
+                # proven of the three, and a chart-pull failure must not cost the dashboard
+                # its P&L snapshot or Books its transactions (SPEC 5.1).
+                from .coa_map import run_coa_sync
+                await run_coa_sync(s, tenant_id, integ)
         run.status, run.finished_at = "ok", dt.datetime.utcnow()
         run.stats = {"records": records,
                      "seconds": round((run.finished_at - started).total_seconds(), 1)}

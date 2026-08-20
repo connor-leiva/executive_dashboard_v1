@@ -1018,3 +1018,81 @@ class StandardAccount(Base):
     archetypes: Mapped[list | None] = mapped_column(JSONType, nullable=True)  # which archetypes open it
     definition: Mapped[str | None] = mapped_column(Text, nullable=True)   # tooltip + policy memo
     __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_standard_account_code"),)
+
+
+class CoaMapRule(Base):
+    """A FullyQualifiedName-prefix rule that maps a whole QBO subtree to one standard account
+    (SPEC-coa-mapping-provenance 2.3, extended after Phase 0 discovery).
+
+    Phase 0 found that people-as-accounts are not scattered through the charts, they are
+    concentrated in a handful of subtrees: ULRG's "61300 Contract Labor:Virtual Assistants:*",
+    Spring B's "Contract Labor:*", beCollective's "Commissions:*". Without a rule, every new VA
+    or new closer hired next month arrives as a fresh QBO account and trips the 5.3 unmapped
+    guard — forever, on a statement that then refuses to render.
+
+    The rule does NOT replace `coa_map`. On first sight of an account the sync consults the
+    rules and writes a normal `coa_map` row, still keyed on `qbo_account_id`. Identity stays on
+    the ID; the name is only ever the thing a human wrote a rule *about*.
+    """
+    __tablename__ = "coa_map_rule"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    # NULL means every entity in the tenant. "Contract Labor:" is a real subtree on Spring B
+    # AND The Forum, so a portfolio-wide rule is the common case, not the exotic one.
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("business.id", ondelete="CASCADE"), nullable=True)
+    match_type: Mapped[str] = mapped_column(String(8), default="prefix")   # prefix
+    # Matched against FullyQualifiedName, case-insensitively. Longest matching prefix wins, so
+    # "61300 Contract Labor:Virtual Assistants:" beats "61300 Contract Labor:" with no priority
+    # column to get out of sync — two different prefixes of the same length cannot both match.
+    pattern: Mapped[str] = mapped_column(String(300))
+    standard_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("standard_account.id", ondelete="CASCADE"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)      # why this rule exists
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CoaMap(Base):
+    """One row per QBO account per entity: the per-entity map into the standard chart
+    (SPEC-coa-mapping-provenance 2.3). The heart of the mapping layer.
+
+    Keyed on `qbo_account_id` and never on name. Names change, duplicate across entities, and
+    QBO allows two accounts with the same name at different levels — ULRG carries account
+    number 69000 twice, as "69000 Other Expense" and "69000 Insurance", both embedded in the
+    NAME rather than in AcctNum. A name-keyed map silently merges those two.
+
+    `standard_account_id IS NULL` means unmapped. A new QBO account is never silently dropped;
+    it lands here unmapped and surfaces for a decision (5.1), and from Phase 3 an unmapped
+    account WITH activity blocks the render rather than quietly omitting itself.
+    """
+    __tablename__ = "coa_map"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id", ondelete="CASCADE"), index=True)
+    qbo_account_id: Mapped[str] = mapped_column(String(50))
+    qbo_account_name: Mapped[str] = mapped_column(String(200))      # leaf name; display only
+    # FullyQualifiedName, parent-first and colon-joined. Display only as far as identity goes,
+    # but it IS what coa_map_rule matches on — ULRG nests five deep, so a leaf name like
+    # "S. Wodrich" carries no meaning without the path above it.
+    qbo_account_fqn: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    qbo_account_type: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    qbo_active: Mapped[bool] = mapped_column(Boolean, default=True)  # QBO's own Active flag
+    standard_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("standard_account.id", ondelete="SET NULL"), nullable=True)
+    # How this row got its standard account. A rule pass re-maps `rule` rows when the rule
+    # changes and never touches a `manual` one — a human decision outranks a pattern.
+    mapped_via: Mapped[str | None] = mapped_column(String(8), nullable=True)   # manual | rule
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("coa_map_rule.id", ondelete="SET NULL"), nullable=True)
+    mapped_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    mapped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    is_ignored: Mapped[bool] = mapped_column(Boolean, default=False)
+    ignore_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)  # required to ignore
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_id", "qbo_account_id", name="uq_coa_map_account"),
+    )
