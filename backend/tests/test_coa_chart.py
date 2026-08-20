@@ -118,14 +118,19 @@ def test_intercompany_flag_is_on_exactly_the_right_accounts():
     assert flagged == {"1300", "2400", "4710", "4720", "4730"}
 
 
-def test_place_flow_through_is_held_out_of_margin():
-    """Decision 2 is unresolved. Roughly $3.49M out and $2.76M in on ULRG — if that runs
-    through revenue, every margin percentage on the dashboard is meaningless."""
-    excluded = {r["code"] for r in chart_rows() if r["exclude_from_margin"]}
-    assert excluded == {"4750", "4760"}
-    for r in chart_rows():
-        if r["code"] in excluded:
-            assert 4750 <= int(r["code"]) <= 4799
+def test_place_flow_through_sits_below_the_operating_line():
+    """Decision 2, resolved: PLACE is other income and other expense, below the line. Roughly
+    $3.49M out and $2.76M in on ULRG — run through revenue it would make every margin
+    percentage on the dashboard meaningless. Below the line it is out of them by construction,
+    so no separate exclusion flag is needed."""
+    place = [r for r in chart_rows() if r["name"].startswith("PLACE")]
+    assert len(place) == 3
+    for r in place:
+        assert int(r["code"]) >= 9000, r
+        assert r["section"] in ("other_income", "other_expense"), r
+        assert r["statement"] == "pl", r
+    assert not [r for r in chart_rows()
+                if r["section"] in ("revenue", "cogs") and r["name"].startswith("PLACE")]
 
 
 def test_below_the_line_is_outside_the_operating_buckets():

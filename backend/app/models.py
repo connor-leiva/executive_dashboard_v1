@@ -1016,9 +1016,5 @@ class StandardAccount(Base):
     recognition: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # point_in_time | ratable | event_date | not_applicable
     archetypes: Mapped[list | None] = mapped_column(JSONType, nullable=True)  # which archetypes open it
-    # Decision 2 holding pattern: the PLACE flow-through sits at 4750-4799 until Acuity rules
-    # on it. Excluded from margin denominators so a several-million-dollar pass-through cannot
-    # silently distort every percentage on the dashboard. An obvious hole beats a wrong number.
-    exclude_from_margin: Mapped[bool] = mapped_column(Boolean, default=False)
     definition: Mapped[str | None] = mapped_column(Text, nullable=True)   # tooltip + policy memo
     __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_standard_account_code"),)

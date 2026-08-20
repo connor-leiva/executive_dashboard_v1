@@ -168,18 +168,6 @@ CHART: tuple[tuple, ...] = (
     ("4730", "Intercompany Rent", "revenue_intercompany", "pl", "revenue",
      _C, "point_in_time", _ALL, None),
 
-    # ── 4750-4799 PLACE flow-through · UNRESOLVED, held apart pending Acuity (Decision 2) ──
-    # Roughly $3.49M out and $2.76M in on ULRG. If this runs through revenue and cost of sale,
-    # the top line is inflated by millions of pass-through and every margin percentage in the
-    # dashboard is meaningless. Parked here, flagged, and excluded from margin denominators
-    # until the return preparer rules on gross / net / below-the-line.
-    ("4750", "PLACE Income Transfer, Unresolved", "revenue_intercompany", "pl", "revenue",
-     _C, "point_in_time", _TXN,
-     "HOLDING PATTERN pending Acuity. Excluded from margin until Decision 2 is settled."),
-    ("4760", "PLACE Expense Reimbursement, Unresolved", "revenue_intercompany", "pl", "revenue",
-     _C, "point_in_time", _TXN,
-     "HOLDING PATTERN pending Acuity. Excluded from margin until Decision 2 is settled."),
-
     # ── 4900-4999 Contra-Revenue · negative revenue, never an expense ──────────────────────
     # Booking these as expenses overstates gross revenue, understates gross margin, and hides
     # the churn signal entirely. This is where the Forum renewal work reconciles to the books.
@@ -332,6 +320,15 @@ CHART: tuple[tuple, ...] = (
     ("9010", "Interest Income", "other_income", "pl", "other_income", _C, _NA, _ALL, None),
     ("9020", "Gain or Loss on Asset Disposal", "other_income", "pl", "other_income",
      _C, _NA, _ALL, None),
+    # PLACE flow-through, resolved: below the line, as other income and other expense.
+    # Roughly $3.49M out and $2.76M in on ULRG. Run through revenue and cost of sale it would
+    # inflate the top line by millions of pass-through and make every margin percentage on the
+    # dashboard meaningless. Below the line it is outside gross profit and outside Net
+    # Operating Income by construction, which is the whole reason that section exists.
+    ("9030", "PLACE Expense Reimbursement", "other_income", "pl", "other_income",
+     _C, _NA, _TXN, "PLACE flow-through. Below the line, so outside every margin calculation."),
+    ("9040", "PLACE Profit Share", "other_income", "pl", "other_income",
+     _C, _NA, _TXN, "PLACE flow-through. Below the line, so outside every margin calculation."),
     ("9090", "Other Income", "other_income", "pl", "other_income", _C, _NA, _ALL, None),
     ("9110", "Interest Expense", "interest_expense", "pl", "other_expense", _D, _NA, _ALL,
      "Posting target for the Debt Amortization tab of Standing-Schedules.xlsx."),
@@ -342,11 +339,12 @@ CHART: tuple[tuple, ...] = (
     ("9310", "State Income and Franchise Tax", "income_tax", "pl", "other_expense",
      _D, _NA, _ALL, None),
     ("9910", "Other Expense", "other_expense", "pl", "other_expense", _D, _NA, _ALL, None),
+    ("9920", "PLACE Income Transfer", "other_expense", "pl", "other_expense",
+     _D, _NA, _TXN, "PLACE flow-through. Below the line, so outside every margin calculation."),
 )
 
-# Accounts that must never inflate a margin denominator, keyed by code.
+# Eliminate on consolidation, and exempt from provenance flagging (SPEC 6.4).
 _INTERCOMPANY_CODES = {"1300", "2400", "4710", "4720", "4730"}
-_EXCLUDE_FROM_MARGIN_CODES = {"4750", "4760"}
 
 
 def chart_rows() -> list[dict]:
@@ -360,7 +358,6 @@ def chart_rows() -> list[dict]:
             "recognition": recog, "archetypes": list(arch),
             "sort_order": (i + 1) * 10,
             "is_intercompany_account": code in _INTERCOMPANY_CODES,
-            "exclude_from_margin": code in _EXCLUDE_FROM_MARGIN_CODES,
             "definition": definition,
         })
     return rows

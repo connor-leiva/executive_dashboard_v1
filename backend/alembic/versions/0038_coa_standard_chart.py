@@ -72,8 +72,6 @@ def upgrade() -> None:
                       server_default=sa.false()),
             sa.Column("recognition", sa.String(16), nullable=True),
             sa.Column("archetypes", JSONType, nullable=True),
-            sa.Column("exclude_from_margin", sa.Boolean(), nullable=False,
-                      server_default=sa.false()),
             sa.Column("definition", sa.Text(), nullable=True),
             sa.UniqueConstraint("tenant_id", "code", name="uq_standard_account_code"),
         )
@@ -111,7 +109,7 @@ def upgrade() -> None:
         sa.column("sort_order", sa.Integer), sa.column("is_active", sa.Boolean),
         sa.column("is_intercompany_account", sa.Boolean),
         sa.column("recognition", sa.String), sa.column("archetypes", JSONType),
-        sa.column("exclude_from_margin", sa.Boolean), sa.column("definition", sa.Text),
+        sa.column("definition", sa.Text),
     )
     rows = chart_rows()
     for (tenant_id,) in bind.execute(sa.text("SELECT id FROM tenant")).fetchall():
