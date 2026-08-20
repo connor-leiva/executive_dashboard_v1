@@ -130,6 +130,14 @@ class Business(Base):
     # business is, used for the tax-lifecycle tie (federal/state_tax obligations read
     # this Business's Books close). Nullable; nothing else about Business changes.
     legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("legal_entity.id"), nullable=True)
+    # Books / chart-of-accounts standard (SPEC-chart-of-accounts). `archetype` decides which
+    # leaf accounts this entity activates from the standard chart, which validations run, and
+    # which dashboard blocks render — a property entity has no cost of sale, so it should not
+    # show a gross-margin tile at all. `gross_profit_label` keeps the vocabulary native to the
+    # business while the structure stays identical: a brokerage says Company Dollar.
+    archetype: Mapped[str] = mapped_column(String(16), default="transactional")
+    # transactional | program | event | property | holding | dormant
+    gross_profit_label: Mapped[str] = mapped_column(String(40), default="Gross Profit")
     __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_business_tenant_key"),)
 
 
@@ -970,3 +978,47 @@ class ShareLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class StandardAccount(Base):
+    """The normalized chart every entity's books are rendered through
+    (SPEC-chart-of-accounts, SPEC-coa-mapping-provenance 2.1).
+
+    Tenant-scoped and editable, because the chart is a living policy document rather than a
+    constant. Consolidation merges on `bucket`, never on `name` — merging by name is the
+    failure mode the earlier COA review flagged, and this column is what replaces it.
+    """
+    __tablename__ = "standard_account"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    code: Mapped[str] = mapped_column(String(10))                 # e.g. "8010"; unique per tenant
+    name: Mapped[str] = mapped_column(String(120))
+    # One series, one meaning: 1000 asset, 2000 liability, 3000 equity, 4000 revenue
+    # (4900 contra), 5000 cost of sale, 6000-8999 opex, 9000 below the operating line.
+    bucket: Mapped[str] = mapped_column(String(32))               # see coa.BUCKETS
+    statement: Mapped[str] = mapped_column(String(2))             # pl | bs
+    section: Mapped[str] = mapped_column(String(16))
+    # revenue | cogs | opex | other_income | other_expense | asset | liability | equity
+    normal_balance: Mapped[str] = mapped_column(String(6))        # debit | credit
+    # One level of nesting only — depth is enforced in the seeder and the admin UI, not by a
+    # DB check, because SQLite (used by the test suite) will not enforce a recursive one.
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("standard_account.id", ondelete="SET NULL"), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # True for Due To / Due From and the 4700 intercompany revenue range. Drives BOTH the
+    # consolidation elimination and the provenance-flag exemption, so the two share one
+    # mechanism rather than drifting apart (SPEC 6.4).
+    is_intercompany_account: Mapped[bool] = mapped_column(Boolean, default=False)
+    # What links the chart to the Deferred Revenue schedule. An account marked `ratable` or
+    # `event_date` carrying a balance on an entity with no matching schedule entry is a
+    # close-blocking exception — that check belongs in the Balance Sheet Tie-Out.
+    recognition: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # point_in_time | ratable | event_date | not_applicable
+    archetypes: Mapped[list | None] = mapped_column(JSONType, nullable=True)  # which archetypes open it
+    # Decision 2 holding pattern: the PLACE flow-through sits at 4750-4799 until Acuity rules
+    # on it. Excluded from margin denominators so a several-million-dollar pass-through cannot
+    # silently distort every percentage on the dashboard. An obvious hole beats a wrong number.
+    exclude_from_margin: Mapped[bool] = mapped_column(Boolean, default=False)
+    definition: Mapped[str | None] = mapped_column(Text, nullable=True)   # tooltip + policy memo
+    __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_standard_account_code"),)

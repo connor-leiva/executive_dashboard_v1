@@ -30,3 +30,7 @@ backend/probe_bc_utm.py
 backend/scripts/.recall_bots.json
 # Booking exports contain client names/emails — never commit
 backend/scripts/*.csv
+
+# COA discovery output — per-entity account names and balances, never commit
+backend/coa_discovery_out/
+backend/coa_report.txt
