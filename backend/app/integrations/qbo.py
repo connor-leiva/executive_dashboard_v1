@@ -227,6 +227,57 @@ async def query_all(realm_id: str, access_token: str, entity: str, where: str = 
     return rows
 
 
+async def report(realm_id: str, access_token: str, name: str, **params) -> dict:
+    """Any QBO report by name (TrialBalance, BalanceSheet, ...), with the same 429 backoff
+    the P&L pull uses. Read-only."""
+    url = f"{API_BASE}/v3/company/{realm_id}/reports/{name}"
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    q = {"minorversion": "75", **{k: v for k, v in params.items() if v is not None}}
+    for attempt in range(3):
+        async with httpx.AsyncClient(timeout=60) as c:
+            r = await c.get(url, headers=headers, params=q)
+            if r.status_code == 429 and attempt < 2:
+                await asyncio.sleep(float(r.headers.get("Retry-After", "5")))
+                continue
+            r.raise_for_status()
+            return r.json()
+    r.raise_for_status()
+    return r.json()
+
+
+async def trial_balance(realm_id: str, access_token: str, start: str, end: str) -> dict:
+    """The trial balance for a period — the ground truth the mapped statement must tie to
+    (SPEC-coa-mapping-provenance 5.4)."""
+    return await report(realm_id, access_token, "TrialBalance", start_date=start, end_date=end)
+
+
+def parse_trial_balance(rep: dict) -> list[dict]:
+    """TrialBalance rows -> [{account, debit, credit, amount}] with amount debit-positive.
+    The report nests Section rows; walk to the leaf Data rows and read their ColData."""
+    out: list[dict] = []
+
+    def num(v):
+        try:
+            return float(str(v).replace(",", "")) if str(v).strip() else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    def walk(rows):
+        for row in rows or []:
+            if row.get("Rows"):
+                walk(row["Rows"].get("Row"))
+            cols = (row.get("ColData") or [])
+            if len(cols) >= 3 and (cols[0].get("value") or "").strip():
+                debit, credit = num(cols[1].get("value")), num(cols[2].get("value"))
+                if debit or credit:
+                    out.append({"account": cols[0]["value"],
+                                "qbo_account_id": cols[0].get("id") or "",
+                                "debit": debit, "credit": credit,
+                                "amount": debit - credit})       # debit-positive
+    walk((rep.get("Rows") or {}).get("Row"))
+    return out
+
+
 async def accounts(realm_id: str, access_token: str) -> list[dict]:
     """The chart of accounts. Feeds the scan prompt and the recategorize picker."""
     return await query_all(realm_id, access_token, "Account")
