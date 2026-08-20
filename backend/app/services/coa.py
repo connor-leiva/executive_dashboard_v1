@@ -9,6 +9,25 @@ library.** Every entity uses the same top-level shape and the same numbering ran
 brokerage never opens 5220 Food and Beverage and a membership business never opens 5010 Agent
 Commission. Consolidation merges on `bucket`, so a shared bucket taxonomy stays safe even when
 the accounts underneath differ completely.
+
+DECISIONS ALREADY MADE. Recorded here rather than only in the spec, because this file is what
+somebody edits when they think a row looks wrong.
+
+- **Revenue is GROSS on both ULRG and Spring B** (Connor, 2026-08-20; chart-document Decision
+  1). ULRG books the full commission at 4010/4020 with the agent split as cost of sale at
+  5010/5020, and reports Company Dollar rather than Gross Profit. Spring B books the full
+  membership price as revenue with the Special Forces and EmpireBuilders commission at 5040.
+  Each entity sets its own price, controls delivery and carries refund risk, which is the
+  principal test. Net presentation would understate both top lines by millions and make the
+  two businesses incomparable.
+- **Charitable donations sit below the line, at 9410** (Connor, 2026-08-20; Decision 4).
+- **PLACE flow-through sits below the line**, 9030/9040 as other income and 9920 as other
+  expense, and is excluded from margin.
+- **Provenance colour is a declared exception to the daffodil rule** (Connor, 2026-08-20;
+  mapping-spec open question 5), which unblocks Phase 5. The daffodil law is scoped to the
+  Forum view in `docs-forum-spec.md`; Books adopts a faint daffodil wash for allocated rows.
+  The circular marker in mapping-spec 7.1 is NOT optional either way — colour never carries
+  meaning on its own.
 """
 from __future__ import annotations
 
@@ -252,8 +271,8 @@ CHART: tuple[tuple, ...] = (
     ("6550", "Coaching, Training and Education", "sales_promotion", "pl", "opex",
      _D, _NA, _ALL, None),
     ("6560", "Conferences and Conventions", "sales_promotion", "pl", "opex", _D, _NA, _ALL, None),
-    ("6570", "Charitable Donations", "sales_promotion", "pl", "opex", _D, _NA, _ALL,
-     "Placement and tax treatment still open with Acuity (Decision 4 in the mapping spec)."),
+    # Charitable Donations moved OUT of this bucket to 9410, below the line (Connor,
+    # 2026-08-20). Do not re-add a 6570 here — migration 0040 repoints it.
     ("6590", "Other Sales Promotion", "sales_promotion", "pl", "opex", _D, _NA, _ALL, None),
 
     # ── 7000 Occupancy ────────────────────────────────────────────────────────────────────
@@ -338,6 +357,16 @@ CHART: tuple[tuple, ...] = (
      _D, _NA, _ALL, None),
     ("9310", "State Income and Franchise Tax", "income_tax", "pl", "other_expense",
      _D, _NA, _ALL, None),
+    # Below the line by Connor's decision (2026-08-20), resolving Decision 4. Giving to a cause
+    # is not a cost of running the business, and leaving it inside an operating bucket makes
+    # Net Operating Income move with a discretionary choice — two entities with identical
+    # operations would show different operating margins. Below the line it is visible and
+    # outside every margin. The entity-level DEDUCTIBILITY is a separate question and still
+    # Acuity's; presentation here does not decide it.
+    ("9410", "Charitable Contributions", "other_expense", "pl", "other_expense",
+     _D, _NA, _ALL,
+     "Below the operating line, so outside gross profit, Net Operating Income and every "
+     "margin. Presentation policy only — tax treatment is Acuity's call."),
     ("9910", "Other Expense", "other_expense", "pl", "other_expense", _D, _NA, _ALL, None),
     ("9920", "PLACE Income Transfer", "other_expense", "pl", "other_expense",
      _D, _NA, _TXN, "PLACE flow-through. Below the line, so outside every margin calculation."),

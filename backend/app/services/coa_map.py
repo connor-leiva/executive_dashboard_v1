@@ -217,11 +217,13 @@ _HINTS: dict[str, tuple[str, ...]] = {
     "5240": ("production", "staging", "audio visual", " av "),
     "5250": ("event staff", "event labor"),
     "5260": ("swag", "attendee material", "workbook"),
+    "5290": ("event expense", "program expense", "delivery cost"),
     "5270": ("delivery platform", "member platform"),
     "5310": ("merchant fee", "merchant processing", "stripe fee", "card processing"),
     "5320": ("payment platform", "paypal fee"),
     "5330": ("financing cost", "installment", "affirm", "klarna"),
     "5340": ("chargeback fee",),
+    "5490": ("cost of goods sold", "cost of sales", "cost of sale"),
     # Advertising
     "6010": ("print", "direct mail", "mailer"),
     "6020": ("billboard",),
@@ -232,6 +234,7 @@ _HINTS: dict[str, tuple[str, ...]] = {
     "6061": ("lead source", "internet lead", "lead generation"),
     "6070": ("sign purchase",),
     "6080": ("sign install",),
+    "6090": ("advertising", "promotion", "marketing"),
     # Sales promotion
     "6510": ("travel", "airfare", "flight"),
     "6520": ("lodging", "hotel"),
@@ -245,22 +248,24 @@ _HINTS: dict[str, tuple[str, ...]] = {
     "7020": ("utilit", "electric", "water", "gas bill"),
     "7030": ("repair", "maintenance", "janitorial", "cleaning"),
     "7040": ("commercial property tax", "real property tax"),
+    "7090": ("occupancy",),
     # Office
     "7510": ("telephone", "phone line", "landline"),
     "7520": ("internet", "broadband", "wifi"),
     "7530": ("mobile", "cell phone", "cellular"),
-    "7540": ("communication equipment",),
+    "7540": ("communication equipment", "communication", "telecom"),
     "7550": ("office supplies", "supplies"),
     "7560": ("postage", "shipping", "fedex", "ups store"),
     "7570": ("equipment rental", "copier", "printer lease"),
     "7580": ("computer hardware", "laptop", "monitor"),
+    "7590": ("office expense", "office cost"),
     # People
     "8010": ("salary", "salaries", "wages", "payroll expense", "compensation"),
     "8020": ("payroll tax", "employer tax", "fica", "futa", "suta"),
     "8030": ("benefit", "health insurance", "401k", "retirement"),
     "8040": ("gusto", "adp", "payroll fee", "payroll processing"),
     "8050": ("contract labor", "contractor", "1099", "outside services"),
-    "8060": ("virtual assistant", "offshore", " va "),
+    "8060": ("virtual assistant", "offshore"),
     # G&A
     "8510": ("dues", "subscription", "membership fee"),
     "8520": ("software", "saas", "technology subscription", "app subscription"),
@@ -275,6 +280,7 @@ _HINTS: dict[str, tuple[str, ...]] = {
     "8610": ("insurance",),
     "8620": ("bank charge", "bank fee", "service charge", "wire fee"),
     "8630": ("bad debt", "write off", "write-off"),
+    "8690": ("general business", "general admin", "miscellaneous"),
     # Revenue
     "4010": ("listing income", "listing side income"),
     "4020": ("buyer income", "buyer side income"),
@@ -285,12 +291,14 @@ _HINTS: dict[str, tuple[str, ...]] = {
     "4220": ("mastermind", "forum income"),
     "4230": ("coaching income", "consulting income"),
     "4240": ("course", "digital product"),
+    "4290": ("program income", "program revenue"),
     "4410": ("ticket", "general admission"),
     "4420": ("vip", "upgrade"),
     "4430": ("sponsorship", "sponsor income"),
     "4440": ("merchandise", "onsite sales"),
+    "4490": ("event income", "event revenue"),
     "4510": ("rental income",),
-    "4610": ("joint venture", " jv "),
+    "4610": ("joint venture", "jv"),
     "4620": ("revenue share",),
     "4630": ("royalty", "licensing income"),
     "4910": ("refund", "cancellation"),
@@ -302,10 +310,12 @@ _HINTS: dict[str, tuple[str, ...]] = {
     "9020": ("gain on", "loss on disposal", "asset disposal"),
     "9030": ("place expense reimbursement", "place reimbursement"),
     "9040": ("place profit share", "place 328", "profit share"),
-    "9110": ("interest expense", "mortgage interest", "loan interest"),
+    "9110": ("interest expense", "mortgage interest", "loan interest", "interest paid"),
     "9210": ("depreciation",),
     "9220": ("amortization",),
+    "9910": ("other expense", "misc expense"),
     "9310": ("franchise tax", "state income tax"),
+    "9410": ("charitable", "donation", "contribution to"),
     # Balance sheet
     "1000": ("checking", "operating cash", "savings", "money market"),
     "1050": ("undeposited",),
@@ -316,7 +326,7 @@ _HINTS: dict[str, tuple[str, ...]] = {
     "1590": ("accumulated depreciation",),
     "2000": ("accounts payable",),
     "2100": ("credit card", "amex", "visa "),
-    "2200": ("accrued",),
+    "2200": ("accrued", "payroll liabilit", "wages payable", "tax to pay"),
     "2300": ("deferred revenue", "unearned revenue"),
     "2400": ("due to", "payable to affiliate", "intercompany payable"),
     "2500": ("loan payable", "note payable", "line of credit"),
@@ -341,7 +351,28 @@ _TYPE_SECTIONS: dict[str, tuple[str, ...]] = {
 
 
 def _fold(s: str | None) -> str:
-    return re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower())
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower())).strip()
+
+
+_HINT_RE: dict[str, "re.Pattern"] = {}
+
+
+def _hint_pattern(hint: str) -> "re.Pattern":
+    """A hint matches at the START of a word, and may run on into a longer one.
+
+    Plain substring matching read "66000 Automobile" as Mobile Phone, because "mobile" is
+    inside "automobile". Requiring a word boundary at the front fixes that. Allowing letters
+    to follow keeps the prefix hints working — "utilit" still finds Utilities, "benefit" still
+    finds Benefits — which strict whole-word matching would have broken.
+
+    Hints of three characters or less are pinned at both ends, or "jv" would claim every
+    account with "valuation" in the name.
+    """
+    p = _HINT_RE.get(hint)
+    if p is None:
+        tail = r"\b" if len(hint) <= 3 else r"[a-z]*\b"
+        p = _HINT_RE[hint] = re.compile(r"\b" + re.escape(hint) + tail)
+    return p
 
 
 def suggest_for(row: CoaMap, chart: list[StandardAccount]) -> dict | None:
@@ -351,35 +382,58 @@ def suggest_for(row: CoaMap, chart: list[StandardAccount]) -> dict | None:
     Confidence is coarse on purpose — three tiers, not a continuous score. A number like 0.63
     invites a threshold nobody can justify, whereas "exact name / keyword / weak" is a claim a
     reviewer can check at a glance. Nothing here is ever written without a human.
+
+    **The leaf wins.** A hit on the account's own name beats a hit anywhere in the path above
+    it, because the leaf is the specific thing and the ancestors are its context. Without that,
+    "61300 Contract Labor:Virtual Assistants:Ana Ruiz" reads as Contract Labor and lands on
+    8050 instead of 8060 — the ancestor drowning out the only word that mattered. Ancestor
+    matches are still kept, and are the whole reason "…:Referral COS:HomeLight" resolves at all.
     """
     if row.standard_account_id or row.is_ignored:
         return None
     allowed = _TYPE_SECTIONS.get(row.qbo_account_type or "")
-    leaf = _fold((row.qbo_account_name or "").split(":")[-1]).strip()
-    full = " " + re.sub(r"\s+", " ", _fold(row.qbo_account_fqn or row.qbo_account_name)) + " "
-    best = None
+    leaf_raw = _fold((row.qbo_account_name or "").split(":")[-1])
+    leaf = " " + leaf_raw + " "
+    full = " " + _fold(row.qbo_account_fqn or row.qbo_account_name) + " "
+    from_leaf = None
+    from_path, path_at = None, -1
     for acct in chart:
         if not acct.is_active:
             continue
         if allowed and acct.section not in allowed:
             continue
         name = _fold(acct.name)
-        if leaf and leaf == name.strip():
+        if leaf_raw and leaf_raw == name:
             return {"code": acct.code, "name": acct.name,
                     "standard_account_id": str(acct.id),
                     "confidence": "exact", "why": "name matches exactly"}
-        hit = next((h for h in _HINTS.get(acct.code, ()) if h in full), None)
-        if hit and (best is None or best["confidence"] != "keyword"):
-            best = {"code": acct.code, "name": acct.name,
+        for hint in _HINTS.get(acct.code, ()):
+            pat = _hint_pattern(hint)
+            if from_leaf is None and pat.search(leaf):
+                from_leaf = {"code": acct.code, "name": acct.name,
+                             "standard_account_id": str(acct.id),
+                             "confidence": "keyword", "why": f"contains “{hint}”"}
+                break
+            m = pat.search(full)
+            # The DEEPEST match in the path wins, for the same reason the longest rule prefix
+            # does: "…Contract Labor:Virtual Assistants:Ana Ruiz" is a VA, and reading only the
+            # first ancestor that matched would file every one of them as generic contract
+            # labor. Later in the string means further down the tree means more specific.
+            if m and m.start() > path_at:
+                from_path, path_at = {
+                    "code": acct.code, "name": acct.name,
                     "standard_account_id": str(acct.id),
-                    "confidence": "keyword", "why": f"contains “{hit.strip()}”"}
-        elif best is None:
+                    "confidence": "keyword", "why": f"the path says “{hint}”"}, m.start()
+                break
+        if from_path is None:
             head = name.split(",")[0].strip()
-            if len(head) > 4 and head in full:
-                best = {"code": acct.code, "name": acct.name,
-                        "standard_account_id": str(acct.id),
-                        "confidence": "weak", "why": f"contains “{head}”"}
-    return best
+            m = _hint_pattern(head).search(full) if len(head) > 4 else None
+            if m:
+                from_path, path_at = {
+                    "code": acct.code, "name": acct.name,
+                    "standard_account_id": str(acct.id),
+                    "confidence": "weak", "why": f"contains “{head}”"}, m.start()
+    return from_leaf or from_path
 
 
 # ── the mapping screen ────────────────────────────────────────────────────────────────────

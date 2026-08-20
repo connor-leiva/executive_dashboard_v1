@@ -474,3 +474,48 @@ async def test_api_unknown_business_is_404():
     async with _client() as c:
         r = await c.get(f"/api/v1/books/coa/map?business_id={_UNKNOWN}", headers=_H(owner))
     assert r.status_code == 404
+
+
+# ── how the suggester reads a path ────────────────────────────────────────────────────────
+# These three are the failures the first real run against ULRG's chart produced. They are
+# cheap to reintroduce by adding one hint, and expensive to notice: a wrong suggestion that
+# looks plausible is accepted, and then it is a wrong number in a statement.
+
+def _suggest(name, fqn, qtype, chart):
+    class Row:
+        standard_account_id = None
+        is_ignored = False
+        qbo_account_name, qbo_account_fqn, qbo_account_type = name, fqn, qtype
+    return coa_map.suggest_for(Row(), chart)
+
+
+async def test_a_hint_matches_whole_words_not_fragments():
+    """"66000 Automobile" was reading as Mobile Phone."""
+    async with SessionLocal() as s:
+        chart = await coa_map.standard_chart(s, (await _ids())[0])
+    assert _suggest("66000 Automobile", "66000 Automobile", "Expense", chart)["code"] == "8530"
+    # ...while the prefix hints that carry real signal still work
+    assert _suggest("Utilities Expense", "Utilities Expense", "Expense", chart)["code"] == "7020"
+    assert _suggest("Benefits/Provisions", "61000 Compensation:61200 Benefits/Provisions",
+                    "Expense", chart)["code"] == "8030"
+
+
+async def test_the_deepest_part_of_the_path_wins():
+    """A VA read as generic contract labour because the parent matched first. Depth is
+    specificity — the same reason the longest rule prefix wins."""
+    async with SessionLocal() as s:
+        chart = await coa_map.standard_chart(s, (await _ids())[0])
+    va = _suggest("Ana Ruiz", "61300 Contract Labor:Virtual Assistants:Ana Ruiz",
+                  "Expense", chart)
+    assert va["code"] == "8060", f"got {va['code']} — the parent drowned out the leaf"
+    # a sibling branch with no deeper signal still lands on the generic account
+    assert _suggest("Kofi Mensah", "61300 Contract Labor:Kofi Mensah",
+                    "Expense", chart)["code"] == "8050"
+
+
+async def test_the_accounts_own_name_beats_its_ancestors():
+    async with SessionLocal() as s:
+        chart = await coa_map.standard_chart(s, (await _ids())[0])
+    got = _suggest("61400 Professional Services",
+                   "61000 Compensation:61400 Professional Services", "Expense", chart)
+    assert got["code"] == "8560", f"got {got['code']} — 'Compensation' won over the leaf"

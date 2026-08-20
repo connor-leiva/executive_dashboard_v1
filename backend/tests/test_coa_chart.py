@@ -238,3 +238,28 @@ async def test_business_carries_archetype_and_label():
         ulrg = (await s.execute(select(Business).where(Business.key == "ulrg"))).scalar_one()
         assert ulrg.archetype in ARCHETYPES
         assert ulrg.gross_profit_label
+
+
+def test_charitable_giving_sits_below_the_operating_line():
+    """Connor's Decision 4, 2026-08-20. Inside an operating bucket it makes Net Operating
+    Income move with a discretionary choice, so two entities with identical operations show
+    different operating margins."""
+    rows = {r["code"]: r for r in chart_rows()}
+    assert "6570" not in rows, "charitable donations left the Sales Promotion bucket"
+    giving = rows["9410"]
+    assert giving["section"] == "other_expense" and giving["statement"] == "pl"
+    assert giving["bucket"] in BELOW_THE_LINE
+    # and nothing else anywhere in the operating range answers to the same idea
+    opex_names = [r["name"].lower() for r in chart_rows()
+                  if 6000 <= int(r["code"]) < 9000]
+    assert not any("charit" in n or "donation" in n for n in opex_names)
+
+
+def test_gross_presentation_has_both_sides_of_the_split():
+    """Revenue is gross on ULRG and Spring B (Connor, 2026-08-20). Gross only works if the
+    contra side exists: the full commission needs somewhere for the split to land, and the
+    full membership price needs somewhere for the closer's commission to land."""
+    rows = {r["code"]: r for r in chart_rows()}
+    for revenue, cost in (("4010", "5010"), ("4020", "5020"), ("4210", "5040")):
+        assert rows[revenue]["section"] == "revenue"
+        assert rows[cost]["section"] == "cogs", f"{revenue} has no cost-of-sale counterpart"

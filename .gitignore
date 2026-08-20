@@ -34,3 +34,7 @@ backend/scripts/*.csv
 # COA discovery output — per-entity account names and balances, never commit
 backend/coa_discovery_out/
 backend/coa_report.txt
+# The mapping worksheet carries real account names, including people's. Generated on
+# demand by coa_worksheet.py; never a repo artefact.
+backend/coa-mapping-worksheet.xlsx
+backend/coa-mapping-worksheet*.xlsx
