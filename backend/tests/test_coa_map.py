@@ -90,8 +90,10 @@ async def _fake_sync(monkeypatch, tenant_id, business_id, accounts=ACCOUNTS):
     here, never even read from — the seam is qbo.accounts."""
     monkeypatch.setattr(coa_map, "_valid_access_token",
                         lambda s, integ: _immediate("token"))
+    # Signature mirrors the real one, include_inactive and all: a stub that quietly accepts
+    # fewer arguments than production passes is a test that stops testing.
     monkeypatch.setattr(coa_map.qbo, "accounts",
-                        lambda realm, token: _immediate(accounts))
+                        lambda realm, token, include_inactive=False: _immediate(accounts))
     async with SessionLocal() as s:
         integ = (await s.execute(select(Integration).where(
             Integration.tenant_id == tenant_id, Integration.provider == "qbo",

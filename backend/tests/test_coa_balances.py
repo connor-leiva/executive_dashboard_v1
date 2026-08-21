@@ -435,3 +435,24 @@ async def test_an_account_holding_a_balance_but_not_moving_still_has_to_be_mappe
     assert e.value.accounts[0]["name"] == "Dormant Savings"
     assert e.value.accounts[0]["amount"] == Decimal("0.00")
     await _load(tenant_id, biz["springb"])
+
+
+def test_the_fiscal_year_containing_a_date():
+    """Differencing a trial balance across the fiscal year boundary subtracts a whole year of
+    trading from a year-to-date figure, so the boundary has to be locatable exactly."""
+    jan = CB._fy_start
+    assert jan(dt.date(2026, 8, 20), 1) == dt.date(2026, 1, 1)
+    assert jan(dt.date(2025, 12, 31), 1) == dt.date(2025, 1, 1)
+    # a July fiscal year: August 2026 is in FY2026-07, but June 2026 is in FY2025-07
+    assert jan(dt.date(2026, 8, 20), 7) == dt.date(2026, 7, 1)
+    assert jan(dt.date(2026, 6, 30), 7) == dt.date(2025, 7, 1)
+
+
+def test_which_account_types_reset_at_the_year_boundary():
+    """The classification comes from the QBO type, not from the map — the ingest must not
+    depend on a mapping decision somebody has not made yet."""
+    for t in ("Income", "Other Income", "Expense", "Other Expense", "Cost of Goods Sold"):
+        assert t in CB.PL_TYPES
+    for t in ("Bank", "Other Current Asset", "Fixed Asset", "Accounts Payable",
+              "Other Current Liability", "Long Term Liability", "Equity", "Credit Card"):
+        assert t not in CB.PL_TYPES, f"{t} carries across the boundary and must difference"

@@ -278,9 +278,30 @@ def parse_trial_balance(rep: dict) -> list[dict]:
     return out
 
 
-async def accounts(realm_id: str, access_token: str) -> list[dict]:
-    """The chart of accounts. Feeds the scan prompt and the recategorize picker."""
-    return await query_all(realm_id, access_token, "Account")
+async def accounts(realm_id: str, access_token: str,
+                   include_inactive: bool = False) -> list[dict]:
+    """The chart of accounts. Feeds the scan prompt and the recategorize picker.
+
+    QBO returns ACTIVE accounts only unless asked otherwise, and the difference is not small:
+    ULRG has 271 active accounts and 735 inactive ones. A deactivated account keeps whatever
+    balance it held, so a historical trial balance still names it — and without
+    `include_inactive` it cannot be mapped, because it never reaches the mapping screen.
+    """
+    where = "WHERE Active IN (true, false)" if include_inactive else ""
+    return await query_all(realm_id, access_token, "Account", where)
+
+
+async def fiscal_year_start_month(realm_id: str, access_token: str) -> int:
+    """1-12. Needed because a trial balance resets P&L accounts at the fiscal year boundary,
+    so period activity cannot be differenced across one. Defaults to January if QBO does not
+    say — the calendar year is the overwhelmingly common case and the wrong guess only affects
+    periods that span the boundary."""
+    import calendar as _cal
+    data = await query(realm_id, access_token, "SELECT * FROM CompanyInfo")
+    info = ((data.get("QueryResponse") or {}).get("CompanyInfo") or [{}])[0]
+    name = str(info.get("FiscalYearStartMonth") or "January").strip()
+    months = {m.lower(): i for i, m in enumerate(_cal.month_name) if m}
+    return months.get(name.lower(), 1)
 
 
 async def profit_and_loss_detail(realm_id: str, access_token: str, start: str, end: str) -> dict:

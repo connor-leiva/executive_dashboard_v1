@@ -107,6 +107,19 @@ def balance_periods() -> list[tuple[dt.date, dt.date]]:
     return _pl_line_periods()
 
 
+# QBO account types that live on the P&L. These reset to zero at the fiscal year boundary on a
+# trial balance; balance-sheet accounts carry across it. Taken from the source data rather than
+# from the map, so the ingest never depends on a mapping decision.
+PL_TYPES = frozenset({"Income", "Other Income", "Expense", "Other Expense",
+                      "Cost of Goods Sold"})
+
+
+def _fy_start(on: dt.date, fy_month: int) -> dt.date:
+    """The start of the fiscal year containing `on`."""
+    year = on.year if (on.month >= fy_month) else on.year - 1
+    return dt.date(year, fy_month, 1)
+
+
 async def _as_of(realm_id: str, token: str, on: dt.date, cache: dict) -> dict[str, Decimal]:
     """The trial balance AS OF a date, as {qbo_account_id: debit-positive amount}.
 
@@ -155,10 +168,23 @@ async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration) ->
     now = dt.datetime.now(dt.timezone.utc)
     cache: dict = {}
     written = 0
+    fy_month = await qbo.fiscal_year_start_month(integ.realm_id, token)
+    # Account types come from coa_map, which the chart sync populated moments ago. An account
+    # the trial balance names but the chart does not is treated as balance-sheet: differencing
+    # is the conservative choice, since zeroing an opening we should have subtracted would
+    # invent activity that never happened.
+    types = {m.qbo_account_id: (m.qbo_account_type or "") for m in (await s.execute(
+        select(CoaMap).where(CoaMap.tenant_id == tenant_id,
+                             CoaMap.business_id == integ.business_id))).scalars()}
     for ps, pe in balance_periods():
         fetch_end = min(pe, dt.date.today())          # actuals through today for an open period
         opening = await _as_of(integ.realm_id, token, ps - dt.timedelta(days=1), cache)
         closing = await _as_of(integ.realm_id, token, fetch_end, cache)
+        # A trial balance zeroes P&L accounts at the fiscal year boundary, so an opening pull
+        # from the previous year carries the WHOLE prior year on those accounts. Differencing
+        # across it would subtract a year of trading from a year-to-date figure. Balance-sheet
+        # accounts carry across the boundary and difference normally.
+        crosses_fy = _fy_start(ps - dt.timedelta(days=1), fy_month) != _fy_start(fetch_end, fy_month)
         await s.execute(delete(AccountPeriodBalance).where(
             AccountPeriodBalance.tenant_id == tenant_id,
             AccountPeriodBalance.business_id == integ.business_id,
@@ -166,7 +192,10 @@ async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration) ->
             AccountPeriodBalance.period_end == pe))
         for qid in set(closing) | set(opening):
             close_amt = closing.get(qid, ZERO)
-            activity = close_amt - opening.get(qid, ZERO)
+            open_amt = opening.get(qid, ZERO)
+            if crosses_fy and types.get(qid) in PL_TYPES:
+                open_amt = ZERO
+            activity = close_amt - open_amt
             if not activity and not close_amt:
                 continue                              # nothing to say about this account
             s.add(AccountPeriodBalance(
@@ -176,7 +205,7 @@ async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration) ->
             written += 1
     await s.commit()
     print(f"[coa_balances] realm={integ.realm_id} periods={len(balance_periods())} "
-          f"as_of_pulls={len(cache)} rows={written}", flush=True)
+          f"as_of_pulls={len(cache)} rows={written} fy_start_month={fy_month}", flush=True)
     return written
 
 

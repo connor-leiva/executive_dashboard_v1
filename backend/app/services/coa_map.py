@@ -138,7 +138,10 @@ async def sync_coa_accounts(s: AsyncSession, tenant_id, integ: Integration) -> i
     must never quietly discard a mapping decision.
     """
     token = await _valid_access_token(s, integ)
-    accounts = await qbo.accounts(integ.realm_id, token)
+    # Inactive accounts included: a deactivated account keeps its balance, so a historical
+    # trial balance still names it. Without them it lands as "not yet synced" and blocks a
+    # statement it cannot be mapped out of, because it never reaches the mapping screen.
+    accounts = await qbo.accounts(integ.realm_id, token, include_inactive=True)
 
     have = {r.qbo_account_id: r for r in (await s.execute(select(CoaMap).where(
         CoaMap.tenant_id == tenant_id, CoaMap.business_id == integ.business_id))).scalars()}
