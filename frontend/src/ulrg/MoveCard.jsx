@@ -1,7 +1,7 @@
 /* This week's move (SPEC 1.4) — two items, never seven: the constraint (earliest funnel stage
    below goal) and the free win (lowest-attainment behavior row). Both metric ids are computed
    server-side and returned in group.move; here we just read those rows and render. */
-import { C, FD, FB, band, verdictStyle } from "./scorecardMath.js";
+import { C, FD, FB, FM, band, verdictStyle } from "./scorecardMath.js";
 import { Card, Chip, Eyebrow, Bar, Dir, OwnerBadge } from "./Parts.jsx";
 
 export default function MoveCard({ group, wkey }) {
@@ -48,7 +48,7 @@ export default function MoveCard({ group, wkey }) {
             <span style={{ fontFamily: FB, fontSize: 13, color: C.ink }}>{fw.measurable}</span>
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Dir d={fw.trend_4v4} />
-              <span style={{ fontFamily: "JetBrains Mono,monospace", fontSize: 12, color: band(fwC.attain).ink }}>{fwC.attain.toFixed(0)}%</span>
+              <span style={{ fontFamily: FM, fontSize: 12, color: band(fwC.attain).ink }}>{fwC.attain.toFixed(0)}%</span>
             </span>
           </div>
           <div style={{ fontFamily: FB, fontSize: 11.5, color: C.slate, marginTop: 5, lineHeight: 1.5 }}>

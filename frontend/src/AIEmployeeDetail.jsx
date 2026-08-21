@@ -12,7 +12,8 @@ import { Icon } from "./Brand.jsx";
 import { postJSON, fileUrl } from "./api.js";
 import { useAiEmployeeDetail } from "./useAiEmployeeDetail.js";
 
-const MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
+// Figures, not code — Archivo's tabular numerals, same as the scorecard.
+const MONO = 'Archivo,system-ui,-apple-system,"Segoe UI",sans-serif';
 // Lane palette — locked hexes from run-surface §6 (theme.js lacks the soft lane tints).
 const LANE = {
   Intel:    { c: "#227175", bg: "#E6F0F1" },

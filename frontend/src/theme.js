@@ -37,6 +37,74 @@ export const T = {
   onDarkMute: "#9CB0AB",
 };
 
+/* ── Books Statement ledger palette + type ────────────────────────────────────────────────
+   From Connor's design canvas ("Books Statement.dc.html", 2026-08-21), which supersedes the
+   brand tokens above FOR THIS SURFACE ONLY — a financial statement wants a warmer, lower
+   contrast ground than the dashboard's, and gold rather than daffodil for the composed rows.
+
+   The hexes live here rather than in the component for the usual reason: a palette in a view
+   file is a palette nobody can find, and `frontend/src/books/` is grepped for raw hex.
+
+   Type: Archivo on every number and label (it has tabular figures, which is the whole reason
+   a ledger column lines up), Outfit on prose. */
+export const LEDGER = {
+  // surfaces, lightest to darkest
+  card: "#F7F2EA",
+  cardEdge: "#D8CDBC",
+  paper: "#FFFFFF",
+  controls: "#FDFBF7",
+  colHead: "#FBF7F1",
+  totalBand: "#FBF8F2",
+  sectionBand: "#EFE8DC",
+  track: "#F0E9DD",
+
+  // rules, faintest to strongest
+  ruleLine: "#F7F1E7",       // between account lines
+  ruleGroup: "#F4EDE2",      // under a bucket heading
+  ruleInner: "#E2D9CA",      // around blocks
+  ruleHeader: "#E8E0D3",
+  ruleSection: "#DCD2C2",
+  pillEdge: "#E0D7C9",
+
+  // ink, darkest to faintest
+  deep: "#0E2B22",           // dark rows, active chips, the strongest rule
+  onDeep: "#F3EFE6",
+  body: "#40564B",           // an account name
+  bodyDim: "#5C7367",
+  tab: "#6D8579",
+  muted: "#7C8F85",
+  faint: "#8B9C92",          // column headers
+  code: "#9AA9A0",           // the account-code column
+  ghost: "#A4B1A8",          // footnotes, zero-signal figures
+
+  // on the dark entity bar
+  onDeepEyebrow: "#7D9A8D",
+  onDeepPill: "#A7C0B4",
+  onDeepPillEdge: "#2F5044",
+  onDeepPct: "#9DBDAE",
+
+  // accents
+  accent: "#5F9C82",         // title tick, summary fill
+  accentMuted: "#8FAE9F",    // the operating-expenses fill — a quieter green, not a tint
+  accentInk: "#3F7A63",      // "ties to QuickBooks" text
+  accentBg: "#EEF4F0",
+
+  // composed (allocated) rows — gold, softer than the dashboard's daffodil
+  flagBg: "#FEFAEE",
+  flagBgHover: "#FBF3DE",    // hover on a composed row: deeper gold, never neutral
+  flagEdge: "#E0C476",
+  flagRing: "#D4B45F",
+  flagInk: "#93854F",
+};
+
+/* Archivo everywhere a figure or a label appears; Outfit for prose. Both loaded in
+   index.html. The fallbacks matter — a ledger that reflows when a webfont lands is worse
+   than one that never had it. */
+export const LEDGER_FONT = {
+  num: "Archivo,system-ui,-apple-system,Segoe UI,sans-serif",
+  body: "Outfit,system-ui,-apple-system,Segoe UI,sans-serif",
+};
+
 export const STATUS = {
   healthy: { dot: T.meadow, text: T.tertiary, label: "Healthy" },
   watch: { dot: T.poppy, text: T.poppyText, label: "Watch" },
