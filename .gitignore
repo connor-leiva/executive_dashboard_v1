@@ -38,3 +38,7 @@ backend/coa_report.txt
 # demand by coa_worksheet.py; never a repo artefact.
 backend/coa-mapping-worksheet.xlsx
 backend/coa-mapping-worksheet*.xlsx
+expense-normalization-2026-08/1 - Vendor Master.xlsx
+expense-normalization-2026-08/2 - Entity Expense Summary.xlsx
+expense-normalization-2026-08/3 - Shared Cost Candidates.xlsx
+expense-normalization-2026-08/4 - Findings Memo.md
