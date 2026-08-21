@@ -107,42 +107,76 @@ def balance_periods() -> list[tuple[dt.date, dt.date]]:
     return _pl_line_periods()
 
 
-async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration) -> int:
-    """Pull the trial balance for each period into `account_period_balance` (SPEC 5.1 step 2).
+async def _as_of(realm_id: str, token: str, on: dt.date, cache: dict) -> dict[str, Decimal]:
+    """The trial balance AS OF a date, as {qbo_account_id: debit-positive amount}.
 
-    Delete-then-insert per period rather than upsert: an account that stops appearing in the
-    trial balance has gone to zero, and an upsert would leave its old balance sitting there
-    forever. A stale non-zero balance is the kind of error that ties out perfectly.
+    QuickBooks' TrialBalance ignores `start_date` — confirmed against the live Forum realm,
+    where a July-only pull and a January-to-July pull return the identical figure. That is
+    correct for what a trial balance IS: an as-of report, where balance-sheet accounts carry
+    their cumulative balance and P&L accounts carry fiscal-year-to-date. Only `end_date`
+    selects anything, so only `end_date` is passed.
+
+    Cached per date because the period set overlaps heavily: month-to-date, quarter-to-date
+    and year-to-date all end today, and one period's opening date is usually another's close.
+    """
+    if on in cache:
+        return cache[on]
+    report = await qbo.trial_balance(realm_id, token, on.isoformat(), on.isoformat())
+    out: dict[str, Decimal] = {}
+    for r in qbo.parse_trial_balance(report):
+        qid = r.get("qbo_account_id")
+        if not qid:
+            # A row with no account id has no identity to map. Dropping it is right, but never
+            # silently: a dropped row shifts the tie-out by its own amount.
+            print(f"[coa_balances] realm={realm_id} as-of {on}: skipped a row with no account "
+                  f"id: {r.get('account')!r} {r.get('amount')}", flush=True)
+            continue
+        out[qid] = out.get(qid, ZERO) + normalize_sign(r["amount"], "qbo_tb")
+    cache[on] = out
+    return out
+
+
+async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration) -> int:
+    """Pull each period into `account_period_balance` (SPEC 5.1 step 2).
+
+    Period activity is the DIFFERENCE of two as-of trial balances — the one at the period end
+    minus the one the day before it opened. That is the only way to get true period activity
+    out of an as-of report, and it is exact rather than approximate. Both sides sum to zero, so
+    the difference does too, and the tie-out invariant is unaffected.
+
+    `balance_end` keeps the as-of figure alongside it, because that is what a balance sheet
+    wants and re-deriving it later would mean pulling QuickBooks twice for the same numbers.
+
+    Delete-then-insert per period rather than upsert: an account that stops appearing has gone
+    to zero, and an upsert would leave its old balance sitting there forever — a stale number
+    that ties out perfectly.
     """
     token = await _valid_access_token(s, integ)
     now = dt.datetime.now(dt.timezone.utc)
+    cache: dict = {}
     written = 0
     for ps, pe in balance_periods():
         fetch_end = min(pe, dt.date.today())          # actuals through today for an open period
-        report = await qbo.trial_balance(integ.realm_id, token, ps.isoformat(),
-                                         fetch_end.isoformat())
-        rows = qbo.parse_trial_balance(report)
+        opening = await _as_of(integ.realm_id, token, ps - dt.timedelta(days=1), cache)
+        closing = await _as_of(integ.realm_id, token, fetch_end, cache)
         await s.execute(delete(AccountPeriodBalance).where(
             AccountPeriodBalance.tenant_id == tenant_id,
             AccountPeriodBalance.business_id == integ.business_id,
             AccountPeriodBalance.period_start == ps,
             AccountPeriodBalance.period_end == pe))
-        for r in rows:
-            if not r.get("qbo_account_id"):
-                # The TrialBalance report can emit a row with no account id (a subtotal that
-                # slipped the walk). Dropping it is right — it has no identity to map — but it
-                # must not be silent, because a dropped row breaks the tie-out by its amount.
-                print(f"[coa_balances] realm={integ.realm_id} {ps}..{pe}: skipped a row with "
-                      f"no account id: {r.get('account')!r} {r.get('amount')}", flush=True)
-                continue
+        for qid in set(closing) | set(opening):
+            close_amt = closing.get(qid, ZERO)
+            activity = close_amt - opening.get(qid, ZERO)
+            if not activity and not close_amt:
+                continue                              # nothing to say about this account
             s.add(AccountPeriodBalance(
                 tenant_id=tenant_id, business_id=integ.business_id,
-                period_start=ps, period_end=pe, qbo_account_id=r["qbo_account_id"],
-                amount=normalize_sign(r["amount"], "qbo_tb"), source="qbo_tb", synced_at=now))
+                period_start=ps, period_end=pe, qbo_account_id=qid,
+                amount=activity, balance_end=close_amt, source="qbo_tb", synced_at=now))
             written += 1
     await s.commit()
     print(f"[coa_balances] realm={integ.realm_id} periods={len(balance_periods())} "
-          f"rows={written}", flush=True)
+          f"as_of_pulls={len(cache)} rows={written}", flush=True)
     return written
 
 
@@ -179,7 +213,8 @@ class UnmappedAccountsError(Exception):
     def __init__(self, business_id, accounts: list[dict]):
         self.business_id = business_id
         self.accounts = accounts
-        total = sum(abs(Decimal(str(a["amount"]))) for a in accounts)
+        total = sum(max(abs(Decimal(str(a["amount"]))),
+                        abs(Decimal(str(a.get("balance_end") or 0)))) for a in accounts)
         super().__init__(
             f"{len(accounts)} account(s) with activity are unmapped on this entity "
             f"({total:,.2f} unaccounted for). Map them before this statement can render.")
@@ -214,18 +249,21 @@ class TieOutError(Exception):
 
 async def get_unmapped_with_activity(s: AsyncSession, tenant_id, business_id,
                                      period: tuple[dt.date, dt.date]) -> list[dict]:
-    """Accounts carrying a balance this period that have nowhere to go.
+    """Accounts that carry something this period and have nowhere to go.
 
-    Activity is what makes an unmapped account dangerous. Dead accounts are common, harmless,
-    and would otherwise block every statement forever — 130 of the portfolio's 693 accounts
-    have no activity at all.
+    "Carries something" means it MOVED in the period or is HOLDING a balance at the end of it.
+    Movement alone is not enough: a bank account that sat still all month still belongs on the
+    balance sheet, and leaving it out would be a hole. Both zero means genuinely dead, which
+    is common and harmless — 130 of the portfolio's 693 accounts are in that state, and
+    blocking on them would mean no statement ever renders.
 
-    An IGNORED account with activity counts too. Ignoring is for dead accounts; ignoring a live
-    one removes real money from the statement, which is the same hole under a different name.
+    An IGNORED account counts too. Ignoring is for dead accounts; ignoring a live one removes
+    real money from the statement, which is the same hole under a friendlier name.
     """
     ps, pe = period
     rows = (await s.execute(
         select(AccountPeriodBalance.qbo_account_id, AccountPeriodBalance.amount,
+               AccountPeriodBalance.balance_end,
                CoaMap.qbo_account_name, CoaMap.qbo_account_fqn, CoaMap.is_ignored,
                CoaMap.ignore_reason, CoaMap.standard_account_id)
         .join(CoaMap, (CoaMap.qbo_account_id == AccountPeriodBalance.qbo_account_id) &
@@ -235,9 +273,10 @@ async def get_unmapped_with_activity(s: AsyncSession, tenant_id, business_id,
                AccountPeriodBalance.business_id == business_id,
                AccountPeriodBalance.period_start == ps,
                AccountPeriodBalance.period_end == pe,
-               AccountPeriodBalance.amount != ZERO))).all()
+               (AccountPeriodBalance.amount != ZERO) |
+               (AccountPeriodBalance.balance_end != ZERO)))).all()
     out = []
-    for qid, amount, name, fqn, ignored, reason, std in rows:
+    for qid, amount, balance_end, name, fqn, ignored, reason, std in rows:
         if std is not None and not ignored:
             continue
         out.append({
@@ -245,12 +284,13 @@ async def get_unmapped_with_activity(s: AsyncSession, tenant_id, business_id,
             "name": name or "(not in the chart sync yet)",
             "fqn": fqn or name or qid,
             "amount": amount,
+            "balance_end": balance_end,
             # An account the trial balance knows about but coa_map does not has never been
             # synced. Different problem, same consequence, so say which it is.
             "reason": ("ignored: " + (reason or "no reason given")) if ignored
                       else ("unmapped" if name else "not yet synced"),
         })
-    out.sort(key=lambda a: -abs(a["amount"]))
+    out.sort(key=lambda a: -max(abs(a["amount"]), abs(a["balance_end"])))
     return out
 
 
@@ -305,8 +345,13 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
     if unmapped and cfg.block_render_on_unmapped:
         raise UnmappedAccountsError(business_id=business_id, accounts=unmapped)
 
+    # A P&L wants what MOVED in the period; a balance sheet wants what is HELD at the end of
+    # it. Same table, different column, and picking the wrong one is a whole-statement error
+    # rather than a line error.
+    value = (AccountPeriodBalance.balance_end if statement == "bs"
+             else AccountPeriodBalance.amount)
     rows = (await s.execute(select(
-        AccountPeriodBalance.qbo_account_id, AccountPeriodBalance.amount,
+        AccountPeriodBalance.qbo_account_id, value,
         AccountPeriodBalance.synced_at).where(
         AccountPeriodBalance.tenant_id == tenant_id,
         AccountPeriodBalance.business_id == business_id,

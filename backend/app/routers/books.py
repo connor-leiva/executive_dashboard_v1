@@ -286,7 +286,11 @@ async def get_statement(business_id: uuid.UUID, period_start: dt.date | None = N
         raise HTTPException(409, detail={
             "error": "unmapped_accounts", "message": str(e),
             "business_id": str(e.business_id),
-            "accounts": [{**a, "amount": float(a["amount"])} for a in e.accounts],
+            # Every Decimal coerced, not just the one that happened to be noticed: FastAPI's
+            # encoder does not reach inside an HTTPException detail, so a stray Decimal turns
+            # a deliberate, actionable 409 into an opaque 500.
+            "accounts": [{k: (float(v) if isinstance(v, Decimal) else v)
+                          for k, v in a.items()} for a in e.accounts],
         })
     except coa_balances.TieOutError as e:
         raise HTTPException(409, detail={

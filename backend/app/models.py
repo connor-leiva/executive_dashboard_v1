@@ -1117,7 +1117,15 @@ class AccountPeriodBalance(Base):
     period_start: Mapped[date] = mapped_column(Date)
     period_end: Mapped[date] = mapped_column(Date)
     qbo_account_id: Mapped[str] = mapped_column(String(50))
-    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))     # signed, debit-positive
+    # PERIOD ACTIVITY: the movement within [period_start, period_end]. A trial balance is an
+    # as-of report — P&L accounts on it carry fiscal-year-to-date, not the range you asked for
+    # — so this is the DIFFERENCE of two as-of pulls, which is the only way to get true period
+    # activity out of it. Both columns are signed and debit-positive, and both sum to zero
+    # across accounts (a difference of two zero-sums is a zero-sum).
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    # AS-OF the period end: the cumulative balance. What the balance sheet needs, and what a
+    # trial balance natively reports.
+    balance_end: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
     source: Mapped[str] = mapped_column(String(20), default="qbo_tb")   # qbo_tb
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (

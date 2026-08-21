@@ -365,3 +365,65 @@ async def test_the_tie_out_reports_the_magnitude_it_ranged_over():
     t = st["tie_out"]
     assert t["mapped"] == 0.0 and t["delta"] == 0.0
     assert t["gross"] == 200000.0, "sum of |amount| across both sides of the ledger"
+
+
+async def test_period_activity_and_the_as_of_balance_are_different_columns():
+    """A trial balance is an as-of report: QuickBooks ignores start_date and P&L accounts on it
+    carry fiscal-year-to-date. Period activity is the difference of two as-of pulls, so the two
+    figures live in different columns and a P&L must never read the as-of one."""
+    tenant_id, biz = await _ids()
+    ps, pe = PERIOD
+    async with SessionLocal() as s:
+        await s.execute(delete(AccountPeriodBalance).where(
+            AccountPeriodBalance.business_id == biz["ulrg"]))
+        await s.execute(delete(CoaMap).where(CoaMap.business_id == biz["ulrg"]))
+        await s.commit()
+    async with SessionLocal() as s:
+        # July MOVED by these amounts; the as-of column carries six other months on top.
+        for qid, name, qtype, code, activity, as_of in (
+                ("100", "Operating Checking", "Bank", "1000", Decimal("35000.00"), Decimal("90000.00")),
+                ("200", "Commission Income", "Income", "4010", Decimal("-100000.00"), Decimal("-700000.00")),
+                ("300", "Agent Splits", "Cost of Goods Sold", "5010", Decimal("40000.00"), Decimal("280000.00")),
+                ("400", "Office Rent", "Expense", "7010", Decimal("25000.00"), Decimal("175000.00")),
+                ("500", "Retained Earnings", "Equity", "3200", Decimal("0.00"), Decimal("155000.00"))):
+            std = await _std(s, tenant_id, code)
+            s.add(CoaMap(tenant_id=tenant_id, business_id=biz["ulrg"], qbo_account_id=qid,
+                         qbo_account_name=name, qbo_account_fqn=name, qbo_account_type=qtype,
+                         standard_account_id=std.id, mapped_via="manual"))
+            s.add(AccountPeriodBalance(
+                tenant_id=tenant_id, business_id=biz["ulrg"], period_start=ps, period_end=pe,
+                qbo_account_id=qid, amount=activity, balance_end=as_of, source="qbo_tb"))
+        await s.commit()
+
+    async with SessionLocal() as s:
+        pl = await CB.build_mapped_statement(s, tenant_id, biz["ulrg"], PERIOD, "pl")
+        bs = await CB.build_mapped_statement(s, tenant_id, biz["ulrg"], PERIOD, "bs")
+    assert pl["totals"]["net_revenue"] == 100000.0, "the P&L shows the month, not the year"
+    assert pl["totals"]["net_income"] == 35000.0
+    assert pl["tie_out"]["delta"] == 0.0
+    assets = next(sec for sec in bs["sections"] if sec["key"] == "asset")
+    assert assets["total"] == 90000.0, "the balance sheet shows the balance, not the movement"
+    assert bs["tie_out"]["delta"] == 0.0, "the as-of trial balance sums to zero too"
+    await _load(tenant_id, biz["ulrg"])
+
+
+async def test_an_account_holding_a_balance_but_not_moving_still_has_to_be_mapped():
+    """A bank account that sat still all month still belongs on the balance sheet. Movement
+    alone is the wrong test for whether an account can be left out."""
+    tenant_id, biz = await _ids()
+    ps, pe = PERIOD
+    await _load(tenant_id, biz["springb"])
+    async with SessionLocal() as s:
+        s.add(CoaMap(tenant_id=tenant_id, business_id=biz["springb"], qbo_account_id="777",
+                     qbo_account_name="Dormant Savings", qbo_account_fqn="Dormant Savings",
+                     qbo_account_type="Bank"))
+        s.add(AccountPeriodBalance(
+            tenant_id=tenant_id, business_id=biz["springb"], period_start=ps, period_end=pe,
+            qbo_account_id="777", amount=Decimal("0.00"), balance_end=Decimal("52000.00"),
+            source="qbo_tb"))
+        await s.commit()
+        with pytest.raises(CB.UnmappedAccountsError) as e:
+            await CB.build_mapped_statement(s, tenant_id, biz["springb"], PERIOD)
+    assert e.value.accounts[0]["name"] == "Dormant Savings"
+    assert e.value.accounts[0]["amount"] == Decimal("0.00")
+    await _load(tenant_id, biz["springb"])
