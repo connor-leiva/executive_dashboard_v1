@@ -1096,3 +1096,53 @@ class CoaMap(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "business_id", "qbo_account_id", name="uq_coa_map_account"),
     )
+
+
+class AccountPeriodBalance(Base):
+    """The pulled trial balance: one row per QBO account, per entity, per period
+    (SPEC-coa-mapping-provenance 2.4). The ground truth the mapped statement must tie to.
+
+    `amount` is stored **debit-positive, always** — assets and expenses positive, liabilities,
+    equity and revenue negative. QBO hands back mixed conventions depending on the report, so
+    the convention is applied once here at ingest by `coa_balances.normalize_sign` and never
+    re-decided downstream. Render flips the sign for display on credit-normal accounts.
+
+    Keyed on `qbo_account_id`, like everything else in this module. The account NAME is not
+    stored at all: `coa_map` already holds it, and a second copy is a second thing to go stale.
+    """
+    __tablename__ = "account_period_balance"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id", ondelete="CASCADE"), index=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    qbo_account_id: Mapped[str] = mapped_column(String(50))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))     # signed, debit-positive
+    source: Mapped[str] = mapped_column(String(20), default="qbo_tb")   # qbo_tb
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_id", "period_start", "period_end",
+                         "qbo_account_id", name="uq_apb_account_period"),
+        Index("ix_apb_period", "tenant_id", "business_id", "period_start", "period_end"),
+    )
+
+
+class CoaSettings(Base):
+    """Per-tenant knobs for the mapping and provenance layers (SPEC 2.6). One row per tenant.
+
+    These are settings rather than constants because each is a judgement that can reasonably
+    differ: how much intercompany makes a line worth flagging, how many cents of rounding to
+    forgive, and whether an unmapped account is allowed to render at all. A magic number buried
+    in a service is a judgement nobody can find, let alone change.
+    """
+    __tablename__ = "coa_settings"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), unique=True, index=True)
+    # Below this share of a line, intercompany is not worth flagging (Phase 5).
+    ic_flag_threshold_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("5.00"))
+    # Cents. Rounding across a few hundred accounts is real; a dollar of drift is not.
+    tie_out_tolerance: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=Decimal("0.01"))
+    # Default TRUE, and it should stay true. A statement that quietly omits accounts is worse
+    # than an error message, because it looks right.
+    block_render_on_unmapped: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -1,6 +1,7 @@
 """Acumyn Books API (SPEC-books-module Part 4). All routes under /api/v1/books, gated by
 the `books` tab; CFO-only actions (characterize, rules) additionally require owner/admin.
 Payload shapes mirror acumyn-books-v2.jsx."""
+import datetime as dt
 import uuid
 from decimal import Decimal
 
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..deps import require_tab, require_role
 from ..models import User
-from ..services import books, coa_map
+from ..services import books, coa_balances, coa_map
 from ..services.books_scan import create_ic_rule, update_ic_rule
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -258,3 +259,50 @@ async def coa_delete_rule(rule_id: uuid.UUID,
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True}
+
+
+# ── The mapped statement + the tie-out (SPEC 5.3, 5.4) ────────────────────────
+# Both reads. The statement REFUSES rather than rendering partially: 409 when accounts with
+# activity are unmapped, 409 when the mapped total does not agree with QuickBooks. A 409 and
+# not a 500 because neither is a fault — they are the module working, and the frontend has a
+# specific, actionable panel to render for each.
+
+def _period(period_start: dt.date | None, period_end: dt.date | None) -> tuple[dt.date, dt.date]:
+    """Default to the newest period the balance sync pulls, so the common call needs no dates."""
+    if period_start and period_end:
+        return period_start, period_end
+    return coa_balances.balance_periods()[-1]
+
+
+@router.get("/statement")
+async def get_statement(business_id: uuid.UUID, period_start: dt.date | None = None,
+                        period_end: dt.date | None = None, statement: str = "pl",
+                        user: User = Depends(books_user),
+                        s: AsyncSession = Depends(get_session)):
+    try:
+        return await coa_balances.build_mapped_statement(
+            s, user.tenant_id, business_id, _period(period_start, period_end), statement)
+    except coa_balances.UnmappedAccountsError as e:
+        raise HTTPException(409, detail={
+            "error": "unmapped_accounts", "message": str(e),
+            "business_id": str(e.business_id),
+            "accounts": [{**a, "amount": float(a["amount"])} for a in e.accounts],
+        })
+    except coa_balances.TieOutError as e:
+        raise HTTPException(409, detail={
+            "error": "tie_out_failed", "message": str(e),
+            "business_id": str(e.business_id), "delta": float(e.delta),
+            "mapped": float(e.mapped), "booked": float(e.booked),
+        })
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.get("/coa/tie-out")
+async def get_tie_out(period_start: dt.date | None = None, period_end: dt.date | None = None,
+                      user: User = Depends(books_user),
+                      s: AsyncSession = Depends(get_session)):
+    """Every entity's invariants in one call — the Phase 3 gate, and a close-checklist step.
+    Never raises; the point is to see which entity is broken and by how much."""
+    return await coa_balances.tie_out_report(s, user.tenant_id,
+                                             _period(period_start, period_end))

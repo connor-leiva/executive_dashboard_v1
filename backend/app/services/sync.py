@@ -1577,6 +1577,11 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
                 # its P&L snapshot or Books its transactions (SPEC 5.1).
                 from .coa_map import run_coa_sync
                 await run_coa_sync(s, tenant_id, integ)
+                # Balances AFTER the chart, always: a trial-balance row for an account
+                # coa_map has never seen would show up to the guard as "not yet synced",
+                # which is a confusing way to say "these two ran in the wrong order".
+                from .coa_balances import run_balance_sync
+                await run_balance_sync(s, tenant_id, integ)
         run.status, run.finished_at = "ok", dt.datetime.utcnow()
         run.stats = {"records": records,
                      "seconds": round((run.finished_at - started).total_seconds(), 1)}
