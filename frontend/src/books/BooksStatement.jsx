@@ -9,7 +9,7 @@
    and a faint tint on a cream ground is low contrast for everyone. Meaning never lives in
    colour alone — the marker and the share column both carry it independently. */
 import { useMemo, useState } from "react";
-import { useCoaEntities, useStatement } from "./useBooks.js";
+import { useCoaEntities, useStatement, useLineDetail } from "./useBooks.js";
 import { Card, Eyebrow, Pill, StatePanel, DARK, font, T } from "./ui.jsx";
 
 /* Provenance uses the daffodil family by Connor's decision (2026-08-20), a declared exception
@@ -43,26 +43,27 @@ function Row({ label, value, strong, rule }) {
   );
 }
 
-/* One account. Expandable only when flagged — there is nothing to reveal otherwise. */
-function Line({ line, expanded, toggle }) {
+/* One account. EVERY line expands, not only the flagged ones — a number you cannot open is a
+   number you have to take on trust, and the whole point of this statement is that you do not
+   have to. Flagged lines additionally show what somebody else funded. */
+function Line({ line, expanded, toggle, businessId, period }) {
   const on = line.flagged;
   const open = expanded === line.standard_account_id;
-  const act = () => on && toggle(line.standard_account_id);
+  const act = () => toggle(line.standard_account_id);
   return (
     <>
       <div
-        {...(on ? { role: "button", tabIndex: 0, "aria-expanded": open } : {})}
+        role="button" tabIndex={0} aria-expanded={open}
         onClick={act}
         onKeyDown={(e) => {
-          if (!on) return;
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); }
         }}
         title={line.definition || undefined}
         style={{
           display: "flex", alignItems: "baseline", gap: 12, padding: "7px 16px 7px 13px",
-          background: on ? WASH : "transparent",
-          borderLeft: `3px solid ${on ? EDGE : "transparent"}`,
-          cursor: on ? "pointer" : "default",
+          background: on ? WASH : (open ? T.parchment : "transparent"),
+          borderLeft: `3px solid ${on ? EDGE : (open ? T.sprout : "transparent")}`,
+          cursor: "pointer",
         }}>
         <span style={{ flex: 1, display: "flex", alignItems: "baseline", gap: 7, minWidth: 0 }}>
           {/* The non-colour carrier of the same meaning. */}
@@ -75,6 +76,8 @@ function Line({ line, expanded, toggle }) {
                          overflowWrap: "anywhere" }}>
             {line.name}
             {on && <span style={{ color: T.daffodilText }}> · part funded by another entity</span>}
+            <span aria-hidden="true" style={{ color: T.muted, marginLeft: 6, fontSize: 10 }}>
+              {open ? "▾" : "▸"}</span>
           </span>
         </span>
         <span style={{ ...NUM, fontSize: 12.5, color: T.ink, minWidth: 120 }}>
@@ -84,7 +87,13 @@ function Line({ line, expanded, toggle }) {
           {line.ic_share_pct === null || line.ic_share_pct === undefined
             ? "" : `${line.ic_share_pct.toFixed(1)}%`}</span>
       </div>
-      {open && <Composition line={line} />}
+      {open && (
+        <div className="coa-comp" style={{ background: T.parchment,
+          borderLeft: `3px solid ${on ? EDGE : T.sprout}`, padding: "12px 16px 14px 32px" }}>
+          {on && <Composition line={line} />}
+          <LineDetail line={line} businessId={businessId} period={period} />
+        </div>
+      )}
     </>
   );
 }
@@ -93,8 +102,7 @@ function Line({ line, expanded, toggle }) {
 function Composition({ line }) {
   const direct = line.as_booked;
   return (
-    <div className="coa-comp" style={{ background: T.parchment, padding: "12px 16px 14px 32px",
-      borderLeft: `3px solid ${EDGE}` }}>
+    <div style={{ marginBottom: 16 }}>
       <Eyebrow>How this number is made</Eyebrow>
       <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
         <div style={{ display: "flex", gap: 12, fontFamily: font.body, fontSize: 12 }}>
@@ -128,6 +136,119 @@ function Composition({ line }) {
           <span style={{ ...NUM, fontSize: 12, fontWeight: 700, color: T.ink, minWidth: 110 }}>
             {money(line.amount)}</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* The audit trail behind a line: the QBO accounts that rolled into it, then the transactions
+   that made those accounts move.
+
+   The two halves have different standing and the panel says so. Accounts come from the same
+   trial balance the line does, so they always add up to it. Transactions come from the ledger
+   sync and are EVIDENCE — a multi-line transaction is stored against its first category at its
+   full header amount, and the sync backfills from a start date. When they do not add up, the
+   reconciliation says by how much and why rather than letting the list look authoritative. */
+function LineDetail({ line, businessId, period }) {
+  const { data, error, loading, retry } = useLineDetail(
+    businessId, line.standard_account_id, period);
+
+  if (loading) {
+    return <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>
+      Loading the transactions behind this line…</div>;
+  }
+  if (error) {
+    return (
+      <div style={{ fontFamily: font.body, fontSize: 12, color: T.poppyText }}>
+        Couldn&rsquo;t load the detail.{" "}
+        <button onClick={retry} style={{ ...btn(false), padding: "3px 9px" }}>Retry</button>
+      </div>
+    );
+  }
+  if (!data) return null;
+  const rec = data.reconciliation || {};
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div>
+        <Eyebrow>QuickBooks accounts in this line</Eyebrow>
+        <div style={{ marginTop: 6 }}>
+          {(data.accounts || []).map((a) => (
+            <div key={a.qbo_account_id} style={{ display: "flex", gap: 12, alignItems: "baseline",
+              padding: "4px 0", flexWrap: "wrap" }}>
+              <span style={{ flex: 1, minWidth: 200, fontFamily: font.body, fontSize: 12,
+                             color: T.secondary, overflowWrap: "anywhere" }}>
+                {a.fqn}
+                <span style={{ color: T.muted }}>
+                  {" · "}{a.type}{a.mapped_via ? ` · mapped by ${a.mapped_via}` : ""}
+                  {" · "}{a.transactions} {a.transactions === 1 ? "txn" : "txns"}
+                </span>
+              </span>
+              <span style={{ ...NUM, fontSize: 12, color: T.ink, minWidth: 110 }}>
+                {money(a.amount)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline",
+                      gap: 12, flexWrap: "wrap" }}>
+          <Eyebrow>Transactions</Eyebrow>
+          <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>
+            biggest first{data.truncated ? ` · ${data.truncated} more not shown` : ""}
+          </span>
+        </div>
+        <div style={{ marginTop: 6, maxHeight: 320, overflowY: "auto" }}>
+          {(data.transactions || []).length === 0 && (
+            <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, padding: "6px 0" }}>
+              No transactions in this window.
+            </div>
+          )}
+          {(data.transactions || []).map((t) => (
+            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "baseline",
+              padding: "5px 0", borderTop: `1px solid ${T.line}`, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted,
+                             fontVariantNumeric: "tabular-nums", width: 74, flexShrink: 0 }}>
+                {t.date}</span>
+              <span style={{ flex: 1, minWidth: 180, fontFamily: font.body, fontSize: 12,
+                             color: T.secondary, overflowWrap: "anywhere" }}>
+                {t.payee || t.qbo_type}
+                {t.memo ? <span style={{ color: T.muted }}> · {t.memo}</span> : null}
+                <span style={{ color: T.muted }}> · {t.account}</span>
+                {/* Flagged because it is the main reason this list may not add up. */}
+                {t.multi_line && (
+                  <span style={{ color: T.daffodilText }}> · multi-line, shown at full amount</span>
+                )}
+              </span>
+              <span style={{ ...NUM, fontSize: 12, color: T.ink, minWidth: 96 }}>
+                {money(t.amount)}</span>
+              {t.qbo_url && (
+                <a href={t.qbo_url} target="_blank" rel="noreferrer"
+                   onClick={(e) => e.stopPropagation()}
+                   style={{ fontFamily: font.body, fontSize: 11, fontWeight: 700, color: T.teal,
+                            textDecoration: "none", flexShrink: 0 }}>Open ↗</a>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 8, display: "flex", gap: 12,
+                    alignItems: "baseline", flexWrap: "wrap" }}>
+        <Pill tone={rec.explained ? "good" : "warn"}>
+          {/* Direction matters and the sign alone will not carry it: a positive delta means
+              the transactions do not reach the line, a negative one means they overshoot it —
+              which is what a multi-line entry counted at its full header amount looks like. */}
+          {rec.explained ? "Transactions account for the line"
+            : rec.delta > 0 ? `Transactions short by ${money(Math.abs(rec.delta))}`
+                            : `Transactions over by ${money(Math.abs(rec.delta))}`}
+        </Pill>
+        <span style={{ flex: 1, minWidth: 240, fontFamily: font.body, fontSize: 11.5,
+                       color: T.muted }}>{rec.note}</span>
+        <span style={{ ...NUM, fontSize: 11.5, color: T.muted }}>
+          {money(rec.transaction_total)} of {money(rec.line_total)}
+        </span>
       </div>
     </div>
   );
@@ -244,6 +365,7 @@ export default function BooksStatement({ period = "mtd" }) {
                         </div>
                         {b.lines.map((l) => (
                           <Line key={l.standard_account_id} line={l} expanded={expanded}
+                                businessId={active} period={period}
                                 toggle={(id) => setExpanded(expanded === id ? null : id)} />
                         ))}
                       </div>

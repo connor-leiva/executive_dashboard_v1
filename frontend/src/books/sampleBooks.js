@@ -241,3 +241,37 @@ export const sampleStatement = {
   exclusions: [],
   caveat: "Tied to QuickBooks. That proves the map is faithful to the books — it says nothing about whether the books are right.",
 };
+
+/* Drill-down behind one statement line. The reconciliation is deliberately IMPERFECT in this
+   sample, because that is the honest common case: a multi-line transaction is stored against
+   its first category at its full header amount, so the transactions rarely add up exactly. */
+export const sampleLineDetail = {
+  line: { standard_account_id: "s2", code: "6090", name: "Other Advertising",
+          section: "opex", amount: 19946, definition: null },
+  business: { id: "b-forum", key: "the_forum", name: "The Forum" },
+  period: { start: "2026-07-01", end: "2026-07-31" },
+  accounts: [
+    { qbo_account_id: "2", fqn: "Shared Service Expenses:Shared Service Expense - Advertising",
+      type: "Expense", mapped_via: "manual", amount: 13491, transactions: 1 },
+    { qbo_account_id: "4", fqn: "Advertising & Marketing", type: "Expense",
+      mapped_via: "rule", amount: 6455, transactions: 3 },
+  ],
+  transactions: [
+    { id: "t1", date: "2026-07-28", qbo_type: "JournalEntry", payee: "SB Coaching LLC",
+      memo: "July shared advertising", amount: 13491, account: "Shared Service Expense - Advertising",
+      bank_account: null, multi_line: true, scan_state: "cleared", qbo_url: null },
+    { id: "t2", date: "2026-07-14", qbo_type: "Purchase", payee: "Meta Platforms",
+      memo: "Forum event campaign", amount: 4200, account: "Advertising & Marketing",
+      bank_account: "Forum Operating", multi_line: false, scan_state: "cleared", qbo_url: null },
+    { id: "t3", date: "2026-07-09", qbo_type: "Purchase", payee: "Canva",
+      memo: null, amount: 1455, account: "Advertising & Marketing",
+      bank_account: "Forum Operating", multi_line: false, scan_state: "needs_approval", qbo_url: null },
+    { id: "t4", date: "2026-07-02", qbo_type: "Purchase", payee: "Printful",
+      memo: "Event signage", amount: 800, account: "Advertising & Marketing",
+      bank_account: "Forum Operating", multi_line: false, scan_state: "cleared", qbo_url: null },
+  ],
+  truncated: 0,
+  reconciliation: { line_total: 19946, transaction_total: 19946, delta: 0, explained: true,
+    transactions: 4, multi_line: 1,
+    note: "These transactions account for the whole line." },
+};

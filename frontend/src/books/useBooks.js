@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getJSON } from "../api";
 import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleCoaMap,
-         sampleStatement } from "./sampleBooks.js";
+         sampleStatement, sampleLineDetail } from "./sampleBooks.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -63,4 +63,14 @@ export function useStatement(businessId, { period, mode = "allocated", threshold
   if (threshold !== undefined && threshold !== null) q.set("threshold_pct", String(threshold));
   return useEndpoint(businessId ? `/books/statement?${q}` : null, sampleStatement,
                      [businessId, period, mode, threshold]);
+}
+
+/* The transactions behind one line. Fetched on expand rather than inline: hundreds of rows per
+   line have no business riding along on every statement request. */
+export function useLineDetail(businessId, standardAccountId, period) {
+  const q = new URLSearchParams({ business_id: businessId || "",
+                                  standard_account_id: standardAccountId || "" });
+  if (period) q.set("period", period);
+  return useEndpoint(businessId && standardAccountId ? `/books/statement/line?${q}` : null,
+                     sampleLineDetail, [businessId, standardAccountId, period]);
 }

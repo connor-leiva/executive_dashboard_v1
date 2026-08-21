@@ -408,3 +408,20 @@ async def allocation_check(period_start: dt.date | None = None,
     A blocking step in the close checklist (SPEC 6.6)."""
     return await coa_alloc.allocation_check(s, user.tenant_id,
                                             _period(period_start, period_end))
+
+
+@router.get("/statement/line")
+async def get_line_detail(business_id: uuid.UUID, standard_account_id: uuid.UUID,
+                          period_start: dt.date | None = None, period_end: dt.date | None = None,
+                          period: str | None = None, limit: int = 400,
+                          user: User = Depends(books_user),
+                          s: AsyncSession = Depends(get_session)):
+    """The QBO accounts and the transactions behind one statement line, so a number can be
+    audited rather than trusted. Lazily fetched on expand — hundreds of transactions per line
+    have no business riding along on every statement request."""
+    try:
+        return await coa_balances.line_detail(
+            s, user.tenant_id, business_id, standard_account_id,
+            _period(period_start, period_end, period), limit=min(limit, 1000))
+    except ValueError as e:
+        raise HTTPException(404, str(e))

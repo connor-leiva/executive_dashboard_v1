@@ -701,3 +701,115 @@ async def tie_out_report(s: AsyncSession, tenant_id,
         "gate": {"checked": len(out), "tied": len(passing),
                  "passed": bool(out) and len(passing) == len(out)},
     }
+
+
+# ── drilling into a line ──────────────────────────────────────────────────────────────────
+
+async def line_detail(s: AsyncSession, tenant_id, business_id, standard_account_id,
+                      period: tuple[dt.date, dt.date], limit: int = 400) -> dict:
+    """The transactions behind one statement line, so a number can be audited rather than
+    trusted.
+
+    Two layers, because they come from different places and one is more reliable than the
+    other. The ACCOUNTS come from the same trial balance the line is built from, so they always
+    add up to it exactly. The TRANSACTIONS come from the ledger sync, and they are evidence
+    rather than proof — `reconciliation` says how much of the line they actually explain.
+
+    Why they can disagree, all reported rather than smoothed over:
+      - A multi-line transaction is stored against its FIRST category with its FULL header
+        amount. Summing by account therefore overstates it here and misses the other accounts
+        it touched.
+      - The ledger sync backfills from a start date; anything older than that has no rows.
+      - Opening balances and QuickBooks-generated entries never existed as a transaction.
+
+    The trial balance is the authority. This list is how you look at what is behind it.
+    """
+    ps, pe = period
+    acct = await s.get(StandardAccount, standard_account_id)
+    if acct is None or acct.tenant_id != tenant_id:
+        raise ValueError("Unknown standard account")
+    biz = await s.get(Business, business_id)
+    if biz is None or biz.tenant_id != tenant_id:
+        raise ValueError("Unknown business")
+
+    maps = list((await s.execute(select(CoaMap).where(
+        CoaMap.tenant_id == tenant_id, CoaMap.business_id == business_id,
+        CoaMap.standard_account_id == standard_account_id))).scalars())
+    by_qid = {m.qbo_account_id: m for m in maps}
+    if not by_qid:
+        return {"line": {"code": acct.code, "name": acct.name}, "accounts": [],
+                "transactions": [], "reconciliation": {"note": "Nothing maps here yet."}}
+
+    balances = dict((await s.execute(select(
+        AccountPeriodBalance.qbo_account_id, AccountPeriodBalance.amount).where(
+        AccountPeriodBalance.tenant_id == tenant_id,
+        AccountPeriodBalance.business_id == business_id,
+        AccountPeriodBalance.period_start == ps, AccountPeriodBalance.period_end == pe,
+        AccountPeriodBalance.qbo_account_id.in_(list(by_qid))))).all())
+    line_total = for_display(sum(balances.values(), ZERO), acct.section)
+
+    from ..models import BookTxn
+    txns = list((await s.execute(
+        select(BookTxn)
+        .where(BookTxn.tenant_id == tenant_id, BookTxn.business_id == business_id,
+               BookTxn.txn_date >= ps, BookTxn.txn_date <= pe,
+               BookTxn.account_qbo_id.in_(list(by_qid)))
+        .order_by(BookTxn.txn_date.desc()))).scalars())
+
+    per_account: dict = {}
+    for t in txns:
+        per_account[t.account_qbo_id] = per_account.get(t.account_qbo_id, 0) + 1
+    txn_total = sum((t.amount for t in txns), ZERO)
+    multi = sum(1 for t in txns if (t.flags or {}).get("multi_line"))
+    delta = line_total - txn_total
+
+    reasons = []
+    if multi:
+        reasons.append(f"{multi} multi-line transaction(s) are counted at their full header "
+                       f"amount against their first category, which OVERSTATES them here")
+    if not txns and line_total:
+        reasons.append("the ledger sync has no transactions in this window — it backfills from "
+                       "a start date, and QuickBooks-generated entries never had one")
+    if abs(delta) > Decimal("0.01") and not reasons:
+        reasons.append("the difference is journal entries, opening balances, or activity "
+                       "outside the ledger sync's backfill window")
+
+    return {
+        "line": {"standard_account_id": str(acct.id), "code": acct.code, "name": acct.name,
+                 "section": acct.section, "amount": _money(line_total),
+                 "definition": acct.definition},
+        "business": {"id": str(biz.id), "key": biz.key, "name": biz.name},
+        "period": {"start": ps.isoformat(), "end": pe.isoformat()},
+        # Always ties to the line, because it comes from the same trial balance.
+        "accounts": sorted(
+            [{"qbo_account_id": qid,
+              "fqn": by_qid[qid].qbo_account_fqn or by_qid[qid].qbo_account_name,
+              "type": by_qid[qid].qbo_account_type,
+              "mapped_via": by_qid[qid].mapped_via,
+              "amount": _money(for_display(balances.get(qid, ZERO), acct.section)),
+              "transactions": per_account.get(qid, 0)}
+             for qid in by_qid],
+            key=lambda a: -abs(a["amount"])),
+        "transactions": [{
+            "id": str(t.id), "date": t.txn_date.isoformat(), "qbo_type": t.qbo_type,
+            "payee": t.payee, "memo": t.memo, "amount": _money(t.amount),
+            "account": t.account_label, "bank_account": t.bank_account_label,
+            "multi_line": bool((t.flags or {}).get("multi_line")),
+            "scan_state": t.scan_state,
+            "qbo_url": qbo.app_txn_url(t.qbo_type, t.qbo_id),
+        } for t in sorted(txns, key=lambda x: -abs(x.amount))[:limit]],
+        "truncated": max(len(txns) - limit, 0),
+        "reconciliation": {
+            "line_total": _money(line_total),
+            "transaction_total": _money(txn_total),
+            "delta": _money(delta),
+            "explained": abs(delta) <= Decimal("0.01"),
+            "transactions": len(txns),
+            "multi_line": multi,
+            "note": ("These transactions account for the whole line."
+                     if abs(delta) <= Decimal("0.01") else
+                     "These transactions do not add up to the line. "
+                     + "; ".join(reasons).capitalize()
+                     + ". The trial balance is the authority — this list is evidence."),
+        },
+    }

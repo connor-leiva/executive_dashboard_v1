@@ -283,3 +283,96 @@ async def test_the_api_carries_mode_threshold_and_refuses_a_nonsense_mode():
     assert b.status_code == 200 and b.json()["mode"] == "booked"
     assert a.json()["totals"]["net_income"] != b.json()["totals"]["net_income"]
     assert bad.status_code == 400
+
+
+# ── drilling into a line ──────────────────────────────────────────────────────────────────
+
+async def _txns(tenant_id, business_id, rows):
+    from app.models import BookTxn
+    async with SessionLocal() as s:
+        await s.execute(delete(BookTxn).where(BookTxn.business_id == business_id))
+        for qbo_id, qid, date_, amount, payee, multi in rows:
+            s.add(BookTxn(tenant_id=tenant_id, business_id=business_id, realm_id="r1",
+                          qbo_type="Purchase", qbo_id=qbo_id, txn_date=date_,
+                          amount=Decimal(amount), payee=payee, account_qbo_id=qid,
+                          account_label="x", came_categorized=True,
+                          flags=({"multi_line": True} if multi else None)))
+        await s.commit()
+
+
+async def test_a_line_opens_onto_its_accounts_and_its_transactions():
+    tenant_id, biz = await _ids()
+    await _setup(tenant_id, biz)
+    await _txns(tenant_id, biz["the_forum"], [
+        ("t1", "2", dt.date(2026, 7, 28), "12000.00", "SB Coaching LLC", False),
+        ("t2", "3", dt.date(2026, 7, 14), "5000.00", "Meta Platforms", False),
+        ("t3", "3", dt.date(2026, 7, 9), "3000.00", "Canva", False),
+    ])
+    async with SessionLocal() as s:
+        adv = await _std(s, tenant_id, "6090")
+        d = await CB.line_detail(s, tenant_id, biz["the_forum"], adv.id, PERIOD)
+    assert d["line"]["code"] == "6090" and d["line"]["amount"] == 20000.0
+    # The accounts come from the same trial balance, so they always add up to the line.
+    assert sum(a["amount"] for a in d["accounts"]) == 20000.0
+    assert {a["fqn"] for a in d["accounts"]} == {
+        "Shared Service Expenses:Shared Service Expense - Advertising", "Advertising & Marketing"}
+    assert [t["payee"] for t in d["transactions"]] == ["SB Coaching LLC", "Meta Platforms", "Canva"]
+    assert d["reconciliation"]["explained"] is True
+    assert "account for the whole line" in d["reconciliation"]["note"]
+
+
+async def test_when_the_transactions_do_not_add_up_it_says_so_and_why():
+    """The list is evidence, not proof. A multi-line transaction is stored against its first
+    category at its FULL header amount, so summing by account rarely ties — and a drill-down
+    that looked authoritative while being short would be worse than none."""
+    tenant_id, biz = await _ids()
+    await _setup(tenant_id, biz)
+    await _txns(tenant_id, biz["the_forum"], [
+        ("t1", "2", dt.date(2026, 7, 28), "12000.00", "SB Coaching LLC", True),
+        ("t2", "3", dt.date(2026, 7, 14), "5000.00", "Meta Platforms", False),
+    ])
+    async with SessionLocal() as s:
+        adv = await _std(s, tenant_id, "6090")
+        d = await CB.line_detail(s, tenant_id, biz["the_forum"], adv.id, PERIOD)
+    rec = d["reconciliation"]
+    assert rec["explained"] is False
+    assert rec["line_total"] == 20000.0 and rec["transaction_total"] == 17000.0
+    assert rec["delta"] == 3000.0
+    assert rec["multi_line"] == 1
+    assert "multi-line" in rec["note"] and "trial balance is the authority" in rec["note"]
+    assert d["transactions"][0]["multi_line"] is True
+
+
+async def test_a_line_with_no_transactions_says_that_rather_than_looking_empty():
+    tenant_id, biz = await _ids()
+    await _setup(tenant_id, biz)
+    from app.models import BookTxn
+    async with SessionLocal() as s:
+        await s.execute(delete(BookTxn).where(BookTxn.business_id == biz["the_forum"]))
+        await s.commit()
+        travel = await _std(s, tenant_id, "6510")
+        d = await CB.line_detail(s, tenant_id, biz["the_forum"], travel.id, PERIOD)
+    assert d["transactions"] == []
+    assert d["accounts"][0]["amount"] == 2000.0, "the account side still ties"
+    assert d["reconciliation"]["explained"] is False
+    assert "backfills from a start date" in d["reconciliation"]["note"]
+
+
+async def test_the_drilldown_is_scoped_to_the_tenant_and_the_api_serves_it():
+    tenant_id, biz = await _ids()
+    await _setup(tenant_id, biz)
+    async with SessionLocal() as s:
+        adv = await _std(s, tenant_id, "6090")
+        with pytest.raises(ValueError):
+            await CB.line_detail(s, tenant_id, biz["the_forum"],
+                                 "00000000-0000-0000-0000-0000000000ff", PERIOD)
+        adv_id = str(adv.id)
+    q = (f"business_id={biz['the_forum']}&standard_account_id={adv_id}"
+         "&period_start=2026-07-01&period_end=2026-07-31")
+    async with AsyncClient(transport=TRANSPORT, base_url="http://testserver") as c:
+        tok = (await c.post("/api/v1/auth/login", json={
+            "email": "spring@springb.com", "password": "springtime"})).json()["token"]
+        r = await c.get(f"/api/v1/books/statement/line?{q}",
+                        headers={"Authorization": f"Bearer {tok}"})
+    assert r.status_code == 200
+    assert r.json()["line"]["code"] == "6090"
