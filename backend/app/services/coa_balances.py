@@ -337,6 +337,11 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
                                  "amount": _money(amount)})
 
     mapped_total = sum((e["amount"] for e in rolled.values()), ZERO)
+    # A balanced trial balance nets to zero, so `mapped_total` is ~0 on a healthy entity and
+    # "delta 0.00 of 0.00" reads as though nothing was checked. `gross` is the magnitude the
+    # check actually ranged over, and it is what makes the result legible: 0.00 out of twelve
+    # million is a real statement about the rollup, 0.00 out of 0.00 is not.
+    gross = sum((abs(e["amount"]) for e in rolled.values()), ZERO)
 
     # THE invariant. Compare against the trial balance minus what was legitimately excluded,
     # so the check is like-for-like: the guard has already proven every exclusion is zero, and
@@ -410,7 +415,7 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
         "tie_out": {"status": "tied", "delta": _money(delta),
                     "mapped": _money(mapped_total), "booked": _money(booked_total - excluded),
                     "tolerance": _money(cfg.tie_out_tolerance),
-                    "accounts": len(balances),
+                    "accounts": len(balances), "gross": _money(gross),
                     # Money the statement leaves out. The guard normally proves this is zero;
                     # it can only be non-zero with block_render_on_unmapped turned off, and
                     # then the tie-out still passes while money is missing. Reported so that

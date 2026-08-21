@@ -353,3 +353,15 @@ async def test_the_statement_says_whether_the_books_are_closed_and_when_it_synce
         await s.commit()
         st = await CB.build_mapped_statement(s, tenant_id, biz["ulrg"], PERIOD)
     assert st["period"]["books_closed"] is True
+
+
+async def test_the_tie_out_reports_the_magnitude_it_ranged_over():
+    """A balanced trial balance nets to zero, so the delta and the mapped total are both ~0 on
+    a healthy entity. Without `gross` the result reads as though nothing was checked."""
+    tenant_id, biz = await _ids()
+    await _load(tenant_id, biz["ulrg"])
+    async with SessionLocal() as s:
+        st = await CB.build_mapped_statement(s, tenant_id, biz["ulrg"], PERIOD)
+    t = st["tie_out"]
+    assert t["mapped"] == 0.0 and t["delta"] == 0.0
+    assert t["gross"] == 200000.0, "sum of |amount| across both sides of the ledger"
