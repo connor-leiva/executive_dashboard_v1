@@ -162,16 +162,24 @@ async def test_a_dead_unmapped_account_does_not_block():
     assert st["tie_out"]["status"] == "tied"
 
 
-async def test_ignoring_a_live_account_blocks_just_like_unmapping_it():
-    """Ignoring is for dead accounts. Ignoring a live one removes real money from the
-    statement — the same hole under a friendlier name."""
+async def test_ignoring_a_live_account_excludes_it_and_says_so():
+    """Ignoring is a person's deliberate decision and must not block — a clearing account has
+    activity by definition and is the canonical thing to leave out. The money is not hidden:
+    it is itemised with the reason somebody typed, and totalled in tie_out.excluded."""
     tenant_id, biz = await _ids()
     await _load(tenant_id, biz["ulrg"])
     async with SessionLocal() as s:
-        await coa_map.set_ignored(s, tenant_id, None, biz["ulrg"], ["410"], "not sure yet")
-        with pytest.raises(CB.UnmappedAccountsError) as e:
-            await CB.build_mapped_statement(s, tenant_id, biz["ulrg"], PERIOD)
-    assert e.value.accounts[0]["reason"].startswith("ignored:")
+        await coa_map.set_ignored(s, tenant_id, None, biz["ulrg"], ["410"],
+                                  "Stripe clearing account")
+        st = await CB.build_mapped_statement(s, tenant_id, biz["ulrg"], PERIOD)
+    assert st["tie_out"]["status"] == "tied", "a reasoned exclusion does not block"
+    assert st["tie_out"]["excluded"] == 10000.0
+    assert st["totals"]["operating_expenses"] == 15000.0, "the excluded cost is not in the P&L"
+    ex = st["exclusions"]
+    assert len(ex) == 1
+    assert ex[0]["fqn"] == "Marketing" and ex[0]["amount"] == 10000.0
+    assert ex[0]["reason"] == "Stripe clearing account", "the reason travels with the number"
+    await _load(tenant_id, biz["ulrg"])
 
 
 async def test_the_guard_can_be_turned_off_and_then_the_hole_is_reported():

@@ -257,8 +257,12 @@ async def get_unmapped_with_activity(s: AsyncSession, tenant_id, business_id,
     is common and harmless — 130 of the portfolio's 693 accounts are in that state, and
     blocking on them would mean no statement ever renders.
 
-    An IGNORED account counts too. Ignoring is for dead accounts; ignoring a live one removes
-    real money from the statement, which is the same hole under a friendlier name.
+    An IGNORED account does NOT count, whatever it carries. Ignoring is a deliberate, reasoned
+    decision by a person, and blocking on it would make the feature useless for the case it
+    exists for — a clearing account has activity by definition, and is the canonical thing to
+    leave out. The money is not hidden: every exclusion is itemised on the statement with its
+    amount and the reason somebody typed, and the total appears in `tie_out.excluded`. Named
+    and visible beats absent, and beats refusing to render.
     """
     ps, pe = period
     rows = (await s.execute(
@@ -277,7 +281,7 @@ async def get_unmapped_with_activity(s: AsyncSession, tenant_id, business_id,
                (AccountPeriodBalance.balance_end != ZERO)))).all()
     out = []
     for qid, amount, balance_end, name, fqn, ignored, reason, std in rows:
-        if std is not None and not ignored:
+        if ignored or std is not None:
             continue
         out.append({
             "qbo_account_id": qid,
@@ -287,8 +291,7 @@ async def get_unmapped_with_activity(s: AsyncSession, tenant_id, business_id,
             "balance_end": balance_end,
             # An account the trial balance knows about but coa_map does not has never been
             # synced. Different problem, same consequence, so say which it is.
-            "reason": ("ignored: " + (reason or "no reason given")) if ignored
-                      else ("unmapped" if name else "not yet synced"),
+            "reason": "unmapped" if name else "not yet synced",
         })
     out.sort(key=lambda a: -max(abs(a["amount"]), abs(a["balance_end"])))
     return out
@@ -370,10 +373,21 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
     # one standard account — that merge IS the product.
     rolled: dict = {}
     excluded = ZERO
+    exclusions: list[dict] = []
     for qid, amount in balances:
         m = maps.get(qid)
         if m is None or m.is_ignored or m.standard_account_id is None:
-            excluded += amount            # already proven zero-activity by the guard above
+            # Deliberately left out, or (with the guard off) not yet decided. Either way it is
+            # itemised rather than merely absent — a reader can see the money and why it went.
+            excluded += amount
+            if amount:
+                exclusions.append({
+                    "qbo_account_id": qid,
+                    "fqn": (m.qbo_account_fqn or m.qbo_account_name) if m else qid,
+                    "amount": _money(amount),
+                    "reason": (m.ignore_reason or "ignored, no reason given") if (m and m.is_ignored)
+                              else "not mapped",
+                })
             continue
         entry = rolled.setdefault(m.standard_account_id, {"amount": ZERO, "sources": []})
         entry["amount"] += amount
@@ -456,6 +470,10 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
         "statement": statement,
         "mode": "booked",          # Phase 5 adds "allocated"
         "sections": out_sections,
+        # Every account whose money is NOT in the sections above, with the reason. The tie-out
+        # still passes when something is excluded, so this list is the only thing standing
+        # between a deliberate omission and an invisible one.
+        "exclusions": sorted(exclusions, key=lambda x: -abs(x["amount"])),
         "totals": _totals(out_sections) if statement == "pl" else {},
         "tie_out": {"status": "tied", "delta": _money(delta),
                     "mapped": _money(mapped_total), "booked": _money(booked_total - excluded),
