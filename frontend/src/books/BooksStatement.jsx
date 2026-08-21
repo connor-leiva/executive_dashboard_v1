@@ -273,8 +273,11 @@ function SectionRow({ label, count, open, total, pct, onToggle }) {
       fontFamily: F.body, alignItems: "center",
     }}>
       <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-        <span aria-hidden="true" style={{ fontSize: 10, color: L.faint, width: 10, flex: "none" }}>
-          {open ? "▾" : "▸"}</span>
+        <span aria-hidden="true" className="st-caret" style={{
+          width: 0, height: 0, flex: "none", marginRight: 1,
+          borderTop: `4.5px solid transparent`, borderBottom: `4.5px solid transparent`,
+          borderLeft: `6px solid ${L.faint}`,
+          transform: open ? "rotate(90deg)" : "none", transformOrigin: "35% 50%" }} />
         <span style={{ fontFamily: F.num, fontSize: 15.5, fontWeight: 700, letterSpacing: ".02em",
                        color: L.deep }}>{label}</span>
         <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.ghost,
@@ -345,8 +348,11 @@ function LineRow({ line, revenue, open, onToggle, businessId, period, mode }) {
               </span>
             )}
           </span>
-          <span aria-hidden="true" style={{ fontSize: 9, color: L.code, flex: "none" }}>
-            {open ? "▾" : "▸"}</span>
+          <span aria-hidden="true" className="st-caret" style={{
+            width: 0, height: 0, flex: "none",
+            borderTop: "3.5px solid transparent", borderBottom: "3.5px solid transparent",
+            borderLeft: `5px solid ${L.code}`,
+            transform: open ? "rotate(90deg)" : "none", transformOrigin: "35% 50%" }} />
         </span>
         <span style={{ ...NUM, fontSize: 13.5, fontWeight: on ? 600 : 400,
                        color: on ? L.deep : L.body }}>{money(line.amount)}</span>
@@ -454,19 +460,34 @@ export default function BooksStatement({ period = "mtd" }) {
   const blocked = view.error?.status === 409 && view.error?.detail?.error
     ? view.error.detail : null;
 
+  /* Whether every section is shut is DERIVED from the sections on screen rather than tracked
+     as its own flag. A second piece of state would drift the moment somebody opened one
+     section by hand, and the button would start lying about what it does. */
+  const sectionKeys = d ? d.sections.map((sec) => sec.key) : [];
+  const allClosed = sectionKeys.length > 0 && sectionKeys.every((k) => closed[k]);
+  const toggleAll = () => setClosed(
+    allClosed ? {} : Object.fromEntries(sectionKeys.map((k) => [k, true])));
+
   const revenue = d?.totals?.net_revenue ?? 0;
   const t = d?.totals || {};
   const gpLabel = d?.business?.gross_profit_label || "Gross Profit";
 
   /* Where each calculated line closes. Emitted whether or not its section is present, so an
      entity with no cost of sale still shows a gross-profit line rather than skipping it. */
+  // [label, value, tone, echoesSection]. `echoesSection` marks a row that is nothing but the
+  // section's own sum — "Total Cost of Sale" repeats the Cost of Sale header exactly. It is
+  // worth printing under an open section, where the eye has travelled past a list of accounts
+  // to get there, and is pure duplication under a collapsed one. Net Revenue, Gross Profit and
+  // Net Operating Income are named subtotals of the statement rather than section echoes, so
+  // they always print.
   const CLOSERS = {
-    revenue: [["Net Revenue", t.net_revenue, "strong"]],
-    cogs: [["Total Cost of Sale", t.cost_of_sale, null], [gpLabel, t.gross_profit, "strong"]],
-    opex: [["Total Operating Expenses", t.operating_expenses, null],
-           ["Net Operating Income", t.net_operating_income, "strong"]],
-    other_expense: [["Below the Line", t.below_the_line, null],
-                    ["Net Income", t.net_income, "big"]],
+    revenue: [["Net Revenue", t.net_revenue, "strong", false]],
+    cogs: [["Total Cost of Sale", t.cost_of_sale, null, true],
+           [gpLabel, t.gross_profit, "strong", false]],
+    opex: [["Total Operating Expenses", t.operating_expenses, null, true],
+           ["Net Operating Income", t.net_operating_income, "strong", false]],
+    other_expense: [["Below the Line", t.below_the_line, null, false],
+                    ["Net Income", t.net_income, "big", false]],
   };
   const ORDER = ["revenue", "cogs", "opex", "other_income", "other_expense"];
 
@@ -512,8 +533,10 @@ export default function BooksStatement({ period = "mtd" }) {
           });
         }
       }
-      (CLOSERS[key] || []).forEach(([label, value, tone]) => {
+      (CLOSERS[key] || []).forEach(([label, value, tone, echoes]) => {
         if (value === undefined || value === null) return;
+        // Nothing to echo if the section is absent, and nothing worth echoing if it is shut.
+        if (echoes && (!sec || closed[key])) return;
         rows.push(<TotalRow key={`t-${label}`} label={label} value={value} tone={tone}
                             pct={pctOf(value, revenue)} />);
       });
@@ -586,6 +609,19 @@ export default function BooksStatement({ period = "mtd" }) {
                     })}
                   </div>
                 </div>
+                <button onClick={toggleAll} style={{
+                  height: 28, padding: "0 12px", borderRadius: 8, cursor: "pointer",
+                  fontFamily: F.body, fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap",
+                  display: "flex", alignItems: "center", gap: 7,
+                  border: `1px solid ${L.pillEdge}`, background: L.paper, color: L.bodyDim,
+                }}>
+                  <span aria-hidden="true" style={{
+                    width: 0, height: 0,
+                    borderTop: "4px solid transparent", borderBottom: "4px solid transparent",
+                    borderLeft: `5.5px solid ${L.faint}`,
+                    transform: allClosed ? "none" : "rotate(90deg)", transformOrigin: "35% 50%" }} />
+                  {allClosed ? "Expand all" : "Collapse all"}
+                </button>
                 <div style={{ flex: 1 }} />
                 <span style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 11px",
                   borderRadius: 999, whiteSpace: "nowrap", fontFamily: F.body, fontSize: 12.5,
