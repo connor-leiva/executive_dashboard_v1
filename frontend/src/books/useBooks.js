@@ -2,7 +2,8 @@
    falling back to sample payloads when VITE_API_BASE is unset (dev/offline). */
 import { useEffect, useState } from "react";
 import { getJSON } from "../api";
-import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleCoaMap } from "./sampleBooks.js";
+import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleCoaMap,
+         sampleStatement } from "./sampleBooks.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -51,4 +52,15 @@ export function useCoaEntities() {
 export function useCoaMapping(businessId) {
   return useEndpoint(businessId ? `/books/coa/map?business_id=${businessId}` : null,
                      sampleCoaMap, [businessId]);
+}
+
+/* The mapped statement. `mode` and `threshold` are session state, never written back to
+   coa_settings — the spec is explicit that changing the threshold on screen is an override,
+   not a settings edit. */
+export function useStatement(businessId, { period, mode = "allocated", threshold } = {}) {
+  const q = new URLSearchParams({ business_id: businessId || "", mode });
+  if (period) q.set("period", period);
+  if (threshold !== undefined && threshold !== null) q.set("threshold_pct", String(threshold));
+  return useEndpoint(businessId ? `/books/statement?${q}` : null, sampleStatement,
+                     [businessId, period, mode, threshold]);
 }

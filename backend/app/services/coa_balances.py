@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
+from enum import Enum
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,6 +78,21 @@ def for_display(amount: Decimal, section: str | None) -> Decimal:
     turned around, and it happens at the edge, on the way out.
     """
     return -amount if section in CREDIT_SECTIONS else amount
+
+
+
+class Provenance(str, Enum):
+    """Where a rendered number came from (SPEC 6.3).
+
+    DIRECT is observed from the bank feed. ALLOCATED carries an intercompany component.
+    ADJUSTED is defined now and deliberately unused: depreciation, prepaid amortisation and
+    deferred revenue recognition are composed rather than observed too, and Connor will want
+    them distinguished once the schedules run. Retrofitting a third state onto a boolean is the
+    expensive version of this.
+    """
+    DIRECT = "direct"
+    ADJUSTED = "adjusted"          # reserved — v1 never sets it
+    ALLOCATED = "allocated"
 
 
 # ── settings ──────────────────────────────────────────────────────────────────────────────
@@ -360,7 +376,8 @@ def _money(v) -> float:
 
 async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
                                  period: tuple[dt.date, dt.date],
-                                 statement: str = "pl") -> dict:
+                                 statement: str = "pl", mode: str = "allocated",
+                                 threshold_pct=None) -> dict:
     """The entity's books, rendered through the standard chart (SPEC 5.3 + 5.4).
 
     Raises `UnmappedAccountsError` before building anything if an account with activity has
@@ -450,23 +467,80 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
         raise TieOutError(business_id, orphaned, mapped_total, booked_total - excluded,
                           cfg.tie_out_tolerance)._orphaned(stray)
 
+    # ── provenance (SPEC 6.2) ──
+    from .coa_alloc import contributions_for                    # local: avoids an import cycle
+    contribs = await contributions_for(s, tenant_id, business_id, period)
+    threshold = (Decimal(str(threshold_pct)) if threshold_pct is not None
+                 else cfg.ic_flag_threshold_pct)
+    who = {b.id: b.name for b in (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id))).scalars()}
+    approver_ids = {c.approved_by for side in contribs.values() for cs in side.values()
+                    for c in cs if c.approved_by}
+    approvers = {}
+    if approver_ids:
+        from ..models import User
+        approvers = {u.id: u.name for u in (await s.execute(select(User).where(
+            User.id.in_(approver_ids)))).scalars()}
+
     wanted = ("bs",) if statement == "bs" else ("pl",)
     sections: dict = {}
     for sid, entry in rolled.items():
         acct = chart[sid]
         if acct.statement not in wanted:
             continue
+        direct = for_display(entry["amount"], acct.section)
+        inbound = contribs["in"].get(sid, [])
+        outbound = contribs["out"].get(sid, [])
+
+        # `observed` contributions are ALREADY in `direct` on the target, and were never on the
+        # source's P&L at all — the funder books its payment to a receivable. `applied` ones,
+        # if a workbook ever feeds them, sit outside the books on both sides.
+        in_observed = sum((c.amount for c in inbound if c.booking == "observed"), ZERO)
+        in_applied = sum((c.amount for c in inbound if c.booking == "applied"), ZERO)
+        out_applied = sum((c.amount for c in outbound if c.booking == "applied"), ZERO)
+
+        as_allocated = direct + in_applied - out_applied
+        # The entity's own activity: strip what somebody else funded. Outbound `observed`
+        # contributes nothing, because the funder never carried it on its P&L to begin with —
+        # subtracting it would invent a cost this entity never had.
+        as_booked = direct - in_observed
+        ic_net = (in_observed + in_applied) - out_applied
+        # Undefined rather than zero in BOTH the cases where it means nothing: a line that
+        # nets to zero has no denominator, and a line with no intercompany at all has nothing
+        # to report. "0.0%" on every direct row reads as a measured result and is noise on the
+        # rows that need no attention.
+        ic_share = (abs(ic_net) / abs(as_allocated) * 100) if (ic_net and as_allocated) else None
+
+        provenance = Provenance.ALLOCATED if ic_net else Provenance.DIRECT
+        flagged = bool(
+            provenance == Provenance.ALLOCATED
+            and ic_share is not None
+            and ic_share >= threshold
+            and not acct.is_intercompany_account)     # Due To / Due From are all intercompany
+
         sec = sections.setdefault(acct.section, {})
         buc = sec.setdefault(acct.bucket, [])
         buc.append({
             "standard_account_id": str(acct.id), "code": acct.code, "name": acct.name,
             "sort_order": acct.sort_order,
             # Stored debit-positive; flipped once, here, on the way out.
-            "amount": _money(for_display(entry["amount"], acct.section)),
-            "as_booked": _money(for_display(entry["amount"], acct.section)),
+            "amount": _money(as_allocated if mode == "allocated" else as_booked),
+            "as_booked": _money(as_booked),
+            "as_allocated": _money(as_allocated),
+            "ic_net": _money(ic_net),
+            # Undefined, not zero, when the line nets to nothing — rendered blank rather than
+            # as "0.0%", which would read as a measured result.
+            "ic_share_pct": (round(float(ic_share), 1) if ic_share is not None else None),
+            "provenance": provenance.value,
+            "flagged": flagged,
             "is_intercompany_account": acct.is_intercompany_account,
             "definition": acct.definition,
             "sources": sorted(entry["sources"], key=lambda x: -abs(x["amount"])),
+            # Always present on a flagged line, always empty otherwise: the frontend must never
+            # need a second request to expand a row (SPEC 6.5).
+            "contributions": ([_contribution(c, "in", who, approvers) for c in inbound] +
+                              [_contribution(c, "out", who, approvers) for c in outbound]
+                              ) if flagged else [],
         })
 
     order = SECTION_ORDER if statement == "pl" else ("asset", "liability", "equity")
@@ -479,6 +553,9 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
             lines.sort(key=lambda x: x["sort_order"])
             buckets.append({"key": bkey, "label": BUCKET_LABEL.get(bkey, bkey),
                             "total": _money(sum(Decimal(str(x["amount"])) for x in lines)),
+                            "total_booked": _money(sum(Decimal(str(x["as_booked"])) for x in lines)),
+                            "total_allocated": _money(sum(Decimal(str(x["as_allocated"])) for x in lines)),
+                            "flagged": any(x["flagged"] for x in lines),
                             "lines": lines})
         buckets.sort(key=lambda b: min(x["sort_order"] for x in b["lines"]))
         out_sections.append({
@@ -497,13 +574,20 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
                    "books_closed": await _books_closed(s, tenant_id, business_id, ps),
                    "synced_at": max((r for r in synced if r), default=None)},
         "statement": statement,
-        "mode": "booked",          # Phase 5 adds "allocated"
+        "mode": mode,
+        "threshold_pct": float(threshold),
         "sections": out_sections,
         # Every account whose money is NOT in the sections above, with the reason. The tie-out
         # still passes when something is excluded, so this list is the only thing standing
         # between a deliberate omission and an invisible one.
         "exclusions": sorted(exclusions, key=lambda x: -abs(x["amount"])),
-        "totals": _totals(out_sections) if statement == "pl" else {},
+        # Totals follow the mode, and both net-income figures ride along so a reader can see
+        # what the toggle is worth without flipping it (SPEC 6.5).
+        "totals": (_totals(out_sections, "amount") if statement == "pl" else {}),
+        "net_income_booked": (_totals(out_sections, "as_booked")["net_income"]
+                              if statement == "pl" else None),
+        "net_income_allocated": (_totals(out_sections, "as_allocated")["net_income"]
+                                 if statement == "pl" else None),
         "tie_out": {"status": "tied", "delta": _money(delta),
                     "mapped": _money(mapped_total), "booked": _money(booked_total - excluded),
                     "tolerance": _money(cfg.tie_out_tolerance),
@@ -522,6 +606,24 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
 
 
 
+
+def _contribution(c, direction: str, who: dict, approvers: dict) -> dict:
+    """One line of the composition panel. Allocated-out renders negative AND says "out", so
+    direction never rests on the sign alone (SPEC 7.4)."""
+    counterparty = c.source_business_id if direction == "in" else c.target_business_id
+    return {
+        "direction": direction,
+        "counterparty_business": who.get(counterparty, "—"),
+        "amount": _money(c.amount if direction == "in" else -c.amount),
+        "pool_name": c.pool_name,
+        "basis": c.basis,
+        "driver_source": c.driver_source,
+        "approved_by": approvers.get(c.approved_by),
+        "je_ref": c.je_ref,
+        "booking": c.booking,
+    }
+
+
 async def _books_closed(s: AsyncSession, tenant_id, business_id, period_start: dt.date) -> bool:
     """Has the month this period sits in been signed off in the close checklist? A quarter or
     a year is only as closed as its opening month, which is the conservative reading."""
@@ -532,10 +634,17 @@ async def _books_closed(s: AsyncSession, tenant_id, business_id, period_start: d
     return row == "closed"
 
 
-def _totals(sections: list[dict]) -> dict:
+def _totals(sections: list[dict], key: str = "amount") -> dict:
     """The calculated lines. Subtotals are never accounts — posting to a subtotal is how the
-    old ULRG chart ended up with balances on parents that appeared in none of their children."""
-    by = {sec["key"]: Decimal(str(sec["total"])) for sec in sections}
+    old ULRG chart ended up with balances on parents that appeared in none of their children.
+
+    `key` chooses which per-line figure to total, so the same code produces the rendered totals
+    and the booked/allocated pair. The mode toggle has to move net income, not just styling.
+    """
+    by: dict = {}
+    for sec in sections:
+        by[sec["key"]] = sum(
+            (Decimal(str(line[key])) for b in sec["buckets"] for line in b["lines"]), ZERO)
     # Contra-revenue needs no special case. Its accounts are debit-normal but sit in the
     # revenue section, so `for_display` renders them negative and the section total is already
     # net of them. Subtracting again would double-count every refund.

@@ -267,21 +267,36 @@ async def coa_delete_rule(rule_id: uuid.UUID,
 # not a 500 because neither is a fault — they are the module working, and the frontend has a
 # specific, actionable panel to render for each.
 
-def _period(period_start: dt.date | None, period_end: dt.date | None) -> tuple[dt.date, dt.date]:
-    """Default to the newest period the balance sync pulls, so the common call needs no dates."""
+def _period(period_start: dt.date | None, period_end: dt.date | None,
+            period: str | None = None) -> tuple[dt.date, dt.date]:
+    """Explicit dates win; otherwise resolve the dashboard's period string the same way every
+    other view does, so the Books statement moves with the period selector at the top of the
+    page rather than having a second, invisible notion of "now"."""
     if period_start and period_end:
         return period_start, period_end
+    if period:
+        from ..services.metrics import _pl_period
+        return _pl_period(period)
     return coa_balances.balance_periods()[-1]
 
 
 @router.get("/statement")
 async def get_statement(business_id: uuid.UUID, period_start: dt.date | None = None,
                         period_end: dt.date | None = None, statement: str = "pl",
+                        mode: str = "allocated", threshold_pct: float | None = None,
+                        period: str | None = None,
                         user: User = Depends(books_user),
                         s: AsyncSession = Depends(get_session)):
+    """`mode` picks which figure each line renders: `allocated` is what the books say with
+    shared costs where they belong, `booked` is the entity's own activity. `threshold_pct` is a
+    session override for how much intercompany makes a line worth flagging — it never writes
+    back to coa_settings (SPEC 7.3)."""
+    if mode not in ("allocated", "booked"):
+        raise HTTPException(400, "mode must be 'allocated' or 'booked'")
     try:
         return await coa_balances.build_mapped_statement(
-            s, user.tenant_id, business_id, _period(period_start, period_end), statement)
+            s, user.tenant_id, business_id, _period(period_start, period_end, period),
+            statement, mode=mode, threshold_pct=threshold_pct)
     except coa_balances.UnmappedAccountsError as e:
         raise HTTPException(409, detail={
             "error": "unmapped_accounts", "message": str(e),
