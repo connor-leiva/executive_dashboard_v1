@@ -210,18 +210,27 @@ async def allocation_check(s: AsyncSession, tenant_id,
         StandardAccount.tenant_id == tenant_id,
         StandardAccount.is_intercompany_account.is_(True)))).scalars()}
     ic_move: dict = {}
+    ic_detail: dict = {}
     if ic_ids:
         rows = (await s.execute(
-            select(AccountPeriodBalance.business_id, AccountPeriodBalance.amount)
+            select(AccountPeriodBalance.business_id, AccountPeriodBalance.amount,
+                   CoaMap.qbo_account_fqn, CoaMap.qbo_account_name)
             .join(CoaMap, (CoaMap.qbo_account_id == AccountPeriodBalance.qbo_account_id) &
                           (CoaMap.business_id == AccountPeriodBalance.business_id) &
                           (CoaMap.tenant_id == AccountPeriodBalance.tenant_id))
             .where(AccountPeriodBalance.tenant_id == tenant_id,
                    AccountPeriodBalance.period_start == ps,
                    AccountPeriodBalance.period_end == pe,
+                   AccountPeriodBalance.amount != ZERO,
                    CoaMap.standard_account_id.in_(ic_ids)))).all()
-        for bid, amount in rows:
+        for bid, amount, fqn, name in rows:
             ic_move[bid] = ic_move.get(bid, ZERO) + amount
+            # Itemised, because an entity usually has more than one intercompany account and
+            # summing them hides the answer. The Forum's `Due To SB Coaching` reconciles to
+            # the cent against its shared-service charge; its `Forum Transfer Account` moves
+            # separately, and an aggregate netted the two into a number that meant nothing.
+            ic_detail.setdefault(bid, []).append({"account": fqn or name,
+                                                  "movement": float(amount)})
 
     entities = []
     for bid, biz in sorted(names.items(), key=lambda kv: kv[1].sort_order):
@@ -236,6 +245,8 @@ async def allocation_check(s: AsyncSession, tenant_id,
             "allocated_net": float(charged),
             "intercompany_movement": float(moved),
             "unexplained": float(charged + moved),
+            "intercompany_accounts": sorted(ic_detail.get(bid, []),
+                                            key=lambda x: -abs(x["movement"])),
         })
 
     return {
@@ -249,8 +260,9 @@ async def allocation_check(s: AsyncSession, tenant_id,
         "entities": entities,
         "note": ("Zero-sum is structural — one row generates both sides, so it passing proves "
                  "only that no row points outside the tenant. `unexplained` is the one to "
-                 "read: it is intercompany movement this period that no allocation accounts "
-                 "for."),
+                 "read: intercompany movement this period that no allocation accounts for. "
+                 "`intercompany_accounts` breaks it down, because an entity usually has more "
+                 "than one and a single total hides which account carries the difference."),
     }
 
 

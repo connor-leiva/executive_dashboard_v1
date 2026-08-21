@@ -308,3 +308,25 @@ async def test_rules_are_a_cfo_decision_and_the_check_is_readable():
             "source_business_id": str(biz["springb"]),
             "target_business_id": str(biz["the_forum"])})
         assert dup.status_code == 400
+
+
+async def test_the_check_names_which_intercompany_account_carries_the_difference():
+    """An entity usually has more than one intercompany account. The Forum's `Due To SB
+    Coaching` reconciles to the cent against its shared-service charge while its `Forum
+    Transfer Account` moves separately — summing them nets a real answer into a meaningless
+    one, so the breakdown is what makes the check usable."""
+    tenant_id, biz = await _ids()
+    await _clear(tenant_id)
+    rows = FORUM + [("8", "Forum Transfer Account", "Other Current Asset", "1300",
+                     Decimal("36200.00"))]
+    await _books(tenant_id, biz["the_forum"], rows)
+    await _rule(tenant_id, biz)
+    async with SessionLocal() as s:
+        await AL.sync_allocations(s, tenant_id, PERIOD)
+        check = await AL.allocation_check(s, tenant_id, PERIOD)
+    forum = next(e for e in check["entities"] if e["business"] == "the_forum")
+    accounts = {a["account"]: a["movement"] for a in forum["intercompany_accounts"]}
+    assert accounts["Due To SB Coaching"] == -32450.07, "reconciles against the allocation"
+    assert accounts["Forum Transfer Account"] == 36200.00, "and this one does not"
+    # The aggregate on its own would have read as a 3,749.93 discrepancy and explained nothing.
+    assert forum["unexplained"] == 36200.00
