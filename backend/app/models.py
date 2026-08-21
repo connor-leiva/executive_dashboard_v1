@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     String, Text, ForeignKey, Numeric, Integer, Boolean, DateTime, Date, Float,
-    UniqueConstraint, Index, func,
+    CheckConstraint, UniqueConstraint, Index, func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -1154,3 +1154,85 @@ class CoaSettings(Base):
     # Default TRUE, and it should stay true. A statement that quietly omits accounts is worse
     # than an error message, because it looks right.
     block_render_on_unmapped: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class AllocationRule(Base):
+    """Policy: which QBO subtree on which entity is a shared cost, and who funded it
+    (SPEC-coa-mapping-provenance 2.5, extended for the QBO-sourced ingest).
+
+    The spec's `allocation_contribution` carries pool, basis, driver and approver on every row.
+    Those are policy, not observation, and they do not vary line by line — so they live here,
+    declared once by a person, and the contribution rows inherit them. `approved_by` is
+    required for the reason the spec gives: an allocation is a policy decision and never the
+    bookkeeper's.
+
+    Matched the same way `coa_map_rule` matches, on a FullyQualifiedName prefix, because the
+    shared costs already sit in a named subtree — "Shared Service Expenses:" on The Forum and
+    beCollective. Inferring the funder from an account name ("Due To SB Coaching") would work
+    today and is exactly the name-keyed reasoning this module refuses everywhere else.
+    """
+    __tablename__ = "allocation_rule"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    # The entity whose books CARRY the cost. NULL means every entity in the tenant.
+    target_business_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("business.id", ondelete="CASCADE"), nullable=True)
+    # The entity that FUNDED it. Required: an allocation with no counterparty cannot net to
+    # zero across the portfolio, which is the invariant in 6.6.
+    source_business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("business.id", ondelete="CASCADE"))
+    pattern: Mapped[str] = mapped_column(String(300))          # FQN prefix, longest wins
+    pool_name: Mapped[str] = mapped_column(String(80))         # e.g. "Shared Services"
+    basis: Mapped[str | None] = mapped_column(String(200), nullable=True)      # "Headcount, 40/60"
+    driver_source: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    je_ref: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AllocationContribution(Base):
+    """One shared cost, for one period, on one standard account, between two entities
+    (SPEC-coa-mapping-provenance 2.5).
+
+    **Observed, not applied.** The spec assumes contributions are added on top of the books.
+    On this portfolio they are already IN them: The Forum's July shared-service charge of
+    32,450.07 equals, to the cent, the increase in its `Due To SB Coaching`. The expense sits
+    on the target and the receivable sits on the source, and the source never expenses it —
+    correctly, because the cost belongs to the target. Adding these amounts to a P&L would
+    double-count every one of them.
+
+    So `booking` records which world a row came from, and the composition reads it rather than
+    assuming. `observed` rows adjust "as booked" DOWNWARD (the entity's own activity, before
+    shared costs); `applied` rows, if a workbook ever feeds them, add to "as allocated" the way
+    the spec describes. One column keeps both honest instead of one inverted formula.
+    """
+    __tablename__ = "allocation_contribution"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    source_business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id", ondelete="CASCADE"))
+    target_business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id", ondelete="CASCADE"))
+    standard_account_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("standard_account.id", ondelete="CASCADE"))
+    # Always positive. Direction is carried by source and target, never by the sign, so a
+    # reader never has to work out which way a negative number points.
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    booking: Mapped[str] = mapped_column(String(10), default="observed")   # observed | applied
+    pool_name: Mapped[str] = mapped_column(String(80))
+    basis: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    driver_source: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    je_ref: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("allocation_rule.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        # An entity cannot allocate to itself: that is a rename, not an allocation, and it
+        # would net to zero while looking like movement.
+        CheckConstraint("source_business_id <> target_business_id", name="ck_alloc_not_self"),
+        Index("ix_alloc_period", "tenant_id", "period_start", "period_end"),
+    )

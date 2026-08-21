@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..deps import require_tab, require_role
 from ..models import User
-from ..services import books, coa_balances, coa_map
+from ..services import books, coa_alloc, coa_balances, coa_map
 from ..services.books_scan import create_ic_rule, update_ic_rule
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -310,3 +310,86 @@ async def get_tie_out(period_start: dt.date | None = None, period_end: dt.date |
     Never raises; the point is to see which entity is broken and by how much."""
     return await coa_balances.tie_out_report(s, user.tenant_id,
                                              _period(period_start, period_end))
+
+
+# ── Allocations (SPEC-coa-mapping-provenance 2.5, 6.6) ────────────────────────
+# Reads sit behind the books tab. Rules are policy — one pattern decides how a shared cost is
+# attributed across entities — so they take owner/admin, like every other structural rule here.
+
+class AllocRuleIn(BaseModel):
+    pattern: str
+    pool_name: str
+    source_business_id: uuid.UUID
+    target_business_id: uuid.UUID | None = None       # null = every entity
+    basis: str | None = None
+    driver_source: str | None = None
+    je_ref: str | None = None
+
+
+class AllocRulePatch(BaseModel):
+    pattern: str | None = None
+    pool_name: str | None = None
+    basis: str | None = None
+    driver_source: str | None = None
+    je_ref: str | None = None
+    is_active: bool | None = None
+
+
+@router.get("/allocations/rules")
+async def alloc_rules(user: User = Depends(books_user),
+                      s: AsyncSession = Depends(get_session)):
+    return {"rules": await coa_alloc.list_rules(s, user.tenant_id)}
+
+
+@router.post("/allocations/rules")                    # CFO only
+async def alloc_create_rule(body: AllocRuleIn,
+                            user: User = Depends(require_role("owner", "admin")),
+                            s: AsyncSession = Depends(get_session)):
+    try:
+        rule = await coa_alloc.create_rule(s, user.tenant_id, user, **body.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "id": str(rule.id)}
+
+
+@router.patch("/allocations/rules/{rule_id}")         # CFO only
+async def alloc_patch_rule(rule_id: uuid.UUID, body: AllocRulePatch,
+                           user: User = Depends(require_role("owner", "admin")),
+                           s: AsyncSession = Depends(get_session)):
+    try:
+        rule = await coa_alloc.update_rule(s, user.tenant_id, user, rule_id,
+                                           **body.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "id": str(rule.id)}
+
+
+@router.delete("/allocations/rules/{rule_id}")        # CFO only
+async def alloc_delete_rule(rule_id: uuid.UUID,
+                            user: User = Depends(require_role("owner", "admin")),
+                            s: AsyncSession = Depends(get_session)):
+    try:
+        await coa_alloc.delete_rule(s, user.tenant_id, user, rule_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@router.post("/allocations/rebuild")                  # CFO only
+async def alloc_rebuild(period_start: dt.date | None = None, period_end: dt.date | None = None,
+                        user: User = Depends(require_role("owner", "admin")),
+                        s: AsyncSession = Depends(get_session)):
+    """Re-derive a period's contributions from the current rules. The worker does this on every
+    pass; this is for when a rule has just been declared and nobody wants to wait."""
+    return await coa_alloc.sync_allocations(s, user.tenant_id, _period(period_start, period_end))
+
+
+@router.get("/allocation-check")
+async def allocation_check(period_start: dt.date | None = None,
+                           period_end: dt.date | None = None,
+                           user: User = Depends(books_user),
+                           s: AsyncSession = Depends(get_session)):
+    """Portfolio zero-sum, plus the intercompany reconciliation that actually finds things.
+    A blocking step in the close checklist (SPEC 6.6)."""
+    return await coa_alloc.allocation_check(s, user.tenant_id,
+                                            _period(period_start, period_end))

@@ -1620,6 +1620,16 @@ async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, peri
     if any(i.provider == "qbo" for i in integs):       # Books deterministic scan after txn sync
         from .books_scan import run_scan
         await run_scan(s, tenant_id)
+        # Allocations are derived per TENANT, not per entity: a contribution names two
+        # businesses, so it can only be built once every entity's balances have landed. Runs
+        # last, isolated — a shared-cost rule must never cost the dashboard its P&L.
+        try:
+            from .coa_alloc import sync_allocations
+            from .coa_balances import balance_periods
+            for period in balance_periods():
+                await sync_allocations(s, tenant_id, period)
+        except Exception as e:  # noqa: BLE001
+            print(f"[coa_alloc] skipped for {tenant_id}: {type(e).__name__}: {e}", flush=True)
     # Binder: extract newly-uploaded documents into obligation PROPOSALS (never obligations —
     # a human confirms each). Independent of integrations; key-gated and a no-op when there are
     # no pending docs. Proven on real data via the go/no-go before wiring here.
