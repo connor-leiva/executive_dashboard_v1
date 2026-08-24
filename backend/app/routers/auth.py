@@ -11,6 +11,7 @@ from ..schemas import (LoginRequest, LoginResponse, MeResponse, ChangePasswordRe
                        AcceptInviteRequest, ResetPasswordRequest)
 from ..security import (verify_pw, make_token, hash_pw, hash_action_token, MIN_PASSWORD_LEN)
 from ..services.audit import audit
+from ..services import roles
 from ..services.tabs import tenant_tabs, tenant_tab_descriptors, effective_tabs
 from ..tenancy import current_tenant_id
 
@@ -82,7 +83,7 @@ async def me(user: User = Depends(current_user), s: AsyncSession = Depends(get_s
     granted = set(tabs)
     return MeResponse(id=str(user.id), email=user.email, name=user.name, role=user.role,
                       status=user.status, tenant=tenant.slug, tenant_name=tenant.name,
-                      tabs=tabs,
+                      tabs=tabs, brand=roles.brand(tenant),
                       # Filtered to what this user may see, so the rail cannot render a tab
                       # the API would refuse — the nav and the grant come from one source.
                       nav=[d for d in descriptors if d["key"] in granted])

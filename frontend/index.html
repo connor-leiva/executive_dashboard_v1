@@ -11,7 +11,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <title>Spring · Command Center</title>
+    <!-- Generic on purpose: this is the title BEFORE the app knows which tenant it is.
+         useMe() replaces it with "{tenant} · {product}" the moment /me answers, so a second
+         customer never sees the first one's name flash in their tab. -->
+    <title>Command Center</title>
   </head>
   <body>
     <div id="root"></div>

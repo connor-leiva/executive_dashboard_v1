@@ -169,6 +169,9 @@ class Settings(BaseSettings):
     # custom domain (a `domain` row). Drives tenant-host resolution, the CORS origin regex,
     # and the invite links provisioning hands out — so it is set in ONE place, not three.
     PLATFORM_DOMAIN: str = "acumyn.io"
+    # What the PLATFORM calls itself, in the API title and as the default product name for a
+    # tenant that has not set its own. Not a customer's name.
+    PRODUCT_NAME: str = "Command Center"
 
     DEV_TENANT_SLUG: str = "springb"
     # When a request Host matches no `domain` row, resolve to DEV_TENANT_SLUG. Safe only

@@ -140,3 +140,32 @@ def short_name(b) -> str:
         if trimmed and trimmed.lower() not in {"the", "a", "an"}:
             return trimmed
     return base or name
+
+
+# ── tenant brand ──────────────────────────────────────────────────────────────────────
+# The chrome — the page title, the wordmark in the rail, the login screen — was one
+# customer's identity compiled into the bundle. It is tenant data now.
+#
+# NOTE ON ASSETS: a logo is a FILE, and this platform has no per-tenant asset upload yet.
+# So a tenant with no logo configured does not inherit somebody else's: it renders its own
+# NAME as a wordmark. That degrades honestly and needs no upload feature to be correct.
+BRAND_DEFAULTS = {
+    "product_name": "Command Center",
+    "logo": None,          # URL of a transparent-ground mark, tinted via CSS mask
+    "logomark": None,      # the square/bare form, for tight spaces
+}
+
+
+def brand(tenant) -> dict:
+    """This tenant's identity for the UI chrome. Never falls back to another tenant's."""
+    cfg = ((tenant.config or {}).get("brand") or {}) if tenant is not None else {}
+    out = dict(BRAND_DEFAULTS)
+    for k in out:
+        v = cfg.get(k)
+        if isinstance(v, str) and v.strip():
+            out[k] = v.strip()
+        elif v is not None and k not in ("logo", "logomark"):
+            out[k] = v
+    # The wordmark text: what the app calls itself for THIS customer.
+    out["display_name"] = (cfg.get("display_name") or (tenant.name if tenant else "") or "").strip()
+    return out

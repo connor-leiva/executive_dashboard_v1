@@ -118,7 +118,15 @@ async def seed():
         # match. A tenant without that date requires a URL match — the safe default that every
         # tenant provisioned from now on gets for free.
         tenant.config = {"recall_enabled": True,
-                         "recall_legacy_adopt_before": "2026-08-20"}
+                         "recall_legacy_adopt_before": "2026-08-20",
+                         # Chrome identity. A tenant WITHOUT this renders its own name as a
+                         # wordmark rather than inheriting these assets — there is no
+                         # per-tenant asset upload yet, and silently showing one customer's
+                         # logo to another is worse than showing plain text.
+                         "brand": {"product_name": "Command Center",
+                                   "display_name": "Spring",
+                                   "logo": "/brand/logo/spring_logo.png",
+                                   "logomark": "/brand/logo/spring_logomark.png"}}
         s.add(tenant)
         await s.flush()
 

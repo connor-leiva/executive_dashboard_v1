@@ -256,7 +256,7 @@ function AriveConnectForm({ row, onClose, onDone }) {
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
         <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Arive" : "Connect Arive"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>Sympli Mortgage · from Arive Settings → Integrations. All three are stored encrypted.</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>From Arive → Settings → Integrations. All three are stored encrypted.</div>
         <label style={label}>Client ID
           <input style={field} value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••• (unchanged)" : ""} />
         </label>
@@ -311,7 +311,7 @@ function StripeLegacyConnectForm({ row, onClose, onDone }) {
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
         <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Legacy Stripe" : "Connect Legacy Stripe"}</div>
         <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
-          Spring's original Stripe account. Create a <b>restricted key</b> in Stripe (Developers → API keys → Create restricted key) with <b>Charges: Read</b>, <b>Customers: Read</b>, and <b>Subscriptions: Read</b> — nothing else. Stored encrypted; we never write to Stripe.
+          Your original Stripe account — the one that predates the current sub-account. Create a <b>restricted key</b> in Stripe (Developers → API keys → Create restricted key) with <b>Charges: Read</b>, <b>Customers: Read</b>, and <b>Subscriptions: Read</b> — nothing else. Stored encrypted; we never write to Stripe.
         </div>
         <label style={label}>Read-only restricted key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
           <input style={field} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : "rk_live_…"} required={!editing} />
@@ -359,7 +359,7 @@ function StripeBcConnectForm({ row, onClose, onDone }) {
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
         <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit beCollective Stripe" : "Connect beCollective Stripe"}</div>
         <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
-          beCollective's own Stripe account. Create a <b>restricted key</b> in Stripe (Developers → API keys → Create restricted key) with <b>Charges: Read</b>, <b>Customers: Read</b>, and <b>Subscriptions: Read</b> — nothing else. Only membership payments are reported (event tickets and other products are filtered out). Stored encrypted; we never write to Stripe.
+          A program's own Stripe account, where one processes separately from the rest. Create a <b>restricted key</b> in Stripe (Developers → API keys → Create restricted key) with <b>Charges: Read</b>, <b>Customers: Read</b>, and <b>Subscriptions: Read</b> — nothing else. Only membership payments are reported (event tickets and other products are filtered out). Stored encrypted; we never write to Stripe.
         </div>
         <label style={label}>Read-only restricted key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
           <input style={field} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : "rk_live_…"} required={!editing} />
@@ -410,7 +410,7 @@ function GhlLegacyConnectForm({ row, onClose, onDone }) {
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
         <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Old GHL" : "Connect Old GHL"}</div>
         <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
-          The old Spring B GHL location (where the legacy Stripe is wired). A <b>read-only</b> Private Integration Token with <b>Invoices: Read</b>, <b>Payments/Transactions: Read</b>, <b>Contacts: Read</b>. Supplies the real label for each legacy charge; stored encrypted.
+          The GHL location the legacy Stripe account is wired to. A <b>read-only</b> Private Integration Token with <b>Invoices: Read</b>, <b>Payments/Transactions: Read</b>, <b>Contacts: Read</b>. Supplies the real label for each legacy charge; stored encrypted.
         </div>
         <label style={label}>Private Integration Token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current token</span>}
           <input style={field} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : ""} required={!editing} />
@@ -849,9 +849,9 @@ const DESC = {
   ghl: () => "The Forum — members, renewals, subscriptions, events",
   ghl_bc: () => "beCollective — its own GHL location; members, cohort onboarding, events",
   arive: () => "Uses your Arive API key · lights up Sympli's pipeline and the referral flywheel",
-  stripe_legacy: () => "Spring's original Stripe · read-only. Backfills legacy Forum dues the new sub-account never sees, and feeds the GHL delta-import file",
-  stripe_bc: () => "beCollective's own Stripe · read-only. Membership payments only (event tickets + other products filtered out) — powers the Cash & Billing view",
-  ghl_legacy: () => "Old Spring B GHL · read-only. Labels each legacy Stripe charge (join by charge id) so the classifier knows what it's for",
+  stripe_legacy: () => "Original Stripe · read-only. Backfills legacy dues the newer sub-account never sees, and feeds the GHL delta-import file",
+  stripe_bc: () => "A program's own Stripe · read-only. Membership payments only (event tickets + other products filtered out) — powers the Cash & Billing view",
+  ghl_legacy: () => "The legacy GHL location · read-only. Labels each legacy Stripe charge (join by charge id) so the classifier knows what it's for",
 };
 const SAMPLE_VIEW = {
   healthy: 3, total: 7, next_sync_in_min: 14,
@@ -1164,7 +1164,7 @@ function BusinessEditForm({ biz, onClose, onDone }) {
               </label>
             </div>
             <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>
-              Reverse-engineered from the May P&L. Drives the calculated Live / Projection lenses down to Spring's JV share.
+              Reverse-engineered from a closed month's P&L. Drives the calculated Live / Projection lenses down to your JV share.
             </div>
           </>
         )}

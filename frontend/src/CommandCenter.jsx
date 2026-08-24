@@ -20,7 +20,7 @@ import PeriodNav, { periodKey, fromPeriodKey } from "./PeriodNav.jsx";
 import AIEmployees from "./AIEmployees.jsx";
 import { useAiEmployees } from "./useAiEmployees.js";
 import Assistant from "./Assistant.jsx";
-import { SpringSignature, ribbedHero, Icon } from "./Brand.jsx";
+import { SpringSignature, setBrand, ribbedHero, Icon } from "./Brand.jsx";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -1063,11 +1063,24 @@ function useMe() {
   const [user, setUser] = useState(null);
   useEffect(() => {
     if (!API_BASE) {
+      // Sample/demo mode only — reached when the bundle is built with no API base, which is
+      // never true for a real tenant. Kept so the offline preview has a plausible header.
       setUser({ name: "Spring Bengtzen", email: "spring@springb.com" });
+      setBrand({ display_name: "Spring", logo: "/brand/logo/spring_logo.png",
+                 logomark: "/brand/logo/spring_logomark.png" });
       return;
     }
     let alive = true;
-    getJSON("/me").then((u) => alive && setUser(u)).catch(() => {});
+    getJSON("/me").then((u) => {
+      if (!alive) return;
+      setUser(u);
+      // Identity lands before first paint of the shell, so the wordmark and the tab title
+      // are this tenant's from the start rather than flashing another's.
+      setBrand(u.brand || { display_name: u.tenant_name || "" });
+      const product = (u.brand && u.brand.product_name) || "Command Center";
+      const who = (u.brand && u.brand.display_name) || u.tenant_name || "";
+      document.title = who ? `${who} · ${product}` : product;
+    }).catch(() => {});
     return () => { alive = false; };
   }, []);
   return user;

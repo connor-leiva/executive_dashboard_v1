@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Spring Command Center API", lifespan=lifespan)
+    app = FastAPI(title=f"{settings.PRODUCT_NAME} API", lifespan=lifespan)
 
     # Inner middleware: resolve the tenant, then guarantee every response — even an
     # unhandled 500 — is a real HTTP response. Without this, an exception raised in a

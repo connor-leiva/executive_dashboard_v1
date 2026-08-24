@@ -24,6 +24,9 @@ class MeResponse(BaseModel):
     # from a compile-time list of one customer's business names. `tabs` stays because every
     # permission check in the client is a key membership test.
     nav: list[dict] = []
+    # Chrome identity — product name, wordmark text, logo URLs. The SPA had these compiled
+    # in, so every tenant's tab title and sidebar showed the first customer's brand.
+    brand: dict = {}
 
 
 # ── multi-user platform (accounts, roles, tab grants) ──────────────
