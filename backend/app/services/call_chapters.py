@@ -194,24 +194,41 @@ async def generate(segments: list[dict], duration_s: float | None) -> list[dict]
     return None
 
 
-async def generate_pending(s: AsyncSession, now: dt.datetime | None = None) -> dict:
-    """Chapter every stored transcript that has not been through the generator yet.
+# One model call per transcript per tick. A transcript the generator keeps failing on is not
+# going to start working, and every retry is billed — this was the only unbounded spend loop in
+# the module, and it existed with a single tenant.
+CHAPTER_MAX_ATTEMPTS = 5
+
+
+async def generate_pending(s: AsyncSession, tenant_id, now: dt.datetime | None = None) -> dict:
+    """Chapter ONE TENANT's stored transcripts that have not been through the generator yet.
 
     Keyed on chapters_at, not on chapters: a call that legitimately produced no chapters must
     not be re-sent to the model on every tick for the rest of its retention year.
+
+    Scoped to a tenant so the batch is shared fairly rather than claimed by whoever has the
+    biggest backlog, and bounded by an attempt counter because the failure path deliberately
+    leaves chapters_at NULL — which, with no record of having tried, meant a failing transcript
+    was re-sent to Anthropic every 15 minutes indefinitely.
     """
     if not settings.ANTHROPIC_API_KEY:
         return {}
     now = now or dt.datetime.now(dt.timezone.utc)
     rows = (await s.execute(
         select(CallTranscript)
-        .where(CallTranscript.chapters_at.is_(None))
+        .where(CallTranscript.tenant_id == tenant_id,
+               CallTranscript.chapters_at.is_(None),
+               CallTranscript.chapter_attempts < CHAPTER_MAX_ATTEMPTS)
+        .order_by(CallTranscript.chapter_attempts, CallTranscript.fetched_at.desc())
         .limit(settings.RECALL_CHAPTER_BATCH))).scalars().all()
     stat: dict = {}
     for tr in rows:
+        tr.chapter_attempts = (tr.chapter_attempts or 0) + 1   # count before the spend
         got = await generate(tr.segments or [], tr.duration_s)
         if got is None:
             stat["chapter_failed"] = stat.get("chapter_failed", 0) + 1
+            if tr.chapter_attempts >= CHAPTER_MAX_ATTEMPTS:
+                stat["chapter_gave_up"] = stat.get("chapter_gave_up", 0) + 1
             continue                               # leave chapters_at null so it retries later
         tr.chapters, tr.chapters_at = got, now
         stat["chaptered" if got else "chapter_empty"] = \

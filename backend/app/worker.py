@@ -17,11 +17,27 @@ def _mtd_range():
 
 
 async def tick():
+    """The main sync. One tenant per session, each isolated.
+
+    This shared ONE session across every tenant with no try/except, while the four jobs below
+    it already did the right thing. Two consequences, both silent: an exception escaping
+    run_all skipped every tenant later in the loop, on every tick, forever; and a failed flush
+    left the shared session unable to commit, so the tenants after the failure could not
+    persist their work either.
+
+    Serial on purpose. run_all opens sessions of its own, and the pool (5 + 10 overflow) is
+    shared with request handling when RUN_WORKER_IN_API is set — a gather() here would exhaust
+    it at around seven concurrent tenants.
+    """
     start, end = _mtd_range()
     async with SessionLocal() as s:
-        tenants = (await s.execute(select(Tenant))).scalars().all()
-        for t in tenants:
-            await run_all(s, t.id, start, end)
+        tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
+    for tid in tenant_ids:
+        try:
+            async with SessionLocal() as s2:
+                await run_all(s2, tid, start, end)
+        except Exception as e:  # noqa: BLE001 — one tenant's failure must not stop the rest
+            print(f"[tick] tenant {tid}: {type(e).__name__}: {e}", flush=True)
 
 
 async def roster_tick():
@@ -67,6 +83,11 @@ async def ai_dispatch():
             try:
                 await dispatch_tenant(s, t.id, now)
             except Exception as e:                              # one tenant's fault mustn't stop the rest
+                # Rollback, not a fresh session per tenant: ai_execute runs every 15 seconds
+                # and would churn the pool. What matters is that a poisoned session cannot
+                # commit for the tenants that follow — this is the fix for that, not for the
+                # isolation, which the try/except already handles.
+                await s.rollback()
                 print(f"[ai_dispatch] tenant {t.id}: {type(e).__name__}: {e}", flush=True)
 
 
@@ -83,6 +104,7 @@ async def ai_execute():
                     if not await execute_one(s, t.id):
                         break
             except Exception as e:
+                await s.rollback()                              # see the note in ai_dispatch
                 print(f"[ai_execute] tenant {t.id}: {type(e).__name__}: {e}", flush=True)
 
 
@@ -96,41 +118,64 @@ async def recall_tick():
         return
     from .services.recall import schedule_due_bots
     async with SessionLocal() as s:
+        tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
+    for tid in tenant_ids:
+        # Per tenant, per session. schedule_due_bots now requires a tenant and returns
+        # immediately for one that has not opted in — booking a billable, attendee-visible
+        # bot into a client call is not something to do for a tenant that never asked.
         try:
-            stat = await schedule_due_bots(s)
+            async with SessionLocal() as s2:
+                stat = await schedule_due_bots(s2, tid)
         except Exception as e:                       # noqa: BLE001 — never kill the scheduler
-            print(f"[recall] tick failed: {type(e).__name__}: {e}", flush=True)
-            return
-    if stat:
-        print(f"[recall] {stat}", flush=True)
+            print(f"[recall] tenant {tid} tick failed: {type(e).__name__}: {e}", flush=True)
+            continue
+        if stat:
+            print(f"[recall] tenant {tid}: {stat}", flush=True)
 
 
 async def transcript_tick():
     """Store transcripts for finished recordings, and purge any past their retention date.
 
-    Both halves run together on purpose: the job that CREATES the records is the job that
-    expires them, so retention can't quietly stop being enforced while ingestion continues.
+    Both halves run in this one job on purpose: the job that CREATES the records is the job
+    that expires them, so retention cannot quietly stop being enforced while ingestion
+    continues. They no longer share a try — see below.
     """
     if not settings.RECALL_API_KEY:
         return
     from .services.call_chapters import generate_pending
     from .services.recall import purge_expired_transcripts, store_transcripts
     async with SessionLocal() as s:
+        tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
+
+    # RETENTION FIRST, in its own session and its own try. The promise above was not actually
+    # kept: the purge shared a try with store_transcripts, so ANY storage error skipped it and
+    # returned. Deleting a verbatim client conversation on schedule is the one thing here that
+    # must not depend on anything else succeeding.
+    purged = 0
+    try:
+        async with SessionLocal() as s2:
+            purged = await purge_expired_transcripts(s2)
+    except Exception as e:                           # noqa: BLE001
+        print(f"[recall] retention purge failed: {type(e).__name__}: {e}", flush=True)
+
+    for tid in tenant_ids:
+        stat: dict = {}
         try:
-            stat = await store_transcripts(s)
-            purged = await purge_expired_transcripts(s)
+            async with SessionLocal() as s2:
+                stat = await store_transcripts(s2, tid)
         except Exception as e:                       # noqa: BLE001 - never kill the scheduler
-            print(f"[recall] transcript tick failed: {type(e).__name__}: {e}", flush=True)
-            return
+            print(f"[recall] tenant {tid} transcripts failed: {type(e).__name__}: {e}", flush=True)
         # Chaptering is a separate try: it talks to a different vendor and is the only part of
-        # this tick that can fail on its own. A model outage must not take storage or, worse,
-        # the retention purge down with it.
+        # this tick that can fail on its own. A model outage must not take storage down with it.
         try:
-            stat |= await generate_pending(s)
+            async with SessionLocal() as s2:
+                stat |= await generate_pending(s2, tid)
         except Exception as e:                       # noqa: BLE001
-            print(f"[chapters] tick failed: {type(e).__name__}: {e}", flush=True)
-    if stat or purged:
-        print(f"[recall] transcripts {stat} purged={purged}", flush=True)
+            print(f"[chapters] tenant {tid} failed: {type(e).__name__}: {e}", flush=True)
+        if stat:
+            print(f"[recall] tenant {tid} transcripts {stat}", flush=True)
+    if purged:
+        print(f"[recall] purged={purged}", flush=True)
 
 
 def build_scheduler() -> AsyncIOScheduler:

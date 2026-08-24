@@ -13,7 +13,7 @@ from sqlalchemy import select, delete
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Business, CallTranscript, Launch, SalesCall
+from app.models import Business, CallTranscript, Launch, SalesCall, Tenant
 from app.seed import seed
 from app.services import recall
 from app.services.launch import DEFAULT_STAGE_MAP, DEFAULT_PAYMENT_PLAN_MAP
@@ -33,6 +33,12 @@ async def _launch():
         await s.execute(delete(CallTranscript))     # bulk delete does not cascade on SQLite
         await s.execute(delete(SalesCall))
         await s.execute(delete(Launch).where(Launch.business_id == biz.id))
+        # Recording is opt-in per tenant and fails closed, so the fixture has to opt in.
+        # `recall_legacy_adopt_before` is far future here on purpose: several tests below cover
+        # the historical URL-less adoption path, which is only open inside that window.
+        t = await s.get(Tenant, biz.tenant_id)
+        t.config = {**(t.config or {}), "recall_enabled": True,
+                    "recall_legacy_adopt_before": "2099-01-01"}
         L = Launch(tenant_id=biz.tenant_id, business_id=biz.id, name="R", program="beCollective",
                    window_start=dt.date(2026, 8, 11), window_end=dt.date(2026, 9, 12),
                    goal_arr=1_000_000, ticket_pif=12000, ticket_plan=14000, price_map={},
@@ -88,7 +94,7 @@ async def test_only_imminent_unbooked_real_calls_get_a_bot(monkeypatch):
     monkeypatch.setattr(recall, "create_bot", fake_create)
 
     async with SessionLocal() as s:
-        stat = await recall.schedule_due_bots(s, now=NOW)
+        stat = await recall.schedule_due_bots(s, tid, now=NOW)
         rows = {c.contact_name: c for c in (await s.execute(select(SalesCall))).scalars()}
 
     assert stat.get("recall_bots_created") == 1, stat
@@ -218,7 +224,7 @@ async def test_a_bot_recall_already_has_is_adopted_not_duplicated(monkeypatch):
     monkeypatch.setattr(recall, "create_bot", fake_create)
 
     async with SessionLocal() as s:
-        stat = await recall.schedule_due_bots(s, now=NOW)
+        stat = await recall.schedule_due_bots(s, tid, now=NOW)
         rows = {c.contact_name: c for c in (await s.execute(select(SalesCall))).scalars()}
 
     assert stat.get("recall_bots_adopted") == 1, stat
@@ -286,7 +292,7 @@ async def test_two_calls_in_one_shared_room_cannot_claim_the_same_bot(monkeypatc
     monkeypatch.setattr(recall, "create_bot", boom)
 
     async with SessionLocal() as s:
-        stat = await recall.schedule_due_bots(s, now=NOW)
+        stat = await recall.schedule_due_bots(s, tid, now=NOW)
         rows = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
 
     assert stat.get("recall_bots_adopted") == 2, stat
@@ -327,7 +333,7 @@ async def test_the_bot_joins_before_the_call_not_after_it(monkeypatch):
     monkeypatch.setattr(recall, "create_bot", fake_create)
 
     async with SessionLocal() as s:
-        await recall.schedule_due_bots(s, now=NOW)
+        await recall.schedule_due_bots(s, tid, now=NOW)
 
     assert sent, "the call was never picked up"
     join_at = sent[0]
@@ -490,7 +496,7 @@ async def test_a_past_call_gets_its_backfill_bot_linked_with_the_real_status(mon
     monkeypatch.setattr(recall, "create_bot", boom)
 
     async with SessionLocal() as s:
-        stat = await recall.schedule_due_bots(s, now=NOW)
+        stat = await recall.schedule_due_bots(s, tid, now=NOW)
         rows = {c.contact_name: c for c in (await s.execute(select(SalesCall))).scalars()}
 
     assert stat.get("recall_bots_adopted") == 1, stat
@@ -536,7 +542,7 @@ async def test_a_call_with_no_stored_link_can_still_be_adopted(monkeypatch):
     monkeypatch.setattr(recall, "create_bot", boom)
 
     async with SessionLocal() as s:
-        stat = await recall.schedule_due_bots(s, now=NOW)
+        stat = await recall.schedule_due_bots(s, tid, now=NOW)
         sc = (await s.execute(select(SalesCall))).scalars().first()
 
     assert stat.get("recall_bots_adopted") == 1, stat
@@ -571,7 +577,7 @@ async def test_a_url_confirmed_pairing_wins_over_a_time_only_one(monkeypatch):
     monkeypatch.setattr(recall, "create_bot", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
 
     async with SessionLocal() as s:
-        await recall.schedule_due_bots(s, now=NOW)
+        await recall.schedule_due_bots(s, tid, now=NOW)
         rows = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
     assert rows["HasUrl"] == "bot-1" and rows["NoUrl"] is None
 
@@ -628,7 +634,7 @@ async def test_a_future_call_with_an_existing_bot_is_linked_before_it_is_due(mon
     monkeypatch.setattr(recall, "create_bot", boom)
 
     async with SessionLocal() as s:
-        stat = await recall.schedule_due_bots(s, now=NOW)
+        stat = await recall.schedule_due_bots(s, tid, now=NOW)
         sc = (await s.execute(select(SalesCall))).scalars().first()
 
     assert stat.get("recall_bots_adopted") == 1, stat
@@ -692,7 +698,7 @@ async def test_matching_accounts_for_the_lead_the_bot_was_booked_with(monkeypatc
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("both already have bots")))
 
     async with SessionLocal() as s:
-        await recall.schedule_due_bots(s, now=NOW)
+        await recall.schedule_due_bots(s, tid, now=NOW)
         got = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
     assert got["Ten"] == "bot-1000", got
     assert got["Tenthirty"] == "bot-1030", got
@@ -733,7 +739,7 @@ async def test_a_bot_already_linked_to_another_call_is_never_re_claimed(monkeypa
     monkeypatch.setattr(recall, "create_bot", lambda *a, **k: _resp(("bot-new", "")))
 
     async with SessionLocal() as s:
-        await recall.schedule_due_bots(s, now=NOW)
+        await recall.schedule_due_bots(s, tid, now=NOW)
         got = {c.contact_name: c.recall_bot_id for c in (await s.execute(select(SalesCall))).scalars()}
     assert got["Alreadylinked"] == "bot-10"
     assert got["Neighbour"] != "bot-10", "a bot must belong to exactly one call"
@@ -815,7 +821,7 @@ async def test_transcripts_are_stored_once_with_a_retention_date(monkeypatch):
     monkeypatch.setattr(recall, "fetch_transcript", fake_fetch)
 
     async with SessionLocal() as s:
-        stat = await recall.store_transcripts(s, now=NOW)
+        stat = await recall.store_transcripts(s, tid, now=NOW)
         rows = (await s.execute(select(CallTranscript))).scalars().all()
     assert stat.get("transcripts_stored") == 1, stat
     assert len(rows) == 1                                   # only the finished recording
@@ -827,7 +833,7 @@ async def test_transcripts_are_stored_once_with_a_retention_date(monkeypatch):
 
     # a second pass must not duplicate it
     async with SessionLocal() as s:
-        again = await recall.store_transcripts(s, now=NOW)
+        again = await recall.store_transcripts(s, tid, now=NOW)
         rows = (await s.execute(select(CallTranscript))).scalars().all()
     assert not again.get("transcripts_stored") and len(rows) == 1
 

@@ -108,6 +108,14 @@ async def seed():
             await _wipe(s, existing.id)
 
         tenant = Tenant(slug="springb", name="Spring")
+        # Recording is opt-in per tenant and fails closed, so tenant #1 has to carry its own
+        # opt-in or the bots simply stop. `recall_legacy_adopt_before` is the date GHL's
+        # Appointment Link field went live: calls BEFORE it have no meeting_url and may still
+        # be adopted on time alone, which is the only way the historical backfill bots ever
+        # match. A tenant without that date requires a URL match — the safe default that every
+        # tenant provisioned from now on gets for free.
+        tenant.config = {"recall_enabled": True,
+                         "recall_legacy_adopt_before": "2026-08-20"}
         s.add(tenant)
         await s.flush()
 

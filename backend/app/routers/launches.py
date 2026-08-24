@@ -184,7 +184,15 @@ async def link_recordings(key: str, user: User = Depends(current_user),
         raise HTTPException(403, "Owner or admin only")
     if not settings.RECALL_API_KEY:
         raise HTTPException(409, "RECALL_API_KEY is not set on this service")
-    return await schedule_due_bots(s)
+    from ..services.recall import recording_enabled
+    if not await recording_enabled(s, user.tenant_id):
+        raise HTTPException(409, "Call recording is not enabled for this account")
+    # Scoped to the CALLER's tenant. This endpoint is properly authorized — tenant-scoped
+    # business, tab check, owner/admin — and then ran a pass that selected across every
+    # tenant, so an ordinary admin here caused writes to, and billable bots for, other
+    # tenants' calls. It was also the only path where that happened on a user's request
+    # rather than the worker's clock. The returned counts are now this tenant's alone.
+    return await schedule_due_bots(s, user.tenant_id)
 
 
 @router.get("/businesses/{key}/launches/active/sales-desk/recording/{call_id}")

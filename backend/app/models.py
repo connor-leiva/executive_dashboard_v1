@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     String, Text, ForeignKey, Numeric, Integer, Boolean, DateTime, Date, Float,
-    CheckConstraint, UniqueConstraint, Index, func,
+    CheckConstraint, UniqueConstraint, Index, func, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -649,9 +649,19 @@ class SalesCall(Base):
     recording_status: Mapped[str | None] = mapped_column(String(32), nullable=True)  # scheduled | waiting | recording | done | failed
     recording_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     recording_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # How many times the transcript fetch has been tried. Without it, a row whose transcript
+    # never arrives held a slot in every batch forever and starved everything behind it.
+    transcript_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     is_current: Mapped[bool] = mapped_column(Boolean, default=True)                  # false once superseded by a rebook
-    __table_args__ = (UniqueConstraint("tenant_id", "opportunity_id", "booking_id",
+    # A Recall bot belongs to exactly ONE call. The column was merely indexed, so nothing
+    # stopped two rows sharing a bot id — and apply_bot_status resolves the webhook's bot with
+    # .first(), which would then serve one client's recording on another's Watch link. Partial
+    # so the many NULLs are unconstrained (see migration 0044).
+    __table_args__ = (Index("uq_sales_call_recall_bot", "recall_bot_id", unique=True,
+                            sqlite_where=text("recall_bot_id IS NOT NULL"),
+                            postgresql_where=text("recall_bot_id IS NOT NULL")),
+                      UniqueConstraint("tenant_id", "opportunity_id", "booking_id",
                                        name="uq_sales_call_booking"),)
 
 
@@ -684,6 +694,10 @@ class CallTranscript(Base):
     # UI hides the rail for both. Lives on this row so it purges with the words it describes.
     chapters: Mapped[list | None] = mapped_column(JSONType, nullable=True)
     chapters_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Chaptering attempts. The failure path leaves chapters_at NULL on purpose, so without a
+    # counter a call the model keeps failing on was re-sent to Anthropic every 15 minutes,
+    # forever — the only unbounded spend loop in the module, and it predates multi-tenancy.
+    chapter_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     duration_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # A verbatim record of a client conversation is not something to keep by accident. The

@@ -5,6 +5,7 @@ comes back, because a chapter rail that disagrees with the scrubber is worse tha
 it moves the playhead somewhere the label did not promise.
 """
 import datetime as dt
+import uuid
 
 import pytest
 from sqlalchemy import select, delete
@@ -86,7 +87,7 @@ async def test_generator_is_off_without_a_key(monkeypatch):
     segs = [{"start": i * 10, "speaker": "A", "text": f"t{i}"} for i in range(40)]
     assert await ch.generate(segs, 900) is None
     async with SessionLocal() as s:
-        assert await ch.generate_pending(s) == {}
+        assert await ch.generate_pending(s, uuid.uuid4()) == {}
 
 
 async def _transcript(**kw):
@@ -113,12 +114,12 @@ async def _transcript(**kw):
                             text="t", speakers={}, duration_s=800, **kw)
         s.add(tr)
         await s.commit()
-        return tr.id
+        return biz.tenant_id, tr.id
 
 
 async def test_a_call_with_no_chapters_is_not_retried_forever(monkeypatch):
     """The whole reason chapters_at exists: [] and NULL must not look the same to the worker."""
-    tid = await _transcript()
+    tenant, tid = await _transcript()
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "k")
     calls = 0
 
@@ -129,9 +130,9 @@ async def test_a_call_with_no_chapters_is_not_retried_forever(monkeypatch):
 
     monkeypatch.setattr(ch, "generate", fake)
     async with SessionLocal() as s:
-        assert await ch.generate_pending(s) == {"chapter_empty": 1}
+        assert await ch.generate_pending(s, tenant) == {"chapter_empty": 1}
     async with SessionLocal() as s:
-        assert await ch.generate_pending(s) == {}   # second tick does no work
+        assert await ch.generate_pending(s, tenant) == {}   # second tick does no work
     assert calls == 1
     async with SessionLocal() as s:
         row = (await s.execute(select(CallTranscript).where(CallTranscript.id == tid))).scalar_one()
@@ -139,7 +140,7 @@ async def test_a_call_with_no_chapters_is_not_retried_forever(monkeypatch):
 
 
 async def test_a_failed_generation_is_retried_but_a_stored_one_is_not(monkeypatch):
-    await _transcript()
+    tenant, _tr = await _transcript()
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "k")
     outcomes = [None, [{"start": 0, "title": "Warm-up", "len": 800}]]
 
@@ -148,11 +149,11 @@ async def test_a_failed_generation_is_retried_but_a_stored_one_is_not(monkeypatc
 
     monkeypatch.setattr(ch, "generate", fake)
     async with SessionLocal() as s:
-        assert await ch.generate_pending(s) == {"chapter_failed": 1}   # left for the next tick
+        assert await ch.generate_pending(s, tenant) == {"chapter_failed": 1}  # left for the next tick
     async with SessionLocal() as s:
-        assert await ch.generate_pending(s) == {"chaptered": 1}
+        assert await ch.generate_pending(s, tenant) == {"chaptered": 1}
     async with SessionLocal() as s:
-        assert await ch.generate_pending(s) == {}                      # and then it stops
+        assert await ch.generate_pending(s, tenant) == {}                     # and then it stops
 
 
 def test_starts_are_read_as_seconds_even_when_the_model_answers_in_clock_time():

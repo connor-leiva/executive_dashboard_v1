@@ -20,10 +20,11 @@ import re
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import CallTranscript, SalesCall
+from ..models import CallTranscript, SalesCall, Tenant
 from .sales_desk import title_name
 
 # Statuses we store. Recall emits more; these are the ones that mean something operationally.
@@ -216,8 +217,23 @@ def bot_status(b: dict) -> str:
     return ST_SCHEDULED
 
 
+def _within_legacy_window(sc, legacy_before) -> bool:
+    """May this URL-less call adopt a bot on TIME ALONE? Only inside the tenant's legacy window.
+
+    No window means no. Requiring a meeting-URL match is the safe default, and it is what every
+    tenant provisioned from now on gets without anyone having to remember to set it.
+    """
+    if legacy_before is None or sc.call_time_utc is None:
+        return False
+    at = sc.call_time_utc
+    at = at if at.tzinfo else at.replace(tzinfo=dt.timezone.utc)
+    return at < legacy_before
+
+
 async def adopt_existing_bots(client: httpx.AsyncClient, rows: list,
-                              taken: set | None = None) -> int:
+                              taken: set | None = None,
+                              legacy_before: dt.datetime | None = None,
+                              session: AsyncSession | None = None) -> int:
     """Link bots Recall already has to the calls they belong to.
 
     Bots booked outside the app - the one-off backfill in scripts/recall_bots.py, or a
@@ -260,10 +276,15 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list,
         if not call_at:
             continue
         call_at = call_at if call_at.tzinfo else call_at.replace(tzinfo=dt.timezone.utc)
-        # A call booked before GHL carried the Appointment Link has no stored URL. Fall back
-        # to matching on time alone: the greedy one-bot-one-call pass below still keeps two
-        # neighbouring calls from claiming the same bot.
+        # A call booked before GHL carried the Appointment Link has no stored URL. We used to
+        # fall back to matching on TIME ALONE, which is the real cross-tenant vector: a tenant
+        # whose GHL has not yet mapped the Appointment Link field has meeting_url NULL on EVERY
+        # call, so every one of their calls became a pure time matcher against the entire
+        # shared workspace. That path now applies only to calls predating this tenant's own
+        # cutover — the date its Appointment Link went live. No cutover, no time-only match.
         want = meeting_key(resolve_meeting_url(sc.meeting_url))
+        if not want and not _within_legacy_window(sc, legacy_before):
+            continue
         for b in (bots or []):
             if not b.get("id"):
                 continue
@@ -293,10 +314,21 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list,
     for _, bot_id, sc in sorted(pairs, key=lambda x: x[0]):
         if bot_id in used_bots or id(sc) in used_calls:
             continue
-        sc.recall_bot_id = bot_id
-        sc.recording_status = bot_status(by_id.get(bot_id) or {})
-        if sc.recording_status in (ST_RECORDING, ST_DONE) and sc.recording_at is None:
-            sc.recording_at = dt.datetime.now(dt.timezone.utc)
+        # One SAVEPOINT per adoption, for the same reason as the booking loop below: the unique
+        # index makes a double-claim an error rather than silent corruption, and an error must
+        # cost one row, not the batch.
+        try:
+            async with session.begin_nested():
+                sc.recall_bot_id = bot_id
+                sc.recording_status = bot_status(by_id.get(bot_id) or {})
+                if sc.recording_status in (ST_RECORDING, ST_DONE) and sc.recording_at is None:
+                    sc.recording_at = dt.datetime.now(dt.timezone.utc)
+                await session.flush()
+        except IntegrityError:
+            print(f"[recall] bot {bot_id} already owned — not adopted for "
+                  f"{sc.contact_name!r}", flush=True)
+            used_bots.add(bot_id)
+            continue
         used_bots.add(bot_id)
         used_calls.add(id(sc))
         adopted += 1
@@ -304,15 +336,56 @@ async def adopt_existing_bots(client: httpx.AsyncClient, rows: list,
     return adopted
 
 
-async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> dict:
-    """Book a bot for every call starting soon that doesn't have one.
+async def recording_enabled(s: AsyncSession, tenant_id) -> bool:
+    """Has THIS tenant opted in to having a bot join their clients' calls?
+
+    Fails closed, and that is the whole point. The only gate used to be the global API key, so
+    the day a second tenant's GHL sync produced calls carrying an Appointment Link, an
+    attendee-visible bot would have joined their clients' conversations, recorded them, and
+    stored verbatim transcripts under a retention period chosen for somebody else — with no
+    consent decision taken by anyone at that tenant.
+
+    Lives in `tenant.config` rather than a new column because it is exactly the non-secret
+    portfolio-level config that field is for, and because a fail-closed gate should not wait on
+    a migration. When per-tenant Recall credentials land this becomes a property of that
+    integration instead.
+    """
+    t = await s.get(Tenant, tenant_id)
+    return bool(t and (t.config or {}).get("recall_enabled"))
+
+
+async def _legacy_adopt_before(s: AsyncSession, tenant_id) -> dt.datetime | None:
+    """This tenant's cutover: calls BEFORE it may adopt a bot on time alone (they predate the
+    GHL Appointment Link field, so they carry no meeting_url and are otherwise unmatchable).
+    Absent for every tenant that does not explicitly set it, which is the point."""
+    t = await s.get(Tenant, tenant_id)
+    raw = (t.config or {}).get("recall_legacy_adopt_before") if t else None
+    if not raw:
+        return None
+    try:
+        d = dt.datetime.fromisoformat(str(raw))
+    except ValueError:
+        print(f"[recall] tenant {tenant_id}: unparseable recall_legacy_adopt_before {raw!r}", flush=True)
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+
+
+async def schedule_due_bots(s: AsyncSession, tenant_id, now: dt.datetime | None = None) -> dict:
+    """Book a bot for every call starting soon that doesn't have one, FOR ONE TENANT.
 
     The window is deliberately wide on the near side (Recall wants >=10 min of lead time to
     guarantee an on-time join) and short on the far side, so a call rescheduled tomorrow is
     picked up on a later tick with its NEW time rather than being booked now and stranded.
+
+    `tenant_id` is required. This function used to take none and select across every tenant,
+    which meant a single pass wrote to, and booked billable bots for, calls belonging to
+    tenants other than the one that asked.
     """
     if not settings.RECALL_API_KEY:
         return {}
+    if not await recording_enabled(s, tenant_id):
+        return {}
+    legacy_before = await _legacy_adopt_before(s, tenant_id)
     now = now or dt.datetime.now(dt.timezone.utc)
     lead = dt.timedelta(minutes=settings.RECALL_LEAD_MINUTES)
     # Recall only guarantees an on-time join when join_at is >=10 min out, so a call has to be
@@ -337,6 +410,7 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
     # backfill bots belong to - requiring it made them permanently unmatchable.
     candidates = (await s.execute(
         select(SalesCall).where(
+            SalesCall.tenant_id == tenant_id,
             SalesCall.is_current.is_(True),
             SalesCall.recall_bot_id.is_(None),
             SalesCall.call_time_utc.is_not(None),
@@ -358,11 +432,19 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
         return stat
     async with httpx.AsyncClient(timeout=30) as client:
         # Before booking anything, find out what Recall already has - for past calls too.
+        #
+        # DELIBERATELY NOT tenant-scoped, unlike the candidate query above. `taken` is an
+        # EXCLUSION set: every bot that some row already owns, so a later pass cannot re-claim
+        # it. Narrowing an exclusion set by tenant REMOVES protection — it was scoped to
+        # `candidates[0].tenant_id`, i.e. one arbitrary tenant, which left every other tenant's
+        # bots looking free and (because reps run calls through one static room) also dropped
+        # the guard against two of the SAME tenant's calls sharing a bot. All tenants share one
+        # Recall workspace, so the correct rule is global: a bot owned by any row anywhere is
+        # never adoptable again.
         taken = set((await s.execute(
             select(SalesCall.recall_bot_id).where(
-                SalesCall.tenant_id == candidates[0].tenant_id,
                 SalesCall.recall_bot_id.is_not(None)))).scalars())
-        adopted = await adopt_existing_bots(client, candidates, taken)
+        adopted = await adopt_existing_bots(client, candidates, taken, legacy_before, s)
         if adopted:
             stat["recall_bots_adopted"] = adopted
             await s.commit()
@@ -382,12 +464,24 @@ async def schedule_due_bots(s: AsyncSession, now: dt.datetime | None = None) -> 
             # soonest it will honour rather than silently booking a bot that arrives late.
             join_at = max(call_at - lead, now + dt.timedelta(minutes=11))
             bot, err = await create_bot(client, url, join_at)
-            if bot:
-                sc.recall_bot_id, sc.recording_status = bot, ST_SCHEDULED
-                stat["recall_bots_created"] = stat.get("recall_bots_created", 0) + 1
-            else:
+            if not bot:
                 stat["recall_create_failed"] = stat.get("recall_create_failed", 0) + 1
                 print(f"[recall] bot failed for {sc.contact_name!r}: {err}", flush=True)
+                continue
+            # SAVEPOINT per row (the apply_sales_diff pattern). recall_bot_id is now uniquely
+            # indexed, so a bot Recall handed us that some row already owns raises here — and
+            # without isolation that one row would roll back every other booking in the batch,
+            # turning a safety net into an outage. Skip the row, count it, keep going.
+            try:
+                async with s.begin_nested():
+                    sc.recall_bot_id, sc.recording_status = bot, ST_SCHEDULED
+                    await s.flush()
+            except IntegrityError:
+                stat["recall_bot_already_claimed"] = stat.get("recall_bot_already_claimed", 0) + 1
+                print(f"[recall] bot {bot} is already owned by another call — "
+                      f"skipped {sc.contact_name!r}", flush=True)
+                continue
+            stat["recall_bots_created"] = stat.get("recall_bots_created", 0) + 1
     await s.commit()
     return stat
 
@@ -517,27 +611,52 @@ async def fetch_transcript(bot_id: str) -> dict | None:
     return None
 
 
-async def store_transcripts(s: AsyncSession, now: dt.datetime | None = None) -> dict:
-    """Fetch and store transcripts for finished recordings that do not have one yet.
+# A transcript lands minutes after a call ends, so a row that has failed this many times is
+# not slow — it is never coming. Generous on purpose: at a 15-minute tick this is ~5 hours.
+TRANSCRIPT_MAX_ATTEMPTS = 20
+
+
+async def store_transcripts(s: AsyncSession, tenant_id, now: dt.datetime | None = None) -> dict:
+    """Fetch and store transcripts for ONE TENANT's finished recordings that lack one.
 
     Retention is written at insert time, never inferred later: a verbatim record of a client
     conversation should not outlive its policy because nobody remembered to apply one.
+
+    Two fixes live in the query below. It is scoped to a tenant, so one tenant's backlog can no
+    longer consume the whole global batch and starve everyone else. And it excludes rows that
+    have been tried too often: the batch previously selected on "has no transcript yet" with no
+    record of having TRIED, so a row whose fetch never succeeds held a slot on every tick
+    forever — a permanent block, not a transient unfairness, and one that predates the second
+    tenant entirely.
     """
     if not settings.RECALL_API_KEY:
         return {}
     now = now or dt.datetime.now(dt.timezone.utc)
-    have = set((await s.execute(select(CallTranscript.sales_call_id))).scalars())
+    have = set((await s.execute(select(CallTranscript.sales_call_id).where(
+        CallTranscript.tenant_id == tenant_id))).scalars())
     rows = (await s.execute(
         select(SalesCall).where(
+            SalesCall.tenant_id == tenant_id,
             SalesCall.recall_bot_id.is_not(None),
             SalesCall.recording_status == ST_DONE,
-        ))).scalars().all()
+            SalesCall.transcript_attempts < TRANSCRIPT_MAX_ATTEMPTS,
+        # Fewest attempts first, then newest: deterministic, and it never lets a persistently
+        # failing row crowd out a fresh one. Ordering by call time alone would do the opposite.
+        ).order_by(SalesCall.transcript_attempts, SalesCall.call_time_utc.desc()))).scalars().all()
     todo = [c for c in rows if c.id not in have][:settings.RECALL_TRANSCRIPT_BATCH]
     stat: dict = {}
     for sc in todo:
+        # Count the attempt BEFORE the call, so a fetch that raises still burns a try. This is
+        # why the commit below is now unconditional: the counter has to persist on failure too,
+        # or the retry ceiling never advances.
+        sc.transcript_attempts = (sc.transcript_attempts or 0) + 1
         parsed = await fetch_transcript(sc.recall_bot_id)
         if not parsed or not parsed.get("segments"):
             stat["transcript_not_ready"] = stat.get("transcript_not_ready", 0) + 1
+            if sc.transcript_attempts >= TRANSCRIPT_MAX_ATTEMPTS:
+                stat["transcript_gave_up"] = stat.get("transcript_gave_up", 0) + 1
+                print(f"[recall] giving up on the transcript for {sc.contact_name!r} after "
+                      f"{sc.transcript_attempts} attempts", flush=True)
             continue
         s.add(CallTranscript(
             tenant_id=sc.tenant_id, sales_call_id=sc.id, recall_bot_id=sc.recall_bot_id,
@@ -545,7 +664,7 @@ async def store_transcripts(s: AsyncSession, now: dt.datetime | None = None) -> 
             duration_s=parsed["duration_s"],
             purge_after=now + dt.timedelta(days=settings.RECALL_TRANSCRIPT_RETAIN_DAYS)))
         stat["transcripts_stored"] = stat.get("transcripts_stored", 0) + 1
-    if stat.get("transcripts_stored"):
+    if todo:
         await s.commit()
     return stat
 
