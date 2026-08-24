@@ -15,7 +15,8 @@ from ..deps import current_user, require_role
 from ..models import (User, Integration, Business, SyncRun, MetricRecord,
                       PLSnapshot, PLLine, BookTxn, ICLink, ClosePeriod)
 from ..services.audit import audit
-from ..security import enc, dec, make_token, read_token
+from ..security import enc, dec, make_capability, read_capability
+from ..tenancy import tenant_app_url
 from ..integrations import qbo, stripe_legacy
 from ..services import legacy_export
 from ..services.sync import run_all, run_one
@@ -42,7 +43,15 @@ async def qbo_connect(business_key: str, user: User = Depends(require_role("owne
         Business.tenant_id == user.tenant_id, Business.key == business_key))).scalar_one_or_none()
     if not biz:
         raise HTTPException(404, "Unknown business")
-    state = make_token(user.id, user.tenant_id) + "::" + str(biz.id)
+    # A CAPABILITY, not a session token. This string goes to Intuit, sits in their logs, and
+    # comes back as a URL query parameter — so it must not be usable as a credential here.
+    # make_token produced exactly that: read_token asserts no purpose claim, and because the
+    # 2-arg call defaults ver=0 while current_user reads a missing/zero ver as matching, the
+    # state was a byte-for-byte valid Bearer token for 7 days for any user still on
+    # token_version 0 — which includes the seeded owner. make_capability is purpose-scoped
+    # ("qbo_oauth"), so read_token rejects it and read_capability rejects a session token.
+    state = make_capability("qbo_oauth", minutes=30,
+                            sub=str(user.id), tid=str(user.tenant_id), biz=str(biz.id))
     return {"url": qbo.authorize_url(state)}
 
 
@@ -51,9 +60,12 @@ async def qbo_callback(
     code: str = Query(...), realmId: str = Query(...),
     state: str = Query(...), s: AsyncSession = Depends(get_session),
 ):
-    token_part, _, business_id = state.partition("::")
-    payload = read_token(token_part)                 # validates + carries tid
+    try:
+        payload = read_capability(state, "qbo_oauth")     # validates sig, expiry AND purpose
+    except Exception:
+        raise HTTPException(400, "That connection link expired. Start the connect again.")
     tenant_id = uuid.UUID(payload["tid"])
+    business_id = payload["biz"]
     tok = await qbo.exchange_code(code)
     expires = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=int(tok["expires_in"]))
     biz = (await s.execute(select(Business).where(

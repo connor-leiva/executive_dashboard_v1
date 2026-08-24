@@ -32,11 +32,22 @@ router = APIRouter(prefix="/share", tags=["share"])          # JSON, mounted und
 page_router = APIRouter(tags=["share"])                       # /share/{token} at the root
 
 
-async def _resolve(s: AsyncSession, token: str) -> ShareLink:
-    """A live share link, or 404. Revoked/expired both read as 'not found' so a dead link is silent."""
+async def _resolve(s: AsyncSession, token: str, *scopes: str) -> ShareLink:
+    """A live share link of an EXPECTED scope, or 404.
+
+    `scopes` is required at every call site and is the authorization decision, not a formality:
+    a token names one audience, and until this was enforced any live token opened any endpoint
+    in this file. A rep's own `sd_rep` desk link — handed out to every sales rep — therefore
+    read the full company L10 scorecard at /share/{token}/scorecard.
+
+    Revoked, expired, unknown and wrong-scope all read as 404 so a dead or mismatched link
+    leaks nothing about which tokens exist or what they are for.
+    """
     link = (await s.execute(select(ShareLink).where(ShareLink.token == token))).scalar_one_or_none()
     now = dt.datetime.now(dt.timezone.utc)
     if link is None or link.revoked_at is not None or (link.expires_at is not None and link.expires_at <= now):
+        raise HTTPException(404, "Not found")
+    if scopes and link.scope not in scopes:
         raise HTTPException(404, "Not found")
     return link
 
@@ -52,7 +63,7 @@ async def _ulrg_business(s: AsyncSession, tenant_id) -> Business:
 @router.get("/{token}/scorecard")
 async def shared_scorecard(token: str, response: Response, weeks: int = 13,
                            s: AsyncSession = Depends(get_session)):
-    link = await _resolve(s, token)
+    link = await _resolve(s, token, "ulrg_scorecard")
     b = await _ulrg_business(s, link.tenant_id)
     weeks = max(1, min(52, weeks))
     # never cache the payload: the token is in the URL, and a cached copy could outlive a revoke
@@ -63,7 +74,7 @@ async def shared_scorecard(token: str, response: Response, weeks: int = 13,
 
 @router.get("/{token}/room")
 async def shared_room(token: str, s: AsyncSession = Depends(get_session)):
-    await _resolve(s, token)                              # validate the token even while unimplemented
+    await _resolve(s, token, "ulrg_team")                 # validate the token even while unimplemented
     raise HTTPException(404, "Not found")                 # Team Rooms are Step 6; no room payload yet
 
 
@@ -71,8 +82,8 @@ async def _rep_link_launch(s: AsyncSession, token: str):
     """Resolve a live sd_rep token to (link, active launch) or 404."""
     from ..services.launch import active_launch_for
 
-    link = await _resolve(s, token)
-    if link.scope != "sd_rep" or not link.scope_ref:
+    link = await _resolve(s, token, "sd_rep")
+    if not link.scope_ref:
         raise HTTPException(404, "Not found")
     b = (await s.execute(select(Business).where(
         Business.tenant_id == link.tenant_id, Business.key == "springb"))).scalar_one_or_none()
@@ -123,6 +134,10 @@ async def shared_rep_desk_drill(token: str, metric: str, response: Response,
 async def share_page(token: str, s: AsyncSession = Depends(get_session)):
     """Old backend share URLs → the web-app embed page (which renders the real read-only Scorecard).
     New links (from /ulrg/share) point straight at the web app. 404 a dead token before redirecting."""
+    # No scope argument ON PURPOSE, and this is the only such call in the file: the redirect
+    # serves every kind of share link and reveals nothing beyond "this token is live" — the
+    # web app then re-fetches through a scoped endpoint above. Every call that returns DATA
+    # names its scope.
     link = await _resolve(s, token)
     # The embed page lives on the LINK's own tenant origin — the token already names the
     # tenant, so this redirect must not fall back to a platform-wide URL.

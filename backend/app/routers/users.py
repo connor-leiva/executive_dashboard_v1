@@ -174,6 +174,10 @@ async def disable_user(user_id: uuid.UUID, user: User = Depends(require_role("ow
     await assert_not_last_owner(s, user.tenant_id, u)
     u.status = "disabled"
     u.token_version = (u.token_version or 0) + 1        # instantly invalidate sessions
+    # ...and any outstanding invite/reset link, which is a credential too. Bumping
+    # token_version only kills issued SESSIONS; a reset link minted minutes earlier is a
+    # separate path back in, and it survived the disable.
+    u.action_token_hash = u.action_token_purpose = u.action_token_expires = None
     audit(s, user.tenant_id, user.id, "user.disabled", "user", u.id)
     await s.commit()
     return _user_out(u, await tenant_tabs(s, user.tenant_id))

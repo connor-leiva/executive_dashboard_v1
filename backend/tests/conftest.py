@@ -42,3 +42,30 @@ def binder_headers(token: str) -> dict:
     grant = make_capability("stepup:binder", minutes=20,
                             sub=payload["sub"], ver=int(payload.get("ver", 0)))
     return {"Authorization": f"Bearer {token}", "X-Step-Up": grant}
+
+
+import gc
+
+import pytest
+
+from app.db import engine
+
+
+@pytest.fixture(autouse=True)
+async def _no_connection_outlives_its_event_loop():
+    """Dispose the engine's pool after every test.
+
+    `asyncio_mode = "auto"` gives each test its OWN event loop, but `app.db.engine` is a
+    module-level global created once at import. A connection opened on one test's loop and
+    handed to the next is undefined behaviour with aiosqlite: it shows up as SQLAlchemy's
+    "garbage collector is trying to clean up non-checked-in connection" warning, and once a
+    run allocates enough for the GC to fire mid-query it becomes a hard interpreter access
+    violation part-way through the suite — not a test failure, a crash with no attribution.
+
+    Disposing per test costs nothing on SQLite (see the NullPool note in app/db.py) and makes
+    the suite deterministic. The collect afterwards drains the finalizers while the loop that
+    created them is still alive, which is the half that actually prevents the crash.
+    """
+    yield
+    await engine.dispose()
+    gc.collect()

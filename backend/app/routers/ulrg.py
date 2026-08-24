@@ -6,6 +6,8 @@ scope, Part 8). Manual entry is owner/admin or the metric's own owner. All math 
 """
 from __future__ import annotations
 
+import uuid
+
 import datetime as dt
 import mimetypes
 import secrets
@@ -230,9 +232,12 @@ async def upload_group_photo(group_id: str, file: UploadFile = File(...),
 
 
 @router.get("/group/{group_id}/photo")
-async def group_photo(group_id: str, s: AsyncSession = Depends(get_session)):
+async def group_photo(group_id: uuid.UUID, s: AsyncSession = Depends(get_session)):
     """Serve a headshot — PUBLIC (no auth) so it shows in the app AND the read-only ClickUp embed.
-    Not sensitive; the group id is an unguessable UUID."""
+    Not sensitive; the group id is an unguessable UUID — which is also why the id is typed as
+    one. Declared `str`, a malformed id reached the GUID bind, which parses on Postgres but not
+    on SQLite: a clean 404 in dev and the whole test suite, an unhandled 500 in production. The
+    UUID type makes FastAPI reject it at the boundary with a 422, on both."""
     g = (await s.execute(select(ScorecardGroup).where(
         ScorecardGroup.id == group_id))).scalar_one_or_none()
     if g is None or not g.owner_photo_ref:

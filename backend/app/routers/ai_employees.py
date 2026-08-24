@@ -9,6 +9,8 @@ and shipping an unapproved artifact is a 409. Nothing here calls the model — t
 """
 from __future__ import annotations
 
+import uuid
+
 import datetime as dt
 from urllib.parse import quote
 
@@ -322,7 +324,7 @@ async def list_media(emp_id: str, user: User = Depends(current_user),
 
 
 @router.get("/media/{asset_id}/file")
-async def media_file(asset_id: str, t: str = Query(...), s: AsyncSession = Depends(get_session)):
+async def media_file(asset_id: uuid.UUID, t: str = Query(...), s: AsyncSession = Depends(get_session)):
     """Serve the blob — token-gated (so <img src> works without a session header). The token is
     tenant-scoped and short-lived; every read is checked against the asset's tenant."""
     try:

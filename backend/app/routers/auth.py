@@ -37,19 +37,32 @@ async def login(body: LoginRequest, s: AsyncSession = Depends(get_session)):
         select(User).where(User.tenant_id == tid, User.email == body.email.lower())
     )).scalar_one_or_none()
     # Neutral error for missing user / invited (no password yet) / disabled — no enumeration.
+    # Every branch below writes an audit row: a password spray leaves no other trace, and
+    # `last_login_at` alone cannot tell a successful compromise from ordinary use. The email
+    # is recorded (not the password) because for an unknown address there is no user id to
+    # attribute the attempt to — which is exactly the case worth seeing.
     if not user or not user.password_hash or user.status != "active":
+        audit(s, tid, None, "auth.login_failed", "user", None,
+              {"email": body.email.lower()[:160], "reason": "no_such_login"})
+        await s.commit()
         raise HTTPException(401, "Invalid email or password")
     if user.locked_until and _aware(user.locked_until) > _now():
+        audit(s, tid, user.id, "auth.login_blocked", "user", user.id, {"reason": "locked"})
+        await s.commit()
         raise HTTPException(423, "Account temporarily locked. Try again shortly.")
     if not verify_pw(body.password, user.password_hash):
         user.failed_logins = (user.failed_logins or 0) + 1
-        if user.failed_logins >= LOCK_THRESHOLD:
+        locked = user.failed_logins >= LOCK_THRESHOLD
+        if locked:
             user.locked_until = _now() + dt.timedelta(minutes=LOCK_MINUTES)
+        audit(s, tid, user.id, "auth.login_failed", "user", user.id,
+              {"reason": "bad_password", "failed_logins": user.failed_logins, "locked": locked})
         await s.commit()
         raise HTTPException(401, "Invalid email or password")
     user.failed_logins = 0
     user.locked_until = None
     user.last_login_at = _now()
+    audit(s, tid, user.id, "auth.login", "user", user.id)
     await s.commit()
     return LoginResponse(token=make_token(user.id, user.tenant_id, user.token_version or 0))
 
@@ -116,6 +129,14 @@ async def accept_invite(body: AcceptInviteRequest, s: AsyncSession = Depends(get
 async def reset_password(body: ResetPasswordRequest, s: AsyncSession = Depends(get_session)):
     tid = current_tenant_id()
     u = await _consume_action_token(s, tid, body.token, "reset")
+    # A disabled account must never be resurrected by a link that predates the disable.
+    # `u.status = "active"` below exists for the ordinary case (a reset completes an account
+    # that was mid-invite); without this guard it also silently undid an admin's emergency
+    # disable and handed the link holder a live session. accept_invite has always had the
+    # equivalent guard; reset never did. The token is already consumed above, so a stale
+    # link is spent either way.
+    if u.status == "disabled":
+        raise HTTPException(400, "This account is disabled. Ask an administrator.")
     if len(body.new_password) < MIN_PASSWORD_LEN:
         raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LEN} characters")
     u.password_hash = hash_pw(body.new_password)
