@@ -7,28 +7,48 @@ Reuse note: lift the existing FUB client/field mapping from the Realtor.com
 reporting dashboard rather than re-deriving. Keep the same agent/lead field
 mappings so the two apps stay consistent.
 """
+from dataclasses import dataclass
+
 from .base import get_json
 from ..config import settings
 
-# FUB uses Basic auth with the API key as the username and empty password.
-FUB_AUTH = (settings.FUB_API_KEY, "")
+
+@dataclass(frozen=True)
+class FubCreds:
+    """One tenant's Follow Up Boss account.
+
+    This used to be a module-level tuple built from settings at IMPORT time, so every tenant
+    shared one API key — and the key could not even be changed without a restart. Credentials
+    now travel with the call.
+    """
+    api_key: str
+    base_url: str = ""
+
+    @property
+    def auth(self) -> tuple[str, str]:
+        # FUB uses Basic auth: the API key as the username, empty password.
+        return (self.api_key, "")
+
+    @property
+    def base(self) -> str:
+        return (self.base_url or settings.FUB_API_BASE).rstrip("/")
 
 
-async def fub_users():
+async def fub_users(creds: FubCreds):
     data = await get_json(
-        f"{settings.FUB_API_BASE}/users", auth=FUB_AUTH, params={"limit": 100}
+        f"{creds.base}/users", auth=creds.auth, params={"limit": 100}
     )
     return data.get("users", [])
 
 
-async def fub_people(updated_after: str | None = None):
+async def fub_people(creds: FubCreds, updated_after: str | None = None):
     out, offset = [], 0
     while True:
         params = {"limit": 100, "offset": offset, "sort": "updated"}
         if updated_after:
             params["updatedAfter"] = updated_after
         data = await get_json(
-            f"{settings.FUB_API_BASE}/people", auth=FUB_AUTH, params=params
+            f"{creds.base}/people", auth=creds.auth, params=params
         )
         rows = data.get("people", [])
         out.extend(rows)

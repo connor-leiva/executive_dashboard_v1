@@ -24,6 +24,7 @@ from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, S
                       ScorecardGoal, ShareLink)
 from ..services import binder_storage, scorecard
 from ..services.audit import audit
+from ..tenancy import tenant_app_url
 from ..services.scorecard_resolvers import resolver_records
 
 router = APIRouter(prefix="/ulrg", tags=["ulrg"])
@@ -133,9 +134,10 @@ def _require_admin(user: User) -> None:
         raise HTTPException(403, "Owner or admin only")
 
 
-def _share_url(token: str) -> str:
-    # the web app serves the embed page (renders the real read-only Scorecard); APP_PUBLIC_URL is it
-    return f"{settings.APP_PUBLIC_URL.rstrip('/')}/share/{token}"
+async def _share_url(s, tenant_id, token: str) -> str:
+    # The web app serves the embed page; it lives on the TENANT's origin, so an embed pasted
+    # into ClickUp resolves to that customer's app rather than to the platform's first tenant.
+    return f"{await tenant_app_url(s, tenant_id)}/share/{token}"
 
 
 @router.post("/share", status_code=201)
@@ -151,7 +153,7 @@ async def create_share(body: ShareIn, user: User = Depends(current_user),
                     token=token, created_by=user.id))
     audit(s, user.tenant_id, user.id, "scorecard.share_created", "share_link", None, {"scope": body.scope})
     await s.commit()
-    return {"token": token, "url": _share_url(token)}
+    return {"token": token, "url": await _share_url(s, user.tenant_id, token)}
 
 
 @router.get("/shares")
@@ -163,7 +165,7 @@ async def list_shares(user: User = Depends(current_user), s: AsyncSession = Depe
         .order_by(ShareLink.created_at.desc()))).scalars().all()
     return [{"id": str(link.id), "scope": link.scope, "scope_ref": link.scope_ref,
              "created_at": link.created_at.isoformat() if link.created_at else None,
-             "url": _share_url(link.token)} for link in rows]
+             "url": await _share_url(s, user.tenant_id, link.token)} for link in rows]
 
 
 @router.delete("/share/{share_id}", status_code=204)

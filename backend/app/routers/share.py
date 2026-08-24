@@ -26,6 +26,7 @@ from ..config import settings
 from ..db import get_session
 from ..models import Business, ShareLink
 from ..services import scorecard
+from ..tenancy import tenant_app_url
 
 router = APIRouter(prefix="/share", tags=["share"])          # JSON, mounted under /api/v1
 page_router = APIRouter(tags=["share"])                       # /share/{token} at the root
@@ -122,5 +123,7 @@ async def shared_rep_desk_drill(token: str, metric: str, response: Response,
 async def share_page(token: str, s: AsyncSession = Depends(get_session)):
     """Old backend share URLs → the web-app embed page (which renders the real read-only Scorecard).
     New links (from /ulrg/share) point straight at the web app. 404 a dead token before redirecting."""
-    await _resolve(s, token)
-    return RedirectResponse(f"{settings.APP_PUBLIC_URL.rstrip('/')}/share/{token}", status_code=307)
+    link = await _resolve(s, token)
+    # The embed page lives on the LINK's own tenant origin — the token already names the
+    # tenant, so this redirect must not fall back to a platform-wide URL.
+    return RedirectResponse(f"{await tenant_app_url(s, link.tenant_id)}/share/{token}", status_code=307)

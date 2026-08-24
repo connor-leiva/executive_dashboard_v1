@@ -65,15 +65,20 @@ DATABASE_URL=${{Postgres.DATABASE_URL}}
 APP_SECRET=<64-hex>                # python -c "import secrets;print(secrets.token_hex(32))"
 FERNET_KEY=<fernet key>            # python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
 ENV=production
-SINGLE_TENANT_FALLBACK=true        # resolves the Railway domain to Spring's tenant
-ALLOWED_ORIGINS=https://<web domain>
+PLATFORM_DOMAIN=acumyn.io          # tenants live at {slug}.PLATFORM_DOMAIN
+SINGLE_TENANT_FALLBACK=true        # unknown host -> Spring; SELF-CLOSES at tenant #2 (see below)
+ALLOWED_ORIGINS=https://<web domain>     # localhost + CUSTOM domains only; *.PLATFORM_DOMAIN
+                                          # is admitted by regex, so a new tenant needs no edit
 QBO_CLIENT_ID=...                  # when wiring QuickBooks
 QBO_CLIENT_SECRET=...
 QBO_ENV=production
 QBO_REDIRECT_URI=https://<api domain>/api/v1/integrations/qbo/callback
-SISU_API_BASE=...  SISU_API_TOKEN=...   # when wiring Sisu
-FUB_API_KEY=...                          # when wiring Follow Up Boss
 ```
+> **Sisu and Follow Up Boss are no longer environment variables.** Both are connected
+> per tenant in Settings -> Integrations and stored encrypted on the `integration` row,
+> like GHL/Arive/Stripe/QBO. The old `SISU_USERNAME` / `SISU_API_TOKEN` / `FUB_API_KEY`
+> vars are ignored — a shared key would have synced one customer's book of business
+> into another's dashboard.
 **`api` also:**
 ```
 PUBLIC_API_BASE=https://<api domain>
@@ -82,6 +87,26 @@ APP_PUBLIC_URL=https://<web domain>      # QBO callback redirects back here
 **`worker` also:** `SYNC_INTERVAL_MINUTES=30`
 
 **`web`:** `VITE_API_BASE=https://<api domain>/api/v1`  (build-time only; non-secret)
+
+> One API domain serves every tenant. The browser tells the API which tenant it is by
+> sending `X-Tenant-Host: <its own hostname>` on every request (see `frontend/src/api.js`),
+> because the API's own `Host` header names the API, not the customer. This is why a single
+> `web` build can serve all tenants.
+
+## Adding a tenant
+
+```
+railway run --service api python -m scripts.create_tenant   --slug acme --name "Acme Co" --owner-email owner@acme.com
+```
+Prints a one-time invite link. The tenant is live at `acme.<PLATFORM_DOMAIN>` immediately:
+DNS is the existing wildcard, CORS matches by regex, and provisioning seeds the catalogs
+(Binder jurisdiction rules, AI skills, the standard chart of accounts).
+
+**The moment a second tenant exists, the single-tenant fallback turns itself off** — a host
+matching no `domain` row stops resolving instead of quietly returning Spring's dashboard.
+That is enforced on the tenant COUNT, not on `SINGLE_TENANT_FALLBACK`, so there is no
+config change to remember. Point each customer's domain at the `web` service and add a
+`domain` row for anything that is not a `{slug}.PLATFORM_DOMAIN` subdomain.
 
 ## Why these matter (all verified against Railway docs)
 - **`DATABASE_URL`** from Railway is `postgresql://…`; the app rewrites it to

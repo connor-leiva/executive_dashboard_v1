@@ -1,6 +1,6 @@
 """Sisu client — team-wide production feed.
 
-Auth: HTTP Basic (SISU_USERNAME : SISU_API_TOKEN). Base https://api.sisu.co/api.
+Auth: HTTP Basic, credentials supplied per call via SisuCreds (never process-wide).
 
 Primary endpoint: GET /api/v1/team/get-team-clients — the whole team's
 clients/transactions, paginated (1000/page, follow pagination.has_next). Each
@@ -23,6 +23,7 @@ import datetime as dt
 from email.utils import parsedate_to_datetime
 
 import httpx
+from dataclasses import dataclass
 
 from ..config import settings
 
@@ -32,8 +33,25 @@ SIDE = {"b": "buy", "s": "sell"}
 _CASH_RE = re.compile(r"cash|seller finance|no lender", re.I)
 
 
-def _auth() -> tuple[str, str]:
-    return (settings.SISU_USERNAME, settings.SISU_API_TOKEN)
+@dataclass(frozen=True)
+class SisuCreds:
+    """One tenant's Sisu account. Passed explicitly into every call in this module.
+
+    It used to be read from process-wide settings, which meant a second tenant connecting
+    Sisu would have synced the FIRST tenant's book of business. Credentials now travel with
+    the request, so there is no ambient account for a caller to pick up by accident.
+    """
+    username: str
+    token: str
+    base_url: str = ""
+
+    @property
+    def auth(self) -> tuple[str, str]:
+        return (self.username, self.token)
+
+    @property
+    def base(self) -> str:
+        return (self.base_url or settings.SISU_BASE_URL).rstrip("/")
 
 
 def parse_dt(value) -> dt.date | None:
@@ -75,7 +93,7 @@ def _clip(value, n: int):
     return value[:n] if isinstance(value, str) else value
 
 
-async def _get_page(client: httpx.AsyncClient, page: int) -> dict:
+async def _get_page(client: httpx.AsyncClient, creds: SisuCreds, page: int) -> dict:
     """Fetch one page with 429 (rate-limit) + 5xx backoff.
 
     IMPORTANT: get-team-clients only paginates over **POST** — the GET form
@@ -83,7 +101,7 @@ async def _get_page(client: httpx.AsyncClient, page: int) -> dict:
     a duplicated slice of the 32k+ records. Body: {"page", "per_page": 1000}
     (per_page > 1000 breaks the endpoint). No server-side filter is supported.
     """
-    url = f"{settings.SISU_BASE_URL}{GET_TEAM_CLIENTS}"
+    url = f"{creds.base}{GET_TEAM_CLIENTS}"
     for attempt in range(4):
         r = await client.post(url, json={"page": page, "per_page": 1000})
         if r.status_code == 429 and attempt < 3:
@@ -98,12 +116,12 @@ async def _get_page(client: httpx.AsyncClient, page: int) -> dict:
     return r.json()
 
 
-async def _agent_group_ids(client: httpx.AsyncClient, agent_id) -> list[int] | None:
+async def _agent_group_ids(client: httpx.AsyncClient, creds: SisuCreds, agent_id) -> list[int] | None:
     """One agent's CURRENT Sisu group_ids via GET /v1/agent/edit-agent/{id} (agent.agent_groups,
     is_included). The client feed carries no sub-team, but this does — it's the live source for
     per-team scorecard attribution (office/pod/tier group ids). None on any failure or app-error, so
     a transient blip leaves the stored roster untouched rather than wiping it."""
-    url = f"{settings.SISU_BASE_URL}/v1/agent/edit-agent/{agent_id}"
+    url = f"{creds.base}/v1/agent/edit-agent/{agent_id}"
     for attempt in range(3):                            # same 429/5xx backoff as the other Sisu calls
         try:
             r = await client.get(url)
@@ -127,25 +145,25 @@ async def _agent_group_ids(client: httpx.AsyncClient, agent_id) -> list[int] | N
     return None
 
 
-async def fetch_agent_groups(agent_external_ids, concurrency: int = 8) -> dict[str, list[int] | None]:
+async def fetch_agent_groups(creds: SisuCreds, agent_external_ids, concurrency: int = 8) -> dict[str, list[int] | None]:
     """Concurrently fetch each agent's Sisu group_ids. Returns {external_id: [group_id,...] | None};
     None means the fetch failed for that agent (leave its stored memberships as-is)."""
     out: dict[str, list[int] | None] = {}
     sem = asyncio.Semaphore(concurrency)
-    async with httpx.AsyncClient(auth=_auth(), timeout=60, headers={"accept": "application/json"}) as c:
+    async with httpx.AsyncClient(auth=creds.auth, timeout=60, headers={"accept": "application/json"}) as c:
         async def one(aid):
             async with sem:
-                out[str(aid)] = await _agent_group_ids(c, aid)
+                out[str(aid)] = await _agent_group_ids(c, creds, aid)
         await asyncio.gather(*(one(aid) for aid in agent_external_ids))
     return out
 
 
-async def get_team_vendors() -> list[dict]:
+async def get_team_vendors(creds: SisuCreds) -> list[dict]:
     """The team's vendor directory (mortgage/title/warranty/… companies). Each has
     vendor_id, name, vendor_type (M=mortgage, T=title, W=warranty, H=inspection,
     I=insurance). Used to resolve which mortgage-vendor ids are Sympli."""
-    url = f"{settings.SISU_BASE_URL}{GET_TEAM_VENDORS}"
-    async with httpx.AsyncClient(auth=_auth(), timeout=60,
+    url = f"{creds.base}{GET_TEAM_VENDORS}"
+    async with httpx.AsyncClient(auth=creds.auth, timeout=60,
                                  headers={"accept": "application/json"}) as c:
         for attempt in range(4):
             r = await c.post(url, json={})
@@ -186,7 +204,7 @@ def resolve_vendor_config(vendors: list[dict], sympli_match: str = "sympli") -> 
             "lender_names": lender_names}
 
 
-async def fetch_all_clients(concurrency: int = 8, progress=None):
+async def fetch_all_clients(creds: SisuCreds, concurrency: int = 8, progress=None):
     """Fetch all pages CONCURRENTLY and map to (transactions, agents).
 
     Each page is ~9s, so sequential paging over ~33 pages takes minutes; a
@@ -208,9 +226,9 @@ async def fetch_all_clients(concurrency: int = 8, progress=None):
             if t["external_id"] and t["external_id"] != "None":
                 txns.append(t)
 
-    async with httpx.AsyncClient(auth=_auth(), timeout=120,
+    async with httpx.AsyncClient(auth=creds.auth, timeout=120,
                                  headers={"accept": "application/json"}) as c:
-        first = await _get_page(c, 1)
+        first = await _get_page(c, creds, 1)
         pages = int((first.get("pagination") or {}).get("pages") or 1)
         if settings.SISU_MAX_PAGES:
             pages = min(pages, settings.SISU_MAX_PAGES)
@@ -222,7 +240,7 @@ async def fetch_all_clients(concurrency: int = 8, progress=None):
 
         async def worker(pg: int):
             async with sem:
-                payload = await _get_page(c, pg)
+                payload = await _get_page(c, creds, pg)
             absorb(payload.get("clients") or [])
             done[0] += 1
             if progress:
@@ -349,9 +367,9 @@ def team_income(ci: dict) -> float | None:
     return sum(vals) if vals else None
 
 
-async def _commission_info(client: httpx.AsyncClient, tid) -> dict:
+async def _commission_info(client: httpx.AsyncClient, creds: SisuCreds, tid) -> dict:
     """GET /v1/client/commission-info/{tid} → the commission_info object ({} on error)."""
-    url = f"{settings.SISU_BASE_URL}/v1/client/commission-info/{tid}"
+    url = f"{creds.base}/v1/client/commission-info/{tid}"
     for attempt in range(3):
         try:
             r = await client.get(url)
@@ -367,7 +385,7 @@ async def _commission_info(client: httpx.AsyncClient, tid) -> dict:
     return {}
 
 
-async def enrich_commissions(mapped: list[dict], concurrency: int = 10, progress=None) -> int:
+async def enrich_commissions(creds: SisuCreds, mapped: list[dict], concurrency: int = 10, progress=None) -> int:
     """Populate `agent_commission` (= GCI − team_income) from Sisu commission-info,
     for recently-CLOSED and ALL PENDING deals (both carry a team_income; pending's
     is the projected split). Best-effort per deal; returns the count enriched."""
@@ -386,10 +404,10 @@ async def enrich_commissions(mapped: list[dict], concurrency: int = 10, progress
         return 0
     sem = asyncio.Semaphore(concurrency)
     done = [0]
-    async with httpx.AsyncClient(auth=_auth(), timeout=45, headers={"accept": "application/json"}) as c:
+    async with httpx.AsyncClient(auth=creds.auth, timeout=45, headers={"accept": "application/json"}) as c:
         async def one(t: dict):
             async with sem:
-                ci = await _commission_info(c, t["external_id"])
+                ci = await _commission_info(c, creds, t["external_id"])
             ti = team_income(ci)
             if ti is not None:
                 t["agent_commission"] = round(float(t["gci"]) - ti, 2)

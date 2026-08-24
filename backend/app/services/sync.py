@@ -3,6 +3,7 @@
 call. Upserts target Postgres (prod); the worker does not run against SQLite.
 """
 import datetime as dt
+import json
 import uuid
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -259,11 +260,37 @@ _TXN_UPDATE_KEYS = [
 ]
 
 
+def _sisu_creds(integ: Integration) -> sisu.SisuCreds:
+    """Sisu needs a username + API token. Both live encrypted together in access_token_enc
+    (the Arive pattern), and the optional base_url override sits in the non-secret config.
+    Raises rather than falling back to any process-wide account: a tenant whose credentials
+    are missing must fail its own sync loudly, never quietly sync somebody else's team."""
+    raw = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not raw:
+        raise ValueError("Sisu needs credentials (username + API token).")
+    d = json.loads(raw)
+    username, token = (d.get("username") or "").strip(), (d.get("token") or "").strip()
+    if not (username and token):
+        raise ValueError("Sisu credentials incomplete (need username and token).")
+    return sisu.SisuCreds(username=username, token=token,
+                          base_url=((integ.config or {}).get("base_url") or ""))
+
+
+def _fub_creds(integ: Integration) -> fub.FubCreds:
+    """Follow Up Boss needs one API key. Same rule as Sisu: no ambient fallback."""
+    key = (dec(integ.access_token_enc) if integ.access_token_enc else "") or ""
+    if not key.strip():
+        raise ValueError("Follow Up Boss needs an API key.")
+    return fub.FubCreds(api_key=key.strip(),
+                        base_url=((integ.config or {}).get("base_url") or ""))
+
+
 async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     """Fetch the whole team's clients from Sisu (concurrently) and batch-upsert.
     Also refreshes the vendor directory → the attach-flywheel config (which mortgage
     vendor ids are Sympli / cash, and the vid→lender-name map)."""
     business_id = integ.business_id
+    creds = _sisu_creds(integ)
 
     def _prog(done, total, n):
         print(f"[sisu] page {done}/{total} · {n} rows", flush=True)
@@ -271,7 +298,7 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     # Vendor directory → resolve Sympli / cash vids + lender names (best-effort; the
     # flywheel reads these off the Sisu integration config). Seeds referral_domains.
     try:
-        vendors = await sisu.get_team_vendors()
+        vendors = await sisu.get_team_vendors(creds)
         if vendors:
             vc = sisu.resolve_vendor_config(vendors)
             cfg = dict(integ.config or {})
@@ -284,7 +311,7 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     except Exception as e:  # noqa: BLE001 — never fail the sync on the vendor pull
         print(f"[sisu] vendor sync skipped: {e}", flush=True)
 
-    mapped, agents = await sisu.fetch_all_clients(progress=_prog)
+    mapped, agents = await sisu.fetch_all_clients(creds, progress=_prog)
     print(f"[sisu] fetched {len(mapped)} transactions, {len(agents)} agents", flush=True)
 
     # Enrich agent_commission (= GCI − company dollar) for the financials-relevant
@@ -292,7 +319,7 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     try:
         def _cprog(done, total):
             print(f"[sisu] commissions {done}/{total}", flush=True)
-        n = await sisu.enrich_commissions(mapped, progress=_cprog)
+        n = await sisu.enrich_commissions(creds, mapped, progress=_cprog)
         print(f"[sisu] enriched {n} commissions", flush=True)
     except Exception as e:  # noqa: BLE001 — never fail the sync on commission enrichment
         print(f"[sisu] commission enrichment skipped: {e}", flush=True)
@@ -349,7 +376,13 @@ async def sync_agent_offices(s: AsyncSession, tenant_id: uuid.UUID) -> int:
         Agent.tenant_id == tenant_id, Agent.source == "sisu"))).scalars().all()
     if not agents:
         return 0
-    groups = await sisu.fetch_agent_groups([a.external_id for a in agents])
+    # This job runs outside a sync (worker.roster_tick), so it resolves the tenant's own
+    # Sisu integration itself. No integration, no refresh — never a shared account.
+    integ = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
+    if not integ:
+        return 0
+    groups = await sisu.fetch_agent_groups(_sisu_creds(integ), [a.external_id for a in agents])
     updated = 0
     for a in agents:
         g = groups.get(str(a.external_id))
@@ -361,10 +394,12 @@ async def sync_agent_offices(s: AsyncSession, tenant_id: uuid.UUID) -> int:
     return updated
 
 
-async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID) -> int:
+async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    business_id = integ.business_id
+    creds = _fub_creds(integ)
     n = 0
     # Agents (FUB users) first.
-    for raw in await fub.fub_users():
+    for raw in await fub.fub_users(creds):
         n += 1
         u = fub.map_user(raw)
         await s.execute(pg_insert(Agent).values(
@@ -384,7 +419,7 @@ async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, business_id: uuid.UUID
         ).scalars().all()
     }
     # Leads (FUB people).
-    for raw in await fub.fub_people():
+    for raw in await fub.fub_people(creds):
         n += 1
         p = fub.map_person(raw)
         await s.execute(pg_insert(Lead).values(
@@ -1538,7 +1573,7 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
         if integ.provider == "sisu":
             records = await sync_sisu(s, tenant_id, integ)
         elif integ.provider == "fub":
-            records = await sync_fub(s, tenant_id, integ.business_id)
+            records = await sync_fub(s, tenant_id, integ)
         elif integ.provider == "ghl":
             records = await sync_ghl(s, tenant_id, integ)
             try:                                   # The Edge is a segment of this same location

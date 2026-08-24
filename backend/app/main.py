@@ -63,8 +63,16 @@ def create_app() -> FastAPI:
 
     # Added LAST so it is the OUTERMOST user middleware — it must wrap the handler
     # above so CORS headers land on error responses too (see the note above).
+    #
+    # allow_origin_regex, not just a list: every tenant is served from its own
+    # {slug}.PLATFORM_DOMAIN origin, so a static list would mean editing an env var and
+    # redeploying the API to onboard a customer — which is exactly what provisioning
+    # promises it does NOT require. The explicit list stays for localhost and for
+    # tenants on custom domains (see settings.origins).
     app.add_middleware(
-        CORSMiddleware, allow_origins=settings.origins,
+        CORSMiddleware,
+        allow_origins=settings.origins,
+        allow_origin_regex=settings.origin_regex,
         allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
     )
 

@@ -22,8 +22,7 @@ from .models import (
     PLSnapshot, CashSnapshot, MetricRecord, Launch, LaunchWeekly,
 )
 from .security import hash_pw
-from .services.binder_rules import seed_jurisdiction_rules
-from .services.ai_skills import seed_ai_skills
+from .services.provisioning import seed_platform_catalogs, seed_tenant_catalogs
 from .services.metrics import _period_range, _pl_period
 
 OWNER_EMAIL = "spring@springb.com"
@@ -670,13 +669,16 @@ async def seed():
                 _n += 1
                 _ar(_n, "LOAN_FUNDED", "funded", 450000, mid, f"tx{_n}@myarive.com", state="TX")
 
-        # Binder jurisdiction rules — shared reference data (tenant_id=None), idempotent so
-        # the wipe/reseed above never disturbs them. No LegalEntity rows are ever seeded.
-        await seed_jurisdiction_rules(s)
-        # AI Employees skill catalog — product data (the 6 skill defs), idempotent upsert.
-        await seed_ai_skills(s)
+        # Shared product catalogs — Binder jurisdiction rules (tenant_id=None) and the AI
+        # skill defs. Routed through provisioning so Spring's fixture and a CLI-created
+        # tenant can never drift on what a tenant is expected to have.
+        await seed_platform_catalogs(s)
 
         await s.commit()
+
+        # Per-tenant catalogs (the standard chart) — after the commit, because
+        # seed_standard_chart owns its own transaction.
+        await seed_tenant_catalogs(s, tenant.id)
 
     print("[ok] Seeded tenant 'springb' for period",
           f"{start.isoformat()} -> {end.isoformat()}")

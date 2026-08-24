@@ -18,6 +18,7 @@ from ..deps import current_user, require_role, assert_tab
 from ..models import CallTranscript, User, Business, Launch, SalesCall, SalesRep, ShareLink
 from ..schemas import LaunchResponse, LaunchUpsert
 from ..services.audit import audit
+from ..tenancy import tenant_app_url
 from ..services.launch import (
     compute_launch, active_launch_for, config_out, drill_launch,
     DEFAULT_STAGE_MAP, DEFAULT_PAYMENT_PLAN_MAP,
@@ -307,8 +308,10 @@ async def update_sales_reps(key: str, body: dict, user: User = Depends(require_r
     return {"updated": len(changed)}
 
 
-def _desk_share_url(token: str) -> str:
-    return f"{settings.APP_PUBLIC_URL.rstrip('/')}/desk/{token}"
+async def _desk_share_url(s, tenant_id, token: str) -> str:
+    # The tenant's own origin, not a platform-wide one — a rep opens this link outside the
+    # app, and pointing every tenant's reps at the first tenant's domain would be wrong.
+    return f"{await tenant_app_url(s, tenant_id)}/desk/{token}"
 
 
 @router.get("/businesses/{key}/sales-desk/reps/share")
@@ -319,7 +322,8 @@ async def list_rep_shares(key: str, user: User = Depends(require_role("owner", "
     rows = (await s.execute(select(ShareLink).where(
         ShareLink.tenant_id == user.tenant_id, ShareLink.scope == "sd_rep",
         ShareLink.revoked_at.is_(None)))).scalars().all()
-    return {(l.scope_ref or "").lower(): _desk_share_url(l.token) for l in rows if l.scope_ref}
+    return {(l.scope_ref or "").lower(): await _desk_share_url(s, user.tenant_id, l.token)
+            for l in rows if l.scope_ref}
 
 
 @router.post("/businesses/{key}/sales-desk/reps/share", status_code=201)
@@ -335,13 +339,13 @@ async def create_rep_share(key: str, body: dict, user: User = Depends(require_ro
         ShareLink.tenant_id == user.tenant_id, ShareLink.scope == "sd_rep",
         ShareLink.scope_ref == email.lower(), ShareLink.revoked_at.is_(None)))).scalars().first()
     if live:
-        return {"email": email, "url": _desk_share_url(live.token), "existing": True}
+        return {"email": email, "url": await _desk_share_url(s, user.tenant_id, live.token), "existing": True}
     link = ShareLink(tenant_id=user.tenant_id, scope="sd_rep", scope_ref=email.lower(),
                      token=secrets.token_urlsafe(24), created_by=user.id)
     s.add(link)
     audit(s, user.tenant_id, user.id, "sales_rep.share_created", "share_link", None, {"email": email})
     await s.commit()
-    return {"email": email, "url": _desk_share_url(link.token), "existing": False}
+    return {"email": email, "url": await _desk_share_url(s, user.tenant_id, link.token), "existing": False}
 
 
 @router.delete("/businesses/{key}/sales-desk/reps/share", status_code=204)

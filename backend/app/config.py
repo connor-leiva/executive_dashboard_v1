@@ -1,3 +1,5 @@
+import re
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,11 +53,11 @@ class Settings(BaseSettings):
     # Opens in the user's active QBO company; the route is derived from the txn type.
     QBO_APP_BASE: str = "https://app.qbo.intuit.com/app"
 
-    # Sisu (real estate production — team-wide clients feed, Basic auth)
-    SISU_USERNAME: str = ""
-    SISU_API_TOKEN: str = ""
+    # Sisu (real estate production — team-wide clients feed, Basic auth).
+    # The CREDENTIALS are per tenant, on the integration row — never here: a process-wide
+    # username/token meant every tenant synced the first tenant's team. What remains is the
+    # non-secret default API base (a tenant's integration config can override it).
     SISU_BASE_URL: str = "https://api.sisu.co/api"
-    SISU_TEAM_ID: str = "621"
     SISU_EXTERNAL_SERVICE: str = "fub"
     # Deep-link template for a Sisu transaction (audit drawer). {id} = client_id.
     # CONFIRM against the live Sisu app URL and adjust if needed.
@@ -67,8 +69,8 @@ class Settings(BaseSettings):
     # of history; a deal under contract or a listing older than this is stale
     # data, not live pipeline. Tune against Sisu's own current counts.
     SISU_CURRENT_WINDOW_DAYS: int = 180
-    # Follow Up Boss (lead-source layer — Phase 1b, Basic auth: key as username)
-    FUB_API_KEY: str = ""
+    # Follow Up Boss (lead-source layer — Basic auth: key as username). Key is per tenant,
+    # on the integration row, for the same reason as Sisu above.
     FUB_API_BASE: str = "https://api.followupboss.com/v1"
 
     # worker
@@ -141,9 +143,6 @@ class Settings(BaseSettings):
     AI_EMPLOYEES_MAX_TOKENS: int = 4096
     AI_EMPLOYEES_TOKEN_BUDGET: int = 2_000_000
 
-    # Single-tenant fallback: when a request Host doesn't match a `domain` row,
-    # resolve to this tenant slug. Safe while there is one tenant (Spring); set
-    # SINGLE_TENANT_FALLBACK=false once real multitenancy + custom domains land.
     # ── Recall.ai call recording. Empty API key = the whole feature is inert, which is the
     # right default: no key, no bots, no spend, no consent exposure.
     RECALL_API_KEY: str = ""
@@ -166,7 +165,16 @@ class Settings(BaseSettings):
     RECALL_CHAPTER_MODEL: str = "claude-haiku-4-5-20251001"
     RECALL_CHAPTER_BATCH: int = 15            # per tick; one model call each
 
+    # The platform's own domain. Tenants live at {slug}.PLATFORM_DOMAIN unless they bring a
+    # custom domain (a `domain` row). Drives tenant-host resolution, the CORS origin regex,
+    # and the invite links provisioning hands out — so it is set in ONE place, not three.
+    PLATFORM_DOMAIN: str = "acumyn.io"
+
     DEV_TENANT_SLUG: str = "springb"
+    # When a request Host matches no `domain` row, resolve to DEV_TENANT_SLUG. Safe only
+    # while there is exactly ONE tenant — with two, an unrecognized host would silently
+    # serve the wrong customer's data. resolve_tenant enforces that: the fallback refuses
+    # the moment a second tenant exists, whatever this flag says.
     SINGLE_TENANT_FALLBACK: bool = True
 
     # Seed representative ULRG operational data (fake transactions/agents/leads).
@@ -177,6 +185,17 @@ class Settings(BaseSettings):
     @property
     def origins(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def origin_regex(self) -> str:
+        """Every https origin under the platform domain, at any subdomain depth.
+
+        This is what makes provisioning zero-ops: a tenant at {slug}.PLATFORM_DOMAIN passes
+        CORS the moment it exists, with no env edit and no redeploy. Anchored at both ends
+        and with a literal-dot suffix so `notacumyn.io` and `acumyn.io.evil.com` do not
+        match. Tenants on their own custom domain are still added to ALLOWED_ORIGINS.
+        """
+        return r"https://([A-Za-z0-9-]+\.)*" + re.escape(self.PLATFORM_DOMAIN) + r"$"
 
     @property
     def is_sqlite(self) -> bool:

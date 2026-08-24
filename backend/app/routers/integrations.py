@@ -70,8 +70,10 @@ async def qbo_callback(
     if not existing:
         s.add(obj)
     await s.commit()
-    # Redirect back into the app.
-    return RedirectResponse(f"{settings.APP_PUBLIC_URL}/?qbo=connected")
+    # Redirect back into the app — onto the tenant that started the flow. The callback has
+    # no Host to resolve from (that is why tenant travels in `state`), so the return URL has
+    # to be derived from that tenant rather than from a single platform-wide setting.
+    return RedirectResponse(f"{await tenant_app_url(s, tenant_id)}/?qbo=connected")
 
 
 # ── manual refresh (async via BackgroundTasks) ────────────────────
@@ -133,7 +135,8 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
     """Create/update a token-based integration (Go High Level, Arive). Body:
     {provider, business_key, token, config}. Token is encrypted at rest."""
     provider = (body.get("provider") or "").strip()
-    if provider not in ("ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy"):
+    if provider not in ("ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy",
+                        "sisu", "fub"):
         raise HTTPException(400, "Unsupported provider")
     biz = (await s.execute(select(Business).where(
         Business.tenant_id == user.tenant_id, Business.key == body.get("business_key")))).scalar_one_or_none()
@@ -167,6 +170,37 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
         integ.status, integ.last_error = "connected", None
         if integ.id is None:
             s.add(integ)
+        await s.commit()
+        return {"id": str(integ.id)}
+
+    # Sisu needs a username + API token. Same encrypted-JSON shape as Arive, and the same
+    # edit rule: a blank field keeps the stored value so the UI never has to re-show a secret.
+    # Until this existed, Sisu was reachable ONLY through server env vars — which meant every
+    # tenant would have shared one real-estate account.
+    if provider == "sisu":
+        existing = {}
+        if integ and integ.access_token_enc:
+            try:
+                existing = json.loads(dec(integ.access_token_enc))
+            except Exception:  # noqa: BLE001
+                existing = {}
+        creds = {
+            "username": (body.get("username") or existing.get("username") or "").strip(),
+            "token": (body.get("token") or existing.get("token") or "").strip(),
+        }
+        if not all(creds.values()):
+            raise HTTPException(400, "Sisu needs a username and an API token.")
+        if integ is None:
+            integ = Integration(tenant_id=user.tenant_id, provider="sisu", business_id=biz.id)
+        integ.access_token_enc = enc(json.dumps(creds))
+        if body.get("config") is not None:
+            integ.config = body["config"]
+        integ.status, integ.last_error = "connected", None
+        if integ.id is None:
+            s.add(integ)
+        await s.flush()
+        audit(s, user.tenant_id, user.id, "integration.connected", "integration", integ.id,
+              {"provider": provider, "business": biz.key})
         await s.commit()
         return {"id": str(integ.id)}
 

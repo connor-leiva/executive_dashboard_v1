@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { T } from "./theme.js";
 import { Icon } from "./Brand.jsx";
-import { getJSON, getBlob, postJSON, delJSON } from "./api.js";
+import { getJSON, getBlob, postJSON, delJSON, tenantHeaders } from "./api.js";
 import { useBinderMatrix } from "./useBinderMatrix.js";
 import sampleEntityBinder from "./sampleEntityBinder.js";
 
@@ -216,7 +216,8 @@ async function uploadDocuments(files, entityId) {
   const fd = new FormData();
   for (const f of files) fd.append("files", f);
   if (entityId) fd.append("entity_id", entityId);
-  const res = await fetch(`${API}/binder/documents/batch`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+  const res = await fetch(`${API}/binder/documents/batch`,
+    { method: "POST", headers: tenantHeaders({ Authorization: `Bearer ${token}` }), body: fd });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

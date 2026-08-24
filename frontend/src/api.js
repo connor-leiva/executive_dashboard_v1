@@ -19,9 +19,24 @@ function scopeForPath(path) {
   return null;
 }
 
+/* ── which tenant this browser is ─────────────────────────────────────────────────
+   The SPA is served from the tenant's own host but calls the API on a different origin,
+   so the API's `Host` header names the API, not the tenant. Every request therefore
+   declares the hostname the app was loaded from, and the server resolves the tenant from
+   that (see backend app/tenancy.py). Unauthenticated calls need it MOST: login has no
+   token to read a tenant from, so without this header it would authenticate against
+   whichever tenant the server happened to fall back to. */
+export function tenantHeaders(extra) {
+  const h = { ...(extra || {}) };
+  if (typeof window !== "undefined" && window.location && window.location.hostname) {
+    h["X-Tenant-Host"] = window.location.hostname;
+  }
+  return h;
+}
+
 function authHeaders(path, extra) {
   const token = localStorage.getItem(TOKEN_KEY);
-  const h = { ...(extra || {}), Authorization: `Bearer ${token}` };
+  const h = { ...tenantHeaders(extra), Authorization: `Bearer ${token}` };
   const scope = scopeForPath(path);
   const grant = scope ? getStepUp(scope) : null;
   if (grant) h["X-Step-Up"] = grant;
@@ -110,7 +125,7 @@ export async function putJSON(path, body) {
 export async function login(email, password) {
   const res = await fetch(`${API}/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: tenantHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error("Login failed");
@@ -147,7 +162,7 @@ export async function delJSON(path) {
 export async function postPublic(path, body) {
   const res = await fetch(`${API}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: tenantHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -161,7 +176,7 @@ export async function postPublic(path, body) {
 
 // Public GET (no auth header) — for token-scoped share endpoints an embed viewer hits without login.
 export async function getPublic(path) {
-  const res = await fetch(`${API}${path}`);
+  const res = await fetch(`${API}${path}`, { headers: tenantHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.detail || `${res.status}`);

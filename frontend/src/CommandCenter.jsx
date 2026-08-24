@@ -5,7 +5,7 @@ import { useDashboard } from "./useDashboard.js";
 import { useForum } from "./useForum.js";
 import { useBecollective } from "./useBecollective.js";
 import { useEdge } from "./useEdge.js";
-import { getJSON, postJSON } from "./api.js";
+import { getJSON, postJSON, tenantHeaders } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
 import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
@@ -969,7 +969,8 @@ function ErrorState({ onRetry }) {
 function signOut() {
   const token = localStorage.getItem("cc_token");
   if (API_BASE && token) {
-    fetch(`${API_BASE}/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+    fetch(`${API_BASE}/auth/logout`,
+      { method: "POST", headers: tenantHeaders({ Authorization: `Bearer ${token}` }) }).catch(() => {});
   }
   localStorage.removeItem("cc_token");
   window.location.reload();

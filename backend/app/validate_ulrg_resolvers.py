@@ -9,7 +9,7 @@ against a live DB the same way as the seed:
 
     $env:DATABASE_URL="<prod public url>"; .\.venv\Scripts\python -m app.validate_ulrg_resolvers springb
 
-If SISU_USERNAME/SISU_API_TOKEN are also set it refreshes the roster first; otherwise it uses the
+If the tenant has Sisu connected it refreshes the roster first; otherwise it uses the
 roster already in the DB (populated by the daily worker.roster_tick after deploy) — the Overall row
 needs no roster, the per-team rows do.
 """
@@ -70,14 +70,19 @@ async def _main(slug: str, weeks_back: int = 6) -> None:
         if not biz:
             print("[validate] no ULRG business for this tenant"); return
 
-    # refresh the roster so per-team attribution is populated (best-effort; needs Sisu creds)
-    if settings.SISU_USERNAME and settings.SISU_API_TOKEN:
-        async with SessionLocal() as s:
+    # Refresh the roster so per-team attribution is populated. Best-effort: sync_agent_offices
+    # resolves THIS tenant's Sisu integration itself and returns 0 when there isn't one, so a
+    # tenant without Sisu connected simply keeps whatever roster is already stored.
+    async with SessionLocal() as s:
+        try:
             n = await sync_agent_offices(s, t.id)
-        print(f"[validate] roster refreshed: {n} agents have an office\n")
-    else:
-        print("[validate] SISU creds not set — using the roster already in the DB "
-              "(per-team rows need worker.roster_tick to have run in prod)\n")
+        except Exception as e:  # noqa: BLE001 — validation must survive a source outage
+            print(f"[validate] roster refresh failed ({type(e).__name__}: {e}) — "
+                  "using the stored roster\n")
+        else:
+            print(f"[validate] roster refreshed: {n} agents have an office\n" if n else
+                  "[validate] Sisu not connected for this tenant — using the roster already "
+                  "in the DB (per-team rows need worker.roster_tick to have run in prod)\n")
 
     async with SessionLocal() as s:
         groups = {g.id: g for g in (await s.execute(select(ScorecardGroup).where(

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, NavLink, Link } from "react-router-dom";
 import { T, PROVIDER_NAME, relativeTime } from "./theme.js";
-import { getJSON, postJSON, putJSON, patchJSON, delJSON } from "./api.js";
+import { getJSON, postJSON, putJSON, patchJSON, delJSON, tenantHeaders } from "./api.js";
 import { Icon } from "./Brand.jsx";
 import AISettings from "./AISettings.jsx";
 import SecuritySettings from "./SecuritySettings.jsx";
@@ -446,7 +446,8 @@ function LegacyDeltaPanel({ live }) {
     setBusy(true); setMsg(null);
     try {
       const token = localStorage.getItem("cc_token");
-      const r = await fetch(`${API_BASE}/integrations/stripe_legacy/delta.csv`, { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch(`${API_BASE}/integrations/stripe_legacy/delta.csv`,
+        { headers: tenantHeaders({ Authorization: `Bearer ${token}` }) });
       if (!r.ok) throw new Error();
       const blob = new Blob([await r.text()], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
@@ -1024,7 +1025,8 @@ function IntegrationsPage() {
 
 function doSignOut() {
   const token = localStorage.getItem("cc_token");
-  if (API_BASE && token) fetch(`${API_BASE}/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+  if (API_BASE && token) fetch(`${API_BASE}/auth/logout`,
+    { method: "POST", headers: tenantHeaders({ Authorization: `Bearer ${token}` }) }).catch(() => {});
   localStorage.removeItem("cc_token");
   window.location.href = "/";
 }
