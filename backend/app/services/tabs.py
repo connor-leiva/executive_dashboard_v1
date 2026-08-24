@@ -17,14 +17,61 @@ from ..models import Business
 #   config["program_tabs"] (explicit)  ->  PROGRAM_TABS[key]  ->  [display_tab or key]
 PROGRAM_TABS = {"springb": ["forum", "becollective", "edge"]}
 
+# Presentation for the platform's own tabs — the ones every tenant has regardless of what
+# businesses it runs. Nav order is: portfolio, the tenant's business/program tabs, then these.
+PLATFORM_TABS = {
+    "portfolio": {"label": "Portfolio", "accent": "#F4F1E8"},
+    "flywheel": {"label": "Referral Flywheel", "accent": "#FA8069"},
+    "books": {"label": "Books", "accent": "#C9D3CE"},
+    "binder": {"label": "Binder", "accent": "#227175"},
+    "ai_employees": {"label": "AI Employees", "accent": "#61835E"},
+}
+
+# Presentation for named PROGRAM tabs — several views run off one membership entity's GHL
+# location. A tenant that names one of these in `program_tabs` gets this label and colour
+# unless it supplies its own (see _business_tabs). These are defaults for a program somebody
+# opted into by name, not an assumption about every tenant.
+PROGRAM_META = {
+    "forum": {"label": "The Forum", "accent": "#FFDD1F"},
+    "becollective": {"label": "beCollective", "accent": "#FFBA9F"},
+    "edge": {"label": "The Edge", "accent": "#B26248"},
+}
+
+
+def _program_entries(b) -> list[dict]:
+    """This business's nav tabs as {key, label, accent} — the single place that decides both
+    WHICH tabs a business contributes and how each is presented.
+
+    `config["program_tabs"]` accepts either shape:
+        ["forum", "becollective"]                       keys, presented from PROGRAM_META
+        [{"key": "guild", "label": "The Guild", "accent": "#8899AA"}]   fully self-describing
+    The second is what a tenant with its own programs uses; the first is what Spring has.
+    """
+    cfg = b.config or {}
+    raw = cfg.get("program_tabs") or PROGRAM_TABS.get(b.key)
+    if not raw:
+        key = b.display_tab or b.key
+        return [{"key": key, "label": b.name, "accent": b.accent}]
+    out = []
+    for item in raw:
+        if isinstance(item, dict):
+            key = item.get("key")
+            if not key:
+                continue
+            meta = PROGRAM_META.get(key, {})
+            out.append({"key": key,
+                        "label": item.get("label") or meta.get("label") or key.replace("_", " ").title(),
+                        "accent": item.get("accent") or meta.get("accent") or b.accent})
+        else:
+            meta = PROGRAM_META.get(item, {})
+            out.append({"key": item,
+                        "label": meta.get("label") or item.replace("_", " ").title(),
+                        "accent": meta.get("accent") or b.accent})
+    return out
+
 
 def _business_tabs(b) -> list[str]:
-    cfg = b.config or {}
-    if cfg.get("program_tabs"):
-        return list(cfg["program_tabs"])
-    if b.key in PROGRAM_TABS:
-        return list(PROGRAM_TABS[b.key])
-    return [b.display_tab or b.key]
+    return [e["key"] for e in _program_entries(b)]
 
 
 async def tenant_tabs(s, tenant_id) -> list[str]:
@@ -48,6 +95,34 @@ async def tenant_tabs(s, tenant_id) -> list[str]:
     for t in out:
         if t not in seen:
             seen.add(t); ordered.append(t)
+    return ordered
+
+
+async def tenant_tab_descriptors(s, tenant_id) -> list[dict]:
+    """The nav, as data: [{key, label, accent}] in order.
+
+    The SPA used to hold this as a compile-time constant — ten entries carrying one customer's
+    business names and brand colours — so every tenant's rail read "ULRG + Team", "Sympli
+    Mortgage", "The Forum", whatever their own businesses were called. Derived here instead,
+    from the same `_program_entries` the permission vocabulary uses, so the rail and the tab
+    grants can never disagree about which tabs exist.
+    """
+    biz = (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id).order_by(Business.sort_order))).scalars().all()
+    entries: list[dict] = [{"key": "portfolio", **PLATFORM_TABS["portfolio"]}]
+    for b in biz:
+        entries.extend(_program_entries(b))
+        if b.display_tab and b.display_tab not in {e["key"] for e in entries}:
+            # A financial entity routed onto a brand-new page contributes that page too.
+            entries.append({"key": b.display_tab, "label": b.name, "accent": b.accent})
+    for key in ("flywheel", "books", "binder"):
+        entries.append({"key": key, **PLATFORM_TABS[key]})
+    if settings.AI_EMPLOYEES_ENABLED:
+        entries.append({"key": "ai_employees", **PLATFORM_TABS["ai_employees"]})
+    seen, ordered = set(), []
+    for e in entries:
+        if e["key"] not in seen:
+            seen.add(e["key"]); ordered.append(e)
     return ordered
 
 

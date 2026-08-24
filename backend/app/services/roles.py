@@ -101,3 +101,42 @@ async def flywheel_pair(s: AsyncSession, tenant_id) -> tuple[Business | None, Bu
     """
     biz = await all_businesses(s, tenant_id)
     return pick(biz, REAL_ESTATE), pick(biz, COMMISSION_JV)
+
+
+# Words that describe what a company IS rather than who it is. Dropping a trailing one leaves
+# the distinguishing part of the name, which is what prose wants: "Sympli Mortgage" -> "Sympli".
+_GENERIC_SUFFIXES = {
+    "mortgage", "lending", "realty", "team", "group", "holdings", "partners", "capital",
+    "collective", "brokerage", "co", "llc", "inc", "corp", "ltd", "company",
+}
+
+
+def short_name(b) -> str:
+    """A business's name as prose uses it — "ULRG" where the full name is "ULRG + Team".
+
+    Copy that names two businesses in one sentence (the referral flywheel does it a dozen
+    times) reads badly with full legal-ish names: "Sympli Mortgage logged us, no ULRG + Team
+    deal". So this shortens, in three steps, each of which fails safe:
+
+      1. `config["short_name"]` — an explicit answer always wins.
+      2. Drop anything after " + ", which joins a name to a qualifier ("ULRG + Team").
+      3. Drop ONE trailing generic word ("Sympli Mortgage" -> "Sympli", "Coastal Realty" ->
+         "Coastal") — but only when something meaningful is left.
+
+    Never guesses beyond that. "The Guild" keeps both words, because the alternative rule that
+    would shorten it ("take the first word") returns "The". A name it does not recognise comes
+    back whole, which is always correct if occasionally wordy.
+    """
+    if b is None:
+        return ""
+    explicit = ((b.config or {}).get("short_name") or "").strip()
+    if explicit:
+        return explicit
+    name = (b.name or "").strip()
+    base = name.split(" + ")[0].strip() or name
+    parts = base.split()
+    if len(parts) > 1 and parts[-1].lower().strip(".,") in _GENERIC_SUFFIXES:
+        trimmed = " ".join(parts[:-1]).strip()
+        if trimmed and trimmed.lower() not in {"the", "a", "an"}:
+            return trimmed
+    return base or name

@@ -5,13 +5,21 @@ import sampleBecollective from "./sampleBecollective.js";
 const API = import.meta.env.VITE_API_BASE;
 
 /* beCollective focused-view payload (mirrors useForum). */
-export function useBecollective(period = "mtd") {
+export function useBecollective(period = "mtd", enabled = true) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [usingSample, setUsingSample] = useState(false);
 
   useEffect(() => {
     let alive = true;
+    // Not every tenant runs this program. The API correctly refuses a tab the tenant does not
+    // have, so fetching regardless meant a wall of 403s on every load for anyone but the tenant
+    // this view was built for — and a "failed" panel where there is simply nothing to show.
+    if (!enabled) {
+      setData(null);
+      setError(null);
+      return () => { alive = false; };
+    }
     if (!API) {
       setData(sampleBecollective);
       setUsingSample(true);
@@ -31,7 +39,7 @@ export function useBecollective(period = "mtd") {
         setError(e);
       });
     return () => { alive = false; };
-  }, [period]);
+  }, [period, enabled]);
 
-  return { data, error, loading: !data && !error, usingSample };
+  return { data, error, loading: enabled && !data && !error, usingSample };
 }

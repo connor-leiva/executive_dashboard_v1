@@ -11,7 +11,7 @@ from ..schemas import (LoginRequest, LoginResponse, MeResponse, ChangePasswordRe
                        AcceptInviteRequest, ResetPasswordRequest)
 from ..security import (verify_pw, make_token, hash_pw, hash_action_token, MIN_PASSWORD_LEN)
 from ..services.audit import audit
-from ..services.tabs import tenant_tabs, effective_tabs
+from ..services.tabs import tenant_tabs, tenant_tab_descriptors, effective_tabs
 from ..tenancy import current_tenant_id
 
 router = APIRouter(tags=["auth"])
@@ -77,9 +77,15 @@ async def logout():
 @router.get("/me", response_model=MeResponse)
 async def me(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     tenant = (await s.execute(select(Tenant).where(Tenant.id == user.tenant_id))).scalar_one()
-    tabs = effective_tabs(user, await tenant_tabs(s, user.tenant_id))
+    descriptors = await tenant_tab_descriptors(s, user.tenant_id)
+    tabs = effective_tabs(user, [d["key"] for d in descriptors])
+    granted = set(tabs)
     return MeResponse(id=str(user.id), email=user.email, name=user.name, role=user.role,
-                      status=user.status, tenant=tenant.slug, tabs=tabs)
+                      status=user.status, tenant=tenant.slug, tenant_name=tenant.name,
+                      tabs=tabs,
+                      # Filtered to what this user may see, so the rail cannot render a tab
+                      # the API would refuse — the nav and the grant come from one source.
+                      nav=[d for d in descriptors if d["key"] in granted])
 
 
 @router.post("/auth/change-password", response_model=LoginResponse)

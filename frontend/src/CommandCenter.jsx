@@ -31,8 +31,15 @@ import { SpringSignature, ribbedHero, Icon } from "./Brand.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
-// Map a scorecard's business_key to its dot color.
-function dotFor(businessKey) {
+/* Map a scorecard's business_key to its dot color.
+
+   Prefer the accent the SERVER gave that business — every area carries its own, set per
+   tenant. The switch below is only the fallback: it is Spring's palette keyed by Spring's
+   business names, so on any other tenant every dot fell through to the default and the
+   strip lost the colour coding that ties a tile to its section. */
+function dotFor(businessKey, areas) {
+  const own = areas && areas[businessKey] && areas[businessKey].accent;
+  if (own) return own;
   switch (businessKey) {
     case "portfolio":
       return T.evergreen;
@@ -64,8 +71,14 @@ function monthYear(iso) {
 /* ── small pieces ──────────────────────────────────────────── */
 
 function Spark({ data, color, w = 104, h = 38 }) {
-  const max = Math.max(...data), min = Math.min(...data), rng = max - min || 1;
-  const pts = data.map((d, i) => [(i / (data.length - 1)) * w, h - 4 - ((d - min) / rng) * (h - 8)]);
+  // A business with no trend history yet — every brand-new tenant — arrives here with an
+  // empty array. `pts[pts.length - 1]` was then undefined and the endpoint dot threw, which
+  // React turned into a blank screen for the WHOLE app, not just a missing sparkline.
+  // Math.max() of nothing is -Infinity too, so guard before any of it runs.
+  const series = Array.isArray(data) ? data.filter((n) => typeof n === "number" && isFinite(n)) : [];
+  if (series.length < 2) return <svg width={w} height={h} style={{ display: "block" }} aria-hidden />;
+  const max = Math.max(...series), min = Math.min(...series), rng = max - min || 1;
+  const pts = series.map((d, i) => [(i / (series.length - 1)) * w, h - 4 - ((d - min) / rng) * (h - 8)]);
   const line = pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
   const id = "g" + color.replace("#", "");
   return (
@@ -424,8 +437,16 @@ function Overview({ data, onOpen, onDrill }) {
   const periodLabel = (period?.label === "Month to date")
     ? monthYear(period?.as_of)
     : (period?.label || monthYear(period?.as_of));
-  const orderedCards = [areas.ulrg, areas.forum, areas.becollective, areas.sympli].filter(Boolean);
+  // Spring's card order, preserved exactly — then a fallback for every other tenant, whose
+  // areas are named nothing like these and previously produced an EMPTY portfolio page. The
+  // preferred list is legacy and belongs in tenant config; until it moves, this keeps one
+  // tenant's layout stable without leaving everyone else with no cards at all.
+  const preferredCards = [areas.ulrg, areas.forum, areas.becollective, areas.sympli].filter(Boolean);
+  const orderedCards = preferredCards.length
+    ? preferredCards
+    : Object.values(areas || {}).filter(Boolean);
   const fwAvailable = fw.available !== false && buyerClosings != null;
+  const { src: fwSource, partner: fwPartner } = fwNames(fw);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -464,7 +485,16 @@ function Overview({ data, onOpen, onDrill }) {
       <div>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "2px 2px 12px" }}>
           <Eyebrow>At a glance</Eyebrow>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>across all three businesses</span>
+          {/* Counted, not asserted: "all three" was true only for the tenant this was built for. */}
+          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>
+            {(() => {
+              // Count BUSINESSES, not areas. One membership entity renders as several program
+              // areas (Forum / beCollective / The Edge all carry that entity's id), so counting
+              // areas told Spring she had five businesses when she has three.
+              const n = new Set(Object.values(areas || {}).map((a) => a && a.id).filter(Boolean)).size;
+              return n ? `across ${n === 1 ? "the business" : `all ${n} businesses`}` : "across the portfolio";
+            })()}
+          </span>
         </div>
         <div className="cc-score">
           {scorecards.map((s, i) => {
@@ -479,7 +509,7 @@ function Overview({ data, onOpen, onDrill }) {
                   borderRadius: 12, padding: "16px 16px", cursor: clickable ? "pointer" : "default",
                 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: 2, background: dotFor(s.business_key) }} />
+                  <span style={{ width: 7, height: 7, borderRadius: 2, background: dotFor(s.business_key, areas) }} />
                   <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, fontWeight: 500 }}>{s.label}</span>
                   {clickable && <span style={{ marginLeft: "auto", fontSize: 11, color: T.muted }}>↗</span>}
                 </div>
@@ -509,8 +539,8 @@ function Overview({ data, onOpen, onDrill }) {
             </div>
             <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.onDarkMute, marginTop: 3 }}>
               {fwAvailable
-                ? `Sympli financed ${captured} of ${buyerClosings} ULRG buyer closings this month · ${capturePct}% capture`
-                : "Connect Arive to see how many ULRG buyers Sympli financed (Phase 3)"}
+                ? `${fwPartner} financed ${captured} of ${buyerClosings} ${fwSource} buyer closings this month · ${capturePct}% capture`
+                : `Connect Arive to see how many ${fwSource} buyers ${fwPartner} financed`}
             </div>
           </div>
         </div>
@@ -636,6 +666,14 @@ function AreaDetail({ area, onDrill, period }) {
 
 /* ── flywheel v2 (spec: flywheel-view-v2) ──────────────────────── */
 
+/* The two businesses a flywheel is between, named by the payload. Fallbacks are generic
+   rather than one tenant's company names, so an unwired flywheel reads as a description of
+   the concept instead of an assertion about somebody else's companies. */
+const fwNames = (fw) => ({
+  src: (fw && fw.source_name) || "the brokerage",
+  partner: (fw && fw.partner_name) || "the lending JV",
+});
+
 function ReconRow({ label, value, good, warn, onClick }) {
   const color = warn ? T.poppyText : good ? "#4D6A4D" : T.ink;
   return (
@@ -683,6 +721,7 @@ const GhostDark = ({ children }) => (
 
 /* Row 1 left — the headline attach-rate KPI with progress-to-target + delta. */
 function AttachTile({ fw }) {
+  const { src, partner } = fwNames(fw);
   const pct = fw.capture_pct ?? 0;
   const target = fw.capture_target ?? 60;
   const delta = fw.attach_delta_pts;
@@ -698,7 +737,7 @@ function AttachTile({ fw }) {
           </span>
         )}
       </div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, marginTop: 6 }}>of ULRG buyer closings financed via Sympli</div>
+      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, marginTop: 6 }}>of {src} buyer closings financed via {partner}</div>
       <div style={{ marginTop: 18 }}>
         <div style={{ position: "relative", height: 9, borderRadius: 6, background: T.parchment, border: `1px solid ${T.line}` }}>
           <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(pct, 100)}%`, background: T.teal, borderRadius: 6 }} />
@@ -720,6 +759,7 @@ function AttachTile({ fw }) {
 
 /* Row 1 right — the shortened capture flow: two colored figures + bar. */
 function CaptureCard({ fw, onDrill }) {
+  const { src, partner } = fwNames(fw);
   const closings = fw.buyer_closings ?? 0;
   const captured = fw.captured ?? 0;
   const lost = fw.lost ?? (closings - captured);
@@ -737,7 +777,7 @@ function CaptureCard({ fw, onDrill }) {
         Of <FwDrill onClick={drill("flywheel_buyers")}>{closings} financeable buyer closings</FwDrill> {label}…
       </div>
       <div style={{ display: "flex", gap: 34, flexWrap: "wrap", marginBottom: 16 }}>
-        <FwStat color={T.teal} big={captured} label="Financed via Sympli" sub={`${pct}% capture`} onClick={drill("flywheel_captured")} />
+        <FwStat color={T.teal} big={captured} label={`Financed via ${partner}`} sub={`${pct}% capture`} onClick={drill("flywheel_captured")} />
         <FwStat color={T.poppy} big={lost} label="Financed elsewhere" sub="walked out the door" subColor={T.poppyText} onClick={drill("flywheel_uncaptured")} />
       </div>
       <div style={{ position: "relative" }}>
@@ -757,6 +797,7 @@ function CaptureCard({ fw, onDrill }) {
 
 /* Row 2 left — config-aware money card. Setup prompt when JV share is unset. */
 function MoneyCard({ fw }) {
+  const { src, partner } = fwNames(fw);
   const share = fw.per_loan_share;    // null/0 → unset
   const label = fw.period_label || "this period";
   const target = fw.capture_target ?? 60;
@@ -766,7 +807,7 @@ function MoneyCard({ fw }) {
       <Card style={cardStyle}>
         <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.onDarkMute, marginBottom: 10 }}>Revenue left on the table</div>
         <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.onDark, lineHeight: 1.45 }}>
-          Set Sympli's JV share per loan to price the gap.
+          Set {partner}'s JV share per loan to price the gap.
         </div>
         <GhostDark>Set JV share per loan</GhostDark>
       </Card>
@@ -788,6 +829,7 @@ function MoneyCard({ fw }) {
 
 /* Row 2 right — leaderboard: top-N referrers, expand to the full reconciling list. */
 function Leaderboard({ fw, onDrill }) {
+  const { src, partner } = fwNames(fw);
   const [expanded, setExpanded] = useState(false);
   const referrers = fw.referrers || [];
   const zeroAgents = fw.zero_agents || [];
@@ -804,7 +846,7 @@ function Leaderboard({ fw, onDrill }) {
       <div style={expanded ? { maxHeight: 296, overflowY: "auto", paddingRight: 4, display: "flex", flexDirection: "column", gap: 9 } : { display: "flex", flexDirection: "column", gap: 9 }}>
         {rows.map((ag) => (
           <div key={ag.id || ag.name} onClick={onDrill ? () => onDrill("flywheel_agent_referrals", "sympli", ag.id) : undefined}
-            className={onDrill ? "cc-card" : undefined} title={onDrill ? "See this agent's Sympli referrals" : undefined}
+            className={onDrill ? "cc-card" : undefined} title={onDrill ? `See this agent's ${partner} referrals` : undefined}
             style={{ display: "flex", alignItems: "center", gap: 12, cursor: onDrill ? "pointer" : "default", borderRadius: 6, padding: "2px 5px", margin: "0 -5px" }}>
             <span style={{ width: 118, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ag.name}</span>
             <div style={{ flex: 1, height: 16, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
@@ -838,6 +880,7 @@ function Leaderboard({ fw, onDrill }) {
 }
 
 function Flywheel({ flywheel, onDrill }) {
+  const { src, partner } = fwNames(flywheel);
   const fw = flywheel || {};
   const available = fw.available !== false;
   const drill = available ? onDrill : null;
@@ -848,14 +891,14 @@ function Flywheel({ flywheel, onDrill }) {
         <div style={{ position: "absolute", inset: -8, zIndex: 5, borderRadius: 16, background: "rgba(248,245,242,0.72)", backdropFilter: "blur(1.5px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ background: T.evergreen, borderRadius: 14, padding: "18px 24px", textAlign: "center", boxShadow: "0 12px 30px rgba(0,46,44,.18)" }}>
             <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.onDark }}>Unlocks when Arive is connected</div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDarkMute, marginTop: 4 }}>Connect Sympli's Arive to light up the flywheel</div>
+            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDarkMute, marginTop: 4 }}>Connect {partner}'s Arive to light up the flywheel</div>
           </div>
         </div>
       )}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
         <Icon name="spark" size={20} color={T.poppyText} />
         <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 700, color: T.ink, letterSpacing: "-.01em" }}>The Referral Flywheel</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>ULRG → Sympli · the connection QuickBooks can't see</span>
+        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>{src} → {partner} · the connection QuickBooks can't see</span>
       </div>
 
       <div className="cc-twocol"><AttachTile fw={fw} /><CaptureCard fw={fw} onDrill={drill} /></div>
@@ -881,25 +924,25 @@ function Flywheel({ flywheel, onDrill }) {
                 })}
               </div>
               <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
-                The lenders winning ULRG's buyers — from the mortgage vendor each agent selected in Sisu.
+                The lenders winning {src}'s buyers — from the mortgage vendor each agent selected in Sisu.
               </div>
             </Card>
           )}
           {fw.sympli_referred != null && (
             <Card style={{ flex: "1 1 300px", minWidth: 280 }}>
-              <PanelLabel accent={T.teal}>Cross-check with Sympli</PanelLabel>
+              <PanelLabel accent={T.teal}>Cross-check with {partner}</PanelLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 11, fontFamily: "Inter,sans-serif", fontSize: 12.5 }}>
-                <ReconRow label="Sympli loans credited to Utah Life" value={fw.sympli_referred}
+                <ReconRow label={`${partner} loans credited to ${src}`} value={fw.sympli_referred}
                   onClick={drill ? () => drill("flywheel_sympli_referred", "sympli") : undefined} />
-                <ReconRow label="…matched to a ULRG closing" value={fw.sympli_referred_linked} good
+                <ReconRow label={`…matched to a ${src} closing`} value={fw.sympli_referred_linked} good
                   onClick={drill ? () => drill("flywheel_sympli_linked", "sympli") : undefined} />
-                {fw.vendor_no_loan > 0 && <ReconRow label="Picked Sympli, no loan found" value={fw.vendor_no_loan} warn
+                {fw.vendor_no_loan > 0 && <ReconRow label={`Picked ${partner}, no loan found`} value={fw.vendor_no_loan} warn
                   onClick={drill ? () => drill("flywheel_vendor_no_loan", "sympli") : undefined} />}
-                {fw.referral_no_deal > 0 && <ReconRow label="Sympli logged us, no ULRG deal" value={fw.referral_no_deal} warn
+                {fw.referral_no_deal > 0 && <ReconRow label={`${partner} logged us, no ${src} deal`} value={fw.referral_no_deal} warn
                   onClick={drill ? () => drill("flywheel_referral_no_deal", "sympli") : undefined} />}
               </div>
               <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
-                Triangulated from three signals — the agent's vendor pick, the borrower match, and Sympli's own referral record. Gaps are deals to reconcile.
+                Triangulated from three signals — the agent's vendor pick, the borrower match, and {partner}'s own referral record. Gaps are deals to reconcile.
               </div>
             </Card>
           )}
@@ -1053,9 +1096,16 @@ export default function CommandCenter() {
   const [span, setSpan] = useState(() => fromPeriodKey("mtd"));
   const periodKeyStr = periodKey(span.grain, span.anchor, span.custom);
   const { data, loading, error, usingSample, retry } = useDashboard(periodKeyStr);
-  const forum = useForum(periodKeyStr);
-  const becollective = useBecollective(periodKeyStr);
-  const edge = useEdge(periodKeyStr);
+  const user = useMe();
+  // Only fetch a program view this tenant actually has. `user` is loaded first for that
+  // reason: with no tab grant the API refuses these (correctly), so an ungated fetch meant
+  // three 403s on every page load for any tenant that does not run Spring's programs.
+  // Before /me answers, `user` is null and these stay enabled — that is the single-tenant
+  // path and keeps first paint unchanged.
+  const hasTab = (k) => !user || !Array.isArray(user.tabs) || user.tabs.includes(k);
+  const forum = useForum(periodKeyStr, hasTab("forum"));
+  const becollective = useBecollective(periodKeyStr, hasTab("becollective"));
+  const edge = useEdge(periodKeyStr, hasTab("edge"));
   const [view, setView] = useState("overview");
   // Off-canvas rail on phones/tablets. Selecting a destination closes it, so the drawer
   // never sits over the content you just asked for.
@@ -1064,7 +1114,6 @@ export default function CommandCenter() {
   const [refreshing, setRefreshing] = useState(false);
   const [drill, setDrill] = useState(null);       // { key, business, agentId, lo, stage, source } for the audit drawer
   const onDrill = (key, business, agentId, lo, opts) => setDrill(key ? { key, business, agentId, lo, ...(opts || {}) } : null);
-  const user = useMe();
   // AI Employees list — fetched at the shell so the rail badge has the awaiting count even
   // when the tab isn't the active view. Only when the flag+grant put the tab in myTabs.
   const ai = useAiEmployees(Boolean(user && user.tabs && user.tabs.includes("ai_employees")));
@@ -1073,12 +1122,22 @@ export default function CommandCenter() {
   // deep-link / stale view to an ungranted tab redirects to the first one they have.
   // null = offline/unknown (no /me) → show all (dev fallback), minus flag-gated live-only tabs.
   const myTabs = user && user.tabs ? user.tabs : null;
-  const baseNav = myTabs
-    ? NAV.filter((n) => myTabs.includes(navTab(n.k)))
-    : NAV.filter((n) => n.k !== "ai_employees");   // needs a live backend + flag; hide in sample mode
-  // Financial pages a QBO entity was routed to that aren't in the built-in NAV
-  // (e.g. a new coaching page) — render them data-driven, before the flywheel divider.
-  const KNOWN_TABS = new Set(NAV.map((n) => navTab(n.k)));
+  // The rail comes from the SERVER (/me -> nav), because the tabs a tenant has are its
+  // businesses: NAV below is one customer's names and brand colours, and every other tenant
+  // would read "ULRG + Team" and "Sympli Mortgage" in their own sidebar. The static list
+  // survives only as the offline/sample fallback, where there is no tenant to ask about.
+  // `dot` is resolved per item too, so a colour is never looked up from a key switch.
+  const serverNav = user && Array.isArray(user.nav) && user.nav.length
+    ? user.nav.map((n) => ({ k: n.key === "portfolio" ? "overview" : n.key,
+                             label: n.label, dot: n.accent || T.mist,
+                             divide: n.key === "flywheel" }))
+    : null;
+  const baseNav = serverNav
+    || (myTabs ? NAV.filter((n) => myTabs.includes(navTab(n.k)))
+               : NAV.filter((n) => n.k !== "ai_employees"));  // sample mode: no backend, no flag
+  // Financial pages a QBO entity was routed to that the nav doesn't already carry — render
+  // them data-driven, before the flywheel divider.
+  const KNOWN_TABS = new Set(baseNav.map((n) => navTab(n.k)));
   const extraNav = Object.values((data && data.areas) || {})
     .filter((a) => a && !KNOWN_TABS.has(a.key) && (!myTabs || myTabs.includes(a.key)))
     .map((a) => ({ k: a.key, label: a.name, dot: a.accent || T.mist }));
@@ -1089,7 +1148,7 @@ export default function CommandCenter() {
   useEffect(() => {
     if (!myTabs || !myTabs.length) return;
     if (!myTabs.includes(navTab(view))) {
-      const first = NAV.find((n) => myTabs.includes(navTab(n.k)));
+      const first = navItems.find((n) => myTabs.includes(navTab(n.k)));
       if (first) setView(first.k);
     }
   }, [myTabs, view]);
@@ -1135,7 +1194,7 @@ export default function CommandCenter() {
     ? <EdgeView data={edge.data} area={areas?.edge} onDrill={onDrill}
         deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="edge_roster" />
     : <SkeletonDashboard />;
-  else if (activeView === "ulrg") content = <UlrgTabs role={user?.role}
+  else if (activeView === "ulrg" && areas?.ulrg) content = <UlrgTabs role={user?.role}
     overview={<AreaDetail area={areas.ulrg} onDrill={onDrill} period={periodKeyStr} />} />;
   else if (activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;

@@ -35,6 +35,20 @@ from ..tenancy import RESERVED_SLUGS, url_scheme
 
 INVITE_VALID_DAYS = 7
 
+# Accents handed out in order when the caller does not name one. Every business defaulting to
+# the same colour gave a new tenant a rail of identical dots — the dot exists to tie a tile to
+# its section, so one colour for everything makes it decoration. Drawn from the product palette
+# and ordered so adjacent businesses are easy to tell apart.
+DEFAULT_ACCENTS = [
+    ("#61835E", "#4D6A4D"),      # meadow
+    ("#227175", "#1B5457"),      # teal
+    ("#FFBA9F", "#6D5336"),      # petal
+    ("#FA8069", "#7A2F1E"),      # poppy
+    ("#FFDD1F", "#6D5336"),      # daffodil
+    ("#B26248", "#5C3325"),      # terracotta
+    ("#C9D3CE", "#42504A"),      # mist
+]
+
 # What a tenant gets when the caller doesn't describe its businesses. One generic profit
 # center: enough for the dashboard to render, and renamed in Settings rather than in code.
 DEFAULT_BUSINESSES = [
@@ -122,10 +136,11 @@ async def provision_tenant(
     s.add(Domain(tenant_id=tenant.id, hostname=host, is_primary=True))
 
     for i, b in enumerate(businesses or DEFAULT_BUSINESSES):
+        accent, ink = DEFAULT_ACCENTS[i % len(DEFAULT_ACCENTS)]
         s.add(Business(
             tenant_id=tenant.id, key=b["key"], name=b.get("name") or b["key"],
-            tag=b.get("tag") or "Business", accent=b.get("accent") or "#61835E",
-            ink=b.get("ink") or "#4D6A4D", is_jv=bool(b.get("is_jv")),
+            tag=b.get("tag") or "Business", accent=b.get("accent") or accent,
+            ink=b.get("ink") or ink, is_jv=bool(b.get("is_jv")),
             jv_share=Decimal(str(b.get("jv_share", 1.0))),
             kind=b.get("kind") or "real_estate", sort_order=i))
 

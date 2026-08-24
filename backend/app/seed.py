@@ -53,6 +53,9 @@ SPRINGB_CONFIG = {
 }
 
 SYMPLI_CONFIG = {
+    # No "short_name" here on purpose: roles.short_name derives "Sympli" from "Sympli Mortgage"
+    # and "ULRG" from "ULRG + Team" on its own, so Spring's LIVE rows need no config change for
+    # the flywheel copy to read as it always has. Set it only where the derivation is wrong.
     "trend": [13, 16, 12, 19, 17, 22, 19],
     "ops": [
         {"label": "Funded loans", "value": "19", "sub": "month to date"},

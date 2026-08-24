@@ -79,7 +79,10 @@ async def test_login_and_dashboard_shape():
     # Distinct union across programs: 70 Forum + 30 beCollective members, no double count.
     assert labels["Active Members"]["value"] == "100"
     assert labels["Active Members"]["business_key"] == "forum"
-    assert labels["Active Members"]["sub"] == "Forum + beCollective"
+    # "The Forum", not "Forum": this sub-line is built from the membership entity's own
+    # program-tab LABELS now, rather than a literal. It therefore reads exactly as the nav
+    # item does, and a tenant whose first program is "The Guild" sees that instead.
+    assert labels["Active Members"]["sub"] == "The Forum + beCollective"
 
     # Sources collapse per provider; QBO connected, Arive still pending (Phase 3).
     src = {s["name"]: s["status"] for s in d["sources"]}

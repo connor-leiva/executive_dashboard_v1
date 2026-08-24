@@ -638,6 +638,7 @@ async def _build_flywheel(s, tenant_id, period, start, end) -> Flywheel:
 
     return Flywheel(
         available=True, period_label=_fw_label(period),
+        source_name=roles.short_name(ulrg), partner_name=roles.short_name(sympli),
         buyer_closings=n_fin, captured=n_cap, lost=lost_n, capture_pct=capture_pct,
         capture_target=target, attach_delta_pts=attach_delta, per_loan_share=share,
         gap_dollars=gap_dollars, gap_at_target=gap_at_target, per_point_value=per_point,
@@ -831,7 +832,7 @@ def _ops_from_config(b: Business) -> list[OpTile]:
 def _scorecards(
     *, portfolio_noi, portfolio_margin, ulrg_gci, ulrg_closed, ulrg_pending, ulrg_pipeline,
     producing, total_agents, sympli_funded, sympli_volume, attach_rate, members, have_financials,
-    members_sub="The Forum", re_key="ulrg", jv_key="sympli", member_tab="forum",
+    members_sub="Members", re_key="ulrg", jv_key="sympli", member_tab="forum",
     attach_sub="Attach rate",
 ) -> list[Scorecard]:
     """The portfolio strip.
@@ -876,7 +877,9 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
     sc: dict[str, object] = {
         "ulrg_gci": 0.0, "ulrg_closed": 0, "ulrg_pending": 0, "ulrg_pipeline": 0.0,
         "producing": 0, "total_agents": 0, "sympli_funded": None, "sympli_volume": None,
-        "members": None, "members_sub": "The Forum",
+        # Generic until the membership entity names its own first program (below). "The Forum"
+        # is one tenant's program name and was the default for everybody.
+        "members": None, "members_sub": "Members",
     }
 
     for b in businesses:
@@ -993,8 +996,25 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
     # never happened: the program tabs rendered empty and its P&L stayed on a tab nobody looks
     # at. `sbiz` is resolved FIRST here for that reason; the old order could not have worked.
     sbiz = roles.pick(businesses, roles.MEMBERSHIP)
-    if sbiz is not None and sbiz.key in areas:
+    # ...and only when that entity actually DECLARES program tabs. `_program_entries` returns
+    # a single entry named after the business itself when it declares none, and splitting on
+    # that would replace a tenant's own area with a synthesized copy of it. Spring's membership
+    # entity declares three (PROGRAM_TABS), so her split is unchanged; a tenant that declares
+    # none keeps one area under its own name — which is why Acme's portfolio was showing cards
+    # labelled "The Forum" and "beCollective".
+    from .tabs import _program_entries
+    prog_entries = _program_entries(sbiz) if sbiz is not None else []
+    prog_by_key = {e["key"]: e for e in prog_entries}
+    is_split = len(prog_entries) > 1 or (prog_entries and prog_entries[0]["key"] != sbiz.key)
+    if sbiz is not None and is_split and sbiz.key in areas:
         sb = areas.pop(sbiz.key)
+        # The PRIMARY program view — the first tab the entity declares. It inherits the
+        # entity's P&L; the others are operational-only. Resolved BEFORE the member counts
+        # below, because that block refines `members_sub` by appending the other programs to
+        # this label — assigning it afterwards would overwrite "Forum + beCollective + The
+        # Edge" back down to just the first name.
+        primary = prog_entries[0]
+        sc["members_sub"] = primary["label"]
         members = arr = bc_members = 0
         if sbiz:
             fk = await _forum_kpis(s, tenant_id, sbiz.id, start, end)
@@ -1015,11 +1035,14 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                 sc["members"] = str(len(set(union_ids)))
                 extra = (["beCollective"] if bc_members else []) + (["The Edge"] if edge_members else [])
                 if extra:
-                    sc["members_sub"] = " + ".join(["Forum"] + extra)
+                    sc["members_sub"] = " + ".join([prog_entries[0]["label"]] + extra)
+        # The PRIMARY program view — the first tab the entity declares. It inherits the
+        # entity's P&L; the others are operational-only. Its name and colour come from the
+        # declaration, so a tenant whose first program is "The Guild" sees that.
         forum_tag = f"Mastermind · {members} members" + (f" · {_compact_usd(arr)} ARR" if arr else "")
-        areas["forum"] = sb.model_copy(update={
-            "key": "forum", "name": "The Forum", "tag": forum_tag,
-            "accent": "#FFDD1F", "ink": "#6D5336"})   # daffodil (Forum identity)
+        areas[primary["key"]] = sb.model_copy(update={
+            "key": primary["key"], "name": primary["label"], "tag": forum_tag,
+            "accent": primary["accent"], "ink": "#6D5336"})
         # A QBO entity literally named "beCollective" / "The Edge" auto-slugs (integrations
         # ._slugify) to the SAME key as these synthesized program tabs, so the businesses loop
         # above already built areas["becollective"]/["edge"] carrying that entity's P&L. PRESERVE
@@ -1032,25 +1055,34 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                         "margin": None, "pl": []}
             return {"sources": ["Go High Level", "QuickBooks"], "revenue": prev.revenue,
                     "noi": prev.noi, "margin": prev.margin, "pl": prev.pl}
-        areas["becollective"] = AreaPayload(
-            id=sb.id, key="becollective", name="beCollective",
-            tag=(f"Community · {bc_members} members" if bc_members else "Community · GHL segment"),
-            status="opportunity", accent="#FFBA9F", ink="#6D5336",
-            trend=sb.trend, ops=[], funnel=None, **_prog_financials(areas.get("becollective")))
-        areas["edge"] = AreaPayload(
-            id=sb.id, key="edge", name="The Edge",
-            tag=(f"Membership · {edge_members} members" if edge_members else "Membership · GHL segment"),
-            status="opportunity", accent="#B26248", ink="#6D5336",
-            trend=sb.trend, ops=[], funnel=None, **_prog_financials(areas.get("edge")))
+        # Every OTHER declared program view. Counts come from that program's own member kind
+        # ({key}_member), so a tenant's third program is counted the same way the first two are
+        # rather than needing a branch of its own.
+        _prog_counts = {"becollective": bc_members, "edge": edge_members}
+        _prog_word = {"becollective": "Community", "edge": "Membership"}
+        for entry in prog_entries[1:]:
+            k = entry["key"]
+            n = _prog_counts.get(k)
+            if n is None:
+                n = await _prog_members(f"{k}_member")
+            word = _prog_word.get(k, "Members")
+            areas[k] = AreaPayload(
+                id=sb.id, key=k, name=entry["label"],
+                tag=(f"{word} · {n} members" if n else f"{word} · GHL segment"),
+                status="opportunity", accent=entry["accent"], ink="#6D5336",
+                trend=sb.trend, ops=[], funnel=None, **_prog_financials(areas.get(k)))
 
         # Springb's own P&L defaults to the forum view (above). If it's been re-routed
         # to another page, move its financial there and leave forum's financial empty
         # (the operational forum view stays). Default (forum) path is untouched.
-        fin_tab = (sbiz.display_tab if sbiz else None) or "forum"
-        if fin_tab != "forum" and fin_tab in areas and sb.revenue is not None:
+        # Where this entity's P&L lives. Defaults to its PRIMARY program view (the tab that
+        # inherits the financials above), not to the literal "forum" — that name belongs to
+        # one tenant's first program, not to the concept.
+        fin_tab = (sbiz.display_tab if sbiz else None) or primary["key"]
+        if fin_tab != primary["key"] and fin_tab in areas and sb.revenue is not None:
             areas[fin_tab] = areas[fin_tab].model_copy(update={
                 "revenue": sb.revenue, "noi": sb.noi, "margin": sb.margin, "pl": sb.pl})
-            areas["forum"] = areas["forum"].model_copy(update={
+            areas[primary["key"]] = areas[primary["key"]].model_copy(update={
                 "revenue": None, "noi": None, "margin": None, "pl": []})
 
     # Route a financial entity (a QBO account connected to another page) onto its
@@ -1128,7 +1160,8 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         re_key=(_re_biz.key if (_re_biz := roles.pick(businesses, roles.REAL_ESTATE)) else "ulrg"),
         jv_key=(_jv_biz.key if (_jv_biz := roles.pick(businesses, roles.COMMISSION_JV)) else "sympli"),
         member_tab=_member_tab,
-        attach_sub=(f"{_re_biz.name} → {_jv_biz.name}" if _re_biz and _jv_biz else "Attach rate"),
+        attach_sub=(f"{roles.short_name(_re_biz)} → {roles.short_name(_jv_biz)}"
+                    if _re_biz and _jv_biz else "Attach rate"),
     )
 
     return DashboardResponse(

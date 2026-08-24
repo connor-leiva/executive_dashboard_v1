@@ -18,7 +18,12 @@ class MeResponse(BaseModel):
     role: str
     status: str
     tenant: str
+    tenant_name: str = ""         # the tenant's own display name, for the rail header
     tabs: list[str] = []          # effective nav tabs, in order
+    # The same tabs as {key, label, accent}. The SPA builds its rail from this rather than
+    # from a compile-time list of one customer's business names. `tabs` stays because every
+    # permission check in the client is a key membership test.
+    nav: list[dict] = []
 
 
 # ── multi-user platform (accounts, roles, tab grants) ──────────────
@@ -150,6 +155,11 @@ class FlywheelLender(BaseModel):
 
 class Flywheel(BaseModel):
     available: bool            # False until Arive is synced
+    # The two businesses this flywheel is between, by NAME. The UI wrote "ULRG -> Sympli" into
+    # a dozen strings; those are one tenant's company names, so every other tenant read a
+    # panel about businesses they do not own.
+    source_name: str | None = None      # the brokerage sending referrals
+    partner_name: str | None = None     # the JV receiving them
     period_label: str | None = None        # "this month" | "this quarter" | "this year" | "last month"
     buyer_closings: int | None = None      # financeable buy-side closings (cash excluded)
     captured: int | None = None
