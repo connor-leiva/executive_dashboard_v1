@@ -195,3 +195,62 @@ async def test_malformed_ids_on_public_routes_are_rejected_at_the_boundary(monke
         r = await c.get("/api/v1/ai/media/not-a-uuid/file",
                         params={"t": make_capability("media_read", tid=str(uuid.uuid4()))})
         assert r.status_code == 422, r.text
+
+
+# ── the unauthenticated surface is rate limited ────────────────────────────────────────
+async def test_a_password_spray_is_throttled_before_it_reaches_bcrypt(monkeypatch):
+    """The per-user lockout covers a sustained attack on ONE account. It does nothing about the
+    shape a shared API origin invites: a handful of guesses each across many known addresses,
+    which never trips a ten-strike counter on any of them. The limiter keys on the caller, not
+    the account, so spreading the attempts out no longer evades it."""
+    from app.throttle import RULES, reset
+
+    reset()
+    limit, _ = RULES["login"]
+    codes = []
+    async with _client() as c:
+        for i in range(limit + 3):
+            r = await c.post("/api/v1/auth/login",
+                             headers={"X-Forwarded-For": "203.0.113.9"},
+                             json={"email": f"victim{i}@example.com", "password": "guess"})
+            codes.append(r.status_code)
+    assert codes[:limit] == [401] * limit, codes
+    assert codes[limit:] == [429] * 3, "the spray was not throttled"
+
+
+async def test_the_limit_is_per_caller_not_global(monkeypatch):
+    """A shared limit would let one abusive address lock every real user out — the limiter
+    becoming the outage. Keyed on (rule, address, tenant host)."""
+    from app.throttle import RULES, reset
+
+    reset()
+    limit, _ = RULES["login"]
+    async with _client() as c:
+        for i in range(limit + 1):
+            await c.post("/api/v1/auth/login", headers={"X-Forwarded-For": "198.51.100.1"},
+                         json={"email": "a@b.c", "password": "x"})
+        # that address is now blocked...
+        blocked = await c.post("/api/v1/auth/login", headers={"X-Forwarded-For": "198.51.100.1"},
+                               json={"email": "a@b.c", "password": "x"})
+        # ...but a different one, and the real owner, are not.
+        other = await c.post("/api/v1/auth/login", headers={"X-Forwarded-For": "198.51.100.2"},
+                             json={"email": "spring@springb.com", "password": "springtime"})
+    assert blocked.status_code == 429
+    assert blocked.headers.get("retry-after")
+    assert other.status_code == 200, other.text
+
+
+async def test_switching_tenant_realm_does_not_refill_the_budget():
+    """Tenancy is chosen by a client-supplied header, so if the limiter ignored it an attacker
+    could reset their own allowance by naming a different tenant on every request."""
+    from app.throttle import RULES, check, reset
+
+    reset()
+    limit, _ = RULES["login"]
+    for _ in range(limit):
+        assert check("login", "1.2.3.4", "a.acumyn.io") is None
+    assert check("login", "1.2.3.4", "a.acumyn.io") is not None      # exhausted for that realm
+    # A different realm gets its own budget (one tenant must not spend another's)...
+    assert check("login", "1.2.3.4", "b.acumyn.io") is None
+    # ...and the exhausted one stays exhausted.
+    assert check("login", "1.2.3.4", "a.acumyn.io") is not None

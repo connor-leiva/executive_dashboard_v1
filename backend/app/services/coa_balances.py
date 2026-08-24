@@ -479,8 +479,11 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
     approvers = {}
     if approver_ids:
         from ..models import User
+        # Tenant-scoped even though approver_ids came from tenant-scoped contribution rows.
+        # Defence in depth: an .in_() seeded from another table is exactly the query that
+        # becomes a leak the first time someone widens the query that fed it.
         approvers = {u.id: u.name for u in (await s.execute(select(User).where(
-            User.id.in_(approver_ids)))).scalars()}
+            User.id.in_(approver_ids), User.tenant_id == tenant_id))).scalars()}
 
     wanted = ("bs",) if statement == "bs" else ("pl",)
     sections: dict = {}

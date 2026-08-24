@@ -317,9 +317,39 @@ async def test_email_webhook_disabled_without_secret(monkeypatch):
     assert r.status_code == 404
 
 
+async def test_email_webhook_is_closed_until_the_tenant_opts_in(monkeypatch):
+    """The secret authenticates the email PROVIDER, not the sender — anyone can email
+    binder@{slug}.<domain> and the provider forwards it here with the secret attached. So one
+    platform-wide secret plus a caller-named tenant let a stranger push documents into any
+    tenant's Binder. The channel is now opt-in, and a closed tenant 404s like an unknown
+    mailbox so probing cannot tell the two apart."""
+    monkeypatch.setattr(settings, "BINDER_INGEST_SECRET", "s3cret")
+    tid = await _tid()
+    async with SessionLocal() as s:                       # explicitly NOT enabled
+        t = await s.get(Tenant, tid)
+        t.config = {k: v for k, v in (t.config or {}).items() if k != "binder_email_ingest"}
+        await s.commit()
+    async with _client() as c:
+        r = await c.post("/api/v1/binder/ingest/email",
+                         data={"to": "binder@springb.acumyn.io"},
+                         files=[("files", ("x.pdf", b"unsolicited", "application/pdf"))],
+                         headers={"X-Ingest-Secret": "s3cret"})
+    assert r.status_code == 404, r.text
+    async with _client() as c:                            # and a bad secret is 404 too
+        r = await c.post("/api/v1/binder/ingest/email",
+                         data={"to": "binder@springb.acumyn.io"},
+                         files=[("files", ("x.pdf", b"unsolicited", "application/pdf"))],
+                         headers={"X-Ingest-Secret": "wrong"})
+    assert r.status_code == 404
+
+
 async def test_email_webhook_ingests_with_secret(monkeypatch):
     monkeypatch.setattr(settings, "BINDER_INGEST_SECRET", "s3cret")
     tid = await _tid()
+    async with SessionLocal() as s:
+        t = await s.get(Tenant, tid)
+        t.config = {**(t.config or {}), "binder_email_ingest": True}
+        await s.commit()
     async with _client() as c:
         r = await c.post("/api/v1/binder/ingest/email",
                          data={"to": "binder@springb.acumyn.io"},

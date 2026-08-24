@@ -3,6 +3,7 @@ the `binder` tab. Step 2 ships the entity lifecycle; the matrix / review / oblig
 mutations land with later steps. Payload shapes mirror the Binder mockups."""
 import logging
 import mimetypes
+import secrets
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, File, Form, Header, UploadFile
@@ -16,6 +17,7 @@ from ..db import get_session, SessionLocal
 from ..deps import require_tab_with_step_up, require_role
 from ..models import User, Tenant, BinderDocument
 from ..services import binder, binder_ingest, binder_storage
+from ..services.audit import audit
 
 log = logging.getLogger("app")
 router = APIRouter(prefix="/binder", tags=["binder"])
@@ -172,18 +174,36 @@ async def upload_documents_batch(background: BackgroundTasks, files: list[Upload
 
 @router.post("/ingest/email")
 async def ingest_email(to: str = Form(...), files: list[UploadFile] = File(...),
+                       sender: str = Form(default=""),
                        x_ingest_secret: str = Header(default=""),
                        s: AsyncSession = Depends(get_session)):
     """Inbound-email forwarding channel (Part 2 channel 2). PUBLIC + secret-gated: 404s unless
     BINDER_INGEST_SECRET is set and the X-Ingest-Secret header matches. Resolves the tenant from
     the recipient binder@{slug}.<domain>, ingests attachments as uploaded_via='email' (no user).
-    The email provider's inbound-parse routing to this endpoint is external infra to configure."""
-    if not settings.BINDER_INGEST_SECRET or x_ingest_secret != settings.BINDER_INGEST_SECRET:
-        raise HTTPException(404, "Not found")
+    The email provider's inbound-parse routing to this endpoint is external infra to configure.
+
+    Be clear about what the secret proves. It authenticates the EMAIL PROVIDER, not the sender —
+    anyone can email binder@{slug}.<domain>, and the provider will forward it here with the
+    secret attached. The tenant is named by the recipient address, i.e. by whoever sent the
+    mail. So a single platform-wide secret plus a caller-chosen tenant meant a stranger could
+    push documents into any tenant's Binder — the TOTP-gated section holding their legal
+    records — with no credential of their own at all.
+
+    Two gates close that. The channel is now opt-in per tenant and fails closed, so a tenant
+    that never asked for a forwarding address cannot have anything pushed into it. And the
+    sender is recorded, so an ingested document is attributable rather than anonymous.
+    """
+    if not settings.BINDER_INGEST_SECRET or not secrets.compare_digest(
+            x_ingest_secret or "", settings.BINDER_INGEST_SECRET):
+        raise HTTPException(404, "Not found")         # constant-time; 404 leaks nothing either way
     _, _, host = (to or "").partition("@")            # binder@{slug}.acumyn.io -> slug
     slug = host.split(".")[0] if host else ""
     tenant = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
     if tenant is None:
+        raise HTTPException(404, "Unknown mailbox")
+    if not (tenant.config or {}).get("binder_email_ingest"):
+        # Not enabled for this tenant. 404 like an unknown mailbox, so probing cannot tell an
+        # existing-but-closed tenant from one that does not exist.
         raise HTTPException(404, "Unknown mailbox")
     payload = []
     for f in files:
@@ -192,6 +212,11 @@ async def ingest_email(to: str = Form(...), files: list[UploadFile] = File(...),
             payload.append({"filename": f.filename or "document", "data": data})
     if not payload:
         raise HTTPException(400, "No attachments")
+    # `sender` is optional because it depends on the provider's inbound-parse mapping, but when
+    # present it is the only record of WHO put a document in the Binder — the alternative is an
+    # anonymous legal document with no provenance.
+    audit(s, tenant.id, None, "binder.email_ingest", "tenant", tenant.id,
+          {"to": (to or "")[:160], "from": (sender or "unknown")[:160], "files": len(payload)})
     return await binder_ingest.ingest_batch(s, tenant.id, None, payload, uploaded_via="email")
 
 

@@ -69,3 +69,19 @@ async def _no_connection_outlives_its_event_loop():
     yield
     await engine.dispose()
     gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_throttle():
+    """Clear the rate-limit counters between tests.
+
+    The limiter is real and in-process (app/throttle.py), and the suite logs in far more often
+    than any human would — without this, tests start 429ing each other in whatever order they
+    happen to run. Reset before AND after so a test that deliberately exhausts a bucket cannot
+    leak that state into its neighbours.
+    """
+    from app.throttle import reset
+
+    reset()
+    yield
+    reset()

@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -9,6 +9,7 @@ from .config import settings
 from .db import engine
 from .models import Base
 from .tenancy import resolve_tenant
+from .throttle import enforce
 from .routers import recall as recall_router, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp
 
 log = logging.getLogger("app")
@@ -55,6 +56,15 @@ def create_app() -> FastAPI:
                 await resolve_tenant(request)
             except Exception:
                 pass  # routers that need a tenant enforce it via deps
+        # Throttle the unauthenticated surface. AFTER tenant resolution (the limiter keys on the
+        # tenant host so one realm cannot spend another's budget) and BEFORE the handler, so a
+        # spray costs a dict lookup rather than a bcrypt verify. A 429 raised here is an
+        # HTTPException, which the try below must not swallow into a 500.
+        try:
+            await enforce(request)
+        except HTTPException as e:
+            return JSONResponse({"detail": e.detail}, status_code=e.status_code,
+                                headers=e.headers or None)
         try:
             return await call_next(request)
         except Exception:
