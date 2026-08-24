@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Transaction, PLSnapshot, Business, MetricRecord
 from .metrics import period_label, has_booked_snapshot, is_forward
+from . import roles
 
 
 def _period(period: str) -> tuple[dt.date, dt.date, bool]:
@@ -232,8 +233,9 @@ async def _membership_financials(s, tenant_id, business, period, start, end, is_
 
 async def compute_financials(s: AsyncSession, tenant_id, business: Business, period: str) -> dict:
     start, end, is_current = _period(period)
-    # Sympli's Live/Projection come from Arive loan commissions, not Sisu deals.
-    if business.key == "sympli":
+    # A commission JV's Live/Projection come from Arive loan commissions, not Sisu deals —
+    # it is paid per closing by a lender, so it has no deal pipeline of its own.
+    if business.kind == roles.COMMISSION_JV:
         return await _sympli_financials(s, tenant_id, business, period, start, end, is_current)
     # Membership / holding entities are Booked-only (no deal or loan pipeline).
     if business.kind in ("membership", "holding"):

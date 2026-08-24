@@ -16,6 +16,7 @@ from ..models import (BookTxn, PLLine, PLSnapshot, ICLink, ICRule, Integration,
                       Business, Tenant, User)
 from ..integrations import qbo
 from .audit import audit
+from . import roles
 from .books_scan import IC_CHARACTERIZATIONS
 from .metrics import _pl_period
 
@@ -277,9 +278,12 @@ async def build_books_pl(s, tenant_id, business="all", period="mtd") -> dict:
            "totals": totals, "revenue": _flat("income"), "cos": _flat("cogs"), "opex": _opex(),
            "entities": await _books_entities(s, tenant_id)}
 
-    if business == "sympli":
-        b = bmap.get("sympli")
-        out["jv_share"] = float(b.jv_share) if b and b.jv_share is not None else None
+    # Surface the JV share for whichever business is being viewed, if it has one. Keyed on the
+    # property rather than on one customer's business name: a JV is a JV whatever it is called,
+    # and a tenant with two of them was previously shown neither.
+    _b = bmap.get(business)
+    if _b is not None and _b.jv_share is not None and _b.kind == roles.COMMISSION_JV:
+        out["jv_share"] = float(_b.jv_share)
     if business == "all":
         tenant = (await s.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one()
         elim = (tenant.config or {}).get("books_elim_accounts") or []

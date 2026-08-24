@@ -27,6 +27,7 @@ except Exception:  # noqa: BLE001
 from sqlalchemy import select
 
 from .config import settings
+from .services import roles
 from .db import SessionLocal
 from .models import Business, ScorecardGroup, ScorecardMetric, ScorecardValue, Tenant
 from .services import scorecard_resolvers as R
@@ -65,8 +66,7 @@ async def _main(slug: str, weeks_back: int = 6) -> None:
         t = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
         if not t:
             print(f"[validate] no tenant '{slug}'"); return
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == t.id, Business.key == "ulrg"))).scalar_one_or_none()
+        biz = await roles.real_estate(s, t.id)
         if not biz:
             print("[validate] no ULRG business for this tenant"); return
 

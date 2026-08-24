@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import MetricRecord, Business, Integration
 from .metrics import _period_range
+from . import roles
 from . import forum as F
 
 # The Edge's sales-funnel stages (tenant-editable via config['recruiting_stage_groups']).
@@ -27,8 +28,9 @@ EDGE_FUNNEL_GROUPS = [
 
 async def build_edge(s: AsyncSession, tenant_id, period: str) -> dict:
     start, end = _period_range(period)
-    biz = (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+    # The membership business, by kind — these program views are all segments of ONE
+    # membership entity's GHL location, whatever that entity happens to be called.
+    biz = await roles.membership(s, tenant_id)
     empty = {"status": "pending", "watch": {"count": 0, "items": []}, "members_total": 0, "pl": None,
              "kpis": [], "deck": [], "funnel": None, "renewals": None, "event": None, "billing": None}
     if not biz:

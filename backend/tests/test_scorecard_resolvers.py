@@ -296,7 +296,10 @@ async def test_team_appts_met_and_signed_use_their_dates(team_env):
 async def test_team_sympli_attach_reuses_flywheel_capture(team_env):
     e = team_env
     async with SessionLocal() as s:
-        s.add(Business(tenant_id=e["tid"], key="sympli", name="Sympli", tag="mtg"))
+        # kind, not key: the flywheel finds its two halves by Business.kind now, and the model
+        # default is real_estate — so a JV that does not say so is invisible to it.
+        s.add(Business(tenant_id=e["tid"], key="sympli", name="Sympli", tag="mtg",
+                       kind="commission_jv"))
         integ = (await s.execute(select(Integration).where(
             Integration.tenant_id == e["tid"], Integration.provider == "sisu"))).scalar_one()
         integ.config = {"sympli_mortgage_vids": [777], "cash_vids": [999], "lender_names": {}}

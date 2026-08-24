@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select, delete
 
 from .config import settings
+from .services import roles
 from .db import SessionLocal
 from .models import Tenant, Business, Integration, ScorecardGroup, ScorecardMetric, ScorecardValue
 
@@ -59,8 +60,7 @@ async def _apply_meraki_vids(s, tenant_id, data: dict) -> None:
 async def load_ulrg_scorecard(s, tenant_id) -> int:
     data = _load_data()
     week_starts = [dt.date.fromisoformat(w) for w in data["week_starts"]]
-    biz = (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
+    biz = await roles.real_estate(s, tenant_id)
     if not biz:
         raise RuntimeError("no ULRG business for this tenant")
 
@@ -108,8 +108,7 @@ async def wire_resolvers(s, tenant_id) -> tuple[int, int]:
     and resolver_key is only SET where the JSON marks it (unmarked rows are left alone). Returns
     (groups_mapped, metrics_wired)."""
     data = _load_data()
-    biz = (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
+    biz = await roles.real_estate(s, tenant_id)
     if not biz:
         raise RuntimeError("no ULRG business for this tenant")
     by_key = {g["key"]: g for g in data["groups"]}

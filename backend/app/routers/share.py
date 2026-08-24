@@ -26,6 +26,7 @@ from ..config import settings
 from ..db import get_session
 from ..models import Business, ShareLink
 from ..services import scorecard
+from ..services import roles
 from ..tenancy import tenant_app_url
 
 router = APIRouter(prefix="/share", tags=["share"])          # JSON, mounted under /api/v1
@@ -53,8 +54,7 @@ async def _resolve(s: AsyncSession, token: str, *scopes: str) -> ShareLink:
 
 
 async def _ulrg_business(s: AsyncSession, tenant_id) -> Business:
-    b = (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
+    b = await roles.real_estate(s, tenant_id)
     if not b:
         raise HTTPException(404, "Not found")
     return b
@@ -85,8 +85,7 @@ async def _rep_link_launch(s: AsyncSession, token: str):
     link = await _resolve(s, token, "sd_rep")
     if not link.scope_ref:
         raise HTTPException(404, "Not found")
-    b = (await s.execute(select(Business).where(
-        Business.tenant_id == link.tenant_id, Business.key == "springb"))).scalar_one_or_none()
+    b = await roles.membership(s, link.tenant_id)
     launch = b and await active_launch_for(s, link.tenant_id, b.id)
     if not launch:
         raise HTTPException(404, "Not found")             # no active launch → the page goes dark

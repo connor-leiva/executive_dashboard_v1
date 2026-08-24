@@ -18,7 +18,7 @@ from ..services.audit import audit
 from ..security import enc, dec, make_capability, read_capability
 from ..tenancy import tenant_app_url
 from ..integrations import qbo, stripe_legacy
-from ..services import legacy_export
+from ..services import legacy_export, roles
 from ..services.sync import run_all, run_one
 from ..services.metrics import _period_range
 from ..services.integrations_view import build_integrations_view
@@ -284,7 +284,7 @@ async def disconnect(integ_id: uuid.UUID, purge: bool = Query(False),
 
 
 # ── QBO entity lifecycle (self-service: create / re-route / remove) ──────────
-_KINDS = ("real_estate", "commission_jv", "membership", "holding")
+_KINDS = roles.KINDS      # one vocabulary; roles.py owns it and the compute layer dispatches on it
 
 
 def _slugify(name: str) -> str:

@@ -27,14 +27,14 @@ from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, S
 from ..services import binder_storage, scorecard
 from ..services.audit import audit
 from ..tenancy import tenant_app_url
+from ..services import roles
 from ..services.scorecard_resolvers import resolver_records
 
 router = APIRouter(prefix="/ulrg", tags=["ulrg"])
 
 
 async def _ulrg_business(s, tenant_id):
-    b = (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
+    b = await roles.real_estate(s, tenant_id)
     if not b:
         raise HTTPException(404, "No ULRG business for this tenant")
     return b

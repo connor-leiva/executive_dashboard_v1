@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Business, Transaction, Agent, Lead, PLSnapshot, CashSnapshot, Integration, MetricRecord
+from . import roles
 from ..schemas import (
     DashboardResponse, Portfolio, CompositionSeg, AreaPayload, PLRow,
     OpTile, FunnelRow, Scorecard, Flywheel, FlywheelAgent, FlywheelLender, SourceStatus,
@@ -312,9 +313,7 @@ async def _loan_source_map(s, tenant_id, loans) -> dict:
     when Utah Life referred it (Arive referral @liveutah.com) OR its borrower matches a
     ULRG closing by email/phone. Powers the loan-drawer source chip + pipeline-by-source
     view — the same three-signal logic as the flywheel, from the loan's point of view."""
-    bmap = {b.key: b for b in (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id))).scalars().all()}
-    ulrg = bmap.get("ulrg")
+    ulrg = await roles.real_estate(s, tenant_id)
     sisu_integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
     vcfg = (sisu_integ.config or {}) if sisu_integ else {}
@@ -528,9 +527,9 @@ class _SympliCtx:
 async def build_sympli_ctx(s, tenant_id):
     """Load the shared Sympli-capture context (vendor config + funded Arive loans). None when the
     flywheel isn't wired (no ULRG/Sympli business, or neither Sympli vids nor funded loans)."""
-    biz = {b.key: b for b in (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id))).scalars().all()}
-    ulrg, sympli = biz.get("ulrg"), biz.get("sympli")
+    # Both halves or nothing: an attach rate needs a brokerage to source deals AND a JV to
+    # finance them, so a tenant with only one of the two has no flywheel to compute.
+    ulrg, sympli = await roles.flywheel_pair(s, tenant_id)
     if not (ulrg and sympli):
         return None
     sisu_integ = (await s.execute(select(Integration).where(
@@ -832,23 +831,32 @@ def _ops_from_config(b: Business) -> list[OpTile]:
 def _scorecards(
     *, portfolio_noi, portfolio_margin, ulrg_gci, ulrg_closed, ulrg_pending, ulrg_pipeline,
     producing, total_agents, sympli_funded, sympli_volume, attach_rate, members, have_financials,
-    members_sub="The Forum",
+    members_sub="The Forum", re_key="ulrg", jv_key="sympli", member_tab="forum",
+    attach_sub="Attach rate",
 ) -> list[Scorecard]:
+    """The portfolio strip.
+
+    `business_key` is not decoration: a drill inherits its tile's permission from it
+    (services/tabs.tab_for_metric) and the SPA routes the drawer by it. Hardcoded, every tile
+    on every tenant's dashboard pointed at businesses named ulrg/sympli/forum — so for anyone
+    else the drills resolved to a business that does not exist. Passed in, they name whichever
+    businesses this tenant actually has.
+    """
     return [
         Scorecard(
             label="Combined Profit",
             value=_compact_usd(portfolio_noi) if have_financials else "—",
             sub=f"{portfolio_margin}% margin" if have_financials else "awaiting QuickBooks",
             business_key="portfolio", key="combined_profit"),
-        Scorecard(label="Total GCI", value=_compact_usd(ulrg_gci), sub="this period", business_key="ulrg", key="gci"),
-        Scorecard(label="Closed Units", value=str(ulrg_closed), sub="this period", business_key="ulrg", key="units_closed"),
+        Scorecard(label="Total GCI", value=_compact_usd(ulrg_gci), sub="this period", business_key=re_key, key="gci"),
+        Scorecard(label="Closed Units", value=str(ulrg_closed), sub="this period", business_key=re_key, key="units_closed"),
         Scorecard(label="Under Contract", value=str(ulrg_pending),
-                  sub=f"{_compact_usd(ulrg_pipeline)} pipeline", business_key="ulrg", key="pending"),
-        Scorecard(label="Agents Producing", value=str(producing), sub=f"of {total_agents}", business_key="ulrg", key="agents_producing"),
+                  sub=f"{_compact_usd(ulrg_pipeline)} pipeline", business_key=re_key, key="pending"),
+        Scorecard(label="Agents Producing", value=str(producing), sub=f"of {total_agents}", business_key=re_key, key="agents_producing"),
         Scorecard(label="Loans Funded", value=sympli_funded or "—",
-                  sub=f"{sympli_volume} volume" if sympli_volume else None, business_key="sympli", key="funded_loans"),
-        Scorecard(label="Attach Rate", value=attach_rate or "—", sub="ULRG → Sympli", business_key="sympli"),
-        Scorecard(label="Active Members", value=members or "—", sub=members_sub, business_key="forum", key="active_members"),
+                  sub=f"{sympli_volume} volume" if sympli_volume else None, business_key=jv_key, key="funded_loans"),
+        Scorecard(label="Attach Rate", value=attach_rate or "—", sub=attach_sub, business_key=jv_key),
+        Scorecard(label="Active Members", value=members or "—", sub=members_sub, business_key=member_tab, key="active_members"),
     ]
 
 
@@ -877,7 +885,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         pipeline_cells = None                          # loan-pipeline pivot (Sympli only)
 
         # Operational (Phase 1) — only ULRG has live transaction data.
-        if b.key == "ulrg":
+        if b.kind == roles.REAL_ESTATE:
             cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
             closed = await _count(s, tenant_id, b.id, "closed", start, end, require_sale=True)
             volume = await _sum(s, tenant_id, b.id, Transaction.sale_price, "closed", start, end, require_sale=True)
@@ -895,7 +903,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             ops = _ops_from_config(b)
             funnel = [FunnelRow(**f) for f in cfg.get("funnel", [])] if cfg.get("funnel") else None
             scc = cfg.get("scorecard", {})
-            if b.key == "sympli":
+            if b.kind == roles.COMMISSION_JV:
                 try:
                     ak = await _arive_kpis(s, tenant_id, b.id, start, end)
                 except Exception:          # e.g. metric_record migration not yet applied
@@ -919,7 +927,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                 else:                                      # not synced → seeded placeholders
                     sc["sympli_funded"] = scc.get("funded")
                     sc["sympli_volume"] = scc.get("volume")
-            if b.key == "springb":
+            if b.kind == roles.MEMBERSHIP:
                 try:
                     k = await _forum_kpis(s, tenant_id, b.id, start, end)
                 except Exception:          # e.g. metric_record migration not yet applied
@@ -976,12 +984,17 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             loan_officers=los, loan_pipeline=pipeline_cells,
         )
 
-    # Spring B is one QBO entity but two views: split its area into The Forum
-    # (the operational + shared-P&L view) and beCollective (its own GHL segment,
-    # pending its focused view). The composition bar stays one "Spring B" segment.
-    if "springb" in areas:
-        sb = areas.pop("springb")
-        sbiz = next((b for b in businesses if b.key == "springb"), None)
+    # One membership entity, several views: its area splits into The Forum (the operational
+    # plus shared-P&L view) and the program tabs that run off the same GHL location. The
+    # composition bar stays a single segment for the entity.
+    #
+    # Found by KIND and popped by that entity's OWN key — it used to be popped by the literal
+    # "springb", so for any tenant whose membership entity is called anything else the split
+    # never happened: the program tabs rendered empty and its P&L stayed on a tab nobody looks
+    # at. `sbiz` is resolved FIRST here for that reason; the old order could not have worked.
+    sbiz = roles.pick(businesses, roles.MEMBERSHIP)
+    if sbiz is not None and sbiz.key in areas:
+        sb = areas.pop(sbiz.key)
         members = arr = bc_members = 0
         if sbiz:
             fk = await _forum_kpis(s, tenant_id, sbiz.id, start, end)
@@ -1091,6 +1104,17 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         await s.rollback()
         flywheel = Flywheel(available=False)
     attach = f"{flywheel.capture_pct}%" if flywheel.available and flywheel.capture_pct is not None else None
+    # Which tab the "Active Members" tile drills into: the membership entity's FIRST program
+    # tab. tabs._business_tabs already resolves that (explicit config -> the program map ->
+    # display_tab -> its own key), so the tile and the nav can never disagree about where a
+    # membership drill belongs.
+    _mem_biz = roles.pick(businesses, roles.MEMBERSHIP)
+    if _mem_biz is not None:
+        from .tabs import _business_tabs
+        _member_tab = (_business_tabs(_mem_biz) or [_mem_biz.key])[0]
+    else:
+        _member_tab = "forum"
+
     scorecards = _scorecards(
         portfolio_noi=portfolio_noi, portfolio_margin=portfolio_margin,
         ulrg_gci=sc["ulrg_gci"], ulrg_closed=sc["ulrg_closed"], ulrg_pending=sc["ulrg_pending"],
@@ -1098,6 +1122,13 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         sympli_funded=sc["sympli_funded"], sympli_volume=sc["sympli_volume"],
         attach_rate=attach, members=sc["members"], have_financials=have_financials,
         members_sub=sc["members_sub"],
+        # Name this tenant's own businesses on the tiles, so each drill lands somewhere real.
+        # Fall back to the literals only when the tenant has no business of that kind — the
+        # tile shows "—" in that case anyway, and the key is never followed.
+        re_key=(_re_biz.key if (_re_biz := roles.pick(businesses, roles.REAL_ESTATE)) else "ulrg"),
+        jv_key=(_jv_biz.key if (_jv_biz := roles.pick(businesses, roles.COMMISSION_JV)) else "sympli"),
+        member_tab=_member_tab,
+        attach_sub=(f"{_re_biz.name} → {_jv_biz.name}" if _re_biz and _jv_biz else "Attach rate"),
     )
 
     return DashboardResponse(

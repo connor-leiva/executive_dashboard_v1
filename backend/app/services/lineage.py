@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Transaction, Agent, MetricRecord, Business, PLSnapshot, Integration
+from . import roles
 from .metrics import _period_range
 
 
@@ -153,8 +154,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     # ── The Forum (Go High Level) drill-downs ──
     if key in {"active_members", "forum_roster", "forum_arr", "renewals_due", "new_members",
                "registered", "mrr", "renewal_book", "monthly", "pastdue", "unregistered"}:
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        biz = await roles.membership(s, tenant_id)
         if not biz:
             return {"label": key.replace("_", " ").title(), "source": "Go High Level",
                     "computed_as": "Go High Level isn't connected yet.", "count": 0, "rows": []}
@@ -422,8 +422,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     # ── beCollective (Go High Level, bc_* kinds) drill-downs ──
     if key in {"edge_members", "edge_roster", "edge_arr", "edge_financed", "edge_registered",
                "edge_new_members"}:
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        biz = await roles.membership(s, tenant_id)
         if not biz:
             return {"label": key.replace("_", " ").title(), "source": "Go High Level",
                     "computed_as": "The Edge isn't connected yet.", "count": 0, "rows": []}
@@ -497,8 +496,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
 
     if key in {"bc_members", "bc_roster", "bc_arr", "bc_registered", "bc_financed",
                "bc_renewal_book", "bc_renewals_due", "bc_unregistered", "bc_new_members"}:
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        biz = await roles.membership(s, tenant_id)
         if not biz:
             return {"label": key.replace("_", " ").title(), "source": "Go High Level",
                     "computed_as": "beCollective isn't connected yet.", "count": 0, "rows": []}
@@ -657,8 +655,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                "bc_next30", "bc_streams", "bc_cashflow", "bc_monthly", "bc_pastdue", "bc_mrr"}:
         from .billing import (is_perpetual, sub_monthly, project_charges,
                               project_renewals, STREAM_LABELS)
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        biz = await roles.membership(s, tenant_id)
 
         async def bcpay(kind):
             if not biz:
@@ -818,8 +815,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                "forum_installments", "forum_next30", "forum_streams", "forum_cashflow"}:
         from .billing import (is_perpetual, sub_monthly, project_charges, project_renewals,
                               STREAM_LABELS, merge_payment_sources)
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+        biz = await roles.membership(s, tenant_id)
 
         async def frecs(kind):
             if not biz:
@@ -1006,8 +1002,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     # ── Sympli pipeline stage drill (a funnel bar / pivot cell → its loans) ──
     if key == "loan_stage":
         from .metrics import _arive_states, _in_states, _loan_source_map, _ARIVE_FUNNEL
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "sympli"))).scalar_one_or_none()
+        biz = await roles.commission_jv(s, tenant_id)
         loans = []
         if biz:
             states = await _arive_states(s, tenant_id)
@@ -1061,8 +1056,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
 
     # ── Sympli's ARIVE loan pipeline (the loans behind the funded/pipeline KPIs) ──
     if key in {"funded_loans", "loan_volume", "preapprovals", "in_underwriting", "sympli_commission"}:
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "sympli"))).scalar_one_or_none()
+        biz = await roles.commission_jv(s, tenant_id)
         from .metrics import _arive_states, _in_states
         loans = []
         if biz:
@@ -1130,9 +1124,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
 
     # ── the referral flywheel (the deals behind ULRG buyers → Sympli) ──
     if key in {"flywheel_buyers", "flywheel_captured", "flywheel_uncaptured"}:
-        bmap = {b.key: b for b in (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id))).scalars().all()}
-        ulrg, sympli = bmap.get("ulrg"), bmap.get("sympli")
+        ulrg, sympli = await roles.flywheel_pair(s, tenant_id)
         if not (ulrg and sympli):
             return {"label": "Referral flywheel", "source": "Arive × Sisu",
                     "computed_as": "Connect Arive and Sisu to itemize the flywheel.", "rows": []}
@@ -1220,9 +1212,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     # ── flywheel: the call list (zero-referral agents) + per-agent referral detail ──
     if key in {"flywheel_zero_referrals", "flywheel_agent_referrals"}:
         from .metrics import _arive_states, _in_states
-        bmap = {b.key: b for b in (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id))).scalars().all()}
-        ulrg, sympli = bmap.get("ulrg"), bmap.get("sympli")
+        ulrg, sympli = await roles.flywheel_pair(s, tenant_id)
         if not (ulrg and sympli):
             return {"label": "Referral flywheel", "source": "Sisu × Arive", "rows": []}
         sisu_integ = (await s.execute(select(Integration).where(
@@ -1306,9 +1296,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     if key in {"flywheel_sympli_referred", "flywheel_sympli_linked",
                "flywheel_referral_no_deal", "flywheel_vendor_no_loan"}:
         from .metrics import _arive_states, _in_states
-        bmap = {b.key: b for b in (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id))).scalars().all()}
-        ulrg, sympli = bmap.get("ulrg"), bmap.get("sympli")
+        ulrg, sympli = await roles.flywheel_pair(s, tenant_id)
         if not (ulrg and sympli):
             return {"label": "Cross-check", "source": "Arive × Sisu", "rows": []}
         sisu_integ = (await s.execute(select(Integration).where(
@@ -1410,8 +1398,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     # ── three-lens financials (the Sisu deals behind the P&L rows) ──
     if key in ("fin_closed", "fin_projected"):
         from .financials import _period as _finp, _projection_end
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
+        biz = await roles.real_estate(s, tenant_id)
         fstart, fend, is_cur = _finp(period)
         deals: list = []
         if biz:
@@ -1436,8 +1423,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
 
     if key == "fin_expenses":
         from .financials import _period as _finp, expense_run_rate, _period_months
-        biz = (await s.execute(select(Business).where(
-            Business.tenant_id == tenant_id, Business.key == "ulrg"))).scalar_one_or_none()
+        biz = await roles.real_estate(s, tenant_id)
         fstart, fend, _ = _finp(period)
         months = _period_months(period, fstart, fend)
         rate, src = (await expense_run_rate(s, tenant_id, biz, fend)) if biz else (0.0, "manual")

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import MetricRecord, Business, Integration
 from .metrics import _period_range, _forum_kpis
+from . import roles
 
 
 def _usd(n) -> str:
@@ -35,8 +36,9 @@ def _mon3(s: str) -> str:
 
 async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     start, end = _period_range(period)
-    biz = (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id, Business.key == "springb"))).scalar_one_or_none()
+    # The membership business, by kind — these program views are all segments of ONE
+    # membership entity's GHL location, whatever that entity happens to be called.
+    biz = await roles.membership(s, tenant_id)
     if not biz:
         return {"status": "pending", "members_total": 0, "kpis": [], "deck": [],
                 "funnel": None, "renewals": None, "event": None, "revq": None,
