@@ -76,14 +76,15 @@ async def test_live_zero_is_real_zero_but_dead_feed_is_null(env):
     # Sisu live, no closings this week → a real 0 (not a gap)
     async with SessionLocal() as s:
         assert await R.homes_closed(s, env["tid"], env["bid"], MON, SUN) == 0.0
-    # Sisu disconnected → None (collection gap, never 0)
+    # Sisu disconnected → UNAVAILABLE ("could not look"), never 0 and never None: None would
+    # mean the week is genuinely empty, and _write erases stale resolver values on that.
     async with SessionLocal() as s:
         integ = (await s.execute(select(Integration).where(
             Integration.tenant_id == env["tid"]))).scalar_one()
         integ.status = "disconnected"
         await s.commit()
     async with SessionLocal() as s:
-        assert await R.homes_closed(s, env["tid"], env["bid"], MON, SUN) is None
+        assert await R.homes_closed(s, env["tid"], env["bid"], MON, SUN) is R.UNAVAILABLE
 
 
 async def test_run_resolvers_writes_resolver_source_and_is_idempotent(env):
@@ -146,9 +147,14 @@ async def test_trailing_lookback_settles_recent_weeks(env):
     assert rows.get(dt.date(2026, 7, 27)) == 1.0 and rows.get(dt.date(2026, 7, 20)) == 1.0
 
 
-async def test_a_gap_clears_a_stale_resolver_value(env):
-    # a resolver-sourced number exists, then Sisu goes dark: the resolver's None must clear its own
-    # stale figure (source stays "resolver"), distinct from never erasing a *manual* value
+async def test_a_genuine_gap_clears_a_stale_resolver_value_but_a_dark_feed_does_not(env):
+    """Both halves of the distinction, in one place, because conflating them cost real history.
+
+    This test used to assert the opposite of its first half: it took Sisu going dark as the
+    canonical "gap" and required the stored figure to be cleared. That is what the resolver
+    runner then did to the live scorecard every night the feed stayed down.
+    """
+    # A DARK FEED must not clear anything — the stored number is still the best information.
     async with SessionLocal() as s:
         s.add(ScorecardValue(tenant_id=env["tid"], metric_id=env["mid"], week_start=MON,
                              value=Decimal("5"), source="resolver"))
@@ -158,7 +164,27 @@ async def test_a_gap_clears_a_stale_resolver_value(env):
     await R.run_resolvers(SessionLocal, env["tid"], WED)
     async with SessionLocal() as s:
         v = await _val(s, env["tid"], env["mid"], MON)
-        assert v.value is None and v.source == "resolver"
+        assert v.value == Decimal("5.0000") and v.source == "resolver"
+
+    # A GENUINE None — the resolver looked and there is no value for this week — still clears its
+    # own stale figure. Registered directly so this asserts _write's contract, not Sisu's.
+    R.RESOLVERS["_test_always_none"] = lambda s, t, b, ws, we, group=None: _none()
+    async with SessionLocal() as s:
+        m = (await s.execute(select(ScorecardMetric).where(
+            ScorecardMetric.id == env["mid"]))).scalar_one()
+        m.resolver_key = "_test_always_none"
+        await s.commit()
+    try:
+        await R.run_resolvers(SessionLocal, env["tid"], WED)
+        async with SessionLocal() as s:
+            v = await _val(s, env["tid"], env["mid"], MON)
+            assert v.value is None and v.source == "resolver"
+    finally:
+        R.RESOLVERS.pop("_test_always_none", None)
+
+
+async def _none():
+    return None
 
 
 async def test_overwriting_a_manual_value_logs_a_warning(env, caplog):
@@ -350,10 +376,12 @@ async def test_team_meraki_attach_is_title_vendor_share(team_env):
         recs = await R.resolver_records(s, e["tid"], e["bid"], "ulrg_team_meraki_attach", MON, SUN, group=DAVIS)
         assert len(recs) == 3 and sum(1 for x in recs if x["captured"]) == 2   # m1,m2 title=Meraki; m4/m6 excluded
         assert {x["id"] for x in recs} == {"m1", "m2", "m3"}
-        # not configured → None (can't classify without the vid list), even with closings present
+        # not configured → UNAVAILABLE (can't classify without the vid list, so we did not look),
+        # even with closings present. Not None: that would erase the weeks already collected.
         integ.config = {}
         await s.commit()
-        assert await R.team_meraki_attach(s, e["tid"], e["bid"], MON, SUN, group=DAVIS) is None
+        assert await R.team_meraki_attach(s, e["tid"], e["bid"], MON, SUN,
+                                          group=DAVIS) is R.UNAVAILABLE
 
     # a fresh week with no closings that recorded a title vendor → None (a gap), not 0%
     async with SessionLocal() as s:
@@ -385,17 +413,20 @@ async def test_team_live_zero_vs_unsynced_roster_and_unmapped_group(team_env):
     # Davis agents exist but nothing closed this week → real 0 (not a gap)
     async with SessionLocal() as s:
         assert await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN, group=DAVIS) == 0.0
-    # an unmapped group (overall, sisu_group_id None) → None, never a per-team count
+    # an unmapped group (overall, sisu_group_id None) → UNAVAILABLE, never a per-team count
     async with SessionLocal() as s:
         assert await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN,
-                                         group={"key": "overall", "sisu_group_id": None}) is None
-    # roster not synced (no agent carries memberships) → None (gap), not 0
+                                         group={"key": "overall",
+                                                "sisu_group_id": None}) is R.UNAVAILABLE
+    # roster not synced (no agent carries memberships) → UNAVAILABLE, not 0 and not None. The
+    # roster is how a deal is attributed to an office, so without it we did not look.
     async with SessionLocal() as s:
         for a in (await s.execute(select(Agent).where(Agent.tenant_id == e["tid"]))).scalars():
             a.sisu_group_ids = None
         await s.commit()
     async with SessionLocal() as s:
-        assert await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN, group=DAVIS) is None
+        assert await R.team_homes_closed(s, e["tid"], e["bid"], MON, SUN,
+                                         group=DAVIS) is R.UNAVAILABLE
 
 
 async def test_synced_but_empty_office_is_a_real_zero(team_env):
@@ -420,3 +451,111 @@ async def test_run_resolvers_wires_per_team_group_context(team_env):
         uc = await _val(s, e["tid"], e["muc"], MON)
         assert float(homes.value) == 2.0 and homes.source == "resolver"
         assert float(uc.value) == 1.0 and uc.source == "resolver"
+
+
+async def test_a_disconnected_feed_does_not_erase_weeks_it_already_collected(env):
+    """THE SCORECARD OUTAGE, REPRODUCED.
+
+    When the tenancy cutover moved Sisu's credentials from an environment variable onto the
+    tenant's integration row, Sisu went disconnected. `_sisu_live` then returned False, every
+    Sisu-backed resolver returned None, and `_write` read that None as "the feed has a gap here"
+    and cleared its own previously-collected numbers. The runner re-resolves LOOKBACK_WEEKS every
+    day, so each daily run wiped the trailing three weeks — and as the window slid forward, the
+    hole grew by a week per week. Weeks of collected history disappeared from the L10 grid, and
+    the cumulative column collapsed with them, so every measurable read as badly off pace.
+
+    None was doing two incompatible jobs. For these resolvers it never meant "I looked and there
+    was nothing" — a live week with no closings returns a real 0.0. It only ever meant "I could
+    not look". Erasing on that is backwards: an unreachable source is the one situation in which
+    the stored number is the best information anybody has.
+    """
+    tid, bid, mid = env["tid"], env["bid"], env["mid"]
+    async with SessionLocal() as s:
+        await _txn(s, tid, bid, "closed", MON, "x1")
+        await _txn(s, tid, bid, "closed", WED, "x2")
+        await s.commit()
+
+    await R.run_resolvers(SessionLocal, tid, WED)
+    async with SessionLocal() as s:
+        assert (await _val(s, tid, mid, MON)).value == Decimal("2.0000")
+
+    # The feed goes away — exactly what the cutover did to Sisu.
+    async with SessionLocal() as s:
+        integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == tid, Integration.provider == "sisu"))).scalar_one()
+        integ.status = "disconnected"
+        await s.commit()
+
+    await R.run_resolvers(SessionLocal, tid, WED)
+    async with SessionLocal() as s:
+        row = await _val(s, tid, mid, MON)
+    assert row.value == Decimal("2.0000"), (
+        "a disconnected feed erased a week it had already collected correctly")
+
+    # And the number comes back on its own once the feed returns, without a backfill.
+    async with SessionLocal() as s:
+        integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == tid, Integration.provider == "sisu"))).scalar_one()
+        integ.status = "connected"
+        await s.commit()
+    await R.run_resolvers(SessionLocal, tid, WED)
+    async with SessionLocal() as s:
+        assert (await _val(s, tid, mid, MON)).value == Decimal("2.0000")
+
+
+async def test_backfill_reaches_weeks_the_daily_window_cannot(env):
+    """Recovery. The daily tick re-resolves LOOKBACK_WEEKS and nothing older, so weeks damaged
+    further back are permanently out of reach of the scheduler — the window slides past them.
+    `weeks=` widens it, which is the only way to rebuild what the dark-feed erasure destroyed.
+
+    The figures come from Sisu deals already in this database, so nothing has to be re-fetched
+    from the vendor; the feed only has to be LIVE again, because _sisu_live gates every resolver.
+    """
+    tid, bid, mid = env["tid"], env["bid"], env["mid"]
+    old = MON - dt.timedelta(days=7 * 6)          # six weeks before the open week
+    async with SessionLocal() as s:
+        await _txn(s, tid, bid, "closed", old + dt.timedelta(days=2), "old1")
+        await _txn(s, tid, bid, "closed", old + dt.timedelta(days=3), "old2")
+        await _txn(s, tid, bid, "closed", old + dt.timedelta(days=4), "old3")
+        await s.commit()
+
+    await R.run_resolvers(SessionLocal, tid, WED)                 # default 3-week window
+    async with SessionLocal() as s:
+        assert (await s.execute(select(ScorecardValue).where(
+            ScorecardValue.metric_id == mid,
+            ScorecardValue.week_start == old))).scalar_one_or_none() is None, \
+            "the daily window should not reach six weeks back"
+
+    await R.run_resolvers(SessionLocal, tid, WED, weeks=8)        # recovery window
+    async with SessionLocal() as s:
+        assert (await _val(s, tid, mid, old)).value == Decimal("3.0000")
+
+
+async def test_backfill_preview_reports_without_writing(env):
+    """The recovery script is a dry run by default: an operator repairing live history should see
+    what would change before it changes. It must also name the reason nothing can be rebuilt when
+    the feed is still down, rather than reporting an empty diff that looks like success."""
+    from scripts.scorecard_backfill import _preview
+
+    tid, bid, mid = env["tid"], env["bid"], env["mid"]
+    async with SessionLocal() as s:
+        await _txn(s, tid, bid, "closed", MON, "p1")
+        await s.commit()
+
+    async with SessionLocal() as s:
+        rows = await _preview(s, tid, weeks=3, today=WED)
+    actions = {r[3] for r in rows}
+    assert "FILL" in actions                                   # would write the open week
+    async with SessionLocal() as s:                            # and wrote nothing
+        assert (await s.execute(select(ScorecardValue).where(
+            ScorecardValue.metric_id == mid))).scalars().first() is None
+
+    # Feed down → every week reports "skip / source unavailable", never a clear.
+    async with SessionLocal() as s:
+        (await s.execute(select(Integration).where(
+            Integration.tenant_id == tid))).scalar_one().status = "disconnected"
+        await s.commit()
+    async with SessionLocal() as s:
+        rows = await _preview(s, tid, weeks=3, today=WED)
+    assert {r[3] for r in rows} == {"skip"}
+    assert all(r[4] == "source unavailable" for r in rows)

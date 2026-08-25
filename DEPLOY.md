@@ -187,6 +187,16 @@ Without step 2 a tenant is reachable only through the single-tenant fallback, wh
 by itself the moment a second tenant exists — so a missing row is not cosmetic, it is a
 lockout waiting for the next customer. `SINGLE_TENANT_FALLBACK=false` turns it off earlier.
 
-`admin.`, `api.`, `www.`, `auth.`, `static.` and `assets.` under `PLATFORM_DOMAIN` belong to
-the platform and never resolve to a tenant; `--add` refuses them. `app.` and `staging.` cannot
-be claimed by a tenant's slug but can be pointed at one deliberately with `--add`.
+`admin.`, `api.`, `auth.`, `static.` and `assets.` under `PLATFORM_DOMAIN` belong to the
+platform and never resolve to a tenant; `--add` refuses them.
+
+`www.`, `app.` and `staging.` are different: no tenant can claim one by its SLUG, but you can
+point one at a tenant deliberately with `--add`, and you should. `www` was briefly in the list
+above, which took production down — www.acumyn.io is the host the dashboard is actually served
+from, so every API call failed tenant resolution before it reached authentication.
+
+**A tenant needs a row for the host it is really served from, even while the fallback is open.**
+The fallback makes a missing row invisible: everything works, right up until you provision a
+second tenant, at which point it closes and the incumbent's front door stops resolving. So the
+row is not optional bookkeeping — it is what stops onboarding your next customer from taking
+your current one offline.

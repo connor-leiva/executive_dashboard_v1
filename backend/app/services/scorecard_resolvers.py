@@ -7,16 +7,30 @@ setting its `resolver_key`. The worker (`app.worker.scorecard_tick`) runs every 
 resolver-backed metric once a day over the trailing look-back (the open week + the 2 before it, so
 a late sync self-heals), writing `scorecard_value` with `source="resolver"`.
 
-null ≠ zero (SPEC 0.2 / 2.3): a resolver returns `None` only when its source is not a live feed —
-a *collection gap*. A live source that genuinely counts nothing returns `0`, a real datum. So a
-count resolver must NOT coalesce a real zero into None (the acceptance grep forbids that idiom in
-this file); it guards on whether the feed is live and otherwise reports the true count, zero
-included.
+null ≠ zero (SPEC 0.2 / 2.3): a live source that genuinely counts nothing returns `0`, a real
+datum. So a count resolver must NOT coalesce a real zero into None (the acceptance grep forbids
+that idiom in this file); it guards on whether the feed is live and otherwise reports the true
+count, zero included.
+
+THREE outcomes, not two — the missing third one cost weeks of collected history:
+  - a number      → the answer.
+  - `UNAVAILABLE` → could not look: the feed is disconnected, the roster has not synced, the
+                    metric is not wired. Says nothing about the week.
+  - `None`        → looked, and this week genuinely has no value (e.g. an attach rate with an
+                    empty denominator).
+
+`UNAVAILABLE` and `None` were both spelled `None` until a credentials change disconnected Sisu.
+Every Sisu-backed resolver started returning it, `_write` read it as "this week is empty", and the
+runner — which re-resolves the trailing look-back every night — erased a fresh week each day while
+the window slid forward. Cumulative totals collapsed with the weekly cells and every measurable
+read as far off pace. When a source is unreachable, the number already stored is the best
+information anyone has.
 
 Overwrite rules (SPEC 3.1 / 3.3):
   - resolver raises            → caught, logged, the stored value is left untouched.
   - resolver returns a number  → written as `source="resolver"`; if it displaces a hand-entered
                                  value we log a warning so the conflict is visible, not mysterious.
+  - resolver returns UNAVAILABLE → nothing is written or cleared.
   - resolver returns None      → clears a stale *resolver* value, but never erases a *manual* one
                                  (a transient feed gap must not delete someone's typed number).
 """
@@ -35,6 +49,28 @@ log = logging.getLogger("app")
 
 Resolver = Callable[..., Awaitable[float | None]]
 RESOLVERS: dict[str, Resolver] = {}
+
+
+class _Unavailable:
+    """Returned by a resolver that COULD NOT LOOK, as distinct from one that looked and found
+    nothing. `_write` leaves the stored value alone for this; only a real None clears it.
+
+    These two were both spelled None once, and it cost weeks of collected scorecard history. A
+    live week with no closings returns a real 0.0, so None from a Sisu-backed resolver never
+    meant "no data for this week" — it only ever meant the feed was unreachable. Clearing on it
+    is backwards: when the source is down, the number already on the row is the best information
+    anyone has. The runner re-resolves the trailing weeks daily, so a permanently disconnected
+    feed erased a fresh week every day and the hole grew as the window slid."""
+    __slots__ = ()
+
+    def __repr__(self) -> str:                       # so log lines say why, not "<object ...>"
+        return "UNAVAILABLE"
+
+    def __bool__(self) -> bool:                      # never let `if val:` treat it as a number
+        return False
+
+
+UNAVAILABLE = _Unavailable()
 
 
 def resolver(key: str):
@@ -90,7 +126,7 @@ async def homes_closed(s, tenant_id, business_id, week_start: dt.date, week_end:
     "ULRG Q2 – 250 Homes" row — includes every office, even out-of-state agents. Returns None only
     when Sisu isn't a live feed; a live week with no closings is a real 0."""
     if not await _sisu_live(s, tenant_id, business_id):
-        return None
+        return UNAVAILABLE
     clauses, _ = _window_filters("ulrg_homes_closed", week_start, week_end)
     n = await s.scalar(select(func.count()).select_from(Transaction).where(
         Transaction.tenant_id == tenant_id, Transaction.business_id == business_id, *clauses))
@@ -109,19 +145,19 @@ async def _office_agent_ids(s, tenant_id, sisu_group_id: int) -> set | None:
     return {aid for aid, groups in rows if isinstance(groups, list) and sisu_group_id in groups}
 
 
-async def _team_count(s, tenant_id, business_id, group, extra) -> float | None:
+async def _team_count(s, tenant_id, business_id, group, extra):
     """Shared per-team body: None if the team isn't mapped to a Sisu office, if Sisu isn't live, or
     if the roster isn't synced (all gaps); otherwise the real count (0 included) of the team's deals
     matching `extra` (a list of WHERE clauses). Attribution is via the deal's agent's office. A
     synced-but-empty office (no agents assigned to it) is a real 0, not a gap — see null≠zero."""
     sgid = (group or {}).get("sisu_group_id")
     if sgid is None:
-        return None                                     # e.g. 'overall' — not a per-team row
+        return UNAVAILABLE                              # e.g. 'overall' — not a per-team row
     if not await _sisu_live(s, tenant_id, business_id):
-        return None
+        return UNAVAILABLE
     ids = await _office_agent_ids(s, tenant_id, sgid)
-    if ids is None:                                     # roster not synced yet → gap (not 0)
-        return None
+    if ids is None:                                     # roster not synced yet → couldn't look
+        return UNAVAILABLE
     n = await s.scalar(select(func.count()).select_from(Transaction).where(
         Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
         Transaction.agent_id.in_(ids), *extra))         # empty office → IN () → real 0
@@ -259,18 +295,18 @@ async def team_sympli_attach(s, tenant_id, business_id, week_start: dt.date, wee
     flywheel card. Returns None when not wired, the roster isn't synced, or there were no financeable
     buyer closings that week — a rate has no meaning without a denominator (that's a gap, not a 0%)."""
     if not await _sisu_live(s, tenant_id, business_id):
-        return None
+        return UNAVAILABLE
     from .metrics import build_sympli_ctx, sympli_capture
     ctx = await build_sympli_ctx(s, tenant_id)
     if ctx is None:
-        return None
+        return UNAVAILABLE
     sgid = (group or {}).get("sisu_group_id")
     if sgid is None:
         agent_ids = None                                # Overall → all agents = the org flywheel number
     else:
         agent_ids = await _office_agent_ids(s, tenant_id, sgid)
         if not agent_ids:                               # roster not synced, or office has no agents
-            return None
+            return UNAVAILABLE                          # ambiguous → never erase on it
     cap = await sympli_capture(ctx, s, tenant_id, week_start, week_end, agent_ids=agent_ids)
     fin = len(cap["fin"])
     return round(len(cap["cap_ids"]) / fin * 100, 1) if fin else None
@@ -288,12 +324,12 @@ async def team_meraki_attach(s, tenant_id, business_id, week_start: dt.date, wee
     vendor directory 404s for this account, so the ids can't be auto-derived like Sympli's are. Returns
     None when not configured, the roster isn't synced, or no classifiable closings that week."""
     if not await _sisu_live(s, tenant_id, business_id):
-        return None
+        return UNAVAILABLE
     integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
     meraki = {int(v) for v in ((integ.config or {}).get("meraki_title_vids") or [])} if integ else set()
-    if not meraki:
-        return None
+    if not meraki:                                      # not wired → couldn't look
+        return UNAVAILABLE
     q = select(Transaction.title_vid).where(
         Transaction.tenant_id == tenant_id, Transaction.business_id == business_id,
         Transaction.status == "closed", Transaction.title_vid.is_not(None),
@@ -302,7 +338,7 @@ async def team_meraki_attach(s, tenant_id, business_id, week_start: dt.date, wee
     if sgid is not None:                                 # per-office (Overall passes no group → all agents)
         agent_ids = await _office_agent_ids(s, tenant_id, sgid)
         if not agent_ids:                               # roster not synced, or office has no agents
-            return None
+            return UNAVAILABLE                          # ambiguous → never erase on it
         q = q.where(Transaction.agent_id.in_(agent_ids))
     vids = (await s.execute(q)).scalars().all()
     if not vids:                                        # no classifiable closings → a gap, not a 0%
@@ -332,7 +368,9 @@ async def _write(s, tenant_id, metric_id, week_start: dt.date, val, key: str) ->
         ScorecardValue.metric_id == metric_id,
         ScorecardValue.week_start == week_start))).scalar_one_or_none()
 
-    if val is None:                                     # feed gap
+    if val is UNAVAILABLE:                              # could not look — leave the row alone
+        return
+    if val is None:                                     # looked; genuinely nothing for this week
         if row is not None and row.source == "resolver":
             row.value = None                            # clear our own stale number
         return                                          # never erase a manual value with a gap
@@ -348,7 +386,7 @@ async def _write(s, tenant_id, metric_id, week_start: dt.date, val, key: str) ->
     row.value, row.source, row.entered_by = dec, "resolver", None
 
 
-async def run_resolvers(session_factory, tenant_id, today: dt.date) -> int:
+async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int = LOOKBACK_WEEKS) -> int:
     """Run every active resolver-backed metric for the recent weeks (the open week plus the trailing
     look-back, so a late sync or a missed daily run self-heals). Returns the count of (metric, week)
     results committed.
@@ -356,7 +394,10 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date) -> int:
     Each (metric, week) runs in its OWN transaction: a resolver that raises — even mid-query, which
     would poison a shared session — is caught, rolled back, and left untouched (SPEC 3.1), while
     every other metric still commits. `session_factory` is the `SessionLocal` maker."""
-    weeks = _recent_weeks(today)
+    # `weeks` widens the window for RECOVERY. The daily tick only reaches LOOKBACK_WEEKS back,
+    # so anything damaged or missed further out — the weeks a dark feed erased before the
+    # UNAVAILABLE fix — can only be rebuilt by asking for a wider window explicitly.
+    week_windows = _recent_weeks(today, weeks)
 
     async with session_factory() as s:                  # read the work list up front, read-only
         metrics = (await s.execute(
@@ -374,7 +415,7 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date) -> int:
             log.warning("scorecard: metric %s names resolver %r, which isn't registered", metric_id, key)
             continue
         group = {"key": group_key, "sisu_group_id": sisu_group_id}   # context for per-team resolvers
-        for ws, we in weeks:
+        for ws, we in week_windows:
             async with session_factory() as s:
                 try:
                     val = await fn(s, tenant_id, business_id, ws, we, group=group)
