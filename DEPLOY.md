@@ -102,6 +102,29 @@ Prints a one-time invite link. The tenant is live at `acme.<PLATFORM_DOMAIN>` im
 DNS is the existing wildcard, CORS matches by regex, and provisioning seeds the catalogs
 (Binder jurisdiction rules, AI skills, the standard chart of accounts).
 
+### Running a one-off command against production
+
+Every `scripts/*.py` tool needs `DATABASE_URL` pointing at the production database. Two ways,
+and the difference matters:
+
+```powershell
+cd C:\...\executive_dashboardackend
+
+# A. Explicit — the reliable one. Copy DATABASE_PUBLIC_URL from the Postgres service's
+#    Variables tab (NOT DATABASE_URL: that is postgres.railway.internal, which only resolves
+#    inside Railway and will hang or refuse from a laptop).
+$env:DATABASE_URL="postgresql://...@monorail.proxy.rlwy.net:PORT/railway"
+.\.venv\Scripts\python.exe -m scripts.user_access --tenant springb --email you@example.com --show
+
+# B. Via the CLI, which injects the api service's variables into a LOCAL process.
+#    Same caveat: it injects the internal URL, so it only works if you have added a public one.
+railway run --service api .\.venv\Scripts\python.exe -m scripts.user_access --tenant springb --email you@example.com --show
+```
+
+With no `DATABASE_URL` set, these read the local SQLite file instead and report on data that
+has nothing to do with production. Every tool prints which database it is talking to on its
+first line for exactly that reason — check it before believing the output.
+
 ### Administering tenants
 
 Tenant administration is a SEPARATE login from any customer's dashboard. Bootstrap the first

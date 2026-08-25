@@ -64,6 +64,25 @@ async def _load(s, tenant_slug: str, email: str):
     return t, u
 
 
+def _db_target() -> str:
+    """Which database this is actually talking to, with the password stripped.
+
+    The commonest way to waste an hour on this tool is to run it without pointing at
+    production: it quietly reads the local SQLite file, reports a perfectly healthy account,
+    and the real one is never touched. So say which database it is, before anything else.
+    """
+    from app.config import settings
+
+    url = settings.DATABASE_URL
+    if url.startswith("sqlite"):
+        return f"LOCAL SQLite ({url.rsplit('/', 1)[-1]})  <-- NOT production"
+    try:                                     # postgres://user:pw@host:port/db -> user@host:port/db
+        creds, hostpart = url.split("://", 1)[1].split("@", 1)
+        return f"Postgres {creds.split(':', 1)[0]}@{hostpart}"
+    except (IndexError, ValueError):
+        return "Postgres (could not parse the URL)"
+
+
 async def _show(s, t: Tenant, u: User) -> None:
     locked = _aware(u.locked_until)
     still_locked = bool(locked and locked > _now())
@@ -71,7 +90,8 @@ async def _show(s, t: Tenant, u: User) -> None:
         Domain.tenant_id == t.id).order_by(Domain.is_primary.desc()))).scalars().all()
     tenant_count = (await s.execute(select(func.count()).select_from(Tenant))).scalar_one()
 
-    print(f"\n  user            {u.email}  ({u.name})")
+    print(f"\n  database        {_db_target()}")
+    print(f"  user            {u.email}  ({u.name})")
     print(f"  role/status     {u.role} / {u.status}"
           + ("   <- cannot sign in: not active" if u.status != "active" else ""))
     print(f"  password set    {'yes' if u.password_hash else 'NO — invite never accepted'}")
