@@ -276,6 +276,107 @@ function AriveConnectForm({ row, onClose, onDone }) {
   );
 }
 
+/* ── Sisu connect form (Basic auth: username + API token) ─────
+   Sisu and Follow Up Boss used to be process-wide env vars. Moving them onto per-tenant
+   integration rows was correct — a shared key syncs one customer's book of business into
+   another's dashboard — but it left the Settings page with no way to enter them, so a source
+   that had "always been connected" became permanently disconnected with a dead button. */
+
+function SisuConnectForm({ row, onClose, onDone }) {
+  const editing = row.status === "connected" || row.status === "error";
+  const [username, setUsername] = useState((row.config || {}).username || "");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await postJSON("/integrations", {
+        provider: "sisu", business_key: row.business_key || "ulrg",
+        username: username.trim() || undefined,
+        token: token.trim() || undefined,          // blank on edit = keep current
+      });
+      onDone();
+    } catch (e2) {
+      setErr(e2?.detail || "Couldn't save — double-check the username and API token.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Sisu" : "Connect Sisu"}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>Your Sisu login and an API token from Sisu → Settings → API. Both are stored encrypted; we never write to Sisu.</div>
+        <label style={label}>Username
+          <input style={field} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" required />
+        </label>
+        <label style={label}>API token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>}
+          <input style={field} type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
+        </label>
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ── Follow Up Boss connect form (one API key) ────────────────── */
+
+function FubConnectForm({ row, onClose, onDone }) {
+  const editing = row.status === "connected" || row.status === "error";
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await postJSON("/integrations", {
+        provider: "fub", business_key: row.business_key || "ulrg",
+        token: key.trim() || undefined,
+      });
+      onDone();
+    } catch (e2) {
+      setErr(e2?.detail || "Couldn't save — double-check the API key.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Follow Up Boss" : "Connect Follow Up Boss"}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>An API key from Follow Up Boss → Admin → API. Stored encrypted; we only read.</div>
+        <label style={label}>API key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>}
+          <input style={field} type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
+        </label>
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ── Legacy Stripe connect form (one read-only key) ──────────── */
 
 function StripeLegacyConnectForm({ row, onClose, onDone }) {
@@ -828,6 +929,8 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
                 {s.entities?.length > 0 && <SBtn small icon="open" disabled={!live} onClick={() => onConnect(s)}>Connect another entity</SBtn>}
                 {(s.provider === "ghl" || s.provider === "ghl_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit configuration</SBtn>}
                 {s.provider === "arive" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update credentials</SBtn>}
+                {s.provider === "sisu" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update credentials</SBtn>}
+                {s.provider === "fub" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update API key</SBtn>}
                 {(s.provider === "stripe_legacy" || s.provider === "stripe_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update key</SBtn>}
                 {s.provider === "ghl_legacy" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit connection</SBtn>}
                 <span style={{ flex: 1 }} />
@@ -913,6 +1016,11 @@ function IntegrationsPage() {
   }
   function connectSource(s) {
     if (s.provider === "qbo") return setConnecting({ provider: "qbo", mode: "create" });
+    // Sisu and FUB feed the real-estate business. Without these two branches the function
+    // fell through and returned undefined, so Connect/Configure opened nothing at all.
+    if (s.provider === "sisu" || s.provider === "fub")
+      return setConnecting({ provider: s.provider, name: s.name, config: s.config || {},
+                             business_key: s.business_key || "ulrg", status: "disconnected" });
     if (s.provider === "ghl" || s.provider === "ghl_bc")
       return setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
     if (s.provider === "arive")
@@ -924,7 +1032,8 @@ function IntegrationsPage() {
     if (s.provider === "ghl_legacy")
       return setConnecting({ provider: "ghl_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
   }
-  const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || (s.provider === "arive" ? "sympli" : "springb"), status: "connected" });
+  const DEFAULT_BIZ = { arive: "sympli", sisu: "ulrg", fub: "ulrg" };
+  const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || DEFAULT_BIZ[s.provider] || "springb", status: "connected" });
   const editEntity = (e) => setConnecting({ provider: "qbo", mode: "edit", entity: e });
   async function disconnectEntity(e) {
     if (!window.confirm(`Disconnect ${e.business_name}? Its tokens are removed; synced history stays (Remove deletes it entirely).`)) return;
@@ -1005,6 +1114,12 @@ function IntegrationsPage() {
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "arive"
         ? <AriveConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : connecting.provider === "sisu"
+        ? <SisuConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : connecting.provider === "fub"
+        ? <FubConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "stripe_legacy"
         ? <StripeLegacyConnectForm row={connecting} onClose={() => setConnecting(null)}

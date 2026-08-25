@@ -95,16 +95,29 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
     """
     host = request_tenant_host(request)
     suffix = "." + settings.PLATFORM_DOMAIN.lower()
+
+    # RESERVED HOSTS RESOLVE TO NOTHING, and this has to be checked FIRST.
+    #
+    # It used to be tested only inside the wildcard branch below, which meant it stopped a
+    # tenant from being FOUND by that name but did nothing to stop execution reaching the
+    # single-tenant fallback — so with SINGLE_TENANT_FALLBACK on (the production default),
+    # api./www./admin.PLATFORM_DOMAIN all quietly resolved to the fallback tenant. These names
+    # belong to the platform, not to any customer: admin.PLATFORM_DOMAIN is the operator
+    # surface, and a tenant login answering there is exactly the confusion reserving them was
+    # supposed to prevent. Ahead of the domain lookup too, so a hand-added row cannot claim one.
+    if host.endswith(suffix) and host[: -len(suffix)] in RESERVED_SLUGS:
+        raise HTTPException(404, "Not found")
+
     async with SessionLocal() as s:
         row = (await s.execute(select(Domain).where(Domain.hostname == host))).scalar_one_or_none()
         if row:
             _current_tenant.set(row.tenant_id)
             return row.tenant_id
         # Wildcard: {slug}.PLATFORM_DOMAIN resolves by slug, so a tenant works the moment it
-        # is provisioned. An exact domain row above still wins; reserved slugs never resolve.
+        # is provisioned. An exact domain row above still wins.
         if host.endswith(suffix):
             slug = host[: -len(suffix)]
-            if slug and slug not in RESERVED_SLUGS:
+            if slug:
                 t = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
                 if t:
                     _current_tenant.set(t.id)
