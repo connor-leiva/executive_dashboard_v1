@@ -169,18 +169,62 @@ async def test_a_reserved_host_resolves_to_no_tenant_at_all():
             await tenancy.resolve_tenant(_Req(f"{name}.{settings.PLATFORM_DOMAIN}"))
         assert ei.value.status_code == 404, name
 
-    # ...and end to end. 400 rather than 404 because the middleware swallows the resolver's
-    # exception and current_tenant_id() raises later; both mean "no tenant", and neither
-    # says whether the name exists.
-    tid = await _provision("resco", hostname="resco.localhost")
-    async with SessionLocal() as s:
-        u = (await s.execute(select(User).where(User.tenant_id == tid))).scalar_one()
-        tok = make_token(u.id, tid, 0)
+    # ...and end to end, through LOGIN rather than /me. /me answers 401 for an unauthenticated
+    # request whether or not the tenant resolved, so it cannot tell the two apart — asserting
+    # on it looks like a passing test and observes nothing. Login has to find a user inside a
+    # tenant, so it fails differently when there is no tenant. (Diagnosing the outage above
+    # against production, /me returned 401 for every host and briefly hid the fault.)
+    #
+    # 400 rather than 404 because the middleware swallows the resolver's exception and
+    # current_tenant_id() raises later; both mean "no tenant", and neither says whether the
+    # name exists.
+    await _provision("resco", hostname="resco.localhost")
     async with _client() as c:
-        for name in ("api", "admin", "www"):
-            r = await c.get("/api/v1/me",
-                            headers=_H(host=f"{name}.{settings.PLATFORM_DOMAIN}", token=tok))
-            assert r.status_code in (400, 404), f"{name} -> {r.status_code}"
+        for name in ("api", "admin", "auth"):
+            r = await c.post("/api/v1/auth/login",
+                             headers=_H(host=f"{name}.{settings.PLATFORM_DOMAIN}"),
+                             json={"email": "nobody@example.invalid", "password": "x"})
+            assert r.status_code in (400, 404), f"{name} -> {r.status_code} {r.text[:80]}"
+        # A host that DOES resolve reaches credential checking and is rejected there — which
+        # is what proves the assertion above is observing resolution and not just any failure.
+        r = await c.post("/api/v1/auth/login",
+                         headers=_H(host=f"www.{settings.PLATFORM_DOMAIN}"),
+                         json={"email": "nobody@example.invalid", "password": "x"})
+        assert r.status_code == 401, f"www -> {r.status_code} {r.text[:80]}"
+
+
+async def test_the_hosts_a_real_deployment_is_served_from_resolve():
+    """A REGRESSION TEST WITH A PRODUCTION OUTAGE BEHIND IT.
+
+    `www` was put in the hard-reserved set — copied from a generic list of names a SaaS
+    platform "should" reserve — and the reserved check runs ahead of the domain lookup, so the
+    name became unreachable by construction. www.acumyn.io is where this dashboard is actually
+    served. Every API call from the real site returned 400 "No tenant in context" before it
+    reached authentication, which presented as nobody being able to sign in with a password
+    that was definitely correct.
+
+    Nothing caught it because every test asserted on invented hostnames. So this one asserts on
+    the shapes real deployments are served from, and PLATFORM_HOSTS has to stay disjoint from
+    them: whatever else is reserved, these must resolve.
+    """
+    from app import tenancy
+
+    class _Req:
+        def __init__(self, host): self.headers = {"x-tenant-host": host}
+
+    served_from = ("www", "app", "dashboard", "portal", "cmd", "my", "go")
+    assert not (set(served_from) & tenancy.PLATFORM_HOSTS), (
+        "a name a real app is served from was hard-reserved; that host becomes unreachable")
+
+    tid = await _provision("realsite", hostname=f"www.{settings.PLATFORM_DOMAIN}")
+    tenancy.set_tenant(None)
+    # The explicit domain row wins for www, exactly as it would for any customer domain.
+    assert await tenancy.resolve_tenant(_Req(f"www.{settings.PLATFORM_DOMAIN}")) == tid
+
+    # ...and it still cannot be taken by SLUG: a tenant named `www` does not get the host.
+    from app.services.provisioning import normalize_slug
+    with pytest.raises(ValueError):
+        normalize_slug("www")
 
 
 async def test_app_is_claimable_by_an_operator_but_not_by_a_slug():

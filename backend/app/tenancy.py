@@ -14,13 +14,21 @@ _current_tenant: ContextVar[uuid.UUID | None] = ContextVar("current_tenant", def
 # Names that belong to the PLATFORM and must never resolve to a customer, not even with a
 # hand-added domain row: these are surfaces the platform itself serves, and admin. in
 # particular is the operator console.
-PLATFORM_HOSTS = {"api", "www", "admin", "auth", "static", "assets"}
+#
+# Keep this list SMALL, and check a candidate against the hosts real deployments are actually
+# served from before adding one. `www` was in here, copied from a generic reserved-names list,
+# and it took production down: www.acumyn.io is where the dashboard actually lives, so every
+# API call from the real site failed tenant resolution before it reached anything else. A name
+# in here is unreachable by design — that is only correct for names nobody would ever serve an
+# app from.
+PLATFORM_HOSTS = {"api", "admin", "auth", "static", "assets"}
 
 # Names no tenant may CLAIM BY SLUG through the wildcard, but which an operator may
-# deliberately point at a tenant with an explicit domain row. `app.` is the most conventional
-# host a SaaS app is ever served from; refusing it outright would be a footgun, and adding the
-# row is already a deliberate operator act rather than something a signup can do.
-WILDCARD_RESERVED = {"app", "staging"}
+# deliberately point at a tenant with an explicit domain row (or the fallback). `www.` and
+# `app.` are the two most conventional hosts a real app is ever served from; refusing them
+# outright is what broke production, and pointing one at a tenant is a deliberate operator act
+# rather than something a signup can do.
+WILDCARD_RESERVED = {"app", "www", "staging"}
 
 RESERVED_SLUGS = PLATFORM_HOSTS | WILDCARD_RESERVED
 
@@ -108,11 +116,13 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
     suffix = "." + settings.PLATFORM_DOMAIN.lower()
 
     # PLATFORM HOSTS RESOLVE TO NOTHING, and this has to be checked FIRST.
+    # See PLATFORM_HOSTS: adding a name here makes it permanently unreachable, so it must be a
+    # name no customer would ever be served from. `www` was in that set and broke production.
     #
     # It used to be tested only inside the wildcard branch below, which meant it stopped a
     # tenant from being FOUND by that name but did nothing to stop execution reaching the
     # single-tenant fallback — so with SINGLE_TENANT_FALLBACK on (the production default),
-    # api./www./admin.PLATFORM_DOMAIN all quietly resolved to the fallback tenant. These names
+    # api./admin./auth.PLATFORM_DOMAIN all quietly resolved to the fallback tenant. These names
     # belong to the platform, not to any customer: admin.PLATFORM_DOMAIN is the operator
     # surface, and a tenant login answering there is exactly the confusion reserving them was
     # supposed to prevent. Ahead of the domain lookup too, so a hand-added row cannot claim one.
