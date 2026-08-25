@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+
+import PlatformConsole from "./platform/PlatformConsole.jsx";
 import { T } from "./theme.js";
 import { login, hasToken } from "./api.js";
 import CommandCenter from "./CommandCenter.jsx";
@@ -104,6 +106,11 @@ export function App() {
         <Route path="/reset-password" element={<ResetPassword onDone={() => setAuthed(true)} />} />
         <Route path="/share/:token" element={<ShareScorecard />} />       {/* public embed — no login */}
         <Route path="/desk/:token" element={<ShareDesk />} />             {/* rep's own Sales Desk — no login */}
+        {/* Operator console. OUTSIDE the tenant login gate deliberately: an operator has no
+            tenant session, so gating this behind one would make the console unreachable to
+            exactly the people it is for. It carries its own login and its own token, and the
+            API refuses a tenant token here regardless (backend deps.current_platform_user). */}
+        <Route path="/platform/*" element={<PlatformConsole />} />
         {needsLogin ? (
           <Route path="*" element={<Login onLogin={() => setAuthed(true)} />} />
         ) : (
