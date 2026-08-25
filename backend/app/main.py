@@ -10,7 +10,7 @@ from .db import engine
 from .models import Base
 from .tenancy import resolve_tenant
 from .throttle import enforce
-from .routers import recall as recall_router, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp
+from .routers import recall as recall_router, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform
 
 log = logging.getLogger("app")
 
@@ -99,6 +99,9 @@ def create_app() -> FastAPI:
     app.include_router(ai_employees.router, prefix="/api/v1")
     app.include_router(ulrg.router, prefix="/api/v1")
     app.include_router(recall_router.router, prefix="/api/v1")   # /api/v1/webhooks/recall (secret-gated)
+    # The operator surface: a different auth realm (platform tokens, not tenant sessions), and
+    # the only router that takes its tenant from the path rather than the host.
+    app.include_router(platform.router, prefix="/api/v1")
     app.include_router(share.router, prefix="/api/v1")   # /api/v1/share/{token}/scorecard (no auth)
     app.include_router(share.page_router)                 # /share/{token} — embeddable page + CSP
 

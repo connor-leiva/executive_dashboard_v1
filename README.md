@@ -26,6 +26,9 @@ python -m venv .venv
 # Windows:  .venv\Scripts\activate     ·  macOS/Linux:  source .venv/bin/activate
 pip install -e .
 python -m app.seed                       # seeds tenant #1 + representative data
+python -m scripts.create_tenant --slug acme --name "Acme" --owner-email o@acme.com
+python -m scripts.create_operator --email you@example.com   # administers TENANTS,
+                                                            # not a customer login
 uvicorn app.main:app --reload            # http://localhost:8000  (docs at /docs)
 ```
 

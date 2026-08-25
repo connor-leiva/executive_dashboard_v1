@@ -34,6 +34,14 @@ def _aware(d):
 @router.post("/auth/login", response_model=LoginResponse)
 async def login(body: LoginRequest, s: AsyncSession = Depends(get_session)):
     tid = current_tenant_id()
+    # Refuse before touching credentials: a suspended workspace should not be probeable for
+    # which passwords are right, and the lockout counter should not tick for people who could
+    # not sign in either way.
+    tenant = (await s.execute(select(Tenant).where(Tenant.id == tid))).scalar_one_or_none()
+    if tenant is not None and tenant.status == "suspended":
+        audit(s, tid, None, "auth.login_blocked", "tenant", tid, {"reason": "suspended"})
+        await s.commit()
+        raise HTTPException(403, "This workspace is suspended. Contact your administrator.")
     user = (await s.execute(
         select(User).where(User.tenant_id == tid, User.email == body.email.lower())
     )).scalar_one_or_none()

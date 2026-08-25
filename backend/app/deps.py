@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session
 from .security import read_token, read_capability
-from .models import User
+from .models import PlatformUser, Tenant, User
 from .tenancy import current_tenant_id
 from .services.tabs import tenant_tabs, effective_tabs
 
@@ -37,6 +37,13 @@ async def current_user(
         raise HTTPException(401, "User not found")
     if user.status != "active":
         raise HTTPException(401, "Account is not active")
+    # A suspended WORKSPACE ends every live session in it, not just new logins — otherwise
+    # suspending is a label and anyone already signed in keeps working. 403, not 401: this is
+    # not a credential problem, and bouncing them to a login screen they cannot get past would
+    # read as a bug rather than as the deliberate state it is.
+    tenant = await s.get(Tenant, tid)
+    if tenant is not None and tenant.status == "suspended":
+        raise HTTPException(403, "This workspace is suspended. Contact your administrator.")
     # token_version gate: a bump (disable / password change) kills outstanding tokens.
     # Legacy tokens minted before the deploy carry no "ver" → read as 0 → matches
     # every migrated user, so the deploy logs nobody out.
@@ -125,3 +132,33 @@ def require_tab_with_step_up(tab: str, scope: str):
         await assert_tab(user, s, tab)
         return user
     return dep
+
+
+# ── platform operators ────────────────────────────────────────────────────────────────────
+# A different realm, not a bigger role. Everything above this line answers "what may this
+# member of THIS tenant do"; the operator surface answers "what may this operator do to
+# tenants", which no tenant session should ever be able to reach.
+async def current_platform_user(
+    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    s: AsyncSession = Depends(get_session),
+) -> PlatformUser:
+    """The signed-in platform operator, or 401.
+
+    A tenant session cannot satisfy this: tenant tokens carry no `pu`, so the first check
+    rejects them. The converse holds in current_user, which compares the token's `tid` to the
+    resolved tenant and finds None. Neither guard depends on anyone remembering a rule.
+    """
+    try:
+        payload = read_token(creds.credentials)
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+    pu_id = payload.get("pu")
+    if not pu_id:
+        raise HTTPException(401, "Not a platform session")
+    op = (await s.execute(select(PlatformUser).where(
+        PlatformUser.id == uuid.UUID(pu_id)))).scalar_one_or_none()
+    if op is None or not op.is_active:
+        raise HTTPException(401, "Operator not found")
+    if int(payload.get("ver", 0)) != int(op.token_version or 0):
+        raise HTTPException(401, "Session expired")
+    return op

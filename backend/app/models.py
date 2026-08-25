@@ -26,9 +26,46 @@ class Tenant(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     slug: Mapped[str] = mapped_column(String(64), unique=True)
     name: Mapped[str] = mapped_column(String(200))
+    # active | suspended. A column rather than config because login and every live session
+    # read it on the hot path, and because "which tenants are suspended" is a question the
+    # operator surface asks directly.
+    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
     # Portfolio-scoped, non-secret config (e.g. Books intercompany elimination account
     # list `books_elim_accounts`). Portfolio-level because eliminations span businesses.
     config: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PlatformUser(Base):
+    """An operator of the PLATFORM, not a member of any tenant.
+
+    Deliberately NOT a `User` with a flag, and deliberately NOT a member of a distinguished
+    "platform tenant". Both of those were considered and rejected:
+
+      A flag on User would recreate exactly what phases 1-3 removed — a session bound to one
+      realm that can read another. Every route thereafter has to remember the exception, and
+      one mis-set boolean is a total compromise.
+
+      A platform TENANT row reuses more machinery but is counted by tenancy._fallback_tenant
+      (a second tenant closes the single-tenant fallback, which would change host resolution
+      for the live customer the moment the platform tenant is created) and is iterated by all
+      five worker jobs.
+
+    A separate table with a separate token shape cannot cross either way, structurally: a
+    platform token carries `pu` and no `tid`, so deps.current_user's realm check rejects it;
+    a tenant token carries no `pu`, so require_platform_admin rejects it. Both fail closed
+    rather than relying on anyone remembering a rule.
+    """
+    __tablename__ = "platform_user"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(255), unique=True)
+    name: Mapped[str] = mapped_column(String(200))
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

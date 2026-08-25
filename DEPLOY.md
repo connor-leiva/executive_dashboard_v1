@@ -102,6 +102,35 @@ Prints a one-time invite link. The tenant is live at `acme.<PLATFORM_DOMAIN>` im
 DNS is the existing wildcard, CORS matches by regex, and provisioning seeds the catalogs
 (Binder jurisdiction rules, AI skills, the standard chart of accounts).
 
+### Administering tenants
+
+Tenant administration is a SEPARATE login from any customer's dashboard. Bootstrap the first
+operator once (it cannot be created through the API — the API is gated by an operator session):
+
+```
+railway run --service api python -m scripts.create_operator --email you@example.com --name "You"
+```
+
+The password is generated and printed once, or taken from `PLATFORM_OPERATOR_PASSWORD`. Never
+pass it as an argument — arguments land in shell history and the process list.
+
+That account then works against `/api/v1/platform/*`:
+
+| | |
+|---|---|
+| `POST /platform/login` | operator session (24h, throttled to 10 per 5 min) |
+| `GET /platform/tenants` | every tenant with health: hosts, users, sources in error, last sync |
+| `GET /platform/tenants/{slug}` | the above plus its owners |
+| `POST /platform/tenants` | provision — the same `provision_tenant` the CLI calls |
+| `POST /platform/tenants/{slug}/suspend` \| `/resume` | blocks new logins AND ends live sessions |
+| `POST /platform/tenants/{slug}/resend-invite` | a fresh owner invite when the first expired |
+| `GET /platform/tenants/{slug}/audit` | that tenant's own trail |
+
+An operator administers tenants; they are **not** a user of one. A platform token cannot open a
+customer's dashboard and a customer's token cannot reach these routes — the two carry different
+claims, so neither can satisfy the other's guard. To see a customer's data, be invited into
+their tenant as a user, which leaves a record in their audit trail rather than a silent read.
+
 **The moment a second tenant exists, the single-tenant fallback turns itself off** — a host
 matching no `domain` row stops resolving instead of quietly returning Spring's dashboard.
 That is enforced on the tenant COUNT, not on `SINGLE_TENANT_FALLBACK`, so there is no

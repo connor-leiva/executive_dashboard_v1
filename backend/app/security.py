@@ -37,6 +37,22 @@ def make_token(user_id: uuid.UUID, tenant_id: uuid.UUID, ver: int = 0) -> str:
     return jwt.encode(payload, settings.APP_SECRET, algorithm=ALGO)
 
 
+def make_platform_token(platform_user_id: uuid.UUID, ver: int = 0) -> str:
+    """A PLATFORM operator's session. Deliberately a different shape from a tenant session.
+
+    It carries `pu` and NO `tid`, which is what makes the two realms mutually unusable rather
+    than merely separated by a check somebody has to remember: deps.current_user compares
+    `payload.get("tid")` to the resolved tenant, so this token fails that comparison against
+    every tenant; and require_platform_admin requires `pu`, which no tenant session has.
+    """
+    payload = {
+        "pu": str(platform_user_id),
+        "ver": ver,
+        "exp": dt.datetime.utcnow() + dt.timedelta(days=1),   # shorter than a tenant session
+    }
+    return jwt.encode(payload, settings.APP_SECRET, algorithm=ALGO)
+
+
 def read_token(token: str) -> dict:
     return jwt.decode(token, settings.APP_SECRET, algorithms=[ALGO])
 

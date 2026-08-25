@@ -37,6 +37,7 @@ RULES: dict[str, tuple[int, int]] = {
     "login": (20, 60),
     "token": (20, 300),        # accept-invite / reset-password
     "ingest": (60, 60),        # the email provider's webhook — legitimate bursts are possible
+    "platform_login": (10, 300),
 }
 
 # path prefix -> rule name. Checked longest-first so a more specific prefix wins.
@@ -45,6 +46,9 @@ PATHS: dict[str, str] = {
     "/api/v1/auth/accept-invite": "token",
     "/api/v1/auth/reset-password": "token",
     "/api/v1/binder/ingest": "ingest",
+    # The operator login is the most valuable credential on the platform, so it gets the
+    # tightest budget of the three — there is exactly one legitimate user of it.
+    "/api/v1/platform/login": "platform_login",
 }
 
 _hits: dict[tuple[str, str, str], deque] = {}
