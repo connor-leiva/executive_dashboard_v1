@@ -168,7 +168,25 @@ config change to remember. Point each customer's domain at the `web` service and
   missing, the app quietly serves bundled sample data instead of live numbers.
 - **`RAILWAY_DOCKERFILE_PATH`** is required only for the worker (alternate Dockerfile name).
 
-## Custom domains (later)
-Add `cmd.springb.com` to `web` and `api.springb.com` to `api` (Settings → Networking),
-point the CNAMEs, then insert a `domain` row per hostname and set
-`SINGLE_TENANT_FALLBACK=false` once you have real per-tenant domains.
+## Custom domains
+Two things have to agree, and only the first is in Railway:
+
+1. **Railway** (Settings → Networking): the customer-facing host on `web`, the API host on
+   `api`, and the CNAMEs pointed at them.
+2. **A `domain` row** for that host. This is what `tenancy.resolve_tenant` matches a request
+   against, AND what `tenancy.tenant_app_url` builds every human-facing link from — password
+   resets, invites, share links, the QuickBooks return. Use the script rather than SQL; it
+   refuses the mistakes:
+
+```
+python -m scripts.tenant_domains --tenant <slug> --list
+python -m scripts.tenant_domains --tenant <slug> --add app.example.com --primary
+```
+
+Without step 2 a tenant is reachable only through the single-tenant fallback, which closes
+by itself the moment a second tenant exists — so a missing row is not cosmetic, it is a
+lockout waiting for the next customer. `SINGLE_TENANT_FALLBACK=false` turns it off earlier.
+
+`admin.`, `api.`, `www.`, `auth.`, `static.` and `assets.` under `PLATFORM_DOMAIN` belong to
+the platform and never resolve to a tenant; `--add` refuses them. `app.` and `staging.` cannot
+be claimed by a tenant's slug but can be pointed at one deliberately with `--add`.

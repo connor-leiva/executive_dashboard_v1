@@ -11,7 +11,18 @@ from .models import Domain, Tenant
 _current_tenant: ContextVar[uuid.UUID | None] = ContextVar("current_tenant", default=None)
 
 # Slugs no tenant may claim (they name platform hosts under PLATFORM_DOMAIN).
-RESERVED_SLUGS = {"api", "www", "app", "admin", "staging", "auth", "static", "assets"}
+# Names that belong to the PLATFORM and must never resolve to a customer, not even with a
+# hand-added domain row: these are surfaces the platform itself serves, and admin. in
+# particular is the operator console.
+PLATFORM_HOSTS = {"api", "www", "admin", "auth", "static", "assets"}
+
+# Names no tenant may CLAIM BY SLUG through the wildcard, but which an operator may
+# deliberately point at a tenant with an explicit domain row. `app.` is the most conventional
+# host a SaaS app is ever served from; refusing it outright would be a footgun, and adding the
+# row is already a deliberate operator act rather than something a signup can do.
+WILDCARD_RESERVED = {"app", "staging"}
+
+RESERVED_SLUGS = PLATFORM_HOSTS | WILDCARD_RESERVED
 
 
 def is_local_host(hostname: str) -> bool:
@@ -96,7 +107,7 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
     host = request_tenant_host(request)
     suffix = "." + settings.PLATFORM_DOMAIN.lower()
 
-    # RESERVED HOSTS RESOLVE TO NOTHING, and this has to be checked FIRST.
+    # PLATFORM HOSTS RESOLVE TO NOTHING, and this has to be checked FIRST.
     #
     # It used to be tested only inside the wildcard branch below, which meant it stopped a
     # tenant from being FOUND by that name but did nothing to stop execution reaching the
@@ -105,7 +116,7 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
     # belong to the platform, not to any customer: admin.PLATFORM_DOMAIN is the operator
     # surface, and a tenant login answering there is exactly the confusion reserving them was
     # supposed to prevent. Ahead of the domain lookup too, so a hand-added row cannot claim one.
-    if host.endswith(suffix) and host[: -len(suffix)] in RESERVED_SLUGS:
+    if host.endswith(suffix) and host[: -len(suffix)] in PLATFORM_HOSTS:
         raise HTTPException(404, "Not found")
 
     async with SessionLocal() as s:
@@ -117,7 +128,10 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
         # is provisioned. An exact domain row above still wins.
         if host.endswith(suffix):
             slug = host[: -len(suffix)]
-            if slug:
+            # WILDCARD_RESERVED is filtered here rather than above: a tenant may not claim
+            # `app.`/`staging.` merely by being named that, but the explicit domain row
+            # checked above is an operator decision and is allowed to win.
+            if slug and slug not in RESERVED_SLUGS:
                 t = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
                 if t:
                     _current_tenant.set(t.id)

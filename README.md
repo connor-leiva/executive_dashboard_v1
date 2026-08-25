@@ -112,8 +112,8 @@ tenant-specific names live; real tenants create their own employees in Settings 
 Railway: three services (`api`, `worker`, `web`) + a Postgres plugin, one
 project sharing `DATABASE_URL` + secrets. Set `DATABASE_URL` to the
 `postgresql+asyncpg://…` URL, run `alembic upgrade head` as the `api`
-pre-deploy/release command, and add custom domains (`cmd.springb.com` →
-`web`, `api.springb.com` → `api`). Full steps in
+pre-deploy/release command, and add the customer host to `web` and the
+API host to `api`, then register each with `scripts/tenant_domains.py`. Full steps in
 `spring-command-center-SPEC.md` §12.
 
 ## Tests

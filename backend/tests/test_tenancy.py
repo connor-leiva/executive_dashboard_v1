@@ -25,6 +25,9 @@ from app.services.sync import _fub_creds, _sisu_creds
 from app.tenancy import tenant_app_url
 
 TRANSPORT = ASGITransport(app=app)
+# The host app.seed gives tenant #1 — derived, not a literal, so this
+# cannot drift from the seed the way a hardcoded domain did.
+SEED_HOST = f"springb.{settings.PLATFORM_DOMAIN}"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -113,7 +116,7 @@ async def test_x_tenant_host_selects_the_realm_for_login():
         r = await c.get("/api/v1/me", headers=_H(host="hostco.localhost", token=tok))
         assert r.status_code in (200, 401)   # 401 only because the owner is still `invited`
         # The same token aimed at Spring's realm is refused — a token is realm-bound.
-        r = await c.get("/api/v1/me", headers=_H(host="cmd.springb.com", token=tok))
+        r = await c.get("/api/v1/me", headers=_H(host=SEED_HOST, token=tok))
         assert r.status_code == 401
     assert email.endswith("@hostco.test")
 
@@ -138,11 +141,106 @@ async def test_platform_subdomain_resolves_without_a_domain_row():
         r = await c.get("/api/v1/me",
                         headers=_H(host=f"wildco.{settings.PLATFORM_DOMAIN}", token=tok))
     assert r.status_code != 404          # resolved by slug, not by a domain row
+
+
+async def test_a_reserved_host_resolves_to_no_tenant_at_all():
+    """These names belong to the PLATFORM: api., www., admin.PLATFORM_DOMAIN. admin. is the
+    operator surface, so a tenant login answering there is exactly the confusion reserving
+    them was meant to prevent.
+
+    This assertion used to read `in (401, 404)`, which was a hedge covering a real bug: the
+    reserved check sat INSIDE the wildcard branch, so it stopped a tenant being FOUND by that
+    name but did nothing to stop execution reaching the single-tenant fallback — which, with
+    the production default, resolved every reserved host to the fallback tenant and returned
+    401. Asserting the hedge is what let that survive. It is checked FIRST now, ahead of the
+    domain lookup too, so a hand-added row cannot claim one either.
+    """
+    from fastapi import HTTPException
+
+    from app import tenancy
+
+    class _Req:
+        def __init__(self, host): self.headers = {"x-tenant-host": host}
+
+    # At the resolver, which is where the decision actually lives.
+    for name in sorted(tenancy.PLATFORM_HOSTS):
+        tenancy.set_tenant(None)
+        with pytest.raises(HTTPException) as ei:
+            await tenancy.resolve_tenant(_Req(f"{name}.{settings.PLATFORM_DOMAIN}"))
+        assert ei.value.status_code == 404, name
+
+    # ...and end to end. 400 rather than 404 because the middleware swallows the resolver's
+    # exception and current_tenant_id() raises later; both mean "no tenant", and neither
+    # says whether the name exists.
+    tid = await _provision("resco", hostname="resco.localhost")
+    async with SessionLocal() as s:
+        u = (await s.execute(select(User).where(User.tenant_id == tid))).scalar_one()
+        tok = make_token(u.id, tid, 0)
     async with _client() as c:
-        # A reserved slug never resolves to a tenant, even if one somehow claimed it.
+        for name in ("api", "admin", "www"):
+            r = await c.get("/api/v1/me",
+                            headers=_H(host=f"{name}.{settings.PLATFORM_DOMAIN}", token=tok))
+            assert r.status_code in (400, 404), f"{name} -> {r.status_code}"
+
+
+async def test_app_is_claimable_by_an_operator_but_not_by_a_slug():
+    """`app.PLATFORM_DOMAIN` is the most conventional host a SaaS app is served from, so the
+    reservation on it is narrower than the one on api./admin.: no tenant may claim it merely by
+    being NAMED `app`, but an operator who adds the domain row deliberately gets it.
+
+    Blocking it outright — which the first cut of the reserved-host fix did — would have made
+    `tenant_domains.py --add app.<domain>` succeed and then 404 at request time, with nothing
+    anywhere explaining why."""
+    from fastapi import HTTPException
+
+    from app import tenancy
+
+    class _Req:
+        def __init__(self, host): self.headers = {"x-tenant-host": host}
+
+    from app.services.provisioning import normalize_slug
+
+    host = f"app.{settings.PLATFORM_DOMAIN}"
+
+    # Nothing can be NAMED `app` in the first place — provisioning refuses the slug.
+    with pytest.raises(ValueError):
+        normalize_slug("app")
+
+    # The resolver filters it independently, which is what matters if a row ever arrives by
+    # another route: a slug reserved after the fact, a restore, a hand-written INSERT.
+    async with SessionLocal() as s:
+        squatter = Tenant(slug="app", name="Squatter", status="active")
+        s.add(squatter)
+        await s.commit()
+        squatter_id = squatter.id
+    tenancy.set_tenant(None)
+    # Not `pytest.raises`: ENV is development here, so the single-tenant fallback deliberately
+    # catches every unmatched host and there is nothing to raise. The claim under test is
+    # narrower and survives that — the SLUG must not be what wins.
+    assert await tenancy.resolve_tenant(_Req(host)) != squatter_id
+
+    # ...but an explicit operator-added row does resolve.
+    other = await _provision("realco", hostname=host)
+    tenancy.set_tenant(None)
+    assert await tenancy.resolve_tenant(_Req(host)) == other
+
+
+async def test_the_tenant_context_never_survives_into_the_next_request():
+    """resolve_tenant only SETS the context on success, so a request whose host does not
+    resolve must not inherit the previous request's tenant. Per-request tasks make that
+    unlikely rather than impossible, and the consequence — one tenant served another's data —
+    is severe enough that the middleware clears it explicitly."""
+    tid = await _provision("ctxco", hostname="ctxco.localhost")
+    async with SessionLocal() as s:
+        u = (await s.execute(select(User).where(User.tenant_id == tid))).scalar_one()
+        tok = make_token(u.id, tid, 0)
+    async with _client() as c:
+        ok = await c.get("/api/v1/me", headers=_H(host="ctxco.localhost", token=tok))
+        assert ok.status_code in (200, 401)          # the host resolved
+        # Immediately after, a host that resolves to nothing must NOT inherit it.
         r = await c.get("/api/v1/me",
-                        headers=_H(host=f"api.{settings.PLATFORM_DOMAIN}", token=tok))
-    assert r.status_code in (401, 404)
+                        headers=_H(host=f"admin.{settings.PLATFORM_DOMAIN}", token=tok))
+    assert r.status_code in (400, 404), r.status_code
 
 
 async def test_single_tenant_fallback_closes_itself_in_production(monkeypatch):
@@ -180,7 +278,7 @@ async def test_public_urls_point_at_the_tenants_own_origin():
     async with SessionLocal() as s:
         assert await tenant_app_url(s, tid) == "http://urlco.localhost"
         spring = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
-        assert await tenant_app_url(s, spring.id) == "https://cmd.springb.com"
+        assert await tenant_app_url(s, spring.id) == f"https://{SEED_HOST}"
         # No domain row at all -> the local-dev setting, never another tenant's host.
         assert await tenant_app_url(s, uuid.uuid4()) == settings.APP_PUBLIC_URL.rstrip("/")
 
@@ -227,10 +325,10 @@ async def test_sisu_and_fub_are_connectable_through_the_api():
     """They were absent from the connect whitelist, so the only way to configure them was a
     server environment variable — which is the single-tenant path by construction."""
     async with _client() as c:
-        r = await c.post("/api/v1/auth/login", headers=_H(host="cmd.springb.com"),
+        r = await c.post("/api/v1/auth/login", headers=_H(host=SEED_HOST),
                          json={"email": "spring@springb.com", "password": "springtime"})
         tok = r.json()["token"]
-        h = _H(host="cmd.springb.com", token=tok)
+        h = _H(host=SEED_HOST, token=tok)
 
         # A NEW Sisu connection needs both halves.
         r = await c.post("/api/v1/integrations", headers=h,

@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from .config import settings
 from .db import engine
 from .models import Base
-from .tenancy import resolve_tenant
+from .tenancy import resolve_tenant, set_tenant
 from .throttle import enforce
 from .routers import recall as recall_router, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform
 
@@ -50,6 +50,12 @@ def create_app() -> FastAPI:
     # error so the real detail reaches the client and the actual cause hits the logs.
     @app.middleware("http")
     async def tenant_and_errors(request: Request, call_next):
+        # Clear the tenant BEFORE resolving. resolve_tenant only ever sets the ContextVar on
+        # success, so without this a request whose host does not resolve would inherit whatever
+        # the previous request in the same task had set — and the consequence of that is one
+        # tenant's request being served another tenant's data. Per-request tasks make it
+        # unlikely rather than impossible, which is not a good enough reason to rely on it.
+        set_tenant(None)
         # OAuth callback carries tenant in `state`, not Host; skip global resolve there.
         if not request.url.path.startswith("/api/v1/integrations/qbo/callback"):
             try:

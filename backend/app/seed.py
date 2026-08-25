@@ -10,6 +10,7 @@ brand `config` (manual until their sources connect). P&L snapshots are seeded fo
 all three so the financial panels, combined profit, composition, and cash render.
 """
 import asyncio
+import os
 import datetime as dt
 from decimal import Decimal
 
@@ -130,7 +131,19 @@ async def seed():
         s.add(tenant)
         await s.flush()
 
-        s.add(Domain(tenant_id=tenant.id, hostname="cmd.springb.com", is_primary=True))
+        # The host this tenant answers on. It decides BOTH which tenant a request is
+        # (tenancy.resolve_tenant) and where every human-facing link points — password
+        # resets, invites, share links, the QBO return (tenancy.tenant_app_url).
+        #
+        # This was hardcoded to a domain nobody owns, and because seed.py has been run against
+        # production it became the only domain row there: reset links pointed at a stranger's
+        # domain, and the real host resolved only through the single-tenant fallback, which
+        # closes as soon as a second tenant exists. Derive it from PLATFORM_DOMAIN instead, and
+        # override with SEED_TENANT_HOST when the real deployment sits somewhere else.
+        # `scripts/tenant_domains.py` fixes an existing deployment without a reseed.
+        seed_host = (os.environ.get("SEED_TENANT_HOST", "").strip().lower()
+                     or f"springb.{settings.PLATFORM_DOMAIN}")
+        s.add(Domain(tenant_id=tenant.id, hostname=seed_host, is_primary=True))
         s.add(User(tenant_id=tenant.id, email=OWNER_EMAIL, password_hash=hash_pw(OWNER_PASSWORD),
                    name="Spring Bengtzen", role="owner"))
 

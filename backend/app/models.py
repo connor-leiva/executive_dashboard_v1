@@ -73,7 +73,7 @@ class Domain(Base):
     __tablename__ = "domain"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
-    hostname: Mapped[str] = mapped_column(String(255), unique=True)   # e.g. cmd.springb.com
+    hostname: Mapped[str] = mapped_column(String(255), unique=True)   # e.g. app.acumyn.io
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
