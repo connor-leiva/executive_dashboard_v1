@@ -362,14 +362,23 @@ def _recent_weeks(today: dt.date, n: int = LOOKBACK_WEEKS) -> list[tuple[dt.date
     return weeks
 
 
-async def _write(s, tenant_id, metric_id, week_start: dt.date, val, key: str) -> None:
-    """Upsert one resolver result, honoring the overwrite rules above."""
+async def _write(s, tenant_id, metric_id, week_start: dt.date, val, key: str,
+                 fill_only: bool = False) -> None:
+    """Upsert one resolver result, honoring the overwrite rules above.
+
+    `fill_only` is for RECOVERY: write only where nothing survives, and never touch a value that
+    is already there. Repairing a gap and re-deriving months of settled history are different
+    operations, and a recovery run that quietly does both is worse than one that refuses. The
+    first backfill after the erasure would have rewritten 215 hand-entered figures — several off
+    by more than double — on the way to restoring 20 blank weeks."""
     row = (await s.execute(select(ScorecardValue).where(
         ScorecardValue.metric_id == metric_id,
         ScorecardValue.week_start == week_start))).scalar_one_or_none()
 
     if val is UNAVAILABLE:                              # could not look — leave the row alone
         return
+    if fill_only and row is not None and row.value is not None:
+        return                                          # something survives here; not ours to redo
     if val is None:                                     # looked; genuinely nothing for this week
         if row is not None and row.source == "resolver":
             row.value = None                            # clear our own stale number
@@ -386,7 +395,8 @@ async def _write(s, tenant_id, metric_id, week_start: dt.date, val, key: str) ->
     row.value, row.source, row.entered_by = dec, "resolver", None
 
 
-async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int = LOOKBACK_WEEKS) -> int:
+async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int = LOOKBACK_WEEKS,
+                        fill_only: bool = False) -> int:
     """Run every active resolver-backed metric for the recent weeks (the open week plus the trailing
     look-back, so a late sync or a missed daily run self-heals). Returns the count of (metric, week)
     results committed.
@@ -419,7 +429,7 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int =
             async with session_factory() as s:
                 try:
                     val = await fn(s, tenant_id, business_id, ws, we, group=group)
-                    await _write(s, tenant_id, metric_id, ws, val, key)
+                    await _write(s, tenant_id, metric_id, ws, val, key, fill_only=fill_only)
                     await s.commit()
                     written += 1
                 except Exception:                       # isolated: this value is left untouched

@@ -11,6 +11,12 @@ It does depend on the feed being live again: `_sisu_live` gates every resolver, 
 AFTER the integration is reconnected and has synced once, or every week will simply report
 UNAVAILABLE and nothing will change.
 
+By default it only FILLS GAPS: weeks with no value at all. Weeks that already have a number —
+especially hand-entered ones — are left alone, because repairing an outage and re-deriving
+settled history are different jobs. The first run of this after the erasure would have rewritten
+215 manual figures, several of them off by more than double, on the way to restoring 20 blank
+weeks. Pass --overwrite to allow that, deliberately, after reading the diff.
+
 Reports what it would write and changes nothing until you pass --apply:
 
   python -m scripts.scorecard_backfill --tenant springb --weeks 16
@@ -41,7 +47,7 @@ def _db_target() -> str:
         return "Postgres (could not parse the URL)"
 
 
-async def _preview(s, tenant_id, weeks: int, today: dt.date):
+async def _preview(s, tenant_id, weeks: int, today: dt.date, fill_only: bool = True):
     """What each (metric, week) would become, without writing. Mirrors run_resolvers' work list."""
     metrics = (await s.execute(
         select(ScorecardMetric.id, ScorecardMetric.name, ScorecardMetric.resolver_key,
@@ -68,6 +74,9 @@ async def _preview(s, tenant_id, weeks: int, today: dt.date):
                 rows.append((name, group_key, ws, "!", f"{type(e).__name__}: {e}"))
                 continue
             have = None if cur is None or cur.value is None else float(cur.value)
+            if fill_only and have is not None:
+                rows.append((name, group_key, ws, "keep", f"{have} (already set)"))
+                continue
             if val is R.UNAVAILABLE:
                 rows.append((name, group_key, ws, "skip", "source unavailable"))
             elif val is None:
@@ -111,12 +120,17 @@ async def _run(args) -> None:
             else:
                 print()
 
-        rows = await _preview(s, t.id, args.weeks, today)
+        rows = await _preview(s, t.id, args.weeks, today, fill_only=not args.overwrite)
 
     counts: dict[str, int] = {}
     for _n, _g, _w, action, _d in rows:
         counts[action] = counts.get(action, 0) + 1
     interesting = [r for r in rows if r[3] in ("FILL", "change", "clear", "OVERRIDE", "!")]
+    if not args.overwrite:
+        kept = sum(1 for r in rows if r[3] == "keep")
+        print(f"    fill-only: {kept} weeks that already have a value are left alone.")
+        print("    (--overwrite would let the resolvers redo those too - read the diff first.)")
+        print()
     for name, gkey, ws, action, detail in interesting:
         wk = ws.isoformat() if ws else "-"
         print(f"    {action:<9} {wk}  {gkey:<10} {name[:38]:<38} {detail}")
@@ -127,7 +141,8 @@ async def _run(args) -> None:
     if not args.apply:
         print("  Dry run. Re-run with --apply to write.\n")
         return
-    written = await R.run_resolvers(SessionLocal, t.id, today, weeks=args.weeks)
+    written = await R.run_resolvers(SessionLocal, t.id, today, weeks=args.weeks,
+                                    fill_only=not args.overwrite)
     print(f"  [ok] resolver pass complete over {args.weeks} weeks ({written} results committed).\n")
 
 
@@ -137,6 +152,9 @@ def main() -> None:
     ap.add_argument("--weeks", type=int, default=12, help="how many weeks back (default 12)")
     ap.add_argument("--today", help="anchor date YYYY-MM-DD (default: today)")
     ap.add_argument("--apply", action="store_true", help="actually write; otherwise dry run")
+    ap.add_argument("--overwrite", action="store_true",
+                    help="also re-derive weeks that ALREADY have a value, including "
+                         "hand-entered ones. Off by default: recovery fills gaps.")
     asyncio.run(_run(ap.parse_args()))
 
 

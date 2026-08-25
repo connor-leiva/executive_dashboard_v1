@@ -559,3 +559,37 @@ async def test_backfill_preview_reports_without_writing(env):
         rows = await _preview(s, tid, weeks=3, today=WED)
     assert {r[3] for r in rows} == {"skip"}
     assert all(r[4] == "source unavailable" for r in rows)
+
+
+async def test_recovery_fills_gaps_without_redoing_settled_history(env):
+    """fill_only is what makes the recovery script safe to hand an operator mid-incident.
+
+    Repairing an outage and re-deriving months of settled numbers are different operations. The
+    first backfill run after the erasure reported 20 blank weeks to restore — and 215 hand-entered
+    values it would have rewritten on the way, several off by more than double. A recovery that
+    quietly does both is worse than one that refuses.
+    """
+    tid, bid, mid = env["tid"], env["bid"], env["mid"]
+    gap = MON - dt.timedelta(days=7)
+    async with SessionLocal() as s:
+        # A hand-entered value in one week, and a blanked resolver row in the week before it —
+        # exactly the state the erasure left behind.
+        s.add(ScorecardValue(tenant_id=tid, metric_id=mid, week_start=MON,
+                             value=Decimal("99"), source="manual"))
+        s.add(ScorecardValue(tenant_id=tid, metric_id=mid, week_start=gap,
+                             value=None, source="resolver"))
+        await _txn(s, tid, bid, "closed", MON, "r1")
+        await _txn(s, tid, bid, "closed", gap + dt.timedelta(days=1), "r2")
+        await s.commit()
+
+    await R.run_resolvers(SessionLocal, tid, WED, weeks=4, fill_only=True)
+    async with SessionLocal() as s:
+        assert (await _val(s, tid, mid, MON)).value == Decimal("99.0000"), \
+            "fill-only overwrote a hand-entered value"
+        assert (await _val(s, tid, mid, gap)).value == Decimal("1.0000"), \
+            "fill-only failed to restore the blanked week"
+
+    # ...and the deliberate override still works when explicitly asked for.
+    await R.run_resolvers(SessionLocal, tid, WED, weeks=4, fill_only=False)
+    async with SessionLocal() as s:
+        assert (await _val(s, tid, mid, MON)).value == Decimal("1.0000")
