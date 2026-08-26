@@ -168,6 +168,35 @@ config change to remember. Point each customer's domain at the `web` service and
   missing, the app quietly serves bundled sample data instead of live numbers.
 - **`RAILWAY_DOCKERFILE_PATH`** is required only for the worker (alternate Dockerfile name).
 
+## Secrets that must be set (the app refuses to start without them)
+
+| variable | what it protects |
+|---|---|
+| `APP_SECRET` | signs every session token. On the committed default, anyone who can read the source can mint a valid session for any user in any workspace. |
+| `FERNET_KEY` | encrypts every stored integration credential. On the committed default, "encrypted at rest" means encrypted with a key that is in the git history. |
+
+Both carry working defaults so the app runs locally with no setup, which means a missing
+variable in production does not fail — it succeeds quietly on a published value, and nothing
+looks wrong. `app/startup_checks.py` refuses to boot in that state.
+
+It does NOT key that decision on `ENV`, because `ENV` itself defaults to `development`: an
+ENV-gated check is skipped by exactly the mistake it exists to catch. It enforces whenever the
+app is talking to a real database.
+
+Check a deployment BEFORE shipping a release that enforces this — a failing guard is a crash
+loop, so confirm it passes first:
+
+```
+railway ssh --service executive_dashboard_v1 "python -m scripts.check_config"
+```
+
+Exit 0 means it will start. It never prints a secret's value, only whether it is absent, still
+the committed default, or set to something of its own.
+
+Rotating `FERNET_KEY` is not a config change: existing credentials were encrypted with the old
+key and become unreadable, so every tenant has to reconnect every integration. Rotating
+`APP_SECRET` signs everyone out. Neither is dangerous, but neither is free.
+
 ## Custom domains
 Two things have to agree, and only the first is in Railway:
 

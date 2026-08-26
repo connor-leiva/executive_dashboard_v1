@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from .config import settings
 from .db import engine
 from .models import Base
+from .startup_checks import enforce_config
 from .tenancy import resolve_tenant, set_tenant
 from .throttle import enforce
 from .routers import recall as recall_router, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform
@@ -17,6 +18,11 @@ log = logging.getLogger("app")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # BEFORE anything else. A process whose session-signing secret is the one published in the
+    # repository should not reach the point of accepting a request, and certainly should not
+    # start a scheduler that syncs customer data using credentials it decrypted with a key from
+    # the git history.
+    enforce_config()
     # Dev convenience: auto-create tables on SQLite so the app runs with zero
     # infra. In prod (Postgres) schema is managed by Alembic migrations.
     if settings.is_sqlite:
