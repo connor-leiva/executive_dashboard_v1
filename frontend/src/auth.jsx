@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
-import PlatformConsole from "./platform/PlatformConsole.jsx";
+// Lazy so the operator console is its own chunk. A customer's browser has no reason to download
+// the screen that suspends customers, and a static import puts it in everybody's bundle.
+const PlatformConsole = lazy(() => import("./platform/PlatformConsole.jsx"));
 import { T } from "./theme.js";
 import { login, hasToken } from "./api.js";
 import CommandCenter from "./CommandCenter.jsx";
@@ -12,6 +14,13 @@ import ShareDesk from "./ShareDesk.jsx";
 import { SpringSignature } from "./Brand.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
+
+/* The operator console lives at admin.<whatever this deployment is served from>, and nowhere
+   else. Keyed on the first label rather than the full host so it needs no knowledge of the
+   platform domain, which differs across local, staging and production — and so `admin.localhost`
+   works in development with no special case. `admin` is reserved in backend tenancy.PLATFORM_HOSTS
+   and can never resolve to a customer, so this host cannot collide with one. */
+const IS_OPERATOR_HOST = window.location.hostname.split(".")[0] === "admin";
 
 /* ── Login screen ──────────────────────────────────────────── */
 
@@ -98,6 +107,23 @@ export function App() {
   const [authed, setAuthed] = useState(hasToken());
   const needsLogin = Boolean(API_BASE) && !authed;
 
+  /* The operator host serves the console and NOTHING else — no tenant login, no dashboard, not
+     even a redirect into one. Previously this was a /platform route inside the tenant app, which
+     meant the operator login sat on every customer's domain and an operator could be signed into
+     a customer's dashboard in one tab and the console in another, on the same origin. Separating
+     the hosts separates the origins, so the two sessions cannot see each other's storage. */
+  if (IS_OPERATOR_HOST) {
+    return (
+      <BrowserRouter>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="*" element={<PlatformConsole />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
+    );
+  }
+
   return (
     <BrowserRouter>
       <Routes>
@@ -106,11 +132,6 @@ export function App() {
         <Route path="/reset-password" element={<ResetPassword onDone={() => setAuthed(true)} />} />
         <Route path="/share/:token" element={<ShareScorecard />} />       {/* public embed — no login */}
         <Route path="/desk/:token" element={<ShareDesk />} />             {/* rep's own Sales Desk — no login */}
-        {/* Operator console. OUTSIDE the tenant login gate deliberately: an operator has no
-            tenant session, so gating this behind one would make the console unreachable to
-            exactly the people it is for. It carries its own login and its own token, and the
-            API refuses a tenant token here regardless (backend deps.current_platform_user). */}
-        <Route path="/platform/*" element={<PlatformConsole />} />
         {needsLogin ? (
           <Route path="*" element={<Login onLogin={() => setAuthed(true)} />} />
         ) : (
