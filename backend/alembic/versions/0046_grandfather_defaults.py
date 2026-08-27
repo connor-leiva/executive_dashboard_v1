@@ -1,5 +1,10 @@
 """Write down the defaults that were being applied invisibly, before they stop being applied
 
+NOTE ON THE REVISION ID: alembic_version.version_num is VARCHAR(32). This shipped as
+`0046_grandfather_implicit_defaults` — 34 characters — and Postgres refused the stamp AFTER the
+migration body had run, so the deploy crash-looped on a migration that had actually worked.
+SQLite ignores column length, which is why the whole suite passed. Keep revision ids short.
+
 Three values were hardcoded as fallbacks in the compute layer, and all three were one
 customer's answer being used as everybody's:
 
@@ -28,7 +33,7 @@ Deliberately additive and idempotent: only ever fills in a key that is absent or
 overwrites a value somebody chose. Safe to run twice, and safe if a config was edited between
 deploy and migration.
 
-Revision ID: 0046_grandfather_implicit_defaults
+Revision ID: 0046_grandfather_defaults
 Revises: 0045_platform_operators
 """
 import json
@@ -37,7 +42,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0046_grandfather_implicit_defaults"
+revision: str = "0046_grandfather_defaults"
 down_revision: Union[str, None] = "0045_platform_operators"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

@@ -21,7 +21,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-MIGRATION = "alembic/versions/0046_grandfather_implicit_defaults.py"
+MIGRATION = "alembic/versions/0046_grandfather_defaults.py"
 
 
 def _module():
@@ -109,3 +109,28 @@ async def test_running_it_twice_changes_nothing_the_second_time():
             second = conn.execute(sa.text("SELECT config FROM integration")).scalar_one()
 
     assert json.loads(first) == json.loads(second)
+
+
+def test_every_revision_id_fits_the_column_alembic_stores_it_in():
+    """alembic_version.version_num is VARCHAR(32).
+
+    0046 shipped as `0046_grandfather_implicit_defaults` — 34 characters. Postgres refused the
+    stamp AFTER the migration body had already run, so the deploy crash-looped on a migration
+    that had genuinely worked. SQLite does not enforce column length, so the entire suite passed.
+
+    Two bugs in one migration reached production this way, and both had the same shape: something
+    that is only wrong on Postgres, in a suite that only runs SQLite. This one is a one-line
+    check, so there is no excuse for finding out from a crash loop.
+    """
+    import re
+    from pathlib import Path
+
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    too_long = {}
+    for path in sorted(versions.glob("*.py")):
+        m = re.search(r'^revision:?\s*(?::\s*str\s*)?=\s*["\']([^"\']+)["\']',
+                      path.read_text(encoding="utf-8"), re.M)
+        if m and len(m.group(1)) > 32:
+            too_long[path.name] = (m.group(1), len(m.group(1)))
+    assert not too_long, (
+        f"revision ids longer than VARCHAR(32) — these stamp-fail on Postgres only: {too_long}")
