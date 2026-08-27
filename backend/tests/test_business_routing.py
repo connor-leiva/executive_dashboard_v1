@@ -195,6 +195,18 @@ async def test_qbo_entity_create_reroute_delete_guards_bookkeeping():
         tx = (await s.execute(select(BookTxn).where(BookTxn.business_id == bid))).scalar_one()
         assert tx.business_id == bid and tx.realm_id == "R1"   # reroute never moved the ledger keys
 
+    # A workspace cannot delete its LAST business (integrations.delete_qbo_entity), so state the
+    # precondition instead of inheriting it. This test passed alone and failed in the full suite:
+    # the seeded businesses are gone by the time it runs, because the module-scoped database is
+    # shared and earlier files mutate the same tenant. The lifecycle under test here is create /
+    # reroute / delete, not the guard - so give it a sibling and test what it means to test.
+    async with SessionLocal() as s:
+        owner2 = await _owner(s)
+        s.add(Business(tenant_id=owner2.tenant_id, key="sibling_for_delete", name="Sibling",
+                       tag="Business", accent="#111111", ink="#222222", kind="holding",
+                       sort_order=99))
+        await s.commit()
+
     async with SessionLocal() as s:
         await delete_qbo_entity(key, await _owner(s), s)
     async with SessionLocal() as s:
@@ -344,3 +356,55 @@ async def test_books_pl_entities_reflect_connected_qbo():
                 await s.execute(delete(Integration).where(Integration.business_id == bid))
                 await s.execute(delete(Business).where(Business.id == bid))
             await s.commit()
+
+
+async def test_a_workspace_cannot_delete_itself_empty():
+    """The guard used to be a literal list of the first customer's three business keys, so it
+    protected her and nobody else. A workspace provisioned normally has ONE business, which made
+    its entire dashboard one confirm dialog away — while the same dialog refused to touch hers.
+
+    Two rules now, and neither mentions a customer: you cannot remove the last business, and you
+    cannot remove one an operational source is still attached to.
+    """
+    from fastapi import HTTPException
+
+    from app.models import Integration
+    from app.routers.integrations import delete_qbo_entity
+    from app.services.provisioning import provision_tenant
+
+    async with SessionLocal() as s:
+        r = await provision_tenant(s, slug="delco", name="Del Co",
+                                   owner_email="owner@delco.test", hostname="delco.localhost")
+        tid = r.tenant_id
+        owner = (await s.execute(select(User).where(User.tenant_id == tid))).scalars().first()
+        only = (await s.execute(select(Business).where(Business.tenant_id == tid))).scalars().one()
+        only_key = only.key
+
+    # 1. The only business is not removable.
+    async with SessionLocal() as s:
+        o = await s.get(User, owner.id)
+        with pytest.raises(HTTPException) as ei:
+            await delete_qbo_entity(only_key, o, s)
+        assert ei.value.status_code == 400
+        assert "only business" in str(ei.value.detail)
+
+    # 2. With a second business, the first becomes removable...
+    async with SessionLocal() as s:
+        s.add(Business(tenant_id=tid, key="second", name="Second", tag="Business",
+                       accent="#111111", ink="#222222", kind="holding", sort_order=1))
+        await s.commit()
+
+    # ...unless an operational source is attached to it. QBO does not count - removing that
+    # connection is what this endpoint is for.
+    async with SessionLocal() as s:
+        b = (await s.execute(select(Business).where(
+            Business.tenant_id == tid, Business.key == only_key))).scalar_one()
+        s.add(Integration(tenant_id=tid, provider="sisu", business_id=b.id, status="connected"))
+        s.add(Integration(tenant_id=tid, provider="qbo", business_id=b.id, status="connected"))
+        await s.commit()
+    async with SessionLocal() as s:
+        o = await s.get(User, owner.id)
+        with pytest.raises(HTTPException) as ei:
+            await delete_qbo_entity(only_key, o, s)
+        assert ei.value.status_code == 400
+        assert "sisu" in str(ei.value.detail) and "qbo" not in str(ei.value.detail)

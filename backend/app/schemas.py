@@ -230,6 +230,9 @@ class SourceOut(BaseModel):
     config: dict | None = None              # raw, for the edit modal (ghl)
     integration_id: str | None = None       # single-row sources
     business_key: str | None = None         # single-row sources (connect wiring)
+    # Set only when the tenant has NO business of the role this source feeds, so the card
+    # can say "add a lending business first" rather than offering a button that 404s.
+    needs_kind: str | None = None
 
 
 class IntegrationsOut(BaseModel):

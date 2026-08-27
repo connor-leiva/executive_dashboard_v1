@@ -294,17 +294,28 @@ _ARIVE_UW = {"UNDERWRITING_SUBMITTED", "APPROVED_WITH_CONDITION", "RE_SUBMITTAL"
              "CLEAR_TO_CLOSE", "DOCS_OUT", "DOCS_SIGNED"}
 
 
-async def _arive_states(s, tenant_id) -> set:
-    """Which property states count toward the Sympli dashboard. The Arive instance is
-    Sympli's FULL multi-state LOS; Spring's view is Utah (ULRG's market). Configurable
-    on the Arive integration (`states`), default {"UT"}."""
+async def _arive_states(s, tenant_id) -> set | None:
+    """Which property states count toward the lending dashboard, or None for all of them.
+
+    An Arive instance is the lender's FULL multi-state loan origination system, and the first
+    customer only wants their own market out of it — so this filters, configured as `states` on
+    the Arive integration.
+
+    The default used to be {"UT"}. For anybody not lending in Utah that is not a default, it is
+    a silent erasure: they connect Arive, the sync reports success, every loan is dropped by a
+    filter nothing in the UI mentions, and their pipeline reads zero. Unset now means UNFILTERED,
+    which is the only default that cannot quietly hide correct data. Migration 0046 writes
+    ["UT"] onto the integrations that were relying on the old default, so nobody's numbers move.
+    """
     integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == tenant_id, Integration.provider == "arive"))).scalars().first()
     st = (integ.config or {}).get("states") if integ else None
-    return {str(x).upper() for x in st} if st else {"UT"}
+    return {str(x).upper() for x in st} if st else None
 
 
 def _in_states(loan, states) -> bool:
+    if not states:                       # unset = every state counts
+        return True
     return ((loan.meta or {}).get("property_state") or "").upper() in states
 
 
@@ -317,7 +328,11 @@ async def _loan_source_map(s, tenant_id, loans) -> dict:
     sisu_integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
     vcfg = (sisu_integ.config or {}) if sisu_integ else {}
-    ref_domains = [d.lower().lstrip("@") for d in (vcfg.get("referral_domains") or ["liveutah.com"])]
+    # No fallback domain. Removing the one in sync.py was not enough — the two CONSUMERS
+    # carried the same literal, so an unconfigured workspace still matched referrals
+    # against another company's domain. Empty means this signal contributes nothing,
+    # and the other two attribution signals still run.
+    ref_domains = [d.lower().lstrip("@") for d in (vcfg.get("referral_domains") or [])]
     ulrg_emails, ulrg_phones = set(), set()
     if ulrg:
         # Any ULRG buy-side deal (closed OR still under contract) — a loan in
@@ -538,7 +553,11 @@ async def build_sympli_ctx(s, tenant_id):
     sympli_vids = set(vcfg.get("sympli_mortgage_vids") or [])
     cash_vids = set(vcfg.get("cash_vids") or [])
     lender_names = vcfg.get("lender_names") or {}
-    ref_domains = [d.lower().lstrip("@") for d in (vcfg.get("referral_domains") or ["liveutah.com"])]
+    # No fallback domain. Removing the one in sync.py was not enough — the two CONSUMERS
+    # carried the same literal, so an unconfigured workspace still matched referrals
+    # against another company's domain. Empty means this signal contributes nothing,
+    # and the other two attribution signals still run.
+    ref_domains = [d.lower().lstrip("@") for d in (vcfg.get("referral_domains") or [])]
     states = await _arive_states(s, tenant_id)
     funded = (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == sympli.id,
@@ -1145,7 +1164,11 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         from .tabs import _business_tabs
         _member_tab = (_business_tabs(_mem_biz) or [_mem_biz.key])[0]
     else:
-        _member_tab = "forum"
+        # No membership business — the default-provisioned shape. This said "forum", so every
+        # brand-new tenant's Active Members tile carried a tab key from another company's
+        # vocabulary and its drill 403'd. The tile reads "—" in this branch anyway, so name a
+        # tab every tenant has rather than one this tenant certainly does not.
+        _member_tab = "portfolio"
 
     scorecards = _scorecards(
         portfolio_noi=portfolio_noi, portfolio_margin=portfolio_margin,

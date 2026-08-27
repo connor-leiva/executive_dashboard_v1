@@ -303,7 +303,12 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
             vc = sisu.resolve_vendor_config(vendors)
             cfg = dict(integ.config or {})
             cfg.update(vc)
-            cfg.setdefault("referral_domains", ["liveutah.com"])
+            # No default referral domain. This used to setdefault the FIRST CUSTOMER'S domain,
+            # so a new customer's very first Sisu sync wrote someone else's company into their
+            # own config as the thing that identifies their referrals — and their flywheel then
+            # reconciled to zero forever, with no screen anywhere showing why. Unset means the
+            # flywheel has nothing to match on, which is visibly empty rather than confidently
+            # wrong. Migration 0046 preserves the existing value for anyone already relying on it.
             integ.config = cfg
             await s.commit()
             print(f"[sisu] vendors: {len(vc['sympli_mortgage_vids'])} sympli, "
@@ -464,12 +469,14 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     cfg = integ.config or {}
     location_id = cfg.get("location_id")
     member_tags = {t.lower() for t in cfg.get("member_tags", [])}
-    # Segmentation defaults so an already-connected integration (whose stored config
-    # predates these keys) still splits Forum vs Inner Circle without a reconfig.
-    forum_tags = {t.lower() for t in (cfg.get("forum_tags") or
-                  ["the forum active", "member: secondary", "forumadmin"])}
-    ic_tags = {t.lower() for t in (cfg.get("innercircle_tags") or
-               ["inner circle active", "inner circle active add on"])}
+    # Sub-segmentation is OPT-IN. These defaulted to the first customer's literal tag names
+    # ("the forum active", "inner circle active"), which no other customer uses — so every other
+    # workspace's member split rendered empty with no field in the connect form to correct it.
+    # Empty means no sub-segmentation: ghl.member_segment returns "member" for everyone, which
+    # is right for a customer running one programme. Migration 0046 writes the old literals onto
+    # the integrations that were relying on them.
+    forum_tags = {t.lower() for t in (cfg.get("forum_tags") or [])}
+    ic_tags = {t.lower() for t in (cfg.get("innercircle_tags") or [])}
     event_tag = (cfg.get("event_tag") or "").lower().strip()
     renewals_match = (cfg.get("renewals_pipeline_match") or "renewals").lower()
     onboarded_match = (cfg.get("onboarded_stage_match") or "won: onboarded").lower()

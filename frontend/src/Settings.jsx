@@ -145,7 +145,7 @@ function GhlConnectForm({ row, onClose, onDone }) {
     try {
       const member_tags = tags.split(",").map((t) => t.trim()).filter(Boolean);
       await postJSON("/integrations", {
-        provider, business_key: row.business_key || "springb",
+        provider, business_key: row.business_key,
         token: token.trim() || undefined,   // blank on edit = keep the current key
         config: {
           ...cfg,                             // preserve segmentation + pipeline matchers
@@ -235,7 +235,7 @@ function AriveConnectForm({ row, onClose, onDone }) {
     setErr(null);
     try {
       await postJSON("/integrations", {
-        provider: "arive", business_key: row.business_key || "sympli",
+        provider: "arive", business_key: row.business_key,
         client_id: clientId.trim() || undefined,     // blank on edit = keep current
         secret: secret.trim() || undefined,
         api_key: apiKey.trim() || undefined,
@@ -295,7 +295,7 @@ function SisuConnectForm({ row, onClose, onDone }) {
     setErr(null);
     try {
       await postJSON("/integrations", {
-        provider: "sisu", business_key: row.business_key || "ulrg",
+        provider: "sisu", business_key: row.business_key,
         username: username.trim() || undefined,
         token: token.trim() || undefined,          // blank on edit = keep current
       });
@@ -345,7 +345,7 @@ function FubConnectForm({ row, onClose, onDone }) {
     setErr(null);
     try {
       await postJSON("/integrations", {
-        provider: "fub", business_key: row.business_key || "ulrg",
+        provider: "fub", business_key: row.business_key,
         token: key.trim() || undefined,
       });
       onDone();
@@ -392,7 +392,7 @@ function StripeLegacyConnectForm({ row, onClose, onDone }) {
     setErr(null);
     try {
       await postJSON("/integrations", {
-        provider: "stripe_legacy", business_key: row.business_key || "springb",
+        provider: "stripe_legacy", business_key: row.business_key,
         token: key.trim() || undefined,   // blank on edit = keep the current key
         config: cfg,
       });
@@ -440,7 +440,7 @@ function StripeBcConnectForm({ row, onClose, onDone }) {
     setErr(null);
     try {
       await postJSON("/integrations", {
-        provider: "stripe_bc", business_key: row.business_key || "springb",
+        provider: "stripe_bc", business_key: row.business_key,
         token: key.trim() || undefined,   // blank on edit = keep the current key
         config: cfg,
       });
@@ -491,7 +491,7 @@ function GhlLegacyConnectForm({ row, onClose, onDone }) {
     setErr(null);
     try {
       await postJSON("/integrations", {
-        provider: "ghl_legacy", business_key: row.business_key || "springb",
+        provider: "ghl_legacy", business_key: row.business_key,
         token: token.trim() || undefined,   // blank on edit = keep the current token
         config: { ...cfg, location_id: locationId.trim() },
       });
@@ -1032,8 +1032,11 @@ function IntegrationsPage() {
     if (s.provider === "ghl_legacy")
       return setConnecting({ provider: "ghl_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
   }
-  const DEFAULT_BIZ = { arive: "sympli", sisu: "ulrg", fub: "ulrg" };
-  const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || DEFAULT_BIZ[s.provider] || "springb", status: "connected" });
+  // No DEFAULT_BIZ any more. It mapped each source to one customer's business key
+  // ("arive" -> "sympli"), so every other workspace posted a key their API had never heard of
+  // and got a 404 that the Stripe forms then reported as "Stripe rejected that key". The API
+  // resolves the right business for THIS workspace by role and returns it as business_key.
+  const editConfig = (s) => setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key, status: "connected" });
   const editEntity = (e) => setConnecting({ provider: "qbo", mode: "edit", entity: e });
   async function disconnectEntity(e) {
     if (!window.confirm(`Disconnect ${e.business_name}? Its tokens are removed; synced history stays (Remove deletes it entirely).`)) return;

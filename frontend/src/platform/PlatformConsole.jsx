@@ -176,12 +176,35 @@ function OperatorLogin({ onDone }) {
 }
 
 /* ── new workspace ────────────────────────────────────────────────────────────── */
+
+/* What a business DOES, which is how the product finds it — integrations attach by role
+   (services/integrations_view.CONNECTABLE_KIND) and drill-downs resolve their tab by role
+   (services/tabs.kind_tabs). Not cosmetic: a workspace with no membership business has
+   nowhere to attach Go High Level, and its card will say exactly that. */
+const KINDS = [
+  { value: "real_estate", label: "Real estate", tag: "Real estate",
+    hint: "Transactions, agents, GCI. Sisu and Follow Up Boss attach here." },
+  { value: "commission_jv", label: "Lending / JV", tag: "Lending",
+    hint: "Paid per closing, with its own split. Arive attaches here." },
+  { value: "membership", label: "Memberships", tag: "Membership",
+    hint: "Programmes and cohorts sold as memberships. Go High Level and Stripe attach here." },
+  { value: "holding", label: "Holding", tag: "Holding",
+    hint: "Books and compliance only - no operational feed." },
+];
+
+const slugify = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "_")
+  .replace(/^_+|_+$/g, "").slice(0, 24);
+
 function NewWorkspace({ onCreated, onCancel }) {
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [name, setName] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [hostname, setHostname] = useState("");
+  // At least one line. The API would default to a single generic business, but then the
+  // operator never learns the choice exists - and a workspace whose only business is
+  // real-estate silently cannot connect the membership or lending sources.
+  const [lines, setLines] = useState([{ name: "", kind: "real_estate" }]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
@@ -197,11 +220,24 @@ function NewWorkspace({ onCreated, onCancel }) {
     setBusy(true);
     setErr("");
     try {
+      // Named lines only, key derived from the name and de-duplicated. An empty list means
+      // "you did not say", and the API falls back to one generic business.
+      const seen = new Set();
+      const businesses = lines
+        .filter((l) => l.name.trim())
+        .map((l, i) => {
+          let key = slugify(l.name) || `biz_${i + 1}`;
+          while (seen.has(key)) key = `${key}_${seen.size + 1}`;
+          seen.add(key);
+          const meta = KINDS.find((k) => k.value === l.kind);
+          return { key, name: l.name.trim(), kind: l.kind, tag: meta ? meta.tag : "Business" };
+        });
       const r = await createTenant({
         slug: effectiveSlug,
         name: name.trim(),
         owner_email: ownerEmail.trim(),
         hostname: hostname.trim() || null,
+        businesses: businesses.length ? businesses : null,
       });
       setResult(r);
       onCreated();
@@ -266,6 +302,55 @@ function NewWorkspace({ onCreated, onCancel }) {
           </div>
         </div>
       </div>
+
+      <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${OPS.line}` }}>
+        <div style={label}>Their businesses</div>
+        <div style={{ fontFamily: FONT, fontSize: 12, color: OPS.tertiary, margin: "5px 0 10px" }}>
+          Each one is a profit centre on their dashboard. What it DOES decides which data sources
+          can attach to it, so a workspace with no lending business has nowhere to connect Arive.
+          They can rename these later; the role is the part worth getting right now.
+        </div>
+        {lines.map((l, i) => {
+          const meta = KINDS.find((k) => k.value === l.kind);
+          const set = (patch) => setLines(lines.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+          return (
+            <div key={i} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input style={{ ...input, flex: 2 }} value={l.name}
+                       placeholder={i === 0 ? "Acme Realty" : "Another business"}
+                       onChange={(e) => set({ name: e.target.value })} />
+                <select style={{ ...input, flex: 1 }} value={l.kind}
+                        onChange={(e) => set({ kind: e.target.value })}>
+                  {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+                </select>
+                <button type="button" aria-label="Remove this business"
+                        onClick={() => setLines(lines.length > 1 ? lines.filter((_, j) => j !== i) : lines)}
+                        disabled={lines.length === 1}
+                        style={{ background: "none", border: "none", cursor: lines.length === 1 ? "default" : "pointer",
+                                 color: lines.length === 1 ? OPS.sprout : OPS.muted, fontSize: 18, padding: "0 4px" }}>
+                  &times;
+                </button>
+              </div>
+              {meta && (
+                <div style={{ fontFamily: FONT, fontSize: 11.5, color: OPS.muted, marginTop: 4 }}>
+                  {meta.hint}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <button type="button" onClick={() => setLines([...lines, { name: "", kind: "membership" }])}
+                style={{ background: "none", border: `1px dashed ${OPS.line}`, borderRadius: 8,
+                         padding: "7px 12px", cursor: "pointer", fontFamily: FONT, fontSize: 12.5,
+                         color: OPS.slate }}>
+          + Add another business
+        </button>
+        <div style={{ fontFamily: FONT, fontSize: 11.5, color: OPS.muted, marginTop: 8 }}>
+          Leave all blank and they get one generic business, which can connect Sisu and Follow Up
+          Boss but nothing else until they add more.
+        </div>
+      </div>
+
       <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
         <Button type="submit" disabled={busy || !name || !ownerEmail || !effectiveSlug}>
           {busy ? "Creating…" : "Create workspace"}

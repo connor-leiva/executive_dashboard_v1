@@ -51,6 +51,12 @@ DEFAULT_ACCENTS = [
 
 # What a tenant gets when the caller doesn't describe its businesses. One generic profit
 # center: enough for the dashboard to render, and renamed in Settings rather than in code.
+#
+# `kind` matters more than it looks — it is how integrations find which business to attach to
+# (services/integrations_view.CONNECTABLE_KIND) and how drill-downs find their tab
+# (services/tabs.kind_tabs). A tenant with only this one business can connect Sisu and Follow
+# Up Boss; Arive and the membership sources need a business of their own role, which is why the
+# console lets an operator declare more than one.
 DEFAULT_BUSINESSES = [
     {"key": "main", "name": "Main", "tag": "Business", "accent": "#61835E", "ink": "#4D6A4D"},
 ]
@@ -142,7 +148,12 @@ async def provision_tenant(
             tag=b.get("tag") or "Business", accent=b.get("accent") or accent,
             ink=b.get("ink") or ink, is_jv=bool(b.get("is_jv")),
             jv_share=Decimal(str(b.get("jv_share", 1.0))),
-            kind=b.get("kind") or "real_estate", sort_order=i))
+            kind=b.get("kind") or "real_estate", sort_order=i,
+            # Carried through, not dropped. `config` holds program_tabs — the documented way a
+            # tenant declares its own programmes instead of inheriting the first customer's —
+            # and display_tab routes a financial entity onto its own page. Both were accepted by
+            # the caller, silently discarded here, and then absent with no error to explain it.
+            config=b.get("config") or None, display_tab=b.get("display_tab") or None))
 
     raw, token_hash = new_action_token()
     s.add(User(

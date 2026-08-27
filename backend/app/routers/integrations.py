@@ -150,10 +150,20 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
     if provider not in ("ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy",
                         "sisu", "fub"):
         raise HTTPException(400, "Unsupported provider")
+    wanted = body.get("business_key")
     biz = (await s.execute(select(Business).where(
-        Business.tenant_id == user.tenant_id, Business.key == body.get("business_key")))).scalar_one_or_none()
+        Business.tenant_id == user.tenant_id, Business.key == wanted))).scalar_one_or_none()
     if not biz:
-        raise HTTPException(404, "Unknown business")
+        # Say WHICH business and whose. This read "Unknown business" and was reached by every
+        # tenant except the first, because the frontend sent one customer's hardcoded business
+        # key. Both Stripe forms then reported "Stripe rejected that key" — after Stripe had
+        # accepted it — sending whoever was connecting off to re-check a credential that was
+        # fine. An error that names the real cause is the difference between a five-minute fix
+        # and an afternoon.
+        have = (await s.execute(select(Business.key).where(
+            Business.tenant_id == user.tenant_id).order_by(Business.sort_order))).scalars().all()
+        raise HTTPException(404, f"This workspace has no business '{wanted}'. "
+                                 f"It has: {', '.join(have) or 'none'}.")
     integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == user.tenant_id, Integration.provider == provider,
         Integration.business_id == biz.id))).scalar_one_or_none()
@@ -375,14 +385,40 @@ async def update_qbo_entity(business_key: str, body: dict,
 @router.delete("/integrations/qbo/entities/{business_key}")
 async def delete_qbo_entity(business_key: str, user: User = Depends(require_role("owner", "admin")),
                             s: AsyncSession = Depends(get_session)):
-    """Remove a QBO entity entirely: its Business row, its QBO Integration, and all of
-    its ledger / P&L / intercompany rows. The three seeded core businesses are protected."""
-    if business_key in ("ulrg", "springb", "sympli"):
-        raise HTTPException(400, "Core businesses can't be removed here.")
+    """Remove a QBO entity entirely: its Business row, its QBO Integration, and all of its
+    ledger / P&L / intercompany rows.
+
+    Two things are protected, and the list used to be neither: it was the first customer's three
+    business keys, spelled out. That protected her and nobody else — a second workspace is
+    provisioned with a single business, so their whole dashboard was one confirm dialog away
+    while the same dialog refused to touch hers.
+
+      1. The workspace's LAST business. Nothing is left to render, and no screen exists to
+         create one outside this flow.
+      2. A business an OPERATIONAL source is attached to — Sisu, GHL, Arive, Stripe. Deleting
+         one of those orphans a live sync rather than removing an unused entity. QBO does not
+         count: this endpoint removes the QBO connection as part of the job, which is the point.
+
+    That reproduces the first customer's three exactly (each carries a non-QBO source) without
+    over-reaching onto a QBO-only entity somebody added by mistake and wants to remove.
+    """
     biz = (await s.execute(select(Business).where(
         Business.tenant_id == user.tenant_id, Business.key == business_key))).scalar_one_or_none()
     if not biz:
         raise HTTPException(404, "Unknown entity")
+    total = (await s.execute(select(func.count()).select_from(Business).where(
+        Business.tenant_id == user.tenant_id))).scalar_one()
+    if total <= 1:
+        raise HTTPException(400, f"'{biz.name}' is this workspace's only business. Removing it "
+                                 f"would leave the dashboard with nothing to show. Add another "
+                                 f"first.")
+    attached = (await s.execute(select(Integration.provider).where(
+        Integration.tenant_id == user.tenant_id, Integration.business_id == biz.id,
+        Integration.provider != "qbo"))).scalars().all()
+    if attached:
+        raise HTTPException(400, f"'{biz.name}' still has {', '.join(sorted(set(attached)))} "
+                                 f"attached. Disconnect those first - removing it now would "
+                                 f"leave a live sync pointing at nothing.")
     bid = biz.id
     integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == user.tenant_id, Integration.provider == "qbo",

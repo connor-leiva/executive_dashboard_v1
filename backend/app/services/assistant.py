@@ -21,7 +21,7 @@ from ..services.financials import compute_financials
 from ..services.forum import build_forum
 from ..services.lineage import metric_detail
 from ..services.metrics import build_dashboard
-from ..services.tabs import effective_tabs, tab_for_metric, tenant_tabs, biz_tab_map
+from ..services.tabs import effective_tabs, tab_for_metric, tenant_tabs, tab_maps
 
 log = logging.getLogger("app")
 
@@ -179,7 +179,8 @@ async def _run_tool(s, user: User, allowed_tabs: list[str], period: str, inp: di
     business = inp.get("business") or None
     if not key:
         return {"error": "metric_key is required."}
-    tab = tab_for_metric(key, business, await biz_tab_map(s, user.tenant_id))
+    biz_tab, kind_tab = await tab_maps(s, user.tenant_id)
+    tab = tab_for_metric(key, business, biz_tab, kind_tab)
     if tab not in allowed_tabs:
         return {"error": f"No access to '{key}' — it belongs to the {tab} tab, which this user can't see."}
     try:

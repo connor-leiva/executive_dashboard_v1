@@ -10,7 +10,7 @@ from ..services.lineage import metric_detail
 from ..services.forum import build_forum
 from ..services.becollective import build_becollective
 from ..services.edge import build_edge
-from ..services.tabs import tenant_tabs, effective_tabs, tab_for_metric, biz_tab_map
+from ..services.tabs import tenant_tabs, effective_tabs, tab_for_metric, tab_maps
 
 router = APIRouter(tags=["dashboard"])
 
@@ -90,5 +90,6 @@ async def metric_detail_ep(
     """The records behind a KPI + a plain-English 'computed_as' + source links.
     A drill inherits its tile's permission (§2.5) — a member can't reach forum_payments
     detail without the forum tab, even by guessing the URL."""
-    await assert_tab(user, s, tab_for_metric(key, business, await biz_tab_map(s, user.tenant_id)))
+    biz_tab, kind_tab = await tab_maps(s, user.tenant_id)
+    await assert_tab(user, s, tab_for_metric(key, business, biz_tab, kind_tab))
     return await metric_detail(s, user.tenant_id, key, period, business, agent_id, lo, stage, source, stream, month)

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..models import Integration, Business, SyncRun
 from ..schemas import EntityRow, SourceOut, IntegrationsOut
+from . import roles
 
 # Provider order + static metadata (matches the settings mockup).
 ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy"]
@@ -43,9 +44,25 @@ META = {
                            "real label for each legacy charge (join by Stripe id) so the classifier knows "
                            "what each is for (Forum sponsorship vs Spring Break, membership vs The Edge, …)"},
 }
-# Offered even without a row (connectable). These all attach to the springb business.
-CONNECTABLE = {"ghl": "springb", "ghl_bc": "springb", "arive": "sympli",
-               "stripe_legacy": "springb", "stripe_bc": "springb", "ghl_legacy": "springb"}
+# Which KIND of business each source feeds. It used to be which business KEY — literally
+# {"ghl": "springb", "arive": "sympli"} — and that is one customer's names for her own
+# companies. A tenant provisioned normally gets a business keyed "main", so the frontend asked
+# to connect against "springb", the API found no such business for that tenant, and every
+# source except QuickBooks answered 404 "Unknown business". QuickBooks worked only because it
+# creates its business row on the way through.
+#
+# The role is the durable fact: Arive reports loans, so it belongs to whichever business is
+# this tenant's lending JV, whatever they call it. Resolved per tenant through roles.py.
+CONNECTABLE_KIND = {
+    "sisu": roles.REAL_ESTATE,          # transactions, agents, GCI — the brokerage
+    "fub": roles.REAL_ESTATE,           # CRM leads and agent activity
+    "ghl": roles.MEMBERSHIP,            # members, renewals, subscriptions
+    "ghl_bc": roles.MEMBERSHIP,         # a second GHL location for another programme
+    "ghl_legacy": roles.MEMBERSHIP,     # read-only charge labels for the same programmes
+    "stripe_legacy": roles.MEMBERSHIP,  # legacy dues
+    "stripe_bc": roles.MEMBERSHIP,      # cohort payments
+    "arive": roles.COMMISSION_JV,       # loans and pipeline — the lending JV
+}
 
 
 def _aware(ts: dt.datetime) -> dt.datetime:
@@ -102,6 +119,9 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
     businesses = (await s.execute(select(Business).where(Business.tenant_id == tenant_id))).scalars().all()
     biz_by_id = {b.id: b for b in businesses}
     sort_of = {b.id: b.sort_order for b in businesses}
+    # kind -> the business a source of that kind attaches to, for THIS tenant.
+    by_kind = {k: roles.pick(sorted(businesses, key=lambda x: x.sort_order or 0), k)
+               for k in roles.KINDS}
 
     # Latest SyncRun per provider (and latest successful finish for next_sync).
     runs = (await s.execute(select(SyncRun).where(SyncRun.tenant_id == tenant_id)
@@ -157,6 +177,10 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 last_run=_last_run(run, status, interval, now), entities=entities))
         else:
             row = rows[0] if rows else None
+            # The business this source would attach to. None when the tenant runs no
+            # business of that role — a membership-only customer has no lending JV — in
+            # which case the card says what is missing instead of offering a dead button.
+            target = by_kind.get(CONNECTABLE_KIND.get(prov))
             connected = bool(row) and row.status in ("connected", "error")
             if not connected:
                 status = "disconnected"
@@ -177,7 +201,9 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 config=cfg if prov in ("ghl", "ghl_bc") else None,
                 integration_id=str(row.id) if row else None,
                 business_key=(biz_by_id.get(row.business_id).key if row and row.business_id in biz_by_id
-                              else CONNECTABLE.get(prov))))
+                              else (target.key if target else None)),
+                needs_kind=(None if (row and row.business_id in biz_by_id) or target
+                            else CONNECTABLE_KIND.get(prov))))
 
         if sources[-1].status in ("ok", "stale"):
             healthy += 1 if sources[-1].status == "ok" else 0
