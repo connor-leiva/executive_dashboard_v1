@@ -53,6 +53,23 @@ IMPLICIT = {
 }
 
 
+def update_sql(is_pg: bool) -> str:
+    """The UPDATE, as a string, so a test can compile it against the Postgres dialect.
+
+    This shipped as `SET config = :cfg::jsonb`, which crash-looped the API in production. It is
+    valid Postgres and valid SQLAlchemy separately, and broken together: text() will not treat
+    `:cfg` as a bind parameter when a colon follows it immediately, so `:cfg::jsonb` was passed
+    through to the server verbatim while `:id` bound normally — exactly what the error showed.
+
+    CAST(...) says the same thing with the parameter cleanly delimited. The wider lesson is that
+    nothing exercised this: migrations do not replay from scratch (0001 does create_all), and the
+    suite runs on SQLite, so the Postgres branch had never been rendered even once. Hence
+    exporting it — compiling a statement needs no database and would have caught this in a second.
+    """
+    value = "CAST(:cfg AS jsonb)" if is_pg else ":cfg"
+    return f"UPDATE integration SET config = {value} WHERE id = :id"
+
+
 def _load(raw):
     """config comes back as a dict on Postgres (JSONB) and as text on SQLite."""
     if raw is None:
@@ -83,10 +100,7 @@ def upgrade() -> None:
             continue
         cfg.update(patch)
         payload = json.dumps(cfg)
-        bind.execute(
-            sa.text(f"UPDATE integration SET config = :cfg{'::jsonb' if is_pg else ''} "
-                    f"WHERE id = :id"),
-            {"cfg": payload, "id": row_id})
+        bind.execute(sa.text(update_sql(is_pg)), {"cfg": payload, "id": row_id})
         changed += 1
         print(f"[0046] {provider} {row_id}: pinned {sorted(patch)}", flush=True)
 
