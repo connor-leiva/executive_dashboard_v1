@@ -16,7 +16,8 @@ from ..schemas import EntityRow, SourceOut, IntegrationsOut
 from . import roles
 
 # Provider order + static metadata (matches the settings mockup).
-ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy"]
+ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc",
+         "ghl_legacy", "meta_ads"]
 META = {
     "qbo": {"name": "QuickBooks", "provides": ["Profit & Loss", "Balance Sheet"], "feeds": ["ulrg", "springb", "sympli"],
             "desc": "Financial source of truth · one connection per entity"},
@@ -38,6 +39,10 @@ META = {
                   "feeds": ["becollective"],
                   "desc": "beCollective's own dedicated Stripe account — membership payments only (event "
                           "tickets and other products filtered out). Read-only; powers the Cash & Billing view"},
+    "meta_ads": {"name": "Meta Ads", "provides": ["Spend", "Impressions", "Link clicks", "Leads"],
+                 "feeds": ["ads"],
+                 "desc": "Paid social delivery, joined through to registrations and enrollments. "
+                         "Reporting only - a System User token with ads_read; never ads_management"},
     "ghl_legacy": {"name": "Old GHL · Charge labels", "provides": ["Charge labels", "Invoice line items"],
                    "feeds": ["forum"],
                    "desc": "The old Spring B GHL (where legacy Stripe is wired) — read-only. Supplies the "
@@ -54,6 +59,10 @@ META = {
 # The role is the durable fact: Arive reports loans, so it belongs to whichever business is
 # this tenant's lending JV, whatever they call it. Resolved per tenant through roles.py.
 CONNECTABLE_KIND = {
+    # Ad spend is booked by the entity that runs the campaigns. For a programme business that is
+    # the membership entity; a brokerage running its own ads would attach to real_estate. Resolved
+    # per workspace like every other source rather than pinned to one customer's business key.
+    "meta_ads": roles.MEMBERSHIP,
     "sisu": roles.REAL_ESTATE,          # transactions, agents, GCI — the brokerage
     "fub": roles.REAL_ESTATE,           # CRM leads and agent activity
     "ghl": roles.MEMBERSHIP,            # members, renewals, subscriptions

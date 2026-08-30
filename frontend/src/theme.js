@@ -144,6 +144,7 @@ export const PROVIDER_NAME = {
   fub: "Follow Up Boss",
   ghl: "Go High Level",
   arive: "Arive",
+  meta_ads: "Meta Ads",
 };
 
 /* ── OPS: the operator console's palette ─────────────────────────────────────────

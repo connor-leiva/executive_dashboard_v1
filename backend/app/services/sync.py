@@ -1618,6 +1618,12 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
             records = await sync_becollective_stripe(s, tenant_id, integ)
         elif integ.provider == "ghl_legacy":
             records = await sync_ghl_legacy(s, tenant_id, integ)
+        elif integ.provider == "meta_ads":
+            # Returns a per-account summary rather than a record count: one token can carry
+            # several ad accounts, and one of them failing must not blank the rest.
+            from .ads_sync import sync_meta_ads
+            summary = await sync_meta_ads(s, tenant_id, integ)
+            records = sum(r.get("insight_rows", 0) for r in summary.get("results", []))
         elif integ.provider == "qbo":
             prev_synced = integ.last_synced_at                 # txn CDC cursor, pre-bump
             records = await sync_qbo_pl(s, tenant_id, integ)   # syncs all periods itself

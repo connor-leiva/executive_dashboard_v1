@@ -148,7 +148,7 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
     {provider, business_key, token, config}. Token is encrypted at rest."""
     provider = (body.get("provider") or "").strip()
     if provider not in ("ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy",
-                        "sisu", "fub"):
+                        "sisu", "fub", "meta_ads"):
         raise HTTPException(400, "Unsupported provider")
     wanted = body.get("business_key")
     biz = (await s.execute(select(Business).where(

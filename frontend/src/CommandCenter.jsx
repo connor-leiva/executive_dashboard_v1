@@ -14,6 +14,7 @@ import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.j
 import BecollectiveView from "./BecollectiveView.jsx";
 import EdgeView from "./EdgeView.jsx";
 import Books from "./books/Books.jsx";
+import AdsView from "./ads/AdsView.jsx";
 import Binder from "./Binder.jsx";
 import StepUpGate from "./StepUpGate.jsx";
 import PeriodNav, { periodKey, fromPeriodKey } from "./PeriodNav.jsx";
@@ -1098,6 +1099,9 @@ const NAV = [
   { k: "flywheel", label: "Referral Flywheel", dot: T.poppy, divide: true },
   { k: "books", label: "Books", dot: T.mist },
   { k: "binder", label: "Binder", dot: T.teal },
+  // Portfolio-level, next to Books and Binder rather than under a business: one Meta account
+  // routinely runs campaigns for several programmes at once, which is what grouping untangles.
+  { k: "ads", label: "Ads", dot: T.edge },
   { k: "ai_employees", label: "AI Employees", dot: T.meadow },
 ];
 // nav key → permission tab (the Portfolio nav item is keyed "overview")
@@ -1212,6 +1216,7 @@ export default function CommandCenter() {
   else if (activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
   else if (activeView === "books") content = <Books period={periodKeyStr} role={user?.role} />;
+  else if (activeView === "ads") content = <AdsView />;
   else if (activeView === "binder") content = (
     // Binder holds entity/compliance records — gated by a second factor, not just tab access.
     <StepUpGate scope="binder" usingSample={usingSample} title="Binder is locked"

@@ -25,6 +25,12 @@ PLATFORM_TABS = {
     "flywheel": {"label": "Referral Flywheel", "accent": "#FA8069"},
     "books": {"label": "Books", "accent": "#C9D3CE"},
     "binder": {"label": "Binder", "accent": "#227175"},
+    # Portfolio-level, NOT filed under a business. The tab registry derives tabs from businesses,
+    # which would put Ads under whichever entity books the spend - but one Meta account routinely
+    # runs campaigns for several programmes at once, which is exactly what campaign grouping
+    # exists to untangle. Filing it under one business would make the feature contradict its own
+    # placement.
+    "ads": {"label": "Ads", "accent": "#B26248"},
     "ai_employees": {"label": "AI Employees", "accent": "#61835E"},
 }
 
@@ -89,6 +95,7 @@ async def tenant_tabs(s, tenant_id) -> list[str]:
     out.append("flywheel")
     out.append("books")                                 # portfolio-level bookkeeping module
     out.append("binder")                                # portfolio-level entity-compliance module
+    out.append("ads")                                   # portfolio-level paid-media module
     if settings.AI_EMPLOYEES_ENABLED:                   # flag-gated top-level rail item
         out.append("ai_employees")
     # de-dupe while preserving order (defensive against config quirks)
@@ -116,7 +123,7 @@ async def tenant_tab_descriptors(s, tenant_id) -> list[dict]:
         if b.display_tab and b.display_tab not in {e["key"] for e in entries}:
             # A financial entity routed onto a brand-new page contributes that page too.
             entries.append({"key": b.display_tab, "label": b.name, "accent": b.accent})
-    for key in ("flywheel", "books", "binder"):
+    for key in ("flywheel", "books", "binder", "ads"):
         entries.append({"key": key, **PLATFORM_TABS[key]})
     if settings.AI_EMPLOYEES_ENABLED:
         entries.append({"key": "ai_employees", **PLATFORM_TABS["ai_employees"]})
@@ -211,6 +218,8 @@ def tab_for_metric(key: str, business: str | None = None, biz_tab: dict | None =
         return "books"
     if key.startswith("binder_"):                       # binder_matrix, binder_review
         return "binder"
+    if key.startswith("ads_"):                          # ads_spend, ads_closes, ads_cac, ...
+        return "ads"
     # The membership family. Kept as its own branch rather than folded into _KIND_FAMILIES
     # because of the `forum_` PREFIX, which a set-membership loop cannot express.
     #
