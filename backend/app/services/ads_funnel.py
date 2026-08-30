@@ -27,7 +27,10 @@ import datetime as dt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Ad, AdAccount, AdAttribution, AdCampaign, MetricRecord
+from decimal import Decimal
+
+from ..models import (Ad, AdAccount, AdAttribution, AdCampaign, AdConversion, MetricRecord,
+                      SalesCall)
 from .launch import SHIFT_SRC_CHANNEL
 
 # Sources that mean Meta. Shared with classify_shift_source's vocabulary deliberately: one
@@ -195,4 +198,261 @@ async def attribution_coverage(s: AsyncSession, tenant_id, start: dt.date, end: 
         # does not know it will read the gap as a failure rather than a structural limit.
         "campaign_grade_or_better": by_grade.get(MATCH_AD, 0) + by_grade.get(MATCH_CAMPAIGN, 0),
         "ad_grade": by_grade.get(MATCH_AD, 0),
+    }
+
+
+# ── the funnel (Phase 3) ──────────────────────────────────────────────────────────────
+#
+# Code default per archetype, per-account override on ad_account.funnel_override. Same shape as
+# GROUP_RULES and DEFAULT_STAGE_MAP: a default that ships correct, an override that is data.
+#
+# `diagnostic` marks a rung that is MEASURED but is not the owned funnel. Meta's lead count is a
+# useful cross-check and is never the denominator for anything downstream.
+FUNNEL_DEFS = {
+    "program": [
+        {"key": "impression", "label": "Impressions", "src": "ads", "zone": "meta"},
+        {"key": "click", "label": "Link clicks", "src": "ads", "zone": "meta"},
+        {"key": "lead", "label": "Leads - Meta", "src": "ads", "zone": "meta", "diagnostic": True},
+        {"key": "registered", "label": "Registered", "src": "bc_shift_reg", "zone": "acumyn"},
+        {"key": "booked", "label": "Call booked", "src": "sales_call", "zone": "acumyn"},
+        {"key": "applied", "label": "Applied", "src": "stage_group", "zone": "acumyn"},
+        {"key": "held", "label": "Call held", "src": "sales_call", "zone": "acumyn"},
+        {"key": "committed", "label": "Cash received", "src": "stage_group", "zone": "acumyn"},
+        {"key": "closed", "label": "Enrolled", "src": "bc_onboarded", "zone": "acumyn",
+         "closes": True},
+    ],
+}
+
+ACUMYN_STAGES = ("registered", "booked", "applied", "held", "committed", "closed")
+HELD_OUTCOMES = ("showed", "held", "attended")
+
+
+def _annualize(amount, payment_type):
+    """A rolling monthly membership has no signed annual figure, so twelve months is a MODELLING
+    CHOICE and is flagged as one. Reporting it unflagged turns a projection into a fact."""
+    if amount is None:
+        return None, False
+    amt = Decimal(str(amount))
+    if str(payment_type or "").lower() in ("monthly", "rolling"):
+        return amt * 12, True
+    return amt, False
+
+
+async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
+    """For each attributed identity, the stages it has reached - from rows that already exist.
+
+    Reads bc_shift_reg (registered), SalesCall (booked, held), the classify_stage groups already
+    stored on bc_launch_opp (applied, committed) and bc_onboarded (closed, with contract value).
+
+    A stage whose source carries no usable date is written dated=False: COUNTED in the funnel and
+    excluded from every duration and from the curve fit. Counting it is honest; timing it is not.
+
+    NOTHING HERE RE-DERIVES STAGE SEMANTICS. classify_stage and migration 0032 settled what
+    committed and closed mean, and the Sales Desk owns what held means. A second definition of
+    "closed" living on the ads tab would be worse than not shipping the feature.
+    """
+    attrs = {a.identity_key: a for a in (await s.execute(select(AdAttribution).where(
+        AdAttribution.tenant_id == tenant_id))).scalars()}
+    if not attrs:
+        return {"skipped": "no attributed identities"}
+
+    by_email = {a.email_norm: a for a in attrs.values() if a.email_norm}
+    existing = {(c.attribution_id, c.stage_key): c
+                for c in (await s.execute(select(AdConversion).where(
+                    AdConversion.tenant_id == tenant_id))).scalars()}
+    stats = {"identities": len(attrs), "written": 0, "undated": 0, "by_stage": {}}
+
+    def _put(attr, stage, day, source_kind, source_ref, contracted=None,
+             annualized=False, payment_type=None):
+        row = existing.get((attr.id, stage))
+        if row is None:
+            row = AdConversion(tenant_id=tenant_id, attribution_id=attr.id,
+                               business_id=attr.business_id, stage_key=stage,
+                               source_kind=source_kind, source_ref=str(source_ref)[:64])
+            s.add(row)
+            existing[(attr.id, stage)] = row
+            stats["written"] += 1
+            stats["by_stage"][stage] = stats["by_stage"].get(stage, 0) + 1
+        row.occurred_on = day
+        row.dated = day is not None
+        if day is None:
+            stats["undated"] += 1
+        if contracted is not None:
+            row.value_contracted = contracted
+        row.value_annualized = annualized
+        row.payment_type = payment_type
+
+    # registered and closed - MetricRecord rows that already carry a date and, for closes, value.
+    for kind, stage in (("bc_shift_reg", "registered"), ("bc_onboarded", "closed")):
+        for r in (await s.execute(select(MetricRecord).where(
+                MetricRecord.tenant_id == tenant_id, MetricRecord.kind == kind))).scalars():
+            attr = attrs.get(str((r.meta or {}).get("contact_id") or ""))
+            if attr is None or attr.business_id is None:
+                continue
+            if stage == "closed":
+                pay = str((r.meta or {}).get("payment") or "") or None
+                contracted, annualized = _annualize(r.amount, pay)
+                _put(attr, stage, r.occurred_on, kind, r.external_id,
+                     contracted=contracted, annualized=annualized, payment_type=pay)
+            else:
+                _put(attr, stage, r.occurred_on, kind, r.external_id)
+
+    # booked and held - the Sales Desk's log, never a live GHL field. is_current keeps a rebook
+    # from erasing the no-show it replaced.
+    for c in (await s.execute(select(SalesCall).where(
+            SalesCall.tenant_id == tenant_id, SalesCall.is_current.is_(True)))).scalars():
+        attr = attrs.get(str(c.contact_id or ""))
+        if attr is None or attr.business_id is None:
+            continue
+        if c.booking_id:
+            _put(attr, "booked", c.call_time_utc.date() if c.call_time_utc else None,
+                 "sales_call", c.opportunity_id)
+        if str(c.outcome or "").strip().lower() in HELD_OUTCOMES:
+            # Phase 0 measured outcome_at present on only 80 percent of calls, so this stage is
+            # frequently dated=False - counted, never timed.
+            _put(attr, "held", c.outcome_at.date() if c.outcome_at else None,
+                 "sales_call", c.opportunity_id)
+
+    # applied and committed - the group the launch snapshot already classified.
+    for r in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id,
+            MetricRecord.kind == "bc_launch_opp"))).scalars():
+        meta = r.meta or {}
+        attr = attrs.get(str(meta.get("contact_id") or ""))
+        if attr is None or attr.business_id is None:
+            continue
+        if meta.get("app_in"):
+            _put(attr, "applied", r.occurred_on, "bc_launch_opp", r.external_id)
+        if meta.get("group") == "committed":
+            _put(attr, "committed", r.occurred_on, "bc_launch_opp", r.external_id)
+
+    # collected - cash received against those contracts.
+    #
+    # Joined BY EMAIL, because payment rows carry an email and no contact id. That is a weaker
+    # key than the rest of the spine: a member who pays from a different address is missed, and
+    # the payload reports the join so nobody reads a low collected figure as a collections
+    # problem when it is a matching problem.
+    matched_emails = 0
+    collected: dict = {}
+    for p in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.kind == "payment",
+            MetricRecord.status == "succeeded"))).scalars():
+        key = str(p.email or "").strip().lower()
+        if key and key in by_email:
+            collected[key] = collected.get(key, Decimal("0")) + Decimal(str(p.amount or 0))
+    for email, total in collected.items():
+        row = existing.get((by_email[email].id, "closed"))
+        if row is not None:
+            row.value_collected = total
+            matched_emails += 1
+
+    stats["collected_matched"] = matched_emails
+    await s.commit()
+    print(f"[ads_conv] {stats['written']} stage rows, {stats['undated']} undated, "
+          f"{matched_emails} with collected cash (by stage: {stats['by_stage']})", flush=True)
+    return stats
+
+
+async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="cohort",
+                       ads_rungs=None) -> dict:
+    """The ladder, plus revenue and CAC. SPEC-ads-module.md Part 9.5.
+
+    basis="cohort" (the default): identities FIRST TOUCHED in the window, with their revenue
+    whenever it eventually lands. What marketing needs, because this month's revenue came from
+    last quarter's spend.
+
+    basis="period": revenue RECOGNISED in the window regardless of when the identity was
+    acquired. What accounting wants, and useless for judging an ad.
+
+    Both are correct answers to different questions, and the payload always NAMES which one it
+    is. An ads number under the wrong basis label is a wrong business decision.
+    """
+    from .ads import cac as _cac
+    from .ads import conversion, cost_per, rate, roas
+
+    if basis == "period":
+        # Recognised in the window: the stage row's own date decides membership.
+        convs = list((await s.execute(select(AdConversion).where(
+            AdConversion.tenant_id == tenant_id,
+            AdConversion.occurred_on >= start,
+            AdConversion.occurred_on <= end))).scalars())
+        cohort_ids = {c.attribution_id for c in convs}
+    else:
+        cohort = list((await s.execute(select(AdAttribution).where(
+            AdAttribution.tenant_id == tenant_id,
+            AdAttribution.first_seen_on >= start,
+            AdAttribution.first_seen_on <= end))).scalars())
+        cohort_ids = {a.id for a in cohort}
+        convs = [c for c in (await s.execute(select(AdConversion).where(
+            AdConversion.tenant_id == tenant_id))).scalars() if c.attribution_id in cohort_ids]
+
+    by_stage: dict[str, list] = {}
+    for c in convs:
+        by_stage.setdefault(c.stage_key, []).append(c)
+
+    spend = float((ads_rungs or {}).get("spend") or 0)
+    closes = by_stage.get("closed", [])
+    n_closed = len(closes)
+
+    contracted = sum(float(c.value_contracted or 0) for c in closes)
+    collected = sum(float(c.value_collected or 0) for c in closes)
+    annualized_n = sum(1 for c in closes if c.value_annualized)
+
+    rungs = []
+    prev = None
+    for d in FUNNEL_DEFS["program"]:
+        key = d["key"]
+        if d.get("src") == "ads":
+            n = int((ads_rungs or {}).get(key) or 0)
+        else:
+            n = len(by_stage.get(key, []))
+        dated = sum(1 for c in by_stage.get(key, []) if c.dated) if d.get("src") != "ads" else n
+        rungs.append({
+            **d, "n": n, "prev": prev,
+            "conversion": conversion(n, prev) if prev is not None else None,
+            "cost_per": cost_per(spend, n) if n else None,
+            # A stage is only ever TIMED on the rows that carry a date. Reported so the reader
+            # can see which counts are safe to build a duration on.
+            "dated": dated, "undated": max(0, n - dated),
+        })
+        prev = n
+
+    # ALL closes in the window, attributed or not. The difference is the structural ceiling from
+    # Part 4.7, and naming it prevents the attributed number reading as a failure.
+    all_closes = list((await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.kind == "bc_onboarded",
+        MetricRecord.occurred_on >= start, MetricRecord.occurred_on <= end))).scalars())
+
+    return {
+        "basis": basis,
+        "rungs": rungs,
+        "revenue": {
+            "contracted": contracted,
+            "collected": collected,
+            # Suppressed until a measured curve exists. A guessed projection is worse than an
+            # absent one, because it looks like a number.
+            "projected": None,
+            "roas_contracted": roas(contracted, spend),
+            "roas_collected": roas(collected, spend),
+            "roas_projected": None,
+            "annualized_closes": annualized_n,
+            "collected_join": "email",
+        },
+        "cac": {
+            "attributed": _cac(spend, n_closed),
+            "blended": _cac(spend, len(all_closes)),
+            "blended_label": "Blended - every enrollment in the window, not only those traced "
+                             "to an ad. Always lower, and never the ads number.",
+            "attributed_closes": n_closed,
+            "all_closes": len(all_closes),
+        },
+        "unattributed": {
+            "closes": max(0, len(all_closes) - n_closed),
+            "note": "Enrollments with no attribution row. Counted here and assigned to no "
+                    "campaign - word of mouth, the existing list, a referral, someone who saw an "
+                    "ad on a phone and registered on a laptop.",
+        },
+        "maturity": {"fitted": False, "pct": None, "median_lag_days": None,
+                     "expected_additional": None,
+                     "note": "No cohort curve has been fitted yet, so no projection is shown."},
     }

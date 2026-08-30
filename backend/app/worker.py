@@ -188,13 +188,16 @@ async def ads_funnel_tick():
     Per tenant, with one workspace's failure isolated from the rest: most tenants will never
     connect Meta, and for them this is a no-op rather than an error in the log every night.
     """
-    from .services.ads_funnel import sync_ad_attribution
+    from .services.ads_funnel import sync_ad_attribution, sync_ad_conversions
     async with SessionLocal() as s:
         tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
     for tid in tenant_ids:
         try:
             async with SessionLocal() as s:
                 await sync_ad_attribution(s, tid)
+                # Conversions read the attribution rows written a moment ago, so the order is
+                # load-bearing rather than incidental.
+                await sync_ad_conversions(s, tid)
         except Exception as e:  # noqa: BLE001
             print(f"[ads_funnel_tick] tenant {tid}: {type(e).__name__}: {e}", flush=True)
 

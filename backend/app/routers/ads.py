@@ -18,6 +18,7 @@ from ..deps import current_user, get_session, require_role, require_tab
 from ..models import Ad, AdAccount, AdCampaign, AdInsightDaily, Business, Integration, User
 from ..services import ads as A
 from ..services import ads_rules as R
+from ..services.ads_funnel import FUNNEL_DEFS
 from ..services.audit import audit
 
 router = APIRouter()
@@ -146,6 +147,21 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
     }
     bands = {k: R.band(k, totals.get(k), thresholds) for k in ("ctr", "cpm", "cpl")}
 
+    # The funnel exists only for archetypes that have one. Everything else gets the click layer
+    # and is TOLD so, rather than shown an empty ladder that reads as zero customers.
+    biz = await s.get(Business, acct.business_id) if acct.business_id else None
+    archetype = getattr(biz, "archetype", None) if biz else None
+    _funnel_block = {"funnel": None, "revenue": None, "maturity": None, "funnel_available": False}
+    if archetype in FUNNEL_DEFS:
+        from ..services.ads_funnel import build_funnel
+        f = await build_funnel(s, tenant_id, acct, s_day, e_day, basis,
+                               ads_rungs={"impression": totals["impressions"],
+                                          "click": totals["link_clicks"],
+                                          "lead": totals["leads"], "spend": spend})
+        _funnel_block = {"funnel": f["rungs"], "revenue": f["revenue"],
+                         "maturity": f["maturity"], "cac": f["cac"],
+                         "unattributed": f["unattributed"], "funnel_available": True}
+
     return {
         "connected": True,
         "account": {"id": str(acct.id), "name": acct.name, "external_id": acct.external_id,
@@ -162,10 +178,11 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
                     "link_clicks": sum(r["link_clicks"] for r in rs)}
                    for g, rs in sorted(groups.items(), key=lambda kv: -sum(r["spend"] for r in kv[1]))],
         "unmatched_count": unmatched,
+        "archetype": archetype,
         "alerts": _alerts(totals, campaigns, unmatched, thresholds),
         # Phase 3 fills these. Present and explicitly empty so the frontend contract does not
         # change shape when the funnel lands.
-        "funnel": None, "revenue": None, "maturity": None,
+        **_funnel_block,
         # THE TWO DENOMINATORS, side by side and never added. Meta's lead count and Acumyn's
         # matched registrations are two systems counting overlapping populations - a large part
         # of the gap is people who DID register and could not be matched (stripped UTM,
@@ -173,7 +190,6 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
         # shortfall blames the funnel for a measurement boundary. So both are shown with the gap
         # named, per Part 4.8.
         "coverage": await _coverage(s, tenant_id, s_day, e_day, int(leads)),
-        "funnel_available": False,
         "freshness": {"last_synced_at": acct.last_synced_at.isoformat() if acct.last_synced_at else None,
                       "last_error": acct.last_error},
     }

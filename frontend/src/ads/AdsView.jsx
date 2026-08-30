@@ -15,6 +15,7 @@
 import { useState } from "react";
 
 import { BAND, C, FIG, FONT, HEAD, band, compact, mult, num, pct, usd } from "./adsTokens.js";
+import Funnel from "./Funnel.jsx";
 import { useAdsAccounts, useAdsCreatives, useAdsOverview } from "./useAds.js";
 
 const PERIODS = [
@@ -246,24 +247,77 @@ export default function AdsView() {
         lede="Meta owns impressions, clicks and its own lead count. Everything after that — the
               registration, the booked call, the signature, the cash — already lives in Acumyn.
               Joining the two is what this module is for.">
-        <Card pad={20}>
-          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-            <div style={{ width: 3, alignSelf: "stretch", background: C.warnBar, borderRadius: 2 }} />
-            <div>
-              <div style={{ fontFamily: HEAD, fontSize: 14, color: C.ink }}>
-                Not built yet — this is the click layer
+        {data.funnel ? (
+          <Funnel rungs={data.funnel} spend={t.spend} />
+        ) : (
+          <Card pad={20}>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <div style={{ width: 3, alignSelf: "stretch", background: C.warnBar, borderRadius: 2 }} />
+              <div>
+                <div style={{ fontFamily: HEAD, fontSize: 14, color: C.ink }}>
+                  No funnel for this entity
+                </div>
+                <p style={{ fontSize: 12.5, color: C.slate, margin: "6px 0 0", lineHeight: 1.6,
+                            maxWidth: 660 }}>
+                  A funnel is defined for programme and transactional businesses. This account
+                  books its spend to {data.archetype ? `a ${data.archetype} entity` : "no entity"},
+                  so the tab shows the click layer only — rather than an empty ladder that would
+                  read as zero customers.
+                </p>
               </div>
-              <p style={{ fontSize: 12.5, color: C.slate, margin: "6px 0 0", lineHeight: 1.6,
-                          maxWidth: 660 }}>
-                Registrations, booked calls and enrollments are not yet joined to campaigns, so
-                no cost-per-customer or return figure appears anywhere on this page. Showing one
-                computed from clicks alone would rank campaigns by exactly the thing this module
-                exists to stop ranking them by.
-              </p>
             </div>
-          </div>
-        </Card>
+          </Card>
+        )}
       </Section>
+
+      {/* Three revenue figures, always together, never one. */}
+      {data.revenue && (
+        <div style={{ marginTop: 14 }}>
+          <Card pad={20}>
+            <div className="ads-grid">
+              <Stat label="Contracted" note="what the campaign produced">
+                <Fig lead="$" value={compact(data.revenue.contracted).replace("$", "")} />
+              </Stat>
+              <Stat label="Collected" note={`cash in · joined by ${data.revenue.collected_join}`}>
+                <Fig lead="$" value={compact(data.revenue.collected).replace("$", "")} />
+              </Stat>
+              <Stat label="Projected" note="suppressed — no curve fitted">
+                <Fig value="—" tone={C.muted} />
+              </Stat>
+              <Stat label="ROAS · contracted">
+                <Fig value={mult(data.revenue.roas_contracted)} />
+              </Stat>
+              <Stat label="ROAS · collected">
+                <Fig value={mult(data.revenue.roas_collected)} />
+              </Stat>
+              {data.cac && (
+                <Stat label="Cost per enrollment"
+                      note={`${data.cac.attributed_closes} traced of ${data.cac.all_closes}`}>
+                  <Fig lead="$" value={data.cac.attributed === null ? "—"
+                    : compact(data.cac.attributed).replace("$", "")} />
+                </Stat>
+              )}
+            </div>
+            {data.cac && (
+              <p style={{ fontSize: 12, color: C.slate, margin: "14px 0 0", lineHeight: 1.6,
+                          maxWidth: 720 }}>
+                <strong style={{ color: C.ink }}>Blended is {usd(data.cac.blended)}.</strong>{" "}
+                {data.cac.blended_label}
+                {data.unattributed?.closes > 0 && (
+                  <> {" "}{num(data.unattributed.closes)} enrollment
+                    {data.unattributed.closes === 1 ? "" : "s"} in this window trace to no ad at
+                    all and are assigned to no campaign.</>
+                )}
+                {data.revenue.annualized_closes > 0 && (
+                  <> {" "}{num(data.revenue.annualized_closes)} rolling monthly membership
+                    {data.revenue.annualized_closes === 1 ? " is" : "s are"} annualized at twelve
+                    months — a modelling choice, not a signed number.</>
+                )}
+              </p>
+            )}
+          </Card>
+        </div>
+      )}
 
       {/* The two denominators. Never added, never expressed as a rate. */}
       {data.coverage && (

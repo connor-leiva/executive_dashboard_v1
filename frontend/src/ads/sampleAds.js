@@ -75,9 +75,45 @@ export const sampleAdsOverview = {
     { tone: "warn", metric: "grouping",
       text: "1 campaign fell to Other - the grouping rules may have drifted from how the account is being named" },
   ],
-  // Phase 3 fills these. Present and explicitly null so the view renders the honest
-  // "not built yet" state rather than an empty funnel that looks like zero customers.
-  funnel: null, revenue: null, maturity: null,
+  // The ladder. Counts are what the server would return; conversions are computed from them, so
+  // a wrong number here shows up on screen rather than hiding.
+  funnel: [
+    { key: "impression", label: "Impressions", zone: "meta", n: IMPR, prev: null,
+      conversion: null, cost_per: SPEND / IMPR, dated: IMPR, undated: 0 },
+    { key: "click", label: "Link clicks", zone: "meta", n: LINKS, prev: IMPR,
+      conversion: (LINKS / IMPR) * 100, cost_per: SPEND / LINKS, dated: LINKS, undated: 0 },
+    { key: "lead", label: "Leads · Meta", zone: "meta", diagnostic: true, n: LEADS, prev: LINKS,
+      conversion: (LEADS / LINKS) * 100, cost_per: SPEND / LEADS, dated: LEADS, undated: 0 },
+    { key: "registered", label: "Registered", zone: "acumyn", n: 312, prev: LEADS,
+      conversion: (312 / LEADS) * 100, cost_per: SPEND / 312, dated: 312, undated: 0 },
+    { key: "booked", label: "Call booked", zone: "acumyn", n: 96, prev: 312,
+      conversion: (96 / 312) * 100, cost_per: SPEND / 96, dated: 96, undated: 0 },
+    { key: "applied", label: "Applied", zone: "acumyn", n: 71, prev: 96,
+      conversion: (71 / 96) * 100, cost_per: SPEND / 71, dated: 71, undated: 0 },
+    { key: "held", label: "Call held", zone: "acumyn", n: 58, prev: 71,
+      conversion: (58 / 71) * 100, cost_per: SPEND / 58, dated: 46, undated: 12 },
+    { key: "committed", label: "Cash received", zone: "acumyn", n: 19, prev: 58,
+      conversion: (19 / 58) * 100, cost_per: SPEND / 19, dated: 19, undated: 0 },
+    { key: "closed", label: "Enrolled", zone: "acumyn", closes: true, n: 14, prev: 19,
+      conversion: (14 / 19) * 100, cost_per: SPEND / 14, dated: 14, undated: 0 },
+  ],
+  revenue: {
+    contracted: 174000, collected: 41200, projected: null,
+    roas_contracted: 174000 / SPEND, roas_collected: 41200 / SPEND, roas_projected: null,
+    annualized_closes: 2, collected_join: "email",
+  },
+  cac: {
+    attributed: SPEND / 14, blended: SPEND / 34,
+    blended_label: "Blended - every enrollment in the window, not only those traced to an ad. " +
+      "Always lower, and never the ads number.",
+    attributed_closes: 14, all_closes: 34,
+  },
+  unattributed: {
+    closes: 20,
+    note: "Enrollments with no attribution row. Counted here and assigned to no campaign.",
+  },
+  maturity: { fitted: false, pct: null, median_lag_days: null, expected_additional: null,
+              note: "No cohort curve has been fitted yet, so no projection is shown." },
   // The two denominators, side by side and never added. The gap is mostly people who DID
   // register and could not be matched - stripped UTM, cross-device, view-through.
   coverage: {
@@ -89,7 +125,8 @@ export const sampleAdsOverview = {
       "campaign. They measure overlapping populations, so the difference is not a drop-off - much " +
       "of it is people who did register and could not be matched.",
   },
-  funnel_available: false,
+  funnel_available: true,
+  archetype: "program",
   freshness: { last_synced_at: "2026-08-30T14:20:00Z", last_error: null },
   accounts_list: [{ id: "sample", name: "Spring B · Meta", external_id: "act_587749862890426",
                     currency: "USD", timezone_name: "America/Denver", business_key: "springb",
