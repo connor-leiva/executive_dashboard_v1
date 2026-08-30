@@ -178,6 +178,27 @@ async def transcript_tick():
         print(f"[recall] purged={purged}", flush=True)
 
 
+async def ads_funnel_tick():
+    """Attribution and (from Phase 3) conversions, daily. SPEC-ads-module.md Part 11.1.
+
+    Daily rather than on the sync tick, deliberately. Attribution is WRITE-ONCE, so re-running it
+    every thirty minutes would do nothing but read the whole registration table twenty-four times
+    an hour - and the one field it can move, last_seen_on, does not need that resolution.
+
+    Per tenant, with one workspace's failure isolated from the rest: most tenants will never
+    connect Meta, and for them this is a no-op rather than an error in the log every night.
+    """
+    from .services.ads_funnel import sync_ad_attribution
+    async with SessionLocal() as s:
+        tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
+    for tid in tenant_ids:
+        try:
+            async with SessionLocal() as s:
+                await sync_ad_attribution(s, tid)
+        except Exception as e:  # noqa: BLE001
+            print(f"[ads_funnel_tick] tenant {tid}: {type(e).__name__}: {e}", flush=True)
+
+
 def build_scheduler() -> AsyncIOScheduler:
     """Configure the scheduler with the sync tick, the daily agent-roster + scorecard-resolver ticks,
     and (when the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`)
@@ -188,6 +209,9 @@ def build_scheduler() -> AsyncIOScheduler:
     _tz = ZoneInfo(settings.BILLING_TIMEZONE)
     sched.add_job(roster_tick, "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
     sched.add_job(scorecard_tick, "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
+    # After the syncs have had the night to land: attribution reads registrations the GHL sync
+    # wrote, so running it earlier would freeze cohort days against yesterday's data.
+    sched.add_job(ads_funnel_tick, "cron", hour=5, minute=45, timezone=_tz)
     if settings.RECALL_API_KEY:
         sched.add_job(recall_tick, "interval", minutes=settings.RECALL_TICK_MINUTES,
                       next_run_time=dt.datetime.now())

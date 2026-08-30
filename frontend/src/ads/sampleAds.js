@@ -77,7 +77,18 @@ export const sampleAdsOverview = {
   ],
   // Phase 3 fills these. Present and explicitly null so the view renders the honest
   // "not built yet" state rather than an empty funnel that looks like zero customers.
-  funnel: null, revenue: null, maturity: null, coverage: null,
+  funnel: null, revenue: null, maturity: null,
+  // The two denominators, side by side and never added. The gap is mostly people who DID
+  // register and could not be matched - stripped UTM, cross-device, view-through.
+  coverage: {
+    registrations_total: 1416, registrations_matched: 879, registrations_unattributed: 537,
+    by_grade: { campaign: 879 }, campaign_grade_or_better: 879, ad_grade: 0,
+    meta_leads: LEADS, gap: LEADS - 879,
+    gap_note:
+      "Meta counts leads it attributes to itself; Acumyn counts registrations it can match to a " +
+      "campaign. They measure overlapping populations, so the difference is not a drop-off - much " +
+      "of it is people who did register and could not be matched.",
+  },
   funnel_available: false,
   freshness: { last_synced_at: "2026-08-30T14:20:00Z", last_error: null },
   accounts_list: [{ id: "sample", name: "Spring B · Meta", external_id: "act_587749862890426",

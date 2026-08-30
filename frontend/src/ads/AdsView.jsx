@@ -265,6 +265,57 @@ export default function AdsView() {
         </Card>
       </Section>
 
+      {/* The two denominators. Never added, never expressed as a rate. */}
+      {data.coverage && (
+        <div style={{ marginTop: 14 }}>
+          <Card pad={18}>
+            <div style={{ display: "grid", gap: 14,
+                          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".07em",
+                              textTransform: "uppercase", color: C.muted }}>
+                  Leads · Meta&rsquo;s count
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>
+                  <Fig value={num(data.coverage.meta_leads)} />
+                </div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                  Meta measuring itself
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".07em",
+                              textTransform: "uppercase", color: C.muted }}>
+                  Registrations matched
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>
+                  <Fig value={num(data.coverage.registrations_matched)} />
+                </div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                  of {num(data.coverage.registrations_total)} in Acumyn
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".07em",
+                              textTransform: "uppercase", color: C.muted }}>
+                  Campaign grade or better
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>
+                  <Fig value={num(data.coverage.campaign_grade_or_better)} />
+                </div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                  ad grade: {num(data.coverage.ad_grade)}
+                </div>
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: C.slate, margin: "14px 0 0", lineHeight: 1.6,
+                        maxWidth: 720 }}>
+              {data.coverage.gap_note}
+            </p>
+          </Card>
+        </div>
+      )}
+
       {/* 02 Findings */}
       <Section n="02" title="Findings"
         lede="Ordered worst first, and computed on the server so the page cannot disagree with
