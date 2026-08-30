@@ -944,7 +944,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
   );
 }
 
-const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar", stripe_legacy: "St", stripe_bc: "Sb", ghl_legacy: "GL" };
+const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar", stripe_legacy: "St", stripe_bc: "Sb", ghl_legacy: "GL", meta_ads: "Ma" };
 const DESC = {
   qbo: () => "Financial source of truth · one connection per entity",
   sisu: () => "Real estate production — transactions, agents, GCI",
@@ -955,10 +955,30 @@ const DESC = {
   stripe_legacy: () => "Original Stripe · read-only. Backfills legacy dues the newer sub-account never sees, and feeds the GHL delta-import file",
   stripe_bc: () => "A program's own Stripe · read-only. Membership payments only (event tickets + other products filtered out) — powers the Cash & Billing view",
   ghl_legacy: () => "The legacy GHL location · read-only. Labels each legacy Stripe charge (join by charge id) so the classifier knows what it's for",
+  meta_ads: () => "Paid social delivery, joined through to registrations and enrollments · read-only. Needs a System User token with ads_read — never ads_management",
 };
+
+/* A provider with no DESC entry used to WHITE-SCREEN this whole page.
+ *
+ * decorate() assigned `desc: DESC[s.provider]`, the card called `s.desc(s)`, and calling
+ * undefined threw during render — React unmounted the tree and Settings went blank. It only
+ * showed AFTER loading, because the crash needs the fetched source list to render.
+ *
+ * The trigger was adding meta_ads to the API's source list without adding it here. That is the
+ * same shape as the Sisu and FUB dead buttons: backend support for a provider landed, the
+ * frontend half did not, and the API test passed because it never rendered anything. So the
+ * lookup falls back rather than assuming every provider the server can return is known here —
+ * a new provider should look plain, not take the page down. */
+const descFor = (provider) => DESC[provider] || (() => "");
 const SAMPLE_VIEW = {
-  healthy: 3, total: 7, next_sync_in_min: 14,
+  healthy: 3, total: 8, next_sync_in_min: 14,
   sources: [
+    // meta_ads is here because its ABSENCE is why a local check could not catch the white
+    // screen the real payload caused: the sample list must carry every provider the API can
+    // return, or the preview is exercising a different shape than production.
+    { provider: "meta_ads", name: "Meta Ads", status: "disconnected", feeds: [],
+      provides: ["Spend", "Impressions", "Link clicks", "Leads"], last_run: null,
+      integration_id: null, business_key: null, needs_kind: null },
     { provider: "qbo", name: "QuickBooks", mono: "QB", status: "attention", status_note: "1 of 3 entities needs reconnect", feeds: ["ulrg", "springb", "sympli"], provides: ["Profit & Loss", "Balance Sheet"], last_run: "Last run · 2 entities · 4.2s",
       entities: [
         { integration_id: "e1", business_key: "ulrg", business_name: "ULRG + Team", state: "ok", last_synced_at: new Date(Date.now() - 32 * 60000).toISOString(), realm_id: "9130 3540 11" },
@@ -986,7 +1006,8 @@ function IntegrationsPage() {
   const live = Boolean(API_BASE);
 
   function decorate(v) {
-    return { ...v, sources: v.sources.map((s) => ({ ...s, mono: MONO[s.provider], desc: DESC[s.provider] })) };
+    return { ...v, sources: v.sources.map((s) => ({
+      ...s, mono: MONO[s.provider] || (s.provider || "?").slice(0, 2), desc: descFor(s.provider) })) };
   }
   function load() {
     if (!live) { setView(decorate(SAMPLE_VIEW)); return; }
