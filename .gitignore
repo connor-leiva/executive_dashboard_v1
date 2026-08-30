@@ -42,3 +42,6 @@ expense-normalization-2026-08/1 - Vendor Master.xlsx
 expense-normalization-2026-08/2 - Entity Expense Summary.xlsx
 expense-normalization-2026-08/3 - Shared Cost Candidates.xlsx
 expense-normalization-2026-08/4 - Findings Memo.md
+
+# Ads module Phase 0 probe output - per-tenant funnel coverage, never commit
+backend/ads_probe_out/
