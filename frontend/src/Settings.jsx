@@ -333,6 +333,78 @@ function SisuConnectForm({ row, onClose, onDone }) {
 
 /* ── Follow Up Boss connect form (one API key) ────────────────── */
 
+function MetaAdsConnectForm({ row, onClose, onDone }) {
+  const editing = row.status === "connected" || row.status === "error";
+  const [token, setToken] = useState("");
+  const [acct, setAcct] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      // TWO STEPS, because one System User token routinely carries several ad accounts. The
+      // token is the integration; each account hangs off it.
+      const integ = await postJSON("/integrations", {
+        provider: "meta_ads", business_key: row.business_key,
+        token: token.trim() || undefined,
+      });
+      const id = String(acct.trim());
+      if (id) {
+        await postJSON("/ads/accounts", {
+          integration_id: integ?.id || row.integration_id,
+          external_id: id.startsWith("act_") ? id : `act_${id}`,
+        });
+      }
+      onDone();
+    } catch (e2) {
+      setErr(e2?.detail || "Couldn't save — check the token has ads_read on this account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 460, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Meta Ads" : "Connect Meta Ads"}</div>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3, lineHeight: 1.5 }}>
+          A <strong>System User</strong> token from Meta Business Settings → System Users. Grant it{" "}
+          <strong>ads_read</strong> only — this module never writes, so ads_management is more
+          access than it needs. Stored encrypted; the browser never calls Meta.
+        </div>
+        <label style={label}>System User token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>}
+          <input style={field} type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
+        </label>
+        <label style={label}>Ad account ID
+          <input style={field} value={acct} onChange={(e) => setAcct(e.target.value)} autoComplete="off" placeholder="act_587749862890426" />
+          <span style={{ display: "block", fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 5, lineHeight: 1.5 }}>
+            From Ads Manager, top left. One token can carry several accounts — add the others
+            after this one.
+          </span>
+        </label>
+        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 14, lineHeight: 1.5, background: T.parchment, borderRadius: 8, padding: "10px 12px" }}>
+          <strong style={{ color: T.slate }}>Ad-level revenue needs one more thing.</strong> Your ad
+          URLs need <code>utm_content=&#123;&#123;ad.id&#125;&#125;</code> and a matching{" "}
+          <code>utm_content</code> field in GoHighLevel. Until both exist the funnel works at
+          campaign level and the creative wall shows no revenue.
+        </div>
+        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+
 function FubConnectForm({ row, onClose, onDone }) {
   const editing = row.status === "connected" || row.status === "error";
   const [key, setKey] = useState("");
@@ -978,7 +1050,7 @@ const SAMPLE_VIEW = {
     // return, or the preview is exercising a different shape than production.
     { provider: "meta_ads", name: "Meta Ads", status: "disconnected", feeds: [],
       provides: ["Spend", "Impressions", "Link clicks", "Leads"], last_run: null,
-      integration_id: null, business_key: null, needs_kind: null },
+      integration_id: null, business_key: "springb", needs_kind: null },
     { provider: "qbo", name: "QuickBooks", mono: "QB", status: "attention", status_note: "1 of 3 entities needs reconnect", feeds: ["ulrg", "springb", "sympli"], provides: ["Profit & Loss", "Balance Sheet"], last_run: "Last run · 2 entities · 4.2s",
       entities: [
         { integration_id: "e1", business_key: "ulrg", business_name: "ULRG + Team", state: "ok", last_synced_at: new Date(Date.now() - 32 * 60000).toISOString(), realm_id: "9130 3540 11" },
@@ -1035,24 +1107,33 @@ function IntegrationsPage() {
     setBusy(s.integration_id);
     try { await postJSON(`/integrations/${s.integration_id}/disconnect`); } finally { setBusy(null); load(); }
   }
+  /* Which form a Connect button opens.
+   *
+   * GENERIC, and that is the point. This was a per-provider if-chain, and a provider without a
+   * branch fell off the end returning undefined - a button that does nothing, with no error and
+   * nothing in the console. That shipped twice: Sisu and Follow Up Boss, then Meta Ads. Adding a
+   * tenth branch would only postpone the third.
+   *
+   * The hardcoded business keys are gone too. They read `s.business_key || "springb"`, which is
+   * one customer's business key as a fallback for every workspace - the same defect the backend
+   * CONNECTABLE map had. The API resolves the right business for THIS workspace by role and
+   * returns it; if it returns none, there is nothing to attach the source to and the form would
+   * fail anyway, so say so instead of opening it. */
   function connectSource(s) {
     if (s.provider === "qbo") return setConnecting({ provider: "qbo", mode: "create" });
-    // Sisu and FUB feed the real-estate business. Without these two branches the function
-    // fell through and returned undefined, so Connect/Configure opened nothing at all.
-    if (s.provider === "sisu" || s.provider === "fub")
-      return setConnecting({ provider: s.provider, name: s.name, config: s.config || {},
-                             business_key: s.business_key || "ulrg", status: "disconnected" });
-    if (s.provider === "ghl" || s.provider === "ghl_bc")
-      return setConnecting({ provider: s.provider, name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
-    if (s.provider === "arive")
-      return setConnecting({ provider: "arive", name: s.name, config: s.config || {}, business_key: s.business_key || "sympli", status: "disconnected" });
-    if (s.provider === "stripe_legacy")
-      return setConnecting({ provider: "stripe_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
-    if (s.provider === "stripe_bc")
-      return setConnecting({ provider: "stripe_bc", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
-    if (s.provider === "ghl_legacy")
-      return setConnecting({ provider: "ghl_legacy", name: s.name, config: s.config || {}, business_key: s.business_key || "springb", status: "disconnected" });
+    if (!s.business_key) {
+      window.alert(
+        `${s.name} attaches to a ${(s.needs_kind || "business").replace(/_/g, " ")} business, and `
+        + `this workspace doesn't have one yet. Add it under Businesses first, then connect.`);
+      return;
+    }
+    return setConnecting({
+      provider: s.provider, name: s.name, config: s.config || {},
+      business_key: s.business_key, integration_id: s.integration_id || null,
+      status: s.status === "connected" || s.status === "error" ? s.status : "disconnected",
+    });
   }
+
   // No DEFAULT_BIZ any more. It mapped each source to one customer's business key
   // ("arive" -> "sympli"), so every other workspace posted a key their API had never heard of
   // and got a 404 that the Stripe forms then reported as "Stripe rejected that key". The API
@@ -1154,8 +1235,19 @@ function IntegrationsPage() {
         : connecting.provider === "ghl_legacy"
         ? <GhlLegacyConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />
-        : <GhlConnectForm row={connecting} onClose={() => setConnecting(null)}
-            onDone={() => { setConnecting(null); load(); }} />)}
+        : connecting.provider === "meta_ads"
+        ? <MetaAdsConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : connecting.provider === "ghl" || connecting.provider === "ghl_bc"
+        ? <GhlConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        /* No fall-through form. This chain used to END in GhlConnectForm, so any provider
+           without a branch opened a GoHighLevel dialog - which is how a Meta Ads button opened
+           one. A wrong form is worse than no form: it looks like it works, and somebody pastes a
+           Meta token into a field labelled Location ID. Rendering null means an unhandled
+           provider is visibly broken rather than quietly wrong, and there is a test that fails
+           before it can reach anybody. */
+        : null)}
     </>
   );
 }
