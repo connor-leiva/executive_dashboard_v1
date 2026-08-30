@@ -168,6 +168,29 @@ config change to remember. Point each customer's domain at the `web` service and
   missing, the app quietly serves bundled sample data instead of live numbers.
 - **`RAILWAY_DOCKERFILE_PATH`** is required only for the worker (alternate Dockerfile name).
 
+## Meta Ads module
+
+None of these are secret; the System User token is Fernet-encrypted on the Integration row and
+is never an environment variable. Set on both the api and worker blocks.
+
+| variable | default | why it exists |
+|---|---|---|
+| `META_GRAPH_VERSION` | `v26.0` | Pinned in one place. An EXPIRED Marketing API version does not error - Meta silently runs the call as a later version, so the failure mode is a number that changed rather than an exception. Graph and Marketing run separate clocks for the same version number. |
+| `ADS_REFRESH_DAYS` | `7` | Meta restates recent days as attribution settles. A sync that writes only today freezes every prior day at its first, understated value. |
+| `ADS_BACKFILL_MONTHS` | `13` | Matches Meta's retention on unique metrics. Older than that, `reach` and `frequency` come back null - null is not zero. |
+| `ADS_MAX_CREATIVE_HOPS` | `40` | Cap on per-ad creative fetches per sync, ordered by spend. |
+| `ADS_BUC_BACKOFF_PCT` | `70` | Business Use Case usage percentage above which the client backs off. |
+| `ADS_ATTRIBUTION_WINDOW_DAYS` | `90` | Max lag from first touch to a countable close. **Currently unvalidated** - Phase 0 could not measure the real lag because no registration carried a date. Re-measure with `ads_probe` once dated registrations accumulate. |
+| `ADS_COHORT_MIN_MATURITY` | `0.5` | Below this share of expected closes, a cohort renders "too early to read" rather than a confident small ROAS. |
+| `ADS_CURVE_MIN_COHORTS` | `6` | Fewer complete cohorts than this and no curve is fitted, so no projection appears anywhere. A guessed curve is worse than an absent one, because it looks like a number. |
+
+Run the Phase 0 probe against any deployment before trusting the funnel numbers - it is
+read-only and tenant-scoped:
+
+```
+railway ssh --service executive_dashboard_v1 "python -m ads_probe --tenant <slug>"
+```
+
 ## Secrets that must be set (the app refuses to start without them)
 
 | variable | what it protects |

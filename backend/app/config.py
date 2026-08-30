@@ -185,6 +185,29 @@ class Settings(BaseSettings):
     # is the sole source of ULRG operational metrics.
     SEED_SAMPLE_OPS: bool = True
 
+    # ── Meta Ads (SPEC-ads-module.md Part 6.7). Reporting only - the System User token lives
+    # Fernet-encrypted on the Integration row, never here and never in a browser.
+    #
+    # The version is pinned in ONE place. Expired Marketing API versions do not error: Meta
+    # silently executes the call as a later version, so the failure mode is a number that changed
+    # rather than an exception anybody notices. Graph and Marketing run separate clocks for the
+    # same version number - v24.0 dies on the Marketing clock 2026-10-06 and lives on the Graph
+    # clock to 2028.
+    META_GRAPH_VERSION: str = "v26.0"
+    ADS_REFRESH_DAYS: int = 7          # rolling restatement window; Meta revises recent days
+    ADS_BACKFILL_MONTHS: int = 13      # matches Meta's unique-metric retention
+    ADS_MAX_CREATIVE_HOPS: int = 40
+    ADS_BUC_BACKOFF_PCT: int = 70
+    # Funnel and attribution.
+    #
+    # 90 is the spec's default and it is currently UNVALIDATED for any live tenant: Phase 0 could
+    # not measure the real lag because no registration carried a date. Re-measure with ads_probe
+    # once dated registrations have accumulated; if the p90 exceeds this, either the window widens
+    # or genuine closes go uncredited, and that is a decision rather than a default.
+    ADS_ATTRIBUTION_WINDOW_DAYS: int = 90
+    ADS_COHORT_MIN_MATURITY: float = 0.5   # below this a cohort renders "too early to read"
+    ADS_CURVE_MIN_COHORTS: int = 6         # fewer complete cohorts -> no curve, no projection
+
     @property
     def origins(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
