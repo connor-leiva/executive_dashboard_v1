@@ -895,7 +895,24 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
             utm = {k: _clean_str(cvals.get(vid)) for k, vid in utm_ids.items()}
             is_comp = any("comp" in t for t in matched)
             channel = classify_shift_source(utm, is_comp, campaign_match)
+            # THE COHORT DAY. Every bc_shift_reg row was written undated until now, which
+            # meant a registration had no date, an identity had no cohort, and the ads module's
+            # AdAttribution.first_seen_on had no source at all - measured at 0 of 1416 by
+            # ads_probe. Phase 4 (cohort maturity, the curve, every projection) is unbuildable
+            # without it.
+            #
+            # dateAdded is when the IDENTITY first appeared, not when they registered. Connor
+            # chose it deliberately over the tag-applied date: first touch is what attribution
+            # means, and GHL does not expose a per-tag timestamp on the contact anyway. The
+            # known cost is that somebody already on the list who registers later lands in the
+            # cohort they actually arrived in, which is right for crediting an ad and reads
+            # oddly against a launch window.
+            #
+            # Set on THIS append rather than on `base`, which is shared with bc_member and
+            # bc_registration - dateAdded is not their date and would quietly redefine them.
+            reg_day = _parse_ghl_dt(c.get("createdAt") or c.get("dateAdded"))
             shift_regs.append({**base, "kind": "bc_shift_reg", "status": "registered",
+                               "occurred_on": reg_day,
                                "meta": {"shift_tags": sorted(matched), "channel": channel,
                                         "utm_source": utm.get("source"), "utm_medium": utm.get("medium"),
                                         "utm_campaign": utm.get("campaign"),

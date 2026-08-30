@@ -1,6 +1,7 @@
 """GHL membership fields (renewal date / enrollment / total cost / payment plan,
 populated from ClickUp) → payment mix + PIF renewal projection. Pure unit tests plus
 one seed-backed end-to-end forecast check."""
+import calendar
 import datetime as dt
 from types import SimpleNamespace
 
@@ -212,11 +213,18 @@ async def test_cashflow_current_month_shows_collected_and_scheduled():
                            external_id="fail1", name="Failed Member", email="fail@forum.com", amount=2000,
                            status="failed", occurred_on=today.replace(day=1),
                            meta={"stream": "memberships", "amount_refunded": 0, "charge_id": "ch_fail1"}))
-        # a PIF member renewing later this month → scheduled
+        # a PIF member renewing later this month → scheduled.
+        #
+        # The renewal day was `min(today.day + 8, 28)`, which is only "later this month" for the
+        # first three weeks of it: on the 29th, 30th or 31st the clamp puts the renewal in the
+        # PAST, the member is no longer scheduled, and the assertion below fails. A calendar
+        # time bomb that went off on three days out of every thirty.
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        sched_day = min(today.day + 8, last_day)
         s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="ghl", kind="member",
                            external_id="pifm", name="PIF Member", email="pifm@forum.com", status="active",
                            meta={"membership": {"payment": "pif",
-                                                "renewal_date": today.replace(day=min(today.day + 8, 28)).isoformat(),
+                                                "renewal_date": today.replace(day=sched_day).isoformat(),
                                                 "total_cost": 30000}}))
         await s.commit()
 
@@ -225,4 +233,10 @@ async def test_cashflow_current_month_shows_collected_and_scheduled():
         assert "Paid Member" in names and "Failed Member" not in names   # collected, failed excluded
         assert "collected + scheduled" in d["label"]
         sched = [r for r in d["rows"] if r.get("tone") == "projected"]
-        assert any(r["name"] == "PIF Member" and r["r1"] == "$30,000" for r in sched)
+        if sched_day > today.day:
+            assert any(r["name"] == "PIF Member" and r["r1"] == "$30,000" for r in sched)
+        else:
+            # Today IS the last day of the month, so "renewing later this month" is not a state
+            # that can exist. Assert the real behaviour rather than pretending otherwise: a
+            # renewal dated today is already due, not scheduled ahead.
+            assert not any(r["name"] == "PIF Member" for r in sched)

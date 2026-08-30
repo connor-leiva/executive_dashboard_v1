@@ -1287,3 +1287,275 @@ class AllocationContribution(Base):
         CheckConstraint("source_business_id <> target_business_id", name="ck_alloc_not_self"),
         Index("ix_alloc_period", "tenant_id", "period_start", "period_end"),
     )
+
+
+# ── Meta Ads module (SPEC-ads-module.md Part 6) ────────────────────────────────────────
+#
+# The point of this module is the JOIN, not the click metrics. Meta owns impression, click and
+# its own lead count; Acumyn already owns the registration, the booked call, the outcome, the
+# signature and the cash. Nobody owned the seam between them, and campaigns rank differently by
+# clicks than by customers - that difference is the whole product.
+#
+# Platform-neutral on purpose: `platform` and `external_id` mean a Google Ads account lands in
+# these tables without a migration.
+
+
+class AdAccount(Base):
+    """One connected advertising account.
+
+    Sits UNDER an Integration, which holds the Fernet-encrypted token, the same way a QuickBooks
+    realm does - one System User token routinely carries several ad accounts.
+
+    `business_id` is the entity that BOOKS this spend, and its archetype selects the funnel
+    definition. It is NOT a filter: one Meta account routinely runs campaigns for several
+    programmes at once, which is exactly what campaign grouping exists to untangle.
+    """
+    __tablename__ = "ad_account"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    integration_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("integration.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("business.id", ondelete="SET NULL"), nullable=True)
+    platform: Mapped[str] = mapped_column(String(16), default="meta")   # meta | google | tiktok
+    external_id: Mapped[str] = mapped_column(String(64))                # act_587749862890426
+    name: Mapped[str] = mapped_column(String(200))
+    currency: Mapped[str] = mapped_column(String(8), default="USD")
+    # The ACCOUNT's reporting timezone. Meta's day boundaries follow it - not UTC, and not the
+    # tenant's. Every date boundary in this module uses it. scorecard_tick learned the same
+    # lesson: a naive UTC date flips the week a day early.
+    timezone_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="active")   # active | paused | archived
+    # Tenant overrides. NULL means "use the code default" in every case, so a tenant that
+    # configures nothing still gets correct behaviour.
+    group_rules: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    lead_actions: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    thresholds: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    funnel_override: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    # The URL-parameter template every ad is expected to carry. The readiness check compares
+    # ad.url_tags against it. Ad-level revenue is impossible without utm_content={{ad.id}}.
+    utm_template: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    backfill_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "platform", "external_id", name="uq_ad_account_ext"),
+    )
+
+
+class AdCampaign(Base):
+    """Status and budget are not on insight rows, so they come from /campaigns and live here."""
+    __tablename__ = "ad_campaign"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    ad_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ad_account.id", ondelete="CASCADE"), index=True)
+    external_id: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(400))   # long by design; truncation is a display concern
+    objective: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    effective_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    daily_budget: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    lifetime_budget: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # From INSIGHT rows, not the dimension: a campaign can be ACTIVE and have delivered nothing
+    # for a month. "Spending" is a delivery question, not a status question.
+    first_seen_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_seen_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "ad_account_id", "external_id", name="uq_ad_campaign_ext"),
+    )
+
+
+class Ad(Base):
+    """One ad, creative fields inline. No separate creative table: this module never needs a Meta
+    AdCreative independent of the ad running it. Keyed on the Meta AD id."""
+    __tablename__ = "ad"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    ad_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ad_account.id", ondelete="CASCADE"), index=True)
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ad_campaign.id", ondelete="SET NULL"), nullable=True)
+    external_id: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(400))
+    adset_external_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    adset_name: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    effective_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    creative_external_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    headline: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SIGNED and SHORT LIVED. Refreshed every sync; never treated as a permalink.
+    thumbnail_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)   # stable - the cache key
+    image_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)   # storage_ref once cached
+    permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url_tags: Mapped[str | None] = mapped_column(Text, nullable=True)   # the readiness check reads this
+    creative_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_seen_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "ad_account_id", "external_id", name="uq_ad_ext"),
+        Index("ix_ad_campaign", "tenant_id", "campaign_id"),
+    )
+
+
+class AdInsightDaily(Base):
+    """One day of delivery for one object at one level.
+
+    BOTH levels are stored. Campaign totals are not always the sum of their ads - spend on
+    deleted ads survives at the campaign level, some account costs never land on an ad - so
+    headlines read level='campaign' and the creative wall reads level='ad'. The gap is REPORTED,
+    never quietly reconciled away.
+
+    NO RATIOS ARE STORED. Meta returns ctr, cpm and cpc and this table deliberately keeps none of
+    them, so there is no rate here for anyone to accidentally sum. A mean of daily CTRs is not the
+    period CTR, and the surest way nobody averages one is for it not to exist. Every rate is
+    derived at read time from summed numerators and denominators.
+    """
+    __tablename__ = "ad_insight_daily"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    ad_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ad_account.id", ondelete="CASCADE"), index=True)
+    level: Mapped[str] = mapped_column(String(10))              # campaign | ad
+    object_external_id: Mapped[str] = mapped_column(String(64))
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ad_campaign.id", ondelete="CASCADE"), nullable=True)
+    ad_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ad.id", ondelete="CASCADE"), nullable=True)     # level='ad' only
+    occurred_on: Mapped[date] = mapped_column(Date)                 # in the AD ACCOUNT's timezone
+    spend: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    impressions: Mapped[int] = mapped_column(Integer, default=0)
+    reach: Mapped[int | None] = mapped_column(Integer, nullable=True)      # 13-month retention
+    clicks: Mapped[int] = mapped_column(Integer, default=0)                # ALL clicks
+    inline_link_clicks: Mapped[int] = mapped_column(Integer, default=0)    # the honest CTR numerator
+    frequency: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)  # 6-month retention
+    # Kept WHOLE, so a new action_type never needs a re-sync and `leads` can be re-resolved from
+    # stored rows when the configured lead types change.
+    actions: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    action_values: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    leads: Mapped[int] = mapped_column(Integer, default=0)     # resolved from actions at write
+    purchase_roas: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    attribution: Mapped[str | None] = mapped_column(String(40), nullable=True)  # setting this row used
+    pulled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "ad_account_id", "level", "object_external_id",
+                         "occurred_on", name="uq_ad_insight_day"),
+        Index("ix_ad_insight_range", "tenant_id", "ad_account_id", "occurred_on"),
+        Index("ix_ad_insight_obj", "tenant_id", "level", "campaign_id"),
+    )
+
+
+class AdAttribution(Base):
+    """First touch, FROZEN. One row per attributed identity. The spine of the whole module.
+
+    WRITE ONCE. GHL records are written by _ghl_snapshot, which REPLACES the row set every sync,
+    so a contact's UTM is CURRENT STATE rather than history. Re-deriving attribution each sync
+    would move closed revenue between campaigns weeks after the fact, and nobody would be able to
+    say why last month's report changed. Only last_seen_on is ever updated after insert.
+
+    The Sales Desk hit precisely this and answered it the same way: its own append-only log, with
+    every rate computed from that log rather than from live GHL fields.
+    """
+    __tablename__ = "ad_attribution"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    identity_kind: Mapped[str] = mapped_column(String(16))      # ghl_contact | sisu_client | email
+    identity_key: Mapped[str] = mapped_column(String(160))      # GHL contact id, or a normalized email
+    email_norm: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("business.id", ondelete="SET NULL"), nullable=True)
+    ad_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ad_account.id", ondelete="SET NULL"), nullable=True)
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ad_campaign.id", ondelete="SET NULL"), nullable=True)
+    # Set ONLY when match_method == 'ad'. The read service must never infer an ad from a campaign
+    # match, and there is a test on exactly that.
+    ad_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ad.id", ondelete="SET NULL"), nullable=True)
+    utm_source: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    utm_medium: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    utm_campaign: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    utm_content: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    utm_term: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    landing_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Meta | Google | TikTok | Email | Paid (other) | Organic / Existing | Comped
+    channel: Mapped[str] = mapped_column(String(24))
+    # The grain this row is ALLOWED to grant revenue at. Never present a channel-level match as
+    # ad-level; the read service enforces this rather than trusting the caller.
+    match_method: Mapped[str] = mapped_column(String(12))       # ad | campaign | channel | none
+    confidence: Mapped[str] = mapped_column(String(8))          # exact | probable | channel
+    first_seen_on: Mapped[date] = mapped_column(Date)           # THE COHORT DAY
+    last_seen_on: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "identity_kind", "identity_key", name="uq_ad_attr_identity"),
+        Index("ix_ad_attr_cohort", "tenant_id", "first_seen_on"),
+        Index("ix_ad_attr_campaign", "tenant_id", "campaign_id"),
+    )
+
+
+class AdConversion(Base):
+    """One row per (identity, funnel stage) reached. Revenue lands on the closing stage.
+
+    MATERIALIZED rather than derived, because time-to-close needs a stage DATE and the underlying
+    rows do not all carry one. A stage whose source has no reliable date is written dated=False:
+    COUNTED in the funnel, and excluded from every duration and from the curve fit. Counting it is
+    honest; timing it is not.
+
+    Written from rows that already exist - bc_shift_reg, SalesCall, the classify_stage groups,
+    bc_onboarded. This table never invents a stage the source systems do not already assert, and
+    it never re-derives stage semantics that migration 0032 already settled.
+    """
+    __tablename__ = "ad_conversion"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    attribution_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ad_attribution.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"), index=True)
+    # registered | booked | applied | held | committed | closed
+    stage_key: Mapped[str] = mapped_column(String(24))
+    occurred_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    dated: Mapped[bool] = mapped_column(Boolean, default=True)   # False -> counted, never timed
+    value_contracted: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    value_collected: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # True when a rolling monthly membership was modelled at twelve months. A modelling choice,
+    # not a signed number, so the UI has to be able to say so.
+    value_annualized: Mapped[bool] = mapped_column(Boolean, default=False)
+    payment_type: Mapped[str | None] = mapped_column(String(12), nullable=True)  # pif | financed | monthly
+    # Provenance, so any number here opens to the row that produced it.
+    source_kind: Mapped[str] = mapped_column(String(32))
+    source_ref: Mapped[str] = mapped_column(String(64))
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "attribution_id", "stage_key", name="uq_ad_conv_stage"),
+        Index("ix_ad_conv_stage", "tenant_id", "stage_key", "occurred_on"),
+    )
+
+
+class AdCohortCurve(Base):
+    """The MEASURED maturity curve: of a cohort's eventual closes, what share have landed by day N
+    since first touch.
+
+    Never assumed. Refitted from cohorts old enough to be complete, and until there are enough of
+    those, no row exists, maturity reads unknown, and the projection is SUPPRESSED rather than
+    modelled. A guessed curve is worse than an absent one because it looks like a number.
+
+    DEFAULT_SHIFT_CURVE is the shape precedent, not the source of these values: a registration-
+    pace curve and a close-lag curve are different clocks.
+    """
+    __tablename__ = "ad_cohort_curve"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"), index=True)
+    funnel_key: Mapped[str] = mapped_column(String(24))     # the archetype funnel this describes
+    day: Mapped[int] = mapped_column(Integer)               # days since first touch
+    share: Mapped[Decimal] = mapped_column(Numeric(6, 4))   # 0..1 cumulative share landed by `day`
+    sample_cohorts: Mapped[int] = mapped_column(Integer)    # how many COMPLETE cohorts fitted this
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_id", "funnel_key", "day", name="uq_ad_curve_day"),
+    )
