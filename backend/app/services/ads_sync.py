@@ -219,9 +219,15 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
         since = today - dt.timedelta(days=max(1, settings.ADS_REFRESH_DAYS) - 1)
         lead_actions = list(acct.lead_actions or DEFAULT_LEAD_ACTIONS)
         try:
-            # Dimensions FIRST - insight rows carry foreign keys to these.
+            # Dimensions FIRST - insight rows carry foreign keys to these - and COMMITTED before
+            # the insight pull. The first live sync failed inside ads(), the handler rolled back,
+            # and the campaigns already fetched went with it: the account showed zero campaigns
+            # and zero ads, which reads as "nothing is running" rather than "one call failed".
+            # Partial progress is worth keeping.
             n_camp = await _upsert_campaigns(s, tenant_id, acct, await meta.campaigns(token, acct.external_id))
+            await s.commit()
             n_ads = await _upsert_ads(s, tenant_id, acct, await meta.ads(token, acct.external_id))
+            await s.commit()
             w_c, r_c = await _upsert_insights(
                 s, tenant_id, acct, "campaign",
                 await meta.insights(token, acct.external_id, "campaign", since, today), lead_actions)

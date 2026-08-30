@@ -158,3 +158,87 @@ def test_ad_level_readiness_accepts_the_macro_and_the_resolved_id():
     assert not meta.has_ad_level_tagging("utm_source=meta&utm_campaign=KB")
     assert not meta.has_ad_level_tagging(None)
     assert not meta.has_ad_level_tagging("utm_content=")
+
+
+# ── Meta refusing the page size, which is what the first live sync actually hit ────────
+def test_a_size_refusal_is_not_mistaken_for_a_rate_limit():
+    """"Please reduce the amount of data you're asking for" reads like a quota and is not one.
+
+    It is Meta declining to assemble a result set that big, so waiting does not help and
+    retrying the identical request never succeeds. Telling the two apart is what decides
+    between backing off (useless here) and shrinking the page (the actual remedy).
+    """
+    err = meta.MetaError("Please reduce the amount of data you're asking for, then retry your "
+                         "request", code=1)
+    assert err.wants_smaller_page is True
+    assert err.is_throttle is False
+
+    throttle = meta.MetaError("User request limit reached", code=17)
+    assert throttle.is_throttle is True
+    assert throttle.wants_smaller_page is False
+
+
+async def test_the_page_size_halves_until_meta_accepts_it():
+    """THE LIVE FAILURE. The first real sync asked for ads 200 at a time with a ten-field
+    creative expansion, Meta refused, and the account showed zero campaigns and zero ads behind
+    an error that read like a permissions problem.
+
+    Fakes a server that rejects anything above 25, and asserts the client walks itself down
+    rather than failing the account.
+    """
+    import httpx
+
+    seen: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        limit = int(dict(request.url.params).get("limit", 0))
+        seen.append(limit)
+        if limit > 25:
+            return httpx.Response(400, json={"error": {
+                "message": "Please reduce the amount of data you're asking for, then retry your "
+                           "request", "code": 1}})
+        return httpx.Response(200, json={"data": [{"id": "1"}], "paging": {}})
+
+    transport = httpx.MockTransport(handler)
+    real = httpx.AsyncClient
+
+    class _Patched(real):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    httpx.AsyncClient = _Patched
+    try:
+        rows = await meta._paginate("https://x/ads", {"limit": 200}, "tok")
+    finally:
+        httpx.AsyncClient = real
+
+    assert rows == [{"id": "1"}], "the client gave up instead of shrinking"
+    assert seen[0] == 200, "should try the requested size first"
+    assert seen[-1] <= 25, f"never got small enough: {seen}"
+    assert len(seen) > 1, "no retry happened at all"
+
+
+async def test_it_stops_shrinking_rather_than_looping_forever():
+    """A refusal that persists at the smallest page is a real failure and must surface. Halving
+    without a floor is an infinite loop wearing a retry's clothes."""
+    import httpx
+
+    def always_refuse(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {
+            "message": "Please reduce the amount of data you're asking for", "code": 1}})
+
+    transport = httpx.MockTransport(always_refuse)
+    real = httpx.AsyncClient
+
+    class _Patched(real):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    httpx.AsyncClient = _Patched
+    try:
+        with pytest.raises(meta.MetaError):
+            await meta._paginate("https://x/ads", {"limit": 50}, "tok")
+    finally:
+        httpx.AsyncClient = real

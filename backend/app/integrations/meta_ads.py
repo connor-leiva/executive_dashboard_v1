@@ -39,6 +39,12 @@ from ..config import settings
 
 # Throttle codes. No documented Retry-After header accompanies them.
 THROTTLE_CODES = {17, 80000, 80003}
+# "Please reduce the amount of data you're asking for, then retry your request." Meta's answer
+# when a result set is too large for one page - most often the /ads edge with a wide creative{}
+# expansion. It is NOT a rate limit and NOT a permission problem, and retrying the identical
+# request forever will never work: the remedy is a smaller page.
+REDUCE_DATA_CODE = 1
+REDUCE_DATA_TEXT = "reduce the amount of data"
 RETRY_STATUS = {429, 500, 502, 503, 504}
 MAX_ATTEMPTS = 4
 
@@ -61,6 +67,11 @@ class MetaError(RuntimeError):
     @property
     def is_throttle(self) -> bool:
         return self.code in THROTTLE_CODES
+
+    @property
+    def wants_smaller_page(self) -> bool:
+        """Meta asking for a smaller request rather than a slower one."""
+        return REDUCE_DATA_TEXT in str(self).lower()
 
 
 def _base() -> str:
@@ -168,20 +179,44 @@ async def _get(client: httpx.AsyncClient, url: str, params: dict, token: str) ->
     raise MetaError("exhausted retries against Meta")
 
 
-async def _paginate(url: str, params: dict, token: str, max_pages: int = 200) -> list[dict]:
-    """Follow `paging.next` and return every row. Raises rather than truncating silently."""
-    out: list[dict] = []
-    async with httpx.AsyncClient(timeout=90) as c:
-        page, next_url, next_params = 0, url, dict(params)
-        while next_url and page < max_pages:
-            body = await _get(c, next_url, next_params, token)
-            out.extend(body.get("data") or [])
-            page += 1
-            nxt = ((body.get("paging") or {}).get("next"))
-            if not nxt:
-                break
-            next_url, next_params = nxt, {}      # `next` is fully-formed; re-sending params dupes them
-    return out
+MIN_PAGE = 5
+
+
+async def _paginate(url: str, params: dict, token: str, max_pages: int = 400) -> list[dict]:
+    """Follow `paging.next` and return every row. Raises rather than truncating silently.
+
+    HALVES THE PAGE SIZE AND RETRIES when Meta says the request is too large. That refusal is not
+    a rate limit and not a permissions problem - it is Meta declining to assemble a result set
+    that big, and no amount of waiting or retrying the same call fixes it. The /ads edge with a
+    wide creative{} expansion trips it on a real account, which is exactly how this module's
+    first live sync failed: campaigns 0, ads 0, and an error message that reads like a quota.
+
+    Restarts the walk from the first page on a resize. Meta's `next` cursors encode the page size
+    they were minted with, so continuing from one after shrinking would keep asking for the size
+    that just failed.
+    """
+    limit = int(params.get("limit") or 100)
+    while True:
+        out: list[dict] = []
+        try:
+            async with httpx.AsyncClient(timeout=90) as c:
+                page = 0
+                next_url, next_params = url, {**params, "limit": limit}
+                while next_url and page < max_pages:
+                    body = await _get(c, next_url, next_params, token)
+                    out.extend(body.get("data") or [])
+                    page += 1
+                    nxt = ((body.get("paging") or {}).get("next"))
+                    if not nxt:
+                        break
+                    # `next` is fully-formed; re-sending params would duplicate them.
+                    next_url, next_params = nxt, {}
+            return out
+        except MetaError as e:
+            if not e.wants_smaller_page or limit <= MIN_PAGE:
+                raise
+            limit = max(MIN_PAGE, limit // 2)
+            print(f"[meta_ads] Meta refused the page size; retrying at limit={limit}", flush=True)
 
 
 # ── endpoints ─────────────────────────────────────────────────────────────────────────
@@ -244,7 +279,10 @@ async def ads(token: str, account_id: str) -> list[dict]:
         "fields": ("id,name,status,effective_status,adset{id,name},campaign{id},"
                    "creative{id,name,title,body,thumbnail_url,image_hash,image_url,"
                    "object_story_spec,effective_object_story_id,url_tags}"),
-        "limit": 200,
+        # Deliberately modest. This expansion is wide - ten creative fields per ad - and Meta
+        # refuses to assemble it 200 at a time on a real account. _paginate will shrink further
+        # if even this is too much; starting low just avoids spending a failed round trip first.
+        "limit": 50,
     }, token)
 
 

@@ -314,16 +314,39 @@ async def attach_account(body: dict, user: User = Depends(require_role("owner", 
     if dupe is not None:
         raise HTTPException(400, f"{ext} is already attached to this workspace.")
 
+    # Which entity BOOKS this spend. Its archetype selects the funnel, so an account attached to
+    # nothing shows the click layer and says "no funnel for this entity" - which is what the first
+    # live connect did, because the form sent no business_key and nothing filled it in.
+    #
+    # Falls back to the entity the integrations view already resolved by ROLE for this provider,
+    # so the default is right for the workspace rather than absent.
     biz = None
     if body.get("business_key"):
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == user.tenant_id,
             Business.key == body["business_key"]))).scalar_one_or_none()
+    if biz is None:
+        from ..services.integrations_view import CONNECTABLE_KIND
+        from ..services import roles
+        biz = await roles.primary(s, user.tenant_id, CONNECTABLE_KIND.get("meta_ads"))
+    # Ask Meta who this account is, so the name, currency and TIMEZONE are real rather than
+    # placeholders. The timezone is not cosmetic: Meta's day boundaries follow the account's
+    # reporting zone, and a null one silently falls back to the server's - which puts spend on
+    # the wrong day either side of midnight and makes every range disagree with Ads Manager.
+    name, currency, tz = str(body.get("name") or ext)[:200], "USD", body.get("timezone_name")
+    try:
+        from ..integrations import meta_ads as _meta
+        from ..security import dec
+        info = await _meta.ping(dec(integ.access_token_enc), ext)
+        name = str(info.get("name") or name)[:200]
+        currency = str(info.get("currency") or currency)[:8]
+        tz = info.get("timezone_name") or tz
+    except Exception as e:  # noqa: BLE001 - a bad id should fail the attach with Meta's own words
+        raise HTTPException(400, f"Meta rejected {ext}: {e}")
+
     acct = AdAccount(tenant_id=user.tenant_id, integration_id=integ.id,
                      business_id=biz.id if biz else None, platform="meta", external_id=ext,
-                     name=str(body.get("name") or ext)[:200],
-                     currency=str(body.get("currency") or "USD")[:8],
-                     timezone_name=(body.get("timezone_name") or None))
+                     name=name, currency=currency, timezone_name=tz)
     s.add(acct)
     audit(s, user.tenant_id, user.id, "ads.account_attached", "ad_account", None, {"external_id": ext})
     await s.commit()
