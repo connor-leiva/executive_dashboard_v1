@@ -200,6 +200,11 @@ class Settings(BaseSettings):
     # window, that is ~33 requests a run before anything else. On Meta's development access tier
     # (~100 calls/hour) a half-hourly sync cannot fit and never completes. Spend the budget on
     # one sync that finishes rather than four that die partway.
+    # How far back the FIRST sync reaches. Routine syncs restate ADS_REFRESH_DAYS; an account
+    # that has never synced has nothing to restate and everything to establish. Measured on the
+    # live account, 7 days showed $112 of spend and 30 showed $39,031 - starting from today would
+    # have produced a tab that looked like the ads had done nothing.
+    ADS_BACKFILL_DAYS: int = 90
     ADS_SYNC_INTERVAL_MINUTES: int = 180
     # A hard ceiling on requests per sync. _paginate restarts its walk from page one whenever
     # Meta refuses a page size (its cursors encode the size they were minted with), so a cascade

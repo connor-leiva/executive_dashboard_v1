@@ -79,44 +79,66 @@ async def _upsert_campaigns(s: AsyncSession, tenant_id, acct: AdAccount, rows: l
     return n
 
 
-async def _upsert_ads(s: AsyncSession, tenant_id, acct: AdAccount, rows: list[dict]) -> int:
+async def _derive_dimensions(s: AsyncSession, tenant_id, acct: AdAccount,
+                             camp_rows: list[dict], ad_rows: list[dict]) -> int:
+    """Build the ad dimension FROM THE REPORT rather than from the /ads edge.
+
+    Ad-level insight rows already carry ad_id, ad_name, adset_id, adset_name, campaign_id and
+    campaign_name - every field the dimension needs. Asking Meta to enumerate the account's ads
+    separately returned 471 objects regardless of date, across five-plus pages that RESTART from
+    page one each time Meta refuses a page size, and it was the call that failed every live sync.
+    The same window's report names 13 ads in a single request.
+
+    What this gives up is ads with no activity in the window, plus `status`/`effective_status`,
+    which the /ads edge alone supplies. Nothing in the API or the frontend reads either field,
+    and an ad that spent nothing is not one this dashboard has anything to say about.
+
+    Campaigns still come from /campaigns - 19 rows, one request, and it carries objective and
+    budgets that no report contains. It was never the expensive call.
+    """
     camp_by_ext = {c.external_id: c for c in (await s.execute(select(AdCampaign).where(
         AdCampaign.tenant_id == tenant_id, AdCampaign.ad_account_id == acct.id))).scalars()}
-    existing = {a.external_id: a for a in (await s.execute(select(Ad).where(
+
+    # A campaign can appear in the report without appearing in /campaigns - deleted campaigns
+    # keep their history. Create a stub so the insight row still has something to hang from
+    # rather than being silently dropped.
+    for r in [*camp_rows, *ad_rows]:
+        ext = str(r.get("campaign_id") or "")
+        if not ext or ext in camp_by_ext:
+            continue
+        stub = AdCampaign(tenant_id=tenant_id, ad_account_id=acct.id, external_id=ext,
+                          name=str(r.get("campaign_name") or ext)[:400])
+        s.add(stub)
+        camp_by_ext[ext] = stub
+    await s.flush()
+
+    ad_by_ext = {a.external_id: a for a in (await s.execute(select(Ad).where(
         Ad.tenant_id == tenant_id, Ad.ad_account_id == acct.id))).scalars()}
-    now = dt.datetime.now(dt.timezone.utc)
-    n = 0
-    for r in rows:
-        ext = str(r.get("id") or "")
+    touched = 0
+    for r in ad_rows:
+        ext = str(r.get("ad_id") or "")
         if not ext:
             continue
-        a = existing.get(ext)
+        a = ad_by_ext.get(ext)
         if a is None:
             a = Ad(tenant_id=tenant_id, ad_account_id=acct.id, external_id=ext,
-                   name=str(r.get("name") or ext)[:400])
+                   name=str(r.get("ad_name") or ext)[:400])
             s.add(a)
-            existing[ext] = a
-        creative = r.get("creative") or {}
-        adset = r.get("adset") or {}
-        a.name = str(r.get("name") or a.name)[:400]
-        a.status = (r.get("status") or None)
-        a.effective_status = (r.get("effective_status") or None)
-        a.adset_external_id = (adset.get("id") or None)
-        a.adset_name = (str(adset.get("name"))[:400] if adset.get("name") else None)
-        camp_ext = str((r.get("campaign") or {}).get("id") or "")
-        if camp_ext and camp_ext in camp_by_ext:
+            ad_by_ext[ext] = a
+        # Only overwrite with something. A later row for the same ad on a quieter day must not
+        # blank a name an earlier row supplied.
+        if r.get("ad_name"):
+            a.name = str(r["ad_name"])[:400]
+        if r.get("adset_id"):
+            a.adset_external_id = str(r["adset_id"])
+        if r.get("adset_name"):
+            a.adset_name = str(r["adset_name"])[:400]
+        camp_ext = str(r.get("campaign_id") or "")
+        if camp_ext in camp_by_ext:
             a.campaign_id = camp_by_ext[camp_ext].id
-        a.creative_external_id = (creative.get("id") or None)
-        a.headline = meta.creative_headline(creative)
-        a.body = (creative.get("body") or None)
-        # Signed and short lived: refreshed every sync, never treated as a permalink.
-        a.thumbnail_url = meta.creative_thumb(creative)
-        a.image_hash = (creative.get("image_hash") or None)
-        a.url_tags = (creative.get("url_tags") or None)
-        a.creative_fetched_at = now
-        n += 1
+        touched += 1
     await s.flush()
-    return n
+    return len({str(r.get("ad_id")) for r in ad_rows if r.get("ad_id")})
 
 
 async def _upsert_insights(s: AsyncSession, tenant_id, acct: AdAccount, level: str,
@@ -301,7 +323,11 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
     for acct in accounts:
         meta.start_budget(settings.ADS_MAX_CALLS_PER_SYNC)
         today = account_today(acct.timezone_name)
-        since = today - dt.timedelta(days=max(1, settings.ADS_REFRESH_DAYS) - 1)
+        # First contact reaches back; every sync after it only restates. An account that has
+        # never synced has no history to preserve and a tab with nothing in it.
+        first_run = acct.backfill_start is None
+        span = settings.ADS_BACKFILL_DAYS if first_run else settings.ADS_REFRESH_DAYS
+        since = today - dt.timedelta(days=max(1, span) - 1)
         lead_actions = list(acct.lead_actions or DEFAULT_LEAD_ACTIONS)
         step = "starting"
         try:
@@ -324,18 +350,25 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
                 base_config["meta_access_tier"] = tier
                 integ.config = dict(base_config)
                 await s.commit()
-            step = "ads"
-            n_ads = await _upsert_ads(s, tenant_id, acct, await meta.ads(token, acct.external_id))
-            await s.commit()
+            # Fetch BOTH reports before writing anything. The dimension is derived from them,
+            # and _upsert_insights resolves its foreign keys by looking the dimension up - so the
+            # rows have to exist first or every insight row lands with a null ad_id.
             step = "insights(campaign)"
-            w_c, r_c = await _upsert_insights(
-                s, tenant_id, acct, "campaign",
-                await meta.insights(token, acct.external_id, "campaign", since, today), lead_actions)
+            camp_rows = await meta.insights(token, acct.external_id, "campaign", since, today)
             step = "insights(ad)"
-            w_a, r_a = await _upsert_insights(
-                s, tenant_id, acct, "ad",
-                await meta.insights(token, acct.external_id, "ad", since, today), lead_actions)
+            ad_rows = await meta.insights(token, acct.external_id, "ad", since, today)
+
+            step = "dimensions"
+            n_ads = await _derive_dimensions(s, tenant_id, acct, camp_rows, ad_rows)
+            await s.commit()
+
+            step = "store(campaign)"
+            w_c, r_c = await _upsert_insights(s, tenant_id, acct, "campaign", camp_rows, lead_actions)
+            step = "store(ad)"
+            w_a, r_a = await _upsert_insights(s, tenant_id, acct, "ad", ad_rows, lead_actions)
             step = "stamp"
+            if first_run:
+                acct.backfill_start = since
             await _stamp_seen(s, tenant_id, acct)
             await s.commit()
 
@@ -458,9 +491,15 @@ async def backfill_meta_ads(s: AsyncSession, tenant_id, ad_account_id, since: dt
         months.append((cursor, min(until, nxt - dt.timedelta(days=1))))
         cursor = nxt
     for m_start, m_end in months:
+        by_level: dict[str, list[dict]] = {}
         for level in ("campaign", "ad"):
-            rows = await meta.insights(token, acct.external_id, level, m_start, m_end)
-            w, _ = await _upsert_insights(s, tenant_id, acct, level, rows, lead_actions)
+            by_level[level] = await meta.insights(token, acct.external_id, level, m_start, m_end)
+        # Same ordering rule as the routine sync, and the reason it matters more here: the
+        # backfill never built a dimension at all, so every row it wrote before this carried a
+        # null ad_id and no ad-level history could be joined to an ad.
+        await _derive_dimensions(s, tenant_id, acct, by_level["campaign"], by_level["ad"])
+        for level in ("campaign", "ad"):
+            w, _ = await _upsert_insights(s, tenant_id, acct, level, by_level[level], lead_actions)
             total += w
         await s.commit()
         print(f"[meta_ads backfill] {acct.external_id} {m_start}..{m_end}: {total} rows", flush=True)

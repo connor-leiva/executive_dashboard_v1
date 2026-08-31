@@ -252,3 +252,112 @@ def test_nothing_remembered_means_nothing_asserted():
         assert "DEVELOPMENT access tier" not in msg
     finally:
         meta._TIER.reset(token)
+
+
+# ── the dimension comes from the report, not from /ads ────────────────────────────────
+def _ad_row(ad_id, name, camp="c1", camp_name="Camp One", day="2026-08-01", spend="10"):
+    return {"ad_id": ad_id, "ad_name": name, "adset_id": "s1", "adset_name": "Set One",
+            "campaign_id": camp, "campaign_name": camp_name,
+            "date_start": day, "date_stop": day, "spend": spend, "impressions": "100",
+            "clicks": "5", "inline_link_clicks": "3"}
+
+
+async def test_a_whole_sync_never_enumerates_the_accounts_ads():
+    """THE FIX, end to end.
+
+    /act_X/ads returns every ad object the account has ever had - 471 on the live account,
+    irrespective of the window asked for - across five-plus pages that RESTART from page one
+    each time Meta refuses a page size. It failed every live sync. The same window's report
+    named 13 ads in one request, and carries every field the dimension needs.
+
+    Fails loudly if anything reintroduces the call.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.integrations import meta_ads as meta
+    from app.models import Ad, AdCampaign, AdInsightDaily, Integration, Tenant, AdAccount
+    from app.security import enc
+    from app.services import ads_sync as A
+
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        integ = Integration(tenant_id=t.id, provider="meta_ads", status="connected",
+                            access_token_enc=enc("tok"))
+        s.add(integ)
+        await s.flush()
+        acct = AdAccount(tenant_id=t.id, integration_id=integ.id, platform="meta",
+                         external_id="act_derive", name="Derive", timezone_name="UTC")
+        s.add(acct)
+        await s.commit()
+        integ_id, acct_id, tid = integ.id, acct.id, t.id
+
+    called: list[str] = []
+
+    async def _campaigns(token, ext):
+        called.append("campaigns")
+        return [{"id": "c1", "name": "Camp One", "objective": "LEAD_GENERATION"}]
+
+    async def _insights(token, ext, level, since, until):
+        called.append(f"insights:{level}")
+        if level == "campaign":
+            return [{"campaign_id": "c1", "campaign_name": "Camp One", "date_start": "2026-08-01",
+                     "date_stop": "2026-08-01", "spend": "30", "impressions": "300"}]
+        return [_ad_row("a1", "Ad One"), _ad_row("a2", "Ad Two"),
+                _ad_row("a3", "Ad Three", camp="c9", camp_name="Deleted Campaign")]
+
+    async def _boom_ads(*a, **kw):
+        called.append("ads")
+        raise AssertionError("the /ads enumeration is back - this is the call that failed live")
+
+    async def _creatives(token, ids):
+        called.append("creatives")
+        return {}
+
+    real = (meta.campaigns, meta.insights, meta.ads, meta.ad_creatives)
+    meta.campaigns, meta.insights, meta.ads, meta.ad_creatives = (
+        _campaigns, _insights, _boom_ads, _creatives)
+    try:
+        async with SessionLocal() as s:
+            integ = await s.get(Integration, integ_id)
+            out = await A.sync_meta_ads(s, tid, integ)
+    finally:
+        meta.campaigns, meta.insights, meta.ads, meta.ad_creatives = real
+
+    assert "ads" not in called, "the sync enumerated the account's ads"
+    assert out["results"][0].get("error") is None, out["results"][0]
+
+    async with SessionLocal() as s:
+        ads = {a.external_id: a for a in (await s.execute(select(Ad).where(
+            Ad.ad_account_id == acct_id))).scalars()}
+        assert set(ads) == {"a1", "a2", "a3"}, "ads were not derived from the report"
+        assert ads["a1"].name == "Ad One"
+        assert ads["a1"].adset_name == "Set One"
+
+        camps = {c.external_id: c for c in (await s.execute(select(AdCampaign).where(
+            AdCampaign.ad_account_id == acct_id))).scalars()}
+        assert "c9" in camps, "a campaign present only in the report was dropped"
+        assert ads["a1"].campaign_id == camps["c1"].id, "ad was not linked to its campaign"
+
+        # The linkage that makes ad-level history joinable at all.
+        rows = list((await s.execute(select(AdInsightDaily).where(
+            AdInsightDaily.ad_account_id == acct_id, AdInsightDaily.level == "ad"))).scalars())
+        assert rows and all(r.ad_id is not None for r in rows), \
+            "ad-level insight rows landed with a null ad_id"
+
+    async with SessionLocal() as s:
+        from sqlalchemy import delete as sa_delete
+        for model in (AdInsightDaily, Ad, AdCampaign, AdAccount):
+            await s.execute(sa_delete(model).where(model.ad_account_id == acct_id)
+                            if model is not AdAccount else
+                            sa_delete(model).where(model.id == acct_id))
+        await s.execute(sa_delete(Integration).where(Integration.id == integ_id))
+        await s.commit()
+
+
+def test_the_first_sync_reaches_further_back_than_a_routine_one():
+    """7 days showed $112 of spend on the live account and 30 showed $39,031. A first sync that
+    only reached back a week would have produced a tab that looked like the ads did nothing."""
+    from app.config import settings
+    assert settings.ADS_BACKFILL_DAYS > settings.ADS_REFRESH_DAYS
+    assert settings.ADS_BACKFILL_DAYS >= 90

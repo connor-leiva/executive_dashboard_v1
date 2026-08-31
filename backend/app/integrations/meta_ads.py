@@ -386,8 +386,14 @@ async def ads(token: str, account_id: str) -> list[dict]:
     ad_name straight off the insight rows and then fetches creatives ONE AD AT A TIME for the
     two dozen it actually displays. That is why hers returns data and this did not.
 
-    So the shapes are separated: this call is small and must succeed, and ad_creatives() below
-    is enrichment that is allowed to fail without costing anybody their spend figures.
+    NO LONGER CALLED BY THE ROUTINE SYNC. Separating the creative out was not enough: this edge
+    ignores any date range and returns every ad the account has ever had - 471 live, against 13
+    with activity in a given week - across pages _paginate must restart from the beginning
+    whenever Meta refuses a size. It failed every live sync. The dimension is now derived from
+    the insights report the way Sarah's page does it (ads_sync._derive_dimensions).
+
+    Kept as the only source of status/effective_status, should anything ever need them. Anything
+    calling it should work out the page count first.
     """
     return await _paginate(f"{_base()}/{account_id}/ads", {
         "fields": "id,name,status,effective_status,adset{id,name},campaign{id}",
