@@ -4,9 +4,34 @@
     {
       "name": "web-preview",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "preview", "--", "--port", "4173", "--host"],
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "preview",
+        "--",
+        "--port",
+        "4173",
+        "--host"
+      ],
       "port": 4173,
       "url": "http://admin.localhost:4173"
+    },
+    {
+      "name": "web-preview-tenant",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "preview",
+        "--",
+        "--port",
+        "4174",
+        "--host"
+      ],
+      "port": 4174,
+      "url": "http://localhost:4174"
     }
   ]
 }

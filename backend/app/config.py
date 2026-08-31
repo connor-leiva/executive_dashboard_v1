@@ -218,6 +218,13 @@ class Settings(BaseSettings):
     # request per ad, so this number is the difference between a few dozen calls a week and a
     # few thousand. Ads change rarely; the quota they share does not.
     ADS_CREATIVE_TTL_DAYS: int = 7
+    # The ads ON THE WALL need a much shorter cycle than the ones behind it. Meta thumbnail URLs
+    # are signed and short-lived (SPEC 3.9), so a week-old URL renders as a broken image - which
+    # reads as a fault in this dashboard rather than an expiry upstream. The wall shows the
+    # highest-spending ads, so those get refreshed daily and everything else keeps the long TTL.
+    # Phase 5's R2 cache retires this whole problem; until then it is the cheapest fix that works.
+    ADS_CREATIVE_HOT_COUNT: int = 24        # matches the wall's limit
+    ADS_CREATIVE_HOT_TTL_HOURS: int = 20    # under a day, so every day's first sync re-signs them
     ADS_BUC_BACKOFF_PCT: int = 70
     # Funnel and attribution.
     #

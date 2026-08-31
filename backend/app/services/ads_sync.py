@@ -254,16 +254,26 @@ async def _refresh_creatives(s: AsyncSession, tenant_id, acct: AdAccount, token:
     # bulk of what this integration spent its quota on. Creative detail is enrichment; it can be
     # a week stale without anybody noticing, and a spent quota blanks the spend figures, which
     # nobody can help noticing.
-    fresh_before = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=settings.ADS_CREATIVE_TTL_DAYS)
+    now = dt.datetime.now(dt.timezone.utc)
+    hot_before = now - dt.timedelta(hours=settings.ADS_CREATIVE_HOT_TTL_HOURS)
+    cold_before = now - dt.timedelta(days=settings.ADS_CREATIVE_TTL_DAYS)
     ranked = sorted(spend_by_ad, key=lambda k: -spend_by_ad[k])
-    stale = [i for i in ranked
-             if i in ads_by_id and not _creative_is_fresh(ads_by_id[i], fresh_before)]
+    stale = []
+    for i, ad_id in enumerate(ranked):
+        ad = ads_by_id.get(ad_id)
+        if ad is None:
+            continue
+        # Rank decides the deadline. The top slice is what the creative wall renders, and a
+        # signed URL that has expired there is the visible failure; further down, nobody is
+        # looking at the picture and a week-stale headline costs nothing.
+        cutoff = hot_before if i < settings.ADS_CREATIVE_HOT_COUNT else cold_before
+        if not _creative_is_fresh(ad, cutoff):
+            stale.append(ad_id)
     ext_ids = [ads_by_id[i].external_id for i in stale[:settings.ADS_MAX_CREATIVE_HOPS]]
     if not ext_ids:
         return 0
 
     creatives = await meta.ad_creatives(token, ext_ids)
-    now = dt.datetime.now(dt.timezone.utc)
     n = 0
     for a in ads_by_id.values():
         c = creatives.get(a.external_id)

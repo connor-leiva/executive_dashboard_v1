@@ -361,3 +361,21 @@ def test_the_first_sync_reaches_further_back_than_a_routine_one():
     from app.config import settings
     assert settings.ADS_BACKFILL_DAYS > settings.ADS_REFRESH_DAYS
     assert settings.ADS_BACKFILL_DAYS >= 90
+
+
+# ── the wall's thumbnails must not go stale ───────────────────────────────────────────
+def test_the_wall_slice_refreshes_daily_and_the_rest_weekly():
+    """SPEC 3.9. Meta thumbnail URLs are signed and SHORT-LIVED. Capping creative refresh at one
+    week was right while nothing displayed them and wrong the moment a wall existed: a week-old
+    signed URL renders as the browser's broken-image glyph, which reads as a fault in this
+    dashboard rather than an expiry upstream.
+
+    Rank decides the deadline, because rank is what the wall renders."""
+    from app.config import settings
+    assert settings.ADS_CREATIVE_HOT_TTL_HOURS < settings.ADS_CREATIVE_TTL_DAYS * 24
+    assert settings.ADS_CREATIVE_HOT_TTL_HOURS < 24, \
+        "a TTL of a day or more lets the wall's images expire between refreshes"
+    # The hot slice must cover what the wall asks for, or the last tiles rot.
+    assert settings.ADS_CREATIVE_HOT_COUNT >= 24
+    assert settings.ADS_CREATIVE_HOT_COUNT <= settings.ADS_MAX_CREATIVE_HOPS, \
+        "more hot ads than the per-sync hop cap means the tail never refreshes at all"

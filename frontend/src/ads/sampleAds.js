@@ -145,6 +145,10 @@ export const sampleAdsCreatives = {
     { id: "a2", name: "KB-Shift-30s-motion", headline: "Ninety days from now",
       thumbnail_url: null, spend: 5180, impressions: 372_000, link_clicks: 3_640, leads: 51,
       ctr: rate(3640, 372000, 100), cpl: rate(5180, 51), url_tags: "utm_source=meta&utm_campaign=KB-Shift" },
+    // thumbnail_url stays null across the sample. A deliberately-broken URL was tried here to
+    // exercise the expired-image fallback and made the preview worse: the request HANGS rather
+    // than erroring, so the tile showed an empty box forever instead of the placeholder. The
+    // fallback renders through the same branch as the null case, which every tile here covers.
     { id: "a3", name: "Event-Research-static-4x5", headline: "What would you call it?",
       thumbnail_url: null, spend: 3110, impressions: 214_000, link_clicks: 1_820, leads: 19,
       ctr: rate(1820, 214000, 100), cpl: rate(3110, 19), url_tags: "utm_source=meta" },

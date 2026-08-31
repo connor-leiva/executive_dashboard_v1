@@ -15,6 +15,7 @@
 import { useState } from "react";
 
 import { BAND, C, FIG, FONT, HEAD, band, compact, mult, num, pct, usd } from "./adsTokens.js";
+import CreativeWall from "./CreativeWall.jsx";
 import Funnel from "./Funnel.jsx";
 import { useAdsAccounts, useAdsCreatives, useAdsOverview } from "./useAds.js";
 
@@ -120,7 +121,7 @@ export default function AdsView() {
 
   const accounts = useAdsAccounts();
   const { data, error, loading, retry } = useAdsOverview({ account, period, basis });
-  const creatives = useAdsCreatives({ account, period, sort: "spend", limit: 12 });
+  const creatives = useAdsCreatives({ account, period, sort: "spend", limit: 24 });
 
   if (error) {
     return (
@@ -445,8 +446,18 @@ export default function AdsView() {
         </Card>
       </Section>
 
-      {/* 05 What to trust */}
-      <Section n="05" title="What to trust"
+      {/* 05 The creative wall. Ranked by spend, because that is the lever - the ad taking the
+          most money is the one worth recognising first. Revenue per ad is Phase 5 and its
+          absence is stated in the lede rather than shown as an empty column. */}
+      <Section n="05" title="The ads themselves"
+        lede={creatives.data?.revenue_reason
+          ? `Ranked by spend. Revenue per ad is not here yet — ${creatives.data.revenue_reason.charAt(0).toLowerCase()}${creatives.data.revenue_reason.slice(1)}`
+          : "Ranked by spend, because the ad taking the most money is the one worth looking at first."}>
+        <CreativeWall data={creatives.data} loading={creatives.loading} />
+      </Section>
+
+      {/* 06 What to trust */}
+      <Section n="06" title="What to trust"
         lede="The grain each number on this page is entitled to, and where it stops.">
         <Card>
           <div style={{ display: "grid", gap: 12, fontSize: 12.5, color: C.slate, lineHeight: 1.6 }}>
