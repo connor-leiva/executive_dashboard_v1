@@ -308,11 +308,15 @@ async def attach_account(body: dict, user: User = Depends(require_role("owner", 
     ext = str(body.get("external_id") or "").strip()
     if not ext:
         raise HTTPException(400, "external_id is required (act_...)")
-    dupe = (await s.execute(select(AdAccount).where(
+    # An account already here is REPAIRED, not refused.
+    #
+    # Refusing was a dead end: the first live attach left a row with a null business_id and a null
+    # timezone, the way to fix it is to attach again, and there is no Remove control in the UI -
+    # so the only route out was database surgery. Somebody re-submitting this form is trying to
+    # mend the connection, which is exactly when it should work.
+    existing = (await s.execute(select(AdAccount).where(
         AdAccount.tenant_id == user.tenant_id, AdAccount.platform == "meta",
         AdAccount.external_id == ext))).scalar_one_or_none()
-    if dupe is not None:
-        raise HTTPException(400, f"{ext} is already attached to this workspace.")
 
     # Which entity BOOKS this spend. Its archetype selects the funnel, so an account attached to
     # nothing shows the click layer and says "no funnel for this entity" - which is what the first
@@ -344,13 +348,27 @@ async def attach_account(body: dict, user: User = Depends(require_role("owner", 
     except Exception as e:  # noqa: BLE001 - a bad id should fail the attach with Meta's own words
         raise HTTPException(400, f"Meta rejected {ext}: {e}")
 
+    if existing is not None:
+        existing.integration_id = integ.id
+        existing.name, existing.currency = name, currency
+        existing.timezone_name = tz or existing.timezone_name
+        # Only fill a missing entity - never move an account somebody deliberately re-pointed.
+        if existing.business_id is None and biz is not None:
+            existing.business_id = biz.id
+        existing.status = "active"
+        existing.last_error = None          # the previous failure is not this attempt's news
+        audit(s, user.tenant_id, user.id, "ads.account_repaired", "ad_account", existing.id,
+              {"external_id": ext, "business": biz.key if biz else None})
+        await s.commit()
+        return {"id": str(existing.id), "external_id": ext, "repaired": True}
+
     acct = AdAccount(tenant_id=user.tenant_id, integration_id=integ.id,
                      business_id=biz.id if biz else None, platform="meta", external_id=ext,
                      name=name, currency=currency, timezone_name=tz)
     s.add(acct)
     audit(s, user.tenant_id, user.id, "ads.account_attached", "ad_account", None, {"external_id": ext})
     await s.commit()
-    return {"id": str(acct.id), "external_id": acct.external_id}
+    return {"id": str(acct.id), "external_id": acct.external_id, "repaired": False}
 
 
 @router.patch("/ads/accounts/{account_id}")

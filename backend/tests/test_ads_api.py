@@ -153,6 +153,46 @@ async def test_creatives_say_why_revenue_is_missing_rather_than_showing_a_blank_
     assert r.json()["revenue_available"] is False
 
 
+async def test_re_attaching_repairs_the_account_instead_of_refusing():
+    """A dead end, found live. The first attach left a row with a null business_id and a null
+    timezone; the way to fix that is to attach again; and there is no Remove control in the UI.
+    Refusing the duplicate meant the only route out was editing the database by hand.
+
+    Somebody re-submitting the connect form is trying to MEND the connection. That is precisely
+    when it has to work.
+    """
+    from sqlalchemy import select as _select
+
+    from app.models import AdAccount as _AA
+    from app.models import Integration as _I
+    from app.models import Tenant as _T
+
+    async with SessionLocal() as s:
+        t = (await s.execute(_select(_T).where(_T.slug == "springb"))).scalar_one()
+        integ = _I(tenant_id=t.id, provider="meta_ads", status="connected")
+        s.add(integ)
+        await s.flush()
+        # The broken shape the live connect produced.
+        s.add(_AA(tenant_id=t.id, integration_id=integ.id, platform="meta",
+                  external_id="act_repair", name="act_repair", business_id=None,
+                  timezone_name=None, last_error="MetaError: something earlier"))
+        await s.commit()
+        integ_id, before = str(integ.id), None
+
+    tok = await _owner_token()
+    async with _client() as c:
+        r = await c.post("/api/v1/ads/accounts",
+                         json={"integration_id": integ_id, "external_id": "act_repair",
+                               "business_key": "springb"}, headers=_H(tok))
+    # Meta is unreachable in tests, so ping fails and the attach reports Meta's own words rather
+    # than pretending. What must NOT happen is the old flat "already attached" refusal.
+    assert "already attached" not in r.text.lower()
+
+    async with SessionLocal() as s:
+        row = (await s.execute(_select(_AA).where(_AA.external_id == "act_repair"))).scalar_one()
+        assert row is not None, "the existing row was replaced rather than repaired"
+
+
 async def test_attaching_an_account_requires_an_integration_first():
     """Two steps on purpose: one System User token routinely carries several ad accounts, so the
     token and the account are separate objects."""
