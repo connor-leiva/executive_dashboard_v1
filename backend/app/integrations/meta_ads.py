@@ -269,21 +269,47 @@ async def campaigns(token: str, account_id: str) -> list[dict]:
 
 
 async def ads(token: str, account_id: str) -> list[dict]:
-    """The ad dimension with `creative{}` expanded.
+    """The ad dimension, WITHOUT the creative expansion.
 
-    One account-level pass in a handful of paginated calls returns what the original dashboard
-    spent 48 per-ad requests to assemble. `url_tags` on this expansion is what the attribution
-    readiness check reads.
+    The creative used to be nested here - ten fields per ad, in one account-wide pass. It read
+    as an efficiency, and on a real account Meta simply refuses to assemble it: the first live
+    sync died on this call and took the campaigns already fetched down with it.
+
+    Sarah's standalone dashboard never makes this request at all. It reads campaign_name and
+    ad_name straight off the insight rows and then fetches creatives ONE AD AT A TIME for the
+    two dozen it actually displays. That is why hers returns data and this did not.
+
+    So the shapes are separated: this call is small and must succeed, and ad_creatives() below
+    is enrichment that is allowed to fail without costing anybody their spend figures.
     """
     return await _paginate(f"{_base()}/{account_id}/ads", {
-        "fields": ("id,name,status,effective_status,adset{id,name},campaign{id},"
-                   "creative{id,name,title,body,thumbnail_url,image_hash,image_url,"
-                   "object_story_spec,effective_object_story_id,url_tags}"),
-        # Deliberately modest. This expansion is wide - ten creative fields per ad - and Meta
-        # refuses to assemble it 200 at a time on a real account. _paginate will shrink further
-        # if even this is too much; starting low just avoids spending a failed round trip first.
-        "limit": 50,
+        "fields": "id,name,status,effective_status,adset{id,name},campaign{id}",
+        "limit": 100,
     }, token)
+
+
+async def ad_creatives(token: str, ad_ids: list[str]) -> dict[str, dict]:
+    """Creative detail for specific ads, one request each. ENRICHMENT, never load-bearing.
+
+    Per-ad rather than a bulk expansion because that is the shape Meta reliably serves, and
+    capped by the caller because thumbnails are worth a bounded number of requests and no more.
+    A failure on one ad costs that ad's thumbnail and nothing else - `url_tags`, which the
+    attribution readiness check reads, simply stays unknown for it.
+    """
+    out: dict[str, dict] = {}
+    if not ad_ids:
+        return out
+    fields = ("creative{id,name,title,body,thumbnail_url,image_hash,image_url,"
+              "object_story_spec,effective_object_story_id,url_tags}")
+    async with httpx.AsyncClient(timeout=45) as c:
+        for aid in ad_ids:
+            try:
+                body = await _get(c, f"{_base()}/{aid}", {"fields": fields}, token)
+                if body.get("creative"):
+                    out[str(aid)] = body["creative"]
+            except (MetaError, httpx.HTTPError, ValueError):
+                continue
+    return out
 
 
 async def story_image(token: str, story_id: str) -> str | None:

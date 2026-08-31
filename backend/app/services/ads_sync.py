@@ -199,6 +199,46 @@ async def _stamp_seen(s: AsyncSession, tenant_id, acct: AdAccount) -> None:
     await s.flush()
 
 
+async def _refresh_creatives(s: AsyncSession, tenant_id, acct: AdAccount, token: str) -> int:
+    """Thumbnails and url_tags for the highest-spending ads, one request each.
+
+    Capped by ADS_MAX_CREATIVE_HOPS and ordered by spend, because the creative wall shows a
+    couple of dozen and there is no reason to buy detail for an ad nobody will look at.
+    """
+    spend_by_ad: dict = {}
+    for r in (await s.execute(select(AdInsightDaily).where(
+            AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id == acct.id,
+            AdInsightDaily.level == "ad"))).scalars():
+        if r.ad_id:
+            spend_by_ad[r.ad_id] = spend_by_ad.get(r.ad_id, 0) + float(r.spend or 0)
+
+    ads_by_id = {a.id: a for a in (await s.execute(select(Ad).where(
+        Ad.tenant_id == tenant_id, Ad.ad_account_id == acct.id))).scalars()}
+    ranked = sorted(spend_by_ad, key=lambda k: -spend_by_ad[k])[:settings.ADS_MAX_CREATIVE_HOPS]
+    ext_ids = [ads_by_id[i].external_id for i in ranked if i in ads_by_id]
+    if not ext_ids:
+        return 0
+
+    creatives = await meta.ad_creatives(token, ext_ids)
+    now = dt.datetime.now(dt.timezone.utc)
+    n = 0
+    for a in ads_by_id.values():
+        c = creatives.get(a.external_id)
+        if not c:
+            continue
+        a.creative_external_id = c.get("id") or a.creative_external_id
+        a.headline = meta.creative_headline(c) or a.headline
+        a.body = c.get("body") or a.body
+        a.thumbnail_url = meta.creative_thumb(c) or a.thumbnail_url
+        a.image_hash = c.get("image_hash") or a.image_hash
+        a.url_tags = c.get("url_tags") or a.url_tags
+        a.creative_fetched_at = now
+        n += 1
+    await s.commit()
+    print(f"[meta_ads] {acct.external_id}: {n} creatives refreshed", flush=True)
+    return n
+
+
 async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
     """Pull every ad account under one Integration. Returns a per-account summary.
 
@@ -218,23 +258,43 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
         today = account_today(acct.timezone_name)
         since = today - dt.timedelta(days=max(1, settings.ADS_REFRESH_DAYS) - 1)
         lead_actions = list(acct.lead_actions or DEFAULT_LEAD_ACTIONS)
+        step = "starting"
         try:
             # Dimensions FIRST - insight rows carry foreign keys to these - and COMMITTED before
             # the insight pull. The first live sync failed inside ads(), the handler rolled back,
             # and the campaigns already fetched went with it: the account showed zero campaigns
             # and zero ads, which reads as "nothing is running" rather than "one call failed".
             # Partial progress is worth keeping.
+            #
+            # `step` is threaded through so last_error NAMES the call that failed. The first live
+            # failure read "Please reduce the amount of data you're asking for" with no indication
+            # of which of four requests said it, which turned a one-line diagnosis into guesswork.
+            step = "campaigns"
             n_camp = await _upsert_campaigns(s, tenant_id, acct, await meta.campaigns(token, acct.external_id))
             await s.commit()
+            step = "ads"
             n_ads = await _upsert_ads(s, tenant_id, acct, await meta.ads(token, acct.external_id))
             await s.commit()
+            step = "insights(campaign)"
             w_c, r_c = await _upsert_insights(
                 s, tenant_id, acct, "campaign",
                 await meta.insights(token, acct.external_id, "campaign", since, today), lead_actions)
+            step = "insights(ad)"
             w_a, r_a = await _upsert_insights(
                 s, tenant_id, acct, "ad",
                 await meta.insights(token, acct.external_id, "ad", since, today), lead_actions)
+            step = "stamp"
             await _stamp_seen(s, tenant_id, acct)
+            await s.commit()
+
+            # Creative enrichment, ISOLATED. Thumbnails and url_tags are worth a bounded number
+            # of requests and are worth nothing at the cost of the spend figures, so a failure
+            # here is logged and swallowed rather than failing the account.
+            try:
+                await _refresh_creatives(s, tenant_id, acct, token)
+            except Exception as ce:  # noqa: BLE001
+                print(f"[meta_ads] {acct.external_id} creatives skipped: "
+                      f"{type(ce).__name__}: {ce}", flush=True)
             acct.last_synced_at = dt.datetime.now(dt.timezone.utc)
             acct.last_error = None
             await s.commit()
@@ -245,7 +305,7 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
                   f"{w_c + w_a} day-rows ({r_c + r_a} restated)", flush=True)
         except Exception as e:                      # noqa: BLE001 - one account must not blank the rest
             await s.rollback()
-            acct.last_error = f"{type(e).__name__}: {e}"[:500]
+            acct.last_error = f"[{step}] {type(e).__name__}: {e}"[:500]
             await s.commit()
             out["results"].append({"account": acct.external_id, "error": acct.last_error})
             print(f"[meta_ads] {acct.external_id} FAILED: {acct.last_error}", flush=True)
