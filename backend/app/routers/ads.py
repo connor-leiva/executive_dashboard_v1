@@ -77,7 +77,7 @@ async def list_accounts(user: User = Depends(require_tab("ads")),
 @router.get("/ads")
 async def overview(account: str | None = Query(None), period: str = Query("30d"),
                    start: dt.date | None = None, end: dt.date | None = None,
-                   basis: str = Query("cohort"),
+                   basis: str = Query("cohort"), campaign: str | None = Query(None),
                    user: User = Depends(require_tab("ads")),
                    s: AsyncSession = Depends(get_session)):
     acct = await _account(s, user.tenant_id, account) if account else await _first_account(s, user.tenant_id)
@@ -86,11 +86,24 @@ async def overview(account: str | None = Query(None), period: str = Query("30d")
         # in a normal state, and a 404 here would render as a broken tab.
         return {"connected": False, "accounts": 0,
                 "reason": "No ad account is connected. Add one in Settings -> Integrations."}
-    return await build_overview(s, user.tenant_id, acct, period, start, end, basis)
+    camp = await _campaign(s, user.tenant_id, acct, campaign) if campaign else None
+    return await build_overview(s, user.tenant_id, acct, period, start, end, basis, camp)
+
+
+async def _campaign(s: AsyncSession, tenant_id, acct: AdAccount, campaign_id) -> AdCampaign:
+    """Resolve a campaign WITHIN this tenant and this account. Same rule as _account: the tenant
+    filter is the authorization, so a campaign belonging to another workspace does not exist here
+    rather than being found and refused."""
+    c = (await s.execute(select(AdCampaign).where(
+        AdCampaign.tenant_id == tenant_id, AdCampaign.ad_account_id == acct.id,
+        AdCampaign.id == campaign_id))).scalar_one_or_none()
+    if c is None:
+        raise HTTPException(404, "Unknown campaign")
+    return c
 
 
 async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, start, end,
-                         basis: str) -> dict:
+                         basis: str, campaign: AdCampaign | None = None) -> dict:
     """The click layer. Phase 3 hangs the funnel and the revenue lenses off this same payload.
 
     EVERY rate here comes from services.ads.rate(), from summed components. Nothing in this
@@ -100,10 +113,17 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
     rules = acct.group_rules or None
     thresholds = acct.thresholds or None
 
-    rows = list((await s.execute(select(AdInsightDaily).where(
+    q = select(AdInsightDaily).where(
         AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id == acct.id,
         AdInsightDaily.level == "campaign",
-        AdInsightDaily.occurred_on >= s_day, AdInsightDaily.occurred_on <= e_day))).scalars())
+        AdInsightDaily.occurred_on >= s_day, AdInsightDaily.occurred_on <= e_day)
+    # One campaign, whole page. Spring runs a launch per campaign - "KB - The Shift - August2026"
+    # IS the August launch - so narrowing here narrows the headline figures, the funnel and the
+    # creative wall together. A funnel filtered to one campaign beside spend for all of them
+    # would put a wrong CAC on screen, which is worse than not offering the filter.
+    all_rows = list((await s.execute(q)).scalars())     # unfiltered: the picker's own list
+    rows = ([r for r in all_rows if r.campaign_id == campaign.id]
+            if campaign is not None else all_rows)
     camps = {c.id: c for c in (await s.execute(select(AdCampaign).where(
         AdCampaign.tenant_id == tenant_id, AdCampaign.ad_account_id == acct.id))).scalars()}
 
@@ -157,7 +177,8 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
         f = await build_funnel(s, tenant_id, acct, s_day, e_day, basis,
                                ads_rungs={"impression": totals["impressions"],
                                           "click": totals["link_clicks"],
-                                          "lead": totals["leads"], "spend": spend})
+                                          "lead": totals["leads"], "spend": spend},
+                               campaign=(campaign.id if campaign is not None else None))
         _funnel_block = {"funnel": f["rungs"], "revenue": f["revenue"],
                          "maturity": f["maturity"], "cac": f["cac"],
                          "unattributed": f["unattributed"], "funnel_available": True}
@@ -171,6 +192,15 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
         # The payload always NAMES its basis. An ads number under the wrong basis label is a
         # wrong business decision, not a cosmetic slip.
         "basis": basis if basis in ("cohort", "period") else "cohort",
+        # The payload NAMES its scope for the same reason it names its basis. A funnel narrowed
+        # to one launch, rendered under a heading that says the whole account, is a wrong CAC
+        # presented as a right one. `campaigns_available` is what the picker offers - every
+        # campaign that DELIVERED in this window, so the list cannot offer a scope that would
+        # come back empty.
+        "scope": ({"kind": "campaign", "id": str(campaign.id), "name": campaign.name}
+                  if campaign is not None else {"kind": "account", "id": None,
+                                                "name": acct.name}),
+        "campaigns_available": _pickable(all_rows, camps),
         "totals": totals, "bands": bands,
         "campaigns": campaigns,
         "groups": [{"name": g, "campaigns": rs,
@@ -212,6 +242,24 @@ async def _coverage(s: AsyncSession, tenant_id, start, end, meta_leads: int) -> 
             "to a campaign. They measure overlapping populations, so the difference is not a "
             "drop-off - much of it is people who did register and could not be matched."),
     }
+
+
+def _pickable(all_rows: list, camps: dict) -> list[dict]:
+    """Every campaign that DELIVERED in this window, whatever the current filter is.
+
+    Built from the UNFILTERED rows on purpose. Deriving it from the displayed campaigns meant
+    that selecting one left the picker offering only that one, with no route back - the filter
+    would have been a one-way door. Spend-ordered, because that is the order somebody looks for
+    a launch in.
+    """
+    per: dict = {}
+    for r in all_rows:
+        c = camps.get(r.campaign_id)
+        if c is None:
+            continue
+        d = per.setdefault(str(c.id), {"id": str(c.id), "name": c.name, "spend": 0.0})
+        d["spend"] += float(r.spend or 0)
+    return sorted(per.values(), key=lambda c: -c["spend"])
 
 
 def _alerts(totals: dict, campaigns: list[dict], unmatched: int, thresholds) -> list[dict]:

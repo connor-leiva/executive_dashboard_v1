@@ -354,7 +354,7 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
 
 
 async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="cohort",
-                       ads_rungs=None) -> dict:
+                       ads_rungs=None, campaign=None) -> dict:
     """The ladder, plus revenue and CAC. SPEC-ads-module.md Part 9.5.
 
     basis="cohort" (the default): identities FIRST TOUCHED in the window, with their revenue
@@ -378,13 +378,25 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
             AdConversion.occurred_on <= end))).scalars())
         cohort_ids = {c.attribution_id for c in convs}
     else:
-        cohort = list((await s.execute(select(AdAttribution).where(
+        q = select(AdAttribution).where(
             AdAttribution.tenant_id == tenant_id,
             AdAttribution.first_seen_on >= start,
-            AdAttribution.first_seen_on <= end))).scalars())
+            AdAttribution.first_seen_on <= end)
+        if campaign is not None:
+            q = q.where(AdAttribution.campaign_id == campaign)
+        cohort = list((await s.execute(q)).scalars())
         cohort_ids = {a.id for a in cohort}
         convs = [c for c in (await s.execute(select(AdConversion).where(
             AdConversion.tenant_id == tenant_id))).scalars() if c.attribution_id in cohort_ids]
+
+    if campaign is not None and basis == "period":
+        # The period branch selects conversions by date, so the campaign filter has to be applied
+        # through their attribution rather than in the same query.
+        allowed = {a.id for a in (await s.execute(select(AdAttribution).where(
+            AdAttribution.tenant_id == tenant_id,
+            AdAttribution.campaign_id == campaign))).scalars()}
+        convs = [c for c in convs if c.attribution_id in allowed]
+        cohort_ids = {c.attribution_id for c in convs}
 
     by_stage: dict[str, list] = {}
     for c in convs:

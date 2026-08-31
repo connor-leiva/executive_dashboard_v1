@@ -50,9 +50,12 @@ export function useAdsAccounts() {
   return useEndpoint("/ads/accounts", sampleAdsOverview.accounts_list || [], []);
 }
 
-export function useAdsOverview({ account, period, basis }) {
-  const path = `/ads?${qs({ account, period, basis })}`;
-  return useEndpoint(path, sampleAdsOverview, [account, period, basis]);
+export function useAdsOverview({ account, period, basis, campaign }) {
+  // `campaign` is in the deps as well as the path, for the reason this file exists: the payload
+  // is stored WITH the path it came from, so switching launches cannot leave the previous
+  // launch's fully-rendered figures on screen under the new launch's label.
+  const path = `/ads?${qs({ account, period, basis, campaign })}`;
+  return useEndpoint(path, sampleAdsOverview, [account, period, basis, campaign]);
 }
 
 export function useAdsCreatives({ account, period, campaign, sort, limit }) {

@@ -119,10 +119,16 @@ export default function AdsView() {
   const [period, setPeriod] = useState("30d");
   const [basis, setBasis] = useState("cohort");
   const [account, setAccount] = useState(null);
+  /* One campaign per launch is how this account is run, so scoping to a campaign IS scoping to a
+     launch. It narrows the WHOLE page - headline spend, funnel and creative wall together -
+     because a funnel for one launch beside spend for all of them is a wrong CAC wearing a right
+     one's clothes. Reset when the account changes: a campaign id from another account resolves
+     to a 404 rather than to nothing. */
+  const [campaign, setCampaign] = useState(null);
 
   const accounts = useAdsAccounts();
-  const { data, error, loading, retry } = useAdsOverview({ account, period, basis });
-  const creatives = useAdsCreatives({ account, period, sort: "spend", limit: 24 });
+  const { data, error, loading, retry } = useAdsOverview({ account, period, basis, campaign });
+  const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 24 });
 
   if (error) {
     return (
@@ -193,13 +199,46 @@ export default function AdsView() {
             {data.account.external_id} · {data.account.timezone_name || "account time"} ·{" "}
             {data.range.label} ({data.range.start} to {data.range.end})
           </div>
+          {data.scope?.kind === "campaign" && (
+            /* Named, not implied. Every figure below this line is one launch's, and a reader who
+               missed the dropdown would otherwise take them for the whole account's. */
+            <div style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 8,
+                          flexWrap: "wrap" }}>
+              <span style={{ fontFamily: FONT, fontSize: 11.5, fontWeight: 600,
+                             color: C.accent, background: C.accentBg,
+                             border: `1px solid ${C.accent}`, borderRadius: 999,
+                             padding: "3px 10px" }}>
+                {data.scope.name}
+              </span>
+              <button onClick={() => setCampaign(null)}
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                               font: "inherit", fontSize: 11.5, color: C.slate,
+                               textDecoration: "underline" }}>
+                show the whole account
+              </button>
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {acctList.length > 1 && (
-            <select value={account || ""} onChange={(e) => setAccount(e.target.value || null)}
+            <select value={account || ""}
+                    onChange={(e) => { setAccount(e.target.value || null); setCampaign(null); }}
                     style={{ fontFamily: FONT, fontSize: 12, padding: "5px 8px", borderRadius: 8,
                              border: `1px solid ${C.line}`, background: C.surface, color: C.ink }}>
               {acctList.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          )}
+          {(data.campaigns_available || []).length > 1 && (
+            <select value={campaign || ""} aria-label="Scope to one launch"
+                    onChange={(e) => setCampaign(e.target.value || null)}
+                    style={{ fontFamily: FONT, fontSize: 12, padding: "5px 8px", borderRadius: 8,
+                             maxWidth: 260, borderRadius: 8,
+                             border: `1px solid ${campaign ? C.accent : C.line}`,
+                             background: campaign ? C.accentBg : C.surface, color: C.ink }}>
+              <option value="">All campaigns</option>
+              {(data.campaigns_available || []).map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </select>
           )}
           {PERIODS.map((p) => (

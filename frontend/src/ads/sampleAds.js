@@ -55,6 +55,12 @@ export const sampleAdsOverview = {
   account: { id: "sample", name: "Spring B · Meta", external_id: "act_587749862890426",
              currency: "USD", timezone_name: "America/Denver" },
   range: { start: "2026-08-01", end: "2026-08-30", label: "Last 30 days", days: 30 },
+  scope: { kind: "account", id: null, name: "Spring B · Meta" },
+  campaigns_available: [
+    { id: "g1", name: "KB - The Shift - August2026", spend: 99_200 },
+    { id: "g2", name: "KB - ForumVIP - SubmitApplication", spend: 9_900 },
+    { id: "g3", name: "KB - Upgrade", spend: 5_400 },
+  ],
   basis: "cohort",
   totals: {
     spend: SPEND, impressions: IMPR, clicks: sum("clicks"), link_clicks: LINKS, leads: LEADS,
