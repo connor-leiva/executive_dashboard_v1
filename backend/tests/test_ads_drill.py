@@ -220,3 +220,55 @@ async def test_an_unknown_metric_is_a_404_not_an_empty_table():
         r = await c.get(f"/api/v1/ads/drill/funnel.nonsense?account={acct}&period=30d",
                         headers=_H(tok))
     assert r.status_code == 404
+
+
+# ── the tie-out column on the launch drawer ───────────────────────────────────────────
+async def test_the_launch_group_drill_says_where_each_person_came_from():
+    """The Enrolled drawer lists people; the bar above it says 60% came from Meta. Without a
+    per-person source those two can only be compared in aggregate, which is exactly the gap that
+    made an 845-versus-800 question take a database query to answer.
+
+    Joined by contact_id to the Shift registration, so the drawer reconciles against the BAR
+    rather than against a second opinion computed a different way.
+    """
+    from app.services.launch import drill_launch
+    from app.models import Launch
+
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        launch = (await s.execute(select(Launch).where(
+            Launch.tenant_id == t.id))).scalars().first()
+        if launch is None:
+            pytest.skip("no launch configured in the seed")
+
+        s.add(MetricRecord(
+            tenant_id=t.id, business_id=launch.business_id, source="ghl", kind="bc_shift_reg",
+            name="Sourced Sam", email="sam@example.test", external_id="reg_sam",
+            meta={"contact_id": "cid_sam", "channel": "Meta"}))
+        s.add(MetricRecord(
+            tenant_id=t.id, business_id=launch.business_id, source="ghl", kind="bc_launch_opp",
+            name="Sourced Sam", email="sam@example.test", external_id="opp_sam",
+            meta={"contact_id": "cid_sam", "group": "enrolled", "stage": "Won: Onboarded",
+                  "launch_id": str(launch.id), "payment_type": "pif"}))
+        # Somebody who never registered for the Shift: a real answer, not a blank.
+        s.add(MetricRecord(
+            tenant_id=t.id, business_id=launch.business_id, source="ghl", kind="bc_launch_opp",
+            name="Direct Dana", email="dana@example.test", external_id="opp_dana",
+            meta={"contact_id": "cid_dana", "group": "enrolled", "stage": "Won: Onboarded",
+                  "launch_id": str(launch.id), "payment_type": "plan"}))
+        await s.commit()
+
+    try:
+        async with SessionLocal() as s:
+            launch = await s.get(Launch, launch.id)
+            d = await drill_launch(s, launch.tenant_id, launch, "funnel.enrolled")
+        assert "source" in d["columns"]
+        by_name = {r["name"]: r["source"] for r in d["rows"]}
+        assert by_name.get("Sourced Sam") == "Meta"
+        assert by_name.get("Direct Dana") == "No Shift registration", \
+            "names what was observed - not in the registrant set - rather than asserting an origin nobody measured"
+    finally:
+        async with SessionLocal() as s:
+            await s.execute(sa_delete(MetricRecord).where(
+                MetricRecord.external_id.in_(("reg_sam", "opp_sam", "opp_dana"))))
+            await s.commit()

@@ -440,6 +440,13 @@ def _usd0(n) -> str:
     return "$" + format(int(round(n or 0)), ",")
 
 
+async def _shift_records(s, tenant_id, business_id):
+    """The Shift registrant RECORDS (not just their meta), so a caller can join on contact_id."""
+    return (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "bc_shift_reg"))).scalars().all()
+
+
 async def _opp_records(s, tenant_id, business_id, launch: Launch):
     recs = (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
@@ -478,13 +485,30 @@ async def drill_launch(s, tenant_id, launch: Launch, metric: str, today=None) ->
     # ── record-backed numbers ───────────────────────────────────────────────
     if metric in _METRIC_GROUP:
         g = _METRIC_GROUP[metric]
-        rows = [{"name": r.name or "-", "stage": (r.meta or {}).get("stage"),
-                 "payment": (r.meta or {}).get("payment_type"), "url": r.source_url}
-                for r in await _opp_records(s, tenant_id, biz, launch)
-                if (r.meta or {}).get("group") == g]
+        # Where each person came from, joined by contact_id to their Shift registration. This is
+        # the SAME channel the "where they came from" bar above uses, so the drawer reconciles
+        # against the bar rather than against a second opinion computed a different way.
+        #
+        # No registration record says exactly one thing: this contact is not in the Shift
+        # registrant set. It does NOT say they arrived some other way - they may have come
+        # through an earlier Shift, and a label asserting an origin we did not observe would be
+        # a guess wearing a fact's clothes. So the cell names the measurement, not the inference.
+        by_contact = {
+            str((r.meta or {}).get("contact_id") or ""): (r.meta or {}).get("channel")
+            for r in await _shift_records(s, tenant_id, biz)
+            if str((r.meta or {}).get("contact_id") or "")}
+        rows = []
+        for r in await _opp_records(s, tenant_id, biz, launch):
+            meta = r.meta or {}
+            if meta.get("group") != g:
+                continue
+            cid = str(meta.get("contact_id") or "")
+            rows.append({"name": r.name or "-", "stage": meta.get("stage"),
+                         "source": by_contact.get(cid) or "No Shift registration",
+                         "payment": meta.get("payment_type"), "url": r.source_url})
         return records(_GROUP_TITLE.get(g, g),
                        f"{len(rows)} in this stage | {launch.pipeline_match}",
-                       rows, ["name", "stage", "payment", "url"])
+                       rows, ["name", "stage", "source", "payment", "url"])
 
     if metric == "shift.registrants" or metric.startswith("shift.source."):
         slug = metric.split(".", 2)[2] if metric.startswith("shift.source.") else None

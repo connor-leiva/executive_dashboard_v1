@@ -271,7 +271,11 @@ async def test_drill_resolves_records_and_calc():
         # records: enrolled opps
         enr = await drill_launch(s, tenant_id, launch, "funnel.enrolled", today=ASOF)
         assert enr["type"] == "records" and enr["count"] == 24
-        assert set(enr["columns"]) == {"name", "stage", "payment", "url"}
+        # `source` joins each person to the channel their Shift registration recorded, so the
+        # drawer ties out against the "where they came from" bar rather than only in aggregate.
+        assert set(enr["columns"]) == {"name", "stage", "source", "payment", "url"}
+        # Nobody in this fixture has a registration record, and that is a real answer.
+        assert {r["source"] for r in enr["rows"]} == {"No Shift registration"}
         # calc: enrolled ARR breakdown
         arr = await drill_launch(s, tenant_id, launch, "enrolled.arr", today=ASOF)
         assert arr["type"] == "calc" and arr["value"] == "$310,000" and len(arr["steps"]) == 2
