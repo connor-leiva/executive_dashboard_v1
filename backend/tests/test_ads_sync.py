@@ -94,8 +94,11 @@ def test_the_throttle_message_names_the_tier_meta_actually_reported():
 
 # ── creative refresh is enrichment and must not dominate the quota ────────────────────
 class _FakeAd:
-    def __init__(self, fetched=None):
+    def __init__(self, fetched=None, thumb=None):
         self.creative_fetched_at = fetched
+        # Real Ad rows always carry this column; a stub without it made _creative_is_fresh raise
+        # AttributeError rather than answer, which is a stub bug wearing a code bug's clothes.
+        self.thumbnail_url = thumb
 
 
 def test_a_recently_fetched_creative_is_not_refetched():
@@ -379,3 +382,20 @@ def test_the_wall_slice_refreshes_daily_and_the_rest_weekly():
     assert settings.ADS_CREATIVE_HOT_COUNT >= 24
     assert settings.ADS_CREATIVE_HOT_COUNT <= settings.ADS_MAX_CREATIVE_HOPS, \
         "more hot ads than the per-sync hop cap means the tail never refreshes at all"
+
+
+def test_an_ad_holding_a_64px_thumbnail_is_stale_whatever_its_timestamp():
+    """The extraction changed, so what is already stored is wrong regardless of how recently it
+    was fetched. Without this the wall keeps its pixelated images until each ad's TTL expires."""
+    from app.services import ads_sync as A
+    just_now = dt.datetime.now(dt.timezone.utc)
+    cutoff = just_now - dt.timedelta(days=7)
+
+    class _A:
+        def __init__(self, thumb):
+            self.creative_fetched_at = just_now
+            self.thumbnail_url = thumb
+
+    assert A._creative_is_fresh(_A("https://x/ads/image/?p64x64&d=abc"), cutoff) is False
+    assert A._creative_is_fresh(_A("https://x/full/poster.jpg"), cutoff) is True
+    assert A._creative_is_fresh(_A(None), cutoff) is True

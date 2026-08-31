@@ -47,8 +47,11 @@ function Thumb({ src, name }) {
             style={{ fontFamily: HEAD, fontSize: 20, fontWeight: 600, color: C.muted }}>
         {initials(name)}
       </span>
+      {/* lazy + async decode: these are now full-resolution creatives (170-300KB each, measured)
+          rather than 64px thumbnails, and two dozen of them decoding on the main thread would
+          jank the scroll they are being scrolled into. */}
       {src && !failed && (
-        <img src={src} alt="" loading="lazy" onError={() => setFailed(true)}
+        <img src={src} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)}
              style={{ position: "absolute", inset: 0, width: "100%", height: "100%",
                       objectFit: "cover", display: "block" }} />
       )}

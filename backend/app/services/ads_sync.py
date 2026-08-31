@@ -221,10 +221,21 @@ async def _stamp_seen(s: AsyncSession, tenant_id, acct: AdAccount) -> None:
     await s.flush()
 
 
+# Meta stamps the size into its thumbnail URLs, and `thumbnail_url` is always 64x64. An ad
+# holding one of those was stored by the extraction that preferred the smallest image on offer,
+# so it is stale no matter how recently it was fetched - otherwise the wall keeps its pixelated
+# images until each ad's TTL happens to expire. Self-limiting: after one refresh the ad holds a
+# full-resolution URL and stops matching. An ad that genuinely has nothing better keeps
+# re-fetching, which is bounded by the same hop cap as everything else in this block.
+_TINY_THUMB = "p64x64"
+
+
 def _creative_is_fresh(ad: Ad, cutoff: dt.datetime) -> bool:
     """Naive timestamps are treated as UTC. Postgres hands these back tz-aware and SQLite does
     not, and comparing the two raises TypeError - inside the creative block, which is swallowed,
     so it would have shown up as creatives silently never refreshing."""
+    if ad.thumbnail_url and _TINY_THUMB in ad.thumbnail_url:
+        return False
     got = ad.creative_fetched_at
     if got is None:
         return False

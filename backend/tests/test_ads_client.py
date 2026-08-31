@@ -408,3 +408,46 @@ def test_the_budget_is_task_local_so_tenants_cannot_drain_each_other():
 
     a, b = _aio.run(both())
     assert (a, b) == (5, 30), f"budgets bled across tasks: {a}, {b}"
+
+
+# ── image quality on the creative wall ────────────────────────────────────────────────
+def test_a_video_ad_uses_its_poster_rather_than_the_64px_thumbnail():
+    """MEASURED on the live account: every `thumbnail_url` Meta returned carried `p64x64`, and
+    the wall was upscaling that across a 220px tile. A video ad has no top-level image_url at
+    all, so preferring thumbnail_url left videos permanently pixelated - the poster sits in
+    object_story_spec.video_data, which ad_creatives already fetches, and costs nothing extra."""
+    creative = {
+        "thumbnail_url": "https://x/ads/image/?p64x64",
+        "object_story_spec": {"video_data": {"image_url": "https://x/full/poster.jpg"}},
+    }
+    assert meta.creative_thumb(creative) == "https://x/full/poster.jpg"
+
+
+def test_an_image_ad_prefers_its_uploaded_asset():
+    assert meta.creative_thumb({
+        "thumbnail_url": "https://x/tiny?p64x64",
+        "image_url": "https://x/full.jpg"}) == "https://x/full.jpg"
+
+
+def test_link_and_carousel_ads_fall_back_through_their_own_pictures():
+    assert meta.creative_thumb({
+        "thumbnail_url": "t", "object_story_spec": {"link_data": {"picture": "L"}}}) == "L"
+    assert meta.creative_thumb({
+        "thumbnail_url": "t",
+        "object_story_spec": {"link_data": {"child_attachments": [{"picture": "K"}]}}}) == "K"
+
+
+def test_the_tiny_thumbnail_is_still_better_than_nothing():
+    """Last rung, not no rung. An ad with only a 64px thumbnail should show it rather than
+    render the initials placeholder as though it had no creative at all."""
+    assert meta.creative_thumb({"thumbnail_url": "https://x/t?p64x64"}) == "https://x/t?p64x64"
+    assert meta.creative_thumb({}) is None
+    assert meta.creative_thumb(None) is None
+
+
+def test_a_malformed_child_attachment_does_not_raise():
+    """Meta ships this array as strings occasionally; indexing into one raises TypeError inside
+    the creative block, which is swallowed, so it would surface as thumbnails silently vanishing."""
+    assert meta.creative_thumb({
+        "object_story_spec": {"link_data": {"child_attachments": ["not a dict"]}},
+        "thumbnail_url": "t"}) == "t"

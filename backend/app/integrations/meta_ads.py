@@ -425,20 +425,6 @@ async def ad_creatives(token: str, ad_ids: list[str]) -> dict[str, dict]:
     return out
 
 
-async def story_image(token: str, story_id: str) -> str | None:
-    """The effective_object_story_id hop for a full-resolution image. None on ANY failure - a
-    missing thumbnail is a cosmetic gap and must never fail a sync."""
-    if not story_id:
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=20) as c:
-            body = await _get(c, f"{_base()}/{story_id}",
-                              {"fields": "full_picture,picture"}, token)
-        return body.get("full_picture") or body.get("picture") or None
-    except (MetaError, httpx.HTTPError, ValueError):
-        return None
-
-
 # ── pure helpers ──────────────────────────────────────────────────────────────────────
 def action_count(actions: list | dict | None, wanted: set[str] | list[str]) -> int:
     """Sum the values of the named action types. Tolerates both envelope shapes Meta ships."""
@@ -482,8 +468,43 @@ def creative_headline(creative: dict | None) -> str | None:
 
 
 def creative_thumb(creative: dict | None) -> str | None:
+    """The best image available for this ad, WITHOUT spending another request.
+
+    `thumbnail_url` is 64x64. Measured, not assumed - every URL Meta returned carried `p64x64`,
+    and the creative wall was upscaling that across a 220px tile, which is why the wall shipped
+    looking like a fax. Preferring it over `image_url`, as this did, picked the smallest option
+    on offer.
+
+    Order, and why each rung exists:
+
+      1. `image_url` - the uploaded asset for a single-image ad. Full resolution.
+      2. `object_story_spec.video_data.image_url` - the POSTER for a video ad, which has no
+         top-level image_url at all. Measured at 170-300KB against the 64x64 thumbnail, and it
+         costs nothing: object_story_spec is already in the fields ad_creatives requests.
+      3. `link_data.picture`, then the first child attachment, for link and carousel ads.
+      4. `thumbnail_url` last, because 64px beats nothing.
+
+    Two paths were tried and rejected against the live account rather than in the abstract:
+    `effective_object_story_id` -> `full_picture` (what the standalone HTML dashboard uses)
+    returns "(#100) Missing permissions" for an ads-only System User - it needs Page permissions
+    this token does not have and should not need. And `thumbnail_width`/`thumbnail_height` are
+    ignored on the AD endpoint, though they do work on /{creative_id}; that would be one extra
+    request per ad to obtain something worse than rung 2.
+    """
     c = creative or {}
-    return c.get("thumbnail_url") or c.get("image_url") or None
+    oss = c.get("object_story_spec") or {}
+    video = oss.get("video_data") or {}
+    link = oss.get("link_data") or {}
+    kids = link.get("child_attachments") or []
+    first_kid = kids[0] if (kids and isinstance(kids[0], dict)) else {}
+    for candidate in (c.get("image_url"),
+                      video.get("image_url"),
+                      link.get("picture"),
+                      first_kid.get("picture"),
+                      c.get("thumbnail_url")):
+        if candidate:
+            return str(candidate)
+    return None
 
 
 def parse_url_tags(url_tags: str | None) -> dict:
