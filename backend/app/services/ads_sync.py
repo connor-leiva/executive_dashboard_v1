@@ -199,6 +199,18 @@ async def _stamp_seen(s: AsyncSession, tenant_id, acct: AdAccount) -> None:
     await s.flush()
 
 
+def _creative_is_fresh(ad: Ad, cutoff: dt.datetime) -> bool:
+    """Naive timestamps are treated as UTC. Postgres hands these back tz-aware and SQLite does
+    not, and comparing the two raises TypeError - inside the creative block, which is swallowed,
+    so it would have shown up as creatives silently never refreshing."""
+    got = ad.creative_fetched_at
+    if got is None:
+        return False
+    if got.tzinfo is None:
+        got = got.replace(tzinfo=dt.timezone.utc)
+    return got > cutoff
+
+
 async def _refresh_creatives(s: AsyncSession, tenant_id, acct: AdAccount, token: str) -> int:
     """Thumbnails and url_tags for the highest-spending ads, one request each.
 
@@ -214,8 +226,17 @@ async def _refresh_creatives(s: AsyncSession, tenant_id, acct: AdAccount, token:
 
     ads_by_id = {a.id: a for a in (await s.execute(select(Ad).where(
         Ad.tenant_id == tenant_id, Ad.ad_account_id == acct.id))).scalars()}
-    ranked = sorted(spend_by_ad, key=lambda k: -spend_by_ad[k])[:settings.ADS_MAX_CREATIVE_HOPS]
-    ext_ids = [ads_by_id[i].external_id for i in ranked if i in ads_by_id]
+    # Skip anything fetched recently. This block costs ONE REQUEST PER AD, and it ran in full on
+    # every sync - forty calls every half hour, ~1,900 a day, to re-read headlines and thumbnails
+    # that change when somebody edits an ad, which is to say almost never. That volume is the
+    # bulk of what this integration spent its quota on. Creative detail is enrichment; it can be
+    # a week stale without anybody noticing, and a spent quota blanks the spend figures, which
+    # nobody can help noticing.
+    fresh_before = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=settings.ADS_CREATIVE_TTL_DAYS)
+    ranked = sorted(spend_by_ad, key=lambda k: -spend_by_ad[k])
+    stale = [i for i in ranked
+             if i in ads_by_id and not _creative_is_fresh(ads_by_id[i], fresh_before)]
+    ext_ids = [ads_by_id[i].external_id for i in stale[:settings.ADS_MAX_CREATIVE_HOPS]]
     if not ext_ids:
         return 0
 
@@ -248,6 +269,20 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
     token = dec(integ.access_token_enc) if integ.access_token_enc else None
     if not token:
         return {"skipped": "no token"}
+
+    # A parked account is LEFT ALONE. Meta reports a spent quota with a recovery time in tens of
+    # minutes, and the scheduler comes back every few. Without this the sync spends its one
+    # remaining call rediscovering the wall, which is why ten consecutive runs found it there.
+    cooldown = _cooldown_remaining(integ)
+    if cooldown:
+        return {"skipped": f"rate limited by Meta, retrying in {cooldown // 60 + 1} min"}
+
+    # Snapshot config HERE, while it is safe to read. The parking below runs inside an exception
+    # handler that has already called s.rollback(), and rollback EXPIRES the session's objects -
+    # reading an expired attribute in async SQLAlchemy raises MissingGreenlet rather than lazily
+    # loading it. Reading integ.config there raised, the park never happened, and the whole
+    # mechanism was dead while looking fully implemented.
+    base_config = dict(integ.config or {})
 
     accounts = list((await s.execute(select(AdAccount).where(
         AdAccount.tenant_id == tenant_id, AdAccount.integration_id == integ.id,
@@ -305,11 +340,66 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
                   f"{w_c + w_a} day-rows ({r_c + r_a} restated)", flush=True)
         except Exception as e:                      # noqa: BLE001 - one account must not blank the rest
             await s.rollback()
-            acct.last_error = f"[{step}] {type(e).__name__}: {e}"[:500]
+            acct.last_error = f"[{step}] {_explain(e)}"[:500]
+            # A throttle parks the WHOLE INTEGRATION, not just this account: the quota is spent
+            # per app, so the next account in the loop would only spend calls confirming that.
+            if isinstance(e, meta.MetaError) and e.is_throttle:
+                _park(integ, getattr(e, "retry_after_s", None), base_config)
             await s.commit()
             out["results"].append({"account": acct.external_id, "error": acct.last_error})
             print(f"[meta_ads] {acct.external_id} FAILED: {acct.last_error}", flush=True)
+            if isinstance(e, meta.MetaError) and e.is_throttle:
+                break
     return out
+
+
+# ── rate-limit parking ────────────────────────────────────────────────────────────────
+DEFAULT_COOLDOWN_S = 3600
+COOLDOWN_KEY = "meta_cooldown_until"
+
+
+def _cooldown_remaining(integ: Integration) -> int:
+    """Seconds left on the park, or 0. Unparseable means not parked - a bad timestamp must not
+    strand an integration forever with no way back short of editing the database."""
+    raw = (integ.config or {}).get(COOLDOWN_KEY)
+    if not raw:
+        return 0
+    try:
+        until = dt.datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return 0
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=dt.timezone.utc)
+    return max(0, int((until - dt.datetime.now(dt.timezone.utc)).total_seconds()))
+
+
+def _park(integ: Integration, seconds: int | None, base_config: dict) -> None:
+    """Park until Meta's own estimate, else an hour.
+
+    Takes base_config rather than reading integ.config, because the caller runs after a rollback
+    and that attribute is expired by then. Assigns rather than mutates: an in-place dict edit on
+    a JSON column does not mark the row dirty and never gets written.
+    """
+    wait = seconds if (seconds and seconds > 0) else DEFAULT_COOLDOWN_S
+    until = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=min(wait, 6 * 3600))
+    integ.config = {**(base_config or {}), COOLDOWN_KEY: until.isoformat()}
+
+
+def _explain(e: Exception) -> str:
+    """Meta's throttle text names no cause and suggests no remedy. Say what it means, once, where
+    somebody reading last_error will see it."""
+    base = f"{type(e).__name__}: {e}"
+    if not (isinstance(e, meta.MetaError) and e.is_throttle):
+        return base
+    if getattr(e, "tier", None) == "development_access":
+        # Not a guess. Meta reports the tier on the response that refused the call.
+        return (f"{base} - this app is on Meta's DEVELOPMENT access tier, whose hourly allowance "
+                f"is roughly a hundred calls. That is ample for a person pressing refresh and too "
+                f"small for a scheduled sync, which is why a hand-run dashboard on the same token "
+                f"keeps working. Apply for Advanced Access to ads_read to raise it.")
+    return (f"{base} - the app's hourly API allowance is spent. Meta reports the app's access "
+            f"tier on every ads response; if it reads development_access, that allowance is the "
+            f"ceiling and no amount of waiting raises it.")
 
 
 async def backfill_meta_ads(s: AsyncSession, tenant_id, ad_account_id, since: dt.date,

@@ -1624,6 +1624,13 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
             from .ads_sync import sync_meta_ads
             summary = await sync_meta_ads(s, tenant_id, integ)
             records = sum(r.get("insight_rows", 0) for r in summary.get("results", []))
+            # sync_meta_ads catches per-account failures so one bad account cannot blank the
+            # others - which meant a run where EVERY account failed still landed here and marked
+            # the integration "connected", last_error None. Settings read "Linked and synced"
+            # through ten consecutive failures. If nothing succeeded, the sync did not succeed.
+            errs = [r["error"] for r in summary.get("results", []) if r.get("error")]
+            if errs and len(errs) == len(summary.get("results", [])):
+                raise RuntimeError("; ".join(errs)[:500])
         elif integ.provider == "qbo":
             prev_synced = integ.last_synced_at                 # txn CDC cursor, pre-bump
             records = await sync_qbo_pl(s, tenant_id, integ)   # syncs all periods itself

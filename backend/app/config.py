@@ -197,6 +197,10 @@ class Settings(BaseSettings):
     ADS_REFRESH_DAYS: int = 7          # rolling restatement window; Meta revises recent days
     ADS_BACKFILL_MONTHS: int = 13      # matches Meta's unique-metric retention
     ADS_MAX_CREATIVE_HOPS: int = 40
+    # How long creative detail (headline, body, thumbnail, url_tags) may go unrefreshed. One
+    # request per ad, so this number is the difference between a few dozen calls a week and a
+    # few thousand. Ads change rarely; the quota they share does not.
+    ADS_CREATIVE_TTL_DAYS: int = 7
     ADS_BUC_BACKOFF_PCT: int = 70
     # Funnel and attribution.
     #

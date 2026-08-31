@@ -242,3 +242,103 @@ async def test_it_stops_shrinking_rather_than_looping_forever():
             await meta._paginate("https://x/ads", {"limit": 50}, "tok")
     finally:
         httpx.AsyncClient = real
+
+
+# ── the quota wall, which is what ten consecutive live syncs actually hit ──────────────
+async def test_a_long_throttle_fails_immediately_instead_of_sleeping_into_the_wall():
+    """THE LIVE FAILURE, second edition. Ten scheduled syncs in a row reported "ok" while every
+    one of them died on `User request limit reached`.
+
+    A spent quota recovers in tens of minutes. The old loop clamped Meta's own estimate to five
+    minutes, slept, and retried - three more times, each one a call the account could not afford,
+    each one resetting the clock it was waiting on. Retrying is not merely useless here, it is
+    the reason the quota never recovers.
+
+    One call, then raise, carrying the wait so the caller can park the account.
+    """
+    import httpx
+
+    calls: list[int] = []
+
+    def throttled(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(400, json={"error": {
+            "message": "User request limit reached", "code": 17}},
+            headers={"X-Business-Use-Case-Usage":
+                     '{"a": [{"call_count": 100, "estimated_time_to_regain_access": 42}]}'})
+
+    transport = httpx.MockTransport(throttled)
+    real = httpx.AsyncClient
+
+    class _Patched(real):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    httpx.AsyncClient = _Patched
+    try:
+        with pytest.raises(meta.MetaError) as ei:
+            await meta._paginate("https://x/ads", {"limit": 100}, "tok")
+    finally:
+        httpx.AsyncClient = real
+
+    assert len(calls) == 1, f"retried into a known-closed door {len(calls)} times"
+    assert ei.value.is_throttle
+    assert ei.value.retry_after_s == 42 * 60, "Meta's estimate was not carried to the caller"
+
+
+async def test_a_short_throttle_is_still_retried():
+    """The counterweight. A brief pause IS worth waiting out in-process - failing the whole sync
+    over four seconds would trade one problem for a worse one."""
+    import httpx
+
+    calls: list[int] = []
+
+    def brief(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(400, json={"error": {
+                "message": "User request limit reached", "code": 17}},
+                headers={"X-Business-Use-Case-Usage":
+                         '{"a": [{"call_count": 100, "estimated_time_to_regain_access": 1}]}'})
+        return httpx.Response(200, json={"data": [{"id": "1"}], "paging": {}})
+
+    transport = httpx.MockTransport(brief)
+    real, slept = httpx.AsyncClient, []
+
+    class _Patched(real):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    import asyncio as _aio
+    real_sleep = _aio.sleep
+
+    async def _fake_sleep(s):                      # keep the test fast, record the intent
+        slept.append(s)
+        await real_sleep(0)
+
+    httpx.AsyncClient, _aio.sleep = _Patched, _fake_sleep
+    try:
+        rows = await meta._paginate("https://x/ads", {"limit": 100}, "tok")
+    finally:
+        httpx.AsyncClient, _aio.sleep = real, real_sleep
+
+    assert rows == [{"id": "1"}]
+    assert len(calls) == 2 and slept and slept[0] == 60
+
+
+def test_the_access_tier_is_read_from_the_header_meta_already_sends():
+    """`ads_api_access_tier` rides on every ads response. It was present on every failing call
+    while the tier was being treated as an open question that needed somebody to go look in the
+    Meta dashboard."""
+    hdr = ('{"587749862890426": [{"call_count": 1, "total_cputime": 2, "total_time": 2, '
+           '"ads_api_access_tier": "development_access"}]}')
+    assert meta.access_tier(_resp({"X-Business-Use-Case-Usage": hdr})) == "development_access"
+    assert meta.access_tier(_resp({})) is None
+
+
+@pytest.mark.parametrize("hdr", ["", "not json", "[1,2,3]", '{"a": "flat"}', '{"a": [null]}',
+                                 '{"a": [{"call_count": 1}]}'])
+def test_a_header_without_a_tier_is_none_and_never_raises(hdr):
+    assert meta.access_tier(_resp({"X-Business-Use-Case-Usage": hdr})) is None

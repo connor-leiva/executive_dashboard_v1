@@ -47,6 +47,11 @@ REDUCE_DATA_CODE = 1
 REDUCE_DATA_TEXT = "reduce the amount of data"
 RETRY_STATUS = {429, 500, 502, 503, 504}
 MAX_ATTEMPTS = 4
+# Above this, waiting in-process is the wrong move. Meta reports the wait for a spent quota in
+# tens of minutes; sleeping that inside a request holds a worker hostage, and the retry that
+# follows arrives at the same wall having spent one more call to find it there. Past this
+# threshold the client raises with the wait attached and lets the caller park the account.
+MAX_RETRY_WAIT = 120.0
 
 # Currencies with no minor unit. Budgets arrive in minor units and assuming /100 for these
 # inflates every budget by a hundred times.
@@ -60,9 +65,15 @@ class MetaError(RuntimeError):
     Returning [] on failure is the specific mistake that makes an outage look like a quiet month.
     """
 
-    def __init__(self, message: str, code: int | None = None, subcode: int | None = None):
+    def __init__(self, message: str, code: int | None = None, subcode: int | None = None,
+                 retry_after_s: int | None = None, tier: str | None = None):
         super().__init__(message)
         self.code, self.subcode = code, subcode
+        # The app's Marketing API access tier as Meta reported it on the failing response.
+        self.tier = tier
+        # How long Meta said to wait, in seconds, when it said so. Carried on the exception so the
+        # SYNC can park the account for that long instead of rediscovering the wall every tick.
+        self.retry_after_s = retry_after_s
 
     @property
     def is_throttle(self) -> bool:
@@ -81,6 +92,31 @@ def _base() -> str:
 
 def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+
+def access_tier(resp: httpx.Response) -> str | None:
+    """The app's Marketing API access tier, which Meta reports on EVERY ads response.
+
+    `development_access` is the default and its hourly allowance is roughly a hundred calls -
+    fine for a person pressing refresh, far too small for a scheduled sync. That single word
+    explains a whole class of failure, and it was sitting in a response header the entire time
+    this was being diagnosed as something else. Surfaced so nobody has to guess at it again.
+    """
+    raw = resp.headers.get("X-Business-Use-Case-Usage") or resp.headers.get(
+        "x-business-use-case-usage")
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return None
+        for entries in data.values():
+            for e in entries if isinstance(entries, list) else []:
+                if isinstance(e, dict) and e.get("ads_api_access_tier"):
+                    return str(e["ads_api_access_tier"])
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return None
 
 
 def usage_pct(resp: httpx.Response) -> float:
@@ -155,6 +191,11 @@ async def _get(client: httpx.AsyncClient, url: str, params: dict, token: str) ->
             # Back off BEFORE the next call rather than after being cut off. Above the configured
             # ceiling the budget is nearly spent, and the next request is the expensive one.
             if pct >= settings.ADS_BUC_BACKOFF_PCT:
+                # Say it out loud. BUC figures are PERCENTAGES of the hourly allowance, so this
+                # line is the difference between knowing the sync fits under the ceiling and
+                # inferring it from whether anything broke.
+                print(f"[meta_ads] BUC usage {pct:.0f}% (tier={access_tier(r) or 'unknown'})",
+                      flush=True)
                 await asyncio.sleep(min(30.0, (pct - settings.ADS_BUC_BACKOFF_PCT) * 0.5 + 1.0))
             return body
 
@@ -166,14 +207,28 @@ async def _get(client: httpx.AsyncClient, url: str, params: dict, token: str) ->
         code = ((body.get("error") or {}).get("code"))
         throttled = code in THROTTLE_CODES or r.status_code == 429
 
+        wait = retry_after(r) if throttled else None
+        # A quota with a long recovery is not a retry case. Ten scheduled syncs against an
+        # exhausted quota, each retrying four times behind a five-minute clamp, is how an account
+        # stays throttled indefinitely: every attempt to recover is itself a call it cannot
+        # afford. Surface the wait and stop touching Meta.
+        if wait and wait > MAX_RETRY_WAIT:
+            raise MetaError(
+                f"{(body.get('error') or {}).get('message') or 'rate limited'} "
+                f"(Meta says {wait // 60} min)", code=code, retry_after_s=wait,
+                tier=access_tier(r))
+
         if attempt < MAX_ATTEMPTS - 1 and (throttled or r.status_code in RETRY_STATUS):
-            wait = retry_after(r) if throttled else None
             # Exponential with jitter. The jitter matters when several accounts sync together:
             # without it they retry in lockstep and re-throttle each other.
             delay = float(wait) if wait else (2.0 ** attempt) + random.uniform(0, 0.5)
-            delay = min(delay, 300.0)
+            delay = min(delay, MAX_RETRY_WAIT)
             continue
 
+        if throttled:
+            raise MetaError(
+                f"{(body.get('error') or {}).get('message') or 'rate limited'}",
+                code=code, retry_after_s=wait, tier=access_tier(r))
         _raise_for_meta(body)
         raise MetaError(f"HTTP {r.status_code} from Meta", code=code)
     raise MetaError("exhausted retries against Meta")
