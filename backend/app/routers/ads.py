@@ -371,11 +371,118 @@ async def attach_account(body: dict, user: User = Depends(require_role("owner", 
     return {"id": str(acct.id), "external_id": acct.external_id, "repaired": False}
 
 
+@router.get("/ads/grouping")
+async def grouping(account: str | None = Query(None), period: str = Query("90d"),
+                   user: User = Depends(require_tab("ads")),
+                   s: AsyncSession = Depends(get_session)):
+    """The rules, the shipped defaults, and every campaign with its spend and current group.
+
+    One payload rather than three, because the editor is useless without all of it at once: the
+    thing that makes rule-writing tractable is seeing WHICH campaigns land where as you type, and
+    that requires the campaign list beside the rules. Read-only and tab-gated; writing is the
+    PATCH below and needs owner or admin.
+    """
+    acct = await _account(s, user.tenant_id, account) if account else await _first_account(s, user.tenant_id)
+    if acct is None:
+        return {"connected": False, "rules": None, "defaults": R.DEFAULT_GROUP_RULES,
+                "campaigns": []}
+
+    s_day, e_day, _ = A.ads_period(period, None, None, acct.timezone_name)
+    spend: dict = {}
+    rows = await s.execute(
+        select(AdInsightDaily.campaign_id, func.sum(AdInsightDaily.spend))
+        .where(AdInsightDaily.tenant_id == user.tenant_id,
+               AdInsightDaily.ad_account_id == acct.id,
+               AdInsightDaily.level == "campaign",
+               AdInsightDaily.occurred_on >= s_day, AdInsightDaily.occurred_on <= e_day)
+        .group_by(AdInsightDaily.campaign_id))
+    for cid, total in rows:
+        if cid is not None:
+            spend[cid] = float(total or 0)
+
+    camps = list((await s.execute(select(AdCampaign).where(
+        AdCampaign.tenant_id == user.tenant_id,
+        AdCampaign.ad_account_id == acct.id))).scalars())
+    rules = acct.group_rules            # None means "the defaults", which is a real state
+    out = [{"id": str(c.id), "name": c.name,
+            "spend": spend.get(c.id, 0.0),
+            "group": R.classify_campaign(c.name, rules)} for c in camps]
+    # Highest spend first: a campaign in the wrong bucket matters in proportion to what it cost.
+    out.sort(key=lambda c: -c["spend"])
+    return {
+        "connected": True,
+        "account": str(acct.id),
+        "rules": rules,
+        "defaults": R.DEFAULT_GROUP_RULES,
+        "using_defaults": rules is None,
+        "match_kinds": list(R.MATCH_KINDS),
+        "fallback": R.FALLBACK_GROUP,
+        "campaigns": out,
+        "unmatched": sum(1 for c in out if c["group"] == R.FALLBACK_GROUP),
+        "period": [s_day.isoformat(), e_day.isoformat()],
+    }
+
+
+@router.post("/ads/grouping/preview")
+async def grouping_preview(body: dict, account: str | None = Query(None),
+                           period: str = Query("90d"),
+                           user: User = Depends(require_tab("ads")),
+                           s: AsyncSession = Depends(get_session)):
+    """What a PROPOSED rule set would do, without saving it.
+
+    Server-side on purpose. Classifying in the browser would mean two implementations of the same
+    rules in two languages, and the one the editor shows would be the one nobody tests - so the
+    preview would drift from the answer and quietly stop predicting it. Section 02 already makes
+    this argument about findings; it applies harder here, because this is the screen somebody
+    uses to DECIDE.
+
+    Writes nothing. Invalid rules come back as problems rather than a 400, because this is called
+    on every keystroke and a half-typed rule is not an error yet.
+    """
+    rules = body.get("rules")
+    problems = R.validate_group_rules(rules)
+    acct = await _account(s, user.tenant_id, account) if account else await _first_account(s, user.tenant_id)
+    if acct is None:
+        return {"connected": False, "campaigns": [], "problems": problems}
+
+    s_day, e_day, _ = A.ads_period(period, None, None, acct.timezone_name)
+    spend: dict = {}
+    for cid, total in await s.execute(
+            select(AdInsightDaily.campaign_id, func.sum(AdInsightDaily.spend))
+            .where(AdInsightDaily.tenant_id == user.tenant_id,
+                   AdInsightDaily.ad_account_id == acct.id,
+                   AdInsightDaily.level == "campaign",
+                   AdInsightDaily.occurred_on >= s_day, AdInsightDaily.occurred_on <= e_day)
+            .group_by(AdInsightDaily.campaign_id)):
+        if cid is not None:
+            spend[cid] = float(total or 0)
+
+    camps = list((await s.execute(select(AdCampaign).where(
+        AdCampaign.tenant_id == user.tenant_id,
+        AdCampaign.ad_account_id == acct.id))).scalars())
+    # Unusable rules preview as the DEFAULTS rather than as an empty screen, so a half-typed rule
+    # does not flash every campaign into Other and read as "you just broke it".
+    use = None if problems else rules
+    out = [{"id": str(c.id), "name": c.name, "spend": spend.get(c.id, 0.0),
+            "group": R.classify_campaign(c.name, use)} for c in camps]
+    out.sort(key=lambda c: -c["spend"])
+    return {"connected": True, "campaigns": out, "problems": problems,
+            "unmatched": sum(1 for c in out if c["group"] == R.FALLBACK_GROUP)}
+
+
 @router.patch("/ads/accounts/{account_id}")
 async def patch_account(account_id: str, body: dict,
                         user: User = Depends(require_role("owner", "admin")),
                         s: AsyncSession = Depends(get_session)):
     acct = await _account(s, user.tenant_id, account_id)
+    # Validate BEFORE writing. This endpoint used to setattr whatever JSON it was handed, and
+    # classify_campaign is defensive enough not to raise on nonsense - which is worse rather than
+    # better, because a malformed rule set silently classifies every campaign as Other and the
+    # symptom is indistinguishable from a naming drift somebody would then hunt for in Ads Manager.
+    if "group_rules" in body:
+        problems = R.validate_group_rules(body["group_rules"])
+        if problems:
+            raise HTTPException(400, "; ".join(problems))
     for field in ("group_rules", "lead_actions", "thresholds", "funnel_override", "utm_template",
                   "status", "timezone_name", "name"):
         if field in body:

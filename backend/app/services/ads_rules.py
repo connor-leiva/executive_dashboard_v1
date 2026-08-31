@@ -16,6 +16,8 @@ settings still gets correct behaviour; a tenant that does gets theirs and nobody
 """
 from __future__ import annotations
 
+import re
+
 # The mockup's heuristic, preserved to the letter. `split: True` means the label carries the
 # token after the prefix, so "KB-Webinar-Retarget" groups as "KB · Webinar" rather than
 # collapsing every KB campaign into one bucket.
@@ -28,6 +30,24 @@ DEFAULT_GROUP_RULES: list[dict] = [
 FALLBACK_GROUP = "Other"
 
 
+def _norm(s: str) -> str:
+    """Separator-normalised, CASE PRESERVED. `KB - The Shift` becomes `KB-The Shift`.
+
+    NOT cosmetic. The shipped default matches the prefix `kb-`, taken from the mockup where
+    campaigns were named `KB-Webinar-Retarget`. The live account names them `KB - The Shift -
+    August2026`, with spaces around the dash - so nothing matched, all nineteen campaigns fell to
+    Other, and "Where it came from" became one undifferentiated bar. Two spaces were the whole
+    difference.
+
+    Whitespace AROUND a dash collapses into the dash; whitespace on its own does not. Losing that
+    distinction would flatten `KB - The Shift` to four equal tokens and label the group "The"
+    rather than "The Shift". En and em dashes count as dashes, because Meta's own campaign names
+    contain them.
+    """
+    t = re.sub(r"[\s]*[-–—_][\s]*", "-", str(s or ""))
+    return re.sub(r"\s+", " ", t).strip().strip("-")
+
+
 def classify_campaign(name: str, rules: list[dict] | None = None) -> str:
     """Which group a campaign name belongs to. Pure, and deliberately boring.
 
@@ -38,20 +58,62 @@ def classify_campaign(name: str, rules: list[dict] | None = None) -> str:
     """
     if not name:
         return FALLBACK_GROUP
-    n = name.lower()
+    n = _norm(name)
+    low = n.lower()
     for r in rules if rules is not None else DEFAULT_GROUP_RULES:
-        value = str(r.get("value") or "").lower()
+        value = _norm(r.get("value")).lower()
         if not value:
             continue
-        if r.get("match") == "prefix" and n.startswith(value):
+        if r.get("match") == "prefix" and low.startswith(value):
             if not r.get("split"):
                 return r.get("label") or FALLBACK_GROUP
-            tail = name[len(value):].replace("-", " ").split()
+            # The segment after the prefix, sliced from the CASE-PRESERVED form. Title-casing it
+            # would render ForumVIP as "Forumvip" and BeCollective as "Becollective" - the ad
+            # account's own capitalisation is how its operator recognises the thing.
+            tail = [t for t in n[len(value):].split("-") if t.strip()]
             head = r.get("label") or FALLBACK_GROUP
-            return f"{head} · {tail[0]}" if tail else head
-        if r.get("match") == "contains" and value in n:
+            return f"{head} · {tail[0].strip()}" if tail else head
+        if r.get("match") == "contains" and value in low:
             return r.get("label") or FALLBACK_GROUP
     return FALLBACK_GROUP
+
+
+MATCH_KINDS = ("prefix", "contains")
+MAX_RULES = 40
+
+
+def validate_group_rules(rules) -> list[str]:
+    """Problems with a proposed rule set, as plain sentences. Empty list means it is usable.
+
+    The PATCH endpoint wrote whatever JSON it was handed straight onto the column. classify_campaign
+    is defensive enough not to raise on nonsense, which is worse rather than better: a malformed
+    rule set silently classifies everything as Other, and the failure looks exactly like a naming
+    drift somebody would then go hunting for in Ads Manager.
+    """
+    if rules is None:
+        return []                                   # null means "use the defaults", which is valid
+    if not isinstance(rules, list):
+        return ["Grouping rules must be a list."]
+    if len(rules) > MAX_RULES:
+        return [f"Too many rules ({len(rules)}); the limit is {MAX_RULES}."]
+
+    problems: list[str] = []
+    for i, r in enumerate(rules, 1):
+        if not isinstance(r, dict):
+            problems.append(f"Rule {i} is not an object.")
+            continue
+        if r.get("match") not in MATCH_KINDS:
+            problems.append(f"Rule {i}: match must be one of {', '.join(MATCH_KINDS)}.")
+        if not str(r.get("value") or "").strip():
+            problems.append(f"Rule {i}: needs something to match on.")
+        label = r.get("label")
+        if label is not None and not isinstance(label, str):
+            problems.append(f"Rule {i}: label must be text.")
+        if isinstance(label, str) and len(label) > 80:
+            problems.append(f"Rule {i}: label is too long (80 characters max).")
+        if "split" in r and not isinstance(r["split"], bool):
+            problems.append(f"Rule {i}: split must be true or false.")
+    return problems
 
 
 # Thresholds cover the funnel, not just the click layer - the point of the module is that a

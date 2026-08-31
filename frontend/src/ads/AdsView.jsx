@@ -16,6 +16,7 @@ import { useState } from "react";
 
 import { BAND, C, FIG, FONT, HEAD, band, compact, mult, num, pct, usd } from "./adsTokens.js";
 import CreativeWall from "./CreativeWall.jsx";
+import GroupingRules from "./GroupingRules.jsx";
 import Funnel from "./Funnel.jsx";
 import { useAdsAccounts, useAdsCreatives, useAdsOverview } from "./useAds.js";
 
@@ -408,6 +409,12 @@ export default function AdsView() {
               rule and fell to Other.
             </p>
           )}
+          {/* The editor lives HERE rather than in Settings, next to the bar that shows the
+              problem and the line that names it. A new campaign lands in Other the moment
+              somebody creates one, and the person who named it is the person who can say where
+              it belongs - sending them to another page to guess at rules without seeing the
+              campaigns is how the drift persists. */}
+          <GroupingRules account={account} onSaved={retry} />
         </Card>
       </Section>
 

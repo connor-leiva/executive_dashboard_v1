@@ -161,3 +161,32 @@ export const sampleAdsCreatives = {
     "Ad-level revenue needs utm_content={{ad.id}} on the ad URLs and a matching utm_content field " +
     "mapped in the CRM. 0 of 34 ads carry it today.",
 };
+
+/* The grouping editor's offline payload. Uses the LIVE account's real campaign names, because
+   the whole point of the editor is that the shipped default silently failed against exactly this
+   naming - `KB - The Shift` does not start with `kb-` - and a sample with tidy mockup names
+   would demonstrate the opposite of the problem. */
+export const sampleAdsGrouping = {
+  connected: true,
+  account: "sample",
+  rules: null,
+  using_defaults: true,
+  fallback: "Other",
+  match_kinds: ["prefix", "contains"],
+  defaults: [
+    { match: "prefix", value: "kb-", label: "KB", split: true },
+    { match: "contains", value: "event name research", label: "Event Name Research" },
+    { match: "contains", value: "webinar", label: "Webinar" },
+  ],
+  campaigns: [
+    { id: "g1", name: "KB - The Shift - August2026", spend: 99_200, group: "KB · The Shift" },
+    { id: "g2", name: "KB - ForumVIP - SubmitApplication", spend: 9_900, group: "KB · ForumVIP" },
+    { id: "g3", name: "KB - Upgrade", spend: 5_400, group: "KB · Upgrade" },
+    { id: "g4", name: "KB - BeCollective", spend: 3_100, group: "KB · BeCollective" },
+    { id: "g5", name: "KB - Utah Life Mastermind - Lead Form", spend: 1_900,
+      group: "KB · Utah Life Mastermind" },
+    { id: "g6", name: "Generate Inner Circle Interest [Messages]", spend: 640, group: "Other" },
+  ],
+  unmatched: 1,
+  period: ["2026-06-02", "2026-08-30"],
+};

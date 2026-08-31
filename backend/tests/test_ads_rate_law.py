@@ -118,10 +118,22 @@ def test_a_malformed_actions_blob_counts_zero_rather_than_raising():
 
 # ── grouping ──────────────────────────────────────────────────────────────────────────
 def test_default_group_rules_reproduce_the_mockup():
-    """Lifted from the approved mockup verbatim, so the first render of the real tab groups
-    exactly the way the file Sarah is using today groups."""
+    """Lifted from the approved mockup, with ONE deliberate divergence recorded below.
+
+    A `split` prefix rule used to take the first WORD after the prefix; it now takes the first
+    SEGMENT, up to the next dash. The mockup's names made those identical because they were
+    dash-delimited throughout (`KB-Webinar-Retarget`). The live account's are not: it names
+    campaigns `KB - The Shift - August2026`, where the dash is the structural delimiter and
+    spaces live INSIDE a segment. Word-wise splitting labels that group "KB · The".
+
+    The trade is real and worth stating. Segment-wise gives `KB · The Shift` and `KB · Utah Life`
+    on the live account, which is right; on a space-delimited name like `kb-shift lookalike` it
+    gives `KB · shift lookalike` where word-wise would have merged that with `kb-shift broad`.
+    Real naming here is dash-delimited, and any account that disagrees can now say so in the
+    grouping editor rather than filing a bug.
+    """
     assert ads_rules.classify_campaign("KB-Webinar-Retarget") == "KB · Webinar"
-    assert ads_rules.classify_campaign("kb-shift lookalike") == "KB · shift"
+    assert ads_rules.classify_campaign("kb-shift lookalike") == "KB · shift lookalike"
     assert ads_rules.classify_campaign("2026 Event Name Research v2") == "Event Name Research"
     assert ads_rules.classify_campaign("Spring Webinar Broad") == "Webinar"
     assert ads_rules.classify_campaign("Retargeting - warm") == ads_rules.FALLBACK_GROUP
