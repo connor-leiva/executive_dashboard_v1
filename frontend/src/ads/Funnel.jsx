@@ -12,14 +12,24 @@
  */
 import { C, FIG, FONT, HEAD, band, compact, num, pct, usd } from "./adsTokens.js";
 
-export default function Funnel({ rungs, spend }) {
+export default function Funnel({ rungs, spend, onDrill }) {
   if (!rungs || !rungs.length) return null;
 
   // The worst-converting rung among those that CAN leak - the Meta rungs and the crossing are
   // excluded, because a conversion there is not a leak in the same sense.
+  /* A rung that reads zero while a LATER rung reads more than zero is not a leak - it is a
+     stage nobody is recording. Real funnels do not refill. On live data `Applied` sits at 0 with
+     21 held calls beneath it, because its source field is false on every record in the system,
+     and this component confidently called that the biggest leak in the business: "41 of 41 drop
+     here", about a step that had never been recorded at all. Excluded from the running rather
+     than hidden, and the drill on that rung explains which kind of zero it is. */
+  const unrecorded = (r, i) => r.n === 0 && rungs.slice(i + 1).some(
+    (later) => later.zone === "acumyn" && (later.n || 0) > 0);
+
   const leakCandidates = rungs.filter(
     (r, i) => i > 0 && r.zone === "acumyn" && rungs[i - 1].zone === "acumyn"
-              && r.conversion !== null && r.conversion !== undefined);
+              && r.conversion !== null && r.conversion !== undefined
+              && !unrecorded(r, i));
   const worst = leakCandidates.length
     ? leakCandidates.reduce((a, b) => (a.conversion <= b.conversion ? a : b))
     : null;
@@ -32,6 +42,8 @@ export default function Funnel({ rungs, spend }) {
         @media (prefers-reduced-motion: reduce) { .fn-bar { transition: none; } }
         .fn-row { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 12px; }
         .fn-figs { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+        .fn-open:hover, .fn-open:focus-visible { text-decoration-color: ${C.accent}; }
+        .fn-open:focus-visible { outline: 2px solid ${C.accent}; outline-offset: 3px; }
         @media (max-width: 560px) { .fn-figs { grid-template-columns: repeat(2, minmax(0,1fr)); } }
       `}</style>
 
@@ -107,9 +119,25 @@ export default function Funnel({ rungs, spend }) {
 
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontFamily: HEAD, fontSize: 13.5, fontWeight: 600, color: C.ink }}>
-                    {r.label}
-                  </span>
+                  {/* Only the Acumyn rungs open: those are counts of PEOPLE. An impression is
+                      not somebody you can list, and offering to open one would promise a thing
+                      that cannot exist. */}
+                  {onDrill && r.zone === "acumyn" ? (
+                    <button type="button" onClick={() => onDrill(r.key, r.label)}
+                            className="fn-open"
+                            style={{ fontFamily: HEAD, fontSize: 13.5, fontWeight: 600,
+                                     color: C.ink, background: "none", border: "none",
+                                     padding: 0, cursor: "pointer",
+                                     textDecoration: "underline",
+                                     textDecorationColor: C.line,
+                                     textUnderlineOffset: 3 }}>
+                      {r.label}
+                    </button>
+                  ) : (
+                    <span style={{ fontFamily: HEAD, fontSize: 13.5, fontWeight: 600, color: C.ink }}>
+                      {r.label}
+                    </span>
+                  )}
                   {r.diagnostic && (
                     <span style={{ fontFamily: FONT, fontSize: 10, fontWeight: 600, color: C.muted,
                                    border: `1px solid ${C.line}`, borderRadius: 999,

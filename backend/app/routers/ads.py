@@ -419,6 +419,31 @@ async def attach_account(body: dict, user: User = Depends(require_role("owner", 
     return {"id": str(acct.id), "external_id": acct.external_id, "repaired": False}
 
 
+@router.get("/ads/drill/{metric}")
+async def drill(metric: str, account: str | None = Query(None), period: str = Query("30d"),
+                start: dt.date | None = None, end: dt.date | None = None,
+                basis: str = Query("cohort"), campaign: str | None = Query(None),
+                user: User = Depends(require_tab("ads")),
+                s: AsyncSession = Depends(get_session)):
+    """Who is behind one funnel rung.
+
+    Tab-gated, exactly like the number it opens - a drill inherits its tile's permission. It
+    takes the SAME account, period, basis and campaign the page was showing, because a drill that
+    resolves its own window would open a different population than the figure that was clicked.
+    """
+    acct = await _account(s, user.tenant_id, account) if account else await _first_account(s, user.tenant_id)
+    if acct is None:
+        raise HTTPException(404, "No ad account is connected")
+    camp = await _campaign(s, user.tenant_id, acct, campaign) if campaign else None
+    s_day, e_day, _ = A.ads_period(period, start, end, acct.timezone_name)
+    from ..services.ads_drill import drill_ads
+    out = await drill_ads(s, user.tenant_id, acct, metric, s_day, e_day, basis,
+                          campaign=(camp.id if camp is not None else None))
+    if out is None:
+        raise HTTPException(404, f"Nothing to open for {metric}")
+    return out
+
+
 @router.get("/ads/grouping")
 async def grouping(account: str | None = Query(None), period: str = Query("90d"),
                    user: User = Depends(require_tab("ads")),

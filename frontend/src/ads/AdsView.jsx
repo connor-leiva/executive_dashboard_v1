@@ -16,9 +16,12 @@ import { useState } from "react";
 
 import { BAND, C, FIG, FONT, HEAD, band, compact, mult, num, pct, usd } from "./adsTokens.js";
 import CreativeWall from "./CreativeWall.jsx";
+import DrillPanel from "./DrillPanel.jsx";
 import GroupingRules from "./GroupingRules.jsx";
 import Funnel from "./Funnel.jsx";
-import { useAdsAccounts, useAdsCreatives, useAdsOverview } from "./useAds.js";
+import { API_BASE, getJSON } from "../api";
+import { sampleAdsDrill } from "./sampleAds.js";
+import { qs, useAdsAccounts, useAdsCreatives, useAdsOverview } from "./useAds.js";
 
 const PERIODS = [
   { k: "7d", label: "7d" }, { k: "30d", label: "30d" }, { k: "60d", label: "60d" },
@@ -126,9 +129,38 @@ export default function AdsView() {
      to a 404 rather than to nothing. */
   const [campaign, setCampaign] = useState(null);
 
+  /* The drill is fetched on demand rather than with the page: it returns names and emails for
+     every rung, and pre-loading six lists nobody may open would be both slow and a wider spill
+     of personal data than the click actually asked for. */
+  const [drill, setDrill] = useState({ stage: null, label: null, data: null,
+                                       loading: false, error: null });
+
   const accounts = useAdsAccounts();
   const { data, error, loading, retry } = useAdsOverview({ account, period, basis, campaign });
   const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 24 });
+
+  /* Passes the SAME account, period, basis and campaign the page is showing. A drill that
+     resolved its own window would open a different population than the figure that was clicked,
+     which is the one way a drill can be worse than not having one. */
+  const openDrill = async (stage, label) => {
+    if (drill.stage === stage) {
+      setDrill({ stage: null, label: null, data: null, loading: false, error: null });
+      return;
+    }
+    setDrill({ stage, label, data: null, loading: true, error: null });
+    if (!API_BASE) {
+      setDrill({ stage, label, data: sampleAdsDrill(stage, label), loading: false, error: null });
+      return;
+    }
+    try {
+      const d = await getJSON(
+        `/ads/drill/funnel.${stage}?${qs({ account, period, basis, campaign })}`);
+      setDrill((cur) => (cur.stage === stage
+        ? { ...cur, data: d, loading: false } : cur));   // a slower earlier click must not win
+    } catch (e) {
+      setDrill((cur) => (cur.stage === stage ? { ...cur, error: e, loading: false } : cur));
+    }
+  };
 
   if (error) {
     return (
@@ -289,7 +321,15 @@ export default function AdsView() {
               registration, the booked call, the signature, the cash — already lives in Acumyn.
               Joining the two is what this module is for.">
         {data.funnel ? (
-          <Funnel rungs={data.funnel} spend={t.spend} />
+          <>
+            <Funnel rungs={data.funnel} spend={t.spend} onDrill={openDrill} />
+            {drill.stage && (
+              <DrillPanel drill={drill.data} loading={drill.loading} error={drill.error}
+                          label={drill.label}
+                          onClose={() => setDrill({ stage: null, label: null, data: null,
+                                                    loading: false, error: null })} />
+            )}
+          </>
         ) : (
           <Card pad={20}>
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>

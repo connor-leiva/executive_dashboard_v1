@@ -196,3 +196,36 @@ export const sampleAdsGrouping = {
   unmatched: 1,
   period: ["2026-06-02", "2026-08-30"],
 };
+
+/* Offline drill rows, so the panel can be opened and looked at in preview. Deliberately shows
+   BOTH shapes: a stage with people, and the "we do not record this" note that distinguishes a
+   real zero from an unrecorded one. */
+export function sampleAdsDrill(stage, label) {
+  if (stage === "applied" || stage === "committed") {
+    return {
+      metric: `funnel.${stage}`, type: "records", title: label, count: 0,
+      subtitle: "0 at this stage · counted where the person was FIRST SEEN in this window",
+      columns: ["name", "email", "campaign", "match", "first_seen", "reached", "url"], rows: [],
+      note: `No ${String(label).toLowerCase()} records exist anywhere in this workspace, for any `
+            + "window or campaign - so this rung reads zero because the stage is not being "
+            + "recorded, not because nobody reached it.",
+    };
+  }
+  const cols = stage === "closed"
+    ? ["name", "email", "campaign", "match", "value", "first_seen", "reached", "url"]
+    : ["name", "email", "campaign", "match", "first_seen", "reached", "url"];
+  const rows = [
+    { name: "Dana Whitfield", email: "dana@example.com", campaign: "KB - The Shift - August2026",
+      match: "campaign", value: "12,000", first_seen: "2026-08-04", reached: "2026-08-19",
+      url: "https://example.test/contact/1" },
+    { name: "Marcus Alvey", email: "marcus@example.com", campaign: "KB - The Shift - August2026",
+      match: "campaign", value: "12,000", first_seen: "2026-08-02", reached: "2026-08-15",
+      url: "https://example.test/contact/2" },
+  ];
+  return {
+    metric: `funnel.${stage}`, type: "records", title: label, count: rows.length,
+    subtitle: `${rows.length} at this stage · counted where the person was FIRST SEEN in `
+              + "this window, wherever the stage landed later",
+    columns: cols, rows, note: null,
+  };
+}

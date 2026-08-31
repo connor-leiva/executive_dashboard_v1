@@ -40,7 +40,7 @@ function useEndpoint(path, sample, deps) {
   return { data: fresh, error, loading: !!path && !fresh && !error, retry };
 }
 
-const qs = (o) =>
+export const qs = (o) =>
   Object.entries(o)
     .filter(([, v]) => v !== null && v !== undefined && v !== "")
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)

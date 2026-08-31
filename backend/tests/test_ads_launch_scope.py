@@ -15,16 +15,53 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.main import app
 from app.models import (AdAccount, AdAttribution, AdCampaign, AdConversion, AdInsightDaily,
-                        Business, Integration, Tenant)
+                        Business, Integration, MetricRecord, Tenant)
 from app.seed import seed
 
 TRANSPORT = ASGITransport(app=app)
 TODAY = dt.date.today()
+ACCOUNT_EXT = "act_scope"
+BUSINESS_KEY = "scopeprog"
 
 
 @pytest.fixture(scope="module", autouse=True)
 async def _seeded():
     await seed()
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def _cleanup(_seeded):
+    """Remove what this file added, AFTER it runs.
+
+    The database is shared across the whole suite. These fixtures write ad accounts,
+    attributions and closed conversions carrying contract values into the springb tenant, and a
+    file that leaves those behind changes what every later file counts - it broke an unrelated
+    annualization test that passes perfectly well on its own. SQLite does not enforce the foreign
+    keys that would cascade this in Postgres, so every table is cleared explicitly.
+    """
+    yield
+    async with SessionLocal() as s:
+        acct = (await s.execute(select(AdAccount).where(
+            AdAccount.external_id == ACCOUNT_EXT))).scalar_one_or_none()
+        if acct is not None:
+            for model in (AdConversion, AdAttribution):
+                await s.execute(sa_delete(model).where(model.ad_account_id == acct.id)
+                                if hasattr(model, "ad_account_id") else
+                                sa_delete(model))
+            await s.execute(sa_delete(AdInsightDaily).where(
+                AdInsightDaily.ad_account_id == acct.id))
+            await s.execute(sa_delete(AdCampaign).where(AdCampaign.ad_account_id == acct.id))
+            integ_id = acct.integration_id
+            await s.execute(sa_delete(AdAccount).where(AdAccount.id == acct.id))
+            await s.execute(sa_delete(Integration).where(Integration.id == integ_id))
+        biz = (await s.execute(select(Business).where(
+            Business.key == BUSINESS_KEY))).scalar_one_or_none()
+        if biz is not None:
+            await s.execute(sa_delete(MetricRecord).where(MetricRecord.business_id == biz.id))
+            await s.execute(sa_delete(AdConversion).where(AdConversion.business_id == biz.id))
+            await s.execute(sa_delete(AdAttribution).where(AdAttribution.business_id == biz.id))
+            await s.execute(sa_delete(Business).where(Business.id == biz.id))
+        await s.commit()
 
 
 def _client():
