@@ -27,6 +27,7 @@ stay distinguishable, or a rate-limited pull reads as a paused account.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import datetime as dt
 import json
 import random
@@ -92,6 +93,40 @@ def _base() -> str:
 
 def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+
+# The last access tier any response disclosed. Meta sends `ads_api_access_tier` on /campaigns
+# and NOT on /ads, so the call that fails is routinely the one that cannot say what tier it is
+# on. The tier is a per-app constant, so remembering the last one seen costs nothing and turns a
+# hedged error message into a definite one. Stale or absent degrades to "unknown", never to a
+# wrong claim.
+# ContextVars, not module globals. Two workspaces can sync concurrently, each against its own
+# Meta app with its own tier and its own allowance; a shared global would let one tenant's tier
+# appear in another's error message and let two syncs decrement the same budget. ContextVars are
+# task-local in asyncio, so each sync gets its own.
+_TIER: contextvars.ContextVar[str | None] = contextvars.ContextVar("meta_tier", default=None)
+
+
+def last_seen_tier() -> str | None:
+    return _TIER.get()
+
+
+class BudgetExhausted(MetaError):
+    """This sync hit its own request ceiling. NOT a Meta refusal - Meta never saw the call - so
+    it must not park the integration or be reported as a rate limit."""
+
+
+_SPENT: contextvars.ContextVar[int] = contextvars.ContextVar("meta_spent", default=0)
+_CAP: contextvars.ContextVar[int] = contextvars.ContextVar("meta_cap", default=0)
+
+
+def start_budget(n: int) -> None:
+    _CAP.set(int(n))
+    _SPENT.set(0)
+
+
+def budget_spent() -> int:
+    return _SPENT.get()
 
 
 def access_tier(resp: httpx.Response) -> str | None:
@@ -178,16 +213,31 @@ def _raise_for_meta(payload: dict) -> None:
 
 async def _get(client: httpx.AsyncClient, url: str, params: dict, token: str) -> dict:
     """One GET, with backoff. Raises MetaError on a Meta error object, never returns a sentinel."""
+    cap = _CAP.get()
+    spent = _SPENT.get()
+    if cap and spent >= cap:
+        raise BudgetExhausted(
+            f"stopped after {spent} requests, this sync's ceiling (ADS_MAX_CALLS_PER_SYNC). "
+            f"Partial data from this run is kept.")
+    _SPENT.set(spent + 1)
+
     delay = 0.0
     for attempt in range(MAX_ATTEMPTS):
         if delay:
             await asyncio.sleep(delay)
         r = await client.get(url, headers=_headers(token), params=params)
         pct = usage_pct(r)
+        seen = access_tier(r)
+        if seen:
+            _TIER.set(seen)
 
         if r.status_code == 200:
             body = r.json() or {}
-            _raise_for_meta(body)
+            try:
+                _raise_for_meta(body)
+            except MetaError as e:                  # Meta returns errors on 200 as well as 4xx
+                e.tier = e.tier or access_tier(r) or last_seen_tier()
+                raise
             # Back off BEFORE the next call rather than after being cut off. Above the configured
             # ceiling the budget is nearly spent, and the next request is the expensive one.
             if pct >= settings.ADS_BUC_BACKOFF_PCT:
@@ -216,7 +266,7 @@ async def _get(client: httpx.AsyncClient, url: str, params: dict, token: str) ->
             raise MetaError(
                 f"{(body.get('error') or {}).get('message') or 'rate limited'} "
                 f"(Meta says {wait // 60} min)", code=code, retry_after_s=wait,
-                tier=access_tier(r))
+                tier=access_tier(r) or last_seen_tier())
 
         if attempt < MAX_ATTEMPTS - 1 and (throttled or r.status_code in RETRY_STATUS):
             # Exponential with jitter. The jitter matters when several accounts sync together:
@@ -228,7 +278,7 @@ async def _get(client: httpx.AsyncClient, url: str, params: dict, token: str) ->
         if throttled:
             raise MetaError(
                 f"{(body.get('error') or {}).get('message') or 'rate limited'}",
-                code=code, retry_after_s=wait, tier=access_tier(r))
+                code=code, retry_after_s=wait, tier=access_tier(r) or last_seen_tier())
         _raise_for_meta(body)
         raise MetaError(f"HTTP {r.status_code} from Meta", code=code)
     raise MetaError("exhausted retries against Meta")
@@ -267,6 +317,8 @@ async def _paginate(url: str, params: dict, token: str, max_pages: int = 400) ->
                     # `next` is fully-formed; re-sending params would duplicate them.
                     next_url, next_params = nxt, {}
             return out
+        except BudgetExhausted:
+            raise
         except MetaError as e:
             if not e.wants_smaller_page or limit <= MIN_PAGE:
                 raise

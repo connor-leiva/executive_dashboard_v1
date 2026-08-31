@@ -195,6 +195,18 @@ class Settings(BaseSettings):
     # clock to 2028.
     META_GRAPH_VERSION: str = "v26.0"
     ADS_REFRESH_DAYS: int = 7          # rolling restatement window; Meta revises recent days
+    # Ads get their OWN cadence, slower than SYNC_INTERVAL_MINUTES. Ad-level insights cost one
+    # page per hundred rows and the row count is ads x days - measured at 471 ads over a 7-day
+    # window, that is ~33 requests a run before anything else. On Meta's development access tier
+    # (~100 calls/hour) a half-hourly sync cannot fit and never completes. Spend the budget on
+    # one sync that finishes rather than four that die partway.
+    ADS_SYNC_INTERVAL_MINUTES: int = 180
+    # A hard ceiling on requests per sync. _paginate restarts its walk from page one whenever
+    # Meta refuses a page size (its cursors encode the size they were minted with), so a cascade
+    # of halvings re-fetches every prior page: 5 pages becomes 10 becomes 19. Against a ~100
+    # call/hour tier that can consume the whole allowance inside one run and leave nothing for
+    # the next. Stopping at a known number beats discovering the number from a throttle.
+    ADS_MAX_CALLS_PER_SYNC: int = 60
     ADS_BACKFILL_MONTHS: int = 13      # matches Meta's unique-metric retention
     ADS_MAX_CREATIVE_HOPS: int = 40
     # How long creative detail (headline, body, thumbnail, url_tags) may go unrefreshed. One

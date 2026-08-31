@@ -287,9 +287,19 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
     accounts = list((await s.execute(select(AdAccount).where(
         AdAccount.tenant_id == tenant_id, AdAccount.integration_id == integ.id,
         AdAccount.status == "active"))).scalars())
+
+    # Keyed on the ACCOUNT's last success, deliberately. integ.last_synced_at is stamped by the
+    # caller on any non-exception return, including this skip - so keying on it would push the
+    # deadline forward every time the check fired and the sync would never run again.
+    due = [a for a in accounts if _is_due(a)]
+    if accounts and not due:
+        return {"skipped": f"synced within the last {settings.ADS_SYNC_INTERVAL_MINUTES} min"}
+    accounts = due
+
     out: dict = {"accounts": len(accounts), "results": []}
 
     for acct in accounts:
+        meta.start_budget(settings.ADS_MAX_CALLS_PER_SYNC)
         today = account_today(acct.timezone_name)
         since = today - dt.timedelta(days=max(1, settings.ADS_REFRESH_DAYS) - 1)
         lead_actions = list(acct.lead_actions or DEFAULT_LEAD_ACTIONS)
@@ -307,6 +317,13 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
             step = "campaigns"
             n_camp = await _upsert_campaigns(s, tenant_id, acct, await meta.campaigns(token, acct.external_id))
             await s.commit()
+            # The tier rides on the campaigns response and NOT on the ones that fail. Persist it
+            # the moment it is visible so the failure message can state it rather than hedge.
+            tier = meta.last_seen_tier()
+            if tier and base_config.get("meta_access_tier") != tier:
+                base_config["meta_access_tier"] = tier
+                integ.config = dict(base_config)
+                await s.commit()
             step = "ads"
             n_ads = await _upsert_ads(s, tenant_id, acct, await meta.ads(token, acct.external_id))
             await s.commit()
@@ -337,7 +354,9 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
                                    "insight_rows": w_c + w_a, "restated": r_c + r_a,
                                    "window": [since.isoformat(), today.isoformat()]})
             print(f"[meta_ads] {acct.external_id}: {n_camp} campaigns, {n_ads} ads, "
-                  f"{w_c + w_a} day-rows ({r_c + r_a} restated)", flush=True)
+                  f"{w_c + w_a} day-rows ({r_c + r_a} restated), "
+                  f"{meta.budget_spent()} requests "
+                  f"(tier={meta.last_seen_tier() or 'unknown'})", flush=True)
         except Exception as e:                      # noqa: BLE001 - one account must not blank the rest
             await s.rollback()
             acct.last_error = f"[{step}] {_explain(e)}"[:500]
@@ -345,9 +364,14 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
             # per app, so the next account in the loop would only spend calls confirming that.
             if isinstance(e, meta.MetaError) and e.is_throttle:
                 _park(integ, getattr(e, "retry_after_s", None), base_config)
+            # Everything reading acct.* stays BELOW the commit. rollback() expired these
+            # objects, and the commit is what reloads them inside greenlet context - a print
+            # placed above it raises MissingGreenlet and takes out the error handler itself.
+            spent = meta.budget_spent()
             await s.commit()
             out["results"].append({"account": acct.external_id, "error": acct.last_error})
-            print(f"[meta_ads] {acct.external_id} FAILED: {acct.last_error}", flush=True)
+            print(f"[meta_ads] {acct.external_id} FAILED after {spent} requests: "
+                  f"{acct.last_error}", flush=True)
             if isinstance(e, meta.MetaError) and e.is_throttle:
                 break
     return out
@@ -385,13 +409,24 @@ def _park(integ: Integration, seconds: int | None, base_config: dict) -> None:
     integ.config = {**(base_config or {}), COOLDOWN_KEY: until.isoformat()}
 
 
+def _is_due(acct: AdAccount) -> bool:
+    """Never-synced accounts are always due; the interval only throttles REPEAT pulls."""
+    last = acct.last_synced_at
+    if last is None:
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=dt.timezone.utc)
+    age = (dt.datetime.now(dt.timezone.utc) - last).total_seconds()
+    return age >= settings.ADS_SYNC_INTERVAL_MINUTES * 60
+
+
 def _explain(e: Exception) -> str:
     """Meta's throttle text names no cause and suggests no remedy. Say what it means, once, where
     somebody reading last_error will see it."""
     base = f"{type(e).__name__}: {e}"
     if not (isinstance(e, meta.MetaError) and e.is_throttle):
         return base
-    if getattr(e, "tier", None) == "development_access":
+    if (getattr(e, "tier", None) or meta.last_seen_tier()) == "development_access":
         # Not a guess. Meta reports the tier on the response that refused the call.
         return (f"{base} - this app is on Meta's DEVELOPMENT access tier, whose hourly allowance "
                 f"is roughly a hundred calls. That is ample for a person pressing refresh and too "

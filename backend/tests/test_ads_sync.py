@@ -185,3 +185,70 @@ async def test_a_throttle_parks_the_integration_through_a_real_session():
         await s.execute(sa_delete(AdAccount).where(AdAccount.integration_id == integ_id))
         await s.execute(sa_delete(Integration).where(Integration.id == integ_id))
         await s.commit()
+
+
+# ── the ads cadence, sized to a measured account ──────────────────────────────────────
+class _FakeAcct:
+    def __init__(self, last=None):
+        self.last_synced_at = last
+
+
+def test_a_never_synced_account_is_always_due():
+    """The interval throttles REPEAT pulls. An account that has never completed a sync is the one
+    case where waiting accomplishes nothing at all."""
+    from app.services import ads_sync as A
+    assert A._is_due(_FakeAcct(None)) is True
+
+
+def test_a_recently_synced_account_is_not_due():
+    from app.services import ads_sync as A
+    from app.config import settings
+    just_now = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=5)
+    long_ago = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+        minutes=settings.ADS_SYNC_INTERVAL_MINUTES + 5)
+    assert A._is_due(_FakeAcct(just_now)) is False
+    assert A._is_due(_FakeAcct(long_ago)) is True
+
+
+def test_the_due_check_survives_a_naive_timestamp():
+    from app.services import ads_sync as A
+    assert A._is_due(_FakeAcct(dt.datetime.utcnow() - dt.timedelta(days=1))) is True
+
+
+def test_the_interval_is_slower_than_the_general_sync_tick():
+    """Ad-level insights cost roughly one request per hundred rows, and rows are ads x days: at
+    the 471 ads measured on the live account that is ~33 requests a run before anything else.
+    Against a development-tier ceiling near 100 calls an hour, the general half-hourly tick
+    cannot fit one complete sync, let alone two."""
+    from app.config import settings
+    assert settings.ADS_SYNC_INTERVAL_MINUTES > settings.SYNC_INTERVAL_MINUTES
+
+
+async def test_a_remembered_tier_is_used_when_the_failing_call_cannot_report_one():
+    """Meta sends ads_api_access_tier on /campaigns and NOT on /ads. The step that fails is
+    therefore the step that cannot name the tier, which is why the first live error message
+    hedged - "if it reads development_access" - about a fact already sitting in an earlier
+    response from the same sync."""
+    from app.integrations import meta_ads as meta
+    from app.services import ads_sync as A
+
+    token = meta._TIER.set("development_access")
+    try:
+        msg = A._explain(meta.MetaError("User request limit reached", code=17))   # no tier on e
+        assert "DEVELOPMENT access tier" in msg
+    finally:
+        meta._TIER.reset(token)
+
+
+def test_nothing_remembered_means_nothing_asserted():
+    """Silence beats a confident wrong answer: claiming development_access when no response ever
+    said so sends somebody to change a setting that may already be right."""
+    from app.integrations import meta_ads as meta
+    from app.services import ads_sync as A
+
+    token = meta._TIER.set(None)
+    try:
+        msg = A._explain(meta.MetaError("User request limit reached", code=17))
+        assert "DEVELOPMENT access tier" not in msg
+    finally:
+        meta._TIER.reset(token)

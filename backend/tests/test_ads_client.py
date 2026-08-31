@@ -342,3 +342,69 @@ def test_the_access_tier_is_read_from_the_header_meta_already_sends():
                                  '{"a": [{"call_count": 1}]}'])
 def test_a_header_without_a_tier_is_none_and_never_raises(hdr):
     assert meta.access_tier(_resp({"X-Business-Use-Case-Usage": hdr})) is None
+
+
+# ── the per-sync request budget ───────────────────────────────────────────────────────
+async def test_a_sync_stops_at_its_own_ceiling_rather_than_at_metas():
+    """_paginate RESTARTS from page one on every resize, because Meta's cursors encode the page
+    size they were minted with. On an account with several hundred ads a cascade of halvings
+    re-fetches every prior page - 5 pages, then 10, then 19 - and can spend an entire hourly
+    allowance inside one run. Stopping at a number we chose beats discovering it from a throttle.
+    """
+    import httpx
+
+    calls: list[int] = []
+
+    def ok(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json={"data": [{"id": str(len(calls))}],
+                                         "paging": {"next": "https://x/next"}})
+
+    transport = httpx.MockTransport(ok)
+    real = httpx.AsyncClient
+
+    class _Patched(real):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    httpx.AsyncClient = _Patched
+    meta.start_budget(7)
+    try:
+        with pytest.raises(meta.BudgetExhausted):
+            await meta._paginate("https://x/ads", {"limit": 100}, "tok", max_pages=999)
+    finally:
+        httpx.AsyncClient = real
+        meta.start_budget(0)
+
+    assert len(calls) == 7, f"budget of 7 allowed {len(calls)} requests"
+
+
+def test_a_budget_stop_is_not_reported_as_a_rate_limit():
+    """Meta never saw the call. Parking the integration for an hour over a ceiling WE imposed
+    would turn a self-inflicted stop into an outage, and would tell somebody to go change an
+    access tier that had nothing to do with it."""
+    e = meta.BudgetExhausted("stopped after 60 requests")
+    assert isinstance(e, meta.MetaError)
+    assert e.is_throttle is False
+    assert e.wants_smaller_page is False
+
+
+def test_the_budget_is_task_local_so_tenants_cannot_drain_each_other():
+    """Two workspaces sync concurrently against different Meta apps. A module-global counter
+    would let one tenant's pagination cut another's sync short, and one tenant's access tier
+    surface in another's error message."""
+    import asyncio as _aio
+
+    async def worker(cap, burn):
+        meta.start_budget(cap)
+        for _ in range(burn):
+            meta._SPENT.set(meta._SPENT.get() + 1)
+        await _aio.sleep(0)
+        return meta.budget_spent()
+
+    async def both():
+        return await _aio.gather(worker(50, 5), worker(50, 30))
+
+    a, b = _aio.run(both())
+    assert (a, b) == (5, 30), f"budgets bled across tasks: {a}, {b}"
