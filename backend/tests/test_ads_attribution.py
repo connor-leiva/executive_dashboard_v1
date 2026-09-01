@@ -346,3 +346,57 @@ async def test_a_workspace_with_no_ad_account_is_skipped_rather_than_erroring():
     finally:
         from tests.test_ads_api import _remove_tenant
         await _remove_tenant(other)
+
+
+# ── organic traffic is not paid traffic ───────────────────────────────────────────────
+def test_an_organic_instagram_click_is_not_credited_to_paid_spend():
+    """FOUND LIVE, by a customer asking why somebody labelled Organic in one drawer was sitting
+    in the Meta funnel in another.
+
+    utm_source=ig, utm_medium=social, no campaign is a link in an Instagram bio. Granting channel
+    grade on the SOURCE alone counted it against ad spend - 48 of 51 channel-grade rows on the
+    live account were this, inflating the denominator of every cost-per figure on the tab.
+
+    The launch classifier had already placed her outside Meta, on the same row: channel read
+    "Organic / Existing" while match_method read "channel". The row disagreed with itself.
+    """
+    from app.services.ads_funnel import resolve_match
+
+    utm = {"utm_source": "ig", "utm_medium": "social", "utm_campaign": None}
+    assert resolve_match(utm, {}, {}, channel="Organic / Existing") is None
+    # ...and a genuine Meta click through the same rung still resolves.
+    assert resolve_match(utm, {}, {}, channel="Meta")["match_method"] == "channel"
+
+
+def test_the_channel_is_a_veto_never_a_promotion():
+    """A launch channel of Meta must not manufacture attribution for somebody whose UTM says
+    nothing. The classifier can only take the channel rung away, never grant it."""
+    from app.services.ads_funnel import resolve_match
+
+    assert resolve_match({"utm_source": "newsletter"}, {}, {}, channel="Meta") is None
+    assert resolve_match({}, {}, {}, channel="Meta") is None
+
+
+def test_a_campaign_id_in_the_utm_still_resolves_to_its_campaign():
+    """Some ad sets template the campaign ID rather than the name. That is a real click wearing
+    an unreadable label, and the id is one already held - matching only on name dropped it to
+    channel grade, and after the veto above it would have dropped out entirely."""
+    from app.services.ads_funnel import resolve_match
+
+    class _C:
+        id, ad_account_id, external_id = "camp-uuid", "acct-uuid", "120248784204810082"
+
+    m = resolve_match({"utm_source": "ig", "utm_campaign": "120248784204810082"}, {}, {},
+                      channel="Organic / Existing", campaigns_by_ext={"120248784204810082": _C})
+    assert m["match_method"] == "campaign" and m["campaign_id"] == "camp-uuid"
+
+
+def test_name_matching_still_wins_and_is_unaffected():
+    from app.services.ads_funnel import resolve_match
+
+    class _C:
+        id, ad_account_id = "by-name", "acct"
+
+    m = resolve_match({"utm_campaign": "KB - The Shift - August2026"}, {},
+                      {"kb - the shift - august2026": _C}, channel="Organic / Existing")
+    assert m["match_method"] == "campaign" and m["campaign_id"] == "by-name"

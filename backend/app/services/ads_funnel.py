@@ -47,16 +47,26 @@ def _norm(s: str | None) -> str:
     return " ".join(str(s or "").lower().split())
 
 
-def resolve_match(utm: dict, ads_by_ext: dict, campaigns_by_name: dict) -> dict | None:
+def resolve_match(utm: dict, ads_by_ext: dict, campaigns_by_name: dict,
+                  channel: str | None = None,
+                  campaigns_by_ext: dict | None = None) -> dict | None:
     """The grade this identity's UTM entitles it to, strictest first. None when it entitles
     nothing - and an unattributed identity gets NO ROW, so the read service counts it from the
     source population rather than from a placeholder that would need explaining forever.
+
+    `channel` is the channel the LAUNCH TAB already classified this person into, and it is a veto
+    on the channel rung, never a promotion. Without it this granted Meta credit on utm_source
+    alone: a registrant carrying utm_source=ig, utm_medium=social and no campaign is somebody who
+    clicked a link in an Instagram bio, and 48 of the 51 channel-grade rows on the live account
+    were exactly that - organic traffic counted against paid spend. The launch classifier already
+    knew, and stored "Organic / Existing" on the very same row this called Meta.
 
     Pure, so the whole resolution order is testable without a database.
     """
     content = str(utm.get("utm_content") or "").strip()
     campaign = _norm(utm.get("utm_campaign"))
     source = str(utm.get("utm_source") or "").strip().lower()
+    raw_campaign = str(utm.get("utm_campaign") or "").strip()
 
     # 1. utm_content resolves to a known ad -> ad grade. Both FKs set; this is the only grade
     #    that may set ad_id at all.
@@ -72,9 +82,16 @@ def resolve_match(utm: dict, ads_by_ext: dict, campaigns_by_name: dict) -> dict 
         return {"match_method": MATCH_CAMPAIGN, "confidence": "probable",
                 "ad_id": None, "campaign_id": c.id, "ad_account_id": c.ad_account_id}
 
-    # 3. A Meta source and nothing finer -> channel grade. Both FKs NULL: this identity may be
-    #    counted in channel totals and must never appear in a campaign's revenue.
-    if source in META_SOURCES:
+    # 2b. Some accounts template the campaign ID rather than the name. That is a real ad click
+    #     wearing an unreadable label, and the id is one we already hold.
+    if raw_campaign and campaigns_by_ext and raw_campaign in campaigns_by_ext:
+        c = campaigns_by_ext[raw_campaign]
+        return {"match_method": MATCH_CAMPAIGN, "confidence": "probable",
+                "ad_id": None, "campaign_id": c.id, "ad_account_id": c.ad_account_id}
+
+    # 3. A Meta source and nothing finer -> channel grade, UNLESS the launch classifier placed
+    #    this person outside Meta. Source alone cannot tell a paid click from an organic one.
+    if source in META_SOURCES and (channel is None or channel == "Meta"):
         return {"match_method": MATCH_CHANNEL, "confidence": "channel",
                 "ad_id": None, "campaign_id": None, "ad_account_id": None}
 
@@ -95,12 +112,41 @@ async def sync_ad_attribution(s: AsyncSession, tenant_id) -> dict:
 
     ads_by_ext = {a.external_id: a for a in (await s.execute(select(Ad).where(
         Ad.tenant_id == tenant_id, Ad.ad_account_id.in_(acct_ids)))).scalars()}
-    campaigns_by_name = {_norm(c.name): c for c in (await s.execute(select(AdCampaign).where(
-        AdCampaign.tenant_id == tenant_id, AdCampaign.ad_account_id.in_(acct_ids)))).scalars()}
+    _camps = list((await s.execute(select(AdCampaign).where(
+        AdCampaign.tenant_id == tenant_id, AdCampaign.ad_account_id.in_(acct_ids)))).scalars())
+    campaigns_by_name = {_norm(c.name): c for c in _camps}
+    campaigns_by_ext = {str(c.external_id): c for c in _camps if c.external_id}
 
     regs = list((await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id,
         MetricRecord.kind == "bc_shift_reg"))).scalars())
+
+    # ONE-TIME RE-DERIVATION, BEFORE the snapshot below reads the table.
+    #
+    # Channel grade used to be granted on utm_source alone, so organic Instagram traffic -
+    # utm_source=ig, utm_medium=social, no campaign - was credited against paid spend. Those rows
+    # are not stale, they are wrong: the launch classifier had already placed the same person
+    # outside Meta on the same row. Attribution is otherwise first-touch-frozen and insert-only,
+    # and rightly so; a row that should never have existed is a different thing from a row whose
+    # cohort day somebody wants to move.
+    #
+    # Their conversions go too. AdConversion points at the attribution, and leaving those behind
+    # would orphan rows that the funnel still counts.
+    #
+    # Ordering is not incidental: doing this AFTER the snapshot is exactly the bug that deleted
+    # four closes and never rebuilt them, because the cache still held what the table no longer
+    # did.
+    doomed = [a.id for a in (await s.execute(select(AdAttribution).where(
+        AdAttribution.tenant_id == tenant_id,
+        AdAttribution.match_method == MATCH_CHANNEL,
+        AdAttribution.channel != "Meta"))).scalars()]
+    if doomed:
+        await s.execute(sa_delete(AdConversion).where(
+            AdConversion.attribution_id.in_(doomed)))
+        await s.execute(sa_delete(AdAttribution).where(AdAttribution.id.in_(doomed)))
+        await s.commit()
+        print(f"[ads_attr] dropped {len(doomed)} channel-grade rows the launch classifier "
+              f"places outside Meta", flush=True)
 
     existing = {a.identity_key: a for a in (await s.execute(select(AdAttribution).where(
         AdAttribution.tenant_id == tenant_id,
@@ -137,7 +183,9 @@ async def sync_ad_attribution(s: AsyncSession, tenant_id) -> dict:
 
         utm = {"utm_source": meta.get("utm_source"), "utm_medium": meta.get("utm_medium"),
                "utm_campaign": meta.get("utm_campaign"), "utm_content": meta.get("utm_content")}
-        match = resolve_match(utm, ads_by_ext, campaigns_by_name)
+        match = resolve_match(utm, ads_by_ext, campaigns_by_name,
+                              channel=(meta.get("channel") or None),
+                              campaigns_by_ext=campaigns_by_ext)
         if match is None:
             stats["unattributed"] += 1
             continue
