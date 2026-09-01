@@ -19,7 +19,7 @@ import CreativeWall from "./CreativeWall.jsx";
 import DrillPanel from "./DrillPanel.jsx";
 import GroupingRules from "./GroupingRules.jsx";
 import Funnel from "./Funnel.jsx";
-import { API_BASE, getJSON } from "../api";
+import { API_BASE, getJSON, postJSON } from "../api";
 import { sampleAdsDrill } from "./sampleAds.js";
 import { qs, useAdsAccounts, useAdsCreatives, useAdsOverview } from "./useAds.js";
 
@@ -134,10 +134,27 @@ export default function AdsView() {
      of personal data than the click actually asked for. */
   const [drill, setDrill] = useState({ stage: null, label: null, data: null,
                                        loading: false, error: null });
+  const [recomputing, setRecomputing] = useState(false);
+  const [recomputeMsg, setRecomputeMsg] = useState(null);
 
   const accounts = useAdsAccounts();
   const { data, error, loading, retry } = useAdsOverview({ account, period, basis, campaign });
   const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 24 });
+
+  const recompute = async () => {
+    setRecomputing(true);
+    setRecomputeMsg(null);
+    try {
+      const r = await postJSON("/ads/recompute", {});
+      const n = r?.conversions?.written;
+      setRecomputeMsg(typeof n === "number" ? `Done — ${n} stage rows rebuilt.` : "Done.");
+      retry();                       // re-read the page against what was just derived
+    } catch (e) {
+      setRecomputeMsg(`Couldn't recompute: ${String(e?.message || e)}`);
+    } finally {
+      setRecomputing(false);
+    }
+  };
 
   /* Passes the SAME account, period, basis and campaign the page is showing. A drill that
      resolved its own window would open a different population than the figure that was clicked,
@@ -568,10 +585,27 @@ export default function AdsView() {
                 <strong>Last sync failed:</strong> {data.freshness.last_error}
               </div>
             )}
-            <div style={{ color: C.muted }}>
-              Last synced {data.freshness?.last_synced_at
-                ? new Date(data.freshness.last_synced_at).toLocaleString()
-                : "never"}.
+            <div style={{ color: C.muted, display: "flex", alignItems: "baseline", gap: 10,
+                          flexWrap: "wrap" }}>
+              <span>
+                Last synced {data.freshness?.last_synced_at
+                  ? new Date(data.freshness.last_synced_at).toLocaleString()
+                  : "never"}.
+              </span>
+              {/* The funnel re-derives on a nightly job, which is right for a system nobody is
+                  watching and wrong for the moment somebody CHANGES the enrolled definition -
+                  a stage map you can edit but cannot see the effect of until tomorrow morning
+                  is not really editable. */}
+              {API_BASE && (
+                <button type="button" onClick={recompute} disabled={recomputing}
+                        style={{ background: "none", border: "none", padding: 0,
+                                 font: "inherit", color: recomputing ? C.muted : C.accent,
+                                 cursor: recomputing ? "default" : "pointer",
+                                 textDecoration: "underline" }}>
+                  {recomputing ? "Recomputing the funnel…" : "Recompute the funnel now"}
+                </button>
+              )}
+              {recomputeMsg && <span style={{ color: C.slate }}>{recomputeMsg}</span>}
             </div>
           </div>
         </Card>

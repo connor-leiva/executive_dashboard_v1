@@ -272,3 +272,37 @@ async def test_the_launch_group_drill_says_where_each_person_came_from():
             await s.execute(sa_delete(MetricRecord).where(
                 MetricRecord.external_id.in_(("reg_sam", "opp_sam", "opp_dana"))))
             await s.commit()
+
+
+# ── recomputing on demand ─────────────────────────────────────────────────────────────
+async def test_recompute_re_derives_without_waiting_for_the_nightly_job():
+    """The scheduled job runs at 05:45. That is right for a system nobody is watching and wrong
+    for the moment somebody changes the enrolled definition - twice now a shipped change looked
+    like it had failed, because the funnel could not re-derive until the next morning.
+
+    A definition you can edit but cannot see the effect of until tomorrow is not editable.
+    """
+    acct = await _fixture()
+    tok = await _owner()
+    async with _client() as c:
+        r = await c.post("/api/v1/ads/recompute", headers=_H(tok))
+    assert r.status_code == 200
+    b = r.json()
+    assert b["ok"] is True
+    assert "attribution" in b and "conversions" in b
+
+
+async def test_recompute_is_owner_or_admin_only():
+    """It rewrites what every revenue figure on the tab is built on. Reading the tab is one
+    permission; re-deriving its foundation is another."""
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        u = User(tenant_id=t.id, email="norecompute@springb.com", name="nr",
+                 password_hash=hash_pw("x"), role="member", status="active",
+                 tab_access=["portfolio", "ads"], token_version=0)
+        s.add(u)
+        await s.commit()
+        tok = make_token(u.id, t.id, 0)
+    async with _client() as c:
+        r = await c.post("/api/v1/ads/recompute", headers=_H(tok))
+    assert r.status_code == 403

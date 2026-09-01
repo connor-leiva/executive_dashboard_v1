@@ -419,6 +419,32 @@ async def attach_account(body: dict, user: User = Depends(require_role("owner", 
     return {"id": str(acct.id), "external_id": acct.external_id, "repaired": False}
 
 
+@router.post("/ads/recompute")
+async def recompute(user: User = Depends(require_role("owner", "admin")),
+                    s: AsyncSession = Depends(get_session)):
+    """Re-derive attribution and the funnel stages for this workspace, now.
+
+    The scheduled job runs once a night at 05:45, deliberately: attribution reads the whole
+    registration table and re-running it every half hour would do nothing but read it
+    twenty-four times an hour. That cadence is right for a system nobody is watching and wrong
+    for the moment somebody CHANGES something.
+
+    The enrolled definition is the launch's stage_map, which is editable - and a definition you
+    can edit but cannot see the effect of until tomorrow morning is not really editable. Same for
+    a fresh Meta connection, where the first funnel would otherwise read zero overnight and look
+    broken. Owner or admin, because it rewrites what every revenue figure on the tab is built on.
+    """
+    from ..services.ads_funnel import sync_ad_attribution, sync_ad_conversions
+    attribution = await sync_ad_attribution(s, user.tenant_id)
+    # Conversions read the attribution rows written a moment ago, so the order is load-bearing
+    # rather than incidental.
+    conversions = await sync_ad_conversions(s, user.tenant_id)
+    audit(s, user.tenant_id, user.id, "ads.recomputed", "tenant", user.tenant_id,
+          {"attribution": attribution, "conversions": conversions})
+    await s.commit()
+    return {"ok": True, "attribution": attribution, "conversions": conversions}
+
+
 @router.get("/ads/drill/{metric}")
 async def drill(metric: str, account: str | None = Query(None), period: str = Query("30d"),
                 start: dt.date | None = None, end: dt.date | None = None,
