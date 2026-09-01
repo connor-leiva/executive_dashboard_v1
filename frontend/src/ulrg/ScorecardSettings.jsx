@@ -32,6 +32,18 @@ export default function ScorecardSettings({ groups, onClose, onChanged }) {
 function MeasurablesEditor({ onChanged }) {
   const [rows, setRows] = useState(null);       // [{metric_id, name, group, dirty}]
   const [state, setState] = useState("idle");
+  const [confirmId, setConfirmId] = useState(null);   // row awaiting a remove confirm
+  const [busy, setBusy] = useState(null);             // row currently removing
+
+  async function remove(metric_id) {
+    setBusy(metric_id);
+    try {
+      await patchJSON(`/ulrg/metric/${metric_id}`, { active: false });   // soft delete — history kept
+      setRows(rows.filter((r) => r.metric_id !== metric_id));
+      setConfirmId(null); setBusy(null);
+      onChanged && onChanged();                                          // refresh the scorecard grid
+    } catch (e) { setBusy(null); setState("error"); }
+  }
 
   useEffect(() => {
     // reuse the goals endpoint for the metric list (any period works — names aren't period-scoped)
@@ -56,7 +68,10 @@ function MeasurablesEditor({ onChanged }) {
   if (rows === null) return <div style={{ ..._label, marginTop: 18 }}>Loading measurables…</div>;
   return (
     <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
-      <div style={_label}>Measurables · names</div>
+      <div style={_label}>Measurables · rename or remove</div>
+      <div style={{ fontFamily: FB, fontSize: 11, color: C.muted, marginBottom: 8 }}>
+        Removing hides a row from the scorecard and keeps its history — an admin can restore it.
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
         {rows.map((r, i) => (
           <div key={r.metric_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -64,6 +79,18 @@ function MeasurablesEditor({ onChanged }) {
             <input value={r.name} aria-label="Measurable name"
                    onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, name: e.target.value, dirty: true } : x))}
                    style={{ ..._field, flex: "1 1 auto" }} />
+            {confirmId === r.metric_id ? (
+              <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                <button onClick={() => remove(r.metric_id)} disabled={busy === r.metric_id} aria-label={`Confirm remove ${r.name}`}
+                        style={{ ..._btn, padding: "4px 9px", fontSize: 11, color: C.poppy, borderColor: C.poppy }}>
+                  {busy === r.metric_id ? "…" : "Remove"}
+                </button>
+                <button onClick={() => setConfirmId(null)} style={{ ..._btn, padding: "4px 9px", fontSize: 11, color: C.muted }}>Cancel</button>
+              </span>
+            ) : (
+              <button onClick={() => setConfirmId(r.metric_id)} aria-label={`Remove ${r.name}`} title="Remove this row"
+                      style={{ flexShrink: 0, border: "none", background: "none", cursor: "pointer", color: C.slate, fontSize: 17, lineHeight: 1, padding: "0 6px" }}>×</button>
+            )}
           </div>
         ))}
       </div>

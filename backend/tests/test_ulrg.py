@@ -107,3 +107,27 @@ async def test_manual_kpis_are_self_serve_but_auto_rows_stay_admin_only():
         r = await c.post("/api/v1/ulrg/scorecard/values", headers=_H(outsider),
                          json={"metric_id": manual["id"], "week_start": "2026-07-27", "value": 7})
         assert r.status_code == 403
+
+
+async def test_remove_measurable_soft_deletes_and_is_admin_only():
+    owner = await _owner_token()
+    member = await _mk_user("row-remover@x.com", tabs=["ulrg"])
+    async with _client() as c:
+        overall = next(g for g in (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()["groups"]
+                       if g["key"] == "overall")
+        mid = next(r["id"] for r in overall["rows"] if r["measurable"] == "Database HealthScore")
+
+        # removing a row is a structural change → admin only (unlike editing a manual value)
+        r = await c.patch(f"/api/v1/ulrg/metric/{mid}", headers=_H(member), json={"active": False})
+        assert r.status_code == 403
+        # owner removes it → gone from the scorecard everywhere
+        r = await c.patch(f"/api/v1/ulrg/metric/{mid}", headers=_H(owner), json={"active": False})
+        assert r.status_code == 200
+        ids = {row["id"] for g in (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()["groups"]
+               for row in g["rows"]}
+        assert mid not in ids
+        # soft delete — restore brings it (and its history) back
+        assert (await c.patch(f"/api/v1/ulrg/metric/{mid}", headers=_H(owner), json={"active": True})).status_code == 200
+        ids = {row["id"] for g in (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()["groups"]
+               for row in g["rows"]}
+        assert mid in ids

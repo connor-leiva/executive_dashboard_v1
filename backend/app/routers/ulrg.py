@@ -250,28 +250,41 @@ async def group_photo(group_id: uuid.UUID, s: AsyncSession = Depends(get_session
     return Response(content=data, media_type=media_type, headers={"Cache-Control": "public, max-age=300"})
 
 
-# ── measurables (rename) — generic names so a static number never goes stale in the label ──────
+# ── measurables (rename / remove) — generic names so a static number never goes stale in the label ─
 class MetricPatch(BaseModel):
-    name: str
+    name: str | None = None
+    active: bool | None = None      # False removes the row from the scorecard (soft-delete; history kept)
 
 
 @router.patch("/metric/{metric_id}")
 async def edit_metric(metric_id: str, body: MetricPatch, user: User = Depends(current_user),
                       s: AsyncSession = Depends(get_session)):
-    """Rename a measurable (owner/admin), self-service — e.g. '130 Homes Sold Q2' → 'Total Homes
-    Sold (Current Quarter)'. Display only; auto-sourcing keys off resolver_key, not the name."""
+    """Edit a measurable (owner/admin), self-service. Rename — e.g. '130 Homes Sold Q2' → 'Total Homes
+    Sold (Current Quarter)' (display only; auto-sourcing keys off resolver_key, not the name). Remove —
+    `active=false` drops the row from the scorecard everywhere (build_scorecard + the goals editor
+    filter active); it's a SOFT delete, so the weekly history is kept and an admin can restore it by
+    setting active=true. A resolver-backed row simply stops being resolved while inactive."""
     _require_admin(user)
     m = (await s.execute(select(ScorecardMetric).where(
         ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.id == metric_id))).scalar_one_or_none()
     if m is None:
         raise HTTPException(404, "Unknown metric")
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(400, "Name required")
-    m.name = name[:160]
-    audit(s, user.tenant_id, user.id, "scorecard.metric_rename", "scorecard_metric", m.id, {"name": m.name})
+    changed = False
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "Name required")
+        m.name = name[:160]
+        audit(s, user.tenant_id, user.id, "scorecard.metric_rename", "scorecard_metric", m.id, {"name": m.name})
+        changed = True
+    if body.active is not None:
+        m.active = body.active
+        audit(s, user.tenant_id, user.id, "scorecard.metric_active", "scorecard_metric", m.id, {"active": body.active})
+        changed = True
+    if not changed:
+        raise HTTPException(400, "Nothing to update")
     await s.commit()
-    return {"ok": True, "name": m.name}
+    return {"ok": True, "name": m.name, "active": m.active}
 
 
 # ── measurement periods (Phase B) — the fiscal quarters live on tenant.config ──────────────────
