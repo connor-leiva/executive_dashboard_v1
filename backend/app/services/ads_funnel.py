@@ -32,7 +32,7 @@ from decimal import Decimal
 
 from ..models import (Ad, AdAccount, AdAttribution, AdCampaign, AdConversion, MetricRecord,
                       SalesCall)
-from .launch import SHIFT_SRC_CHANNEL
+from .launch import (PRICE_GHL, PRICE_NONE, SHIFT_SRC_CHANNEL, contract_prices)
 
 # Sources that mean Meta. Shared with classify_shift_source's vocabulary deliberately: one
 # definition of "this came from Meta", so the ads tab and the launch tab cannot disagree.
@@ -291,8 +291,9 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
     """For each attributed identity, the stages it has reached - from rows that already exist.
 
     Reads bc_shift_reg (registered), SalesCall (booked, held), and the classify_stage groups
-    already stored on bc_launch_opp for applied, committed AND CLOSED. bc_onboarded is consulted
-    only for the contract amount, never for who counts as enrolled.
+    already stored on bc_launch_opp for applied, committed AND CLOSED. The contract VALUE comes
+    from the launch's own price sheet (contract_prices); bc_onboarded is the last resort when
+    nothing has priced the person, and is never consulted for who counts as enrolled.
 
     A stage whose source carries no usable date is written dated=False: COUNTED in the funnel and
     excluded from every duration and from the curve fit. Counting it is honest; timing it is not.
@@ -332,10 +333,11 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
     existing = {(c.attribution_id, c.stage_key): c
                 for c in (await s.execute(select(AdConversion).where(
                     AdConversion.tenant_id == tenant_id))).scalars()}
-    stats = {"identities": len(attrs), "written": 0, "undated": 0, "by_stage": {}}
+    stats = {"identities": len(attrs), "written": 0, "undated": 0, "by_stage": {},
+             "priced": {}}
 
     def _put(attr, stage, day, source_kind, source_ref, contracted=None,
-             annualized=False, payment_type=None):
+             annualized=False, payment_type=None, upfront=None, value_source=None):
         row = existing.get((attr.id, stage))
         if row is None:
             row = AdConversion(tenant_id=tenant_id, attribution_id=attr.id,
@@ -349,10 +351,16 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
         row.dated = day is not None
         if day is None:
             stats["undated"] += 1
-        if contracted is not None:
+        # The money fields are assigned UNCONDITIONALLY, unlike the insert-only stage semantics
+        # above. Re-pricing is the whole point: the price sheet is tenant-editable, and an edit
+        # that could not reach the rows it prices would be an edit that silently did nothing.
+        # WHO is enrolled still never changes under anybody; only what we say they signed for.
+        if value_source is not None:
             row.value_contracted = contracted
-        row.value_annualized = annualized
-        row.payment_type = payment_type
+            row.value_upfront = upfront
+            row.value_source = value_source
+            row.value_annualized = annualized
+            row.payment_type = payment_type
 
     # registered.
     for r in (await s.execute(select(MetricRecord).where(
@@ -368,6 +376,12 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
     # while the POPULATION is decided by the stage group below. Two different questions:
     # "is this person enrolled" is the launch's definition, "what did they sign for" is a
     # number that happens to live on another row.
+    # The price sheet, resolved per opportunity ONCE. Keyed by the opp id the snapshot wrote,
+    # and priced against the launch that opp belongs to rather than whichever launch happens to
+    # be active today - an ads window can span two cohorts, and pricing an August enrollment off
+    # a November sheet would be a wrong number nobody could see.
+    prices = await contract_prices(s, tenant_id)
+
     onboarded_value: dict[str, MetricRecord] = {}
     for r in (await s.execute(select(MetricRecord).where(
             MetricRecord.tenant_id == tenant_id,
@@ -403,9 +417,7 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
             continue
         if meta.get("app_in"):
             _put(attr, "applied", r.occurred_on, "bc_launch_opp", r.external_id)
-        if meta.get("group") == "committed":
-            _put(attr, "committed", r.occurred_on, "bc_launch_opp", r.external_id)
-        if meta.get("group") == "enrolled":
+        if meta.get("group") in ("committed", "enrolled"):
             # ONE DEFINITION OF ENROLLED, and it is the launch tab's. This used to read
             # bc_onboarded, which is the `Won: Onboarded` EVENT - so the ads tab counted 4 of the
             # 13 people the launch tab called enrolled, and the nine sitting at "Onboarding Call
@@ -414,15 +426,47 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
             #
             # `group` is classified by classify_stage against the LAUNCH'S OWN stage_map, so
             # editing that map moves both tabs together and neither can drift.
-            pay = str(meta.get("payment_type") or "") or None
-            onb = onboarded_value.get(cid)
-            # None, never 0. A person enrolled by the pipeline with no contract amount recorded
-            # has an UNKNOWN value; writing zero would drag the average contract down and read
-            # as a free seat.
-            amount = onb.amount if (onb is not None and onb.amount) else None
-            contracted, annualized = _annualize(amount, pay)
-            _put(attr, "closed", r.occurred_on, "bc_launch_opp", r.external_id,
-                 contracted=contracted, annualized=annualized, payment_type=pay)
+            #
+            # ONE PRICE SHEET, likewise, and for the same reason. The contract value is now the
+            # launch's own acv for this person's payment type - the number the Launch tab prints
+            # - and only falls back to GHL's free-text opportunity amount when nothing has priced
+            # them. `value_source` says which, because a price sheet figure and a typed-in one
+            # must never look like the same fact.
+            priced = prices.get(str(r.external_id)) or {}
+            pay = priced.get("type") or (str(meta.get("payment_type") or "") or None)
+            if priced.get("acv") is not None:
+                contracted = Decimal(str(priced["acv"]))
+                upfront = (Decimal(str(priced["upfront"]))
+                           if priced.get("upfront") is not None else None)
+                annualized, vsrc = bool(priced.get("annualized")), priced["source"]
+            else:
+                # Nobody priced this person. GHL's amount is the last thing left, and for a
+                # financed member it is the down payment wearing a contract's label - so it is
+                # taken, and FLAGGED, rather than quietly promoted.
+                onb = onboarded_value.get(cid)
+                # None, never 0. A person the pipeline enrolled with no amount recorded anywhere
+                # has an UNKNOWN value; writing zero would drag the average contract down and
+                # read as a free seat.
+                amount = onb.amount if (onb is not None and onb.amount) else None
+                contracted, annualized = _annualize(amount, pay)
+                upfront = None
+                vsrc = PRICE_GHL if contracted is not None else PRICE_NONE
+            # Tallied per rung: a bare "3 priced" reads as three enrollments when it is two
+            # enrollments and a deposit.
+            grp_key = f"{meta.get('group')}:{vsrc}"
+            stats["priced"][grp_key] = stats["priced"].get(grp_key, 0) + 1
+            if meta.get("group") == "committed":
+                # Committed is cash received against an unsigned contract - the rung the funnel
+                # labels "Cash received". It carries the upfront, and deliberately NOT the acv:
+                # nothing is contracted until it is signed, and a value here would leak into any
+                # later sum over contracted revenue.
+                _put(attr, "committed", r.occurred_on, "bc_launch_opp", r.external_id,
+                     contracted=None, annualized=False, payment_type=pay,
+                     upfront=upfront, value_source=vsrc)
+            else:
+                _put(attr, "closed", r.occurred_on, "bc_launch_opp", r.external_id,
+                     contracted=contracted, annualized=annualized, payment_type=pay,
+                     upfront=upfront, value_source=vsrc)
 
     # collected - cash received against those contracts.
     #
@@ -432,14 +476,30 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
     # problem when it is a matching problem.
     matched_emails = 0
     collected: dict = {}
-    for p in (await s.execute(select(MetricRecord).where(
-            MetricRecord.tenant_id == tenant_id, MetricRecord.kind == "payment",
-            MetricRecord.status == "succeeded"))).scalars():
-        key = str(p.email or "").strip().lower()
-        if key and key in by_email:
-            collected[key] = collected.get(key, Decimal("0")) + Decimal(str(p.amount or 0))
+    # SCOPED TO THE BUSINESS THE ATTRIBUTION BOOKS TO. Without it this summed every succeeded
+    # payment row in the workspace against a matching email - so a member who is also on the
+    # Forum roster brought her Forum dues into the beCollective ads figure. Same tenant, same
+    # email, completely different programme.
+    biz_ids = {a.business_id for a in attrs.values() if a.business_id}
+    pay_rows = list((await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.kind == "payment",
+        MetricRecord.status == "succeeded",
+        MetricRecord.business_id.in_(biz_ids)))).scalars()) if biz_ids else []
+    for pay_row in pay_rows:
+        key = str(pay_row.email or "").strip().lower()
+        if not (key and key in by_email):
+            continue
+        # A refunded charge is not cash received. It is carried on every payment writer and was
+        # never subtracted, so a fully-refunded seat counted as collected in full.
+        net = Decimal(str(pay_row.amount or 0)) - Decimal(
+            str((pay_row.meta or {}).get("amount_refunded") or 0))
+        collected[key] = collected.get(key, Decimal("0")) + max(net, Decimal("0"))
     for email, total in collected.items():
-        row = existing.get((by_email[email].id, "closed"))
+        # Cash lands on whichever money rung this person has reached. Previously only `closed`
+        # was consulted, so the cash of everybody at "Cash received" - the rung that is BY
+        # DEFINITION people who have paid and not yet signed - was computed and then thrown away.
+        row = (existing.get((by_email[email].id, "closed"))
+               or existing.get((by_email[email].id, "committed")))
         if row is not None:
             row.value_collected = total
             matched_emails += 1
@@ -447,7 +507,8 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
     stats["collected_matched"] = matched_emails
     await s.commit()
     print(f"[ads_conv] {stats['written']} stage rows, {stats['undated']} undated, "
-          f"{matched_emails} with collected cash (by stage: {stats['by_stage']})", flush=True)
+          f"{matched_emails} with collected cash (by stage: {stats['by_stage']}; "
+          f"priced: {stats['priced']})", flush=True)
     return stats
 
 
@@ -505,8 +566,35 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
     n_closed = len(closes)
 
     contracted = sum(float(c.value_contracted or 0) for c in closes)
-    collected = sum(float(c.value_collected or 0) for c in closes)
     annualized_n = sum(1 for c in closes if c.value_annualized)
+
+    # CASH, over EVERYONE WHO HAS PAID - the same population the Launch tab's §9.4 cash line uses,
+    # and for the same reason it states there: "Committed IS paid by definition, so cash must
+    # include it." The ads tab summed `closed` only, so the money sitting on the rung LABELLED
+    # "Cash received" was excluded from the cash figure. Both rungs, one definition, both tabs.
+    # ONE ROW PER PERSON. Somebody carrying a committed row AND a closed row - an earlier
+    # opportunity the pipeline never cleared, or a stage that moved backwards - would otherwise
+    # be counted twice, once at each price. Closed wins: it is the later and stronger fact.
+    best: dict = {}
+    for c in closes + by_stage.get("committed", []):
+        cur = best.get(c.attribution_id)
+        if cur is None or (c.stage_key == "closed" and cur.stage_key != "closed"):
+            best[c.attribution_id] = c
+    paid = list(best.values())
+
+    # PER ROW, NEVER ALL-OR-NOTHING. Preferring the price sheet only when it had priced ANYBODY
+    # discarded every matched payment the moment one person was priced: one priced deposit of
+    # $5,000 beside twelve people carrying $90,000 of real, succeeded, refund-netted charges
+    # would have reported $5,000 and thrown the rest away, with nothing on screen to say so.
+    modelled = sum(float(c.value_upfront or 0) for c in paid)
+    measured = sum(float(c.value_collected or 0) for c in paid)
+    per_row = [(float(c.value_upfront), "upfront") if c.value_upfront is not None
+               else (float(c.value_collected or 0), "payments") for c in paid]
+    collected = sum(v for v, _ in per_row)
+    kinds = {k for v, k in per_row if v}
+    collected_source = "mixed" if len(kinds) > 1 else next(iter(kinds), None)
+    unpriced_closes = sum(1 for c in closes if c.value_contracted is None)
+    ghl_priced = sum(1 for c in closes if c.value_source == "ghl_amount")
 
     rungs = []
     prev = None
@@ -517,8 +605,17 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
         else:
             n = len(by_stage.get(key, []))
         dated = sum(1 for c in by_stage.get(key, []) if c.dated) if d.get("src") != "ads" else n
+        # The two money rungs carry their dollars. A rung called "Cash received" that shows only
+        # a headcount is the reader's job half done, and it is the figure the hero totals.
+        value = None
+        if key == "closed":
+            value = contracted or None
+        elif key == "committed":
+            value = sum(float(c.value_upfront) if c.value_upfront is not None
+                         else float(c.value_collected or 0)
+                         for c in by_stage.get(key, [])) or None
         rungs.append({
-            **d, "n": n, "prev": prev,
+            **d, "n": n, "prev": prev, "value": value,
             "conversion": conversion(n, prev) if prev is not None else None,
             "cost_per": cost_per(spend, n) if n else None,
             # A stage is only ever TIMED on the rows that carry a date. Reported so the reader
@@ -535,6 +632,12 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
     # AND changing the definition in one step compares two different things. This read
     # bc_onboarded while the rung read the stage group, which on live data was 64 against 13 -
     # a blended CAC five times too flattering, sitting beside the attributed one as its check.
+    #
+    # And it can legitimately be EMPTY for a past window: bc_launch_opp is delete-then-insert per
+    # BUSINESS, not per launch, so the table only ever holds the currently active launch's
+    # opportunities. Asking it about last quarter returns nothing, which is a missing denominator
+    # and not a zero - the payload says which, so the UI can decline to show a blended figure
+    # rather than show a wrong one.
     all_closes = [r for r in (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.kind == "bc_launch_opp",
         MetricRecord.occurred_on >= start, MetricRecord.occurred_on <= end))).scalars()
@@ -554,6 +657,17 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
             "roas_projected": None,
             "annualized_closes": annualized_n,
             "collected_join": "email",
+            # How the cash figure was arrived at, and both readings of it. "upfront" is the
+            # price sheet's due-at-signing; "payments" is succeeded charges matched by email.
+            "collected_source": collected_source,
+            "collected_modelled": modelled,
+            "collected_measured": measured,
+            "cash_people": len(paid),
+            "committed_people": len(by_stage.get("committed", [])),
+            # Enrollments the price sheet could not price. Surfaced rather than swallowed,
+            # because they read as a smaller contracted total and not as missing configuration.
+            "unpriced_closes": unpriced_closes,
+            "ghl_priced_closes": ghl_priced,
         },
         "cac": {
             "attributed": _cac(spend, n_closed),
@@ -562,6 +676,9 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
                              "to an ad. Always lower, and never the ads number.",
             "attributed_closes": n_closed,
             "all_closes": len(all_closes),
+            # False when the window predates the launch whose opportunities the table holds:
+            # there is no population to blend against, which is not the same as nobody enrolling.
+            "blended_available": bool(all_closes) or n_closed == 0,
         },
         "unattributed": {
             "closes": max(0, len(all_closes) - n_closed),

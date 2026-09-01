@@ -42,9 +42,12 @@ export default function Funnel({ rungs, spend, onDrill }) {
         @media (prefers-reduced-motion: reduce) { .fn-bar { transition: none; } }
         .fn-row { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 12px; }
         .fn-figs { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+        .fn-figs.has-value { grid-template-columns: repeat(4, minmax(0,1fr)); }
         .fn-open:hover, .fn-open:focus-visible { text-decoration-color: ${C.accent}; }
         .fn-open:focus-visible { outline: 2px solid ${C.accent}; outline-offset: 3px; }
-        @media (max-width: 560px) { .fn-figs { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+        @media (max-width: 560px) {
+          .fn-figs, .fn-figs.has-value { grid-template-columns: repeat(2, minmax(0,1fr)); }
+        }
       `}</style>
 
       {rungs.map((r, i) => {
@@ -163,8 +166,18 @@ export default function Funnel({ rungs, spend, onDrill }) {
                   </div>
                 )}
 
-                <div className="fn-figs" style={{ marginTop: 7 }}>
+                {/* The two money rungs carry their dollars. A rung called "Cash received" that
+                    shows only a headcount leaves the reader to guess the amount, and the guess is
+                    what the hero is now totalling. The other rungs get no money column at all
+                    rather than an em dash, because there is no dollar figure an impression could
+                    ever have. */}
+                <div className={`fn-figs${r.value ? " has-value" : ""}`}
+                     style={{ marginTop: 7 }}>
                   <Fig label="count" value={compact(r.n)} />
+                  {r.value ? (
+                    <Fig label={r.key === "closed" ? "contracted" : "cash"}
+                         value={usd(r.value, 0)} />
+                  ) : null}
                   <Fig label="from previous"
                        value={r.conversion === null || r.conversion === undefined
                          ? "—" : pct(r.conversion, 1)} />

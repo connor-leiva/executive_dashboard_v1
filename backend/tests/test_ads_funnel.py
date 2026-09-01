@@ -308,7 +308,8 @@ async def test_enrolled_uses_the_launch_stage_group_not_the_onboarded_event():
             channel="Meta", first_seen_on=day, last_seen_on=day)
         s.add(attr)
         # In the enrolled GROUP, but with no bc_onboarded record anywhere - the exact shape of
-        # the person who exposed this.
+        # the person who exposed this. No launch_id either, so nothing prices her: this is the
+        # UNPRICED case. The priced one lives in test_ads_contract_value.py.
         s.add(MetricRecord(
             tenant_id=t.id, business_id=biz.id, source="ghl", kind="bc_launch_opp",
             name="Midstage Mary", external_id="opp_midstage", occurred_on=day,
@@ -327,9 +328,11 @@ async def test_enrolled_uses_the_launch_stage_group_not_the_onboarded_event():
         assert closed, "somebody in the launch's enrolled group did not reach the closed rung"
         assert closed[0].source_kind == "bc_launch_opp", \
             "closed must be written from the stage group, not the onboarded event"
-        # No contract amount exists for her, and UNKNOWN is not zero - writing zero would drag
-        # the average contract down and read as a free seat.
+        # No contract amount exists for her anywhere - no price sheet reaches her and no GHL
+        # amount was ever typed - and UNKNOWN is not zero. Writing zero would drag the average
+        # contract down and read as a free seat.
         assert closed[0].value_contracted is None
+        assert closed[0].value_source == "unpriced",             "an unpriced row must SAY it is unpriced, or a null reads as a data gap"
     finally:
         from sqlalchemy import delete as sa_delete
         async with SessionLocal() as s:

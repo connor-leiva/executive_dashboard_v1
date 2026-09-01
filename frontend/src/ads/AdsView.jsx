@@ -20,7 +20,8 @@ import DrillPanel from "./DrillPanel.jsx";
 import GroupingRules from "./GroupingRules.jsx";
 import Funnel from "./Funnel.jsx";
 import { API_BASE, getJSON, postJSON } from "../api";
-import { Fig as ChromeFig, Hero, IconFilters, Icon, Kicker, Section as ChromeSection,
+import { cashNote, Fig as ChromeFig, Hero, IconFilters, Icon, Kicker,
+         Section as ChromeSection,
          Source } from "./AdsChrome.jsx";
 import { adsCss } from "./adsStyles.js";
 import { sampleAdsDrill } from "./sampleAds.js";
@@ -359,8 +360,8 @@ export default function AdsView() {
             </a>
           ))}
           <span className="railsum">
-            <b>{data.revenue ? usd(data.revenue.contracted) : "—"}</b> contracted on{" "}
-            {usd(t.spend)}
+            <b>{data.revenue ? usd(data.revenue.contracted) : "—"}</b> contracted ·{" "}
+            <b>{data.revenue ? usd(data.revenue.collected) : "—"}</b> cash on {usd(t.spend)}
           </span>
         </div>
       </nav>
@@ -407,10 +408,10 @@ export default function AdsView() {
         <div style={{ marginTop: 14 }}>
           <Card pad={20}>
             <div className="ads-grid">
-              <Stat label="Contracted" note="what the campaign produced">
+              <Stat label="Contracted" note="signed value of every enrollment traced to Meta">
                 <Fig lead="$" value={compact(data.revenue.contracted).replace("$", "")} />
               </Stat>
-              <Stat label="Collected" note={`cash in · joined by ${data.revenue.collected_join}`}>
+              <Stat label="Cash received" note={cashNote(data.revenue)}>
                 <Fig lead="$" value={compact(data.revenue.collected).replace("$", "")} />
               </Stat>
               <Stat label="Projected" note="suppressed — no curve fitted">
@@ -433,8 +434,24 @@ export default function AdsView() {
             {data.cac && (
               <p style={{ fontSize: 12, color: C.slate, margin: "14px 0 0", lineHeight: 1.6,
                           maxWidth: 720 }}>
-                <strong style={{ color: C.ink }}>Blended is {usd(data.cac.blended)}.</strong>{" "}
-                {data.cac.blended_label}
+                {/* bc_launch_opp holds only the ACTIVE launch's opportunities, so a window
+                    before that launch has no population to blend against. No denominator and
+                    nobody enrolling look identical as a dash, so the payload separates them and
+                    so does this. */}
+                {data.cac.blended_available === false ? (
+                  <strong style={{ color: C.ink }}>
+                    No blended figure for this window — the launch pipeline holds only the
+                    current cohort, so there is no all-enrollments denominator to compare
+                    against. That is a missing number, not a zero.
+                  </strong>
+                ) : (
+                  <>
+                    <strong style={{ color: C.ink }}>
+                      Blended is {usd(data.cac.blended)}.
+                    </strong>{" "}
+                    {data.cac.blended_label}
+                  </>
+                )}
                 {data.unattributed?.closes > 0 && (
                   <> {" "}{num(data.unattributed.closes)} enrollment
                     {data.unattributed.closes === 1 ? "" : "s"} in this window trace to no ad at
@@ -444,6 +461,20 @@ export default function AdsView() {
                   <> {" "}{num(data.revenue.annualized_closes)} rolling monthly membership
                     {data.revenue.annualized_closes === 1 ? " is" : "s are"} annualized at twelve
                     months — a modelling choice, not a signed number.</>
+                )}
+                {/* Where the contract values came from. An enrollment nothing has priced reads
+                    as a smaller total, not as missing configuration, unless the page says so. */}
+                {data.revenue.ghl_priced_closes > 0 && (
+                  <> {" "}{num(data.revenue.ghl_priced_closes)} contract
+                    {data.revenue.ghl_priced_closes === 1 ? " value comes" : " values come"} from
+                    the GHL opportunity amount rather than the launch price sheet — for a financed
+                    member that figure is the deposit, so it understates.</>
+                )}
+                {data.revenue.unpriced_closes > 0 && (
+                  <> {" "}{num(data.revenue.unpriced_closes)} enrollment
+                    {data.revenue.unpriced_closes === 1 ? " carries" : "s carry"} no contract value
+                    at all — unknown, which is not zero. Setting their Payment Type on the Sales
+                    Desk brings them into this total.</>
                 )}
               </p>
             )}

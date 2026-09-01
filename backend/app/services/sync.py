@@ -733,7 +733,9 @@ async def snapshot_launch_opps(s: AsyncSession, tenant_id, biz, opps: list[dict]
                                financed_contacts: set, location_id: str = "",
                                today: dt.date | None = None) -> int:
     """Section 7 — snapshot the active launch's opportunities into bc_launch_opp records
-    (delete-then-insert, scoped by meta.launch_id) + upsert this ISO week's LaunchWeekly.
+    (delete-then-insert per BUSINESS, so the table only ever holds the ACTIVE launch's opps —
+    meta.launch_id records which launch that was, it does not scope the delete) + upsert this
+    ISO week's LaunchWeekly.
     Read-only against GHL; classification is stage_map-driven (no stage literals here).
     Returns the number of launch-opp records written (0 when no active launch)."""
     from .launch import active_launch_for, classify_stage, classify_payment

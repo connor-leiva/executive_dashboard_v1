@@ -27,6 +27,14 @@ from .ads_funnel import ACUMYN_STAGES, FUNNEL_DEFS
 # it means "nobody did this" or "we do not record this".
 STAGE_LABELS = {d["key"]: d["label"] for d in FUNNEL_DEFS["program"]}
 
+# How the contract value was arrived at. A price sheet figure and a number somebody typed into a
+# GHL opportunity are not the same kind of fact, so the drill says which one each row is.
+_SRC_LABEL = {"price_map": "price sheet", "ticket": "launch ticket price",
+              "ghl_amount": "GHL amount", "unpriced": "not priced"}
+# The ticket rung cannot tell Financed from Monthly - the snapshot collapses both into
+# "plan" - so it emits the honest "Plan" rather than picking one.
+_PAY_LABEL = {"pif": "PIF", "plan": "Plan", "custom": "Custom", "Plan": "Plan"}
+
 
 def _identity_rows(recs: list[MetricRecord]) -> dict[str, MetricRecord]:
     """contact_id -> the record carrying the best identity for it."""
@@ -97,17 +105,31 @@ async def drill_ads(s: AsyncSession, tenant_id, acct, metric: str, start, end,
             "reached": c.occurred_on.isoformat() if c.occurred_on else "undated",
             "url": rec.source_url if rec else None,
         }
-        if stage == "closed":
+        if stage in ("closed", "committed"):
+            # THREE DIFFERENT FACTS, never merged. What they signed for, what the price sheet
+            # says was due at signing, and what we can actually match in the payment records.
+            # Collapsing them is how a cash figure ended up wearing a contract's label.
+            row["payment"] = _PAY_LABEL.get(c.payment_type, c.payment_type or "—")
             row["value"] = (f"{float(c.value_contracted):,.0f}"
                             if c.value_contracted is not None else "—")
+            row["upfront"] = (f"{float(c.value_upfront):,.0f}"
+                              if c.value_upfront is not None else "—")
+            row["cash"] = (f"{float(c.value_collected):,.0f}"
+                           if c.value_collected is not None else "—")
+            row["priced"] = _SRC_LABEL.get(c.value_source, "not priced")
         rows.append(row)
 
     # Newest first: somebody opening Enrolled wants the most recent two, not the oldest.
     rows.sort(key=lambda r: (r["reached"] == "undated", r["reached"]), reverse=True)
 
     columns = ["name", "email", "campaign", "match", "first_seen", "reached", "url"]
-    if stage == "closed":
-        columns.insert(4, "value")
+    if stage in ("closed", "committed"):
+        for i, col in enumerate(("payment", "value", "upfront", "cash", "priced")):
+            columns.insert(4 + i, col)
+    if stage == "committed":
+        # Nothing is contracted until it is signed. The column would be empty by construction,
+        # and an empty column reads as missing data rather than as a stage that has none.
+        columns.remove("value")
 
     basis_note = ("counted where the stage was REACHED in this window"
                   if basis == "period" else

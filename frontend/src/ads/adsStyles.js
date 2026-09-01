@@ -73,6 +73,25 @@ export const adsCss = () => `
 .adsx .hroas em { font-style:normal; font-size:var(--a-small); font-weight:500; color:${C.onDarkMute}; }
 .adsx .hline { font-size:var(--a-body); color:${C.onDarkMute}; margin-top:12px; }
 
+/* TWO TOTALS, NOT ONE. A financed enrollment contracts the full plan price and puts a deposit
+   down; a hero that headlines either one alone is wrong in a direction. They sit side by side
+   with a rule between them, sized so the hierarchy still reads - contracted is the headline,
+   cash received is the check on it - and they stack rather than shrink below 640px, where two
+   52px figures on a 343px content box would collide. */
+.adsx .hduo { display:flex; align-items:flex-start; gap:22px; margin-top:14px; flex-wrap:wrap; }
+.adsx .hduo .heronum { margin-top:4px; }
+.adsx .hduo .hsplit { align-self:stretch; width:1px; background:rgba(248,245,242,.2); }
+.adsx .hfig { min-width:0; }
+.adsx .hfig.alt .heronum { font-size:var(--a-xl); color:${C.onDarkMute}; }
+.adsx .hflab { display:block; font-family:Poppins,sans-serif; font-size:var(--a-micro);
+  font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:${C.onDarkMute}; }
+.adsx .hfsub { font-size:var(--a-small); color:${C.onDarkMute}; margin-top:6px; display:block; }
+@media (max-width:640px) {
+  .adsx .hduo { gap:14px; }
+  .adsx .hduo .hsplit { display:none; }
+  .adsx .hfig { flex:1 1 100%; }
+}
+
 .adsx .lenses { display:flex; flex-direction:column; border:1px solid rgba(248,245,242,.16);
   border-radius:12px; overflow:hidden; background:rgba(248,245,242,.04); }
 .adsx .lhead { padding:8px 14px; border-bottom:1px solid rgba(248,245,242,.14);
@@ -82,6 +101,7 @@ export const adsCss = () => `
   gap:3px 12px; padding:11px 14px; border-top:1px solid rgba(248,245,242,.1); }
 .adsx .lens:nth-of-type(2) { border-top:none; }
 .adsx .lens.on { background:rgba(248,245,242,.12); box-shadow:inset 3px 0 0 ${C.sprout}; }
+.adsx .lens.on + .lens.on { border-top-color:rgba(248,245,242,.3); }
 .adsx .llab { display:inline-flex; align-items:center; gap:7px; font-family:Poppins,sans-serif;
   font-size:var(--a-micro); font-weight:700; letter-spacing:.12em; text-transform:uppercase;
   color:${C.onDarkMute}; }

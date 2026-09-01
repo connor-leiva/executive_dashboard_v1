@@ -67,6 +67,24 @@ export function Fig({ v }) {
 
 export const Source = ({ name }) => <span className="src">{name}</span>;
 
+/* WHERE THE CASH FIGURE CAME FROM, said out loud. "upfront" is the launch price sheet's
+   due-at-signing, modelled; "payments" is succeeded charges matched by email, measured. They are
+   different kinds of fact and the difference changes what you do about a low number - a
+   collections problem and a matching problem look identical as a dollar amount. */
+export function cashNote(rev) {
+  if (!rev) return "cash received to date";
+  const n = rev.cash_people || 0;
+  const who = `${n} ${n === 1 ? "person" : "people"} who have paid`;
+  if (rev.collected_source === "upfront") {
+    return `due at signing across ${who}, from the launch price sheet`;
+  }
+  if (rev.collected_source === "payments") {
+    return `matched in the payment records for ${who}, joined by ${rev.collected_join}`;
+  }
+  return "no cash matched yet — no price sheet and no payment rows";
+}
+
+
 export const Kicker = ({ children, extra }) => (
   <div className="kick"><span className="klead"><i />{children}</span>{extra}</div>
 );
@@ -85,16 +103,23 @@ export function Section({ id, n, title, lede, children }) {
   );
 }
 
-/* The hero: spend, and what it contracted.
+/* The hero: spend, and what it bought - as TWO totals, because one is always a lie.
  *
- * THREE REVENUE LENSES, NEVER ONE. A financed enrollment contracts $14,000 and collects $1,167
- * in month one; reporting either alone is a lie in one direction or the other. They sit in one
- * instrument with three readings rather than three floating cards, and the lens the headline
- * figure comes from says which it is.
+ * A financed enrollment CONTRACTS the full plan price and puts a deposit down. Headline the
+ * contract alone and the tab claims cash the business does not have; headline the cash alone and
+ * a $14,000 member looks like a $5,000 one. So both stand at the top, contracted as the headline
+ * and cash received as the check on it, with the rule between them saying they are two readings
+ * and not two parts of a sum. They must never be added.
  *
- * Projected is the third reading and it is SUPPRESSED until a cohort curve has been fitted. The
- * row still renders, saying so - deleting it would hide that a third lens exists, and filling it
- * with an estimate would be worse, because a guessed projection looks exactly like a measured one.
+ * The cash figure spans EVERYONE WHO HAS PAID - the Cash received rung as well as the Enrolled
+ * one - which is the same population the Launch tab's cash line uses, and for the reason stated
+ * there: committed IS paid by definition. `collected_source` says whether it came from the price
+ * sheet or from matched payment records, because those are different kinds of fact.
+ *
+ * THREE REVENUE LENSES BELOW, NEVER ONE. Projected is the third reading and it is SUPPRESSED
+ * until a cohort curve has been fitted. The row still renders, saying so - deleting it would hide
+ * that a third lens exists, and filling it with an estimate would be worse, because a guessed
+ * projection looks exactly like a measured one.
  */
 export function Hero({ data, adCount }) {
   const t = data.totals || {};
@@ -103,38 +128,61 @@ export function Hero({ data, adCount }) {
   const mat = data.maturity || null;
   const fitted = !!(mat && mat.fitted);
 
+  // Which lenses the headline is showing. Derived, not hard-coded: the "shown left" chip is a
+  // claim about this component's own layout, and a literal would go stale the moment it moved.
+  const shown = new Set(["Collected", "Contracted"]);
   const lenses = [
-    { l: "Collected", v: rev?.collected, r: rev?.roas_collected, note: "cash received to date" },
-    { l: "Contracted", v: rev?.contracted, r: rev?.roas_contracted, note: "signed contract value",
-      on: true },
+    { l: "Collected", v: rev?.collected, r: rev?.roas_collected,
+      note: cashNote(rev) },
+    { l: "Contracted", v: rev?.contracted, r: rev?.roas_contracted,
+      note: "signed contract value, priced off the launch" },
     { l: "Projected", v: fitted ? rev?.projected : null, r: fitted ? rev?.roas_projected : null,
       note: fitted
         ? `+${mat.expected_additional} expected from the cohort still in flight`
         : "no cohort curve fitted yet — nothing to project from" },
-  ];
+  ].map((x) => ({ ...x, on: shown.has(x.l) }));
 
   return (
     <div className="hero">
       <img className="sigmark" src={ASSET.sig} alt="" aria-hidden />
       <div className="hgrid">
         <div className="hleft">
-          <div className="eyebrow">Contracted from {usd(t.spend)} of spend</div>
-          <div className="heronum">
-            <Fig v={rev ? usd(rev.contracted) : "—"} />
-          </div>
-          <div className="hroas">
-            <b><Fig v={rev ? mult(rev.roas_contracted) : "—"} /></b>
-            <em>return on ad spend</em>
+          <div className="eyebrow">From {usd(t.spend)} of spend</div>
+          <div className="hduo">
+            <div className="hfig">
+              <span className="hflab">Contracted · enrolled</span>
+              <div className="heronum">
+                <Fig v={rev ? usd(rev.contracted) : "—"} />
+              </div>
+              <div className="hroas">
+                <b><Fig v={rev ? mult(rev.roas_contracted) : "—"} /></b>
+                <em>return on ad spend</em>
+              </div>
+            </div>
+            <i className="hsplit" />
+            <div className="hfig alt">
+              <span className="hflab">Cash received</span>
+              <div className="heronum">
+                <Fig v={rev ? usd(rev.collected) : "—"} />
+              </div>
+              <span className="hfsub">{cashNote(rev)}</span>
+            </div>
           </div>
           <div className="hline">
             {cac
               ? `${cac.attributed_closes} enrollment${cac.attributed_closes === 1 ? "" : "s"} traced to Meta at ${usd(cac.attributed)} each`
               : "No funnel for this entity"}
             {" · "}{(data.campaigns || []).length} campaigns, {adCount} ads
+            {rev?.unpriced_closes > 0 && (
+              <> {" · "}<b style={{ color: C.flagText }}>
+                {rev.unpriced_closes} enrollment{rev.unpriced_closes === 1 ? " has" : "s have"} no
+                price — set their Payment Type to bring them into the contracted total
+              </b></>
+            )}
           </div>
         </div>
         <div className="lenses">
-          <div className="lhead">The same spend, three ways</div>
+          <div className="lhead">The same spend, {["one", "two", "three", "four"][lenses.length - 1] || lenses.length} ways</div>
           {lenses.map((x) => (
             <div key={x.l} className={`lens${x.on ? " on" : ""}`}>
               <span className="llab">{x.l}{x.on ? <em>shown left</em> : null}</span>

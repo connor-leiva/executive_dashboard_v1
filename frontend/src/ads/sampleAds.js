@@ -99,20 +99,25 @@ export const sampleAdsOverview = {
     { key: "held", label: "Call held", zone: "acumyn", n: 58, prev: 71,
       conversion: (58 / 71) * 100, cost_per: SPEND / 58, dated: 46, undated: 12 },
     { key: "committed", label: "Cash received", zone: "acumyn", n: 19, prev: 58,
-      conversion: (19 / 58) * 100, cost_per: SPEND / 19, dated: 19, undated: 0 },
+      conversion: (19 / 58) * 100, cost_per: SPEND / 19, dated: 19, undated: 0, value: 95000 },
     { key: "closed", label: "Enrolled", zone: "acumyn", closes: true, n: 14, prev: 19,
-      conversion: (14 / 19) * 100, cost_per: SPEND / 14, dated: 14, undated: 0 },
+      conversion: (14 / 19) * 100, cost_per: SPEND / 14, dated: 14, undated: 0, value: 174000 },
   ],
   revenue: {
-    contracted: 174000, collected: 41200, projected: null,
-    roas_contracted: 174000 / SPEND, roas_collected: 41200 / SPEND, roas_projected: null,
+    // TWO TOTALS. Contracted is signed value over the enrolled; cash is due-at-signing over
+    // everyone who has paid, which is the committed rung as well - 19 + 14 = 33 people.
+    contracted: 174000, collected: 118500, projected: null,
+    roas_contracted: 174000 / SPEND, roas_collected: 118500 / SPEND, roas_projected: null,
     annualized_closes: 2, collected_join: "email",
+    collected_source: "upfront", collected_modelled: 118500, collected_measured: 41200,
+    cash_people: 33, committed_people: 19,
+    unpriced_closes: 1, ghl_priced_closes: 2,
   },
   cac: {
     attributed: SPEND / 14, blended: SPEND / 34,
     blended_label: "Blended - every enrollment in the window, not only those traced to an ad. " +
       "Always lower, and never the ads number.",
-    attributed_closes: 14, all_closes: 34,
+    attributed_closes: 14, all_closes: 34, blended_available: true,
   },
   unattributed: {
     closes: 20,
@@ -201,7 +206,7 @@ export const sampleAdsGrouping = {
    BOTH shapes: a stage with people, and the "we do not record this" note that distinguishes a
    real zero from an unrecorded one. */
 export function sampleAdsDrill(stage, label) {
-  if (stage === "applied" || stage === "committed") {
+  if (stage === "applied") {
     return {
       metric: `funnel.${stage}`, type: "records", title: label, count: 0,
       subtitle: "0 at this stage · counted where the person was FIRST SEEN in this window",
@@ -212,15 +217,24 @@ export function sampleAdsDrill(stage, label) {
     };
   }
   const cols = stage === "closed"
-    ? ["name", "email", "campaign", "match", "value", "first_seen", "reached", "url"]
+    ? ["name", "email", "campaign", "match", "payment", "value", "upfront", "cash", "priced",
+       "first_seen", "reached", "url"]
     : ["name", "email", "campaign", "match", "first_seen", "reached", "url"];
+  // The financed row is the whole point: she CONTRACTED 14,000 and put 5,000 down. Before this,
+  // the deposit was what the Contracted column showed - or nothing at all.
   const rows = [
     { name: "Dana Whitfield", email: "dana@example.com", campaign: "KB - The Shift - August2026",
-      match: "campaign", value: "12,000", first_seen: "2026-08-04", reached: "2026-08-19",
+      match: "campaign", payment: "Financed", value: "14,000", upfront: "5,000", cash: "5,000",
+      priced: "price sheet", first_seen: "2026-08-04", reached: "2026-08-19",
       url: "https://example.test/contact/1" },
     { name: "Marcus Alvey", email: "marcus@example.com", campaign: "KB - The Shift - August2026",
-      match: "campaign", value: "12,000", first_seen: "2026-08-02", reached: "2026-08-15",
+      match: "campaign", payment: "PIF", value: "12,000", upfront: "12,000", cash: "12,000",
+      priced: "price sheet", first_seen: "2026-08-02", reached: "2026-08-15",
       url: "https://example.test/contact/2" },
+    { name: "Robin Nkemdi", email: "robin@example.com", campaign: "KB - The Shift - August2026",
+      match: "campaign", payment: "Custom", value: "9,500", upfront: "—", cash: "—",
+      priced: "GHL amount", first_seen: "2026-08-06", reached: "2026-08-21",
+      url: "https://example.test/contact/3" },
   ];
   return {
     metric: `funnel.${stage}`, type: "records", title: label, count: rows.length,

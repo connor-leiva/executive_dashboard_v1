@@ -9,7 +9,7 @@ from collections import Counter
 
 from sqlalchemy import select
 
-from ..models import Launch, LaunchWeekly, MetricRecord
+from ..models import Launch, LaunchWeekly, MetricRecord, SalesCall
 
 # Product structure (in code — the executive model Acumyn imposes, same for every tenant).
 # The five accountable groups; each boundary is a different owner + lever (Section 1).
@@ -292,6 +292,111 @@ async def collected_cash(s, tenant_id, launch: Launch, enrolled_split) -> dict:
     pif, plan = enrolled_split["pif"], enrolled_split["plan"]
     collected = pif * _f(launch.ticket_pif) + plan * (_f(launch.ticket_plan) / max(1, launch.plan_installments))
     return {"collected": round(collected), "source": "estimate"}
+
+
+# ── Per-person contract pricing (SPEC-becollective-salesdesk §5, SPEC-ads-module §9.3) ────────
+#
+# ONE PRICE SHEET, READ THE SAME WAY EVERYWHERE. The Launch tab prices a GROUP
+# (sum(acv x count) in _price_group); the ads funnel needs the same answer for ONE PERSON, so
+# both now read this ladder rather than each inventing an amount.
+#
+# The bug this exists to kill: the ads tab took its contract value from the bc_onboarded
+# record's `amount`, which is GHL's opportunity monetaryValue. For a PIF member that happens to
+# equal the contract. For a financed member it is the DOWN PAYMENT - and for anyone still at
+# "Onboarding Call Attended" there is no bc_onboarded record at all, so the value was null.
+# On the live August cohort that meant 3 of 5 traced enrollments carried no contract value and
+# the two that did were the two who had paid in full. Cash collected, reported as contracted.
+PRICE_MAP, PRICE_TICKET, PRICE_GHL, PRICE_NONE = "price_map", "ticket", "ghl_amount", "unpriced"
+
+# The legacy two-value field the snapshot writes ("pif" | "plan" | "custom") against the
+# four-type price sheet. "plan" cannot be resolved to Financed vs Monthly - that distinction
+# only exists on the Sales Desk's logged Payment Type - so it prices off ticket_plan, which is
+# exactly what the Launch tab's own legacy fallback (_priced) uses. The two cannot drift.
+_LEGACY_TO_FOUR = {"pif": "PIF"}
+
+
+def _price_row(pm: dict, four: str | None) -> dict | None:
+    """One entry of the price sheet, or None when the type is absent or deliberately unpriced
+    (Custom carries acv=None on purpose: it means negotiated, not free)."""
+    row = (pm or {}).get(four or "") or {}
+    return row if row.get("acv") is not None else None
+
+
+async def contract_prices(s, tenant_id) -> dict[str, dict]:
+    """{opportunity_external_id: {acv, upfront, type, source, annualized}} for every launch opp.
+
+    THE LADDER, strictest first. Each rung is a different quality of answer and the row says
+    which one it came from, because a modelled price and a signed one must never be presented
+    as the same fact:
+
+      1. price_map + the Sales Desk's four-type Payment Type    -> the price sheet, exact type
+      2. price_map + the legacy "pif"                           -> the price sheet, PIF
+      3. ticket_pif / ticket_plan + the legacy "pif" | "plan"   -> the launch's two-price model
+      4. (nothing here)                                          -> the caller may fall back to
+         the GHL amount, and must flag it
+
+    Rung 3 is where a financed member finally gets a contract value instead of a null, and it is
+    the rung the Launch tab has always used when Payment Type is not logged.
+
+    NOT launch-scoped. Every launch in the workspace is loaded and each opp is priced against
+    the launch ITS OWN snapshot recorded in meta["launch_id"], never against whichever launch is
+    active today. In practice bc_launch_opp is delete-then-insert per business, so it holds one
+    launch's opps at a time and the distinction rarely bites - but the ads funnel is windowed,
+    not launch-scoped, and pricing an August enrollment off a November sheet would be a silent
+    wrong number. Reading the launch off the row costs nothing and cannot go wrong later.
+    """
+    from .sales_desk import PAYMENT_TYPES
+
+    launches = {str(x.id): x for x in (await s.execute(select(Launch).where(
+        Launch.tenant_id == tenant_id))).scalars()}
+    if not launches:
+        return {}
+
+    # The Sales Desk's logged Payment Type is the AUTHORITY on how a member pays - the same
+    # source payment_counts_by_group reads for the Launch tab's ARR.
+    four_by_opp = {c.opportunity_id: c.payment_type for c in
+                   (await s.execute(select(SalesCall).where(
+                       SalesCall.tenant_id == tenant_id,
+                       SalesCall.is_current.is_(True)))).scalars()
+                   if c.payment_type in PAYMENT_TYPES}
+
+    out: dict[str, dict] = {}
+    for r in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id,
+            MetricRecord.kind == "bc_launch_opp"))).scalars():
+        meta = r.meta or {}
+        launch = launches.get(str(meta.get("launch_id") or ""))
+        if launch is None:
+            continue
+        pm = launch.price_map or {}
+        opp = str(r.external_id)
+        legacy = str(meta.get("payment_type") or "").lower() or None
+        four = four_by_opp.get(opp) or _LEGACY_TO_FOUR.get(legacy)
+
+        row = _price_row(pm, four)
+        if row is not None:
+            out[opp] = {"acv": float(row["acv"]),
+                        "upfront": (float(row["upfront"]) if row.get("upfront") is not None
+                                    else None),
+                        "type": four, "source": PRICE_MAP,
+                        # A rolling monthly membership's acv IS months x monthly - a modelling
+                        # choice, and the UI has to be able to say so.
+                        "annualized": four == "Monthly"}
+            continue
+
+        # Rung 3. `custom` is deliberately excluded: a negotiated deal priced off the standard
+        # ticket would be a guess wearing a measurement's clothes.
+        if legacy == "pif" and _f(launch.ticket_pif):
+            acv = _f(launch.ticket_pif)
+            out[opp] = {"acv": acv, "upfront": acv, "type": "PIF", "source": PRICE_TICKET,
+                        "annualized": False}
+        elif legacy == "plan" and _f(launch.ticket_plan):
+            acv = _f(launch.ticket_plan)
+            out[opp] = {"acv": acv,
+                        # One installment down, the same estimate collected_cash() makes.
+                        "upfront": round(acv / max(1, launch.plan_installments or 1), 2),
+                        "type": "Plan", "source": PRICE_TICKET, "annualized": False}
+    return out
 
 
 async def momentum_series(s, tenant_id, launch: Launch) -> dict:

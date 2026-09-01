@@ -1521,12 +1521,23 @@ class AdConversion(Base):
     stage_key: Mapped[str] = mapped_column(String(24))
     occurred_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     dated: Mapped[bool] = mapped_column(Boolean, default=True)   # False -> counted, never timed
+    # THE FULL SIGNED CONTRACT, priced off the launch's own price sheet - not the GHL
+    # opportunity's monetaryValue, which is a cash figure and was silently standing in for this.
     value_contracted: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Cash MEASURED against this person: succeeded payment rows, joined by email.
     value_collected: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Cash MODELLED as due at signing, from the same price sheet. Written on the committed rung
+    # too, because "Cash received" is where that money actually is and the rung had no dollars.
+    value_upfront: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     # True when a rolling monthly membership was modelled at twelve months. A modelling choice,
     # not a signed number, so the UI has to be able to say so.
     value_annualized: Mapped[bool] = mapped_column(Boolean, default=False)
-    payment_type: Mapped[str | None] = mapped_column(String(12), nullable=True)  # pif | financed | monthly
+    # The four-type Payment Type when the Sales Desk logged one (PIF | Financed | Monthly |
+    # Custom), else the legacy two-value snapshot field (pif | plan | custom).
+    payment_type: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    # price_map | ticket | ghl_amount | unpriced. A modelled price and a signed one must never be
+    # presented as the same fact, so the number carries how it was arrived at.
+    value_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Provenance, so any number here opens to the row that produced it.
     source_kind: Mapped[str] = mapped_column(String(32))
     source_ref: Mapped[str] = mapped_column(String(64))

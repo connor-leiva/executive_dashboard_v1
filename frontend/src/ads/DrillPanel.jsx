@@ -15,8 +15,15 @@ import { C, FIG, FONT, HEAD } from "./adsTokens.js";
 
 const HEADINGS = {
   name: "Name", email: "Email", campaign: "Campaign", match: "Matched by",
-  first_seen: "First seen", reached: "Reached", value: "Contracted", url: "CRM",
+  first_seen: "First seen", reached: "Reached", url: "CRM",
+  // THREE MONEY COLUMNS, DELIBERATELY. What she signed for, what the price sheet says was due at
+  // signing, and what we can actually match in the payment records. One column would have to pick
+  // one of the three, and picking silently is exactly the bug this drill exposed.
+  payment: "Pays", value: "Contracted", upfront: "Due at signing", cash: "Cash matched",
+  priced: "Priced from",
 };
+
+const MONEY = new Set(["value", "upfront", "cash"]);
 
 function Cell({ col, row }) {
   const v = row[col];
@@ -24,10 +31,19 @@ function Cell({ col, row }) {
     return v ? <a href={v} target="_blank" rel="noreferrer"
                   style={{ color: C.accent }}>GHL ↗</a> : "—";
   }
-  if (col === "value") {
-    return <span style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums" }}>
+  if (MONEY.has(col)) {
+    return <span style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums",
+                          color: col === "value" ? C.ink : C.slate }}>
       {v && v !== "—" ? `$${v}` : "—"}
     </span>;
+  }
+  if (col === "priced") {
+    // A price-sheet figure and a number somebody typed into a GHL opportunity are not the same
+    // kind of fact, so the weaker provenances are flagged rather than blending in.
+    const weak = v === "GHL amount" || v === "not priced";
+    return <span style={{ fontSize: 11, color: weak ? C.warnInk : C.muted,
+                          background: weak ? C.warnBg : "transparent",
+                          borderRadius: 6, padding: weak ? "1px 6px" : 0 }}>{v || "—"}</span>;
   }
   if (col === "first_seen" || col === "reached") {
     return <span style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums",
