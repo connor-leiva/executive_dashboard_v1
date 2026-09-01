@@ -339,3 +339,72 @@ async def test_enrolled_uses_the_launch_stage_group_not_the_onboarded_event():
             await s.execute(sa_delete(MetricRecord).where(
                 MetricRecord.external_id == "opp_midstage"))
             await s.commit()
+
+
+async def test_re_derivation_rebuilds_the_rows_it_deletes():
+    """THE LIVE REGRESSION, and it only bit the people who were already RIGHT.
+
+    Switching `closed` to the launch stage group deletes the rows the old definition wrote so the
+    rung is not a union of two definitions. That delete originally ran AFTER the `existing`
+    snapshot, so the cache still held the deleted rows: _put took its "already exists" branch and
+    updated objects no longer in the database. Nine people who had never closed were inserted
+    correctly; the four who HAD closed lost their row and never got it back.
+
+    A re-derivation that only deletes is worse than no re-derivation at all, and every unit test
+    passed because none of them had a pre-existing row to strand.
+    """
+    import datetime as dt
+
+    from sqlalchemy import delete as sa_delete
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import AdAttribution, AdConversion, Business, MetricRecord, Tenant
+    from app.services.ads_funnel import sync_ad_conversions
+
+    day = dt.date.today() - dt.timedelta(days=6)
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id))).scalars().first()
+        attr = AdAttribution(
+            tenant_id=t.id, identity_kind="ghl_contact", identity_key="cid_alreadyclosed",
+            business_id=biz.id, match_method="campaign", confidence="probable",
+            channel="Meta", first_seen_on=day, last_seen_on=day)
+        s.add(attr)
+        await s.flush()
+        # Exactly the shape production was in: a close written by the OLD definition.
+        s.add(AdConversion(
+            tenant_id=t.id, attribution_id=attr.id, business_id=biz.id, stage_key="closed",
+            source_kind="bc_onboarded", source_ref="onb_already", occurred_on=day, dated=True,
+            value_contracted=12000))
+        # ...and a launch row that still qualifies under the NEW definition.
+        s.add(MetricRecord(
+            tenant_id=t.id, business_id=biz.id, source="ghl", kind="bc_launch_opp",
+            name="Already Closed", external_id="opp_already", occurred_on=day,
+            meta={"contact_id": "cid_alreadyclosed", "group": "enrolled",
+                  "stage": "Won: Onboarded", "payment_type": "pif"}))
+        s.add(MetricRecord(
+            tenant_id=t.id, business_id=biz.id, source="ghl", kind="bc_onboarded",
+            name="Already Closed", external_id="onb_already", occurred_on=day, amount=12000,
+            meta={"contact_id": "cid_alreadyclosed"}))
+        await s.commit()
+        attr_id = attr.id
+
+    try:
+        async with SessionLocal() as s:
+            await sync_ad_conversions(s, t.id)
+        async with SessionLocal() as s:
+            closed = [r for r in (await s.execute(select(AdConversion).where(
+                AdConversion.attribution_id == attr_id))).scalars() if r.stage_key == "closed"]
+        assert closed, "somebody who was already closed lost their row and never got it back"
+        assert closed[0].source_kind == "bc_launch_opp", "rebuilt from the wrong source"
+        assert closed[0].value_contracted == 12000, "the contract amount did not survive"
+    finally:
+        async with SessionLocal() as s:
+            await s.execute(sa_delete(AdConversion).where(
+                AdConversion.attribution_id == attr_id))
+            await s.execute(sa_delete(AdAttribution).where(AdAttribution.id == attr_id))
+            await s.execute(sa_delete(MetricRecord).where(
+                MetricRecord.external_id.in_(("opp_already", "onb_already"))))
+            await s.commit()

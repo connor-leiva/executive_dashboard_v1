@@ -259,6 +259,28 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
         return {"skipped": "no attributed identities"}
 
     by_email = {a.email_norm: a for a in attrs.values() if a.email_norm}
+
+    # ONE-TIME RE-DERIVATION, and it MUST happen before `existing` is read.
+    #
+    # `closed` used to be written from bc_onboarded and is now written from the launch stage
+    # group. _put is insert-only by design - history cannot silently change under somebody - and
+    # that same rule would strand every row the old definition wrote, leaving the rung a UNION of
+    # two definitions, which is worse than either. A deliberate change of definition is the one
+    # case warranting re-derivation.
+    #
+    # Doing it AFTER the `existing` snapshot is what broke it live: the cache still held the four
+    # deleted rows, so _put took its "already exists" branch and updated objects that were no
+    # longer in the database. The nine people who had never closed were inserted correctly and
+    # the four who HAD closed lost their row and never got it back - a re-derivation that only
+    # deleted. `existing` is a cache of the table, so the table has to be right before it is read.
+    stale = (await s.execute(sa_delete(AdConversion).where(
+        AdConversion.tenant_id == tenant_id,
+        AdConversion.stage_key == "closed",
+        AdConversion.source_kind == "bc_onboarded"))).rowcount
+    if stale:
+        print(f"[ads_conv] re-deriving {stale} closes from the launch stage group", flush=True)
+        await s.commit()
+
     existing = {(c.attribution_id, c.stage_key): c
                 for c in (await s.execute(select(AdConversion).where(
                     AdConversion.tenant_id == tenant_id))).scalars()}
@@ -283,20 +305,6 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
             row.value_contracted = contracted
         row.value_annualized = annualized
         row.payment_type = payment_type
-
-    # ONE-TIME RE-DERIVATION. `closed` used to be written from bc_onboarded and is now written
-    # from the launch stage group. _put is insert-only by design - so history cannot silently
-    # change under somebody - and that same rule would strand every row the old definition wrote,
-    # leaving the rung a UNION of two definitions, which is worse than either. A deliberate
-    # change of definition is the one case that warrants re-deriving, so the old-source rows are
-    # dropped and rebuilt. Self-limiting: after one run none carry that source_kind.
-    stale = (await s.execute(sa_delete(AdConversion).where(
-        AdConversion.tenant_id == tenant_id,
-        AdConversion.stage_key == "closed",
-        AdConversion.source_kind == "bc_onboarded"))).rowcount
-    if stale:
-        print(f"[ads_conv] re-deriving {stale} closes from the launch stage group", flush=True)
-        await s.commit()
 
     # registered.
     for r in (await s.execute(select(MetricRecord).where(
