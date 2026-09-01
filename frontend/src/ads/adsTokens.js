@@ -49,6 +49,42 @@ export const C = {
   // divide is that the rungs above it are somebody else's measurement.
   metaZone: alpha(T.slate, 0.05),
   acumynZone: alpha(T.meadow, 0.06),
+
+  // ── The approved mockup's vocabulary (ads-meta-performance, Appendix B) ──────────────
+  // Added under the mockup's OWN names rather than remapped onto the ones above, so a rule
+  // ported from it reads the same in both files and nobody has to hold a translation table in
+  // their head while checking whether the port is faithful.
+  page: T.page,
+  parchment: T.parchment,
+  // The mockup calls the accent `teal`. Both names point at the same token rather than one
+  // being rewritten to the other, because the CSS was ported verbatim and reads `C.teal`, while
+  // every component written here reads `C.accent`. A missing alias is not a subtle failure: it
+  // renders `undefined` into the stylesheet and throws out of the icon tinting.
+  teal: T.teal,
+  hairDeep: alpha(T.ink, 0.14),
+  body: T.body,
+  meadow: T.meadow,
+  sprout: T.sprout,
+  mist: T.mist,
+  mistDeep: alpha(T.teal, 0.55),
+  evergreen: T.evergreen,
+  poppyDeep: T.poppyActive,
+  flagBg: T.flagBg,
+  flagDot: T.daffodil,
+  flagText: T.daffodilText,
+};
+
+/* The brand assets the mockup inlines as base64. They already ship in public/brand, so the port
+   references the files rather than carrying eighty kilobytes of duplicated image data in a
+   source file - and a rebrand then reaches this tab by replacing an asset, not by editing JSX. */
+export const ASSET = {
+  ever: "/brand/RibbedGradient_Evergreen.jpg",   // the dark band behind the hero
+  sig: "/brand/logo/spring_logomark.png",
+  chev: "/brand/icons/chevron_down.png",
+  open: "/brand/icons/open.png",
+  warn: "/brand/icons/info.png",
+  meg: "/brand/icons/notification.png",
+  img: "/brand/icons/puzzle.png",
 };
 
 /* Every band decision is made by the SERVER (spec Part 10.3); the client only colours what it

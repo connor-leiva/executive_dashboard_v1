@@ -12,16 +12,30 @@
  * No chart library. Bars are hand-rolled SVG and horizontal, because campaign names here are
  * long and structured and vertical labels destroy the distinguishing part.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { BAND, C, FIG, FONT, HEAD, band, compact, mult, num, pct, usd } from "./adsTokens.js";
+import { ASSET, BAND, C, FIG, FONT, HEAD, band, compact, mult, num, pct, usd } from "./adsTokens.js";
 import CreativeWall from "./CreativeWall.jsx";
 import DrillPanel from "./DrillPanel.jsx";
 import GroupingRules from "./GroupingRules.jsx";
 import Funnel from "./Funnel.jsx";
 import { API_BASE, getJSON, postJSON } from "../api";
+import { Fig as ChromeFig, Hero, IconFilters, Icon, Kicker, Section as ChromeSection,
+         Source } from "./AdsChrome.jsx";
+import { adsCss } from "./adsStyles.js";
 import { sampleAdsDrill } from "./sampleAds.js";
 import { qs, useAdsAccounts, useAdsCreatives, useAdsOverview } from "./useAds.js";
+
+/* The page has a spine: numbered sections and a sticky jump rail. Nothing was deleted to
+   shorten it; it was given joints. */
+const SECTIONS = [
+  { id: "chain", n: "01", title: "The chain" },
+  { id: "findings", n: "02", title: "Findings" },
+  { id: "sources", n: "03", title: "Where it came from" },
+  { id: "cost", n: "04", title: "What a customer costs" },
+  { id: "creative", n: "05", title: "The ads themselves" },
+  { id: "trust", n: "06", title: "What to trust" },
+];
 
 const PERIODS = [
   { k: "7d", label: "7d" }, { k: "30d", label: "30d" }, { k: "60d", label: "60d" },
@@ -43,31 +57,17 @@ function Fig({ value, unit, lead, tone }) {
   );
 }
 
-function Section({ n, title, lede, children }) {
-  return (
-    <section style={{ marginTop: 34 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-        <span style={{ fontFamily: FIG, fontSize: 12, fontWeight: 700, color: C.muted,
-                       letterSpacing: ".08em" }}>{n}</span>
-        <h2 style={{ fontFamily: HEAD, fontSize: 17, fontWeight: 600, color: C.ink, margin: 0 }}>
-          {title}
-        </h2>
-        <span style={{ flex: 1, height: 1, background: C.line }} />
-      </div>
-      {lede && (
-        <p style={{ fontFamily: FONT, fontSize: 12.5, color: C.slate, margin: "7px 0 0",
-                    maxWidth: 640, lineHeight: 1.5 }}>{lede}</p>
-      )}
-      <div style={{ marginTop: 14 }}>{children}</div>
-    </section>
-  );
+/* The section header is the mockup's, so the numbered spine and the jump rail agree. `id` is
+   new: the rail scrolls to it. */
+function Section({ n, id, title, lede, children }) {
+  return <ChromeSection id={id} n={n} title={title} lede={lede}>{children}</ChromeSection>;
 }
 
-function Card({ children, pad = 18 }) {
-  return (
-    <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14,
-                  padding: pad }}>{children}</div>
-  );
+
+function Card({ children, pad }) {
+  // `.card` carries the mockup's surface, border, radius and padding. `pad` survives for the two
+  // callers that deliberately tighten it; everything else takes the design system's spacing.
+  return <div className="card" style={pad ? { padding: pad } : undefined}>{children}</div>;
 }
 
 function Stat({ label, children, tone, note }) {
@@ -134,12 +134,40 @@ export default function AdsView() {
      of personal data than the click actually asked for. */
   const [drill, setDrill] = useState({ stage: null, label: null, data: null,
                                        loading: false, error: null });
+  const [activeSection, setActiveSection] = useState(SECTIONS[0].id);
+  const pageRef = useRef(null);
   const [recomputing, setRecomputing] = useState(false);
   const [recomputeMsg, setRecomputeMsg] = useState(null);
 
   const accounts = useAdsAccounts();
   const { data, error, loading, retry } = useAdsOverview({ account, period, basis, campaign });
   const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 24 });
+
+  /* Scrollspy for the jump rail. Sections are found through the ref rather than document,
+     because the tree is committed before it is attached; whichever section has crossed the rail
+     owns it. Capture phase so an ancestor scroller counts - this tab renders inside the app
+     shell, which is the thing that actually scrolls. One rect read per event: observers are
+     silently unavailable in some hosts, and a rail that never lights is worse than a cheap read. */
+  useEffect(() => {
+    const root = pageRef.current;
+    if (!root) return undefined;
+    const els = SECTIONS.map((x) => root.querySelector("#" + x.id)).filter(Boolean);
+    if (!els.length) return undefined;
+    const doc = root.ownerDocument;
+    const view = doc.defaultView || window;
+    const read = () => {
+      let current = els[0].id;
+      els.forEach((el) => { if (el.getBoundingClientRect().top <= 96) current = el.id; });
+      setActiveSection(current);
+    };
+    read();
+    doc.addEventListener("scroll", read, { passive: true, capture: true });
+    view.addEventListener("resize", read, { passive: true });
+    return () => {
+      doc.removeEventListener("scroll", read, { capture: true });
+      view.removeEventListener("resize", read);
+    };
+  }, [data]);
 
   const recompute = async () => {
     setRecomputing(true);
@@ -220,120 +248,126 @@ export default function AdsView() {
   const acctList = Array.isArray(accounts.data) ? accounts.data : [];
 
   return (
-    <div style={{ fontFamily: FONT, color: C.ink }}>
+    <div className="adsx" ref={pageRef}>
+      <IconFilters />
+      <style>{adsCss()}</style>
       <style>{`
-        .ads-bar { transition: width .2s ease; }
-        .ads-chip:focus-visible { outline: 2px solid ${C.accent}; outline-offset: 2px; }
-        .ads-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-        .ads-table-row { display: grid; gap: 10px; align-items: center;
-                         grid-template-columns: minmax(0,2.2fr) repeat(5, minmax(0,1fr)); }
+        .adsx .ads-bar { transition: width .2s ease; }
+        .adsx .ads-grid { display: grid; gap: 10px;
+                          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+        .adsx .ads-table-row { display: grid; gap: 10px; align-items: center;
+                               grid-template-columns: minmax(0,2.2fr) repeat(5, minmax(0,1fr)); }
         @media (max-width: 720px) {
           /* Not a horizontally scrolling six-column table called responsive: the row becomes a
              stacked card, name on its own line. */
-          .ads-table-row { grid-template-columns: repeat(2, minmax(0,1fr)); }
-          .ads-table-row .ads-cell-name { grid-column: 1 / -1; }
-          .ads-head { display: none; }
+          .adsx .ads-table-row { grid-template-columns: repeat(2, minmax(0,1fr)); }
+          .adsx .ads-table-row .ads-cell-name { grid-column: 1 / -1; }
+          .adsx .ads-head { display: none; }
         }
-        @media (prefers-reduced-motion: reduce) { .ads-bar { transition: none; } }
+        @media (prefers-reduced-motion: reduce) { .adsx .ads-bar { transition: none; } }
       `}</style>
 
-      {/* Header + controls */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center",
-                    justifyContent: "space-between" }}>
-        <div>
-          <h1 style={{ fontFamily: HEAD, fontSize: 21, margin: 0, color: C.ink }}>
-            {data.account.name}
-          </h1>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>
-            {data.account.external_id} · {data.account.timezone_name || "account time"} ·{" "}
-            {data.range.label} ({data.range.start} to {data.range.end})
+      <div className="head" id="top">
+        <div className="wrap">
+          <div className="phead">
+            <Icon src={ASSET.meg} size={19} color={C.accent} />
+            <span className="ptitle">Ads · Meta performance</span>
+            <span className="psub">what the spend bought, all the way to a signed member</span>
+            <span className="spacer" />
+            <span className="srcs">
+              <Source name={data.account.name} />
+              <Source name={data.account.external_id} />
+              <Source name="Meta" />
+              <Source name="Go High Level" />
+            </span>
           </div>
-          {data.scope?.kind === "campaign" && (
-            /* Named, not implied. Every figure below this line is one launch's, and a reader who
-               missed the dropdown would otherwise take them for the whole account's. */
-            <div style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 8,
-                          flexWrap: "wrap" }}>
-              <span style={{ fontFamily: FONT, fontSize: 11.5, fontWeight: 600,
-                             color: C.accent, background: C.accentBg,
-                             border: `1px solid ${C.accent}`, borderRadius: 999,
-                             padding: "3px 10px" }}>
-                {data.scope.name}
-              </span>
-              <button onClick={() => setCampaign(null)}
-                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
-                               font: "inherit", fontSize: 11.5, color: C.slate,
-                               textDecoration: "underline" }}>
-                show the whole account
-              </button>
-            </div>
-          )}
-        </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {acctList.length > 1 && (
-            <select value={account || ""}
-                    onChange={(e) => { setAccount(e.target.value || null); setCampaign(null); }}
-                    style={{ fontFamily: FONT, fontSize: 12, padding: "5px 8px", borderRadius: 8,
-                             border: `1px solid ${C.line}`, background: C.surface, color: C.ink }}>
-              {acctList.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          )}
-          {(data.campaigns_available || []).length > 1 && (
-            <select value={campaign || ""} aria-label="Scope to one launch"
-                    onChange={(e) => setCampaign(e.target.value || null)}
-                    style={{ fontFamily: FONT, fontSize: 12, padding: "5px 8px", borderRadius: 8,
-                             maxWidth: 260, borderRadius: 8,
-                             border: `1px solid ${campaign ? C.accent : C.line}`,
-                             background: campaign ? C.accentBg : C.surface, color: C.ink }}>
-              <option value="">All campaigns</option>
-              {(data.campaigns_available || []).map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+
+          <div className="ctrl">
+            <span className="periods">
+              {PERIODS.map((pp) => (
+                <button key={pp.k} className={`per${period === pp.k ? " on" : ""}`}
+                        onClick={() => setPeriod(pp.k)}>{pp.label}</button>
               ))}
-            </select>
-          )}
-          {PERIODS.map((p) => (
-            <button key={p.k} className="ads-chip" onClick={() => setPeriod(p.k)}
-                    style={{ fontFamily: FONT, fontSize: 12, fontWeight: period === p.k ? 600 : 500,
-                             padding: "5px 11px", borderRadius: 999, cursor: "pointer",
-                             border: `1px solid ${period === p.k ? C.accent : C.line}`,
-                             background: period === p.k ? C.accentBg : C.surface,
-                             color: period === p.k ? C.ink : C.slate }}>
-              {p.label}
-            </button>
-          ))}
+            </span>
+            <span className="basis">
+              {[["cohort", "Cohort"], ["period", "Period"]].map(([kk, lab]) => (
+                <button key={kk} className={`per${basis === kk ? " on" : ""}`}
+                        onClick={() => setBasis(kk)}
+                        title={kk === "cohort"
+                          ? "Revenue from people acquired in this window, whenever it lands"
+                          : "Revenue recognised in this window, whoever it came from"}>{lab}</button>
+              ))}
+            </span>
+            <span className="spacer" />
+            {acctList.length > 1 && (
+              <select value={account || ""}
+                      onChange={(e) => { setAccount(e.target.value || null); setCampaign(null); }}
+                      className="per" style={{ padding: "6px 10px" }}>
+                {acctList.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            )}
+            {(data.campaigns_available || []).length > 1 && (
+              <select value={campaign || ""} aria-label="Scope to one launch"
+                      onChange={(e) => setCampaign(e.target.value || null)}
+                      className={`per${campaign ? " on" : ""}`}
+                      style={{ padding: "6px 10px", maxWidth: 260 }}>
+                <option value="">All campaigns</option>
+                {(data.campaigns_available || []).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="ctrl">
+            <span className="range">
+              {data.range.label} · {data.range.start} to {data.range.end} · times in{" "}
+              {data.account.timezone_name || "account time"}
+            </span>
+            {data.scope?.kind === "campaign" && (
+              /* Named, not implied. Every figure below this line is one launch's, and a reader
+                 who missed the dropdown would otherwise take them for the whole account's. */
+              <>
+                <span className="tag" style={{ color: C.accent, background: C.accentBg }}>
+                  {data.scope.name}
+                </span>
+                <button onClick={() => setCampaign(null)}
+                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                                 font: "inherit", fontSize: 11, color: C.slate,
+                                 textDecoration: "underline" }}>
+                  show the whole account
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Hero */}
-      <div style={{ marginTop: 18 }}>
-        <Card pad={20}>
-          <div className="ads-grid">
-            <Stat label="Spend"><Fig lead="$" value={compact(t.spend).replace("$", "")} /></Stat>
-            <Stat label="Impressions"><Fig value={compact(t.impressions)} /></Stat>
-            <Stat label="Link clicks" note="not all clicks">
-              <Fig value={compact(t.link_clicks)} />
-            </Stat>
-            <Stat label="Link CTR" tone={band(data.bands.ctr).ink}>
-              <Fig value={t.ctr === null ? "—" : t.ctr.toFixed(2)} unit={t.ctr === null ? "" : "%"} />
-            </Stat>
-            <Stat label="CPM" tone={band(data.bands.cpm).ink}>
-              <Fig lead="$" value={t.cpm === null ? "—" : t.cpm.toFixed(2)} />
-            </Stat>
-            <Stat label="Leads · Meta" note="diagnostic, not the funnel">
-              <Fig value={num(t.leads)} />
-            </Stat>
-          </div>
-          <p style={{ fontSize: 12, color: C.muted, margin: "14px 0 0", lineHeight: 1.6,
-                      maxWidth: 720 }}>
-            <strong style={{ color: C.slate }}>Link clicks, not all clicks.</strong> Meta&rsquo;s
-            headline click count includes reactions, comments, shares and page-name clicks. This
-            uses the link measure, so CTR here reads lower than a dashboard built on{" "}
-            <code>clicks</code> — that is a correction, not a drop in performance.
-          </p>
-        </Card>
+      {/* The one dark band on the page. The hero is the thesis - spend, and what it contracted -
+          so it is the only thing that gets the evergreen ground. */}
+      <div className="band">
+        <div className="wrap">
+          <Hero data={data} adCount={creatives.data?.total ?? 0} />
+        </div>
       </div>
 
+      <nav className="rail" aria-label="Jump to section">
+        <div className="railin">
+          {SECTIONS.map((sn) => (
+            <a key={sn.id} href={`#${sn.id}`} className={`rlink${activeSection === sn.id ? " on" : ""}`}>
+              <b>{sn.n}</b>{sn.title}
+            </a>
+          ))}
+          <span className="railsum">
+            <b>{data.revenue ? usd(data.revenue.contracted) : "—"}</b> contracted on{" "}
+            {usd(t.spend)}
+          </span>
+        </div>
+      </nav>
+
+      <div className="wrap">
       {/* 01 The chain */}
-      <Section n="01" title="The chain"
+      <Section n="01" id="chain" title="The chain"
         lede="Meta owns impressions, clicks and its own lead count. Everything after that — the
               registration, the booked call, the signature, the cash — already lives in Acumyn.
               Joining the two is what this module is for.">
@@ -469,7 +503,7 @@ export default function AdsView() {
       )}
 
       {/* 02 Findings */}
-      <Section n="02" title="Findings"
+      <Section n="02" id="findings" title="Findings"
         lede="Ordered worst first, and computed on the server so the page cannot disagree with
               the API about what counts as a problem.">
         <div style={{ display: "grid", gap: 8 }}>
@@ -493,7 +527,7 @@ export default function AdsView() {
       </Section>
 
       {/* 03 Where it came from */}
-      <Section n="03" title="Where it came from"
+      <Section n="03" id="sources" title="Where it came from"
         lede="Groups are resolved live from this workspace&rsquo;s rules, never stored — rename a
               campaign and it regroups on the next read rather than silently staying where it was.">
         <Card>
@@ -515,7 +549,7 @@ export default function AdsView() {
       </Section>
 
       {/* 04 What a customer costs */}
-      <Section n="04" title="What a customer costs"
+      <Section n="04" id="cost" title="What a customer costs"
         lede="Cost per lead is the furthest down the chain this page can currently see. It is a
               floor on what a customer costs, never the number itself — most leads never enroll.">
         <Card pad={0}>
@@ -552,7 +586,7 @@ export default function AdsView() {
       {/* 05 The creative wall. Ranked by spend, because that is the lever - the ad taking the
           most money is the one worth recognising first. Revenue per ad is Phase 5 and its
           absence is stated in the lede rather than shown as an empty column. */}
-      <Section n="05" title="The ads themselves"
+      <Section n="05" id="creative" title="The ads themselves"
         lede={creatives.data?.revenue_reason
           ? `Ranked by spend. Revenue per ad is not here yet — ${creatives.data.revenue_reason.charAt(0).toLowerCase()}${creatives.data.revenue_reason.slice(1)}`
           : "Ranked by spend, because the ad taking the most money is the one worth looking at first."}>
@@ -560,7 +594,7 @@ export default function AdsView() {
       </Section>
 
       {/* 06 What to trust */}
-      <Section n="06" title="What to trust"
+      <Section n="06" id="trust" title="What to trust"
         lede="The grain each number on this page is entitled to, and where it stops.">
         <Card>
           <div style={{ display: "grid", gap: 12, fontSize: 12.5, color: C.slate, lineHeight: 1.6 }}>
@@ -610,6 +644,7 @@ export default function AdsView() {
           </div>
         </Card>
       </Section>
+      </div>
     </div>
   );
 }
