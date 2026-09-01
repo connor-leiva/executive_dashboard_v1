@@ -44,7 +44,18 @@ async def _attr(tid, bid, key, day, email=None):
 
 
 async def _close(tid, bid, cid, day, amount, payment=None):
+    """An enrollment, as the system now defines one: TWO rows doing two different jobs.
+
+    The launch opportunity in the `enrolled` stage group decides that this person counts - that
+    is the launch tab's definition and now the only one. The onboarded record carries the
+    contract amount, which is the one thing the opportunity row does not hold. Splitting them
+    here mirrors the split in the sync: who is enrolled, versus what they signed for.
+    """
     async with SessionLocal() as s:
+        s.add(MetricRecord(tenant_id=tid, business_id=bid, source="ghl", kind="bc_launch_opp",
+                           external_id=f"opp-{cid}", name=f"P {cid}", occurred_on=day,
+                           meta={"contact_id": cid, "group": "enrolled",
+                                 "stage": "Won: Onboarded", "payment_type": payment}))
         s.add(MetricRecord(tenant_id=tid, business_id=bid, source="ghl", kind="bc_onboarded",
                            external_id=f"onb-{cid}", name=f"P {cid}", status="won",
                            amount=amount, occurred_on=day,
@@ -263,3 +274,68 @@ async def test_meta_rungs_are_never_added_to_acumyn_rungs():
     assert zones["registered"] == zones["closed"] == "acumyn"
     lead = next(r for r in F.FUNNEL_DEFS["program"] if r["key"] == "lead")
     assert lead.get("diagnostic") is True, "Meta's lead count is never a denominator"
+
+
+# ── one definition of enrolled, shared with the Launch tab ────────────────────────────
+async def test_enrolled_uses_the_launch_stage_group_not_the_onboarded_event():
+    """TWO SOURCES OF TRUTH, found by a customer reading his own drawer.
+
+    The Launch tab calls somebody enrolled when their GHL stage falls in the launch's `enrolled`
+    stage_map group. This module used to call them enrolled only when a bc_onboarded record
+    existed - the `Won: Onboarded` EVENT. On live data that was 4 people against the launch tab's
+    13, and the nine at "Onboarding Call Attended" silently never reached the rung. The two tabs
+    disagreed by about 2.5x on cost per enrollment.
+
+    The stage group is classified against the LAUNCH'S OWN stage_map, so editing that map now
+    moves both tabs together and neither can drift from the other.
+    """
+    import datetime as dt
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import (AdAttribution, AdConversion, Business, MetricRecord, Tenant)
+    from app.services.ads_funnel import sync_ad_conversions
+
+    day = dt.date.today() - dt.timedelta(days=5)
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == t.id))).scalars().first()
+        attr = AdAttribution(
+            tenant_id=t.id, identity_kind="ghl_contact", identity_key="cid_midstage",
+            business_id=biz.id, match_method="campaign", confidence="probable",
+            channel="Meta", first_seen_on=day, last_seen_on=day)
+        s.add(attr)
+        # In the enrolled GROUP, but with no bc_onboarded record anywhere - the exact shape of
+        # the person who exposed this.
+        s.add(MetricRecord(
+            tenant_id=t.id, business_id=biz.id, source="ghl", kind="bc_launch_opp",
+            name="Midstage Mary", external_id="opp_midstage", occurred_on=day,
+            meta={"contact_id": "cid_midstage", "group": "enrolled",
+                  "stage": "Onboarding Call Attended", "payment_type": "plan"}))
+        await s.commit()
+        attr_id = attr.id
+
+    try:
+        async with SessionLocal() as s:
+            await sync_ad_conversions(s, t.id)
+        async with SessionLocal() as s:
+            rows = list((await s.execute(select(AdConversion).where(
+                AdConversion.attribution_id == attr_id))).scalars())
+        closed = [r for r in rows if r.stage_key == "closed"]
+        assert closed, "somebody in the launch's enrolled group did not reach the closed rung"
+        assert closed[0].source_kind == "bc_launch_opp", \
+            "closed must be written from the stage group, not the onboarded event"
+        # No contract amount exists for her, and UNKNOWN is not zero - writing zero would drag
+        # the average contract down and read as a free seat.
+        assert closed[0].value_contracted is None
+    finally:
+        from sqlalchemy import delete as sa_delete
+        async with SessionLocal() as s:
+            await s.execute(sa_delete(AdConversion).where(
+                AdConversion.attribution_id == attr_id))
+            await s.execute(sa_delete(AdAttribution).where(AdAttribution.id == attr_id))
+            await s.execute(sa_delete(MetricRecord).where(
+                MetricRecord.external_id == "opp_midstage"))
+            await s.commit()

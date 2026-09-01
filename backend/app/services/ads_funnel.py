@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -218,7 +219,7 @@ FUNNEL_DEFS = {
         {"key": "applied", "label": "Applied", "src": "stage_group", "zone": "acumyn"},
         {"key": "held", "label": "Call held", "src": "sales_call", "zone": "acumyn"},
         {"key": "committed", "label": "Cash received", "src": "stage_group", "zone": "acumyn"},
-        {"key": "closed", "label": "Enrolled", "src": "bc_onboarded", "zone": "acumyn",
+        {"key": "closed", "label": "Enrolled", "src": "stage_group", "zone": "acumyn",
          "closes": True},
     ],
 }
@@ -241,8 +242,9 @@ def _annualize(amount, payment_type):
 async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
     """For each attributed identity, the stages it has reached - from rows that already exist.
 
-    Reads bc_shift_reg (registered), SalesCall (booked, held), the classify_stage groups already
-    stored on bc_launch_opp (applied, committed) and bc_onboarded (closed, with contract value).
+    Reads bc_shift_reg (registered), SalesCall (booked, held), and the classify_stage groups
+    already stored on bc_launch_opp for applied, committed AND CLOSED. bc_onboarded is consulted
+    only for the contract amount, never for who counts as enrolled.
 
     A stage whose source carries no usable date is written dated=False: COUNTED in the funnel and
     excluded from every duration and from the curve fit. Counting it is honest; timing it is not.
@@ -282,20 +284,41 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
         row.value_annualized = annualized
         row.payment_type = payment_type
 
-    # registered and closed - MetricRecord rows that already carry a date and, for closes, value.
-    for kind, stage in (("bc_shift_reg", "registered"), ("bc_onboarded", "closed")):
-        for r in (await s.execute(select(MetricRecord).where(
-                MetricRecord.tenant_id == tenant_id, MetricRecord.kind == kind))).scalars():
-            attr = attrs.get(str((r.meta or {}).get("contact_id") or ""))
-            if attr is None or attr.business_id is None:
-                continue
-            if stage == "closed":
-                pay = str((r.meta or {}).get("payment") or "") or None
-                contracted, annualized = _annualize(r.amount, pay)
-                _put(attr, stage, r.occurred_on, kind, r.external_id,
-                     contracted=contracted, annualized=annualized, payment_type=pay)
-            else:
-                _put(attr, stage, r.occurred_on, kind, r.external_id)
+    # ONE-TIME RE-DERIVATION. `closed` used to be written from bc_onboarded and is now written
+    # from the launch stage group. _put is insert-only by design - so history cannot silently
+    # change under somebody - and that same rule would strand every row the old definition wrote,
+    # leaving the rung a UNION of two definitions, which is worse than either. A deliberate
+    # change of definition is the one case that warrants re-deriving, so the old-source rows are
+    # dropped and rebuilt. Self-limiting: after one run none carry that source_kind.
+    stale = (await s.execute(sa_delete(AdConversion).where(
+        AdConversion.tenant_id == tenant_id,
+        AdConversion.stage_key == "closed",
+        AdConversion.source_kind == "bc_onboarded"))).rowcount
+    if stale:
+        print(f"[ads_conv] re-deriving {stale} closes from the launch stage group", flush=True)
+        await s.commit()
+
+    # registered.
+    for r in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id,
+            MetricRecord.kind == "bc_shift_reg"))).scalars():
+        attr = attrs.get(str((r.meta or {}).get("contact_id") or ""))
+        if attr is None or attr.business_id is None:
+            continue
+        _put(attr, "registered", r.occurred_on, "bc_shift_reg", r.external_id)
+
+    # The contract VALUE for a close, keyed by contact. Only the onboarded record carries an
+    # amount - the launch opportunity rows carry none at all - so the value is looked up here
+    # while the POPULATION is decided by the stage group below. Two different questions:
+    # "is this person enrolled" is the launch's definition, "what did they sign for" is a
+    # number that happens to live on another row.
+    onboarded_value: dict[str, MetricRecord] = {}
+    for r in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id,
+            MetricRecord.kind == "bc_onboarded"))).scalars():
+        cid = str((r.meta or {}).get("contact_id") or "")
+        if cid:
+            onboarded_value[cid] = r
 
     # booked and held - the Sales Desk's log, never a live GHL field. is_current keeps a rebook
     # from erasing the no-show it replaced.
@@ -318,13 +341,32 @@ async def sync_ad_conversions(s: AsyncSession, tenant_id) -> dict:
             MetricRecord.tenant_id == tenant_id,
             MetricRecord.kind == "bc_launch_opp"))).scalars():
         meta = r.meta or {}
-        attr = attrs.get(str(meta.get("contact_id") or ""))
+        cid = str(meta.get("contact_id") or "")
+        attr = attrs.get(cid)
         if attr is None or attr.business_id is None:
             continue
         if meta.get("app_in"):
             _put(attr, "applied", r.occurred_on, "bc_launch_opp", r.external_id)
         if meta.get("group") == "committed":
             _put(attr, "committed", r.occurred_on, "bc_launch_opp", r.external_id)
+        if meta.get("group") == "enrolled":
+            # ONE DEFINITION OF ENROLLED, and it is the launch tab's. This used to read
+            # bc_onboarded, which is the `Won: Onboarded` EVENT - so the ads tab counted 4 of the
+            # 13 people the launch tab called enrolled, and the nine sitting at "Onboarding Call
+            # Attended" silently never reached the rung. Two definitions of the closing event on
+            # two tabs, disagreeing by 2.5x on CAC.
+            #
+            # `group` is classified by classify_stage against the LAUNCH'S OWN stage_map, so
+            # editing that map moves both tabs together and neither can drift.
+            pay = str(meta.get("payment_type") or "") or None
+            onb = onboarded_value.get(cid)
+            # None, never 0. A person enrolled by the pipeline with no contract amount recorded
+            # has an UNKNOWN value; writing zero would drag the average contract down and read
+            # as a free seat.
+            amount = onb.amount if (onb is not None and onb.amount) else None
+            contracted, annualized = _annualize(amount, pay)
+            _put(attr, "closed", r.occurred_on, "bc_launch_opp", r.external_id,
+                 contracted=contracted, annualized=annualized, payment_type=pay)
 
     # collected - cash received against those contracts.
     #
@@ -431,9 +473,16 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
 
     # ALL closes in the window, attributed or not. The difference is the structural ceiling from
     # Part 4.7, and naming it prevents the attributed number reading as a failure.
-    all_closes = list((await s.execute(select(MetricRecord).where(
-        MetricRecord.tenant_id == tenant_id, MetricRecord.kind == "bc_onboarded",
-        MetricRecord.occurred_on >= start, MetricRecord.occurred_on <= end))).scalars())
+    #
+    # THE SAME DEFINITION as the attributed count above, which is the whole point of blended CAC:
+    # it is the attributed figure's denominator widened to everybody, and widening the population
+    # AND changing the definition in one step compares two different things. This read
+    # bc_onboarded while the rung read the stage group, which on live data was 64 against 13 -
+    # a blended CAC five times too flattering, sitting beside the attributed one as its check.
+    all_closes = [r for r in (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.kind == "bc_launch_opp",
+        MetricRecord.occurred_on >= start, MetricRecord.occurred_on <= end))).scalars()
+        if (r.meta or {}).get("group") == "enrolled"]
 
     return {
         "basis": basis,
