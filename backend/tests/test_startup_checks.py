@@ -330,8 +330,13 @@ def test_five_seeds_derive_thirty_tokens_that_all_read():
     script = rf"""
       const fs = require('fs');
       let src = fs.readFileSync({json.dumps(str(pal))}, 'utf8')
+        .replace(/^import .*$/gm, '')
         .replace(/^export /gm, '')
-        .replace(/applyPalette\(ACUMYN\);|applyType\(ACUMYN_TYPE\);/g, '');
+        // the module applies itself at load and calls into typefaces.js; neither is what this
+        // test is about, so both are stubbed out rather than pulled in.
+        .replace(/^applyPalette\(.*$|^applyType\(.*$|^loadTypeface\(.*$/gm, '');
+      const loadTypeface = () => {{}};
+      const stacks = () => ({{}});
       eval(src);
       const t = derive(seedsFromAcumyn());
       console.log(JSON.stringify({{
@@ -351,3 +356,48 @@ def test_five_seeds_derive_thirty_tokens_that_all_read():
     assert got["garish"] >= 5, "an unreadable palette must be caught, not merely disliked"
     # Warning is not a seed: it stays the specified value whatever else a workspace picks.
     assert got["warningFixed"].upper() == "#7E5A1C"
+
+
+def test_the_typeface_list_agrees_across_the_two_languages():
+    """The pairings are defined in the browser and validated on the server, so the two lists can
+    drift — and the failure is asymmetric. A name the frontend offers and the backend rejects is a
+    save button that does nothing; a name the backend accepts and the frontend does not know
+    resolves to the default with no error anywhere.
+
+    Only a NAME crosses the wire, never a font stack: a workspace supplying its own font-family
+    string would be injecting CSS into every page it renders.
+    """
+    import re
+    from pathlib import Path
+
+    from app.routers.users import TYPEFACES
+
+    js = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "typefaces.js").read_text(
+        encoding="utf-8")
+    block = js[js.index("export const PAIRINGS"):]
+    block = block[: block.index("\n};")]
+    names = set(re.findall(r"^  (\w+): \{", block, re.M))
+
+    assert names == set(TYPEFACES), (
+        f"frontend offers {sorted(names)}, backend accepts {sorted(TYPEFACES)}")
+
+    # Every pairing sets figures in the same face; that is the one thing a workspace cannot change.
+    assert "DATA_STACK" in js and "Archivo" in js
+    assert not re.search(r"^  \w+: \{[^}]*\bdata:", block, re.M | re.S), (
+        "a pairing declared its own data face — tabular figures are not a choice")
+
+
+def test_an_uploaded_mark_is_served_without_the_caller_naming_the_object():
+    """The serving route resolves the tenant from the host and reads the ref out of THAT
+    workspace's config. If it ever took a storage key from the caller it would become a way to
+    read another workspace's object by guessing one."""
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "app" / "routers" / "auth.py").read_text(
+        encoding="utf-8")
+    route = src[src.index('@router.get("/public/brand/{kind}")'):]
+    route = route[: route.index("@router.post")]
+    assert "current_tenant_id()" in route, "the tenant must come from the host"
+    assert "_ref" in route and "config" in route, "the ref must come from the tenant's own config"
+    # The only path parameter is `kind`, and it is checked against a fixed pair.
+    assert 'if kind not in ("logo", "logomark")' in route

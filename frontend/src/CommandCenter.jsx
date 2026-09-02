@@ -963,7 +963,6 @@ function Splash({ label, tone }) {
       minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
       fontFamily: "Inter,sans-serif", padding: 24, ...ribbedHero("evergreen"),
     }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');`}</style>
       <div style={{ textAlign: "center" }}>
         <SpringSignature tone="light" height={52} />
 
@@ -1239,7 +1238,6 @@ export default function CommandCenter() {
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
         .cc-card { transition: transform .15s ease, box-shadow .15s ease; }
         .cc-card:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(0,46,44,.10); }
         .cc-nav { transition: background .12s ease; }

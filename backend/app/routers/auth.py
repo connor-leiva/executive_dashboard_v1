@@ -1,6 +1,6 @@
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +11,7 @@ from ..schemas import (LoginRequest, LoginResponse, MeResponse, ChangePasswordRe
                        AcceptInviteRequest, ResetPasswordRequest)
 from ..security import (verify_pw, make_token, hash_pw, hash_action_token, MIN_PASSWORD_LEN)
 from ..services.audit import audit
-from ..services import roles
+from ..services import binder_storage, roles
 from ..services.tabs import tenant_tabs, tenant_tab_descriptors, effective_tabs
 from ..tenancy import current_tenant_id
 
@@ -56,6 +56,34 @@ async def public_brand(s: AsyncSession = Depends(get_session)):
     if tenant is not None and tenant.status != "active":
         tenant = None                       # a suspended workspace shows nothing of itself
     return roles.brand(tenant) if tenant is not None else roles.platform_brand()
+
+
+@router.get("/public/brand/{kind}")
+async def public_brand_asset(kind: str, s: AsyncSession = Depends(get_session)):
+    """Stream this workspace's mark. Public, because the sign-in screen renders it before anyone
+    has a session — and because a logo is the least private thing a company owns.
+
+    THE CALLER NEVER NAMES THE OBJECT. The tenant comes from the host and the storage ref comes
+    from that tenant's own config, so there is no key to guess and no path to traverse: the worst
+    an attacker can do is fetch the logo of a workspace whose address they already typed, which
+    is also what their browser does.
+    """
+    if kind not in ("logo", "logomark"):
+        raise HTTPException(404, "Not found")
+    try:
+        tid = current_tenant_id()
+    except Exception:
+        raise HTTPException(404, "Not found")
+    tenant = await s.get(Tenant, tid) if tid else None
+    ref = ((tenant.config or {}).get("brand") or {}).get(f"{kind}_ref") if tenant else None
+    if not ref or not binder_storage.exists(ref):
+        raise HTTPException(404, "Not found")
+    data = binder_storage.read(ref)
+    media = {"png": "image/png", "svg": "image/svg+xml", "jpg": "image/jpeg",
+             "webp": "image/webp"}.get(ref.rsplit(".", 1)[-1].lower(), "application/octet-stream")
+    # Immutable: the URL carries a content hash, so a replaced mark arrives under a new one.
+    return Response(content=data, media_type=media,
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @router.post("/auth/login", response_model=LoginResponse)

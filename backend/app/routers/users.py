@@ -1,7 +1,7 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -12,6 +12,7 @@ from ..deps import require_role
 from ..models import User, Tenant, Domain
 from ..schemas import InviteRequest, UserUpdate, UserOut
 from ..security import new_action_token
+from ..services import binder_storage
 from ..services.audit import audit
 from ..services.tabs import tenant_tabs, effective_tabs
 from ..services.users import (assert_can_manage, assert_grantable_role, assert_not_last_owner)
@@ -92,6 +93,10 @@ async def tenant_tab_vocab(user: User = Depends(require_role("owner", "admin")),
 
 
 SEED_KEYS = ("brand", "surface", "ink", "positive", "negative")
+# Mirrors frontend/src/typefaces.js. Deliberately a NAME LIST rather than the stacks themselves:
+# the browser owns what each pairing resolves to, and this owns which names are legitimate. A
+# workspace supplying its own font-family string would be injecting CSS into every page.
+TYPEFACES = ("acumyn", "classic", "neutral", "editorial")
 _HEX = __import__("re").compile(r"^#[0-9A-Fa-f]{6}$")
 
 
@@ -102,6 +107,8 @@ async def get_appearance(user: User = Depends(require_role("owner", "admin")),
     tenant = await s.get(Tenant, user.tenant_id)
     brand = ((tenant.config or {}).get("brand") or {})
     return {"seeds": brand.get("seeds") or {},
+            "typeface": brand.get("typeface") or "acumyn",
+            "logo": brand.get("logo"), "logomark": brand.get("logomark"),
             "allowed": plans.allows(tenant, "custom_branding"),
             "plan": plans.describe(tenant)}
 
@@ -125,7 +132,16 @@ async def set_appearance(body: dict, user: User = Depends(require_role("owner", 
         lim = plans.limits(tenant)
         raise HTTPException(402, f"Custom branding is not included in the {lim['name']} plan.")
 
+    # The typeface is a named pairing, never a font stack: accepting arbitrary CSS here would let
+    # a workspace inject a font-family string into every page it renders.
+    typeface = body.get("typeface")
+    if typeface is not None and typeface not in TYPEFACES:
+        raise HTTPException(400, f"Unknown typeface {typeface!r}. "
+                                 f"Expected one of: {', '.join(sorted(TYPEFACES))}.")
+
     seeds = body.get("seeds")
+    if seeds is None:
+        seeds = {}
     if not isinstance(seeds, dict):
         raise HTTPException(400, "Expected a `seeds` object.")
     unknown = set(seeds) - set(SEED_KEYS)
@@ -143,6 +159,8 @@ async def set_appearance(body: dict, user: User = Depends(require_role("owner", 
     cfg = dict(tenant.config or {})
     brand = dict(cfg.get("brand") or {})
     brand["seeds"] = clean
+    if typeface is not None:
+        brand["typeface"] = typeface
     # The derived palette is NOT stored. Storing it would freeze a workspace's colours against the
     # derivation that happened to exist the day they saved, and every later improvement to the
     # ramps would reach new workspaces only.
@@ -153,7 +171,86 @@ async def set_appearance(body: dict, user: User = Depends(require_role("owner", 
     audit(s, user.tenant_id, user.id, "brand.appearance_changed", "tenant", tenant.id,
           {"seeds": sorted(clean)})
     await s.commit()
-    return {"seeds": clean}
+    return {"seeds": clean, "typeface": brand.get("typeface")}
+
+
+# A workspace's mark. Deliberately small: these render at 46px in a hero watermark and 28px in
+# the rail, so anything larger is bytes on every page load for detail nobody sees.
+MAX_LOGO_BYTES = 512 * 1024
+LOGO_TYPES = {"image/png": ".png", "image/svg+xml": ".svg", "image/jpeg": ".jpg",
+              "image/webp": ".webp"}
+LOGO_KINDS = ("logo", "logomark")
+
+
+@router.post("/settings/appearance/logo")
+async def upload_logo(kind: str = Form("logo"), file: UploadFile = File(...),
+                      user: User = Depends(require_role("owner", "admin")),
+                      s: AsyncSession = Depends(get_session)):
+    """Replace this workspace's wordmark or logomark.
+
+    Stored through the same R2 path the Binder and AI Employees use, so there is one storage
+    implementation rather than a second one written for images. The ref is scoped to the tenant,
+    and the SERVING route never accepts a ref from the caller — it resolves the tenant from the
+    host and streams whatever that workspace's own config points at, so this cannot become a way
+    to read somebody else's object by guessing a key.
+
+    Marks are rendered as CSS masks over a coloured box (see Brand.jsx), which is why a
+    transparent-ground PNG or SVG works best and why no colourway is asked for: one file tints to
+    whatever the palette says.
+    """
+    tenant = await s.get(Tenant, user.tenant_id)
+    if not plans.allows(tenant, "custom_branding"):
+        lim = plans.limits(tenant)
+        raise HTTPException(402, f"Custom branding is not included in the {lim['name']} plan.")
+    if kind not in LOGO_KINDS:
+        raise HTTPException(400, f"kind must be one of: {', '.join(LOGO_KINDS)}")
+
+    ctype = (file.content_type or "").split(";")[0].strip().lower()
+    if ctype not in LOGO_TYPES:
+        raise HTTPException(400, f"Use a PNG, SVG, JPEG or WebP. Got {ctype or 'no type'}.")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "That file is empty.")
+    if len(data) > MAX_LOGO_BYTES:
+        raise HTTPException(413, f"Keep the mark under {MAX_LOGO_BYTES // 1024}KB — it renders at "
+                                 f"46px, so anything bigger is weight on every page load.")
+
+    # Content-addressed, so replacing a mark never serves a stale cached copy under an old name.
+    digest = binder_storage.content_hash(data)[:16]
+    ref = f"brand/{user.tenant_id}/{kind}-{digest}{LOGO_TYPES[ctype]}"
+    binder_storage.put(ref, data, ctype)
+
+    cfg = dict(tenant.config or {})
+    brand = dict(cfg.get("brand") or {})
+    brand[kind] = f"/api/v1/public/brand/{kind}?v={digest}"
+    brand[f"{kind}_ref"] = ref
+    cfg["brand"] = brand
+    tenant.config = cfg
+    flag_modified(tenant, "config")
+    audit(s, user.tenant_id, user.id, "brand.logo_uploaded", "tenant", tenant.id,
+          {"kind": kind, "bytes": len(data), "type": ctype})
+    await s.commit()
+    return {"kind": kind, "url": brand[kind]}
+
+
+@router.delete("/settings/appearance/logo")
+async def clear_logo(kind: str = "logo", user: User = Depends(require_role("owner", "admin")),
+                     s: AsyncSession = Depends(get_session)):
+    """Remove a mark. The workspace falls back to rendering its own NAME as a wordmark, which is
+    always correct and never somebody else's logo."""
+    if kind not in LOGO_KINDS:
+        raise HTTPException(400, f"kind must be one of: {', '.join(LOGO_KINDS)}")
+    tenant = await s.get(Tenant, user.tenant_id)
+    cfg = dict(tenant.config or {})
+    brand = dict(cfg.get("brand") or {})
+    brand.pop(kind, None)
+    brand.pop(f"{kind}_ref", None)
+    cfg["brand"] = brand
+    tenant.config = cfg
+    flag_modified(tenant, "config")
+    audit(s, user.tenant_id, user.id, "brand.logo_cleared", "tenant", tenant.id, {"kind": kind})
+    await s.commit()
+    return {"kind": kind, "url": None}
 
 
 @router.post("/users/invite")

@@ -34,7 +34,10 @@ export function tenantHeaders(extra) {
   return h;
 }
 
-function authHeaders(path, extra) {
+// Exported so a multipart upload (which cannot go through postJSON's JSON body) still sends
+// exactly the same headers — a second copy would miss the step-up grant or the tenant host
+// the first time either changes.
+export function authHeaders(path, extra) {
   const token = localStorage.getItem(TOKEN_KEY);
   const h = { ...tenantHeaders(extra), Authorization: `Bearer ${token}` };
   const scope = scopeForPath(path);

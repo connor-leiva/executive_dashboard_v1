@@ -13,9 +13,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { T, alpha } from "./theme.js";
 import {
-  SEEDS, SEED_META, applyBrand, applyPalette, contrast, contrastProblems, derive, seedsFromAcumyn,
+  SEEDS, SEED_META, applyBrand, applyPalette, applyType, contrast, contrastProblems, derive,
+  seedsFromAcumyn,
 } from "./palette.js";
-import { getJSON, patchJSON } from "./api.js";
+import { getJSON, patchJSON, API_BASE, authHeaders } from "./api.js";
+import { PAIRINGS, DEFAULT_PAIRING, loadTypeface, stacks } from "./typefaces.js";
 
 const FONT = "Inter,sans-serif";
 const HEAD = "Poppins,sans-serif";
@@ -75,6 +77,9 @@ function Derived({ tokens }) {
 
 export default function Appearance() {
   const [seeds, setSeeds] = useState(seedsFromAcumyn);
+  const [typeface, setTypeface] = useState(DEFAULT_PAIRING);
+  const [marks, setMarks] = useState({ logo: null, logomark: null });
+  const [upErr, setUpErr] = useState(null);
   const [allowed, setAllowed] = useState(true);
   const [plan, setPlan] = useState(null);
   const [saved, setSaved] = useState(null);
@@ -90,7 +95,9 @@ export default function Appearance() {
       setPlan(r.plan || null);
       const s = { ...seedsFromAcumyn(), ...(r.seeds || {}) };
       setSeeds(s);
-      setSaved(JSON.stringify(s));
+      setTypeface(r.typeface || DEFAULT_PAIRING);
+      setMarks({ logo: r.logo || null, logomark: r.logomark || null });
+      setSaved(JSON.stringify({ seeds: s, typeface: r.typeface || DEFAULT_PAIRING }));
       original.current = r;
     }).catch(() => setErr("Couldn't load appearance settings."));
     return () => {
@@ -103,10 +110,17 @@ export default function Appearance() {
 
   // The preview: derived tokens straight onto the document, so the app under this panel repaints.
   useEffect(() => { if (allowed) applyPalette(derive(seeds)); }, [seeds, allowed]);
+  // Type previews the same way the colours do, and requests the faces so the preview is the
+  // real thing rather than a fallback pretending to be it.
+  useEffect(() => {
+    if (!allowed) return;
+    applyType(stacks(typeface));
+    loadTypeface(typeface);
+  }, [typeface, allowed]);
 
   const tokens = useMemo(() => derive(seeds), [seeds]);
   const problems = useMemo(() => contrastProblems(seeds), [seeds]);
-  const dirty = saved !== null && JSON.stringify(seeds) !== saved;
+  const dirty = saved !== null && JSON.stringify({ seeds, typeface }) !== saved;
 
   function change(name, value) { setSeeds((s) => ({ ...s, [name]: value })); }
 
@@ -114,15 +128,37 @@ export default function Appearance() {
     if (problems.length) return;
     setBusy(true); setErr(null);
     try {
-      await patchJSON("/settings/appearance", { seeds });
-      setSaved(JSON.stringify(seeds));
-      original.current = { brand: { seeds } };
+      await patchJSON("/settings/appearance", { seeds, typeface });
+      setSaved(JSON.stringify({ seeds, typeface }));
+      original.current = { brand: { seeds, typeface } };
     } catch (e) {
       setErr(String(e && e.message ? e.message : e));
     } finally { setBusy(false); }
   }
 
-  function reset() { setSeeds(seedsFromAcumyn()); }
+  function reset() { setSeeds(seedsFromAcumyn()); setTypeface(DEFAULT_PAIRING); }
+
+  async function uploadMark(kind, file) {
+    setUpErr(null);
+    const form = new FormData();
+    form.append("kind", kind);
+    form.append("file", file);
+    try {
+      const r = await fetch(`${API_BASE}/settings/appearance/logo`,
+                            { method: "POST", headers: authHeaders("/settings/appearance/logo"), body: form });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.detail || "Upload failed");
+      setMarks((m) => ({ ...m, [kind]: body.url }));
+    } catch (e) { setUpErr(String(e.message || e)); }
+  }
+
+  async function clearMark(kind) {
+    try {
+      await fetch(`${API_BASE}/settings/appearance/logo?kind=${kind}`,
+                  { method: "DELETE", headers: authHeaders("/settings/appearance/logo") });
+      setMarks((m) => ({ ...m, [kind]: null }));
+    } catch { /* leave it */ }
+  }
 
   if (!allowed) {
     return (
@@ -153,6 +189,60 @@ export default function Appearance() {
         {SEEDS.map((k) => (
           <Swatch key={k} name={k} value={seeds[k]} onChange={change} />
         ))}
+
+        <div style={{ margin: "6px 0 18px" }}>
+          <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+            Typeface
+          </div>
+          <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 8px" }}>
+            Figures always stay in Archivo — it has the tabular numbers that keep a column
+            aligned.
+          </div>
+          {Object.entries(PAIRINGS).map(([key, p]) => (
+            <label key={key} style={{ display: "flex", gap: 9, alignItems: "flex-start",
+                                      padding: "7px 9px", borderRadius: 9, cursor: "pointer",
+                                      border: `1px solid ${typeface === key ? T.poppy : T.line}`,
+                                      background: typeface === key ? T.mist : T.white,
+                                      marginBottom: 6 }}>
+              <input type="radio" name="typeface" checked={typeface === key}
+                     onChange={() => setTypeface(key)} style={{ marginTop: 3 }} />
+              <span>
+                <span style={{ fontFamily: p.display, fontSize: 14.5, fontWeight: 700,
+                               color: T.ink }}>{p.label}</span>
+                <span style={{ display: "block", fontFamily: FONT, fontSize: 11.5,
+                               color: T.muted }}>{p.note}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <div style={{ margin: "0 0 18px" }}>
+          <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+            Your mark
+          </div>
+          <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 8px" }}>
+            A transparent PNG or SVG under 512KB. It is tinted to your palette, so one file works
+            on every background. Without one, your workspace name is used.
+          </div>
+          {["logo", "logomark"].map((kind) => (
+            <div key={kind} style={{ display: "flex", alignItems: "center", gap: 9,
+                                     marginBottom: 7 }}>
+              <span style={{ fontFamily: FONT, fontSize: 12, color: T.slate, minWidth: 76 }}>
+                {kind === "logo" ? "Wordmark" : "Logomark"}
+              </span>
+              <input type="file" accept="image/png,image/svg+xml,image/jpeg,image/webp"
+                     onChange={(e) => e.target.files[0] && uploadMark(kind, e.target.files[0])}
+                     style={{ fontFamily: FONT, fontSize: 11.5, maxWidth: 190 }} />
+              {marks[kind] && (
+                <button onClick={() => clearMark(kind)} style={{ background: "none", border: "none",
+                        fontFamily: FONT, fontSize: 11.5, color: T.muted, cursor: "pointer" }}>
+                  Remove
+                </button>
+              )}
+            </div>
+          ))}
+          {upErr && <div style={{ fontFamily: FONT, fontSize: 12, color: T.poppyText }}>{upErr}</div>}
+        </div>
 
         {problems.length > 0 && (
           <div role="alert" style={{ background: T.daffodilBg, border: `1px solid ${T.daffodil}`,

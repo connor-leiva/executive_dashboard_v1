@@ -1,3 +1,5 @@
+import { loadTypeface, stacks } from "./typefaces.js";
+
 /* The palette, as runtime data rather than compiled-in constants.
  *
  * Every colour in this app is an inline style reading `T` from theme.js — 2,482 references
@@ -292,6 +294,11 @@ export function applyPalette(tokens, el) {
  */
 export function applyBrand(brand, el) {
   const b = brand || {};
+  // Type travels with the palette: one call sets a workspace's whole identity, so a caller
+  // cannot apply half of it. loadTypeface also REQUESTS the fonts, which is the half that was
+  // missing — the variables named Space Grotesk and nothing ever fetched it.
+  applyType(stacks(b.typeface), el);
+  loadTypeface(b.typeface);
   if (b.palette && Object.keys(b.palette).length) {
     applyPalette(b.palette, el);
     return "explicit";
@@ -319,4 +326,5 @@ export function applyType(fonts, el) {
    from the first frame and a workspace override later only ever CHANGES a value, never
    introduces one. A missing variable would resolve to nothing and paint the page unstyled. */
 applyPalette(ACUMYN);
-applyType(ACUMYN_TYPE);
+applyType(stacks(undefined));
+loadTypeface(undefined);          // the platform pairing, requested at module load
