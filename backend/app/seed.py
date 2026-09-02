@@ -27,7 +27,51 @@ from .services.provisioning import seed_platform_catalogs, seed_tenant_catalogs
 from .services.metrics import _period_range, _pl_period
 
 OWNER_EMAIL = "spring@springb.com"
-OWNER_PASSWORD = "springtime"   # dev only — change after first login
+OWNER_PASSWORD = "springtime"   # DEV FIXTURE ONLY — see _seed_credentials below
+MIN_SEED_PASSWORD = 12
+
+
+def _seed_credentials() -> str:
+    """The owner password to seed with, and a refusal when this is not a laptop.
+
+    This file is a DEVELOPMENT FIXTURE. It builds one named workspace with representative data so
+    the dashboard renders offline, and dozens of tests sign in as its owner with the constant
+    above — which is why the constant stays.
+
+    What was wrong is that the same constant reached production. DEPLOY.md named this script as
+    the production bootstrap and printed the credential, so the live workspace's OWNER — the
+    highest-privilege account in it — was created with a nine-character dictionary word that is in
+    the repository, in the runbook, and in every clone. Nothing forced a rotation afterwards and
+    nothing recorded whether one happened.
+
+    Worse, seed() is idempotent by WIPING: run it a second time against the same database and it
+    deletes the workspace and everything in it, then recreates the owner with that same password.
+    A runbook step that destroys a live customer is a foot-gun regardless of the credential.
+
+    So: on a laptop, unchanged. Against a real database, refuse — unless somebody has deliberately
+    said otherwise AND supplied a password of their own.
+    """
+    from .startup_checks import is_deployed
+
+    if not is_deployed():
+        return OWNER_PASSWORD
+
+    if os.environ.get("SEED_ALLOW_DEPLOYED", "").strip().lower() not in {"1", "true", "yes"}:
+        raise SystemExit(
+            "[refused] app.seed builds a development fixture and this is a real database. "
+            "It would DELETE an existing workspace of this slug and everything in it, then "
+            "recreate its owner with a password published in this repository.\n"
+            "  Use the supported path instead:  python -m scripts.create_tenant "
+            "--slug <slug> --name <name> --owner-email <email>\n"
+            "  which invites the owner to choose their own password and wipes nothing.\n"
+            "  To seed the fixture here anyway, set SEED_ALLOW_DEPLOYED=true and "
+            "SEED_OWNER_PASSWORD to a password of your own.")
+
+    pw = os.environ.get("SEED_OWNER_PASSWORD", "")
+    if len(pw) < MIN_SEED_PASSWORD:
+        raise SystemExit(f"[refused] set SEED_OWNER_PASSWORD to at least {MIN_SEED_PASSWORD} "
+                         f"characters. The repository's fixture password is not usable here.")
+    return pw
 
 
 def _spread(total: int, n: int) -> list[int]:
@@ -106,6 +150,8 @@ async def seed():
     mid = start + dt.timedelta(days=min(5, (end - start).days))
     prev_month = start - dt.timedelta(days=10)   # outside the current period
 
+    owner_password = _seed_credentials()          # refuses outright on a real database
+
     async with SessionLocal() as s:
         existing = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one_or_none()
         if existing:
@@ -144,7 +190,7 @@ async def seed():
         seed_host = (os.environ.get("SEED_TENANT_HOST", "").strip().lower()
                      or f"springb.{settings.PLATFORM_DOMAIN}")
         s.add(Domain(tenant_id=tenant.id, hostname=seed_host, is_primary=True))
-        s.add(User(tenant_id=tenant.id, email=OWNER_EMAIL, password_hash=hash_pw(OWNER_PASSWORD),
+        s.add(User(tenant_id=tenant.id, email=OWNER_EMAIL, password_hash=hash_pw(owner_password),
                    name="Spring Bengtzen", role="owner"))
 
         ulrg = Business(tenant_id=tenant.id, key="ulrg", name="ULRG + Team", tag="Real estate",
@@ -714,7 +760,7 @@ async def seed():
 
     print("[ok] Seeded tenant 'springb' for period",
           f"{start.isoformat()} -> {end.isoformat()}")
-    print(f"  Owner login: {OWNER_EMAIL} / {OWNER_PASSWORD}")
+    print(f"  Owner login: {OWNER_EMAIL} / {owner_password}")
     print("  Businesses: ULRG + Team, Spring B, Sympli Mortgage")
 
 

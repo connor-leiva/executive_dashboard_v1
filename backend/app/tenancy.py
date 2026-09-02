@@ -95,9 +95,20 @@ async def _fallback_tenant(s) -> uuid.UUID | None:
 
     Development is exempt from the count, deliberately: dev and the test suite routinely
     hold several tenants in one database with no DNS in front of them, and the data there
-    is nobody's. The exemption is keyed to ENV, so it cannot follow a build into prod.
+    is nobody's.
+
+    THE EXEMPTION USED TO BE KEYED ON ENV ALONE, and the line above it claimed that meant it
+    "cannot follow a build into prod". It could. ENV defaults to "development" (config.py), so a
+    deployment where nobody set it was indistinguishable from a laptop: the count gate below —
+    the thing this docstring calls the real gate — was never reached, and every unrecognized host
+    resolved to the dev tenant no matter how many customers existed. Whoever forgets ENV is
+    precisely who needed the gate.
+
+    It now also requires a database nobody forgets to configure, which is the same test the
+    secrets guard settled on for the same reason.
     """
-    if settings.ENV == "development":
+    from .startup_checks import is_deployed
+    if settings.ENV == "development" and not is_deployed():
         return await _dev_tenant(s)
     if not settings.SINGLE_TENANT_FALLBACK:
         return None

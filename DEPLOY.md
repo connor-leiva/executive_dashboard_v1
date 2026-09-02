@@ -46,61 +46,28 @@ Project → **New → Database → PostgreSQL**. Note the service name (default 
 ### 5. Deploy order
 Deploy **api** first (its pre-deploy runs the migrations), then **worker**, then **web**.
 
-### 6. Seed tenant #1 (one-time)
-The database is empty after migration. Seed Spring's tenant, businesses, and owner login:
-- Easiest: install the Railway CLI, then from `backend/`:
-  `railway run --service api python -m app.seed`
-  (runs the seed against the live DB using the api service's env).
-- The seed currently includes **representative** operational/financial data so the
-  dashboard renders fully. Trim `app/seed.py` to just tenant/businesses/owner when
-  you want a clean production start.
-
-Owner login after seeding: `spring@springb.com` / `springtime` — **change it**.
-
-## Environment variables
-
-**`api` + `worker`** (shared):
-```
-DATABASE_URL=${{Postgres.DATABASE_URL}}
-APP_SECRET=<64-hex>                # python -c "import secrets;print(secrets.token_hex(32))"
-FERNET_KEY=<fernet key>            # python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
-ENV=production
-PLATFORM_DOMAIN=acumyn.io          # tenants live at {slug}.PLATFORM_DOMAIN
-SINGLE_TENANT_FALLBACK=true        # unknown host -> Spring; SELF-CLOSES at tenant #2 (see below)
-ALLOWED_ORIGINS=https://<web domain>     # localhost + CUSTOM domains only; *.PLATFORM_DOMAIN
-                                          # is admitted by regex, so a new tenant needs no edit
-QBO_CLIENT_ID=...                  # when wiring QuickBooks
-QBO_CLIENT_SECRET=...
-QBO_ENV=production
-QBO_REDIRECT_URI=https://<api domain>/api/v1/integrations/qbo/callback
-```
-> **Sisu and Follow Up Boss are no longer environment variables.** Both are connected
-> per tenant in Settings -> Integrations and stored encrypted on the `integration` row,
-> like GHL/Arive/Stripe/QBO. The old `SISU_USERNAME` / `SISU_API_TOKEN` / `FUB_API_KEY`
-> vars are ignored — a shared key would have synced one customer's book of business
-> into another's dashboard.
-**`api` also:**
-```
-PUBLIC_API_BASE=https://<api domain>
-APP_PUBLIC_URL=https://<web domain>      # QBO callback redirects back here
-```
-**`worker` also:** `SYNC_INTERVAL_MINUTES=30`
-
-**`web`:** `VITE_API_BASE=https://<api domain>/api/v1`  (build-time only; non-secret)
-
-> One API domain serves every tenant. The browser tells the API which tenant it is by
-> sending `X-Tenant-Host: <its own hostname>` on every request (see `frontend/src/api.js`),
-> because the API's own `Host` header names the API, not the customer. This is why a single
-> `web` build can serve all tenants.
-
-## Adding a tenant
+### 6. Create the first workspace (one-time)
+The database is empty after migration. Create the workspace with the supported path — it invites
+the owner to choose their own password and destroys nothing:
 
 ```
-railway run --service api python -m scripts.create_tenant   --slug acme --name "Acme Co" --owner-email owner@acme.com
+railway ssh --service executive_dashboard_v1 "python -m scripts.create_tenant     --slug <slug> --name '<Name>' --owner-email <owner@example.com>"
 ```
-Prints a one-time invite link. The tenant is live at `acme.<PLATFORM_DOMAIN>` immediately:
-DNS is the existing wildcard, CORS matches by regex, and provisioning seeds the catalogs
-(Binder jurisdiction rules, AI skills, the standard chart of accounts).
+
+It prints a one-time invite URL. Send that; the owner sets their own password.
+
+**Do not run `python -m app.seed` against a deployed database.** This step used to say exactly
+that, and it was wrong twice over. `app.seed` is a DEVELOPMENT FIXTURE: it is idempotent by
+WIPING, so a second run deletes the workspace of that slug and everything in it, and it creates
+the owner — the highest-privilege account there is — with a password published in this
+repository. It now refuses to run on a real database rather than relying on this warning.
+
+If a live owner's password may ever have been the seeded one, rotate it and check the audit
+trail:
+
+```
+railway ssh --service executive_dashboard_v1 "python -m scripts.user_access     --tenant <slug> --email <owner@example.com> --reset-link"
+```
 
 ### Running a one-off command against production
 

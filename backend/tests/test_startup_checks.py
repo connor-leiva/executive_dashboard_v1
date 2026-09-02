@@ -110,3 +110,66 @@ def test_a_short_secret_warns_but_does_not_take_a_deployment_down(cfg):
     assert fatal == []
     assert any("characters" in w for w in warn)
     SC.enforce_config(log=lambda *_: None)
+
+
+def test_the_dev_fixture_refuses_to_seed_a_real_database(cfg):
+    """app.seed is a development fixture and DEPLOY.md named it as the production bootstrap.
+
+    Two consequences, both live: it is idempotent by WIPING, so a second run deletes the
+    workspace of that slug and everything in it; and it creates the owner — the highest-privilege
+    account in a workspace — with a nine-character dictionary word that is in this repository, in
+    the runbook, and in every clone. Nothing forced a rotation and nothing recorded one.
+
+    The runbook is fixed, but a warning in a document is not a control.
+    """
+    import os
+
+    import pytest as _pytest
+
+    from app import seed as S
+
+    # On a laptop it is unchanged: dozens of tests sign in with this constant.
+    cfg(DATABASE_URL="sqlite+aiosqlite:///./command_center.db", ENV="development")
+    assert S._seed_credentials() == S.OWNER_PASSWORD
+
+    # Against a real database it refuses outright.
+    _postgres(cfg)
+    os.environ.pop("SEED_ALLOW_DEPLOYED", None)
+    with _pytest.raises(SystemExit) as ei:
+        S._seed_credentials()
+    assert "refused" in str(ei.value)
+    assert "create_tenant" in str(ei.value), "the refusal must name the supported path"
+
+
+def test_forcing_the_fixture_onto_a_real_database_still_needs_a_password_of_your_own(cfg, monkeypatch):
+    """The escape hatch exists, and it does not hand back the published password."""
+    import pytest as _pytest
+
+    from app import seed as S
+
+    _postgres(cfg)
+    monkeypatch.setenv("SEED_ALLOW_DEPLOYED", "true")
+    monkeypatch.delenv("SEED_OWNER_PASSWORD", raising=False)
+    with _pytest.raises(SystemExit) as ei:
+        S._seed_credentials()
+    assert "SEED_OWNER_PASSWORD" in str(ei.value)
+
+    monkeypatch.setenv("SEED_OWNER_PASSWORD", "short")
+    with _pytest.raises(SystemExit):
+        S._seed_credentials()
+
+    monkeypatch.setenv("SEED_OWNER_PASSWORD", "a-real-password-chosen-here")
+    assert S._seed_credentials() == "a-real-password-chosen-here"
+
+
+def test_the_single_tenant_fallback_exemption_cannot_follow_a_build_into_production(cfg):
+    """Its docstring claimed the ENV key meant it "cannot follow a build into prod". ENV defaults
+    to "development", so a deployment where nobody set it was indistinguishable from a laptop —
+    and the tenant-count gate the docstring calls the real gate was never reached. Whoever forgets
+    ENV is precisely who needed it."""
+    from app import startup_checks as SC
+
+    _postgres(cfg, ENV="development")
+    assert SC.is_deployed() is True, (
+        "a Postgres deployment with ENV unset must still count as deployed, or the fallback "
+        "serves one customer's dashboard to every unrecognised host")

@@ -25,7 +25,8 @@ cd backend
 python -m venv .venv
 # Windows:  .venv\Scripts\activate     ·  macOS/Linux:  source .venv/bin/activate
 pip install -e .
-python -m app.seed                       # seeds tenant #1 + representative data
+python -m app.seed                       # DEV FIXTURE: one workspace + representative data.
+                                         # Refuses to run against a real database - it wipes.
 python -m scripts.create_tenant --slug acme --name "Acme" --owner-email o@acme.com
 python -m scripts.create_operator --email you@example.com   # administers TENANTS,
                                                             # not a customer login

@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from .db import SessionLocal
 from .config import settings
+from .startup_checks import enforce_config
 from .models import Tenant
 from .services.sync import run_all
 
@@ -228,6 +229,11 @@ def build_scheduler() -> AsyncIOScheduler:
 
 
 async def main():
+    # The same guard the API runs. Without this a worker deployed WITHOUT its secrets starts
+    # quietly and syncs customer data, while the identically-configured API next to it refuses to
+    # boot — two processes, one config, opposite answers. It also decrypts integration
+    # credentials, so a wrong FERNET_KEY here is not a smaller problem than it is over there.
+    enforce_config()
     build_scheduler().start()
     print(f"[worker] started · interval={settings.SYNC_INTERVAL_MINUTES}m"
           + (" · ai=on" if settings.AI_EMPLOYEES_ENABLED else ""))
