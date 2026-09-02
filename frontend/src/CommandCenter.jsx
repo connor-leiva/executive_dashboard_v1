@@ -22,7 +22,7 @@ import AIEmployees from "./AIEmployees.jsx";
 import { useAiEmployees } from "./useAiEmployees.js";
 import Assistant from "./Assistant.jsx";
 import { SpringSignature, setBrand, ribbedHero, Icon , HeroMark} from "./Brand.jsx";
-import { applyPalette, applyType } from "./palette.js";
+import { applyBrand, applyType } from "./palette.js";
 import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
 
 /* ──────────────────────────────────────────────────────────────
@@ -1085,7 +1085,7 @@ function useMe() {
       // Colour and type are this workspace's too. Applied here rather than in a component so it
       // happens once, at the same moment as the wordmark — a palette that arrives later would
       // repaint the whole shell in front of the user.
-      applyPalette((u.brand && u.brand.palette) || {});
+      applyBrand(u.brand);
       applyType((u.brand && u.brand.type) || {});
       const product = (u.brand && u.brand.product_name) || "Command Center";
       const who = (u.brand && u.brand.display_name) || u.tenant_name || "";

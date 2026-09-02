@@ -12,7 +12,7 @@ import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
 import ShareScorecard from "./ulrg/ShareScorecard.jsx";
 import ShareDesk from "./ShareDesk.jsx";
 import { SpringSignature, setBrand, ribbedHero } from "./Brand.jsx";
-import { applyPalette, applyType } from "./palette.js";
+import { applyBrand, applyType } from "./palette.js";
 import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -47,7 +47,7 @@ export function Login({ onLogin }) {
       const raw = window.localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
       const b = JSON.parse(raw);
-      applyPalette(b.palette || {});
+      applyBrand(b);
       applyType(b.type || {});
       setBrand(b);
       return b;
@@ -59,7 +59,7 @@ export function Login({ onLogin }) {
     getJSON("/public/brand")
       .then((b) => {
         if (!live || !b) return;
-        applyPalette(b.palette || {});
+        applyBrand(b);
         applyType(b.type || {});
         setBrand(b);
         setChrome(b);

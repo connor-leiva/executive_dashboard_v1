@@ -314,3 +314,40 @@ def test_the_history_window_is_a_reach_limit_not_a_deletion():
     assert plans.within_history(_T("team"), dt.date(2026, 1, 1), today)
     assert not plans.within_history(_T("team"), dt.date(2024, 1, 1), today)
     assert plans.within_history(_T("portfolio"), dt.date(2001, 1, 1), today)
+
+
+# ── appearance ───────────────────────────────────────────────────────────────────────────
+def test_five_seeds_derive_thirty_tokens_that_all_read():
+    """The five-knob decision only holds if the derivation reaches everything and stays legible.
+    Acumyn's own seeds are the case that must never fail — they are what every workspace starts
+    from, so a contrast failure there ships to everybody who has not chosen colours."""
+    import json
+    import re
+    import subprocess
+    from pathlib import Path
+
+    pal = Path(__file__).resolve().parents[2] / "frontend" / "src" / "palette.js"
+    script = rf"""
+      const fs = require('fs');
+      let src = fs.readFileSync({json.dumps(str(pal))}, 'utf8')
+        .replace(/^export /gm, '')
+        .replace(/applyPalette\(ACUMYN\);|applyType\(ACUMYN_TYPE\);/g, '');
+      eval(src);
+      const t = derive(seedsFromAcumyn());
+      console.log(JSON.stringify({{
+        count: Object.keys(t).length,
+        defaults: contrastProblems(seedsFromAcumyn()),
+        garish: contrastProblems({{brand:'#FFEB3B',surface:'#FFFFFF',ink:'#CCCCCC',
+                                   positive:'#AAFFAA',negative:'#FFDDDD'}}).length,
+        warningFixed: t.daffodil,
+      }}));
+    """
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    got = json.loads(out.stdout)
+
+    assert got["count"] == 30, "the derivation must cover every token the app reads"
+    assert got["defaults"] == [], f"Acumyn's own seeds fail contrast: {got['defaults']}"
+    assert got["garish"] >= 5, "an unreadable palette must be caught, not merely disliked"
+    # Warning is not a seed: it stays the specified value whatever else a workspace picks.
+    assert got["warningFixed"].upper() == "#7E5A1C"

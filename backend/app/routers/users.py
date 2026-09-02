@@ -4,6 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from ..db import get_session
 from .. import plans
@@ -88,6 +89,71 @@ async def list_users(user: User = Depends(require_role("owner", "admin")), s: As
 @router.get("/tenant/tabs")
 async def tenant_tab_vocab(user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):
     return {"tabs": await tenant_tabs(s, user.tenant_id)}
+
+
+SEED_KEYS = ("brand", "surface", "ink", "positive", "negative")
+_HEX = __import__("re").compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+@router.get("/settings/appearance")
+async def get_appearance(user: User = Depends(require_role("owner", "admin")),
+                         s: AsyncSession = Depends(get_session)):
+    """This workspace's chosen seeds, and whether its plan lets it choose at all."""
+    tenant = await s.get(Tenant, user.tenant_id)
+    brand = ((tenant.config or {}).get("brand") or {})
+    return {"seeds": brand.get("seeds") or {},
+            "allowed": plans.allows(tenant, "custom_branding"),
+            "plan": plans.describe(tenant)}
+
+
+@router.patch("/settings/appearance")
+async def set_appearance(body: dict, user: User = Depends(require_role("owner", "admin")),
+                         s: AsyncSession = Depends(get_session)):
+    """Save the five seeds. The other twenty-five tokens are derived in the browser from these,
+    so what is stored is the CHOICE rather than its consequences — a workspace that picked five
+    colours a year ago still gets today's derivation rather than a frozen copy of the old one.
+
+    WHAT IS VALIDATED HERE, AND WHAT IS NOT. Structure is: the five known keys, real six-digit
+    hex, nothing else stored. Contrast is not, and that is deliberate rather than an oversight —
+    the colour maths lives in the browser, and a second implementation in Python would be two
+    implementations drifting apart with no test able to catch it. The contrast rules are a
+    usability guardrail, not an access control: the only workspace harmed by an unreadable
+    palette is the one that chose it. The UI refuses to save a failing combination and says why.
+    """
+    tenant = await s.get(Tenant, user.tenant_id)
+    if not plans.allows(tenant, "custom_branding"):
+        lim = plans.limits(tenant)
+        raise HTTPException(402, f"Custom branding is not included in the {lim['name']} plan.")
+
+    seeds = body.get("seeds")
+    if not isinstance(seeds, dict):
+        raise HTTPException(400, "Expected a `seeds` object.")
+    unknown = set(seeds) - set(SEED_KEYS)
+    if unknown:
+        raise HTTPException(400, f"Unknown colour(s): {', '.join(sorted(unknown))}. "
+                                 f"Expected: {', '.join(SEED_KEYS)}.")
+    clean = {}
+    for key, value in seeds.items():
+        if value in (None, ""):
+            continue                       # dropping a seed returns it to the platform default
+        if not isinstance(value, str) or not _HEX.match(value.strip()):
+            raise HTTPException(400, f"{key} must be a colour like #3F6B66, got {value!r}.")
+        clean[key] = value.strip().upper()
+
+    cfg = dict(tenant.config or {})
+    brand = dict(cfg.get("brand") or {})
+    brand["seeds"] = clean
+    # The derived palette is NOT stored. Storing it would freeze a workspace's colours against the
+    # derivation that happened to exist the day they saved, and every later improvement to the
+    # ramps would reach new workspaces only.
+    brand.pop("palette", None)
+    cfg["brand"] = brand
+    tenant.config = cfg
+    flag_modified(tenant, "config")
+    audit(s, user.tenant_id, user.id, "brand.appearance_changed", "tenant", tenant.id,
+          {"seeds": sorted(clean)})
+    await s.commit()
+    return {"seeds": clean}
 
 
 @router.post("/users/invite")

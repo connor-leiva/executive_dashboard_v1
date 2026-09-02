@@ -98,6 +98,161 @@ export const ACUMYN_TYPE = {
   data: 'Archivo,"Helvetica Neue",Arial,sans-serif',
 };
 
+/* ── deriving thirty tokens from five ──────────────────────────────────────────────────────
+ *
+ * A workspace picks FIVE colours. The other twenty-five are computed, and that is a product
+ * decision rather than a shortcut: thirty pickers is not more control, it is more ways to build
+ * something illegible, and every one of them becomes a support conversation about why the text
+ * disappeared. Five seeds also keep the palette internally consistent — a hover state that is
+ * always the brand darkened by the same amount cannot drift away from the thing it is a hover of.
+ *
+ * WARNING IS NOT A SEED. The four semantic states were specified together at 6:1 or better so
+ * they read as one family, and warning in particular is the one people reach for a bright yellow
+ * for — the palette this replaced used #FFDD1F at roughly 1.4:1, which is a dot and not a word.
+ * Positive and negative are seeds because a workspace has real opinions about them; warning stays
+ * fixed because the opinion people have about it is usually wrong.
+ */
+const WHITE = "#FFFFFF";
+const BLACK = "#000000";
+
+function _rgb(hex) {
+  const h = String(hex).replace("#", "");
+  const full = h.length === 3 ? h.replace(/./g, "$&$&") : h;
+  const n = parseInt(full, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function _hex(rgb) {
+  return "#" + rgb.map((v) => Math.max(0, Math.min(255, Math.round(v)))
+    .toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+
+/** Mix `a` toward `b` by `t` (0 = a, 1 = b). */
+export function mix(a, b, t) {
+  const [r1, g1, b1] = _rgb(a);
+  const [r2, g2, b2] = _rgb(b);
+  return _hex([r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t]);
+}
+
+export const lighten = (hex, t) => mix(hex, WHITE, t);
+export const darken = (hex, t) => mix(hex, BLACK, t);
+
+/** Relative luminance, WCAG 2.1. */
+export function luminance(hex) {
+  const [r, g, b] = _rgb(hex).map((c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+export function contrast(a, b) {
+  const [l1, l2] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (l1 + 0.05) / (l2 + 0.05);
+}
+
+/** The five a workspace actually chooses. */
+export const SEEDS = ["brand", "surface", "ink", "positive", "negative"];
+
+export const SEED_META = {
+  brand: { label: "Brand", hint: "Buttons, links and the one thing on a screen you want clicked." },
+  surface: { label: "Surface", hint: "The page behind everything. Keep it light." },
+  ink: { label: "Ink", hint: "Text and dark panels. Needs to be dark enough to read." },
+  positive: { label: "Positive", hint: "On pace, healthy, money in." },
+  negative: { label: "Negative", hint: "Behind, at risk, money out." },
+};
+
+export function seedsFromAcumyn() {
+  return { brand: CADET[500], surface: NEUTRAL[50], ink: CORE.ink,
+           positive: SEMANTIC.success, negative: SEMANTIC.error };
+}
+
+/**
+ * Thirty tokens from five. Every relationship here is a ratio rather than a fixed colour, so a
+ * workspace's palette holds together the same way Acumyn's does.
+ */
+export function derive(seeds) {
+  const s = { ...seedsFromAcumyn(), ...(seeds || {}) };
+  const { brand, surface, ink, positive, negative } = s;
+  return {
+    // structure and text, all off ink
+    evergreen: ink,
+    ink,
+    secondary: lighten(ink, 0.14),
+    tertiary: lighten(ink, 0.26),
+    slate: lighten(ink, 0.14),
+    // 0.36 rather than something lighter, and this is a deliberate half-step away from the
+    // identity guide. `muted` carries 11px uppercase labels and captions — NORMAL text by WCAG,
+    // which wants 4.5:1. The guide's own label neutral scores 3.21:1, fine for large text and
+    // short for the size it is actually set at. Deriving to 5.0:1 costs a little hierarchy
+    // against `secondary` and buys labels that people can read.
+    muted: mix(ink, surface, 0.36),
+    onDark: lighten(surface, 0.55),
+    onDarkMute: mix(lighten(surface, 0.55), ink, 0.42),
+
+    // ground
+    parchment: surface,
+    page: surface,
+    line: darken(surface, 0.09),
+    white: WHITE,
+
+    // the action colour and its family
+    poppy: brand,
+    poppyActive: darken(brand, 0.14),
+    petal: lighten(brand, 0.55),
+    petalDeep: darken(brand, 0.16),
+    mist: lighten(brand, 0.84),
+    edge: darken(brand, 0.24),
+    teal: darken(brand, 0.20),          // links and focus rings: needs to hold as text
+
+    // positive
+    meadow: positive,
+    meadowInk: darken(positive, 0.08),
+    meadowBg: lighten(positive, 0.88),
+    sprout: lighten(positive, 0.62),
+
+    // negative
+    poppyText: negative,
+    gapText: negative,
+
+    // warning stays Acumyn's, deliberately — see the note above
+    daffodil: SEMANTIC.warning,
+    daffodilText: SEMANTIC.warning,
+    amber: SEMANTIC.warning,
+    daffodilBg: tint(SEMANTIC.warning),
+    amberBg: tint(SEMANTIC.warning),
+  };
+}
+
+/* The pairings that decide whether the result is READABLE. Each is something the product actually
+   renders, not a theoretical combination — checking pairs nobody draws produces warnings nobody
+   can act on. AA is 4.5:1 for body text and 3:1 for large text and UI edges. */
+const CHECKS = [
+  { a: "ink", on: "page", min: 4.5, what: "Body text on the page" },
+  { a: "secondary", on: "page", min: 4.5, what: "Secondary text on the page" },
+  { a: "muted", on: "page", min: 4.5, what: "Labels and captions on the page" },
+  { a: "white", on: "poppy", min: 4.5, what: "Button text on a brand button" },
+  { a: "teal", on: "page", min: 4.5, what: "Links on the page" },
+  { a: "meadowInk", on: "page", min: 4.5, what: "Positive figures on the page" },
+  { a: "poppyText", on: "page", min: 4.5, what: "Negative figures on the page" },
+  { a: "onDark", on: "evergreen", min: 4.5, what: "Text on a dark panel" },
+  { a: "onDarkMute", on: "evergreen", min: 3.0, what: "Muted text on a dark panel" },
+];
+
+/**
+ * What is unreadable about a proposed palette. Empty means it is fine.
+ *
+ * Returned rather than thrown so the UI can show every problem at once: a picker that reports one
+ * failure, gets fixed, then reports the next is a picker people give up on.
+ */
+export function contrastProblems(seeds) {
+  const t = derive(seeds);
+  return CHECKS
+    .map((c) => ({ ...c, ratio: contrast(t[c.a], t[c.on]) }))
+    .filter((c) => c.ratio < c.min)
+    .map((c) => ({ what: c.what, ratio: Math.round(c.ratio * 100) / 100, min: c.min }));
+}
+
 const VAR = (name) => `--t-${name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase())}`;
 
 /** `T` reads this: the token's value as a CSS variable reference, not a colour. */
@@ -123,6 +278,34 @@ export function applyPalette(tokens, el) {
     root.style.setProperty(`${VAR(name)}-rgb`, rgbTriple(value));
   }
 }
+
+/**
+ * Apply a workspace's colours, whichever shape they are stored in.
+ *
+ * TWO SHAPES, and the order matters. An explicit `palette` is thirty tokens somebody chose one at
+ * a time — the first workspace has exactly that, pinned by migration 0049 so its dashboard did
+ * not move when the palette stopped being compiled in. `seeds` is the five-colour choice everyone
+ * makes now, derived at render time.
+ *
+ * Explicit wins, because it can express things the derivation cannot, and demoting a hand-built
+ * palette to an approximation of itself would be a visible change nobody asked for.
+ */
+export function applyBrand(brand, el) {
+  const b = brand || {};
+  if (b.palette && Object.keys(b.palette).length) {
+    applyPalette(b.palette, el);
+    return "explicit";
+  }
+  if (b.seeds && Object.keys(b.seeds).length) {
+    // Derived rather than stored, so a workspace that chose five colours a year ago still gets
+    // today's ramps instead of a frozen copy of the ones that existed when they saved.
+    applyPalette(derive(b.seeds), el);
+    return "derived";
+  }
+  applyPalette(ACUMYN, el);              // the platform's own identity
+  return "platform";
+}
+
 
 export function applyType(fonts, el) {
   const root = el || (typeof document !== "undefined" && document.documentElement);

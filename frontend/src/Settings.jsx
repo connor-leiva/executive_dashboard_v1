@@ -5,6 +5,7 @@ import { getJSON, postJSON, putJSON, patchJSON, delJSON, tenantHeaders } from ".
 import { Icon } from "./Brand.jsx";
 import AISettings from "./AISettings.jsx";
 import SecuritySettings from "./SecuritySettings.jsx";
+import Appearance from "./Appearance.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -53,6 +54,7 @@ function subnavFor(role, aiOn) {
     { to: "/settings/integrations", label: "Integrations" },
     { to: "/settings/users", label: "Team" },
     { to: "/settings/businesses", label: "Businesses" },
+    { to: "/settings/appearance", label: "Appearance" },
   ];
   if (aiOn) nav.push({ to: "/settings/ai", label: "AI Employees" });
   nav.push({ to: "/settings/security", label: "Security" });
@@ -1725,6 +1727,7 @@ export default function Settings() {
         {isAdmin && <Route path="integrations" element={<IntegrationsPage />} />}
         {isAdmin && <Route path="users" element={<UsersPage />} />}
         {isAdmin && <Route path="businesses" element={<BusinessesPage />} />}
+        {isAdmin && <Route path="appearance" element={<Appearance />} />}
         {isAdmin && aiOn && <Route path="ai" element={<AISettings />} />}
         <Route path="*" element={<Navigate to={home} replace />} />
       </Routes>
