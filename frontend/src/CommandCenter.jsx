@@ -24,6 +24,7 @@ import Assistant from "./Assistant.jsx";
 import { SpringSignature, setBrand, ribbedHero, Icon , HeroMark} from "./Brand.jsx";
 import { applyBrand, applyType } from "./palette.js";
 import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
+import AppSwitcher from "./AppSwitcher.jsx";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -1085,7 +1086,6 @@ function useMe() {
       // happens once, at the same moment as the wordmark — a palette that arrives later would
       // repaint the whole shell in front of the user.
       applyBrand(u.brand);
-      applyType((u.brand && u.brand.type) || {});
       const product = (u.brand && u.brand.product_name) || "Command Center";
       const who = (u.brand && u.brand.display_name) || u.tenant_name || "";
       document.title = who ? `${who} · ${product}` : product;
@@ -1338,7 +1338,12 @@ export default function CommandCenter() {
             sources={sources || []} loading={!period}
             refreshing={refreshing} onRefresh={doRefresh} apiEnabled={Boolean(API_BASE)}
             updated={updated}
-            accountSlot={<UserMenu user={user} />}
+            accountSlot={
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <AppSwitcher user={user} />
+                <UserMenu user={user} />
+              </div>
+            }
             menuSlot={
               <button className="cc-burger cc-nav" onClick={() => setNavOpen(true)}
                 aria-label="Open sections menu" aria-expanded={navOpen} style={{

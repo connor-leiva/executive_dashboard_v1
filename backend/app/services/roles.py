@@ -157,6 +157,14 @@ BRAND_DEFAULTS = {
     # which is the honest default: a workspace that has not chosen colours should look like
     # Acumyn, never like whichever customer happened to be built first.
     "palette": {},
+    # The pairing NAME. Without this key brand() silently drops it — every key not declared here
+    # is dropped — so a workspace's stored typeface never reached the browser and the SPA fell
+    # back to fetching the platform's fonts while naming the workspace's. The variables said
+    # Poppins; nothing had downloaded Poppins.
+    "typeface": None,
+    # Legacy: three raw font stacks, from before pairings existed. Kept so an old workspace still
+    # resolves, but the browser maps it to a pairing rather than applying it raw — naming a family
+    # and fetching it are different jobs, and applying a stack does only the first.
     "type": {},
     # The sign-in screen, which renders before there is a session and so cannot read any of the
     # above from /me. None means the neutral ribbed hero tinted by the palette — which is a real

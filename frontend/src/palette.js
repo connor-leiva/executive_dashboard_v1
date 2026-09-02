@@ -1,4 +1,4 @@
-import { loadTypeface, stacks } from "./typefaces.js";
+import { loadTypeface, pairingFromStacks, stacks } from "./typefaces.js";
 
 /* The palette, as runtime data rather than compiled-in constants.
  *
@@ -318,11 +318,13 @@ export function applyPalette(tokens, el) {
  */
 export function applyBrand(brand, el) {
   const b = brand || {};
-  // Type travels with the palette: one call sets a workspace's whole identity, so a caller
-  // cannot apply half of it. loadTypeface also REQUESTS the fonts, which is the half that was
-  // missing — the variables named Space Grotesk and nothing ever fetched it.
-  applyType(stacks(b.typeface), el);
-  loadTypeface(b.typeface);
+  // THE SINGLE SOURCE FOR TYPE. Callers used to follow this with applyType(brand.type), and the
+  // two disagreed: this resolved a pairing and fetched its fonts, then that overwrote the
+  // variables with a legacy stack whose fonts nobody had requested. The result named Poppins and
+  // rendered in a generic sans.
+  const face = b.typeface || pairingFromStacks(b.type) || undefined;
+  applyType(stacks(face), el);
+  loadTypeface(face);
   if (b.palette && Object.keys(b.palette).length) {
     applyPalette(b.palette, el);
     return "explicit";

@@ -169,3 +169,43 @@ def test_form_controls_inherit_the_workspace_typeface():
     rules = [l for l in html.splitlines() if not l.strip().startswith(("*", "/*", "//"))]
     assert not any("box-sizing:" in l for l in rules), (
         "a box-sizing reset would move layout across the app")
+
+
+def test_the_brand_payload_carries_the_typeface_name():
+    """brand() drops every key not declared in BRAND_DEFAULTS, and `typeface` was not declared.
+
+    So a workspace's stored pairing never reached the browser. The SPA fell back to the platform
+    pairing, FETCHED the platform's fonts, and a second call then overwrote the variables with the
+    workspace's legacy stacks — which named Poppins while nothing had downloaded Poppins. Every
+    surface rendered in a generic sans while the CSS said otherwise.
+    """
+    from app.services.roles import BRAND_DEFAULTS, brand
+
+    assert "typeface" in BRAND_DEFAULTS, "the pairing name will be silently dropped again"
+
+    class _T:
+        name = "Acme"
+        config = {"brand": {"typeface": "classic",
+                            "type": {"display": "Poppins,sans-serif"}}}
+
+    assert brand(_T())["typeface"] == "classic"
+
+
+def test_only_one_place_applies_type():
+    """Two callers used to set it: applyBrand resolved a pairing and fetched its fonts, then
+    applyType(brand.type) overwrote the variables with a stack whose fonts nobody had requested.
+    Naming a family and loading it are different jobs, and the second caller did only the first.
+    """
+    import re
+    from pathlib import Path
+
+    src_dir = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    offenders = {}
+    for path in sorted(src_dir.rglob("*.js*")):
+        if path.name in {"palette.js", "Appearance.jsx"}:
+            continue                     # where it legitimately lives, and the live preview
+        text = path.read_text(encoding="utf-8", errors="replace")
+        code = "\n".join(l for l in text.splitlines() if not l.strip().startswith(("*", "//")))
+        if re.search(r"\bapplyType\s*\(", code):
+            offenders[path.name] = True
+    assert not offenders, f"applyType called outside applyBrand: {sorted(offenders)}"

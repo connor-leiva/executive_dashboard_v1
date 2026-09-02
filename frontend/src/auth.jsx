@@ -48,7 +48,6 @@ export function Login({ onLogin }) {
       if (!raw) return null;
       const b = JSON.parse(raw);
       applyBrand(b);
-      applyType(b.type || {});
       setBrand(b);
       return b;
     } catch { return null; }          // private window, cleared storage, corrupt value
@@ -60,7 +59,6 @@ export function Login({ onLogin }) {
       .then((b) => {
         if (!live || !b) return;
         applyBrand(b);
-        applyType(b.type || {});
         setBrand(b);
         setChrome(b);
         try { window.localStorage.setItem(CACHE_KEY, JSON.stringify(b)); } catch { /* fine */ }

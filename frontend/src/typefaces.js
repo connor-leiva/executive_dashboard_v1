@@ -58,6 +58,24 @@ export const DEFAULT_PAIRING = "acumyn";
 const DATA_FAMILY = "Archivo:wght@400;500;600;700";
 const DATA_STACK = 'Archivo,"Helvetica Neue",Arial,sans-serif';
 
+/**
+ * Which pairing a legacy three-stack `type` object corresponds to.
+ *
+ * Workspaces configured before pairings existed store raw stacks. Applying those directly sets
+ * the variables and loads NOTHING — which is precisely how a workspace ended up naming Poppins
+ * while the browser had only fetched Space Grotesk, so every surface fell back to a generic sans.
+ * Matching to a pairing means the fonts get requested.
+ */
+export function pairingFromStacks(type) {
+  const display = String((type && type.display) || "").toLowerCase();
+  if (!display) return null;
+  for (const [name, p] of Object.entries(PAIRINGS)) {
+    const first = p.display.toLowerCase().replace(/["']/g, "").split(",")[0].trim();
+    if (display.replace(/["']/g, "").startsWith(first)) return name;
+  }
+  return null;
+}
+
 export function pairing(name) {
   return PAIRINGS[name] || PAIRINGS[DEFAULT_PAIRING];
 }

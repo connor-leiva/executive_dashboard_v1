@@ -196,13 +196,22 @@ export default function Appearance() {
   }, [typeface, allowed]);
 
   const tokens = useMemo(() => derive(seeds), [seeds]);
+  // Contrast is only a reason to block the SAVE when the seeds are what is being saved.
+  //
+  // A workspace with a hand-built palette renders from that palette, not from these five. The
+  // five are a read-back approximation, so judging them and then disabling Save meant the panel
+  // refused to change ANYTHING — including the typeface, which has nothing to do with colour.
+  // The workspace was locked out of its own settings by a warning about a palette it does not use.
   const problems = useMemo(() => contrastProblems(seeds), [seeds]);
+  const savedSeeds = saved ? JSON.parse(saved).seeds : null;
+  const seedsTouched = !!savedSeeds && JSON.stringify(seeds) !== JSON.stringify(savedSeeds);
+  const blocking = problems.length > 0 && (seedsTouched || !hadExplicit);
   const dirty = saved !== null && JSON.stringify({ seeds, typeface }) !== saved;
 
   function change(name, value) { setSeeds((s) => ({ ...s, [name]: value })); }
 
   async function save() {
-    if (problems.length) return;
+    if (blocking) return;
     setBusy(true); setErr(null);
     try {
       await patchJSON("/settings/appearance", { seeds, typeface });
@@ -323,6 +332,7 @@ export default function Appearance() {
                                      borderRadius: 10, padding: "11px 13px", marginBottom: 14 }}>
             <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.daffodilText }}>
               {problems.length === 1 ? "One thing" : `${problems.length} things`} would be hard to read
+              {hadExplicit && !seedsTouched ? " if you switched to these five" : ""}
             </div>
             <ul style={{ margin: "6px 0 0 16px", padding: 0, fontFamily: FONT, fontSize: 12,
                          color: T.daffodilText, lineHeight: 1.6 }}>
@@ -343,11 +353,11 @@ export default function Appearance() {
           </div>
         )}
         <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
-          <button onClick={save} disabled={busy || !dirty || problems.length > 0}
-                  style={{ background: problems.length ? T.sprout : T.poppy, color: T.white,
+          <button onClick={save} disabled={busy || !dirty || blocking}
+                  style={{ background: blocking ? T.sprout : T.poppy, color: T.white,
                            border: "none", borderRadius: 9, padding: "9px 16px", fontFamily: FONT,
                            fontSize: 13, fontWeight: 600,
-                           cursor: (busy || !dirty || problems.length) ? "default" : "pointer" }}>
+                           cursor: (busy || !dirty || blocking) ? "default" : "pointer" }}>
             {busy ? "Saving…" : "Save"}
           </button>
           <button onClick={reset} style={{ background: "none", border: `1px solid ${T.line}`,
@@ -355,7 +365,7 @@ export default function Appearance() {
                                            fontSize: 13, color: T.slate, cursor: "pointer" }}>
             Use Acumyn's
           </button>
-          {problems.length > 0 && (
+          {blocking && (
             <span style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted }}>
               Fix the contrast to save
             </span>
