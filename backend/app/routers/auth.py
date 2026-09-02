@@ -114,7 +114,7 @@ async def logout():
 async def me(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     tenant = (await s.execute(select(Tenant).where(Tenant.id == user.tenant_id))).scalar_one()
     descriptors = await tenant_tab_descriptors(s, user.tenant_id)
-    tabs = effective_tabs(user, [d["key"] for d in descriptors])
+    tabs = effective_tabs(user, [d["key"] for d in descriptors], tenant=tenant)
     granted = set(tabs)
     return MeResponse(id=str(user.id), email=user.email, name=user.name, role=user.role,
                       status=user.status, tenant=tenant.slug, tenant_name=tenant.name,

@@ -64,7 +64,9 @@ def require_role(*roles: str):
 async def assert_tab(user: User, s: AsyncSession, tab: str) -> None:
     """Raise 403 unless the user's effective tabs include `tab`. Used inline where the
     tab is dynamic (a path/query param); owners/admins pass implicitly."""
-    tabs = effective_tabs(user, await tenant_tabs(s, user.tenant_id))
+    # The plan gates access, not only display: this is the function that refuses a tab.
+    tabs = effective_tabs(user, await tenant_tabs(s, user.tenant_id),
+                          tenant=await s.get(Tenant, user.tenant_id))
     if tab not in tabs:
         raise HTTPException(403, "No access to this view")
 

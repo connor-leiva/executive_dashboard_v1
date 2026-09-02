@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import current_user, require_tab, assert_tab
-from ..models import User
+from ..models import User, Tenant
 from ..schemas import DashboardResponse
 from ..services.metrics import build_dashboard
 from ..services.lineage import metric_detail
@@ -39,7 +39,8 @@ async def dashboard(
     d = await build_dashboard(s, user.tenant_id, period)
     if user.role in ("owner", "admin"):
         return d
-    tabs = effective_tabs(user, await tenant_tabs(s, user.tenant_id))
+    tabs = effective_tabs(user, await tenant_tabs(s, user.tenant_id),
+                          tenant=await s.get(Tenant, user.tenant_id))
     return _filter_dashboard(d, tabs)
 
 

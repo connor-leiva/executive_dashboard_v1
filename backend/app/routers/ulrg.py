@@ -15,12 +15,13 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_session
+from .. import plans
 from ..deps import current_user, require_tab
 from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue,
                       ScorecardGoal, ShareLink)
@@ -150,6 +151,16 @@ async def create_share(body: ShareIn, user: User = Depends(current_user),
     _require_admin(user)
     if body.scope != "ulrg_scorecard":                   # team-room sharing arrives with Step 6
         raise HTTPException(400, "Only the full scorecard can be shared yet")
+    tenant = await s.get(Tenant, user.tenant_id)
+    # Counts only LIVE links. A revoked one is not occupying anything, and making somebody delete
+    # history to mint a new share would be a limit that punishes tidiness.
+    live = (await s.execute(select(func.count()).select_from(ShareLink).where(
+        ShareLink.tenant_id == user.tenant_id, ShareLink.revoked_at.is_(None)))).scalar_one()
+    if plans.over_limit(tenant, "max_share_links", live):
+        lim = plans.limits(tenant)
+        raise HTTPException(402, f"The {lim['name']} plan includes {lim['max_share_links']} "
+                                 f"active share links and this workspace has {live}. Revoke one "
+                                 f"or upgrade.")
     token = secrets.token_urlsafe(32)
     s.add(ShareLink(tenant_id=user.tenant_id, scope=body.scope, scope_ref=body.scope_ref,
                     token=token, created_by=user.id))

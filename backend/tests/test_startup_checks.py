@@ -261,3 +261,56 @@ def test_every_plan_is_complete_so_a_gate_cannot_read_a_missing_key():
     # Prices ascend with the tier, which is the one relationship a reader will assume.
     prices = [plans.PLANS[p]["price_monthly"] for p in plans.ORDER]
     assert prices == sorted(prices) and len(set(prices)) == len(prices), prices
+
+
+async def test_the_gates_count_the_thing_the_limit_actually_means():
+    """Each cap counts a deliberately chosen population, and the choice matters more than the
+    number:
+
+      * users counts INVITED as well as active — an invitation is a seat somebody is expected to
+        take, and a cap that only counts accepted users is a cap you get around by never
+        accepting one.
+      * share links counts only LIVE ones. A revoked link occupies nothing, and making somebody
+        delete their history to mint a new share would be a limit that punishes tidiness.
+    """
+    from app import plans
+
+    class _T:
+        plan = "team"
+
+    t = _T()
+    # Team includes 5 users: the fifth is allowed, the sixth is not.
+    assert not plans.over_limit(t, "max_users", 4)
+    assert plans.over_limit(t, "max_users", 5)
+    # 3 share links, same boundary.
+    assert not plans.over_limit(t, "max_share_links", 2)
+    assert plans.over_limit(t, "max_share_links", 3)
+    # Team has no AI employees at all, so the first one is already over.
+    assert plans.over_limit(t, "max_ai_employees", 0)
+
+    class _P:
+        plan = "portfolio"
+
+    # Unlimited means unlimited, not a large number.
+    for key in ("max_users", "max_share_links", "max_ai_employees", "max_businesses"):
+        assert not plans.over_limit(_P(), key, 10_000), key
+
+
+def test_the_history_window_is_a_reach_limit_not_a_deletion():
+    """History bounds how far the DASHBOARD looks back. Nothing is deleted and nothing is hidden
+    from an export — a plan limit that destroys a customer's data is not a plan limit."""
+    import datetime as dt
+
+    from app import plans
+
+    class _T:
+        def __init__(self, plan): self.plan = plan
+
+    today = dt.date(2026, 9, 2)
+    assert plans.history_start(_T("team"), today) == dt.date(2025, 9, 1)      # 12 months
+    assert plans.history_start(_T("business"), today) == dt.date(2023, 9, 1)  # 36 months
+    assert plans.history_start(_T("portfolio"), today) is None               # unlimited
+
+    assert plans.within_history(_T("team"), dt.date(2026, 1, 1), today)
+    assert not plans.within_history(_T("team"), dt.date(2024, 1, 1), today)
+    assert plans.within_history(_T("portfolio"), dt.date(2001, 1, 1), today)

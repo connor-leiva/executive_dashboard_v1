@@ -104,7 +104,8 @@ async def _build_context(s, user: User, period: str, step_up: set | None = None)
     behind a second factor is withheld without it, so the assistant can't be used as a
     side door into data the section itself would have locked."""
     all_tabs = await tenant_tabs(s, user.tenant_id)
-    tabs = list(all_tabs) if user.role in ("owner", "admin") else effective_tabs(user, all_tabs)
+    # Applied to owners too, so the assistant never describes a tab the plan excludes.
+    tabs = effective_tabs(user, all_tabs, tenant=await s.get(Tenant, user.tenant_id))
 
     d = await build_dashboard(s, user.tenant_id, period)
     if user.role not in ("owner", "admin"):

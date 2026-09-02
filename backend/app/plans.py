@@ -129,6 +129,28 @@ def over_limit(tenant, key: str, current: int) -> bool:
     return cap is not None and current >= cap
 
 
+def history_start(tenant, today=None):
+    """The earliest date this plan may look back to, or None for unlimited.
+
+    History is a plan limit rather than a data limit: nothing is deleted and nothing is hidden
+    from an export. It bounds how far the DASHBOARD will reach, which is the part that costs
+    query time.
+    """
+    import datetime as _dt
+
+    months = limits(tenant)["history_months"]
+    if months is None:
+        return None
+    today = today or _dt.date.today()
+    year, month = divmod((today.year * 12 + today.month - 1) - months, 12)
+    return _dt.date(year, month + 1, 1)
+
+
+def within_history(tenant, start, today=None) -> bool:
+    floor = history_start(tenant, today)
+    return floor is None or start >= floor
+
+
 def describe(tenant) -> dict:
     """The plan as the UI and the operator console show it. No prices in the app itself — those
     belong on the marketing site and in billing, and a stale number in a dashboard is worse than

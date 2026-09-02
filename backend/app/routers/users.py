@@ -2,10 +2,11 @@ import datetime as dt
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
+from .. import plans
 from ..deps import require_role
 from ..models import User, Tenant, Domain
 from ..schemas import InviteRequest, UserUpdate, UserOut
@@ -101,6 +102,15 @@ async def invite_user(body: InviteRequest, request: Request,
         User.tenant_id == user.tenant_id, User.email == email))).scalar_one_or_none()
     if exists:
         raise HTTPException(409, "A user with that email already exists in this tenant")
+    tenant = await s.get(Tenant, user.tenant_id)
+    # Counts INVITED as well as active: an invitation is a seat somebody is expected to take, and
+    # a limit that only counts accepted users is a limit you get around by never accepting.
+    have = (await s.execute(select(func.count()).select_from(User).where(
+        User.tenant_id == user.tenant_id, User.status != "disabled"))).scalar_one()
+    if plans.over_limit(tenant, "max_users", have):
+        lim = plans.limits(tenant)
+        raise HTTPException(402, f"The {lim['name']} plan includes {lim['max_users']} users and "
+                                 f"this workspace has {have}. Upgrade to invite another.")
     all_tabs = await tenant_tabs(s, user.tenant_id)
     grants = _clean_tabs(body.role, body.tab_access, all_tabs)
 

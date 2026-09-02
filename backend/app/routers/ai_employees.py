@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_session
+from .. import plans
 from ..deps import current_user, require_role, assert_tab
 from ..models import (User, Tenant, AISkill, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact,
                       AIRosterAccount, AIIntelEntry, AIMediaAsset)
@@ -206,6 +207,15 @@ async def list_employees(user: User = Depends(current_user), s: AsyncSession = D
 @router.post("/employees", status_code=201)
 async def create_employee(body: EmployeeCreate, user: User = Depends(manager),
                           s: AsyncSession = Depends(get_session)):
+    tenant = await s.get(Tenant, user.tenant_id)
+    have = (await s.execute(select(func.count()).select_from(AIEmployee).where(
+        AIEmployee.tenant_id == user.tenant_id))).scalar_one()
+    if plans.over_limit(tenant, "max_ai_employees", have):
+        lim = plans.limits(tenant)
+        cap = lim["max_ai_employees"]
+        raise HTTPException(402, f"The {lim['name']} plan includes "
+                                 f"{'no' if cap == 0 else cap} AI employee"
+                                 f"{'' if cap == 1 else 's'}. Upgrade to add one.")
     e = AIEmployee(tenant_id=user.tenant_id, name=body.name.strip(), role_title=body.role_title,
                    avatar_color=body.avatar_color, config=body.config or {})
     s.add(e)
