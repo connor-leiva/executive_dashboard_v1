@@ -32,7 +32,27 @@ export function Login({ onLogin }) {
   // The sign-in screen has no session, so it asks who this host belongs to. Until that answers
   // it renders Acumyn's own identity, which is the truthful state rather than a placeholder:
   // before you sign in you are at the platform, not inside a workspace.
-  const [chrome, setChrome] = useState(null);
+  //
+  // WHY THE CACHE. /public/brand is a network round-trip, so the honest first paint is Acumyn's
+  // identity and the workspace's arrives a few hundred milliseconds later — which reads as the
+  // page changing its mind in front of you. The last answer for THIS host is kept and applied
+  // synchronously, so a returning visitor never sees the swap; only a genuinely first visit does.
+  //
+  // Safe to cache per host because every workspace is its own subdomain and therefore its own
+  // origin: one workspace's storage is not readable from another's, and nothing here is private
+  // anyway — it is the branding painted on the page a moment later.
+  const CACHE_KEY = `acu:brand:${window.location.hostname}`;
+  const [chrome, setChrome] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const b = JSON.parse(raw);
+      applyPalette(b.palette || {});
+      applyType(b.type || {});
+      setBrand(b);
+      return b;
+    } catch { return null; }          // private window, cleared storage, corrupt value
+  });
   useEffect(() => {
     let live = true;
     if (!API_BASE) return undefined;
@@ -43,8 +63,9 @@ export function Login({ onLogin }) {
         applyType(b.type || {});
         setBrand(b);
         setChrome(b);
+        try { window.localStorage.setItem(CACHE_KEY, JSON.stringify(b)); } catch { /* fine */ }
       })
-      .catch(() => { /* unreachable API: keep the platform's own chrome */ });
+      .catch(() => { /* unreachable API: keep whatever is already painted */ });
     return () => { live = false; };
   }, []);
   const [error, setError] = useState(null);

@@ -634,7 +634,7 @@ const CSS = `
   /* beCollective Cash card — official petal ribbed gradient (light surface, dark ink). */
   .hero.bc { color:${C.ink};
     background-color:${C.petal};
-    background-image:url(/brand/RibbedGradient.jpg);
+    background-image:url(/brand/RibbedGradient_Petal.jpg);
     background-size:cover; background-position:center; background-blend-mode:multiply;
     box-shadow:0 2px 6px ${C.evergreen}1A, 0 16px 38px ${C.evergreen}1F, inset 0 1px 0 rgba(255,255,255,.35);
     border:1px solid ${C.petalDeep}55; }

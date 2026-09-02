@@ -1,4 +1,4 @@
-import { T } from "./theme.js";
+import { T, alpha } from "./theme.js";
 
 /* Brand assets. The delivered logo/logomark/icon files are black art on a
    transparent ground, so we render them as CSS masks over a colored box — one
@@ -81,32 +81,53 @@ export function BrandLogomark({ tone = "dark", size = 28, color, style }) {
 export const SpringSignature = BrandSignature;
 export const SpringLogomark = BrandLogomark;
 
-/* Ribbed-gradient hero surface. A NEUTRAL texture multiplied over a palette colour: the white
-   ground leaves the colour untouched and the ribs deepen it. One ribbed surface per view, always
-   the hero band.
-
-   This used to be eight files, one per colour — RibbedGradient_Evergreen.jpg and friends. They
-   are the same artwork tinted eight ways (measured: after normalising, they differ by at most
-   5.3/255, which is JPEG noise), so the tint was doing nothing the multiply could not. Collapsing
-   them to one greyscale master removed seven files AND removed the ceiling: a hero band now
-   exists for any colour a workspace ever configures, including colours nobody has drawn yet.
-   That is the difference between eight supported brands and all of them.
-
-   On the texture's strength: the eight originals did not darken equally — a yellow tint darkens
-   barely at all, an evergreen one a great deal — so no single master reproduces all eight
-   exactly. The master is cut at 82%, which was the closest match across the range when compared
-   against all eight, and which keeps the ribs visible on the dark grounds the hero actually uses
-   rather than optimising for the light ones that outnumber them. */
+/* The hero band's surface.
+ *
+ * TWO ROUTES, and which one runs is a question about whose artwork it is.
+ *
+ * A workspace that supplies `hero_plates` — a map of ground colour to image — gets its own,
+ * multiplied over the ground the way its designer intended. Spring's eight ribbed gradients are
+ * exactly that, and they are HERS: delivered as part of her visual identity system.
+ *
+ * Everything else gets Acumyn's bokeh. That is a real Acumyn asset — soft aperture-shaped blurs
+ * echoing the mark's own blades — laid under a wash of the ground colour, which is the technique
+ * from Acumyn's own site. The plate carries texture, the wash carries the brand, so it works for
+ * any colour a workspace ever configures.
+ *
+ * An earlier version of this collapsed Spring's eight files into one desaturated master and made
+ * it the platform default. It was technically tidy — the eight are one artwork, measurably — and
+ * it was the wrong thing to do: desaturating somebody's brand asset does not make it yours, and
+ * Acumyn shipping a derivative of a customer's identity as its own look is not a licensing
+ * question so much as a taste one. The eight files are back where they belong, addressed as
+ * Spring's configuration rather than as everybody's default. */
 const HERO_BG = {
   evergreen: T.evergreen, meadow: T.meadow, poppy: T.poppy,
   mist: T.mist, parchment: T.parchment, petal: T.petal, daffodil: T.daffodilBg,
 };
+
+// Which plate reads better under the wash. Keyed on the SLOT rather than the colour, because
+// the colour is a CSS variable by the time it gets here and JavaScript cannot measure it.
+const LIGHT_GROUNDS = new Set(["mist", "parchment", "petal", "daffodil", "sprout"]);
+
 export function ribbedHero(gradient = "evergreen") {
+  const g = String(gradient).toLowerCase();
+  const ground = HERO_BG[g] || T.evergreen;
+  const plates = _brand.hero_plates || null;
+  if (plates && plates[g]) {
+    return {
+      backgroundColor: ground, backgroundImage: `url(${plates[g]})`,
+      backgroundSize: "cover", backgroundPosition: "center",
+      backgroundBlendMode: "multiply",
+    };
+  }
+  const plate = LIGHT_GROUNDS.has(g) ? "bokeh-light" : "bokeh-ink";
   return {
-    backgroundColor: HERO_BG[String(gradient).toLowerCase()] || T.evergreen,
-    backgroundImage: "url(/brand/RibbedGradient.jpg)",
+    backgroundColor: ground,
+    // Wash first, plate under it: the ground stays the workspace's colour and the bokeh reads as
+    // texture through it. alpha() resolves the CSS variable to its rgb triple.
+    backgroundImage: `linear-gradient(${alpha(ground, 0.78)}, ${alpha(ground, 0.88)}), `
+                     + `url(/brand/acumyn/${plate}.jpg)`,
     backgroundSize: "cover", backgroundPosition: "center",
-    backgroundBlendMode: "multiply",
   };
 }
 

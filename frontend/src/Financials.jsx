@@ -237,7 +237,7 @@ const FIN_CSS = `
   .fin-root .ctx-s { font-size:12px; color:${C.muted}; }
   .fin-root .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 22px;
     background-color:${C.meadow};
-    background-image:url(/brand/RibbedGradient.jpg);
+    background-image:url(/brand/RibbedGradient_Meadow.jpg);
     background-size:cover; background-position:center; background-blend-mode:multiply;
     box-shadow:0 2px 6px rgba(0,46,44,.12), 0 18px 40px rgba(0,46,44,.13); }
   .fin-root .feat { min-height:104px; }
