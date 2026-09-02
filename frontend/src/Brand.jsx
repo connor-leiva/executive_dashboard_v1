@@ -77,6 +77,27 @@ export function BrandLogomark({ tone = "dark", size = 28, color, style }) {
   );
 }
 
+/* THE HERO WATERMARK — one component, because the treatment being copy-pasted is exactly why it
+ * ended up on two views out of fifteen.
+ *
+ * It was written inline twice (portfolio and financials) with the numbers spelled out each time,
+ * so every view built afterwards either reproduced them from memory or skipped it. The Ads hero
+ * did neither: it shipped an <img> pointing at one customer's LOGOMARK — the bare circle rather
+ * than the wordmark — hardcoded, at a different opacity, tinted with a CSS invert filter.
+ *
+ * 12% is deliberately faint. This sits on top of a hero band carrying the largest number on the
+ * screen, and a mark that competes with that number is worse than no mark. It is aria-hidden and
+ * pointer-events:none for the same reason — it is texture, not content, and a screen reader
+ * announcing the company name on every panel is noise.
+ */
+export function HeroMark({ tone = "light", height = 46, opacity = 0.12, top = 14, right = 26 }) {
+  return (
+    <BrandSignature tone={tone} height={height} aria-hidden style={{
+      position: "absolute", top, right, opacity, pointerEvents: "none",
+    }} />
+  );
+}
+
 // Old names kept so the eight call sites need no churn beyond the import.
 export const SpringSignature = BrandSignature;
 export const SpringLogomark = BrandLogomark;

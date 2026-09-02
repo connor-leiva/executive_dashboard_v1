@@ -21,7 +21,7 @@ import PeriodNav, { periodKey, fromPeriodKey } from "./PeriodNav.jsx";
 import AIEmployees from "./AIEmployees.jsx";
 import { useAiEmployees } from "./useAiEmployees.js";
 import Assistant from "./Assistant.jsx";
-import { SpringSignature, setBrand, ribbedHero, Icon } from "./Brand.jsx";
+import { SpringSignature, setBrand, ribbedHero, Icon , HeroMark} from "./Brand.jsx";
 import { applyPalette, applyType } from "./palette.js";
 import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
 
@@ -458,7 +458,7 @@ function Overview({ data, onOpen, onDrill }) {
         position: "relative", overflow: "hidden", borderRadius: 16, padding: 28,
         ...ribbedHero("evergreen"),
       }}>
-        <SpringSignature tone="light" height={46} aria-hidden style={{ position: "absolute", top: 14, right: 26, opacity: 0.12, pointerEvents: "none" }} />
+        <HeroMark />
         <Eyebrow onDark>Portfolio · {periodLabel}</Eyebrow>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 34, flexWrap: "wrap", margin: "16px 0 24px" }}>
           <div>
@@ -1066,11 +1066,13 @@ function useMe() {
   const [user, setUser] = useState(null);
   useEffect(() => {
     if (!API_BASE) {
-      // Sample/demo mode only — reached when the bundle is built with no API base, which is
-      // never true for a real tenant. Kept so the offline preview has a plausible header.
-      setUser({ name: "Spring Bengtzen", email: "spring@springb.com" });
-      setBrand({ display_name: "Spring", logo: "/brand/logo/spring_logo.png",
-                 logomark: "/brand/logo/spring_logomark.png" });
+      // Sample/demo mode — a bundle built with no API base, which is never a real workspace.
+      // It wears ACUMYN's identity, not a customer's. This used to load one customer's logo
+      // files by path, which meant the offline preview a prospect gets shown was branded as
+      // somebody else's company. That is the same defect the chrome work set out to fix, left
+      // behind in the one branch nobody looks at because it never runs in production.
+      setUser({ name: "Demo", email: "demo@acumyn.io" });
+      setBrand({ display_name: "Acumyn", product_name: "Command Center" });
       return;
     }
     let alive = true;

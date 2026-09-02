@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useFinancials } from "./useFinancials.js";
-import { SpringSignature } from "./Brand.jsx";
+import { SpringSignature , HeroMark} from "./Brand.jsx";
 
 /* ULRG + Team — three-lens Financials (Live / Projection / Booked).
    Design source of truth: ulrg-financial-focus.jsx. Wired to the live API via
@@ -157,7 +157,7 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
 
       {/* hero */}
       <div className="hero">
-        <SpringSignature tone="light" height={42} aria-hidden style={{ position: "absolute", top: 14, right: 24, opacity: 0.12, pointerEvents: "none" }} />
+        <HeroMark height={42} right={24} />
         <div className="feat" key={act}>
           <div className="eyebrow" style={{ color: L.dAccent }}>
             <span className={`edot ${L.live ? "live" : ""}`} style={{ background: L.dAccent, color: L.dAccent }} />

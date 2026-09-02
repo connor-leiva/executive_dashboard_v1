@@ -70,3 +70,45 @@ def test_the_console_is_reachable_only_on_the_operator_host():
     assert '"/platform/*"' not in auth, "the console is routed on customer hosts again"
     assert "lazy(() => import(\"./platform/PlatformConsole.jsx\"))" in auth, (
         "a static import puts the operator console in every customer's bundle")
+
+
+def test_the_hero_watermark_is_one_component_not_a_copied_treatment():
+    """The mark reached two views out of fifteen, and the reason was mechanical rather than
+    aesthetic: the treatment was written inline with its numbers spelled out, so every view built
+    afterwards either reproduced them from memory or skipped it. The Ads hero did neither — it
+    shipped an <img> at one customer's LOGOMARK, hardcoded, at a different opacity, tinted with a
+    CSS invert filter.
+
+    So the treatment lives in HeroMark and nowhere else. An inline copy is how this regresses.
+    """
+    import re
+    from pathlib import Path
+
+    src_dir = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    offenders = {}
+    for path in sorted(src_dir.rglob("*.jsx")):
+        if path.name == "Brand.jsx":
+            continue                                  # where the component legitimately lives
+        text = path.read_text(encoding="utf-8", errors="replace")
+        # A signature positioned absolutely at low opacity IS the watermark, however it is spelled.
+        for m in re.finditer(r"<(?:Spring|Brand)Signature[^>]*>", text, re.S):
+            tag = m.group(0)
+            if "position" in tag and "opacity" in tag:
+                offenders.setdefault(path.name, []).append(tag[:70])
+    assert not offenders, f"hero watermark written inline instead of using HeroMark: {offenders}"
+
+
+def test_no_view_hardcodes_a_brand_asset_path():
+    """A workspace's logo comes from its own configuration. `/brand/logo/...` inlined in a view is
+    one customer's file rendered to everybody — which is exactly what the Ads hero did."""
+    import re
+    from pathlib import Path
+
+    src_dir = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    offenders = {}
+    for path in sorted(src_dir.rglob("*.js*")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        code = "\n".join(l for l in text.splitlines() if not l.strip().startswith(("*", "//")))
+        for m in re.finditer(r'["\'](/brand/logo/[^"\']+)["\']', code):
+            offenders.setdefault(path.name, []).append(m.group(1))
+    assert not offenders, f"a brand asset is hardcoded into a view: {offenders}"

@@ -10,6 +10,7 @@
  * rendering a placeholder that looks like a measurement.
  */
 import { ASSET, C, mult, usd } from "./adsTokens.js";
+import { HeroMark } from "../Brand.jsx";
 
 /* The brand icons are opaque black-on-white PNGs with no alpha channel, so masking them paints a
    filled square in every browser. Alpha is derived from luminance by one feColorMatrix per tint.
@@ -144,7 +145,10 @@ export function Hero({ data, adCount }) {
 
   return (
     <div className="hero">
-      <img className="sigmark" src={ASSET.sig} alt="" aria-hidden />
+      {/* Was an <img> at one customer's LOGOMARK — the bare circle, not the wordmark —
+          hardcoded, at 30%, tinted by a CSS invert. The shared watermark instead: this
+          workspace's own wordmark, at the treatment every other hero uses. */}
+      <HeroMark top={-6} right={0} />
       <div className="hgrid">
         <div className="hleft">
           <div className="eyebrow">From {usd(t.spend)} of spend</div>

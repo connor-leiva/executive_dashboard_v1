@@ -7,7 +7,7 @@
    cash collected is a demoted line. The settings drawer PUTs config and refetches. */
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { T, alpha, usd } from "./theme.js";
-import { SpringSignature } from "./Brand.jsx";
+import { SpringSignature , HeroMark} from "./Brand.jsx";
 import { putJSON, postJSON, getJSON } from "./api.js";
 
 /* Every number on the tab is a drill target. A context carries the opener so any nested
@@ -1654,8 +1654,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         {data.shift && <TheShift shift={data.shift} />}
 
         <div className="hero">
-          <SpringSignature tone="dark" height={40}
-            style={{ position: "absolute", top: 18, right: 24, opacity: 0.12, pointerEvents: "none" }} />
+          <HeroMark tone="dark" height={40} top={18} right={24} />
           <div className="eyebrow"><span className="edot" />{seatPrimary ? "Members enrolled · to goal" : "ARR added · to goal"}</div>
           <div className="hnum">
             <Num metric={seatPrimary ? "funnel.enrolled" : "enrolled.arr"}>{seatPrimary ? D.enrolledSeats : kMoney(D.enrolledArr)}</Num>

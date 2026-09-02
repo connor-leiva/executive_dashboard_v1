@@ -59,8 +59,6 @@ export const adsCss = () => `
   padding:26px var(--a-gut) 22px; border-bottom:1px solid rgba(184,204,184,.28);
   box-shadow:0 18px 34px -26px rgba(0,46,44,.55); }
 .adsx .hero { position:relative; }
-.adsx .sigmark { position:absolute; top:-6px; right:0; height:40px; width:auto; opacity:.3; pointer-events:none;
-  filter:invert(1); mix-blend-mode:screen; }
 .adsx .hgrid { display:grid; grid-template-columns:minmax(0,1fr) minmax(290px,380px); gap:30px;
   align-items:stretch; }
 .adsx .eyebrow { font-family:Poppins,sans-serif; font-size:var(--a-cap); font-weight:700; letter-spacing:.13em;
