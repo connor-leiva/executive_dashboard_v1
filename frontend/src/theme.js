@@ -106,8 +106,12 @@ export const LEDGER = {
    index.html. The fallbacks matter — a ledger that reflows when a webfont lands is worse
    than one that never had it. */
 export const LEDGER_FONT = {
-  num: "Archivo,system-ui,-apple-system,Segoe UI,sans-serif",
-  body: "Outfit,system-ui,-apple-system,Segoe UI,sans-serif",
+  // The ledger's figures are the data slot by definition — tabular figures are why a column
+  // lines up, which is the same reason no pairing lets that slot change.
+  num: "var(--font-data)",
+  // Was Outfit, a face NO pairing offers. It happened to load because index.html still fetched
+  // it, so the Statement read in a fifth family that no workspace could ever change.
+  body: "var(--font-text)",
 };
 
 export const STATUS = {

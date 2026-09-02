@@ -3,7 +3,11 @@
 import { T, usd } from "../theme.js";
 
 export const signed = (n) => (n < 0 ? `(${usd(n)})` : usd(n));
-export const font = { head: "Poppins,sans-serif", body: "Inter,sans-serif" };
+// Through the variables, like everywhere else. Naming Poppins here was worse than
+// inconsistent: no pairing except Classic loads Poppins, and the inline @imports that used to
+// fetch it were removed when the pairing loader took over — so every Books page rendered in
+// whatever generic sans the browser reached for.
+export const font = { head: "var(--font-display)", body: "var(--font-text)" };
 
 export const ENTITY = {
   ulrg: { label: "ULRG + Team", dot: T.meadow },

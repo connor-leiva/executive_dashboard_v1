@@ -14,8 +14,8 @@ export const C = {
   poppy: "#E8836A", poppyInk: "#B85434", poppyBg: "#FBE7E1",
   daffodil: "#FFDD1F", daffodilBg: "#FFF8D4", onDark: "#F4EFE7", onDarkMute: "#9FB4AE",
 };
-export const FD = '"Poppins","Inter",system-ui,sans-serif';
-export const FB = '"Inter",system-ui,sans-serif';
+export const FD = "var(--font-display)";
+export const FB = "var(--font-text)";
 // The numeric face. Archivo rather than a monospace: these are FIGURES, not code, and
 // Archivo's tabular numerals line a column up without the typewriter texture.
 export const FM = "var(--font-data)";

@@ -27,7 +27,10 @@ export const T = {
   badBg: "#FAE6E0",
 };
 
-export const FONT = `'DM Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+// Was DM Sans — a fifth family, fetched by its own runtime <link>, in none of the four
+// pairings. The whole L10 board therefore ignored a workspace's typeface, including the
+// version its clients open through a share link.
+export const FONT = "var(--font-text)";
 export const NUM = { fontVariantNumeric: "tabular-nums", fontFeatureSettings: '"tnum" 1' };
 export const EASE = "cubic-bezier(.32,.72,0,1)";
 export const DUR = 360;

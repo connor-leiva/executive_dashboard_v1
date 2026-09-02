@@ -32,16 +32,9 @@ export default function Scorecard({ role, shareToken = null }) {
   const scroller = useRef(null);
   const raf = useRef(0);
 
-  /* load DM Sans via a deduped <link> (no @import layout shift) */
-  useEffect(() => {
-    const id = "l10-dm-sans";
-    if (document.getElementById(id)) return;
-    const l = document.createElement("link");
-    l.id = id;
-    l.rel = "stylesheet";
-    l.href = "https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap";
-    document.head.appendChild(l);
-  }, []);
+  /* DM Sans used to be fetched here — a fifth family, loaded by this component alone, that no
+     workspace could change and no pairing offered. The board reads the workspace's own typeface
+     now, which typefaces.js has already requested, so there is nothing left for this to load. */
 
   const measure = useCallback(() => {
     const el = scroller.current;
