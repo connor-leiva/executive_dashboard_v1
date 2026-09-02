@@ -192,8 +192,9 @@ async def test_it_restores_a_palette_the_settings_panel_overwrote():
     assert brand["seeds"]["brand"] == "#FA8069"      # her coral, not Cadet
     assert brand["seeds"]["ink"] == "#002E2C"        # her evergreen
     assert brand["typeface"] == "classic", "an unrelated setting was disturbed"
-    # A mark stored with the API prefix baked in double-prefixes and 404s as a silent CSS mask.
-    assert brand["logo"] == "/public/brand/logo?v=abc"
+    # The workspace has to be in the PATH. A CSS mask sends no custom headers, so a route that
+    # identifies the workspace from one can never serve the thing it exists to serve.
+    assert brand["logo"] == "/public/brand/springb/logo?v=abc"
 
 
 async def test_it_refuses_to_overwrite_colours_somebody_actually_chose():
@@ -229,3 +230,34 @@ async def test_it_leaves_a_workspace_that_still_has_its_palette_alone():
             mod.upgrade()
         brand = json.loads(conn.execute(sa.text("SELECT config FROM tenant")).scalar_one())["brand"]
     assert brand["palette"] == {"ink": "#111111"}
+
+
+def test_a_mark_url_carries_the_workspace_because_an_image_request_cannot():
+    """THE BUG THIS SHAPE EXISTS FOR.
+
+    Every other route identifies the workspace from the X-Tenant-Host header the SPA sends. A
+    mark is fetched by the BROWSER as an image — a CSS mask, an <img> — and those requests carry
+    no custom headers, so the API saw only the platform host, which deliberately resolves to no
+    workspace, and answered 404 to every one.
+
+    It failed silently twice over: a CSS mask that cannot load renders nothing at all, and
+    verifying the route with a curl that DID send the header made it look correct. The stored
+    path is the only place the workspace can travel.
+    """
+    from pathlib import Path
+
+    mod = _mod52()
+    brand = {"logo": "/public/brand/logo?v=1", "logomark": "/public/brand/acme/logomark?v=2"}
+    mod._normalise_marks(brand, "acme")
+    assert brand["logo"] == "/public/brand/acme/logo?v=1", "the workspace was not added"
+    assert brand["logomark"] == "/public/brand/acme/logomark?v=2", "an already-correct URL doubled"
+
+    # ...and the route itself must take the workspace from the path, never from a header.
+    src = (Path(__file__).resolve().parents[1] / "app" / "routers" / "auth.py").read_text(
+        encoding="utf-8")
+    head = src.index('@router.get("/public/brand/{slug}/{kind}")')
+    nxt = src.index("@router.", head + 20)          # past this route's own decorator
+    route = src[head:nxt]
+    assert "current_tenant_id" not in route, (
+        "the asset route reads the workspace from a header again — an image request has none")
+    assert "Tenant.slug == slug" in route

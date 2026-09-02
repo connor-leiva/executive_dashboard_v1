@@ -229,7 +229,7 @@ async def upload_logo(kind: str = Form("logo"), file: UploadFile = File(...),
     # Server-relative and API-base-free: the browser resolves it through fileUrl(), the way
     # every other stored media path works. An absolute URL here would bake the current API
     # host into the workspace's config and break the day it moves.
-    brand[kind] = f"/public/brand/{kind}?v={digest}"
+    brand[kind] = f"/public/brand/{tenant.slug}/{kind}?v={digest}"
     brand[f"{kind}_ref"] = ref
     cfg["brand"] = brand
     tenant.config = cfg

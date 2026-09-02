@@ -387,17 +387,27 @@ def test_the_typeface_list_agrees_across_the_two_languages():
         "a pairing declared its own data face — tabular figures are not a choice")
 
 
-def test_an_uploaded_mark_is_served_without_the_caller_naming_the_object():
-    """The serving route resolves the tenant from the host and reads the ref out of THAT
-    workspace's config. If it ever took a storage key from the caller it would become a way to
-    read another workspace's object by guessing one."""
+def test_an_uploaded_mark_names_the_workspace_but_never_the_object():
+    """The property worth pinning is narrower than it first looks.
+
+    The route USED to resolve the workspace from X-Tenant-Host, which sounded stricter and was
+    simply broken: a CSS mask or <img> sends no custom headers, so the API saw only the platform
+    host and returned 404 to every mark. Verifying it with a curl that did send the header made
+    it look correct — the header made the test pass and made the feature impossible.
+
+    So the caller names the WORKSPACE, which it already did by typing the subdomain. What it must
+    never name is the OBJECT: the storage ref is read out of that workspace's own config, so
+    there is no key to guess and no path to traverse.
+    """
     from pathlib import Path
 
     src = (Path(__file__).resolve().parents[1] / "app" / "routers" / "auth.py").read_text(
         encoding="utf-8")
-    route = src[src.index('@router.get("/public/brand/{kind}")'):]
-    route = route[: route.index("@router.post")]
-    assert "current_tenant_id()" in route, "the tenant must come from the host"
-    assert "_ref" in route and "config" in route, "the ref must come from the tenant's own config"
-    # The only path parameter is `kind`, and it is checked against a fixed pair.
-    assert 'if kind not in ("logo", "logomark")' in route
+    head = src.index('@router.get("/public/brand/{slug}/{kind}")')
+    route = src[head: src.index("@router.", head + 20)]
+
+    assert "Tenant.slug == slug" in route, "the workspace must come from the path"
+    assert "current_tenant_id" not in route, (
+        "back to a header the browser cannot send for an image request")
+    assert "_ref" in route and "config" in route, "the ref must come from that workspace's config"
+    assert 'if kind not in ("logo", "logomark")' in route, "kind must be a closed set"

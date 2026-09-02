@@ -58,32 +58,33 @@ async def public_brand(s: AsyncSession = Depends(get_session)):
     return roles.brand(tenant) if tenant is not None else roles.platform_brand()
 
 
-@router.get("/public/brand/{kind}")
-async def public_brand_asset(kind: str, s: AsyncSession = Depends(get_session)):
-    """Stream this workspace's mark. Public, because the sign-in screen renders it before anyone
-    has a session — and because a logo is the least private thing a company owns.
+@router.get("/public/brand/{slug}/{kind}")
+async def public_brand_asset(slug: str, kind: str, s: AsyncSession = Depends(get_session)):
+    """Stream a workspace's mark. Public, and the workspace is named in the PATH.
 
-    THE CALLER NEVER NAMES THE OBJECT. The tenant comes from the host and the storage ref comes
-    from that tenant's own config, so there is no key to guess and no path to traverse: the worst
-    an attacker can do is fetch the logo of a workspace whose address they already typed, which
-    is also what their browser does.
+    It used to resolve the tenant from X-Tenant-Host, like every other route. That cannot work
+    here and the reason is worth writing down: this URL is fetched by the browser as an image —
+    a CSS mask, an <img> — and those requests carry no custom headers. So the API saw only
+    `Host: api.<platform>`, which is a platform host that deliberately resolves to no tenant, and
+    answered 404 every time. Verifying it with a curl that DID send the header made it look fine.
+
+    The slug in the path is not a disclosure: it is already the subdomain the browser typed to
+    get here. What matters is that the caller still cannot name the OBJECT — the storage ref is
+    read out of that workspace's own config, so this cannot be pointed at anything else.
     """
     if kind not in ("logo", "logomark"):
         raise HTTPException(404, "Not found")
-    try:
-        tid = current_tenant_id()
-    except Exception:
-        raise HTTPException(404, "Not found")
-    tenant = await s.get(Tenant, tid) if tid else None
+    tenant = (await s.execute(select(Tenant).where(Tenant.slug == slug.lower()))).scalar_one_or_none()
     ref = ((tenant.config or {}).get("brand") or {}).get(f"{kind}_ref") if tenant else None
     if not ref or not binder_storage.exists(ref):
         raise HTTPException(404, "Not found")
     data = binder_storage.read(ref)
     media = {"png": "image/png", "svg": "image/svg+xml", "jpg": "image/jpeg",
              "webp": "image/webp"}.get(ref.rsplit(".", 1)[-1].lower(), "application/octet-stream")
-    # Immutable: the URL carries a content hash, so a replaced mark arrives under a new one.
     return Response(content=data, media_type=media,
-                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
+                    headers={"Cache-Control": "public, max-age=31536000, immutable",
+                             # Fetched cross-origin from every workspace subdomain.
+                             "Access-Control-Allow-Origin": "*"})
 
 
 @router.post("/auth/login", response_model=LoginResponse)

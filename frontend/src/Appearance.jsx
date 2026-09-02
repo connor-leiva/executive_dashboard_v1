@@ -16,7 +16,7 @@ import {
   SEEDS, SEED_META, applyBrand, applyPalette, applyType, contrast, contrastProblems, derive,
   seedsFromAcumyn, seedsFromPalette,
 } from "./palette.js";
-import { getJSON, patchJSON, API_BASE, authHeaders } from "./api.js";
+import { getJSON, patchJSON, API_BASE, authHeaders, fileUrl } from "./api.js";
 import { PAIRINGS, DEFAULT_PAIRING, loadTypeface, stacks } from "./typefaces.js";
 
 const FONT = "Inter,sans-serif";
@@ -75,11 +75,80 @@ function Derived({ tokens }) {
   );
 }
 
+/* One mark. Shows what is actually there rather than an empty file input — the previous version
+   offered "Choose File / No file chosen" and a Remove button that was present even when there
+   was nothing to remove, so the panel could not tell you whether an upload had worked. */
+function MarkSlot({ kind, label, hint, url, busy, onPick, onClear }) {
+  const [over, setOver] = useState(false);
+  const input = useRef(null);
+  const accept = "image/png,image/svg+xml,image/jpeg,image/webp";
+
+  function pick(files) {
+    const f = files && files[0];
+    if (f) onPick(f);
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 0",
+                  borderTop: `1px solid ${T.line}` }}>
+      {/* The preview is masked exactly the way the app renders it, so what you see here is what
+          the header will show — including the tint. A raw <img> would look right and then
+          surprise somebody the moment it landed on a dark band. */}
+      <div aria-hidden style={{
+        width: 66, height: 40, borderRadius: 8, flexShrink: 0,
+        border: `1px dashed ${over ? T.poppy : T.line}`,
+        background: over ? T.mist : T.parchment,
+        display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
+      }}>
+        {url ? (
+          <span style={{
+            width: 52, height: 26, backgroundColor: T.evergreen,
+            WebkitMaskImage: `url(${url})`, maskImage: `url(${url})`,
+            WebkitMaskSize: "contain", maskSize: "contain",
+            WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat",
+            WebkitMaskPosition: "center", maskPosition: "center",
+          }} />
+        ) : (
+          <span style={{ fontFamily: FONT, fontSize: 10.5, color: T.muted }}>none</span>
+        )}
+      </div>
+
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>{label}</div>
+        <div style={{ fontFamily: FONT, fontSize: 11, color: T.muted }}>{hint}</div>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}
+           onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+           onDragLeave={() => setOver(false)}
+           onDrop={(e) => { e.preventDefault(); setOver(false); pick(e.dataTransfer.files); }}>
+        <input ref={input} type="file" accept={accept} hidden
+               onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+        <button type="button" onClick={() => input.current && input.current.click()} disabled={busy}
+                style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 8,
+                         padding: "6px 11px", fontFamily: FONT, fontSize: 12, color: T.slate,
+                         cursor: busy ? "default" : "pointer" }}>
+          {busy ? "Uploading…" : url ? "Replace" : "Upload"}
+        </button>
+        {/* Only when there IS one. A Remove button next to nothing is a button that lies. */}
+        {url && !busy && (
+          <button type="button" onClick={onClear}
+                  style={{ background: "none", border: "none", fontFamily: FONT, fontSize: 11.5,
+                           color: T.muted, cursor: "pointer", padding: "6px 2px" }}>
+            Remove
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Appearance() {
   const [seeds, setSeeds] = useState(seedsFromAcumyn);
   const [typeface, setTypeface] = useState(DEFAULT_PAIRING);
   const [marks, setMarks] = useState({ logo: null, logomark: null });
   const [upErr, setUpErr] = useState(null);
+  const [upBusy, setUpBusy] = useState(null);
   const [hadExplicit, setHadExplicit] = useState(false);
   const [allowed, setAllowed] = useState(true);
   const [plan, setPlan] = useState(null);
@@ -104,7 +173,7 @@ export default function Appearance() {
       setHadExplicit(!!explicit);
       setSeeds(s);
       setTypeface(r.typeface || DEFAULT_PAIRING);
-      setMarks({ logo: r.logo || null, logomark: r.logomark || null });
+      setMarks({ logo: fileUrl(r.logo), logomark: fileUrl(r.logomark) });
       setSaved(JSON.stringify({ seeds: s, typeface: r.typeface || DEFAULT_PAIRING }));
       original.current = r;
     }).catch(() => setErr("Couldn't load appearance settings."));
@@ -148,6 +217,7 @@ export default function Appearance() {
 
   async function uploadMark(kind, file) {
     setUpErr(null);
+    setUpBusy(kind);
     const form = new FormData();
     form.append("kind", kind);
     form.append("file", file);
@@ -156,8 +226,11 @@ export default function Appearance() {
                             { method: "POST", headers: authHeaders("/settings/appearance/logo"), body: form });
       const body = await r.json();
       if (!r.ok) throw new Error(body.detail || "Upload failed");
-      setMarks((m) => ({ ...m, [kind]: body.url }));
+      // The API returns a server-relative path; the preview needs an absolute one, same as the
+      // header does.
+      setMarks((m) => ({ ...m, [kind]: fileUrl(body.url) }));
     } catch (e) { setUpErr(String(e.message || e)); }
+    finally { setUpBusy(null); }
   }
 
   async function clearMark(kind) {
@@ -228,28 +301,21 @@ export default function Appearance() {
           <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>
             Your mark
           </div>
-          <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 8px" }}>
-            A transparent PNG or SVG under 512KB. It is tinted to your palette, so one file works
-            on every background. Without one, your workspace name is used.
+          <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 10px",
+                        lineHeight: 1.5 }}>
+            A transparent PNG or SVG, under 512KB. It is tinted to your palette, so one file
+            works on every background. Without one, your workspace name is used.
           </div>
-          {["logo", "logomark"].map((kind) => (
-            <div key={kind} style={{ display: "flex", alignItems: "center", gap: 9,
-                                     marginBottom: 7 }}>
-              <span style={{ fontFamily: FONT, fontSize: 12, color: T.slate, minWidth: 76 }}>
-                {kind === "logo" ? "Wordmark" : "Logomark"}
-              </span>
-              <input type="file" accept="image/png,image/svg+xml,image/jpeg,image/webp"
-                     onChange={(e) => e.target.files[0] && uploadMark(kind, e.target.files[0])}
-                     style={{ fontFamily: FONT, fontSize: 11.5, maxWidth: 190 }} />
-              {marks[kind] && (
-                <button onClick={() => clearMark(kind)} style={{ background: "none", border: "none",
-                        fontFamily: FONT, fontSize: 11.5, color: T.muted, cursor: "pointer" }}>
-                  Remove
-                </button>
-              )}
-            </div>
+          {[["logo", "Wordmark", "the full name, for headers and hero bands"],
+            ["logomark", "Logomark", "the bare mark, for tight spaces"]].map(([kind, label, hint]) => (
+            <MarkSlot key={kind} kind={kind} label={label} hint={hint}
+                      url={marks[kind]} busy={upBusy === kind}
+                      onPick={(f) => uploadMark(kind, f)} onClear={() => clearMark(kind)} />
           ))}
-          {upErr && <div style={{ fontFamily: FONT, fontSize: 12, color: T.poppyText }}>{upErr}</div>}
+          {upErr && (
+            <div role="alert" style={{ fontFamily: FONT, fontSize: 12, color: T.poppyText,
+                                       marginTop: 6 }}>{upErr}</div>
+          )}
         </div>
 
         {problems.length > 0 && (

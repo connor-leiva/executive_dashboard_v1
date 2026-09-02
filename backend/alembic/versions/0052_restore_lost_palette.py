@@ -79,6 +79,32 @@ def _load(raw):
         return {}
 
 
+def _normalise_marks(brand: dict, slug: str) -> None:
+    """Point a stored mark at a URL the browser can actually fetch.
+
+    Two shapes were stored before this was right, and BOTH failed silently — a CSS mask that
+    cannot load renders nothing at all: no broken-image icon, no console error.
+
+      * `/api/v1/public/...` double-prefixed once the browser resolved it through the API base.
+      * `/public/brand/<kind>` resolved correctly, and the route behind it identified the
+        workspace from a request HEADER. An <img> or a CSS mask sends no custom headers, so the
+        API saw only the platform host — which deliberately resolves to no workspace — and
+        answered 404 to every one. Verifying that route with a curl that DID send the header was
+        what made it look fine.
+
+    The workspace now appears in the path, which is the only place a browser-fetched URL can
+    carry it.
+    """
+    for key in ("logo", "logomark"):
+        value = brand.get(key)
+        if not isinstance(value, str) or "/public/brand/" not in value:
+            continue
+        tail = value.split("/public/brand/", 1)[1]       # "<kind>?v=" or "<slug>/<kind>?v="
+        if tail.startswith(f"{slug}/"):
+            tail = tail.split("/", 1)[1]
+        brand[key] = f"/public/brand/{slug}/{tail}"
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
@@ -90,31 +116,36 @@ def upgrade() -> None:
     owner_id = rows[0][0]                     # the workspace that predates the picker
     restored = 0
     for row_id, slug, raw, _created in rows:
-        if row_id != owner_id:
-            continue
         cfg = _load(raw)
         brand = dict(cfg.get("brand") or {})
-        if brand.get("palette"):
-            print(f"[0052] {slug}: already has a palette, left alone", flush=True)
+        if not brand:
             continue
-        if brand.get("seeds") and brand["seeds"] != PLATFORM_SEEDS:
-            print(f"[0052] {slug}: has chosen its own colours, left alone", flush=True)
-            continue
+        dirty = False
 
-        brand["palette"] = dict(LEGACY_PALETTE)
-        brand["seeds"] = _seeds_from(LEGACY_PALETTE)
-        # Also normalise a mark stored with the API prefix baked in: the browser resolves a
-        # server-relative path through fileUrl(), and the doubled prefix silently 404s as a CSS
-        # mask — no broken-image icon, no console error, just no logo.
-        for key in ("logo", "logomark"):
-            value = brand.get(key)
-            if isinstance(value, str) and value.startswith("/api/v1/public/"):
-                brand[key] = value.replace("/api/v1", "", 1)
-        cfg["brand"] = brand
-        bind.execute(sa.text(update_sql(is_pg)), {"cfg": json.dumps(cfg), "id": row_id})
-        restored += 1
-        print(f"[0052] {slug}: restored {len(LEGACY_PALETTE)} colours and set matching seeds",
-              flush=True)
+        # Mark URLs are repaired for EVERY workspace — the broken shape was never specific to one.
+        before = (brand.get("logo"), brand.get("logomark"))
+        _normalise_marks(brand, slug)
+        if (brand.get("logo"), brand.get("logomark")) != before:
+            dirty = True
+            print(f"[0052] {slug}: mark URLs repointed", flush=True)
+
+        # The palette restore is scoped to the workspace whose palette it is.
+        if row_id == owner_id:
+            if brand.get("palette"):
+                print(f"[0052] {slug}: already has a palette, left alone", flush=True)
+            elif brand.get("seeds") and brand["seeds"] != PLATFORM_SEEDS:
+                print(f"[0052] {slug}: has chosen its own colours, left alone", flush=True)
+            else:
+                brand["palette"] = dict(LEGACY_PALETTE)
+                brand["seeds"] = _seeds_from(LEGACY_PALETTE)
+                dirty = True
+                restored += 1
+                print(f"[0052] {slug}: restored {len(LEGACY_PALETTE)} colours and matching seeds",
+                      flush=True)
+
+        if dirty:
+            cfg["brand"] = brand
+            bind.execute(sa.text(update_sql(is_pg)), {"cfg": json.dumps(cfg), "id": row_id})
 
     print(f"[0052] {restored} workspace(s) restored", flush=True)
 
