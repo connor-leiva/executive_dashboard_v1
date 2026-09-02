@@ -23,7 +23,7 @@ function Btn({ kind = "ghost", children, onClick, disabled, type = "button" }) {
   }[kind];
   return (
     <button type={type} onClick={onClick} disabled={disabled} className="cc-nav" style={{
-      fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, borderRadius: 8,
+      fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, borderRadius: 8,
       padding: "8px 14px", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1, ...styles,
     }}>{children}</button>
   );
@@ -33,14 +33,14 @@ function Avatar({ name, color, size = 42 }) {
     <div style={{
       width: size, height: size, borderRadius: 11, flexShrink: 0, background: color || T.teal,
       display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: "Poppins,sans-serif", fontSize: size * 0.42, fontWeight: 700, color: T.onDark,
+      fontFamily: "var(--font-display)", fontSize: size * 0.42, fontWeight: 700, color: T.onDark,
     }}>{(name || "?").trim().charAt(0).toUpperCase()}</div>
   );
 }
 function StatusDot({ status }) {
   const active = status === "active";
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter,sans-serif", fontSize: 11.5, color: active ? T.tertiary : T.muted }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-text)", fontSize: 11.5, color: active ? T.tertiary : T.muted }}>
       <span className={active ? "ai-pulse" : ""} style={{ width: 8, height: 8, borderRadius: 99, background: active ? T.meadow : T.muted, flexShrink: 0 }} />
       {active ? "Active" : "Paused"}
     </span>
@@ -50,7 +50,7 @@ function AwaitingPill({ n }) {
   // DRAFT-state indicator → daffodil family (per §6 mapping). Not an action control.
   return (
     <span style={{
-      fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 700, borderRadius: 6,
+      fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 700, borderRadius: 6,
       padding: "3px 9px", color: T.daffodilText, background: T.daffodilBg,
     }}>{n} awaiting approval</span>
   );
@@ -68,7 +68,7 @@ function RunChip({ status }) {
   };
   const [c, bg, label] = map[status] || [T.slate, T.parchment, status];
   return (
-    <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.03em",
+    <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.03em",
       color: c, background: bg, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px" }}>{label}</span>
   );
 }
@@ -96,8 +96,8 @@ function EmployeeCard({ e, onOpen }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <Avatar name={e.name} color={e.avatar_color} />
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.ink }}>{e.name}</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>{e.role_title}</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink }}>{e.name}</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{e.role_title}</div>
         </div>
         <StatusDot status={e.status} />
       </div>
@@ -105,8 +105,8 @@ function EmployeeCard({ e, onOpen }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {e.awaiting_approval > 0
           ? <AwaitingPill n={e.awaiting_approval} />
-          : <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>Nothing awaiting approval</span>}
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, display: "inline-flex", alignItems: "center", gap: 5 }}>
+          : <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>Nothing awaiting approval</span>}
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, display: "inline-flex", alignItems: "center", gap: 5 }}>
           <Icon name="sync" size={12} color={T.muted} />{nextLabel}
         </span>
       </div>
@@ -115,13 +115,13 @@ function EmployeeCard({ e, onOpen }) {
         {last ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <RunChip status={last.status} />
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {last.summary || "No summary"}
             </span>
-            {last.created_at && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, flexShrink: 0, marginLeft: "auto" }}>{relativeTime(last.created_at)}</span>}
+            {last.created_at && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, flexShrink: 0, marginLeft: "auto" }}>{relativeTime(last.created_at)}</span>}
           </div>
         ) : (
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, fontStyle: "italic" }}>No runs yet</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, fontStyle: "italic" }}>No runs yet</span>
         )}
       </div>
     </Card>
@@ -136,25 +136,25 @@ function EmptyState({ canManage, onAdd }) {
         justifyContent: "center", background: T.mist, marginBottom: 14 }}>
         <Icon name="spark" size={22} color={T.teal} />
       </div>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 600, color: T.ink }}>Hire Your First AI Employee</div>
-      <p style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, lineHeight: 1.55, color: T.slate, margin: "10px auto 20px", maxWidth: 430 }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, color: T.ink }}>Hire Your First AI Employee</div>
+      <p style={{ fontFamily: "var(--font-text)", fontSize: 13.5, lineHeight: 1.55, color: T.slate, margin: "10px auto 20px", maxWidth: 430 }}>
         An AI employee runs skills on a schedule (or when a metric crosses a line), drafts the
         work — audits, briefs, strategy, creative, attribution — and hands it to you for approval.
         Nothing ships without your sign-off. Start with a Social Media Manager.
       </p>
       {canManage
         ? <Btn kind="primary" onClick={onAdd}>Create Your First Employee</Btn>
-        : <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>Ask an owner or admin to create one.</div>}
+        : <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>Ask an owner or admin to create one.</div>}
     </Card>
   );
 }
 
 /* ── create modal ────────────────────────────────────────────── */
 function labelStyle() {
-  return { fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.tertiary, marginBottom: 5, display: "block" };
+  return { fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 600, color: T.tertiary, marginBottom: 5, display: "block" };
 }
 function inputStyle() {
-  return { width: "100%", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white,
+  return { width: "100%", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white,
     border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", boxSizing: "border-box" };
 }
 function CreateModal({ onClose, onSaved }) {
@@ -183,7 +183,7 @@ function CreateModal({ onClose, onSaved }) {
       <div onClick={(ev) => ev.stopPropagation()} style={{ width: "100%", maxWidth: 480, background: T.white,
         border: `1px solid ${T.line}`, borderRadius: 16, boxShadow: "0 20px 50px rgba(0,46,44,.22)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 22px", borderBottom: `1px solid ${T.line}` }}>
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>New AI Employee</span>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>New AI Employee</span>
           <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}>
             <Icon name="close" size={16} color={T.muted} />
           </button>
@@ -212,7 +212,7 @@ function CreateModal({ onClose, onSaved }) {
               ))}
             </div>
           </div>
-          {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+          {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "0 22px 20px" }}>
           <Btn onClick={onClose}>Cancel</Btn>
@@ -252,8 +252,8 @@ export default function AIEmployees({ data, loading, error, reload, role }) {
 
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 700, color: T.ink }}>AI Employees</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate, marginTop: 3 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, color: T.ink }}>AI Employees</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, marginTop: 3 }}>
             Configured agents that draft work for your approval. Nothing ships without a human sign-off.
           </div>
         </div>
@@ -264,7 +264,7 @@ export default function AIEmployees({ data, loading, error, reload, role }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.daffodilBg, border: `1px solid ${T.line}`,
           borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
           <Icon name="notification" size={14} color={T.daffodilText} />
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.daffodilText }}>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.daffodilText }}>
             {data.awaiting_total} artifact{data.awaiting_total === 1 ? "" : "s"} awaiting your approval across your employees.
           </span>
         </div>
@@ -272,7 +272,7 @@ export default function AIEmployees({ data, loading, error, reload, role }) {
 
       {error ? (
         <Card style={{ padding: 22, textAlign: "center" }}>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.poppyText }}>Couldn’t load AI Employees.</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText }}>Couldn’t load AI Employees.</div>
           <div style={{ marginTop: 10 }}><Btn onClick={reload}>Retry</Btn></div>
         </Card>
       ) : loading && !data ? (

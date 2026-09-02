@@ -13,7 +13,7 @@ import { postJSON, fileUrl } from "./api.js";
 import { useAiEmployeeDetail } from "./useAiEmployeeDetail.js";
 
 // Figures, not code — Archivo's tabular numerals, same as the scorecard.
-const MONO = 'Archivo,system-ui,-apple-system,"Segoe UI",sans-serif';
+const MONO = "var(--font-data)";
 // Lane palette — locked hexes from run-surface §6 (theme.js lacks the soft lane tints).
 const LANE = {
   Intel:    { c: "#227175", bg: "#E6F0F1" },
@@ -50,7 +50,7 @@ function Card({ children, style }) {
 }
 function LaneChip({ lane }) {
   const l = LANE[lane] || { c: T.slate, bg: T.parchment };
-  return <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em",
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em",
     color: l.c, background: l.bg, borderRadius: 999, padding: "3px 9px" }}>{lane}</span>;
 }
 function StatusChip({ status }) {
@@ -63,7 +63,7 @@ function StatusChip({ status }) {
     dismissed: [T.muted, T.parchment, "Dismissed"],
   };
   const [c, bg, label] = map[status] || [T.slate, T.parchment, status];
-  return <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 700, color: c, background: bg,
+  return <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 700, color: c, background: bg,
     border: `1px solid ${T.line}`, borderRadius: 6, padding: "2px 8px" }}>{label}</span>;
 }
 
@@ -74,25 +74,25 @@ function Header({ employee, onBack, writebackEnvOpen }) {
     <div style={{ marginBottom: 16 }}>
       <button onClick={onBack} className="cc-nav" style={{ display: "inline-flex", alignItems: "center", gap: 6,
         background: "transparent", border: "none", cursor: "pointer", padding: "2px 0", marginBottom: 12,
-        fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate }}>
+        fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: T.slate }}>
         <Icon name="chevron_backward" size={13} color={T.slate} />All employees
       </button>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <div style={{ width: 48, height: 48, borderRadius: 12, background: employee.avatar_color || T.teal,
-          display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Poppins,sans-serif",
+          display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)",
           fontSize: 20, fontWeight: 700, color: T.onDark, flexShrink: 0 }}>
           {(employee.name || "?").trim().charAt(0).toUpperCase()}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 20, fontWeight: 700, color: T.ink }}>{employee.name}</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>{employee.role_title}</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: T.ink }}>{employee.name}</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>{employee.role_title}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: employee.status === "active" ? T.tertiary : T.muted,
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: employee.status === "active" ? T.tertiary : T.muted,
             display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span className={employee.status === "active" ? "ai-pulse" : ""} style={{ width: 8, height: 8, borderRadius: 99,
               background: employee.status === "active" ? T.meadow : T.muted }} />
             {employee.status === "active" ? "Active" : "Paused"}</span>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 700, color: wb ? T.meadowInk : T.muted,
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 700, color: wb ? T.meadowInk : T.muted,
             background: wb ? T.meadowBg : T.parchment, border: `1px solid ${T.line}`, borderRadius: 6, padding: "2px 8px" }}>
             Writeback {wb ? "on" : "off"}</span>
         </div>
@@ -116,9 +116,9 @@ function Pipeline({ status }) {
                 display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <Icon name={s === "done" ? "check" : st.icon} size={13} color={color} /></span>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 700,
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 700,
                   color: s === "pending" || s === "muted" ? T.muted : T.ink, whiteSpace: "nowrap" }}>{st.label}</div>
-                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, color: T.muted, whiteSpace: "nowrap" }}>{st.sub}</div>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 10, color: T.muted, whiteSpace: "nowrap" }}>{st.sub}</div>
               </div>
             </div>
             {i < STEPS.length - 1 && <span style={{ width: 16, height: 2, background: i < (ACTIVE_AT[status] ?? 5) ? T.meadow : T.line, flexShrink: 0 }} />}
@@ -136,12 +136,12 @@ function TriggerBanner({ ctx, trigger }) {
     <Card style={{ padding: 16, marginBottom: 14, borderLeft: `3px solid ${T.teal}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
         {trigger === "condition" && (
-          <span className="ai-trigger" style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.14em",
+          <span className="ai-trigger" style={{ fontFamily: "var(--font-display)", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.14em",
             color: T.teal, background: "#E6F0F1", borderRadius: 4, padding: "2px 6px" }}>TRIGGER</span>)}
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", color: T.tertiary, textTransform: "uppercase" }}>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", color: T.tertiary, textTransform: "uppercase" }}>
           {ctx.source}{ctx.label ? ` · ${ctx.label}` : ""}</span>
       </div>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15.5, fontWeight: 600, color: T.ink, marginBottom: 10 }}>{ctx.title}</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink, marginBottom: 10 }}>{ctx.title}</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {(ctx.facts || []).map((f, i) => (
           <span key={i} style={{ fontFamily: MONO, fontSize: 11.5, color: T.secondary, background: T.parchment,
@@ -158,13 +158,13 @@ function Diagnosis({ reads, name }) {
   return (
     <Card style={{ padding: "14px 16px", marginBottom: 14 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink }}>{name ? `${name} diagnosed the gap` : "Diagnosis"}</div>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 700, color: T.tertiary, background: T.mist, borderRadius: 6, padding: "2px 8px" }}>{reads.length} reads</span>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink }}>{name ? `${name} diagnosed the gap` : "Diagnosis"}</div>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 700, color: T.tertiary, background: T.mist, borderRadius: 6, padding: "2px 8px" }}>{reads.length} reads</span>
       </div>
       {reads.map((r, i) => (
         <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: i < reads.length - 1 ? 6 : 0 }}>
           <span style={{ width: 5, height: 5, borderRadius: 99, background: T.teal, marginTop: 6, flexShrink: 0 }} />
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, lineHeight: 1.5, color: T.secondary }}>{r}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 13, lineHeight: 1.5, color: T.secondary }}>{r}</span>
         </div>
       ))}
     </Card>
@@ -173,7 +173,7 @@ function Diagnosis({ reads, name }) {
 
 /* ── the six preview renderers (payload shapes = Appendix A) ───── */
 function Note({ children }) {
-  return <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontStyle: "italic", color: T.muted, marginTop: 10 }}>{children}</div>;
+  return <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, fontStyle: "italic", color: T.muted, marginTop: 10 }}>{children}</div>;
 }
 function AuditPreview({ p }) {
   return (
@@ -181,7 +181,7 @@ function AuditPreview({ p }) {
       <div style={{ fontFamily: MONO, fontSize: 12, color: T.teal, marginBottom: 10 }}>{p.handle}</div>
       {(p.top || []).map((t, i) => (
         <div key={i} style={{ marginBottom: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, marginBottom: 3 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, marginBottom: 3 }}>
             <span>{t.name}</span><span style={{ fontWeight: 700, fontFamily: MONO }}>{t.val}</span></div>
           <div style={{ height: 6, background: T.parchment, borderRadius: 99 }}>
             <div style={{ width: t.w, height: 6, background: LANE.Intel.c, borderRadius: 99 }} /></div>
@@ -189,7 +189,7 @@ function AuditPreview({ p }) {
       ))}
       {(p.mechanics || []).length > 0 && (
         <ul style={{ margin: "10px 0 0", paddingLeft: 16 }}>
-          {p.mechanics.map((m, i) => <li key={i} style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.secondary, marginBottom: 3 }}>{m}</li>)}
+          {p.mechanics.map((m, i) => <li key={i} style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginBottom: 3 }}>{m}</li>)}
         </ul>)}
       {p.note && <Note>{p.note}</Note>}
     </div>
@@ -198,20 +198,20 @@ function AuditPreview({ p }) {
 function TrendPreview({ p }) {
   return (
     <div>
-      {p.scanned && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginBottom: 10 }}>{p.scanned}</div>}
+      {p.scanned && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginBottom: 10 }}>{p.scanned}</div>}
       {(p.patterns || []).map((pt, i) => (
         <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${T.line}` }}>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink }}>{pt.p}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink }}>{pt.p}</span>
           <span style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 700, color: LANE.Strategy.c, background: LANE.Strategy.bg, borderRadius: 6, padding: "2px 7px", flexShrink: 0 }}>{pt.d}</span>
         </div>
       ))}
       {(p.timely || []).length > 0 && (
         <ul style={{ margin: "10px 0 0", paddingLeft: 16 }}>
-          {p.timely.map((t, i) => <li key={i} style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.secondary, marginBottom: 3 }}>{t}</li>)}
+          {p.timely.map((t, i) => <li key={i} style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginBottom: 3 }}>{t}</li>)}
         </ul>)}
       {p.change && <div style={{ background: T.meadowBg, borderRadius: 10, padding: "10px 12px", marginTop: 10 }}>
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, color: T.meadowInk, letterSpacing: "0.05em" }}>THE CHANGE  </span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.secondary }}>{p.change}</span></div>}
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, color: T.meadowInk, letterSpacing: "0.05em" }}>THE CHANGE  </span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary }}>{p.change}</span></div>}
       {p.note && <Note>{p.note}</Note>}
     </div>
   );
@@ -219,13 +219,13 @@ function TrendPreview({ p }) {
 function StrategyPreview({ p }) {
   return (
     <div>
-      {p.title && <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink, marginBottom: 6 }}>{p.title}</div>}
-      {p.shift && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.secondary, lineHeight: 1.5, marginBottom: 10 }}>{p.shift}</div>}
+      {p.title && <div style={{ fontFamily: "var(--font-display)", fontSize: 13.5, fontWeight: 600, color: T.ink, marginBottom: 6 }}>{p.title}</div>}
+      {p.shift && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, lineHeight: 1.5, marginBottom: 10 }}>{p.shift}</div>}
       {(p.plan || []).map((d, i) => (
         <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${T.line}` }}>
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, color: T.teal, background: "#E6F0F1", borderRadius: 6, padding: "2px 8px", flexShrink: 0, minWidth: 46, textAlign: "center" }}>{d.day}</span>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, flex: 1 }}>{d.what}</span>
-          {d.cta && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{d.cta}</span>}
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, color: T.teal, background: "#E6F0F1", borderRadius: 6, padding: "2px 8px", flexShrink: 0, minWidth: 46, textAlign: "center" }}>{d.day}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, flex: 1 }}>{d.what}</span>
+          {d.cta && <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{d.cta}</span>}
         </div>
       ))}
       {p.why && <Note>{p.why}</Note>}
@@ -250,14 +250,14 @@ function DesignPreview({ p, mediaById = {} }) {
               </>}
               <span style={{ position: "relative", fontFamily: MONO, fontSize: 9, opacity: 0.7 }}>{i + 1}/{p.slides.length}</span>
               <div style={{ position: "relative" }}>
-                <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, lineHeight: 1.25, textShadow: shadow }}>{s.h}</div>
-                {s.sub && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, opacity: 0.9, marginTop: 4, textShadow: shadow }}>{s.sub}</div>}
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, lineHeight: 1.25, textShadow: shadow }}>{s.h}</div>
+                {s.sub && <div style={{ fontFamily: "var(--font-text)", fontSize: 10.5, opacity: 0.9, marginTop: 4, textShadow: shadow }}>{s.sub}</div>}
               </div>
             </div>
           );
         })}
       </div>
-      {p.caption && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, marginTop: 8 }}>{p.caption}</div>}
+      {p.caption && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.secondary, marginTop: 8 }}>{p.caption}</div>}
       {p.note && <Note>{p.note}</Note>}
     </div>
   );
@@ -266,9 +266,9 @@ function ScriptPreview({ p, mediaById = {} }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        {p.hookType && <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px" }}>{p.hookType}</span>}
+        {p.hookType && <span style={{ fontFamily: "var(--font-display)", fontSize: 10, fontWeight: 700, color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px" }}>{p.hookType}</span>}
       </div>
-      {p.hook && <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.ink, lineHeight: 1.35, marginBottom: 12 }}>“{p.hook}”</div>}
+      {p.hook && <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink, lineHeight: 1.35, marginBottom: 12 }}>“{p.hook}”</div>}
       {(p.shots || []).map((sh, i) => {
         const media = sh.media_id && mediaById[sh.media_id];
         const src = media && media.is_image ? fileUrl(media.url) : null;
@@ -277,8 +277,8 @@ function ScriptPreview({ p, mediaById = {} }) {
             <span style={{ fontFamily: MONO, fontSize: 11, color: T.muted, flexShrink: 0, marginTop: 2 }}>{i + 1}</span>
             {src && <img src={src} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />}
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{sh.vis}{media ? ` · ${media.title || "b-roll"}` : ""}</div>
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, marginTop: 2 }}>{sh.vo}</div>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>{sh.vis}{media ? ` · ${media.title || "b-roll"}` : ""}</div>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, marginTop: 2 }}>{sh.vo}</div>
             </div>
           </div>
         );
@@ -291,7 +291,7 @@ function MeasurePreview({ p }) {
     <div>
       {(p.tags || []).map((t, i) => (
         <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${T.line}` }}>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, flexShrink: 0 }}>{t.asset}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, flexShrink: 0 }}>{t.asset}</span>
           <span style={{ fontFamily: MONO, fontSize: 11, color: LANE.Tracking.c, background: LANE.Tracking.bg, borderRadius: 6, padding: "3px 8px", overflowX: "auto" }}>{t.utm}</span>
         </div>
       ))}
@@ -303,7 +303,7 @@ const PREVIEWS = { audit: AuditPreview, trend: TrendPreview, strategy: StrategyP
   design: DesignPreview, script: ScriptPreview, measure: MeasurePreview };
 function Preview({ kind, payload, mediaById }) {
   const C = PREVIEWS[kind];
-  if (!C) return <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>No preview for “{kind}”.</div>;
+  if (!C) return <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>No preview for “{kind}”.</div>;
   return <C p={payload || {}} mediaById={mediaById || {}} />;
 }
 
@@ -319,11 +319,11 @@ function ArtifactRow({ a, open, onToggle, onDismiss, canManage, pending, mediaBy
         style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 4px", cursor: expandable ? "pointer" : "default" }}>
         <LaneChip lane={a.lane} />
         <Icon name={KIND_ICON[a.kind] || "spark"} size={14} color={T.muted} />
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, flex: 1, minWidth: 0 }}>{a.title}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, flex: 1, minWidth: 0 }}>{a.title}</span>
         {a.payload && a.payload.voiced && (
-          <span title="Rewritten to match the saved voice profile" style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em", color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>IN VOICE</span>
+          <span title="Rewritten to match the saved voice profile" style={{ fontFamily: "var(--font-display)", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em", color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>IN VOICE</span>
         )}
-        {a.dest_label && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, flexShrink: 0 }}>{a.dest_label}</span>}
+        {a.dest_label && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, flexShrink: 0 }}>{a.dest_label}</span>}
         {pending ? <span className="ai-spin" style={{ width: 14, height: 14, borderRadius: 99, border: `2px solid ${T.line}`, borderTopColor: T.teal, flexShrink: 0 }} />
           : approved ? <Icon name="check" size={15} color={T.meadow} />
           : expandable ? <Icon name="chevron_down" size={14} color={T.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
@@ -336,7 +336,7 @@ function ArtifactRow({ a, open, onToggle, onDismiss, canManage, pending, mediaBy
           </div>
           {canManage && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-              <button onClick={onDismiss} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600,
+              <button onClick={onDismiss} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600,
                 color: T.muted, background: "transparent", border: `1px solid ${T.line}`, borderRadius: 8, padding: "5px 12px", cursor: "pointer" }}>Dismiss</button>
             </div>
           )}
@@ -352,24 +352,24 @@ function ApproveBar({ drafts, canManage, wbLine, onApproveAll, busy, err, onDism
     <div style={{ marginTop: 14, padding: 14, borderRadius: 14, background: T.daffodilBg, border: `1px solid #F0E3AC` }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 700, color: T.daffodilText }}>Review each item, or approve the batch.</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.amber, marginTop: 2 }}>{wbLine}</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 700, color: T.daffodilText }}>Review each item, or approve the batch.</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.amber, marginTop: 2 }}>{wbLine}</div>
         </div>
         {canManage ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button onClick={onDismiss} disabled={busy} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600,
+            <button onClick={onDismiss} disabled={busy} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600,
               color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 10, padding: "9px 14px",
               cursor: busy ? "default" : "pointer" }}>Dismiss</button>
-            <button onClick={onApproveAll} disabled={busy || drafts === 0} style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 700,
+            <button onClick={onApproveAll} disabled={busy || drafts === 0} style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 700,
               color: T.ink, background: T.daffodil, border: "none", borderRadius: 10, padding: "9px 18px",
               cursor: busy || drafts === 0 ? "default" : "pointer", opacity: busy || drafts === 0 ? 0.6 : 1 }}>
               {busy ? "Approving…" : `Approve all (${drafts})`}</button>
           </div>
         ) : (
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>Approvals are limited to owners and admins.</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>Approvals are limited to owners and admins.</span>
         )}
       </div>
-      {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText, marginTop: 8 }}>{err}</div>}
+      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.poppyText, marginTop: 8 }}>{err}</div>}
     </div>
   );
 }
@@ -384,21 +384,21 @@ function HistoryPanel({ runs, currentId, onOpen, canManage, onDismissRun, onClea
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="cc-nav" style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: "none", cursor: "pointer", padding: 0, flex: 1, textAlign: "left" }}>
           <Icon name="chevron_down" size={14} color={T.muted} style={{ transform: open ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 700, color: T.ink }}>Run history</span>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{runs.length}{pending ? ` · ${pending} pending` : ""}</span>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 700, color: T.ink }}>Run history</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>{runs.length}{pending ? ` · ${pending} pending` : ""}</span>
         </button>
         {canManage && pending > 0 && (
-          <button onClick={onClearPending} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 600,
+          <button onClick={onClearPending} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 600,
             color: T.muted, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 7, padding: "4px 10px", cursor: "pointer", flexShrink: 0 }}>Clear all pending</button>
         )}
       </div>
       {open && runs.map((r) => (
         <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.line}`, marginTop: r === runs[0] ? 10 : 0 }}>
           <StatusChip status={r.status} />
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, textTransform: "capitalize", flexShrink: 0 }}>{r.trigger}</span>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.secondary, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.summary || r.skill_key}</span>
-          {r.created_at && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, flexShrink: 0 }}>{relativeTime(r.created_at)}</span>}
-          <button onClick={() => onOpen(r.id)} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 600,
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, textTransform: "capitalize", flexShrink: 0 }}>{r.trigger}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.summary || r.skill_key}</span>
+          {r.created_at && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, flexShrink: 0 }}>{relativeTime(r.created_at)}</span>}
+          <button onClick={() => onOpen(r.id)} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 600,
             color: r.id === currentId ? T.teal : T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 7, padding: "4px 10px", cursor: "pointer", flexShrink: 0 }}>
             {r.id === currentId ? "Viewing" : "Open"}</button>
           {canManage && r.status !== "dismissed" && (
@@ -426,28 +426,28 @@ function RosterPanel({ employeeId, roster, canManage, onChanged, onAudit }) {
   return (
     <Card style={{ padding: 16, marginTop: 18 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 700, color: T.ink }}>Watch roster</span>
-        {canManage && <button onClick={() => setAdding((v) => !v)} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 600,
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 700, color: T.ink }}>Watch roster</span>
+        {canManage && <button onClick={() => setAdding((v) => !v)} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 600,
           color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 7, padding: "4px 10px", cursor: "pointer" }}>{adding ? "Cancel" : "Add account"}</button>}
       </div>
       {adding && (
         <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@handle" style={{ flex: "1 1 120px", fontFamily: "Inter,sans-serif", fontSize: 12.5, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px" }} />
-          <input value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Why watch them" style={{ flex: "2 1 180px", fontFamily: "Inter,sans-serif", fontSize: 12.5, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px" }} />
-          <button onClick={add} disabled={busy} style={{ fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}>Add</button>
+          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@handle" style={{ flex: "1 1 120px", fontFamily: "var(--font-text)", fontSize: 12.5, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px" }} />
+          <input value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Why watch them" style={{ flex: "2 1 180px", fontFamily: "var(--font-text)", fontSize: 12.5, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px" }} />
+          <button onClick={add} disabled={busy} style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}>Add</button>
         </div>
       )}
       {(!roster || !roster.length) ? (
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, fontStyle: "italic" }}>No accounts watched yet.</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, fontStyle: "italic" }}>No accounts watched yet.</div>
       ) : roster.map((r) => (
         <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.line}` }}>
           <span style={{ fontFamily: MONO, fontSize: 12, color: T.ink, flexShrink: 0 }}>{r.handle}</span>
-          {r.in_launch && <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, color: T.teal, background: "#E6F0F1", borderRadius: 999, padding: "1px 7px" }}>IN LAUNCH</span>}
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.why}</span>
+          {r.in_launch && <span style={{ fontFamily: "var(--font-display)", fontSize: 9.5, fontWeight: 700, color: T.teal, background: "#E6F0F1", borderRadius: 999, padding: "1px 7px" }}>IN LAUNCH</span>}
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.why}</span>
           <span title="priority" style={{ fontFamily: MONO, fontSize: 11, color: T.slate, flexShrink: 0 }}>▲ {r.priority}</span>
           {canManage && onAudit && (
             <button onClick={() => onAudit(r.handle)} className="cc-nav" title="Audit this account via Claude in Chrome"
-              style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.teal, background: T.white,
+              style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 600, color: T.teal, background: T.white,
                 border: `1px solid ${T.line}`, borderRadius: 7, padding: "3px 9px", cursor: "pointer", flexShrink: 0 }}>Audit</button>
           )}
         </div>
@@ -461,15 +461,15 @@ function BriefsPanel({ briefs }) {
   if (!briefs || !briefs.length) return null;
   return (
     <Card style={{ padding: 16, marginTop: 18 }}>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 700, color: T.ink, marginBottom: 10 }}>Trend brief archive</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 700, color: T.ink, marginBottom: 10 }}>Trend brief archive</div>
       {briefs.map((b) => (
         <div key={b.id} style={{ borderTop: `1px solid ${T.line}` }}>
           <div role="button" tabIndex={0} onClick={() => setOpenId(openId === b.id ? null : b.id)}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenId(openId === b.id ? null : b.id); } }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 2px", cursor: "pointer" }}>
             <LaneChip lane={b.lane || "Intel"} />
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, flex: 1, minWidth: 0 }}>{b.title}</span>
-            {b.shipped_at && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, flexShrink: 0 }}>{relativeTime(b.shipped_at)}</span>}
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, flex: 1, minWidth: 0 }}>{b.title}</span>
+            {b.shipped_at && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, flexShrink: 0 }}>{relativeTime(b.shipped_at)}</span>}
             <Icon name="chevron_down" size={13} color={T.muted} style={{ transform: openId === b.id ? "rotate(180deg)" : "none" }} />
           </div>
           {openId === b.id && <div style={{ padding: "0 2px 14px" }}><div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14 }}><Preview kind="trend" payload={b.payload} /></div></div>}
@@ -480,8 +480,8 @@ function BriefsPanel({ briefs }) {
 }
 
 /* ── audit trigger (Claude-in-Chrome handoff → review → submit) ── */
-const LBL = { fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.tertiary, display: "block", marginBottom: 5 };
-const INP = { width: "100%", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", boxSizing: "border-box" };
+const LBL = { fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 600, color: T.tertiary, display: "block", marginBottom: 5 };
+const INP = { width: "100%", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", boxSizing: "border-box" };
 
 function RunAuditModal({ empId, initialHandle, onClose, onQueued }) {
   const [handle, setHandle] = useState(initialHandle || "");
@@ -507,22 +507,22 @@ function RunAuditModal({ empId, initialHandle, onClose, onQueued }) {
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,46,44,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, background: T.white, border: `1px solid ${T.line}`, borderRadius: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${T.line}` }}>
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Audit an account</span>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Audit an account</span>
           <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer" }}><Icon name="close" size={15} color={T.muted} /></button>
         </div>
         <div style={{ padding: 20 }}>
           <label style={LBL}>Instagram handle</label>
           <input value={handle} onChange={(e) => setHandle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") launch(); }} placeholder="@competitor" style={INP} autoFocus />
-          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14, margin: "14px 0", fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.secondary, lineHeight: 1.55 }}>
+          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14, margin: "14px 0", fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, lineHeight: 1.55 }}>
             Opens a <span style={{ color: T.ink, fontWeight: 600 }}>Claude (Cowork) task</span> that browses
             {" "}<span style={{ fontFamily: MONO, color: T.teal }}>@{target || "handle"}</span> in Chrome, reads the recent posts, and files the teardown back here as a draft for your approval. You don’t paste anything.
           </div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>Requires Claude Desktop with the Chrome connector. Keep this tab open — the draft lands here when Cowork finishes.</div>
-          {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, marginTop: 8 }}>{err}</div>}
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>Requires Claude Desktop with the Chrome connector. Keep this tab open — the draft lands here when Cowork finishes.</div>
+          {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, marginTop: 8 }}>{err}</div>}
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "0 20px 18px" }}>
-          <button onClick={onClose} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
-          <button onClick={launch} disabled={busy} style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "8px 16px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Opening Cowork…" : "Open in Cowork"}</button>
+          <button onClick={onClose} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
+          <button onClick={launch} disabled={busy} style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "8px 16px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Opening Cowork…" : "Open in Cowork"}</button>
         </div>
       </div>
     </div>
@@ -547,22 +547,22 @@ function RunResponseModal({ empId, name, onClose, onQueued }) {
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,46,44,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, background: T.white, border: `1px solid ${T.line}`, borderRadius: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${T.line}` }}>
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Run {name}’s full response</span>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Run {name}’s full response</span>
           <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer" }}><Icon name="close" size={15} color={T.muted} /></button>
         </div>
         <div style={{ padding: 20 }}>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.secondary, lineHeight: 1.55, marginBottom: 14 }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, lineHeight: 1.55, marginBottom: 14 }}>
             One run, one approval. {name} opens Cowork to audit your watch roster live, then — on the same run — reads the pace gap and drafts the rest:
             <span style={{ color: T.ink }}> trend brief · strategy · carousel · reel · UTM tags</span>, each building on those real audits. It fills in live; watch it go.
           </div>
-          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px", fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, lineHeight: 1.5 }}>
+          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px", fontFamily: "var(--font-text)", fontSize: 12, color: T.secondary, lineHeight: 1.5 }}>
             Cowork opens to browse the roster in Chrome (needs Claude Desktop + the Chrome connector). Keep this tab open — the response builds here as it lands. No roster? It runs straight through server-side.
           </div>
-          {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, marginTop: 10 }}>{err}</div>}
+          {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, marginTop: 10 }}>{err}</div>}
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "0 20px 18px" }}>
-          <button onClick={onClose} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
-          <button onClick={submit} disabled={busy} style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "8px 16px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Starting…" : "Run response"}</button>
+          <button onClick={onClose} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
+          <button onClick={submit} disabled={busy} style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "8px 16px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Starting…" : "Run response"}</button>
         </div>
       </div>
     </div>
@@ -630,12 +630,12 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
       {canManage && (
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
           <button onClick={() => openAudit("")} className="cc-nav" style={{ display: "inline-flex", alignItems: "center", gap: 6,
-            fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment,
+            fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment,
             border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 13px", cursor: "pointer" }}>
             <Icon name="search" size={13} color={T.slate} />Run an audit
           </button>
           <button onClick={() => setRespOpen(true)} className="cc-nav" style={{ display: "inline-flex", alignItems: "center", gap: 6,
-            fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.onDark, background: T.evergreen,
+            fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.onDark, background: T.evergreen,
             border: `1px solid ${T.evergreen}`, borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}>
             <Icon name="spark" size={13} color={T.onDark} />Run full response
           </button>
@@ -644,12 +644,12 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
 
       {error && !detail ? (
         <Card style={{ padding: 22, textAlign: "center" }}>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.poppyText }}>Couldn’t load this employee.</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText }}>Couldn’t load this employee.</div>
         </Card>
       ) : runs && runs.length === 0 ? (
         <Card style={{ padding: "34px 28px", textAlign: "center", maxWidth: 520, margin: "6px auto" }}>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>No runs yet</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, marginTop: 8 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>No runs yet</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, marginTop: 8 }}>
             {employee.next_run_at ? "A scheduled run is queued — check back after it fires." : "This employee has no scheduled skills. Add a schedule in Settings."}
           </div>
         </Card>
@@ -657,14 +657,14 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
         <Card className="cc-skel" style={{ height: 260 }} />
       ) : status === "skipped_budget" ? (
         <Card style={{ padding: 20, background: T.parchment }}>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600, color: T.ink }}>Run skipped — monthly token budget reached</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, marginTop: 6 }}>Scheduled runs resume next month, or raise the budget in Settings.</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600, color: T.ink }}>Run skipped — monthly token budget reached</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, marginTop: 6 }}>Scheduled runs resume next month, or raise the budget in Settings.</div>
         </Card>
       ) : status === "failed" ? (
         <Card style={{ padding: 20, borderLeft: `3px solid ${T.poppy}` }}>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600, color: T.poppyText }}>This run failed</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600, color: T.poppyText }}>This run failed</div>
           <div style={{ fontFamily: MONO, fontSize: 12, color: T.secondary, marginTop: 8, background: T.parchment, borderRadius: 8, padding: 10 }}>{run.error || "Unknown error"}</div>
-          {run.finished_at && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>{relativeTime(run.finished_at)}</div>}
+          {run.finished_at && <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, marginTop: 6 }}>{relativeTime(run.finished_at)}</div>}
         </Card>
       ) : (
         <>
@@ -675,11 +675,11 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
             <Card style={{ padding: 18, display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
               <span className="ai-spin" style={{ width: 16, height: 16, borderRadius: 99, border: `2px solid ${T.line}`, borderTopColor: T.teal, flexShrink: 0 }} />
               <div>
-                <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink }}>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink }}>
                   {status === "awaiting_audit" ? "Cowork is auditing your roster in Chrome…"
                     : run.trigger_context && run.trigger_context.source === "Instagram · Cowork" ? "Cowork is auditing in Chrome…"
                     : "Working…"}</div>
-                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 2 }}>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 2 }}>
                   {status === "awaiting_audit" ? "When the audits land, the rest of the response drafts automatically on this run — you can leave this open."
                     : run.trigger_context && run.trigger_context.source === "Instagram · Cowork" ? "The teardown lands here as a draft when it finishes — you can leave this open."
                     : "Drafting — the response fills in as each piece is produced."}</div>
@@ -687,16 +687,16 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
             </Card>
           )}
           {run.summary && ["approved", "shipped"].includes(status) && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.meadowInk, background: T.meadowBg, borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--font-text)", fontSize: 12.5, color: T.meadowInk, background: T.meadowBg, borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
               <Icon name="check" size={14} color={T.meadow} />{run.summary}
             </div>
           )}
           {artifacts.length > 0 && (
             <Card style={{ padding: "4px 16px 8px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0 8px" }}>
-                <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink }}>{employee.name} built the response</span>
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink }}>{employee.name} built the response</span>
                 {status === "awaiting_approval" && (
-                  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".05em", color: T.daffodilText, background: T.daffodilBg, border: `1px solid #F0E3AC`, borderRadius: 6, padding: "2px 8px" }}>DRAFT MODE</span>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, letterSpacing: ".05em", color: T.daffodilText, background: T.daffodilBg, border: `1px solid #F0E3AC`, borderRadius: 6, padding: "2px 8px" }}>DRAFT MODE</span>
                 )}
               </div>
               {artifacts.map((a) => (

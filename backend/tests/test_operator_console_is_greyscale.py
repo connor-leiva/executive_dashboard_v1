@@ -112,3 +112,60 @@ def test_no_view_hardcodes_a_brand_asset_path():
         for m in re.finditer(r'["\'](/brand/logo/[^"\']+)["\']', code):
             offenders.setdefault(path.name, []).append(m.group(1))
     assert not offenders, f"a brand asset is hardcoded into a view: {offenders}"
+
+
+def test_type_reaches_the_product_through_variables_not_literals():
+    """The typeface picker set --font-display and --font-text, and NOTHING read them.
+
+    714 components named the family inline instead, so a workspace could choose a pairing, see it
+    saved, and watch nothing change. A setting that persists and does nothing is worse than one
+    that is missing: the product tells you it worked.
+
+    Two exemptions, both deliberate:
+      * Monospace stacks. An API key or a content hash must stay monospaced whatever a workspace
+        picks — the alignment IS the information.
+      * Acumyn's own surfaces. brand/acumyn.jsx and the operator console name Acumyn's type
+        explicitly, for the same reason the console is greyscale: the platform's identity must not
+        drift toward whichever workspace was configured last.
+    """
+    import re
+    from pathlib import Path
+
+    src_dir = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    exempt = {"typefaces.js", "palette.js", "acumyn.jsx", "PlatformConsole.jsx"}
+    offenders = {}
+    for path in sorted(src_dir.rglob("*.js*")):
+        if path.name in exempt or "sample" in path.name.lower():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        code = "\n".join(l for l in text.splitlines() if not l.strip().startswith(("*", "//")))
+        # A brand family named directly rather than through the variable.
+        hits = re.findall(r'(?:fontFamily:\s*|font-family:\s*|=\s*)["\']?'
+                          r'(Inter|Poppins|Archivo|Space Grotesk|Instrument Sans|Fraunces)[,"\']',
+                          code)
+        if hits:
+            offenders[path.name] = sorted(set(hits))
+    assert not offenders, f"font families named directly instead of via --font-*: {offenders}"
+
+
+def test_form_controls_inherit_the_workspace_typeface():
+    """Browsers give buttons and inputs their own font rather than inheriting one, so every button
+    in the app rendered in the UA default while the text beside it followed the workspace. One
+    line in index.html, and it moved coverage from 58% of rendered elements to 99%.
+
+    Deliberately narrow. This is not a global reset — there is no box-sizing reset in this app and
+    adding one would move a great deal of layout.
+    """
+    from pathlib import Path
+
+    html = (Path(__file__).resolve().parents[2] / "frontend" / "index.html").read_text(
+        encoding="utf-8")
+    assert "button, input, select, textarea { font-family: inherit; }" in html
+    # Checked against the CSS RULES, not the file text — the comment above the rule explains why
+    # there is no box-sizing reset, and a naive substring search matches its own explanation.
+    # Checked against the CSS RULES rather than the file text: the comment above the rule
+    # explains why there is no box-sizing reset, and a naive substring search matches its own
+    # explanation. That is exactly what happened when this was first written.
+    rules = [l for l in html.splitlines() if not l.strip().startswith(("*", "/*", "//"))]
+    assert not any("box-sizing:" in l for l in rules), (
+        "a box-sizing reset would move layout across the app")

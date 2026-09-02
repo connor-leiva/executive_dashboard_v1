@@ -12,12 +12,12 @@ export default function SubTabs({ tabs, active, onChange }) {
         const on = active === t.k;
         return (
           <button key={t.k} onClick={() => onChange(t.k)} style={{
-            fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, textAlign: "left", lineHeight: 1.2,
+            fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, textAlign: "left", lineHeight: 1.2,
             color: on ? T.ink : T.muted, background: "transparent", border: "none",
             borderBottom: on ? `2.5px solid ${T.meadow}` : "2.5px solid transparent",
             padding: t.sub ? "7px 15px 9px" : "9px 15px 11px", cursor: "pointer", marginBottom: -1 }}>
             <div>{t.label}</div>
-            {t.sub && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 500,
+            {t.sub && <div style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 500,
               color: t.unassigned ? T.daffodilText : T.muted, marginTop: 1 }}>{t.sub}</div>}
           </button>
         );

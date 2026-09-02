@@ -131,7 +131,7 @@ export default function PeriodNav({
     return t && (!acc || t < acc) ? t : acc;
   }, null);
 
-  const font = "Inter,sans-serif";
+  const font = "var(--font-text)";
   const bar = {
     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20,
     minHeight: 64, padding: "0 24px", background: T.white,
@@ -201,7 +201,7 @@ export default function PeriodNav({
                   height: "100%", border: 0, background: "transparent", padding: "0 14px",
                   cursor: "pointer", display: "flex", alignItems: "center", gap: 9,
                 }}>
-                <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.ink, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
                   {fmtWindow(win)}
                 </span>
                 <span style={{ fontSize: 9, color: T.muted }} aria-hidden>▾</span>

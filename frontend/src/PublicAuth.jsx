@@ -8,22 +8,22 @@ import { SpringSignature } from "./Brand.jsx";
    layout; on success we store the JWT and drop straight into the app. */
 
 const field = {
-  width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 14,
+  width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 14,
   color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 9,
   padding: "11px 12px", marginTop: 6,
 };
-const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
 
 function Shell({ title, sub, children }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-      background: `linear-gradient(135deg, ${T.parchment}, #FBEDE6)`, padding: 24, fontFamily: "Inter,sans-serif" }}>
+      background: `linear-gradient(135deg, ${T.parchment}, #FBEDE6)`, padding: 24, fontFamily: "var(--font-text)" }}>
       <div style={{ width: "100%", maxWidth: 400, background: T.white, border: `1px solid ${T.line}`,
         borderRadius: 16, padding: "30px 28px", boxShadow: "0 24px 70px rgba(0,46,44,.16)" }}>
         <SpringSignature tone="dark" height={30} />
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.muted, marginTop: 6, textTransform: "uppercase" }}>Command Center</div>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 19, fontWeight: 600, color: T.ink, marginTop: 20 }}>{title}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, marginTop: 4, lineHeight: 1.5 }}>{sub}</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.muted, marginTop: 6, textTransform: "uppercase" }}>Command Center</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600, color: T.ink, marginTop: 20 }}>{title}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 4, lineHeight: 1.5 }}>{sub}</div>
         {children}
       </div>
     </div>
@@ -34,12 +34,12 @@ function btn(busy) {
   return {
     width: "100%", marginTop: 20, color: T.white, background: busy ? T.poppyActive : T.poppy,
     border: "none", borderRadius: 9, padding: "12px", cursor: busy ? "default" : "pointer",
-    fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600, opacity: busy ? 0.7 : 1,
+    fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600, opacity: busy ? 0.7 : 1,
   };
 }
 
 function Err({ children }) {
-  return <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 14, lineHeight: 1.5 }}>{children}</div>;
+  return <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 14, lineHeight: 1.5 }}>{children}</div>;
 }
 
 export function AcceptInvite({ onDone }) {

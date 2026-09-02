@@ -21,13 +21,19 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { OPS, alpha, relativeTime } from "../theme.js";
+import { TYPE } from "../brand/acumyn.jsx";
 import {
   clearOpSession, createTenant, getTenant, hasOpToken, listTenants, opLogin, opName,
   resendInvite, resumeTenant, suspendTenant, tenantAudit,
 } from "./api.js";
 
-const FONT = "Inter,sans-serif";
-const HEAD = "Poppins,sans-serif";
+// Acumyn's own type, named explicitly rather than read from the workspace variables — the same
+// reasoning as OPS. This console is the platform's surface, and pinning its identity is what stops
+// it drifting toward looking like whichever workspace was configured last. It renders on
+// admin.<domain> where those variables happen to hold Acumyn's values anyway, which is exactly
+// the kind of coincidence that stops being true later.
+const FONT = TYPE.text;
+const HEAD = TYPE.display;
 
 const card = { background: OPS.white, border: `1px solid ${OPS.line}`, borderRadius: 12, padding: 20 };
 const label = {

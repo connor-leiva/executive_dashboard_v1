@@ -65,7 +65,7 @@ function subnavFor(role, aiOn) {
 function SettingsShell({ children, role, aiOn }) {
   const SUBNAV = subnavFor(role, aiOn);
   return (
-    <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
+    <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "var(--font-text)" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
         input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid ${T.teal}; outline-offset: 2px; }
@@ -75,14 +75,14 @@ function SettingsShell({ children, role, aiOn }) {
         display: "flex", alignItems: "center", gap: 14, padding: "14px 26px",
         borderBottom: `1px solid ${T.line}`, background: T.white,
       }}>
-        <Link to="/" style={{ fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: T.slate, textDecoration: "none" }}>← Command Center</Link>
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Settings</span>
+        <Link to="/" style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.slate, textDecoration: "none" }}>← Command Center</Link>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Settings</span>
       </div>
       <div style={{ display: "flex", gap: 26, padding: 26, maxWidth: 1000 }}>
         <nav style={{ width: 170, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2 }}>
           {SUBNAV.map((n) => (
             <NavLink key={n.to} to={n.to} style={({ isActive }) => ({
-              fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: isActive ? 600 : 500,
+              fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: isActive ? 600 : 500,
               color: isActive ? T.ink : T.slate, textDecoration: "none",
               background: isActive ? T.white : "transparent", border: `1px solid ${isActive ? T.line : "transparent"}`,
               borderRadius: 8, padding: "9px 12px",
@@ -98,8 +98,8 @@ function SettingsShell({ children, role, aiOn }) {
 function Card({ title, hint, children }) {
   return (
     <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 22, marginBottom: 18 }}>
-      {title && <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.ink }}>{title}</div>}
-      {hint && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, marginTop: 3, marginBottom: 14 }}>{hint}</div>}
+      {title && <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink }}>{title}</div>}
+      {hint && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 3, marginBottom: 14 }}>{hint}</div>}
       {children}
     </div>
   );
@@ -107,7 +107,7 @@ function Card({ title, hint, children }) {
 
 function btn(kind) {
   const base = {
-    fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, borderRadius: 8,
+    fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, borderRadius: 8,
     padding: "6px 12px", cursor: "pointer", border: "none",
   };
   if (kind === "primary") return { ...base, color: T.onDark, background: T.evergreen };
@@ -169,14 +169,14 @@ function GhlConnectForm({ row, onClose, onDone }) {
     }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? `Edit ${programName}` : `Connect ${programName}`}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>{isBc ? "beCollective · its own GHL location." : "The Forum · Go High Level."} The token is stored encrypted.</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? `Edit ${programName}` : `Connect ${programName}`}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>{isBc ? "beCollective · its own GHL location." : "The Forum · Go High Level."} The token is stored encrypted.</div>
         <label style={label}>Private Integration Token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
           <input style={field} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : ""} required={!editing} />
         </label>
@@ -211,7 +211,7 @@ function GhlConnectForm({ row, onClose, onDone }) {
             <input style={field} value={salesMatch} onChange={(e) => setSalesMatch(e.target.value)} placeholder="sales" />
           </label>
         </div>
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -250,15 +250,15 @@ function AriveConnectForm({ row, onClose, onDone }) {
     }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
   const keep = editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>;
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Arive" : "Connect Arive"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>From Arive → Settings → Integrations. All three are stored encrypted.</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Arive" : "Connect Arive"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>From Arive → Settings → Integrations. All three are stored encrypted.</div>
         <label style={label}>Client ID
           <input style={field} value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••• (unchanged)" : ""} />
         </label>
@@ -268,7 +268,7 @@ function AriveConnectForm({ row, onClose, onDone }) {
         <label style={label}>API Key {keep}
           <input style={field} type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
         </label>
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -309,21 +309,21 @@ function SisuConnectForm({ row, onClose, onDone }) {
     }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Sisu" : "Connect Sisu"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>Your Sisu login and an API token from Sisu → Settings → API. Both are stored encrypted; we never write to Sisu.</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Sisu" : "Connect Sisu"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>Your Sisu login and an API token from Sisu → Settings → API. Both are stored encrypted; we never write to Sisu.</div>
         <label style={label}>Username
           <input style={field} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" required />
         </label>
         <label style={label}>API token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>}
           <input style={field} type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
         </label>
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -368,14 +368,14 @@ function MetaAdsConnectForm({ row, onClose, onDone }) {
     }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 460, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Meta Ads" : "Connect Meta Ads"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3, lineHeight: 1.5 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Meta Ads" : "Connect Meta Ads"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3, lineHeight: 1.5 }}>
           A <strong>System User</strong> token from Meta Business Settings → System Users. Grant it{" "}
           <strong>ads_read</strong> only — this module never writes, so ads_management is more
           access than it needs. Stored encrypted; the browser never calls Meta.
@@ -385,18 +385,18 @@ function MetaAdsConnectForm({ row, onClose, onDone }) {
         </label>
         <label style={label}>Ad account ID
           <input style={field} value={acct} onChange={(e) => setAcct(e.target.value)} autoComplete="off" placeholder="act_587749862890426" />
-          <span style={{ display: "block", fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 5, lineHeight: 1.5 }}>
+          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 5, lineHeight: 1.5 }}>
             From Ads Manager, top left. One token can carry several accounts — add the others
             after this one.
           </span>
         </label>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 14, lineHeight: 1.5, background: T.parchment, borderRadius: 8, padding: "10px 12px" }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 14, lineHeight: 1.5, background: T.parchment, borderRadius: 8, padding: "10px 12px" }}>
           <strong style={{ color: T.slate }}>Ad-level revenue needs one more thing.</strong> Your ad
           URLs need <code>utm_content=&#123;&#123;ad.id&#125;&#125;</code> and a matching{" "}
           <code>utm_content</code> field in GoHighLevel. Until both exist the funnel works at
           campaign level and the creative wall shows no revenue.
         </div>
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -430,18 +430,18 @@ function FubConnectForm({ row, onClose, onDone }) {
     }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Follow Up Boss" : "Connect Follow Up Boss"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>An API key from Follow Up Boss → Admin → API. Stored encrypted; we only read.</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Follow Up Boss" : "Connect Follow Up Boss"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>An API key from Follow Up Boss → Admin → API. Stored encrypted; we only read.</div>
         <label style={label}>API key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>}
           <input style={field} type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
         </label>
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -478,20 +478,20 @@ function StripeLegacyConnectForm({ row, onClose, onDone }) {
     }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Legacy Stripe" : "Connect Legacy Stripe"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Legacy Stripe" : "Connect Legacy Stripe"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>
           Your original Stripe account — the one that predates the current sub-account. Create a <b>restricted key</b> in Stripe (Developers → API keys → Create restricted key) with <b>Charges: Read</b>, <b>Customers: Read</b>, and <b>Subscriptions: Read</b> — nothing else. Stored encrypted; we never write to Stripe.
         </div>
         <label style={label}>Read-only restricted key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
           <input style={field} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : "rk_live_…"} required={!editing} />
         </label>
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Verifying…" : editing ? "Save changes" : "Connect"}</button>
@@ -526,20 +526,20 @@ function StripeBcConnectForm({ row, onClose, onDone }) {
     }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit beCollective Stripe" : "Connect beCollective Stripe"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit beCollective Stripe" : "Connect beCollective Stripe"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>
           A program's own Stripe account, where one processes separately from the rest. Create a <b>restricted key</b> in Stripe (Developers → API keys → Create restricted key) with <b>Charges: Read</b>, <b>Customers: Read</b>, and <b>Subscriptions: Read</b> — nothing else. Only membership payments are reported (event tickets and other products are filtered out). Stored encrypted; we never write to Stripe.
         </div>
         <label style={label}>Read-only restricted key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
           <input style={field} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : "rk_live_…"} required={!editing} />
         </label>
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Verifying…" : editing ? "Save changes" : "Connect"}</button>
@@ -577,14 +577,14 @@ function GhlLegacyConnectForm({ row, onClose, onDone }) {
     }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Old GHL" : "Connect Old GHL"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Old GHL" : "Connect Old GHL"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>
           The GHL location the legacy Stripe account is wired to. A <b>read-only</b> Private Integration Token with <b>Invoices: Read</b>, <b>Payments/Transactions: Read</b>, <b>Contacts: Read</b>. Supplies the real label for each legacy charge; stored encrypted.
         </div>
         <label style={label}>Private Integration Token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current token</span>}
@@ -593,7 +593,7 @@ function GhlLegacyConnectForm({ row, onClose, onDone }) {
         <label style={label}>Location ID <span style={{ fontWeight: 400, color: T.muted }}>· from the old-location GHL URL</span>
           <input style={field} value={locationId} onChange={(e) => setLocationId(e.target.value)} required />
         </label>
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -648,11 +648,11 @@ function LegacyDeltaPanel({ live }) {
     <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.parchment, padding: "13px 15px", marginTop: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Icon name="open" size={13} color={T.evergreen} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>GHL import file</span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.ink }}>GHL import file</span>
         <span style={{ flex: 1 }} />
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{d.total_forum_charges || 0} legacy charges synced</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>{d.total_forum_charges || 0} legacy charges synced</span>
       </div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, marginTop: 6, lineHeight: 1.5 }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.secondary, marginTop: 6, lineHeight: 1.5 }}>
         {pending > 0
           ? <><b style={{ color: T.ink }}>{pending}</b> new charge{pending === 1 ? "" : "s"} to import{d.through ? <> since {d.through}</> : ""}. GHL has no import API, so download the file and upload it in GHL manually — the dashboard already counts these; this just keeps GHL contacts current.</>
           : <>Up to date — no new charges to import{d.through ? <> since {d.through}</> : ""}.</>}
@@ -661,7 +661,7 @@ function LegacyDeltaPanel({ live }) {
         <SBtn small icon="open" disabled={!live || busy || pending === 0} onClick={download}>{busy ? "Working…" : "Download file"}</SBtn>
         <SBtn small icon="check_circled" disabled={!live || busy || pending === 0} onClick={markImported}>Mark imported</SBtn>
       </div>
-      {msg && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 9 }}>{msg}</div>}
+      {msg && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, marginTop: 9 }}>{msg}</div>}
     </div>
   );
 }
@@ -713,7 +713,7 @@ function QuickBooksConnect({ live }) {
   return (
     <Card title="QuickBooks" hint="Connect each entity to its QuickBooks company. Financial panels light up once connected and synced.">
       {!live && (
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
           Preview (sample) — connect to the live API to link QuickBooks.
         </div>
       )}
@@ -724,17 +724,17 @@ function QuickBooksConnect({ live }) {
         return (
           <div key={b.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${T.line}` }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{b.name}</div>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{b.name}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
                 {connected ? (
                   <>
                     <span style={{ width: 7, height: 7, borderRadius: 99, background: STATUS_DOT[row.status] || T.muted }} />
-                    <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate }}>{STATUS_LABEL[row.status] || row.status}</span>
-                    {row.last_synced_at && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>· synced {relativeTime(row.last_synced_at)}</span>}
-                    {row.status === "error" && row.last_error && <span title={row.last_error} style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText }}>· {String(row.last_error).slice(0, 40)}</span>}
+                    <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate }}>{STATUS_LABEL[row.status] || row.status}</span>
+                    {row.last_synced_at && <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>· synced {relativeTime(row.last_synced_at)}</span>}
+                    {row.status === "error" && row.last_error && <span title={row.last_error} style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.poppyText }}>· {String(row.last_error).slice(0, 40)}</span>}
                   </>
                 ) : (
-                  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>Not connected</span>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>Not connected</span>
                 )}
               </div>
             </div>
@@ -768,14 +768,14 @@ function StatusPill({ status }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: map.bg,
       border: `1px solid ${map.border}`, borderRadius: 6, padding: "3px 9px",
-      fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, color: map.text, whiteSpace: "nowrap" }}>
+      fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, color: map.text, whiteSpace: "nowrap" }}>
       <span style={{ width: 6, height: 6, borderRadius: 99, background: map.dot }} />{map.label}
     </span>
   );
 }
 
 const Chip = ({ children }) => (
-  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.slate,
+  <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.slate,
     background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 8px" }}>{children}</span>
 );
 
@@ -791,7 +791,7 @@ function SBtn({ kind = "ghost", small, icon, children, onClick, disabled, title 
     <button className={`si-btn ${kind}`} onClick={onClick} disabled={disabled} title={title} style={{
       display: "inline-flex", alignItems: "center", gap: 6, background: disabled ? T.parchment : s.bg,
       color: disabled ? T.muted : s.color, border: `1px solid ${disabled ? T.line : s.border}`, borderRadius: 8,
-      padding: small ? "5px 11px" : "7px 14px", fontFamily: "Poppins,sans-serif", fontSize: small ? 11.5 : 12,
+      padding: small ? "5px 11px" : "7px 14px", fontFamily: "var(--font-display)", fontSize: small ? 11.5 : 12,
       fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer" }}>
       {icon && <Icon name={icon} size={12} color="currentColor" />}{children}
     </button>
@@ -846,15 +846,15 @@ function QboEntityForm({ mode, entity, onClose, onDone }) {
     }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
-  const check = { display: "flex", alignItems: "center", gap: 8, marginTop: 14, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const check = { display: "flex", alignItems: "center", gap: 8, marginTop: 14, fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 430, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? `Edit ${entity.business_name}` : "Connect a QuickBooks entity"}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? `Edit ${entity.business_name}` : "Connect a QuickBooks entity"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>
           {editing ? "Change where this entity's P&L shows and whether it feeds Books. Its ledger keys don't move."
                    : "Name it, pick which page its P&L shows on, then authorize in QuickBooks."}
         </div>
@@ -890,7 +890,7 @@ function QboEntityForm({ mode, entity, onClose, onDone }) {
             <input style={field} type="date" value={backfill} onChange={(e) => setBackfill(e.target.value)} />
           </label>
         )}
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>
@@ -916,12 +916,12 @@ function EntityRow({ e, live, busy, onSync, onReconnect, onEditEntity, onDisconn
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.line}`, flexWrap: "wrap", opacity: disc ? 0.7 : 1 }}>
       <span style={{ width: 8, height: 8, borderRadius: 2, background: disc ? T.muted : (BIZ_DOT[e.business_key] || T.muted), flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.ink, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           {e.business_name}
-          {routesTo && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>→ {routesTo}</span>}
-          {e.books_enabled === false && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>Books off</span>}
+          {routesTo && <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>→ {routesTo}</span>}
+          {e.books_enabled === false && <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: T.muted, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>Books off</span>}
         </div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: statusColor, marginTop: 2, display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: statusColor, marginTop: 2, display: "flex", alignItems: "center", gap: 5 }}>
           <Icon name={err || disc ? "warning" : "check_circled"} size={11} color={statusColor} />
           {statusText}
           {meta && <span style={{ color: T.muted }}>· {meta}</span>}
@@ -951,10 +951,10 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
         <span className="si-mono">{s.mono}</span>
         <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
           <span style={{ display: "flex", alignItems: "center" }}>
-            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 14.5, fontWeight: 600, color: T.ink }}>{s.name}</span>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 14.5, fontWeight: 600, color: T.ink }}>{s.name}</span>
             <FeedDots feeds={s.feeds} />
           </span>
-          <span style={{ display: "block", fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 3 }}>{collapsedLine}</span>
+          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 3 }}>{collapsedLine}</span>
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
           {dis ? <SBtn kind="primary" small disabled={!live} onClick={(ev) => { ev.stopPropagation(); onConnect(s); }}>Connect</SBtn> : <StatusPill status={s.status} />}
@@ -966,7 +966,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
       <div className={`si-collapse ${open ? "open" : ""}`}>
         <div className="si-collapse-in">
           <div style={{ padding: "0 20px 18px" }}>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.secondary, paddingBottom: 12 }}>{s.desc(s)}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.secondary, paddingBottom: 12 }}>{s.desc(s)}</div>
             {s.entities?.length > 0 && (
               <div style={{ marginBottom: 4 }}>
                 {s.entities.map((e) => <EntityRow key={e.integration_id} e={e} live={live} busy={busy} onSync={onSync} onReconnect={onReconnect}
@@ -978,7 +978,7 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
             {s.config_summary?.length > 0 && (
               <div style={{ borderTop: `1px solid ${T.line}`, padding: "11px 0 3px" }}>
                 {s.config_summary.map(([k, v], i) => (
-                  <div key={i} style={{ display: "flex", gap: 14, padding: "4px 0", fontFamily: "Inter,sans-serif", fontSize: 12 }}>
+                  <div key={i} style={{ display: "flex", gap: 14, padding: "4px 0", fontFamily: "var(--font-text)", fontSize: 12 }}>
                     <span style={{ width: 130, color: T.muted }}>{k}</span>
                     <span style={{ color: T.secondary, fontVariantNumeric: "tabular-nums" }}>{v}</span>
                   </div>
@@ -986,16 +986,16 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
               </div>
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", borderTop: `1px solid ${T.line}`, paddingTop: 13, marginTop: 8 }}>
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginRight: 2 }}>Provides</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginRight: 2 }}>Provides</span>
               {(s.provides || []).map((c) => <Chip key={c}>{c}</Chip>)}
               <span style={{ flex: 1 }} />
-              {s.last_run && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: s.status === "stale" ? T.daffodilText : T.muted }}>{s.last_run}</span>}
+              {s.last_run && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: s.status === "stale" ? T.daffodilText : T.muted }}>{s.last_run}</span>}
             </div>
             {!dis && s.provider === "stripe_legacy" && <LegacyDeltaPanel live={live} />}
             {dis ? (
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14 }}>
                 <SBtn kind="primary" icon="open" disabled={!live} onClick={() => onConnect(s)}>Connect {s.name}</SBtn>
-                <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>{s.desc(s)}</span>
+                <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>{s.desc(s)}</span>
               </div>
             ) : (
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
@@ -1166,29 +1166,29 @@ function IntegrationsPage() {
         .si-card { background:${T.white}; border:1px solid ${T.line}; border-radius:14px; margin-bottom:12px; box-shadow:0 1px 2px rgba(0,46,44,.04); transition:box-shadow .2s ease, border-color .2s ease; }
         .si-card.on { box-shadow:0 2px 4px rgba(0,46,44,.05), 0 14px 30px rgba(0,46,44,.07); border-color:#E0D6C6; }
         .si-head { box-sizing:border-box; display:flex; align-items:center; gap:14px; width:100%; background:none; border:none; padding:15px 20px; cursor:pointer; }
-        .si-mono { width:36px; height:36px; border-radius:10px; background:${T.parchment}; border:1px solid ${T.line}; display:inline-flex; align-items:center; justify-content:center; font-family:Poppins,sans-serif; font-size:12.5px; font-weight:700; color:${T.evergreen}; flex-shrink:0; }
+        .si-mono { width:36px; height:36px; border-radius:10px; background:${T.parchment}; border:1px solid ${T.line}; display:inline-flex; align-items:center; justify-content:center; font-family:var(--font-display); font-size:12.5px; font-weight:700; color:${T.evergreen}; flex-shrink:0; }
         .si-collapse { display:grid; grid-template-rows:0fr; transition:grid-template-rows .26s cubic-bezier(.4,0,.2,1); }
         .si-collapse.open { grid-template-rows:1fr; }
         .si-collapse-in { overflow:hidden; }
         .si-btn { transition:background .14s ease, border-color .14s ease, color .14s ease; }
         .si-btn.ghost:hover:not(:disabled) { border-color:${T.teal}; color:${T.teal}; }
         .si-btn.primary:hover:not(:disabled) { background:${T.poppyActive}; border-color:${T.poppyActive}; }
-        .si-danger { background:none; border:none; cursor:pointer; font-family:Inter,sans-serif; font-size:11.5px; font-weight:600; color:${T.muted}; padding:4px 2px; }
+        .si-danger { background:none; border:none; cursor:pointer; font-family:var(--font-text); font-size:11.5px; font-weight:600; color:${T.muted}; padding:4px 2px; }
         .si-danger:hover:not(:disabled) { color:${T.poppyText}; }
         .si-btn:focus-visible, .si-danger:focus-visible { outline:2px solid ${T.teal}; outline-offset:2px; border-radius:8px; }
         @media (prefers-reduced-motion: reduce) { .si-collapse { transition:none; } }
       `}</style>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", paddingBottom: 18, marginBottom: 18, borderBottom: `1px solid ${T.line}` }}>
         <div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: ".13em", textTransform: "uppercase", color: T.poppyText, display: "flex", alignItems: "center", gap: 7 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, letterSpacing: ".13em", textTransform: "uppercase", color: T.poppyText, display: "flex", alignItems: "center", gap: 7 }}>
             <Icon name="puzzle" size={13} color={T.poppyText} />Settings · Integrations
           </div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 700, letterSpacing: "-.01em", marginTop: 6, color: T.ink }}>Data sources</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, letterSpacing: "-.01em", marginTop: 6, color: T.ink }}>Data sources</div>
           <div style={{ fontSize: 12.5, color: T.slate, marginTop: 5, maxWidth: 520, lineHeight: 1.5 }}>Every number in the Command Center traces to one of these connections. Expand a source to manage its accounts, configuration, and sync.</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink, display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
               <Icon name="check_circled" size={13} color={T.meadow} />{view.healthy} of {view.total} sources healthy
             </div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>
@@ -1200,7 +1200,7 @@ function IntegrationsPage() {
       </div>
 
       {!live && (
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
           Preview (sample) — connect to the live API to manage sources.
         </div>
       )}
@@ -1212,7 +1212,7 @@ function IntegrationsPage() {
           onEditEntity={editEntity} onDisconnectEntity={disconnectEntity} onDeleteEntity={deleteEntity} />
       ))}
 
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, padding: "8px 2px" }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, padding: "8px 2px" }}>
         Auto-sync runs every 30 minutes. Disconnecting removes stored tokens; historical data already synced stays in the dashboard.
       </div>
 
@@ -1270,7 +1270,7 @@ function AccountPage() {
     if (!API_BASE) { setMe({ name: "Spring Bengtzen", email: "spring@springb.com", role: "owner", tenant: "springb" }); return; }
     getJSON("/me").then(setMe).catch(() => {});
   }, []);
-  const rowStyle = { display: "flex", justifyContent: "space-between", padding: "9px 0", borderTop: `1px solid ${T.line}`, fontFamily: "Inter,sans-serif", fontSize: 13 };
+  const rowStyle = { display: "flex", justifyContent: "space-between", padding: "9px 0", borderTop: `1px solid ${T.line}`, fontFamily: "var(--font-text)", fontSize: 13 };
   return (
     <Card title="Account">
       {me ? (
@@ -1335,15 +1335,15 @@ function BusinessEditForm({ biz, onClose, onDone }) {
     } finally { setBusy(false); }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
   const half = { display: "flex", gap: 10 };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 460, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)", maxHeight: "88vh", overflowY: "auto" }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Edit {biz.name}</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 3 }}>Brand and health config for this profit center.</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Edit {biz.name}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>Brand and health config for this profit center.</div>
         <label style={label}>Name<input style={field} value={f.name} onChange={set("name")} required /></label>
         <label style={label}>Tagline<input style={field} value={f.tag} onChange={set("tag")} /></label>
         <div style={half}>
@@ -1396,13 +1396,13 @@ function BusinessEditForm({ biz, onClose, onDone }) {
                 <input style={field} type="number" step="1" value={f.opex_pct} onChange={set("opex_pct")} placeholder="e.g. 29" />
               </label>
             </div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, marginTop: 6 }}>
               Reverse-engineered from a closed month's P&L. Drives the calculated Live / Projection lenses down to your JV share.
             </div>
           </>
         )}
 
-        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}`, fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate }}>Financials (three-lens)</div>
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}`, fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.slate }}>Financials (three-lens)</div>
         <div style={half}>
           <label style={{ ...label, flex: 1 }}>Expense run-rate
             <select style={field} value={f.expense_run_rate_mode} onChange={set("expense_run_rate_mode")}>
@@ -1420,7 +1420,7 @@ function BusinessEditForm({ biz, onClose, onDone }) {
         <label style={label}>Default agent split (%) <span style={{ fontWeight: 400, color: T.muted }}>· commission fallback when a Sisu deal is missing it</span>
           <input style={field} type="number" step="1" value={f.agent_split_pct} onChange={set("agent_split_pct")} placeholder="e.g. 60" />
         </label>
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : "Save changes"}</button>
@@ -1444,7 +1444,7 @@ function BusinessesPage() {
   return (
     <Card title="Businesses" hint="Brand and health config per profit center. Status flags 'watch' automatically when the margin drops below the threshold.">
       {!live && (
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
           Preview (sample) — connect to the live API to edit.
         </div>
       )}
@@ -1452,11 +1452,11 @@ function BusinessesPage() {
         <div key={b.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${T.line}` }}>
           <span style={{ width: 10, height: 10, borderRadius: 3, background: b.accent, flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{b.name}</div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>{b.tag}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{b.name}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>{b.tag}</div>
           </div>
-          {b.is_jv && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate }}>JV {Math.round(b.jv_share * 100)}%</span>}
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, textTransform: "capitalize" }}>{b.status}</span>
+          {b.is_jv && <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate }}>JV {Math.round(b.jv_share * 100)}%</span>}
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, textTransform: "capitalize" }}>{b.status}</span>
           <button disabled={!live} onClick={() => setEditing(b)} style={live ? btn() : btn("disabled")}>Edit</button>
         </div>
       )) : <div style={{ color: T.muted, fontSize: 13 }}>Loading…</div>}
@@ -1482,14 +1482,14 @@ function CopyLink({ url }) {
   const [copied, setCopied] = useState(false);
   return (
     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-      <input readOnly value={url} onFocus={(e) => e.target.select()} style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px" }} />
+      <input readOnly value={url} onFocus={(e) => e.target.select()} style={{ flex: 1, fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px" }} />
       <button onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={btn("primary")}>{copied ? "Copied" : "Copy"}</button>
     </div>
   );
 }
 
 function TabDots({ user }) {
-  if (user.all_tabs) return <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>All tabs</span>;
+  if (user.all_tabs) return <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>All tabs</span>;
   return (
     <span style={{ display: "inline-flex", gap: 5, flexWrap: "wrap" }}>
       {(user.tabs || []).map((t) => (
@@ -1500,7 +1500,7 @@ function TabDots({ user }) {
 }
 
 function Pill({ text, color, bg }) {
-  return <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color, background: bg, borderRadius: 5, padding: "2px 7px" }}>{text}</span>;
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 9.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color, background: bg, borderRadius: 5, padding: "2px 7px" }}>{text}</span>;
 }
 
 function InviteModal({ tabs, me, onClose, onInvited }) {
@@ -1532,16 +1532,16 @@ function InviteModal({ tabs, me, onClose, onInvited }) {
     } finally { setBusy(false); }
   }
 
-  const field = { width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)", maxHeight: "88vh", overflowY: "auto" }}>
         {result ? (
           <>
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Invite ready</div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, marginTop: 4 }}>Send <b style={{ color: T.ink }}>{result.user.email}</b> this link. It works once and expires in 7 days.</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Invite ready</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 4 }}>Send <b style={{ color: T.ink }}>{result.user.email}</b> this link. It works once and expires in 7 days.</div>
             <CopyLink url={result.invite_url} />
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={onClose} style={btn("primary")}>Done</button>
@@ -1549,7 +1549,7 @@ function InviteModal({ tabs, me, onClose, onInvited }) {
           </>
         ) : (
           <form onSubmit={submit}>
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Invite a teammate</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Invite a teammate</div>
             <label style={label}>Email<input style={field} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
             <label style={label}>Role
               <select style={field} value={role} onChange={(e) => setRole(e.target.value)}>
@@ -1559,10 +1559,10 @@ function InviteModal({ tabs, me, onClose, onInvited }) {
             </label>
             {role === "member" && (
               <div style={{ marginTop: 14 }}>
-                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate }}>Tabs they can see</div>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate }}>Tabs they can see</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 8 }}>
                   {tabs.map((t) => (
-                    <label key={t} style={{ display: "flex", alignItems: "center", gap: 9, fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink }}>
+                    <label key={t} style={{ display: "flex", alignItems: "center", gap: 9, fontFamily: "var(--font-text)", fontSize: 13, color: T.ink }}>
                       <input type="checkbox" checked={grants.includes(t)} onChange={() => toggle(t)} />
                       <span style={{ width: 9, height: 9, borderRadius: 2, background: TAB_META[t]?.dot || T.muted }} />
                       {TAB_META[t]?.label || t}
@@ -1571,7 +1571,7 @@ function InviteModal({ tabs, me, onClose, onInvited }) {
                 </div>
               </div>
             )}
-            {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+            {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
               <button type="button" onClick={onClose} style={btn()}>Cancel</button>
               <button type="submit" disabled={busy || (role === "member" && !grants.length)} style={(busy || (role === "member" && !grants.length)) ? btn("disabled") : btn("primary")}>{busy ? "Inviting…" : "Send invite"}</button>
@@ -1614,39 +1614,39 @@ function UserRow({ u, me, tabs, onChanged }) {
   return (
     <div style={{ borderTop: `1px solid ${T.line}` }}>
       <div onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 4px", cursor: "pointer" }}>
-        <span style={{ width: 32, height: 32, borderRadius: 8, background: T.parchment, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 700, color: T.slate, flexShrink: 0 }}>{(u.name || u.email || "?").slice(0, 1).toUpperCase()}</span>
+        <span style={{ width: 32, height: 32, borderRadius: 8, background: T.parchment, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 700, color: T.slate, flexShrink: 0 }}>{(u.name || u.email || "?").slice(0, 1).toUpperCase()}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{u.name}{isSelf && <span style={{ color: T.muted, fontWeight: 400 }}> · you</span>}</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{u.name}{isSelf && <span style={{ color: T.muted, fontWeight: 400 }}> · you</span>}</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</div>
         </div>
         <Pill text={u.role} color={ROLE_COLOR[u.role]} bg={u.role === "owner" ? T.meadowBg : T.parchment} />
         <span style={{ width: 90 }}><TabDots user={u} /></span>
         {u.status !== "active" && <Pill text={u.status} color={u.status === "invited" ? T.daffodilText : T.muted} bg={u.status === "invited" ? T.daffodilBg : T.parchment} />}
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, width: 84, textAlign: "right" }}>{u.last_login_at ? relativeTime(u.last_login_at) : "—"}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, width: 84, textAlign: "right" }}>{u.last_login_at ? relativeTime(u.last_login_at) : "—"}</span>
       </div>
       {open && (
         <div style={{ padding: "4px 4px 16px 48px" }}>
           {editable ? (
             <>
               <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
-                <label style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate }}>Role
-                  <select value={role} onChange={(e) => setRole(e.target.value)} style={{ display: "block", marginTop: 5, fontFamily: "Inter,sans-serif", fontSize: 13, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px", background: T.white }}>
+                <label style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate }}>Role
+                  <select value={role} onChange={(e) => setRole(e.target.value)} style={{ display: "block", marginTop: 5, fontFamily: "var(--font-text)", fontSize: 13, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px", background: T.white }}>
                     {me.role === "owner" && <option value="owner">Owner</option>}
                     {me.role === "owner" && <option value="admin">Admin</option>}
                     <option value="member">Member</option>
                   </select>
                 </label>
                 <div style={{ flex: 1, minWidth: 200 }}>
-                  <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate }}>Tabs</div>
+                  <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate }}>Tabs</div>
                   {role === "member" ? (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 6 }}>
                       {tabs.map((t) => (
-                        <label key={t} style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink }}>
+                        <label key={t} style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink }}>
                           <input type="checkbox" checked={grants.includes(t)} onChange={() => toggle(t)} />{TAB_META[t]?.label || t}
                         </label>
                       ))}
                     </div>
-                  ) : <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted, marginTop: 6 }}>All tabs (owner/admin)</div>}
+                  ) : <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 6 }}>All tabs (owner/admin)</div>}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
@@ -1655,11 +1655,11 @@ function UserRow({ u, me, tabs, onChanged }) {
                 <span style={{ flex: 1 }} />
                 <button onClick={toggleStatus} disabled={busy} style={btn("danger")}>{u.status === "disabled" ? "Enable" : "Disable"}</button>
               </div>
-              {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 10 }}>{err}</div>}
+              {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 10 }}>{err}</div>}
               {link && <CopyLink url={link} />}
             </>
           ) : (
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>{isSelf ? "Manage your own name and password on the Account page." : "You can't manage this user."}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>{isSelf ? "Manage your own name and password on the Account page." : "You can't manage this user."}</div>
           )}
         </div>
       )}
@@ -1686,11 +1686,11 @@ function UsersPage() {
     <>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
         <div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: T.muted }}>Settings · Users</div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 20, fontWeight: 600, color: T.ink, marginTop: 3 }}>Team</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, marginTop: 3 }}>Invite teammates and control exactly which tabs each one sees.</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: T.muted }}>Settings · Users</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, color: T.ink, marginTop: 3 }}>Team</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 3 }}>Invite teammates and control exactly which tabs each one sees.</div>
         </div>
-        <button onClick={() => setInviting(true)} style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.white, background: T.poppy, border: "none", borderRadius: 9, padding: "9px 16px", cursor: "pointer", flexShrink: 0 }}>Invite user</button>
+        <button onClick={() => setInviting(true)} style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.white, background: T.poppy, border: "none", borderRadius: 9, padding: "9px 16px", cursor: "pointer", flexShrink: 0 }}>Invite user</button>
       </div>
       <Card>
         {!users ? <div style={{ color: T.muted, fontSize: 13 }}>Loading…</div>

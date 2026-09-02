@@ -54,7 +54,7 @@ export default function StepUpGate({ scope, title, blurb, usingSample, children 
 
   const input = {
     width: "100%", boxSizing: "border-box",          // no global border-box reset in this app
-    fontFamily: "Inter,sans-serif", fontSize: 16, letterSpacing: ".18em",
+    fontFamily: "var(--font-text)", fontSize: 16, letterSpacing: ".18em",
     textAlign: "center", padding: "11px 12px", border: `1px solid ${T.line}`,
     borderRadius: 9, color: T.ink, background: T.white,
   };
@@ -68,17 +68,17 @@ export default function StepUpGate({ scope, title, blurb, usingSample, children 
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 4 }}>
           <span style={{ width: 4, height: 20, borderRadius: 2, background: T.petal }} />
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 17, fontWeight: 600, letterSpacing: "-.01em", color: T.ink }}>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 600, letterSpacing: "-.01em", color: T.ink }}>
             {title}
           </span>
         </div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, lineHeight: 1.55, margin: "6px 0 18px" }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, lineHeight: 1.55, margin: "6px 0 18px" }}>
           {blurb}
         </div>
 
         {enrolled === false ? (
           <div style={{
-            fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, lineHeight: 1.6,
+            fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, lineHeight: 1.6,
             background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 14px",
           }}>
             You haven't set up an authenticator app yet. Open{" "}
@@ -87,21 +87,21 @@ export default function StepUpGate({ scope, title, blurb, usingSample, children 
           </div>
         ) : (
           <form onSubmit={submit}>
-            <label style={{ display: "block", fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, color: T.tertiary, marginBottom: 6 }}>
+            <label style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, color: T.tertiary, marginBottom: 6 }}>
               6-digit code from your authenticator app
             </label>
             <input autoFocus inputMode="numeric" autoComplete="one-time-code" placeholder="000000"
               value={code} onChange={(e) => setCode(e.target.value)} style={input} />
             {err && (
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.amber, marginTop: 9 }}>{err}</div>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.amber, marginTop: 9 }}>{err}</div>
             )}
             <button type="submit" disabled={busy || !code.trim()} style={{
-              width: "100%", marginTop: 14, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 700,
+              width: "100%", marginTop: 14, fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 700,
               color: T.onDark, background: busy || !code.trim() ? T.muted : T.evergreen,
               border: "none", borderRadius: 9, padding: "10px 0",
               cursor: busy || !code.trim() ? "default" : "pointer",
             }}>{busy ? "Checking…" : "Unlock"}</button>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 11, lineHeight: 1.5 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, marginTop: 11, lineHeight: 1.5 }}>
               Lost your phone? Enter one of your recovery codes instead — each works once.
             </div>
           </form>

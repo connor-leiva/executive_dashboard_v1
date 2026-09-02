@@ -27,12 +27,12 @@ function Card({ children, style }) {
   return <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, ...style }}>{children}</div>;
 }
 function Eyebrow({ children }) {
-  return <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: T.tertiary }}>{children}</span>;
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: T.tertiary }}>{children}</span>;
 }
 function StatusPill({ ready }) {
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter,sans-serif",
+      display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-text)",
       fontSize: 11, fontWeight: 700, borderRadius: 6, padding: "3px 9px",
       color: ready ? T.tertiary : T.daffodilText, background: ready ? T.meadowBg : T.daffodilBg,
     }}>
@@ -49,7 +49,7 @@ function Btn({ kind = "ghost", children, onClick, disabled, type = "button" }) {
   }[kind];
   return (
     <button type={type} onClick={onClick} disabled={disabled} className="cc-nav" style={{
-      fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, borderRadius: 8,
+      fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, borderRadius: 8,
       padding: "8px 14px", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1, ...styles,
     }}>{children}</button>
   );
@@ -57,7 +57,7 @@ function Btn({ kind = "ghost", children, onClick, disabled, type = "button" }) {
 
 function tabStyle(active) {
   return {
-    fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600,
+    fontFamily: "var(--font-display)", fontSize: 13.5, fontWeight: 600,
     color: active ? T.ink : T.muted, background: "transparent", border: "none",
     borderBottom: active ? `2.5px solid ${T.teal}` : "2.5px solid transparent",
     padding: "9px 15px 11px", cursor: "pointer", marginBottom: -1,
@@ -76,20 +76,20 @@ function EntityRow({ e, first, onEdit, onDeactivate }) {
     }}>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{e.legal_name}</span>
-          {e.nickname && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>{e.nickname}</span>}
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{e.legal_name}</span>
+          {e.nickname && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{e.nickname}</span>}
         </div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, marginTop: 2 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, marginTop: 2 }}>
           {meta || <span style={{ color: T.muted, fontStyle: "italic" }}>type and state not set</span>}
           {sub && <span style={{ color: T.muted }}>{"  ·  "}{sub}</span>}
         </div>
         {!e.tracking_ready && e.nudge && (
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.daffodilText, marginTop: 4 }}>{e.nudge}</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.daffodilText, marginTop: 4 }}>{e.nudge}</div>
         )}
       </div>
       <StatusPill ready={e.tracking_ready} />
       <button onClick={() => onEdit(e)} className="cc-nav" title="Edit entity" style={{
-        fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate,
+        fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.slate,
         background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}>
         Edit
       </button>
@@ -110,14 +110,14 @@ function EmptyState({ onAdd }) {
         justifyContent: "center", background: T.meadowBg, marginBottom: 14 }}>
         <Icon name="puzzle" size={22} color={T.meadow} />
       </div>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 600, color: T.ink }}>Set Up Your Binder</div>
-      <p style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, lineHeight: 1.55, color: T.slate, margin: "10px auto 20px", maxWidth: 420 }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, color: T.ink }}>Set Up Your Binder</div>
+      <p style={{ fontFamily: "var(--font-text)", fontSize: 13.5, lineHeight: 1.55, color: T.slate, margin: "10px auto 20px", maxWidth: 420 }}>
         The Binder tracks every legal entity you own and the filings each one owes (annual reports,
         BOI, taxes, insurance). Start by adding your first entity. A name is enough to begin;
         add the state, type, and formation date when you have them and filing tracking turns on.
       </p>
       <Btn kind="primary" onClick={onAdd}>Add Your First Entity</Btn>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 14 }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 14 }}>
         Dropping in a formation document to read the details automatically is coming next.
       </div>
     </Card>
@@ -129,10 +129,10 @@ const BLANK = { legal_name: "", nickname: "", description: "", entity_type: "", 
   formation_date: "", ein: "", entity_group: "operating", ownership: "", business_id: "" };
 
 function labelStyle() {
-  return { fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.tertiary, marginBottom: 5, display: "block" };
+  return { fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 600, color: T.tertiary, marginBottom: 5, display: "block" };
 }
 function inputStyle() {
-  return { width: "100%", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink, background: T.white,
+  return { width: "100%", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white,
     border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", boxSizing: "border-box" };
 }
 function Field({ label, hint, children }) {
@@ -188,7 +188,7 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, background: T.white,
         border: `1px solid ${T.line}`, borderRadius: 16, boxShadow: "0 20px 50px rgba(0,46,44,.22)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 22px", borderBottom: `1px solid ${T.line}` }}>
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>
             {editing ? "Edit Entity" : "Add Entity"}
           </span>
           <button onClick={onClose} className="cc-nav" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}>
@@ -211,7 +211,7 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <Eyebrow>Required to Track Filings</Eyebrow>
               <span style={{ width: 7, height: 7, borderRadius: 99, background: ready ? T.meadow : T.daffodil }} />
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: ready ? T.tertiary : T.daffodilText }}>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: ready ? T.tertiary : T.daffodilText }}>
                 {ready ? "ready to track" : "dormant until all three are set"}
               </span>
             </div>
@@ -253,12 +253,12 @@ function EntityForm({ entity, businesses, usingSample, onClose, onSaved }) {
           </Field>
 
           {usingSample && (
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 4 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 4 }}>
               Sample mode: changes are not saved.
             </div>
           )}
           {err && (
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, background: "rgba(250,128,105,0.12)",
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, background: "rgba(250,128,105,0.12)",
               border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginTop: 8 }}>{err}</div>
           )}
         </div>
@@ -299,7 +299,7 @@ export default function Binder({ role }) {
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <Eyebrow>{label}</Eyebrow>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>· {rows.length}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>· {rows.length}</span>
       </div>
       <Card style={{ padding: 0, overflow: "hidden" }}>
         {rows.map((e, i) => (
@@ -314,8 +314,8 @@ export default function Binder({ role }) {
       {/* header */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
         <span style={{ width: 5, height: 28, borderRadius: 3, background: T.teal }} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 600, color: T.ink }}>Binder</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: T.ink }}>Binder</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>
           Legal entities and the documents behind their filings
         </span>
         <span style={{ flex: 1 }} />
@@ -335,7 +335,7 @@ export default function Binder({ role }) {
           <button key={k} onClick={() => setSurface(k)} className="cc-nav" style={{ ...tabStyle(surface === k), display: "inline-flex", alignItems: "center", gap: 7 }}>
             {l}
             {k === "review" && toReview > 0 && (
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 700, color: T.poppyText,
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 700, color: T.poppyText,
                 background: "rgba(250,128,105,0.14)", borderRadius: 99, padding: "1px 8px" }}>{toReview}</span>
             )}
           </button>
@@ -350,12 +350,12 @@ export default function Binder({ role }) {
 
       {surface === "manage" && (<>
       {loading && (
-        <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13 }}>Loading entities...</Card>
+        <Card style={{ color: T.muted, fontFamily: "var(--font-text)", fontSize: 13 }}>Loading entities...</Card>
       )}
       {error && !data && (
         <Card style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Icon name="warning" size={16} color={T.poppyText} />
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate, flex: 1 }}>Could not load the Binder.</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, flex: 1 }}>Could not load the Binder.</span>
           <Btn kind="ghost" onClick={reload}>Retry</Btn>
         </Card>
       )}
@@ -366,7 +366,7 @@ export default function Binder({ role }) {
         <>
           {counts.dormant > 0 && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 700, color: T.daffodilText,
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 700, color: T.daffodilText,
                 background: T.daffodilBg, borderRadius: 6, padding: "3px 10px" }}>{counts.dormant} Need Details</span>
             </div>
           )}

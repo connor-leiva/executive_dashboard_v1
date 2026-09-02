@@ -18,7 +18,7 @@ export const FD = '"Poppins","Inter",system-ui,sans-serif';
 export const FB = '"Inter",system-ui,sans-serif';
 // The numeric face. Archivo rather than a monospace: these are FIGURES, not code, and
 // Archivo's tabular numerals line a column up without the typewriter texture.
-export const FM = 'Archivo,system-ui,-apple-system,"Segoe UI",sans-serif';
+export const FM = "var(--font-data)";
 
 // The color law (Part 0.4): green ≥100, amber 80–99, red <80. Every band decision comes here.
 export function band(pct) {

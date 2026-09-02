@@ -104,7 +104,7 @@ function Dot({ status }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
       <span style={{ width: 7, height: 7, borderRadius: 99, background: s.dot }} />
-      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: s.text }}>{s.label}</span>
+      <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 600, color: s.text }}>{s.label}</span>
     </span>
   );
 }
@@ -112,7 +112,7 @@ function Dot({ status }) {
 function Source({ name }) {
   return (
     <span style={{
-      fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.slate,
+      fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.slate,
       background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px",
     }}>{name}</span>
   );
@@ -121,7 +121,7 @@ function Source({ name }) {
 function Eyebrow({ children, onDark }) {
   return (
     <div style={{
-      fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.14em",
+      fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, letterSpacing: "0.14em",
       textTransform: "uppercase", color: onDark ? T.poppy : T.poppyText,
     }}>{children}</div>
   );
@@ -131,7 +131,7 @@ function PanelLabel({ children, accent }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
       <span style={{ width: 3, height: 14, borderRadius: 2, background: accent || T.evergreen }} />
-      <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.slate }}>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.slate }}>
         {children}
       </span>
     </div>
@@ -159,14 +159,14 @@ function PLTable({ rows, area }) {
             borderBottom: sub ? `1px solid ${T.line}` : "none", marginTop: tot ? 6 : 0,
           }}>
             <span style={{
-              fontFamily: "Inter,sans-serif", fontSize: tot ? 14 : 13,
+              fontFamily: "var(--font-text)", fontSize: tot ? 14 : 13,
               fontWeight: tot || sub ? 700 : share ? 600 : 400,
               color: ded ? T.slate : share ? area.ink : T.ink, fontStyle: share ? "italic" : "normal",
             }}>{r.label}</span>
             <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              {r.note && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, fontWeight: 600 }}>{r.note}</span>}
+              {r.note && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, fontWeight: 600 }}>{r.note}</span>}
               <span style={{
-                fontFamily: "Poppins,sans-serif", fontSize: tot ? 19 : 14, fontWeight: tot ? 700 : sub ? 600 : 500,
+                fontFamily: "var(--font-display)", fontSize: tot ? 19 : 14, fontWeight: tot ? 700 : sub ? 600 : 500,
                 color: tot ? area.ink : ded ? T.slate : share ? area.ink : T.ink,
                 fontVariantNumeric: "tabular-nums", fontStyle: share ? "italic" : "normal",
               }}>{signed(r.value)}</span>
@@ -183,7 +183,7 @@ function PLEmpty({ area }) {
   const connectHref = API_BASE ? `${API_BASE}/integrations/qbo/connect?business_id=${businessId}` : null;
   return (
     <div style={{ padding: "16px 2px 4px" }}>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted, lineHeight: 1.6, marginBottom: 16 }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, lineHeight: 1.6, marginBottom: 16 }}>
         Financials light up when QuickBooks is connected
       </div>
       <a
@@ -191,7 +191,7 @@ function PLEmpty({ area }) {
         title={connectHref ? "Connect QuickBooks" : "Set VITE_API_BASE to enable QuickBooks connect"}
         aria-disabled={connectHref ? undefined : true}
         style={{
-          display: "inline-block", fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600,
+          display: "inline-block", fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600,
           color: connectHref ? T.onDark : T.onDarkMute,
           background: connectHref ? T.evergreen : "rgba(0,46,44,0.35)",
           borderRadius: 8, padding: "9px 14px", textDecoration: "none",
@@ -212,12 +212,12 @@ function OpTile({ d, onDrill }) {
       style={{ display: "block", textAlign: "left", width: "100%", minWidth: 0, boxSizing: "border-box", margin: 0, font: "inherit",
         border: "none", background: T.parchment, borderRadius: 10, padding: "12px 13px", cursor: clickable ? "pointer" : "default" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.slate, fontWeight: 500 }}>{d.label}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.slate, fontWeight: 500 }}>{d.label}</span>
         {clickable && <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.muted }}>↗</span>}
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{d.value}</span>
-        {d.sub && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{d.sub}</span>}
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{d.value}</span>
+        {d.sub && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>{d.sub}</span>}
       </div>
     </Tag>
   );
@@ -229,11 +229,11 @@ function Bars({ rows, accent }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
       {rows.map((r, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ width: 108, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, textAlign: "right" }}>{r.label}</span>
+          <span style={{ width: 108, fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, textAlign: "right" }}>{r.label}</span>
           <div style={{ flex: 1, height: 22, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
             <div style={{ width: `${(r.v / max) * 100}%`, height: "100%", background: accent, opacity: 0.4 + 0.6 * (r.v / max), borderRadius: 5 }} />
           </div>
-          <span style={{ width: 42, fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.v}</span>
+          <span style={{ width: 42, fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.v}</span>
         </div>
       ))}
     </div>
@@ -255,11 +255,11 @@ function StageBars({ stages, totals, accent, onCell }) {
           <div key={s} onClick={click} className={click ? "cc-card" : undefined}
             role={click ? "button" : undefined}
             style={{ display: "flex", alignItems: "center", gap: 12, cursor: click ? "pointer" : "default", borderRadius: 6, padding: "2px 4px", margin: "0 -4px" }}>
-            <span style={{ width: 108, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, textAlign: "right" }}>{s}</span>
+            <span style={{ width: 108, fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, textAlign: "right" }}>{s}</span>
             <div style={{ flex: 1, height: 22, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
               <div style={{ width: `${(v / max) * 100}%`, height: "100%", background: accent, opacity: 0.4 + 0.6 * (v / max), borderRadius: 5 }} />
             </div>
-            <span style={{ width: 42, fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v}</span>
+            <span style={{ width: 42, fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v}</span>
           </div>
         );
       })}
@@ -271,7 +271,7 @@ function PivotMatrix({ stages, rows, dimLabel, onCell }) {
   const th = { padding: "6px 9px", color: T.muted, fontWeight: 600, fontSize: 11, whiteSpace: "nowrap" };
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ borderCollapse: "collapse", width: "100%", fontFamily: "Inter,sans-serif" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", fontFamily: "var(--font-text)" }}>
         <thead>
           <tr>
             <th style={{ ...th, textAlign: "left" }}>{dimLabel}</th>
@@ -295,7 +295,7 @@ function PivotMatrix({ stages, rows, dimLabel, onCell }) {
                   </td>
                 );
               })}
-              <td style={{ padding: "8px 9px", textAlign: "right", fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 700, color: T.slate, fontVariantNumeric: "tabular-nums" }}>{r.total}</td>
+              <td style={{ padding: "8px 9px", textAlign: "right", fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 700, color: T.slate, fontVariantNumeric: "tabular-nums" }}>{r.total}</td>
             </tr>
           ))}
         </tbody>
@@ -327,7 +327,7 @@ function LoanPipeline({ funnel, pipeline, accent, onDrill }) {
 
   const MODES = [["total", "Total"], ["lo", "By loan officer"], ["source", "By source"]];
   const seg = (on) => ({
-    fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+    fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
     border: "none", borderRadius: 6, padding: "5px 11px",
     background: on ? T.white : "transparent", color: on ? T.teal : T.muted,
     boxShadow: on ? "0 1px 3px rgba(0,46,44,.12)" : "none",
@@ -354,7 +354,7 @@ function LoanPipeline({ funnel, pipeline, accent, onDrill }) {
   );
 }
 
-const Empty = () => <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, padding: "12px 0" }}>No pipeline detail available.</div>;
+const Empty = () => <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, padding: "12px 0" }}>No pipeline detail available.</div>;
 
 /* ── overview ──────────────────────────────────────────────── */
 
@@ -366,7 +366,7 @@ function CompositionBar({ composition }) {
       <div style={{ display: "flex", height: 42, borderRadius: 8, overflow: "hidden", gap: 3 }}>
         {segs.map((s, i) => (
           <div key={i} style={{ width: `${s.pct}%`, background: s.accent, display: "flex", alignItems: "center", paddingLeft: 12, minWidth: 54 }}>
-            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 700, color: "#fff" }}>{Math.round(s.pct)}%</span>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 700, color: "#fff" }}>{Math.round(s.pct)}%</span>
           </div>
         ))}
       </div>
@@ -374,8 +374,8 @@ function CompositionBar({ composition }) {
         {segs.map((s, i) => (
           <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
             <span style={{ width: 9, height: 9, borderRadius: 2, background: s.accent }} />
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDark, fontWeight: 600 }}>{s.name}</span>
-            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, color: s.accent, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{usd(s.revenue)}</span>
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.onDark, fontWeight: 600 }}>{s.name}</span>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 12.5, color: s.accent, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{usd(s.revenue)}</span>
           </span>
         ))}
       </div>
@@ -393,27 +393,27 @@ function AreaCard({ area, onOpen }) {
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
         <div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>{a.name}</div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 2 }}>{a.tag}</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{a.name}</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 2 }}>{a.tag}</div>
         </div>
         <Dot status={a.status} />
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
         <div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.slate, marginBottom: 3 }}>Revenue</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.slate, marginBottom: 3 }}>Revenue</div>
           {hasRevenue ? (
             <>
-              <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{usd(a.revenue)}</div>
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, marginTop: 4 }}>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{usd(a.revenue)}</div>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, marginTop: 4 }}>
                 NOI <span style={{ color: a.ink, fontWeight: 700 }}>{signed(a.noi)}</span> · {a.margin}%
               </div>
             </>
           ) : a.key === "becollective" ? (
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, maxWidth: 160, lineHeight: 1.4 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, maxWidth: 160, lineHeight: 1.4 }}>
               Operational view coming · GHL segment configured
             </div>
           ) : (
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, maxWidth: 150, lineHeight: 1.4 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, maxWidth: 150, lineHeight: 1.4 }}>
               Connect QuickBooks for revenue
             </div>
           )}
@@ -462,23 +462,23 @@ function Overview({ data, onOpen, onDrill }) {
         <Eyebrow onDark>Portfolio · {periodLabel}</Eyebrow>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 34, flexWrap: "wrap", margin: "16px 0 24px" }}>
           <div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDarkMute, marginBottom: 5 }}>Portfolio revenue · {(period?.label || "month to date").toLowerCase()}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.onDarkMute, marginBottom: 5 }}>Portfolio revenue · {(period?.label || "month to date").toLowerCase()}</div>
             {hasRevenue ? (
               <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-                <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 46, fontWeight: 700, color: T.onDark, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(portfolio.revenue)}</span>
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 46, fontWeight: 700, color: T.onDark, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(portfolio.revenue)}</span>
                 {portfolio.mom != null && (
-                  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: portfolio.mom < 0 ? T.petal : T.sprout, background: "rgba(184,204,184,0.14)", borderRadius: 6, padding: "3px 8px" }}>{portfolio.mom >= 0 ? "+" : ""}{portfolio.mom}% MoM</span>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: portfolio.mom < 0 ? T.petal : T.sprout, background: "rgba(184,204,184,0.14)", borderRadius: 6, padding: "3px 8px" }}>{portfolio.mom >= 0 ? "+" : ""}{portfolio.mom}% MoM</span>
                 )}
               </div>
             ) : (
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 16, fontWeight: 600, color: T.sprout, lineHeight: 1.4, maxWidth: 360 }}>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 16, fontWeight: 600, color: T.sprout, lineHeight: 1.4, maxWidth: 360 }}>
                 Connect QuickBooks for the financial picture
               </div>
             )}
           </div>
           <div style={{ paddingBottom: 4 }}>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDarkMute, marginBottom: 5 }}>Cash on hand</div>
-            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 26, fontWeight: 600, color: T.onDark, fontVariantNumeric: "tabular-nums" }}>{portfolio.cash != null ? usd(portfolio.cash) : "—"}</span>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.onDarkMute, marginBottom: 5 }}>Cash on hand</div>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 600, color: T.onDark, fontVariantNumeric: "tabular-nums" }}>{portfolio.cash != null ? usd(portfolio.cash) : "—"}</span>
           </div>
         </div>
         <CompositionBar composition={portfolio.composition} />
@@ -489,7 +489,7 @@ function Overview({ data, onOpen, onDrill }) {
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "2px 2px 12px" }}>
           <Eyebrow>At a glance</Eyebrow>
           {/* Counted, not asserted: "all three" was true only for the tenant this was built for. */}
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>
             {(() => {
               // Count BUSINESSES, not areas. One membership entity renders as several program
               // areas (Forum / beCollective / The Edge all carry that entity's id), so counting
@@ -513,11 +513,11 @@ function Overview({ data, onOpen, onDrill }) {
                 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
                   <span style={{ width: 7, height: 7, borderRadius: 2, background: dotFor(s.business_key, areas) }} />
-                  <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, fontWeight: 500 }}>{s.label}</span>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, fontWeight: 500 }}>{s.label}</span>
                   {clickable && <span style={{ marginLeft: "auto", fontSize: 11, color: T.muted }}>↗</span>}
                 </div>
-                <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 30, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
-                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted, marginTop: 6 }}>{s.sub}</div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 30, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, marginTop: 6 }}>{s.sub}</div>
               </Tag>
             );
           })}
@@ -537,10 +537,10 @@ function Overview({ data, onOpen, onDrill }) {
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ width: 9, height: 9, borderRadius: 99, background: T.poppy, flexShrink: 0 }} />
           <div>
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.onDark }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.onDark }}>
               {fwAvailable ? "The referral flywheel is leaking" : "The referral flywheel"}
             </div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.onDarkMute, marginTop: 3 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.onDarkMute, marginTop: 3 }}>
               {fwAvailable
                 ? `${fwPartner} financed ${captured} of ${buyerClosings} ${fwSource} buyer closings this month · ${capturePct}% capture`
                 : `Connect Arive to see how many ${fwSource} buyers ${fwPartner} financed`}
@@ -549,9 +549,9 @@ function Overview({ data, onOpen, onDrill }) {
         </div>
         <div style={{ textAlign: "right" }}>
           {fwAvailable && annualGap != null && (
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 26, fontWeight: 700, color: T.poppy, fontVariantNumeric: "tabular-nums" }}>~{usd(annualGap)}</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, color: T.poppy, fontVariantNumeric: "tabular-nums" }}>~{usd(annualGap)}</div>
           )}
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.onDarkMute }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.onDarkMute }}>
             {fwAvailable ? "/yr unrealized · view flywheel →" : "view flywheel →"}
           </div>
         </div>
@@ -567,7 +567,7 @@ function Overview({ data, onOpen, onDrill }) {
 function LoanOfficers({ los, onDrill }) {
   const maxRev = Math.max(...los.map((l) => l.revenue), 1);
   const cell = (w) => ({ width: w, textAlign: "right", fontVariantNumeric: "tabular-nums" });
-  const head = { fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.muted };
+  const head = { fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.muted };
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -588,17 +588,17 @@ function LoanOfficers({ los, onDrill }) {
             <div key={lo.email} onClick={onDrill ? () => onDrill("sympli_commission", "sympli", null, lo.email) : undefined}
               className={onDrill ? "cc-card" : undefined} title={onDrill ? `${lo.name}'s funded loans` : undefined}
               style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 4px", margin: "0 -4px", borderRadius: 6, cursor: onDrill ? "pointer" : "default", borderBottom: `1px solid ${T.line}` }}>
-              <span style={{ flex: "1 1 130px", minWidth: 110, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lo.name}</span>
-              <span style={{ ...cell(48), fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink }}>{lo.funded}</span>
-              <span style={{ ...cell(74), fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate }}>{usd(lo.volume)}</span>
-              <span style={{ ...cell(74), fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate }}>{usd(lo.avg_loan)}</span>
+              <span style={{ flex: "1 1 130px", minWidth: 110, fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lo.name}</span>
+              <span style={{ ...cell(48), fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink }}>{lo.funded}</span>
+              <span style={{ ...cell(74), fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate }}>{usd(lo.volume)}</span>
+              <span style={{ ...cell(74), fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate }}>{usd(lo.avg_loan)}</span>
               <span style={{ flex: "1 1 130px", minWidth: 110, display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ flex: 1, height: 14, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
                   <span style={{ display: "block", width: `${(lo.revenue / maxRev) * 100}%`, height: "100%", background: T.teal, borderRadius: 5 }} />
                 </span>
-                <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{usd(lo.revenue)}</span>
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{usd(lo.revenue)}</span>
               </span>
-              <span style={{ ...cell(64), fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: lo.pull_through >= 60 ? T.meadow : T.slate }}>{lo.pull_through}%</span>
+              <span style={{ ...cell(64), fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: lo.pull_through >= 60 ? T.meadow : T.slate }}>{lo.pull_through}%</span>
             </div>
           ))}
         </div>
@@ -626,8 +626,8 @@ function AreaDetail({ area, onDrill, period }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <span style={{ width: 5, height: 30, borderRadius: 3, background: a.accent }} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 600, color: T.ink }}>{a.name}</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted }}>{a.tag}</span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 600, color: T.ink }}>{a.name}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted }}>{a.tag}</span>
         <span style={{ flex: 1 }} />
         <Dot status={a.status} />
       </div>
@@ -688,7 +688,7 @@ function ReconRow({ label, value, good, warn, onClick }) {
       <span style={{ color: T.slate, display: "inline-flex", alignItems: "center", gap: 5 }}>
         {label}{onClick && <Icon name="open" size={11} color={T.teal} style={{ verticalAlign: "-1px" }} />}
       </span>
-      <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600, color, fontVariantNumeric: "tabular-nums" }}>{warn ? `${value} ⚠` : value}</span>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600, color, fontVariantNumeric: "tabular-nums" }}>{warn ? `${value} ⚠` : value}</span>
     </div>
   );
 }
@@ -700,10 +700,10 @@ function FwStat({ color, big, label, sub, subColor, onClick }) {
       style={{ cursor: onClick ? "pointer" : "default", borderRadius: 8, padding: onClick ? "4px 8px" : 0, margin: onClick ? "-4px -8px" : 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ width: 9, height: 9, borderRadius: 2, background: color }} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 32, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{big}</span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{big}</span>
       </div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink, marginTop: 5 }}>{label}</div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: subColor || T.muted, marginTop: 1 }}>{sub}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: T.ink, marginTop: 5 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: subColor || T.muted, marginTop: 1 }}>{sub}</div>
     </div>
   );
 }
@@ -717,7 +717,7 @@ const FwDrill = ({ onClick, children }) => (
 const GhostDark = ({ children }) => (
   <Link to="/settings/businesses" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 16,
     background: "rgba(248,245,242,.08)", border: "1px solid rgba(248,245,242,.2)", borderRadius: 8, padding: "6px 12px",
-    fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.onDark, textDecoration: "none" }}>
+    fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600, color: T.onDark, textDecoration: "none" }}>
     <Icon name="tune" size={12} color={T.onDark} />{children}
   </Link>
 );
@@ -733,26 +733,26 @@ function AttachTile({ fw }) {
     <Card style={{ flex: "0 1 320px", minWidth: 280 }}>
       <PanelLabel>Attach rate · {label}</PanelLabel>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 46, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 46, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
         {delta != null && (
-          <span title="vs the prior comparable period" style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: delta >= 0 ? T.meadow : T.slate }}>
+          <span title="vs the prior comparable period" style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: delta >= 0 ? T.meadow : T.slate }}>
             {delta >= 0 ? "+" : ""}{delta} pts
           </span>
         )}
       </div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate, marginTop: 6 }}>of {src} buyer closings financed via {partner}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, marginTop: 6 }}>of {src} buyer closings financed via {partner}</div>
       <div style={{ marginTop: 18 }}>
         <div style={{ position: "relative", height: 9, borderRadius: 6, background: T.parchment, border: `1px solid ${T.line}` }}>
           <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(pct, 100)}%`, background: T.teal, borderRadius: 6 }} />
           <div title={`target ${target}%`} style={{ position: "absolute", left: `${target}%`, top: -4, bottom: -4, width: 2, background: T.evergreen, borderRadius: 2 }} />
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>
           <span style={{ color: T.teal, fontWeight: 600 }}>{pct}% today</span>
           <span>target {target}%</span>
         </div>
       </div>
       {fw.per_point_value != null && (
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 16, lineHeight: 1.5 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, marginTop: 16, lineHeight: 1.5 }}>
           Every point of attach ≈ <b style={{ color: T.ink }}>{usd(fw.per_point_value)}</b>/yr in JV revenue at current volume.
         </div>
       )}
@@ -776,7 +776,7 @@ function CaptureCard({ fw, onDrill }) {
         <PanelLabel>Buyer-side capture · {label}</PanelLabel>
         <span style={{ display: "flex", gap: 6 }}><Source name="Sisu" /><Source name="Follow Up Boss" /><Source name="Arive" /></span>
       </div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, marginBottom: 14 }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, marginBottom: 14 }}>
         Of <FwDrill onClick={drill("flywheel_buyers")}>{closings} financeable buyer closings</FwDrill> {label}…
       </div>
       <div style={{ display: "flex", gap: 34, flexWrap: "wrap", marginBottom: 16 }}>
@@ -790,7 +790,7 @@ function CaptureCard({ fw, onDrill }) {
         </div>
         <div title={`capture target ${target}%`} style={{ position: "absolute", left: `${target}%`, top: -4, bottom: -4, width: 2, background: T.evergreen, borderRadius: 2 }} />
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontFamily: "Inter,sans-serif", fontSize: 11.5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontFamily: "var(--font-text)", fontSize: 11.5 }}>
         <span style={{ color: T.teal, fontWeight: 600 }}>{pct}% captured · target {target}%+</span>
         <span style={{ color: T.poppyText, fontWeight: 600 }}>{100 - pct}% lost</span>
       </div>
@@ -808,8 +808,8 @@ function MoneyCard({ fw }) {
   if (!share) {
     return (
       <Card style={cardStyle}>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.onDarkMute, marginBottom: 10 }}>Revenue left on the table</div>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.onDark, lineHeight: 1.45 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.onDarkMute, marginBottom: 10 }}>Revenue left on the table</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.onDark, lineHeight: 1.45 }}>
           Set {partner}'s JV share per loan to price the gap.
         </div>
         <GhostDark>Set JV share per loan</GhostDark>
@@ -818,10 +818,10 @@ function MoneyCard({ fw }) {
   }
   return (
     <Card style={cardStyle}>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.onDarkMute, marginBottom: 8 }}>Revenue left on the table</div>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 38, fontWeight: 700, color: T.poppy, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(fw.gap_dollars ?? 0)}</div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.onDarkMute, marginTop: 8 }}>{label} at {fw.capture_pct ?? 0}% capture</div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.onDarkMute, marginTop: 14, lineHeight: 1.55 }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.onDarkMute, marginBottom: 8 }}>Revenue left on the table</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 38, fontWeight: 700, color: T.poppy, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(fw.gap_dollars ?? 0)}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.onDarkMute, marginTop: 8 }}>{label} at {fw.capture_pct ?? 0}% capture</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.onDarkMute, marginTop: 14, lineHeight: 1.55 }}>
         {fw.lost ?? 0} uncaptured deals × {usd(share)} JV share per loan — revenue Spring already co-owns and isn't
         collecting. At the {target}% target, this shrinks to <b style={{ color: T.onDark }}>{usd(fw.gap_at_target ?? 0)}</b>.
       </div>
@@ -851,31 +851,31 @@ function Leaderboard({ fw, onDrill }) {
           <div key={ag.id || ag.name} onClick={onDrill ? () => onDrill("flywheel_agent_referrals", "sympli", ag.id) : undefined}
             className={onDrill ? "cc-card" : undefined} title={onDrill ? `See this agent's ${partner} referrals` : undefined}
             style={{ display: "flex", alignItems: "center", gap: 12, cursor: onDrill ? "pointer" : "default", borderRadius: 6, padding: "2px 5px", margin: "0 -5px" }}>
-            <span style={{ width: 118, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ag.name}</span>
+            <span style={{ width: 118, fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ag.name}</span>
             <div style={{ flex: 1, height: 16, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
               <div style={{ width: `${(ag.refs / max) * 100}%`, height: "100%", background: T.meadow, borderRadius: 5 }} />
             </div>
-            <span style={{ width: 22, fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{ag.refs}</span>
+            <span style={{ width: 22, fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{ag.refs}</span>
           </div>
         ))}
       </div>
       {referrers.length > 6 && (
         <button onClick={() => setExpanded(!expanded)} aria-expanded={expanded}
-          style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "none", border: "none", cursor: "pointer", marginTop: 12, padding: "4px 2px", fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.slate }}>
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "none", border: "none", cursor: "pointer", marginTop: 12, padding: "4px 2px", fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600, color: T.slate }}>
           <Icon name="chevron_down" size={12} color={T.slate} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .2s ease" }} />
           {expanded ? "Show top referrers" : `Show all ${referrers.length} referring agents · ${totalLoans} loans`}
         </button>
       )}
       {zeroAgents.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.line}` }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: T.daffodilBg, borderRadius: 7, padding: "5px 11px", fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.daffodilText }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: T.daffodilBg, borderRadius: 7, padding: "5px 11px", fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 600, color: T.daffodilText }}>
             <Icon name="warning" size={12} color={T.daffodilText} />{zeroAgents.length} producing agents · zero referrals {label}
           </span>
           <button onClick={onDrill ? () => onDrill("flywheel_zero_referrals", "sympli") : undefined}
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.slate }}>
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600, color: T.slate }}>
             View the list<Icon name="open" size={11} color={T.slate} />
           </button>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>that's the call list, not "improve capture"</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>that's the call list, not "improve capture"</span>
         </div>
       )}
     </Card>
@@ -893,15 +893,15 @@ function Flywheel({ flywheel, onDrill }) {
       {!available && (
         <div style={{ position: "absolute", inset: -8, zIndex: 5, borderRadius: 16, background: "rgba(248,245,242,0.72)", backdropFilter: "blur(1.5px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ background: T.evergreen, borderRadius: 14, padding: "18px 24px", textAlign: "center", boxShadow: "0 12px 30px rgba(0,46,44,.18)" }}>
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.onDark }}>Unlocks when Arive is connected</div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.onDarkMute, marginTop: 4 }}>Connect {partner}'s Arive to light up the flywheel</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.onDark }}>Unlocks when Arive is connected</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.onDarkMute, marginTop: 4 }}>Connect {partner}'s Arive to light up the flywheel</div>
           </div>
         </div>
       )}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
         <Icon name="spark" size={20} color={T.poppyText} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 700, color: T.ink, letterSpacing: "-.01em" }}>The Referral Flywheel</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>{src} → {partner} · the connection QuickBooks can't see</span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, color: T.ink, letterSpacing: "-.01em" }}>The Referral Flywheel</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>{src} → {partner} · the connection QuickBooks can't see</span>
       </div>
 
       <div className="cc-twocol"><AttachTile fw={fw} /><CaptureCard fw={fw} onDrill={drill} /></div>
@@ -917,16 +917,16 @@ function Flywheel({ flywheel, onDrill }) {
                   const max = Math.max(...lostTo.map((x) => x.count), 1);
                   return (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <span title={l.name} style={{ width: 160, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.name}</span>
+                      <span title={l.name} style={{ width: 160, fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.name}</span>
                       <div style={{ flex: 1, height: 16, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
                         <div style={{ width: `${(l.count / max) * 100}%`, height: "100%", background: T.poppy, borderRadius: 5 }} />
                       </div>
-                      <span style={{ width: 26, textAlign: "right", fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{l.count}</span>
+                      <span style={{ width: 26, textAlign: "right", fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{l.count}</span>
                     </div>
                   );
                 })}
               </div>
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
                 The lenders winning {src}'s buyers — from the mortgage vendor each agent selected in Sisu.
               </div>
             </Card>
@@ -934,7 +934,7 @@ function Flywheel({ flywheel, onDrill }) {
           {fw.sympli_referred != null && (
             <Card style={{ flex: "1 1 300px", minWidth: 280 }}>
               <PanelLabel accent={T.teal}>Cross-check with {partner}</PanelLabel>
-              <div style={{ display: "flex", flexDirection: "column", gap: 11, fontFamily: "Inter,sans-serif", fontSize: 12.5 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 11, fontFamily: "var(--font-text)", fontSize: 12.5 }}>
                 <ReconRow label={`${partner} loans credited to ${src}`} value={fw.sympli_referred}
                   onClick={drill ? () => drill("flywheel_sympli_referred", "sympli") : undefined} />
                 <ReconRow label={`…matched to a ${src} closing`} value={fw.sympli_referred_linked} good
@@ -944,7 +944,7 @@ function Flywheel({ flywheel, onDrill }) {
                 {fw.referral_no_deal > 0 && <ReconRow label={`${partner} logged us, no ${src} deal`} value={fw.referral_no_deal} warn
                   onClick={drill ? () => drill("flywheel_referral_no_deal", "sympli") : undefined} />}
               </div>
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
                 Triangulated from three signals — the agent's vendor pick, the borrower match, and {partner}'s own referral record. Gaps are deals to reconcile.
               </div>
             </Card>
@@ -961,13 +961,13 @@ function Splash({ label, tone }) {
   return (
     <div style={{
       minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: "Inter,sans-serif", padding: 24, ...ribbedHero("evergreen"),
+      fontFamily: "var(--font-text)", padding: 24, ...ribbedHero("evergreen"),
     }}>
       <div style={{ textAlign: "center" }}>
         <SpringSignature tone="light" height={52} />
 
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 8, textTransform: "uppercase" }}>Command Center</div>
-        <div style={{ marginTop: 22, fontFamily: "Inter,sans-serif", fontSize: 14, color: tone === "error" ? T.petal : T.onDarkMute }}>{label}</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 8, textTransform: "uppercase" }}>Command Center</div>
+        <div style={{ marginTop: 22, fontFamily: "var(--font-text)", fontSize: 14, color: tone === "error" ? T.petal : T.onDarkMute }}>{label}</div>
       </div>
     </div>
   );
@@ -1001,10 +1001,10 @@ function SkeletonDashboard() {
 function ErrorState({ onRetry }) {
   return (
     <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 40, textAlign: "center" }}>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: T.ink }}>Couldn't reach the API</div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted, marginTop: 6 }}>The dashboard service didn't respond.</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Couldn't reach the API</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 6 }}>The dashboard service didn't respond.</div>
       <button onClick={onRetry} className="cc-nav" style={{
-        marginTop: 16, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: T.onDark,
+        marginTop: 16, fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.onDark,
         background: T.evergreen, border: "none", borderRadius: 8, padding: "9px 16px", cursor: "pointer",
       }}>Retry</button>
     </div>
@@ -1027,7 +1027,7 @@ function UserMenu({ user }) {
   return (
     <div className="cc-usermenu">
       <button onClick={() => setOpen((o) => !o)} className="cc-nav" style={{
-        display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "Inter,sans-serif",
+        display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "var(--font-text)",
         fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.parchment,
         border: `1px solid ${T.line}`, borderRadius: 8, padding: "5px 10px", cursor: "pointer",
       }}>
@@ -1042,15 +1042,15 @@ function UserMenu({ user }) {
           <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 15 }} />
           <div className="cc-menu">
             <div style={{ padding: "4px 10px 8px", borderBottom: `1px solid ${T.line}` }}>
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{user?.name || "Account"}</div>
-              {user?.email && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>{user.email}</div>}
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{user?.name || "Account"}</div>
+              {user?.email && <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>{user.email}</div>}
             </div>
             <Link to="/settings/integrations" onClick={() => setOpen(false)} style={{
-              display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: T.ink,
+              display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 500, color: T.ink,
               textDecoration: "none", borderRadius: 6, padding: "8px 10px", marginTop: 4,
             }}><Icon name="settings" size={15} color={T.slate} />Settings</Link>
             <button onClick={signOut} style={{
-              width: "100%", display: "flex", alignItems: "center", gap: 8, textAlign: "left", fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500,
+              width: "100%", display: "flex", alignItems: "center", gap: 8, textAlign: "left", fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 500,
               color: T.poppyText, background: "transparent", border: "none", borderRadius: 6,
               padding: "8px 10px", cursor: "pointer", marginTop: 4,
             }}><Icon name="logout" size={15} color={T.poppyText} />Sign out</button>
@@ -1236,7 +1236,7 @@ export default function CommandCenter() {
   else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
 
   return (
-    <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "Inter,sans-serif" }}>
+    <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "var(--font-text)" }}>
       <style>{`
         .cc-card { transition: transform .15s ease, box-shadow .15s ease; }
         .cc-card:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(0,46,44,.10); }
@@ -1289,7 +1289,7 @@ export default function CommandCenter() {
         <aside className={`cc-rail${navOpen ? " open" : ""}`} aria-label="Sections">
           <div style={{ padding: "0 8px 22px" }}>
             <SpringSignature tone="light" height={30} />
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 6, textTransform: "uppercase" }}>Command Center</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.sprout, marginTop: 6, textTransform: "uppercase" }}>Command Center</div>
           </div>
           {navItems.map((n) => {
             const active = activeView === n.k;
@@ -1302,10 +1302,10 @@ export default function CommandCenter() {
                 borderTop: n.divide ? "1px solid rgba(248,245,242,0.10)" : "none", paddingTop: n.divide ? 16 : 10,
               }}>
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: n.dot, flexShrink: 0 }} />
-                <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: active ? 600 : 500, color: active ? T.onDark : T.onDarkMute }}>{n.label}</span>
+                <span style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: active ? 600 : 500, color: active ? T.onDark : T.onDarkMute }}>{n.label}</span>
                 {n.k === "ai_employees" && ai.data && ai.data.awaiting_total > 0 && (
                   <span style={{
-                    marginLeft: "auto", minWidth: 18, textAlign: "center", fontFamily: "Inter,sans-serif",
+                    marginLeft: "auto", minWidth: 18, textAlign: "center", fontFamily: "var(--font-text)",
                     fontSize: 11, fontWeight: 700, color: T.daffodilText, background: T.daffodil,
                     borderRadius: 9, padding: "1px 6px",
                   }}>{ai.data.awaiting_total}</span>
@@ -1317,7 +1317,7 @@ export default function CommandCenter() {
           {usingSample && (
             <div style={{ padding: "0 8px" }}>
               <span style={{
-                display: "inline-block", fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700,
+                display: "inline-block", fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700,
                 letterSpacing: "0.08em", textTransform: "uppercase", color: T.sprout,
                 background: "rgba(184,204,184,0.12)", border: "1px solid rgba(184,204,184,0.20)",
                 borderRadius: 5, padding: "3px 8px",

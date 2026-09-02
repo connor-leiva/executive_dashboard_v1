@@ -59,7 +59,7 @@ function Bubble({ role, children }) {
   return (
     <div style={{ display: "flex", justifyContent: me ? "flex-end" : "flex-start" }}>
       <div style={{
-        maxWidth: "86%", fontFamily: "Inter,sans-serif", fontSize: 13, lineHeight: 1.5,
+        maxWidth: "86%", fontFamily: "var(--font-text)", fontSize: 13, lineHeight: 1.5,
         color: me ? T.onDark : T.secondary,
         background: me ? T.evergreen : T.parchment,
         border: me ? "none" : `1px solid ${T.line}`,
@@ -127,7 +127,7 @@ export default function Assistant({ period = "mtd" }) {
         <button className="asst-fab" onClick={() => setOpen(true)} aria-label="Ask the dashboard" style={{
           position: "fixed", right: 24, bottom: 24, zIndex: 60, display: "inline-flex", alignItems: "center", gap: 9,
           background: T.evergreen, color: T.onDark, border: "none", borderRadius: 999, padding: "12px 18px",
-          fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, cursor: "pointer",
+          fontFamily: "var(--font-display)", fontSize: 13.5, fontWeight: 600, cursor: "pointer",
           boxShadow: "0 10px 26px rgba(0,46,44,.24)", transition: "transform .15s ease, box-shadow .15s ease",
         }}>
           <Sparkle /> Ask
@@ -146,8 +146,8 @@ export default function Assistant({ period = "mtd" }) {
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px", borderBottom: `1px solid ${T.line}` }}>
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: T.meadowBg }}><Sparkle color={T.meadow} /></span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.ink }}>Ask the dashboard</div>
-                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: T.muted }}>Answers from the tabs you can see</div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink }}>Ask the dashboard</div>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>Answers from the tabs you can see</div>
               </div>
               {msgs.length > 0 && (
                 <button onClick={() => setMsgs([])} title="Clear" style={ghostBtn}>Clear</button>
@@ -159,13 +159,13 @@ export default function Assistant({ period = "mtd" }) {
             <div ref={scroller} style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
               {msgs.length === 0 && (
                 <div style={{ margin: "auto 0", display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, lineHeight: 1.55 }}>
+                  <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, lineHeight: 1.55 }}>
                     Ask about your numbers in plain English — revenue, MRR, renewals, what needs attention. It reads the live dashboard.
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {SUGGESTIONS.map((s) => (
                       <button key={s} className="asst-chip" onClick={() => send(s)} style={{
-                        textAlign: "left", fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate,
+                        textAlign: "left", fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate,
                         background: T.white, border: `1px solid ${T.line}`, borderRadius: 10, padding: "9px 12px", cursor: "pointer",
                       }}>{s}</button>
                     ))}
@@ -193,7 +193,7 @@ export default function Assistant({ period = "mtd" }) {
               <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} rows={1}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                 placeholder="Ask a question…" style={{
-                  flex: 1, resize: "none", maxHeight: 120, fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink,
+                  flex: 1, resize: "none", maxHeight: 120, fontFamily: "var(--font-text)", fontSize: 13, color: T.ink,
                   background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 12px", lineHeight: 1.4, outline: "none",
                 }} />
               <button className="asst-send" onClick={() => send()} disabled={busy || !input.trim()} aria-label="Send" style={{
@@ -202,7 +202,7 @@ export default function Assistant({ period = "mtd" }) {
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
               }}>↑</button>
             </div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, color: T.muted, textAlign: "center", padding: "0 0 10px" }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 10, color: T.muted, textAlign: "center", padding: "0 0 10px" }}>
               Claude can be wrong — check the numbers on the tabs.
             </div>
           </aside>
@@ -213,7 +213,7 @@ export default function Assistant({ period = "mtd" }) {
 }
 
 const ghostBtn = {
-  fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.slate,
+  fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 600, color: T.slate,
   background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 7, padding: "5px 10px", cursor: "pointer",
 };
 

@@ -19,8 +19,8 @@ import {
 import { getJSON, patchJSON, API_BASE, authHeaders, fileUrl } from "./api.js";
 import { PAIRINGS, DEFAULT_PAIRING, loadTypeface, stacks } from "./typefaces.js";
 
-const FONT = "Inter,sans-serif";
-const HEAD = "Poppins,sans-serif";
+const FONT = "var(--font-text)";
+const HEAD = "var(--font-display)";
 
 function Swatch({ name, value, onChange, disabled }) {
   const meta = SEED_META[name];
@@ -44,7 +44,7 @@ function Swatch({ name, value, onChange, disabled }) {
                  if (/^#[0-9A-F]{6}$/.test(v)) onChange(name, v);
                }}
                aria-label={`${meta.label} hex`}
-               style={{ width: 104, padding: "6px 9px", borderRadius: 7, fontFamily: "Archivo,sans-serif",
+               style={{ width: 104, padding: "6px 9px", borderRadius: 7, fontFamily: "var(--font-data)",
                         fontSize: 12.5, border: `1px solid ${T.line}`, color: T.ink,
                         background: T.white }} />
       </div>
@@ -386,7 +386,7 @@ export default function Appearance() {
                 <span style={{ background: bg, color: fg, fontFamily: FONT, fontSize: 12.5,
                                padding: "5px 10px", borderRadius: 7, minWidth: 128,
                                border: `1px solid ${alpha(T.ink, 0.1)}` }}>{label}</span>
-                <span style={{ fontFamily: "Archivo,sans-serif", fontSize: 12,
+                <span style={{ fontFamily: "var(--font-data)", fontSize: 12,
                                color: r >= 4.5 ? T.meadowInk : T.daffodilText }}>
                   {Math.round(r * 100) / 100}:1
                 </span>

@@ -120,9 +120,12 @@ export const compact = (n) => {
 export const pct = (n, d = 2) => (n === null || n === undefined ? "—" : Number(n).toFixed(d) + "%");
 export const mult = (n) => (n === null || n === undefined ? "—" : Number(n).toFixed(1) + "x");
 
-export const FONT = "Inter,sans-serif";
-export const HEAD = "Poppins,sans-serif";
+export const FONT = "var(--font-text)";
+export const HEAD = "var(--font-display)";
 /* Archivo has tabular figures, which is the whole reason it is here. A column of mixed
  * $47,382 / 9.4x / 1.02% that does not line up is unreadable, and the Books ledger already
  * made this call for the same reason. */
-export const FIG = "Archivo,Inter,sans-serif";
+// --font-data is Archivo in every pairing, deliberately: the tabular figures ARE the reason,
+// so it is the one slot a workspace cannot change. Reading the variable keeps that promise
+// in one place rather than restating it here.
+export const FIG = "var(--font-data)";

@@ -15,6 +15,17 @@
          useMe() replaces it with "{tenant} · {product}" the moment /me answers, so a second
          customer never sees the first one's name flash in their tab. -->
     <title>Command Center</title>
+    <style>
+      /* Form controls do not inherit font-family — browsers give them their own default, so every
+         button and input in the app rendered in Arial while the text beside it followed the
+         workspace typeface. One line, and it is the difference between a typeface setting that
+         reaches the product and one that reaches most of it.
+
+         Deliberately narrow: this is NOT a global reset. There is no box-sizing reset in this app
+         and adding one would move a great deal of layout. */
+      button, input, select, textarea { font-family: inherit; }
+      body { font-family: var(--font-text); }
+    </style>
   </head>
   <body>
     <div id="root"></div>

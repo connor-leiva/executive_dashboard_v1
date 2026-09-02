@@ -86,11 +86,11 @@ export function Login({ onLogin }) {
   }
 
   const field = {
-    width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 14,
+    width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 14,
     color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 9,
     padding: "11px 12px", marginTop: 6,
   };
-  const label = { display: "block", fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate };
 
   return (
     <div className="login-root" style={{
@@ -117,7 +117,7 @@ export function Login({ onLogin }) {
       <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 400 }}>
         <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 16, padding: "30px 28px", boxShadow: "0 24px 70px rgba(0,46,44,.16)" }}>
           <SpringSignature tone="dark" height={44} />
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.slate, marginTop: 12, textTransform: "uppercase" }}>Command Center</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.slate, marginTop: 12, textTransform: "uppercase" }}>Command Center</div>
           <form onSubmit={submit} style={{ marginTop: 24 }}>
             <label style={label}>Email
               <input className="login-input" style={field} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -126,9 +126,9 @@ export function Login({ onLogin }) {
             <label style={label}>Password
               <input className="login-input" style={field} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
             </label>
-            {error && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.poppyText, marginTop: 14 }}>{error}</div>}
+            {error && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 14 }}>{error}</div>}
             <button className="login-btn" type="submit" disabled={busy} style={{
-              width: "100%", marginTop: 20, fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 600,
+              width: "100%", marginTop: 20, fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600,
               color: T.white, background: T.poppy, border: "none", borderRadius: 9, padding: "12px",
               cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, transition: "background .15s ease",
             }}>
@@ -136,7 +136,7 @@ export function Login({ onLogin }) {
             </button>
           </form>
         </div>
-        <div style={{ textAlign: "center", marginTop: 16, fontFamily: "Inter,sans-serif", fontSize: 11.5 }}>
+        <div style={{ textAlign: "center", marginTop: 16, fontFamily: "var(--font-text)", fontSize: 11.5 }}>
           <a href="/privacy.html" style={{ color: T.muted, textDecoration: "none" }}>Privacy Policy</a>
           <span style={{ color: T.muted, margin: "0 8px" }}>·</span>
           <a href="/eula.html" style={{ color: T.muted, textDecoration: "none" }}>Terms</a>

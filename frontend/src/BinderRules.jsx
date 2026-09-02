@@ -19,19 +19,19 @@ function RuleRow({ r, first, onVerify, busy }) {
       borderTop: first ? "none" : `1px solid ${T.line}`, background: r.stale ? T.daffodilBg : T.white }}>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{r.kind_label}</span>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate }}>{scope}</span>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, background: T.parchment, borderRadius: 5, padding: "2px 7px" }}>{r.derivation}</span>
-          {r.stale && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 700, color: T.daffodilText }}>needs re-verify</span>}
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{r.kind_label}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate }}>{scope}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: T.muted, background: T.parchment, borderRadius: 5, padding: "2px 7px" }}>{r.derivation}</span>
+          {r.stale && <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 700, color: T.daffodilText }}>needs re-verify</span>}
         </div>
-        {r.source_note && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.slate, marginTop: 4, lineHeight: 1.5 }}>{r.source_note}</div>}
+        {r.source_note && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, marginTop: 4, lineHeight: 1.5 }}>{r.source_note}</div>}
       </div>
       <div style={{ textAlign: "right", flexShrink: 0 }}>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: r.stale ? T.daffodilText : T.muted }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: r.stale ? T.daffodilText : T.muted }}>
           verified {r.last_verified || "never"}
         </div>
         <button onClick={() => onVerify(r)} disabled={busy} className="cc-nav" style={{
-          marginTop: 6, fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.slate,
+          marginTop: 6, fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600, color: T.slate,
           background: T.white, border: `1px solid ${T.line}`, borderRadius: 7, padding: "5px 11px",
           cursor: busy ? "default" : "pointer" }}>Mark verified</button>
       </div>
@@ -54,26 +54,26 @@ export default function BinderRules() {
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
         <span style={{ width: 5, height: 28, borderRadius: 3, background: T.teal }} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 600, color: T.ink }}>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: T.ink }}>
           Binder <span style={{ color: T.muted, fontWeight: 500 }}>/ Rules</span></span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>
           how filing dates are derived, and when each rule was last checked
         </span>
       </div>
 
-      {loading && <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13 }}>Loading rules…</Card>}
+      {loading && <Card style={{ color: T.muted, fontFamily: "var(--font-text)", fontSize: 13 }}>Loading rules…</Card>}
       {error && !data && (
         <Card style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Icon name="warning" size={16} color={T.poppyText} />
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate, flex: 1 }}>Could not load the rules.</span>
-          <button onClick={reload} className="cc-nav" style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Retry</button>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, flex: 1 }}>Could not load the rules.</span>
+          <button onClick={reload} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Retry</button>
         </Card>
       )}
 
       {data && (
         <>
           {data.stale_count > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontFamily: "Inter,sans-serif",
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontFamily: "var(--font-text)",
               fontSize: 12, color: T.daffodilText, background: T.daffodilBg, border: `1px solid ${T.line}`, borderRadius: 10, padding: "9px 14px" }}>
               <Icon name="warning" size={14} color={T.daffodilText} />
               {data.stale_count} rule(s) not verified in over {data.stale_after_months} months — re-check before relying on them.

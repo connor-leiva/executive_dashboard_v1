@@ -227,13 +227,13 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
 }
 
 const FIN_CSS = `
-  .fin-root { font-family:Inter,sans-serif; color:${C.ink}; }
+  .fin-root { font-family:var(--font-text); color:${C.ink}; }
   .fin-root .mod { max-width:100%; }
   .fin-root .skel { background:linear-gradient(90deg, ${C.hair} 25%, ${C.page} 50%, ${C.hair} 75%); background-size:800px 100%; animation:finshimmer 1.4s linear infinite; border-radius:18px; }
-  .fin-root .retry { margin-top:10px; font:600 12.5px Inter,sans-serif; color:${C.ink}; background:${C.surface}; border:1px solid ${C.hair}; border-radius:8px; padding:6px 12px; cursor:pointer; }
+  .fin-root .retry { margin-top:10px; font:600 12.5px var(--font-text); color:${C.ink}; background:${C.surface}; border:1px solid ${C.hair}; border-radius:8px; padding:6px 12px; cursor:pointer; }
   .fin-root .ctx { display:flex; align-items:center; gap:11px; margin-bottom:16px; }
   .fin-root .ctx-bar { width:4px; height:19px; border-radius:2px; background:${C.meadow}; }
-  .fin-root .ctx-h { font-family:Poppins,sans-serif; font-size:17px; font-weight:600; letter-spacing:-.01em; }
+  .fin-root .ctx-h { font-family:var(--font-display); font-size:17px; font-weight:600; letter-spacing:-.01em; }
   .fin-root .ctx-s { font-size:12px; color:${C.muted}; }
   .fin-root .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 22px;
     background-color:${C.meadow};
@@ -241,10 +241,10 @@ const FIN_CSS = `
     background-size:cover; background-position:center; background-blend-mode:multiply;
     box-shadow:0 2px 6px rgba(0,46,44,.12), 0 18px 40px rgba(0,46,44,.13); }
   .fin-root .feat { min-height:104px; }
-  .fin-root .eyebrow { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; }
+  .fin-root .eyebrow { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; }
   .fin-root .eyebrow .edot { width:8px; height:8px; border-radius:99px; }
   .fin-root .eyebrow .etag { color:${C.onDarkMute}; font-weight:500; letter-spacing:.02em; text-transform:none; font-size:12px; }
-  .fin-root .hprofit { font-family:Poppins,sans-serif; font-size:44px; font-weight:700; letter-spacing:-.025em; color:${C.onDark}; line-height:1; margin:12px 0 6px; font-variant-numeric:tabular-nums; }
+  .fin-root .hprofit { font-family:var(--font-display); font-size:44px; font-weight:700; letter-spacing:-.025em; color:${C.onDark}; line-height:1; margin:12px 0 6px; font-variant-numeric:tabular-nums; }
   .fin-root .hdesc { font-size:12.5px; color:${C.onDarkMute}; }
   .fin-root .traj { margin-top:20px; }
   .fin-root .traj-track { position:relative; height:9px; border-radius:6px; overflow:hidden; background:rgba(244,239,231,.14); }
@@ -253,7 +253,7 @@ const FIN_CSS = `
   .fin-root .traj-tick { position:absolute; top:-3px; bottom:-3px; width:2px; background:${C.onDark}; box-shadow:0 0 0 2px rgba(0,46,44,.5); }
   .fin-root .traj-legend { display:flex; gap:20px; margin-top:11px; flex-wrap:wrap; }
   .fin-root .tl { font-size:11.5px; color:${C.onDarkMute}; display:inline-flex; align-items:center; gap:6px; }
-  .fin-root .tl b { color:${C.onDarkMute}; font-weight:600; font-family:Poppins,sans-serif; }
+  .fin-root .tl b { color:${C.onDarkMute}; font-weight:600; font-family:var(--font-display); }
   .fin-root .tl.on { color:${C.onDark}; } .fin-root .tl.on b { color:${C.onDark}; }
   .fin-root .tl-dot { width:7px; height:7px; border-radius:99px; }
   .fin-root .sel { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-top:22px; }
@@ -263,11 +263,11 @@ const FIN_CSS = `
   .fin-root .seg.on::after { content:""; position:absolute; left:13px; right:13px; bottom:-1px; height:2px; border-radius:2px; background:var(--da); }
   .fin-root .seg-name { font-size:11.5px; font-weight:600; color:${C.onDark}; display:flex; align-items:center; gap:6px; }
   .fin-root .seg-dot { width:7px; height:7px; border-radius:99px; }
-  .fin-root .seg-v { font-family:Poppins,sans-serif; font-size:18px; font-weight:700; color:${C.onDark}; margin-top:6px; letter-spacing:-.02em; font-variant-numeric:tabular-nums; display:block; }
+  .fin-root .seg-v { font-family:var(--font-display); font-size:18px; font-weight:700; color:${C.onDark}; margin-top:6px; letter-spacing:-.02em; font-variant-numeric:tabular-nums; display:block; }
   .fin-root .seg-flag { font-size:9.5px; font-weight:600; color:${C.dBooked}; margin-top:4px; display:block; }
   .fin-root .card { background:${C.surface}; border:1px solid ${C.hair}; border-top:none; border-radius:0 0 18px 18px; padding:24px 28px; box-shadow:0 12px 30px rgba(0,46,44,.06); }
   .fin-root .fc-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px; }
-  .fin-root .fc-label { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
+  .fin-root .fc-label { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
   .fin-root .fc-tag { font-size:12px; color:${C.muted}; margin-top:4px; }
   .fin-root .fc-units { font-size:12px; color:${C.muted}; }
   .fin-root .flag { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600; color:${C.amber}; background:${C.amberBg}; border-radius:6px; padding:3px 9px; }
@@ -275,7 +275,7 @@ const FIN_CSS = `
   .fin-root .pl { margin-top:8px; }
   .fin-root .plr { display:flex; justify-content:space-between; align-items:baseline; padding:8px 0; }
   .fin-root .pll { font-size:12.5px; color:${C.body}; }
-  .fin-root .plv { font-family:Poppins,sans-serif; font-size:13.5px; font-weight:500; color:${C.ink}; font-variant-numeric:tabular-nums; }
+  .fin-root .plv { font-family:var(--font-display); font-size:13.5px; font-weight:500; color:${C.ink}; font-variant-numeric:tabular-nums; }
   .fin-root .plr.ded .pll, .fin-root .plr.ded .plv { color:${C.slate}; font-weight:400; }
   .fin-root .plr.sub { border-top:1px solid ${C.hair}; margin-top:2px; padding-top:11px; }
   .fin-root .plr.sub .pll, .fin-root .plr.sub .plv { font-weight:600; }
@@ -296,7 +296,7 @@ const FIN_CSS = `
   .fin-root .sl-closed { background:${C.teal}; border-radius:5px 0 0 5px; }
   .fin-root .sl-pending { background:${C.teal}; opacity:.28; border-radius:0 5px 5px 0; }
   .fin-root .sl-cap { display:flex; justify-content:space-between; margin-top:8px; font-size:11px; color:${C.muted}; flex-wrap:wrap; gap:6px; }
-  .fin-root .sl-cap b { color:${C.body}; font-weight:600; font-family:Poppins,sans-serif; }
+  .fin-root .sl-cap b { color:${C.body}; font-weight:600; font-family:var(--font-display); }
   .fin-root .sl-dot { width:7px; height:7px; border-radius:2px; display:inline-block; margin-right:6px; font-style:normal; }
   .fin-root .sl-dot.solid { background:${C.teal}; }
   .fin-root .sl-dot.light { background:${C.teal}; opacity:.28; }

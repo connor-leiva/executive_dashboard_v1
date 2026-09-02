@@ -123,7 +123,7 @@ function Ring({ pct, size = 44, stroke = 5, color = C.meadow, track = "rgba(0,46
           pathLength="1" strokeDasharray="1" style={{ "--to": (1 - (pct || 0) / 100).toFixed(3) }} className="ring-arc" />
       </svg>
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
-        justifyContent: "center", fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, color: C.ink }}>{children}</div>
+        justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, color: C.ink }}>{children}</div>
     </div>
   );
 }
@@ -188,7 +188,7 @@ function ConnectQbo() {
   // flow); this just points there rather than hitting the auth'd connect endpoint raw.
   return (
     <a href="/settings/integrations" style={{
-      display: "inline-block", marginTop: 12, fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600,
+      display: "inline-block", marginTop: 12, fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600,
       color: C.heroText, background: C.evergreen, borderRadius: 9, padding: "9px 15px", textDecoration: "none",
     }}>Connect in Settings</a>
   );
@@ -315,7 +315,7 @@ function WatchStrip({ b, data, onOpen }) {
     }
     return (
       <div className="watchstrip">
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: C.meadow }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: C.meadow }}>
           <span style={{ width: 7, height: 7, borderRadius: 99, background: C.meadow }} />All clear — nothing needs attention today</span>
       </div>
     );
@@ -417,7 +417,7 @@ function membersItems(data, open, onOpen, deckSlots, rosterKey = "forum_roster")
             {mix.quarterly > 0 && <div className="stack-seg" style={{ width: mpct(mix.quarterly), background: C.sprout }} title={`${mix.quarterly} quarterly`} />}
             {mix.installments > 0 && <div className="stack-seg" style={{ width: mpct(mix.installments), background: C.mistDeep }} title={`${mix.installments} installments`} />}
           </div>
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted, marginBottom: 4 }}>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontFamily: "var(--font-text)", fontSize: 11, color: C.muted, marginBottom: 4 }}>
             <Dot c={C.evergreen} t={`${mix.pif || 0} PIF`} />
             <Dot c={C.meadow} t={`${mix.monthly || 0} Monthly`} />
             {mix.quarterly > 0 && <Dot c={C.sprout} t={`${mix.quarterly} Quarterly`} />}
@@ -437,11 +437,11 @@ function membersItems(data, open, onOpen, deckSlots, rosterKey = "forum_roster")
     const d = (data.deck || []).find((x) => x.k === "pipeline");
     items.push({ key: "pipeline", icon: A.growth, name: "Recruiting", stat: d?.hero || String(total), line: "in pipeline", accent: C.meadow, render: () => (
       <div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: C.slate, marginBottom: 12 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: C.slate, marginBottom: 12 }}>
           {total} prospects across the recruiting pipeline{d?.salient ? ` · ${d.salient}` : ""}
         </div>
         {stages.map((s) => <Bar key={s.label} label={s.label} pct={(s.v / max) * 100} val={s.v} open={open} from={C.evergreen} to={C.meadow} wide />)}
-        {data.funnel.footer && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.muted, borderTop: `1px solid ${C.hair}`, marginTop: 12, paddingTop: 11, lineHeight: 1.5 }}>{data.funnel.footer}</div>}
+        {data.funnel.footer && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: C.muted, borderTop: `1px solid ${C.hair}`, marginTop: 12, paddingTop: 11, lineHeight: 1.5 }}>{data.funnel.footer}</div>}
       </div>) });
   }
   if (has("renewals") && data.renewals) {
@@ -463,9 +463,9 @@ function membersItems(data, open, onOpen, deckSlots, rosterKey = "forum_roster")
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <Ring pct={pct} size={56} stroke={5} color={C.meadow}>{pct}%</Ring>
           <div>
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: C.ink }}>{e.where}</div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted }}>{e.title}{e.when ? ` · ${e.when}` : ""}</div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: C.body, marginTop: 4 }}>{e.registered} of {e.members} registered{e.guests > 0 ? ` · +${e.guests} guests` : ""}</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: C.ink }}>{e.where}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}>{e.title}{e.when ? ` · ${e.when}` : ""}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.body, marginTop: 4 }}>{e.registered} of {e.members} registered{e.guests > 0 ? ` · +${e.guests} guests` : ""}</div>
           </div>
         </div>
         {e.unregistered > 0 && <div style={{ marginTop: 12 }}><Drill onClick={() => onOpen("unregistered")}>{e.unregistered} not yet registered</Drill></div>}
@@ -505,15 +505,15 @@ function CashFlowPanel({ b, open, onOpen }) {
             </button>);
         })}
       </div>
-      <div style={{ display: "flex", gap: 16, fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted, marginBottom: 10, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 16, fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted, marginBottom: 10, flexWrap: "wrap" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: `linear-gradient(180deg, ${C.meadow}, ${C.evergreen})` }} />Actual</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.parchment, border: `1px dashed ${C.meadow}`, boxSizing: "border-box" }} />Projected from active subscriptions</span>
       </div>
-      <div style={{ borderTop: `1px solid ${C.hair}`, paddingTop: 11, fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.slate }}>
+      <div style={{ borderTop: `1px solid ${C.hair}`, paddingTop: 11, fontFamily: "var(--font-text)", fontSize: 11.5, color: C.slate }}>
         {usd(b.gross)} collected − {usd(b.refunded)} refunded = <b style={{ color: C.ink }}>{usd(b.net_cash)} net</b> · <Drill onClick={() => onOpen("forum_payments")}>{b.txn_count} transactions</Drill>
       </div>
       {(fc.next_90 > 0 || fc.rest_of_year > 0) && (
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.slate, marginTop: 7 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: C.slate, marginTop: 7 }}>
           Projected inflow · <b style={{ color: C.ink }}>{kc(fc.next_30 || 0)}</b> next 30d · <b style={{ color: C.ink }}>{kc(fc.next_90 || 0)}</b> next 90d · <b style={{ color: C.ink }}>{kc(fc.rest_of_year || 0)}</b> rest of year · <Drill onClick={() => onOpen("forum_next30")}>upcoming charges</Drill>
         </div>
       )}
@@ -531,24 +531,24 @@ function moneyItems(b, open, onOpen, isBc) {
     { key: "recurring", icon: A.reload, name: "Recurring", stat: `${kc(b.mrr)}/mo`, line: "installments apart", accent: C.meadow, render: () => (
       <div className="cols">
         <div><div className="colhead">Perpetual · True MRR</div>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 700, color: C.ink, letterSpacing: "-.01em" }}>{usd(b.mrr)}<span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>/mo · {b.perpetual_count} subs</span></div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, color: C.ink, letterSpacing: "-.01em" }}>{usd(b.mrr)}<span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>/mo · {b.perpetual_count} subs</span></div>
           <div style={{ marginTop: 8 }}><Drill onClick={() => onOpen("forum_mrr_subs")}>View subscriptions</Drill></div></div>
         <div><div className="colhead">Installment · Kept Out of MRR</div>
           {inst ? <>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: C.ink, fontWeight: 600 }}>{inst.name}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: C.ink, fontWeight: 600 }}>{inst.name}</div>
             <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
               {[...Array(inst.total || 0)].map((_, i) => <span key={i} style={{ flex: 1, height: 7, borderRadius: 4,
                 background: i < (inst.collected || 0) ? `linear-gradient(90deg, ${C.evergreen}, ${C.meadow})` : C.parchment,
                 border: `1px solid ${i < (inst.collected || 0) ? C.meadow : C.hair}` }} />)}
             </div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.slate, marginTop: 7 }}>{usd(inst.amount)} × {inst.total} · {inst.collected} collected · final {inst.final_date || "—"}</div>
-          </> : <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted }}>No installment plans.</div>}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: C.slate, marginTop: 7 }}>{usd(inst.amount)} × {inst.total} · {inst.collected} collected · final {inst.final_date || "—"}</div>
+          </> : <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}>No installment plans.</div>}</div>
       </div>) },
     { key: "arr", icon: A.crown, name: "ARR Bridge", stat: kc(b.arr_book), line: `book vs ${kc(b.run_rate)}`, accent: C.evergreen, render: () => (
       <div>
         <Bar label="Renewal Book" pct={100} val={kc(b.arr_book)} open={open} from={C.evergreen} to={C.meadow} wide />
         <Bar label="Run-Rate" pct={arrPct} val={kc(b.run_rate)} open={open} from={C.meadow} to={C.sprout} wide />
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.slate, borderTop: `1px solid ${C.hair}`, marginTop: 12, paddingTop: 11, lineHeight: 1.5 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: C.slate, borderTop: `1px solid ${C.hair}`, marginTop: 12, paddingTop: 11, lineHeight: 1.5 }}>
           The <b style={{ color: C.ink }}>{usd(b.arr_book - b.run_rate)}</b> gap is PIF and financed-annual members off monthly billing — why the book is the headline, run-rate the billing slice. <Drill onClick={() => onOpen("renewal_book")}>memberships</Drill>
         </div>
       </div>) },
@@ -564,7 +564,7 @@ function moneyItems(b, open, onOpen, isBc) {
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: scolors[i % scolors.length] }} />{x.label}</span>
             <span style={{ color: C.muted }}>{x.pct}%</span><b>{usd(x.amount)}</b></div>
         ))}
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted, marginTop: 10 }}>Classified within {isBc ? "beCollective" : "The Forum"} · sums to net cash {usd(stotal)}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: C.muted, marginTop: 10 }}>Classified within {isBc ? "beCollective" : "The Forum"} · sums to net cash {usd(stotal)}</div>
       </div>) },
   ];
 }
@@ -584,9 +584,9 @@ const CSS = `
   .fe .wrap { max-width:1060px; margin:0 auto; }
   .fe-head { display:flex; align-items:center; gap:14px; margin-bottom:18px; }
   .fe-bar { width:4px; height:30px; border-radius:2px; background:linear-gradient(180deg,${C.meadow},${C.evergreen}); }
-  .fe-title { font-family:Poppins,sans-serif; font-size:23px; font-weight:700; letter-spacing:-.015em; color:${C.ink}; }
-  .fe-sub { font-family:Inter,sans-serif; font-size:12.5px; color:${C.muted}; }
-  .fe-syncpill { margin-left:auto; display:inline-flex; align-items:center; gap:7px; font-family:Inter,sans-serif; font-size:11px; font-weight:600; color:${C.slate};
+  .fe-title { font-family:var(--font-display); font-size:23px; font-weight:700; letter-spacing:-.015em; color:${C.ink}; }
+  .fe-sub { font-family:var(--font-text); font-size:12.5px; color:${C.muted}; }
+  .fe-syncpill { margin-left:auto; display:inline-flex; align-items:center; gap:7px; font-family:var(--font-text); font-size:11px; font-weight:600; color:${C.slate};
     background:${C.surface}; border:1px solid ${C.hair}; border-radius:99px; padding:6px 12px; box-shadow:var(--hl); }
   .fe-syncdot { width:7px; height:7px; border-radius:99px; background:${C.meadow}; box-shadow:0 0 0 3px ${C.meadow}22; animation:breathe 2.4s ease-in-out infinite; }
   @media (max-width:640px){ .fe-syncpill { display:none; } }
@@ -610,26 +610,26 @@ const CSS = `
       repeating-linear-gradient(118deg, rgba(255,255,255,.022) 0 2px, transparent 2px 10px),
       linear-gradient(152deg, ${C.heroMid}, ${C.evergreen} 52%, ${C.heroDeep});
     box-shadow:0 10px 24px rgba(0,33,31,.28), 0 30px 64px rgba(0,33,31,.32), inset 0 1px 0 rgba(255,255,255,.10); border:1px solid rgba(0,33,31,.5); }
-  .hero-eyebrow { display:flex; align-items:center; gap:8px; font-family:Poppins,sans-serif; font-size:12px; font-weight:700; letter-spacing:.005em; color:rgba(217,232,225,.8); margin-bottom:16px; }
+  .hero-eyebrow { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:700; letter-spacing:.005em; color:rgba(217,232,225,.8); margin-bottom:16px; }
   .hero-dot { width:6px; height:6px; border-radius:99px; background:${C.mistDeep}; box-shadow:0 0 0 3px rgba(103,165,170,.28); animation:breathe 2.4s ease-in-out infinite; }
-  .hero-range { margin-left:auto; font-family:Inter,sans-serif; font-weight:600; font-size:11px; color:rgba(217,232,225,.6); background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); border-radius:99px; padding:3px 11px; }
+  .hero-range { margin-left:auto; font-family:var(--font-text); font-weight:600; font-size:11px; color:rgba(217,232,225,.6); background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); border-radius:99px; padding:3px 11px; }
   .hero-body { display:grid; grid-template-columns:minmax(0,1.22fr) minmax(0,1fr); gap:22px; flex:1; align-items:stretch; }
   @media (max-width:820px){ .hero-body{ grid-template-columns:1fr; gap:18px; } }
   .hero-primary { display:flex; flex-direction:column; }
-  .hero-plabel { font-family:Inter,sans-serif; font-size:12px; color:${C.heroMut}; font-weight:500; }
-  .hero-pval { font-family:Poppins,sans-serif; font-weight:700; font-size:58px; line-height:.98; letter-spacing:-.03em; margin-top:6px;
+  .hero-plabel { font-family:var(--font-text); font-size:12px; color:${C.heroMut}; font-weight:500; }
+  .hero-pval { font-family:var(--font-display); font-weight:700; font-size:58px; line-height:.98; letter-spacing:-.03em; margin-top:6px;
     background:linear-gradient(160deg, #fff, ${C.sprout} 70%, ${C.mistDeep}); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; font-variant-numeric:tabular-nums; }
   .hero-chart { margin-top:14px; }
-  .hero-months { display:flex; justify-content:space-between; margin-top:5px; font-family:Inter,sans-serif; font-size:10px; color:rgba(217,232,225,.45); }
-  .hero-psub { font-family:Inter,sans-serif; font-size:11.5px; color:${C.heroMut}; margin-top:auto; padding-top:16px; }
+  .hero-months { display:flex; justify-content:space-between; margin-top:5px; font-family:var(--font-text); font-size:10px; color:rgba(217,232,225,.45); }
+  .hero-psub { font-family:var(--font-text); font-size:11.5px; color:${C.heroMut}; margin-top:auto; padding-top:16px; }
   .hero-psub b { color:${C.heroText}; font-weight:600; }
   .hero-drill { cursor:pointer; }
   .hero-side { display:flex; flex-direction:column; gap:1px; background:rgba(255,255,255,.07); border-radius:14px; overflow:hidden; border:1px solid rgba(255,255,255,.07); }
   .hero-scell { background:linear-gradient(160deg, rgba(255,255,255,.04), rgba(255,255,255,.01)); padding:14px 15px; flex:1; display:flex; flex-direction:column; justify-content:center; cursor:pointer; }
-  .hero-sval { font-family:Poppins,sans-serif; font-weight:700; font-size:24px; letter-spacing:-.01em; color:${C.heroText}; margin-top:9px; font-variant-numeric:tabular-nums; }
+  .hero-sval { font-family:var(--font-display); font-weight:700; font-size:24px; letter-spacing:-.01em; color:${C.heroText}; margin-top:9px; font-variant-numeric:tabular-nums; }
   .hero-sval span { font-size:12px; font-weight:500; color:${C.heroMut}; margin-left:2px; }
-  .hero-slabel { font-family:Inter,sans-serif; font-size:11px; color:rgba(217,232,225,.72); margin-top:3px; font-weight:500; }
-  .hero-ssub { font-family:Inter,sans-serif; font-size:10px; color:rgba(217,232,225,.42); margin-top:2px; }
+  .hero-slabel { font-family:var(--font-text); font-size:11px; color:rgba(217,232,225,.72); margin-top:3px; font-weight:500; }
+  .hero-ssub { font-family:var(--font-text); font-size:10px; color:rgba(217,232,225,.42); margin-top:2px; }
 
   /* beCollective Cash card — official petal ribbed gradient (light surface, dark ink). */
   .hero.bc { color:${C.ink};
@@ -655,24 +655,24 @@ const CSS = `
 
   .topgrid { display:grid; grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr); gap:14px; align-items:stretch; margin-bottom:14px; }
   @media (max-width:900px){ .topgrid{ grid-template-columns:1fr; } }
-  .lens { font-family:Inter,sans-serif; font-size:10px; font-weight:600; color:${C.slate}; background:${C.mist}66; border:1px solid ${C.hair}; border-radius:99px; padding:2px 8px; margin-left:8px; }
+  .lens { font-family:var(--font-text); font-size:10px; font-weight:600; color:${C.slate}; background:${C.mist}66; border:1px solid ${C.hair}; border-radius:99px; padding:2px 8px; margin-left:8px; }
   .fin { position:relative; } .fin::before { content:""; position:absolute; left:0; top:16px; bottom:16px; width:3px; border-radius:0 3px 3px 0; background:linear-gradient(180deg,${C.evergreen},${C.meadow}); }
-  .kick { display:flex; align-items:center; gap:8px; font-family:Poppins,sans-serif; font-size:12px; font-weight:700; letter-spacing:.005em; color:${C.slate}; margin-bottom:14px; }
+  .kick { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:700; letter-spacing:.005em; color:${C.slate}; margin-bottom:14px; }
   .kb { width:3px; height:13px; border-radius:2px; background:${C.evergreen}; } .kb-m { background:${C.meadow}; }
-  .src { margin-left:auto; font-family:Inter,sans-serif; font-size:10.5px; font-weight:600; color:${C.slate}; background:${C.parchment}; border:1px solid ${C.hair}; border-radius:6px; padding:2px 8px; }
+  .src { margin-left:auto; font-family:var(--font-text); font-size:10.5px; font-weight:600; color:${C.slate}; background:${C.parchment}; border:1px solid ${C.hair}; border-radius:6px; padding:2px 8px; }
   .pnl-card { padding:20px 22px 20px 26px; }
-  .prow { display:flex; justify-content:space-between; align-items:baseline; padding:8px 0; font-family:Inter,sans-serif; font-size:12.5px; color:${C.body}; }
-  .prow b { font-family:Poppins,sans-serif; font-weight:500; color:${C.ink}; font-variant-numeric:tabular-nums; }
+  .prow { display:flex; justify-content:space-between; align-items:baseline; padding:8px 0; font-family:var(--font-text); font-size:12.5px; color:${C.body}; }
+  .prow b { font-family:var(--font-display); font-weight:500; color:${C.ink}; font-variant-numeric:tabular-nums; }
   .prow.sub { border-top:1px solid ${C.hair}; font-weight:600; } .prow.sub span { font-weight:600; }
   .prow.ded span, .prow.ded b { color:${C.slate}; font-weight:400; }
   .prow.tot { border-top:2px solid ${C.ink}; margin-top:2px; padding-top:11px; }
   .prow.tot span { font-weight:700; color:${C.ink}; } .prow.tot b { font-weight:700; font-size:15px; }
-  .pnl-note { font-family:Inter,sans-serif; font-size:11px; color:${C.muted}; line-height:1.5; border-top:1px solid ${C.hair}; margin-top:12px; padding-top:12px; }
+  .pnl-note { font-family:var(--font-text); font-size:11px; color:${C.muted}; line-height:1.5; border-top:1px solid ${C.hair}; margin-top:12px; padding-top:12px; }
   .pnl-note b { color:${C.body}; font-weight:600; }
 
   .pulse { position:relative; background:linear-gradient(180deg,#fff,${C.parchment}); border:1px solid ${C.hair}; border-radius:16px; padding:15px 18px 18px 22px; margin-bottom:18px; box-shadow:var(--sh-rest), var(--hl); }
   .pulse::before { content:""; position:absolute; left:0; top:16px; bottom:16px; width:3px; border-radius:0 3px 3px 0; background:linear-gradient(180deg,${C.meadow},${C.sprout}); }
-  .pulse-head { display:flex; align-items:center; gap:8px; font-family:Poppins,sans-serif; font-size:12px; font-weight:700; letter-spacing:.005em; color:${C.slate}; margin-bottom:14px; }
+  .pulse-head { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:700; letter-spacing:.005em; color:${C.slate}; margin-bottom:14px; }
   .pulse-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
   @media (max-width:820px){ .pulse-grid{ grid-template-columns:1fr 1fr; } }
   @media (max-width:520px){ .pulse-grid{ grid-template-columns:1fr; } }
@@ -680,16 +680,16 @@ const CSS = `
   .ptile.click { cursor:pointer; }
   .ptile:hover { box-shadow:var(--sh-lift), var(--hl); border-color:#E3D9C9; }
   .ptile-top { display:flex; align-items:center; gap:8px; margin-bottom:11px; }
-  .ptile-label { font-family:Inter,sans-serif; font-size:11.5px; color:${C.slate}; font-weight:600; }
+  .ptile-label { font-family:var(--font-text); font-size:11.5px; color:${C.slate}; font-weight:600; }
   .ptile-row { display:flex; align-items:flex-end; justify-content:space-between; gap:8px; }
-  .ptile-v { font-family:Poppins,sans-serif; font-size:27px; font-weight:700; color:${C.ink}; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
-  .ptile-s { font-family:Inter,sans-serif; font-size:10.5px; color:${C.muted}; margin-top:3px; }
+  .ptile-v { font-family:var(--font-display); font-size:27px; font-weight:700; color:${C.ink}; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+  .ptile-s { font-family:var(--font-text); font-size:10.5px; color:${C.muted}; margin-top:3px; }
 
   .watchstrip { display:flex; align-items:center; gap:12px 16px; flex-wrap:wrap; margin-bottom:20px; }
   .watchpair { display:inline-flex; align-items:center; gap:10px; }
-  .flag { display:inline-flex; align-items:center; gap:8px; background:${C.flagBg}; border-radius:9px; padding:7px 13px; font-family:Inter,sans-serif; font-size:12px; font-weight:600; color:${C.flagText}; box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 1px 2px rgba(181,121,42,.12); }
+  .flag { display:inline-flex; align-items:center; gap:8px; background:${C.flagBg}; border-radius:9px; padding:7px 13px; font-family:var(--font-text); font-size:12px; font-weight:600; color:${C.flagText}; box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 1px 2px rgba(181,121,42,.12); }
   .flag-dot { width:7px; height:7px; border-radius:99px; background:${C.flagDot}; box-shadow:0 0 0 3px ${C.flagDot}44; animation:breathe 2s ease-in-out infinite; }
-  .ghost { display:inline-flex; align-items:center; gap:6px; background:${C.surface}; border:1px solid ${C.hair}; border-radius:9px; padding:6px 12px; cursor:pointer; font-family:Poppins,sans-serif; font-size:11.5px; font-weight:600; color:${C.slate}; box-shadow:var(--sh-rest), var(--hl); }
+  .ghost { display:inline-flex; align-items:center; gap:6px; background:${C.surface}; border:1px solid ${C.hair}; border-radius:9px; padding:6px 12px; cursor:pointer; font-family:var(--font-display); font-size:11.5px; font-weight:600; color:${C.slate}; box-shadow:var(--sh-rest), var(--hl); }
   .ghost:hover { border-color:${C.meadow}; color:${C.meadow}; box-shadow:var(--sh-lift), var(--hl); }
 
   .sec { background:#fff; border:1px solid ${C.hair}; border-radius:16px; margin-bottom:13px; box-shadow:var(--sh-rest), var(--hl); transition:box-shadow .35s cubic-bezier(.22,1,.36,1), border-color .35s ease; }
@@ -698,15 +698,15 @@ const CSS = `
   .sec-head:hover { background:linear-gradient(180deg,#fff, ${C.parchment}88); }
   .chip { display:inline-flex; align-items:center; justify-content:center; border-radius:10px; flex-shrink:0; transition:transform .3s cubic-bezier(.34,1.4,.64,1); }
   .sec-head:hover .chip { transform:scale(1.06); }
-  .sec-title { font-family:Poppins,sans-serif; font-size:15.5px; font-weight:600; color:${C.ink}; letter-spacing:-.01em; white-space:nowrap; }
-  .sec-sum { font-family:Inter,sans-serif; font-size:12.5px; color:${C.muted}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .sec-watch { display:inline-flex; align-items:center; gap:6px; font-family:Inter,sans-serif; font-size:11px; font-weight:600; color:${C.flagText}; background:${C.flagBg}; border-radius:7px; padding:3px 9px; white-space:nowrap; }
+  .sec-title { font-family:var(--font-display); font-size:15.5px; font-weight:600; color:${C.ink}; letter-spacing:-.01em; white-space:nowrap; }
+  .sec-sum { font-family:var(--font-text); font-size:12.5px; color:${C.muted}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sec-watch { display:inline-flex; align-items:center; gap:6px; font-family:var(--font-text); font-size:11px; font-weight:600; color:${C.flagText}; background:${C.flagBg}; border-radius:7px; padding:3px 9px; white-space:nowrap; }
   .wd { width:6px; height:6px; border-radius:99px; background:${C.flagDot}; animation:breathe 2s ease-in-out infinite; }
   .chev-wrap { width:26px; height:26px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; background:${C.parchment}; border:1px solid ${C.hair}; }
   .chev-wrap span { transition:transform .34s cubic-bezier(.34,1.35,.64,1); }
   .sec-body { padding:2px 22px 22px; animation:secReveal .34s cubic-bezier(.22,1,.36,1); }
   @keyframes secReveal { from { transform:translateY(-6px); } to { transform:none; } }
-  .sec-sub { font-family:Inter,sans-serif; font-size:11.5px; color:${C.muted}; margin-bottom:14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .sec-sub { font-family:var(--font-text); font-size:11.5px; color:${C.muted}; margin-bottom:14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .live { display:inline-flex; align-items:center; gap:5px; font-weight:600; color:${C.meadow}; background:${C.meadow}14; border-radius:6px; padding:2px 8px; }
   .live-dot { width:6px; height:6px; border-radius:99px; background:${C.meadow}; animation:breathe 2.2s ease-in-out infinite; }
 
@@ -716,9 +716,9 @@ const CSS = `
   .dcard.on { background:#fff; border-radius:12px 12px 0 0; border-bottom-color:#fff; box-shadow:var(--sh-raise); }
   .dcard-accent { position:absolute; top:0; left:0; right:0; height:3px; border-radius:3px 3px 0 0; z-index:2; }
   .dhead { display:flex; align-items:center; gap:7px; margin-bottom:3px; }
-  .dname { font-family:Poppins,sans-serif; font-size:12px; font-weight:600; color:${C.slate}; }
-  .dstat { font-family:Poppins,sans-serif; font-size:20px; font-weight:700; color:${C.ink}; margin-top:5px; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
-  .dline { font-family:Inter,sans-serif; font-size:10px; color:${C.muted}; margin-top:3px; }
+  .dname { font-family:var(--font-display); font-size:12px; font-weight:600; color:${C.slate}; }
+  .dstat { font-family:var(--font-display); font-size:20px; font-weight:700; color:${C.ink}; margin-top:5px; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+  .dline { font-family:var(--font-text); font-size:10px; color:${C.muted}; margin-top:3px; }
   .dcard.on::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:1px; background:#fff; z-index:3; }
   .focus { background:#fff; border:1px solid ${C.hair}; border-top:none; border-radius:0 0 12px 12px; padding:18px 20px; box-shadow:var(--sh-raise); margin-top:-1px; }
   @keyframes fadeUp { from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:none;} }
@@ -726,16 +726,16 @@ const CSS = `
 
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:26px; }
   @media (max-width:640px){ .cols{ grid-template-columns:1fr; } }
-  .colhead { font-family:Poppins,sans-serif; font-size:11.5px; font-weight:700; letter-spacing:.005em; color:${C.slate}; margin-bottom:8px; }
-  .row { display:flex; align-items:baseline; gap:10px; padding:7px 0; font-family:Inter,sans-serif; font-size:12.5px; color:${C.body}; border-top:1px solid ${C.parchment}; }
+  .colhead { font-family:var(--font-display); font-size:11.5px; font-weight:700; letter-spacing:.005em; color:${C.slate}; margin-bottom:8px; }
+  .row { display:flex; align-items:baseline; gap:10px; padding:7px 0; font-family:var(--font-text); font-size:12.5px; color:${C.body}; border-top:1px solid ${C.parchment}; }
   .row span:first-child { flex:1; }
-  .row b { font-family:Poppins,sans-serif; font-weight:600; color:${C.ink}; font-variant-numeric:tabular-nums; }
+  .row b { font-family:var(--font-display); font-weight:600; color:${C.ink}; font-variant-numeric:tabular-nums; }
 
   .bar { display:flex; align-items:center; gap:12px; padding:5px 0; }
-  .bar-l { width:96px; font-family:Inter,sans-serif; font-size:12px; color:${C.slate}; }
+  .bar-l { width:96px; font-family:var(--font-text); font-size:12px; color:${C.slate}; }
   .bt { flex:1; height:16px; border-radius:6px; overflow:hidden; box-shadow:inset 0 1px 2px rgba(0,46,44,.06); }
   .bt-fill { height:100%; border-radius:6px; transition:width .8s cubic-bezier(.22,1,.36,1); box-shadow:inset 0 1px 0 rgba(255,255,255,.25); }
-  .bar b { min-width:34px; text-align:right; font-family:Poppins,sans-serif; font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .bar b { min-width:34px; text-align:right; font-family:var(--font-display); font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums; }
 
   .cashcols { display:flex; align-items:flex-end; gap:8px; height:132px; margin-bottom:10px; }
   /* On a phone the card gives this chart ~220px; twelve equal columns crush to 11px and the
@@ -747,12 +747,12 @@ const CSS = `
     .cashcols .cashcol { flex:0 0 34px; }   /* outranks the base .cashcol rule below */
   }
   .cashcol { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; height:100%; background:none; border:none; padding:0; cursor:pointer; }
-  .cashcol-v { font-family:Poppins,sans-serif; font-size:9.5px; font-weight:600; color:${C.ink};
+  .cashcol-v { font-family:var(--font-display); font-size:9.5px; font-weight:600; color:${C.ink};
     min-height:12px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .cashcol-track { width:100%; max-width:44px; flex:1; display:flex; align-items:flex-end; background:${C.parchment}; border-radius:7px; overflow:hidden; box-shadow:inset 0 1px 2px rgba(0,46,44,.05); }
   .cashcol-fill { width:100%; border-radius:7px 7px 0 0; transition:height .8s cubic-bezier(.22,1,.36,1); box-shadow:inset 0 1px 0 rgba(255,255,255,.3); overflow:hidden; }
   .cashcol:hover .cashcol-fill { filter:brightness(.94); }
-  .cashcol-m { font-family:Inter,sans-serif; font-size:9.5px; color:${C.muted};
+  .cashcol-m { font-family:var(--font-text); font-size:9.5px; color:${C.muted};
     max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   .stack { display:flex; height:14px; border-radius:7px; overflow:hidden; gap:2px; margin-bottom:12px; box-shadow:inset 0 1px 2px rgba(0,46,44,.06); }
@@ -865,16 +865,16 @@ function OpRing({ pct, size = 48, sw = 5, color = C.meadow }) {
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.hair} strokeWidth={sw} />
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} transform={`rotate(-90 ${size / 2} ${size / 2})`} style={{ transition: "stroke-dashoffset .9s cubic-bezier(.22,1,.36,1)" }} />
-      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle" style={{ fontFamily: "Poppins,sans-serif", fontSize: size * 0.28, fontWeight: 600, fill: C.ink }}>{pct}%</text>
+      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle" style={{ fontFamily: "var(--font-display)", fontSize: size * 0.28, fontWeight: 600, fill: C.ink }}>{pct}%</text>
     </svg>
   );
 }
-const opBig = { fontFamily: "Poppins,sans-serif", fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1 };
+const opBig = { fontFamily: "var(--font-display)", fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1 };
 function PulseTile({ children, onClick }) {
   return <div onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={(e) => onClick && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onClick())} className="ptile" style={{ background: C.surface, border: `1px solid ${C.hair}`, borderRadius: 15, padding: "15px 16px 14px", cursor: onClick ? "pointer" : "default", display: "flex", flexDirection: "column", gap: 11, minWidth: 0 }}>{children}</div>;
 }
 function TileHead({ icon, tint, label, link }) {
-  return <div style={{ display: "flex", alignItems: "center", gap: 9 }}><IcChip name={icon} tint={tint} size={28} icon={14} /><span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, color: C.slate }}>{label}</span>{link && <span style={{ marginLeft: "auto", opacity: .5 }}><Ic name="ext" size={13} color={C.muted} /></span>}</div>;
+  return <div style={{ display: "flex", alignItems: "center", gap: 9 }}><IcChip name={icon} tint={tint} size={28} icon={14} /><span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: C.slate }}>{label}</span>{link && <span style={{ marginLeft: "auto", opacity: .5 }}><Ic name="ext" size={13} color={C.muted} /></span>}</div>;
 }
 function PulseStrip({ pulse, onOpen, rosterKey = "forum_roster" }) {
   const m = pulse.members, pp = pulse.pipeline, rn = pulse.renewals, ev = pulse.event;
@@ -885,7 +885,7 @@ function PulseStrip({ pulse, onOpen, rosterKey = "forum_roster" }) {
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ ...opBig, fontSize: 34 }}>{m.value}</span>
-            {m.delta ? <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 700, color: m.delta >= 0 ? C.meadow : C.amber }}><Ic name="up" size={11} color={m.delta >= 0 ? C.meadow : C.amber} sw={2.4} />{Math.abs(m.delta)}</span> : null}
+            {m.delta ? <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 700, color: m.delta >= 0 ? C.meadow : C.amber }}><Ic name="up" size={11} color={m.delta >= 0 ? C.meadow : C.amber} sw={2.4} />{Math.abs(m.delta)}</span> : null}
           </div>
           {m.spark && m.spark.length > 1 && <OpSpark data={m.spark} w={104} h={38} color={C.meadow} />}
         </div>
@@ -904,13 +904,13 @@ function PulseStrip({ pulse, onOpen, rosterKey = "forum_roster" }) {
         <div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 9 }}>
             <span style={{ ...opBig, fontSize: 30 }}>{kc(rn.book)}</span>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted }}>{rn.count} due</span>
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: C.muted }}>{rn.count} due</span>
           </div>
           <DuoBar auto={rn.auto} needsYou={rn.needsYou} />
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 8 }}>
             <span style={{ width: 6, height: 6, borderRadius: 99, background: C.flagDot, border: `1px solid ${C.amber}` }} />
-            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{kc(rn.needsYou)}</span>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted }}>needs a touch</span>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{kc(rn.needsYou)}</span>
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: C.muted }}>needs a touch</span>
           </div>
         </div>
       </PulseTile>
@@ -919,10 +919,10 @@ function PulseStrip({ pulse, onOpen, rosterKey = "forum_roster" }) {
         <TileHead icon="event" tint={C.evergreen} label="Event Readiness" />
         {ev ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}><span style={{ ...opBig, fontSize: 34 }}>{ev.days != null ? ev.days : "—"}</span>{ev.days != null && <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 17, fontWeight: 500, color: C.muted }}>d</span>}</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}><span style={{ ...opBig, fontSize: 34 }}>{ev.days != null ? ev.days : "—"}</span>{ev.days != null && <span style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 500, color: C.muted }}>d</span>}</div>
             <OpRing pct={ev.pct} size={48} />
           </div>
-        ) : <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted }}>No event configured.</div>}
+        ) : <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}>No event configured.</div>}
       </PulseTile>
     </div>
   );
@@ -933,9 +933,9 @@ function ActionRowV9({ action, onOpen }) {
     <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <div style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "9px 14px", borderRadius: 10, background: C.flagBg, border: "1px solid rgba(181,121,42,.22)" }}>
         <span style={{ width: 7, height: 7, borderRadius: 99, background: C.flagDot, border: `1px solid ${C.amber}` }} /><Ic name="alert" size={14} color={C.amber} />
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: C.flagText }}><strong style={{ fontWeight: 700 }}>{action.failed} failed charge{action.failed === 1 ? "" : "s"}</strong> this month · {kc(action.recover)} to recover</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: C.flagText }}><strong style={{ fontWeight: 700 }}>{action.failed} failed charge{action.failed === 1 ? "" : "s"}</strong> this month · {kc(action.recover)} to recover</span>
       </div>
-      <button onClick={() => onOpen("forum_failed_payments")} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 15px", borderRadius: 10, background: C.surface, border: `1px solid ${C.hair}`, fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}>Review failed charges <Ic name="ext" size={13} color={C.slate} /></button>
+      <button onClick={() => onOpen("forum_failed_payments")} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 15px", borderRadius: 10, background: C.surface, border: `1px solid ${C.hair}`, fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}>Review failed charges <Ic name="ext" size={13} color={C.slate} /></button>
     </div>
   );
 }
@@ -958,21 +958,21 @@ function GrowthChart({ g }) {
       <path className="spark-area" d={area} fill="url(#opggrad)" />
       <path d={line} fill="none" stroke={C.meadow} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx={x(N - 1)} cy={yT(total[N - 1])} r="3.6" fill={C.meadow} />
-      <text x={x(N - 1)} y={yT(total[N - 1]) - 10} textAnchor="middle" style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, fill: C.ink }}>{total[N - 1]}</text>
-      <text x={x(0)} y={yT(total[0]) - 9} textAnchor="middle" style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fill: C.muted }}>{total[0]}</text>
+      <text x={x(N - 1)} y={yT(total[N - 1]) - 10} textAnchor="middle" style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, fill: C.ink }}>{total[N - 1]}</text>
+      <text x={x(0)} y={yT(total[0]) - 9} textAnchor="middle" style={{ fontFamily: "var(--font-text)", fontSize: 10, fill: C.muted }}>{total[0]}</text>
       <line x1="20" y1={axis} x2="600" y2={axis} stroke={C.hair} strokeWidth="1" />
       {joined.map((v, i) => <rect key={"j" + i} x={x(i) - 6} y={axis - (v / maxJ) * 28} width="12" height={(v / maxJ) * 28} rx="2" fill={C.meadow} />)}
       {lost.map((v, i) => v > 0 ? <rect key={"l" + i} x={x(i) - 6} y={axis} width="12" height={(v / maxL) * 15} rx="2" fill={C.amber} /> : null)}
-      {months.map((mo, i) => <text key={mo + i} x={x(i)} y="202" textAnchor="middle" style={{ fontFamily: "Inter,sans-serif", fontSize: 8.5, fill: i === N - 1 ? C.slate : C.muted, fontWeight: i === N - 1 ? 600 : 400 }}>{mo}</text>)}
+      {months.map((mo, i) => <text key={mo + i} x={x(i)} y="202" textAnchor="middle" style={{ fontFamily: "var(--font-text)", fontSize: 8.5, fill: i === N - 1 ? C.slate : C.muted, fontWeight: i === N - 1 ? 600 : 400 }}>{mo}</text>)}
     </svg>
   );
 }
 function GKpi({ label, value, valColor = C.ink, sub }) {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "12px 15px", border: `1px solid ${C.hair}`, borderRadius: 12, background: C.parchment }}>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.muted }}>{label}</div>
       <div style={{ ...opBig, fontSize: 24, color: valColor, marginTop: 4 }}>{value}</div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted, marginTop: 3 }}>{sub}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted, marginTop: 3 }}>{sub}</div>
     </div>
   );
 }
@@ -980,15 +980,15 @@ function GrowthBlock({ g }) {
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: C.muted }}>Growth</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>active members · trailing 12 months</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: C.muted }}>Growth</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted }}>active members · trailing 12 months</span>
       </div>
       <div className="opgrowgrid">
         <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: "12px 14px 6px", display: "flex", flexDirection: "column" }}>
           <GrowthChart g={g} />
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginTop: 4 }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "Inter,sans-serif", fontSize: 10, color: C.slate }}><span style={{ width: 8, height: 8, borderRadius: 2, background: C.meadow }} />joined</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "Inter,sans-serif", fontSize: 10, color: C.slate }}><span style={{ width: 8, height: 8, borderRadius: 2, background: C.amber }} />lost</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--font-text)", fontSize: 10, color: C.slate }}><span style={{ width: 8, height: 8, borderRadius: 2, background: C.meadow }} />joined</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--font-text)", fontSize: 10, color: C.slate }}><span style={{ width: 8, height: 8, borderRadius: 2, background: C.amber }} />lost</span>
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1009,7 +1009,7 @@ function PayMixMini({ pay }) {
         {segs.map(([k, v, c]) => v > 0 && <div key={k} className="fvGrow" style={{ width: `${(v / tot) * 100}%`, background: c, transformOrigin: "left" }} title={`${v} ${k}`} />)}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 11px" }}>
-        {segs.map(([k, v, c]) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "Inter,sans-serif", fontSize: 10, color: C.slate }}><span style={{ width: 6, height: 6, borderRadius: 2, background: c }} />{v} {k}</span>)}
+        {segs.map(([k, v, c]) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "var(--font-text)", fontSize: 10, color: C.slate }}><span style={{ width: 6, height: 6, borderRadius: 2, background: c }} />{v} {k}</span>)}
       </div>
     </div>
   );
@@ -1025,14 +1025,14 @@ function RenewalRow({ r }) {
     <div className="fvRow" style={{ display: "grid", gridTemplateColumns: "1fr auto 150px 22px", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: `1px solid ${C.hair}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
         <span style={{ width: 7, height: 7, borderRadius: 99, background: m.dot, border: m.tone === "act" ? `1px solid ${C.amber}` : "none", flexShrink: 0 }} />
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
-        {r.first && <span title="First renewal, higher churn risk" style={{ fontFamily: "Inter,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: ".03em", color: C.amber, background: C.flagBg, borderRadius: 4, padding: "1px 5px" }}>1ST</span>}
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
+        {r.first && <span title="First renewal, higher churn risk" style={{ fontFamily: "var(--font-text)", fontSize: 9, fontWeight: 700, letterSpacing: ".03em", color: C.amber, background: C.flagBg, borderRadius: 4, padding: "1px 5px" }}>1ST</span>}
       </div>
-      <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600, color: m.val, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{kc(r.v)}</span>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: m.val, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{kc(r.v)}</span>
       <span style={{ display: "flex", alignItems: "center", gap: 6, justifySelf: "start" }}>
         {m.icon ? <Ic name={m.icon} size={12} color={C.amber} /> : <span style={{ width: 12 }} />}
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: m.tone === "act" ? C.amber : C.muted }}>{m.label}</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>· {r.date}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: m.tone === "act" ? C.amber : C.muted }}>{m.label}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted }}>· {r.date}</span>
       </span>
       {r.source_url ? <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in Go High Level" style={{ justifySelf: "end", opacity: .55 }}><Ic name="ext" size={13} color={C.slate} /></a> : <span />}
     </div>
@@ -1046,26 +1046,26 @@ function RenewalQueue({ rn }) {
   const nAuto = (rn.rows || []).length - nAct;
   const chip = (k, label, count, c) => {
     const on = tab === k;
-    return <button onClick={() => setTab(k)} style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 7, padding: "4px 10px", border: `1px solid ${on ? c : C.hair}`, background: on ? "rgba(97,131,94,.08)" : C.surface, color: on ? C.ink : C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>{k !== "all" && <span style={{ width: 6, height: 6, borderRadius: 2, background: c }} />}{label}<span style={{ color: C.muted }}>{count}</span></button>;
+    return <button onClick={() => setTab(k)} style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 7, padding: "4px 10px", border: `1px solid ${on ? c : C.hair}`, background: on ? "rgba(97,131,94,.08)" : C.surface, color: on ? C.ink : C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>{k !== "all" && <span style={{ width: 6, height: 6, borderRadius: 2, background: c }} />}{label}<span style={{ color: C.muted }}>{count}</span></button>;
   };
   return (
     <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, overflow: "hidden" }}>
       <div style={{ padding: "15px 16px 14px" }}>
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
           <div>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700, letterSpacing: ".02em", color: C.ink }}>Renewals · Next 90 Days</span>
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 700, letterSpacing: ".02em", color: C.ink }}>Renewals · Next 90 Days</span>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5 }}>
-              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 26, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{kc(rn.book)}</span>
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.muted }}>across {rn.count} members</span>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{kc(rn.book)}</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: C.muted }}>across {rn.count} members</span>
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted, marginBottom: 3 }}>needs a manual touch</div>
-            <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{kc(rn.needsYou)}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted, marginBottom: 3 }}>needs a manual touch</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{kc(rn.needsYou)}</div>
           </div>
         </div>
         <DuoBar auto={rn.auto} needsYou={rn.needsYou} />
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted }}>
           <span><span style={{ color: C.meadow, fontWeight: 600 }}>{kc(rn.auto)}</span> auto-renews</span>
           <span style={{ color: C.amber, fontWeight: 600 }}>{rn.resigns} re-signs · {rn.failing} failing</span>
         </div>
@@ -1075,16 +1075,16 @@ function RenewalQueue({ rn }) {
           {chip("auto", "Auto-renews", nAuto, C.meadow)}
         </div>
       </div>
-      <div>{rows.length ? rows.map((r, i) => <RenewalRow key={r.name + i} r={r} />) : <div style={{ padding: "18px", textAlign: "center", fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted, borderTop: `1px solid ${C.hair}` }}>None in this view.</div>}</div>
+      <div>{rows.length ? rows.map((r, i) => <RenewalRow key={r.name + i} r={r} />) : <div style={{ padding: "18px", textAlign: "center", fontFamily: "var(--font-text)", fontSize: 12, color: C.muted, borderTop: `1px solid ${C.hair}` }}>None in this view.</div>}</div>
     </div>
   );
 }
 function FunnelStat({ label, value, sub, accent }) {
   return (
     <div style={{ flex: 1 }}>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 18, fontWeight: 600, color: accent ? C.meadow : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 600, color: C.slate, marginTop: 2 }}>{label}</div>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 9.5, color: C.muted }}>{sub}</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, color: accent ? C.meadow : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 600, color: C.slate, marginTop: 2 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 9.5, color: C.muted }}>{sub}</div>
     </div>
   );
 }
@@ -1093,10 +1093,10 @@ function RecruitingPanel({ r }) {
   return (
     <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: "15px 16px 16px", display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ marginBottom: 6 }}>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700, letterSpacing: ".02em", color: C.ink }}>Recruiting · Pipeline</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 700, letterSpacing: ".02em", color: C.ink }}>Recruiting · Pipeline</span>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5 }}>
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 26, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{r.total}</span>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.muted }}>in pipeline</span>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{r.total}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: C.muted }}>in pipeline</span>
         </div>
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 16, padding: "6px 0" }}>
@@ -1106,13 +1106,13 @@ function RecruitingPanel({ r }) {
           const conv = prev ? Math.round((s.n / prev) * 100) : null;
           return (
             <div key={s.label} style={{ display: "grid", gridTemplateColumns: "84px 1fr 64px", alignItems: "center", gap: 10 }}>
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: C.slate, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: C.slate, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</span>
               <div style={{ height: 22, borderRadius: 6, background: C.hair, overflow: "hidden" }}>
                 <div className="fvGrow" style={{ width: `${Math.max(7, (s.n / max) * 100)}%`, height: "100%", background: last ? C.meadow : C.evergreen, opacity: last ? 1 : 1 - i * 0.14, transformOrigin: "left" }} title={`${s.n}`} />
               </div>
               <span style={{ display: "flex", alignItems: "baseline", gap: 6, justifyContent: "flex-end" }}>
-                <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 13.5, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{s.n}</span>
-                {conv != null && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, color: C.muted }}>{conv}%</span>}
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 13.5, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{s.n}</span>
+                {conv != null && <span style={{ fontFamily: "var(--font-text)", fontSize: 10, color: C.muted }}>{conv}%</span>}
               </span>
             </div>
           );
@@ -1131,22 +1131,22 @@ function RenewalCalendar({ cal }) {
   return (
     <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: "14px 16px 12px" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700, color: C.ink }}>Renewal Calendar</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>book by month · 6 mo</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 700, color: C.ink }}>Renewal Calendar</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted }}>book by month · 6 mo</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${cal.length}, 1fr)`, gap: 8, alignItems: "end", height: 92 }}>
         {cal.map((c, i) => {
           const win = i < 3;
           return (
             <div key={c.m + i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: "100%", justifyContent: "flex-end" }}>
-              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 600, color: win ? C.ink : C.muted, fontVariantNumeric: "tabular-nums" }}>{c.v ? kc(c.v) : ""}</span>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 10, fontWeight: 600, color: win ? C.ink : C.muted, fontVariantNumeric: "tabular-nums" }}>{c.v ? kc(c.v) : ""}</span>
               <div className="fvGrowY" style={{ width: "72%", height: `${Math.max(6, (c.v / max) * 66)}px`, borderRadius: "4px 4px 0 0", background: win ? C.meadow : C.sprout, transformOrigin: "bottom" }} title={`${c.m}: ${kc(c.v)}`} />
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: win ? C.slate : C.muted, fontWeight: win ? 600 : 400 }}>{c.m}</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: win ? C.slate : C.muted, fontWeight: win ? 600 : 400 }}>{c.m}</span>
             </div>
           );
         })}
       </div>
-      <div style={{ marginTop: 10, fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}><span style={{ color: C.meadow, fontWeight: 600 }}>Shaded</span> = inside the 90-day window.</div>
+      <div style={{ marginTop: 10, fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted }}><span style={{ color: C.meadow, fontWeight: 600 }}>Shaded</span> = inside the 90-day window.</div>
     </div>
   );
 }
@@ -1154,10 +1154,10 @@ function RecoverPanel({ recover, action, onOpen }) {
   return (
     <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: "15px 16px" }}>
       <div style={{ marginBottom: 12 }}>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 700, color: C.ink }}>Money to Recover</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 700, color: C.ink }}>Money to Recover</span>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5 }}>
-          <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{kc(action.recover)}</span>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, color: C.muted }}>{action.failed} failed charge{action.failed === 1 ? "" : "s"}</span>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{kc(action.recover)}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: C.muted }}>{action.failed} failed charge{action.failed === 1 ? "" : "s"}</span>
         </div>
       </div>
       <div style={{ borderTop: `1px solid ${C.hair}` }}>
@@ -1165,10 +1165,10 @@ function RecoverPanel({ recover, action, onOpen }) {
           <div key={r.name + i} className="fvRow" style={{ display: "grid", gridTemplateColumns: "1fr auto auto 22px", alignItems: "center", gap: 10, padding: "9px 4px", borderBottom: `1px solid ${C.hair}` }}>
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ width: 6, height: 6, borderRadius: 99, background: C.flagDot, border: `1px solid ${C.amber}` }} />
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: C.ink }}>{r.name}</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: C.ink }}>{r.name}</span>
             </span>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>{r.attempts} tr{r.attempts === 1 ? "y" : "ies"}</span>
-            <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{usd(r.amt)}</span>
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted }}>{r.attempts} tr{r.attempts === 1 ? "y" : "ies"}</span>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: C.amber, fontVariantNumeric: "tabular-nums" }}>{usd(r.amt)}</span>
             {r.source_url ? <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in Go High Level" style={{ justifySelf: "end", opacity: .55 }}><Ic name="ext" size={12} color={C.slate} /></a> : <span />}
           </div>
         ))}
@@ -1176,7 +1176,7 @@ function RecoverPanel({ recover, action, onOpen }) {
     </div>
   );
 }
-const OpCtxLabel = ({ children }) => <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: C.muted, marginBottom: 9 }}>{children}</div>;
+const OpCtxLabel = ({ children }) => <div style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: C.muted, marginBottom: 9 }}>{children}</div>;
 function MembersGrowthBody({ mg, recruiting, onOpen }) {
   const pay = mg.pay || {};
   return (
@@ -1186,28 +1186,28 @@ function MembersGrowthBody({ mg, recruiting, onOpen }) {
         <div>
           <OpCtxLabel>Membership Mix</OpCtxLabel>
           <div style={{ display: "flex", alignItems: "baseline", gap: 18, marginBottom: 11 }}>
-            <span><span style={{ ...opBig, fontSize: 30 }}>{mg.primary}</span><span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: C.slate, marginLeft: 6 }}>primary</span></span>
-            <span><span style={{ fontFamily: "Poppins,sans-serif", fontSize: 22, fontWeight: 600, color: C.slate, fontVariantNumeric: "tabular-nums" }}>{mg.addOn}</span><span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted, marginLeft: 6 }}>add-on</span></span>
+            <span><span style={{ ...opBig, fontSize: 30 }}>{mg.primary}</span><span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.slate, marginLeft: 6 }}>primary</span></span>
+            <span><span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: C.slate, fontVariantNumeric: "tabular-nums" }}>{mg.addOn}</span><span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.muted, marginLeft: 6 }}>add-on</span></span>
           </div>
           <div style={{ display: "flex", height: 9, borderRadius: 99, overflow: "hidden", background: C.hair, marginBottom: 9 }}>
             <div className="fvGrow" style={{ width: `${(mg.primary / (mg.primary + mg.addOn || 1)) * 100}%`, background: C.meadow, transformOrigin: "left" }} title={`${mg.primary} primary`} />
             <div className="fvGrow" style={{ width: `${(mg.addOn / (mg.primary + mg.addOn || 1)) * 100}%`, background: C.sprout, transformOrigin: "left" }} title={`${mg.addOn} add-on`} />
           </div>
-          {mg.tenure && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.muted }}>{mg.tenure.avg} mo avg tenure{mg.tenure.first ? <> · <span style={{ color: C.amber, fontWeight: 600 }}>{mg.tenure.first}</span> at first renewal, watch closely</> : null}</div>}
+          {mg.tenure && <div style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: C.muted }}>{mg.tenure.avg} mo avg tenure{mg.tenure.first ? <> · <span style={{ color: C.amber, fontWeight: 600 }}>{mg.tenure.first}</span> at first renewal, watch closely</> : null}</div>}
         </div>
         <div>
           <OpCtxLabel>Payment Cadence</OpCtxLabel>
           <PayMixMini pay={pay} />
-          {pay.lump ? <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: C.slate, marginTop: 9, lineHeight: 1.4 }}>
-            <span style={{ fontFamily: "Poppins,sans-serif", fontWeight: 600, color: C.ink }}>{kc(pay.lump)}</span> ({pay.lumpPct}%) is PIF: no auto-renew, so every one is a manual re-sign each year.
+          {pay.lump ? <div style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: C.slate, marginTop: 9, lineHeight: 1.4 }}>
+            <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, color: C.ink }}>{kc(pay.lump)}</span> ({pay.lumpPct}%) is PIF: no auto-renew, so every one is a manual re-sign each year.
           </div> : null}
         </div>
       </div>
       <div className="opmotions">
         <RenewalQueue rn={mg.renewals || { rows: [], book: 0, count: 0, auto: 0, needsYou: 0, resigns: 0, failing: 0 }} />
-        {recruiting ? <RecruitingPanel r={recruiting} /> : <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: 16, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter,sans-serif", fontSize: 12, color: C.muted }}>Recruiting pipeline not available.</div>}
+        {recruiting ? <RecruitingPanel r={recruiting} /> : <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: 16, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}>Recruiting pipeline not available.</div>}
       </div>
-      <button onClick={() => onOpen("forum_roster")} className="oproster" style={{ marginTop: 16, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 9, padding: "14px", borderRadius: 12, background: C.evergreen, border: "none", cursor: "pointer", fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: C.heroText }}>
+      <button onClick={() => onOpen("forum_roster")} className="oproster" style={{ marginTop: 16, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 9, padding: "14px", borderRadius: 12, background: C.evergreen, border: "none", cursor: "pointer", fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: C.heroText }}>
         Open full roster <Ic name="arrow" size={15} color={C.heroText} />
       </button>
     </div>
@@ -1280,7 +1280,7 @@ export default function ForumView({ data, area, onDrill, title = "The Forum",
             ? <MoneyHero b={b} rangeLabel={rangeLabel} spark={heroSpark} months={heroMonths} onOpen={onOpen} isBc={isBc} />
             : <div className="card" style={{ padding: 22, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                 <div className="kick"><span className="kb kb-m" />Cash · Real-Time Truth<span className="src">Go High Level</span></div>
-                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>The cash lens lights up when this program's Go High Level Payments connection is live.</div>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>The cash lens lights up when this program's Go High Level Payments connection is live.</div>
               </div>}
         </div>
 
@@ -1339,12 +1339,12 @@ export function BeCollectivePlaceholder() {
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <span style={{ width: 5, height: 30, borderRadius: 3, background: C.mistDeep }} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 24, fontWeight: 600, color: C.ink }}>beCollective</span>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: C.muted }}>Community · separate GHL segment</span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 600, color: C.ink }}>beCollective</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: C.muted }}>Community · separate GHL segment</span>
       </div>
       <div className="card" style={{ maxWidth: 560, padding: 22 }}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 16, fontWeight: 600, color: C.ink }}>Its own space is coming</div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: C.slate, marginTop: 8, lineHeight: 1.6 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: C.ink }}>Its own space is coming</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: C.slate, marginTop: 8, lineHeight: 1.6 }}>
           Connect the beCollective Go High Level account in Settings to light this up.
         </div>
       </div>

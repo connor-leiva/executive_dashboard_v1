@@ -156,7 +156,7 @@ function CallSearch({ businessKey, tz, usingSample }) {
         <input value={q} onChange={(e) => setQ(e.target.value)}
                placeholder="Search what was said on any call…"
                style={{
-                 fontFamily: "Inter,sans-serif", fontSize: 12.5, padding: "7px 11px",
+                 fontFamily: "var(--font-text)", fontSize: 12.5, padding: "7px 11px",
                  border: `1px solid ${T.line}`, borderRadius: 9, color: T.ink,
                  background: T.white, width: 250, maxWidth: "52vw", boxSizing: "border-box",
                }} />
@@ -256,7 +256,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-mod { max-width:920px; } .sd-root * { box-sizing:border-box; }
         .sd-ctx { display:flex; align-items:center; gap:11px; margin:4px 0 16px; flex-wrap:wrap; }
         .sd-ctx-bar { width:4px; height:20px; border-radius:2px; background:${T.petal}; }
-        .sd-ctx-h { font-family:Poppins,sans-serif; font-size:17px; font-weight:600; letter-spacing:-.01em; }
+        .sd-ctx-h { font-family:var(--font-display); font-size:17px; font-weight:600; letter-spacing:-.01em; }
         .sd-ctx-s { font-size:12px; color:${T.muted}; }
         .sd-spacer { flex:1; }
         .sd-pill { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:600;
@@ -268,14 +268,14 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:11px; margin-bottom:14px; }
         .sd-kpi { background:${T.white}; border:1px solid ${T.line}; border-radius:13px; padding:13px 15px; }
         .sd-kpi-l { font-size:10px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:${T.tertiary}; }
-        .sd-kpi-v { font-family:Poppins,sans-serif; font-size:24px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
+        .sd-kpi-v { font-family:var(--font-display); font-size:24px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
         .sd-kpi-v.good { color:${T.meadow}; } .sd-kpi-v.warn { color:${T.amber}; }
         .sd-kpi-s { font-size:10.5px; color:${T.muted}; margin-top:2px; }
 
         .sd-card { background:${T.white}; border:1px solid ${T.line}; border-radius:16px; padding:18px 20px 16px;
           box-shadow:0 12px 30px ${alpha(T.evergreen, .05)}; margin-bottom:14px; }
         .sd-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; gap:10px; flex-wrap:wrap; }
-        .sd-title { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
+        .sd-title { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
         .sd-sub { font-size:11px; color:${T.muted}; }
         .sd-clear { border:none; background:none; font:inherit; font-size:11px; font-weight:600; color:${T.petalDeep}; cursor:pointer; padding:0; }
 
@@ -294,7 +294,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-c-stat { min-width:0; }
         .sd-c-l { display:block; font-size:9.5px; font-weight:700; letter-spacing:.07em;
           text-transform:uppercase; color:${T.tertiary}; }
-        .sd-c-v { display:block; font-family:Poppins,sans-serif; font-size:17px; font-weight:700;
+        .sd-c-v { display:block; font-family:var(--font-display); font-size:17px; font-weight:700;
           margin-top:2px; font-variant-numeric:tabular-nums; color:${T.ink}; }
         .sd-c-foot { font-size:10.5px; color:${T.tertiary}; line-height:1.5; margin-top:4px; }
         @media (max-width:700px) {
@@ -310,7 +310,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-tbl td:first-child { text-align:left; font-weight:600; color:${T.ink}; }
         .sd-tbl tr.sel td { background:${alpha(T.line, .5)}; }
         .sd-tbl tr.click { cursor:pointer; } .sd-tbl tr.click:hover td { background:${alpha(T.line, .5)}; }
-        .sd-tbl td .em { font-family:Poppins,sans-serif; font-weight:700; color:${T.ink}; }
+        .sd-tbl td .em { font-family:var(--font-display); font-weight:700; color:${T.ink}; }
         .rate { font-weight:700; } .rate.good { color:${T.meadow}; } .rate.warn { color:${T.amber}; }
         .flagchip { display:inline-block; margin-left:7px; font-size:9.5px; font-weight:700; color:${T.amber};
           background:${T.amberBg}; border-radius:5px; padding:2px 6px; }
@@ -339,13 +339,13 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-mix { display:grid; grid-template-columns:repeat(4,1fr); gap:11px; }
         .sd-mixcell { border:1px solid ${T.line}; border-radius:11px; padding:11px 13px; }
         .sd-mix-t { font-size:11.5px; font-weight:700; color:${T.ink}; }
-        .sd-mix-n { font-family:Poppins,sans-serif; font-size:20px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
+        .sd-mix-n { font-family:var(--font-display); font-size:20px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
         .sd-mix-s { font-size:10.5px; color:${T.muted}; margin-top:2px; line-height:1.4; }
         .prov { display:inline-block; font-size:9px; font-weight:700; color:${T.amber}; background:${T.amberBg};
           border-radius:4px; padding:1px 5px; margin-left:5px; }
         .sd-bar { display:flex; height:8px; border-radius:5px; overflow:hidden; margin:12px 0 8px; background:${alpha(T.line, .5)}; }
         .sd-bar span { display:block; height:100%; }
-        .sd-mixfoot { font-size:11px; color:${T.tertiary}; } .sd-mixfoot b { font-family:Poppins,sans-serif; color:${T.ink}; }
+        .sd-mixfoot { font-size:11px; color:${T.tertiary}; } .sd-mixfoot b { font-family:var(--font-display); color:${T.ink}; }
 
         /* Data Health IS an .sd-card - it just wears an amber border. Everything about its
            box (shadow, radius, padding, margin) comes from .sd-card so the two cards stacked
@@ -358,7 +358,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         /* line-height matters here: Poppins at 17px defaults to a ~26px box beside a 15px
            label, and on a shared baseline the number visibly floats above the text it
            belongs to. min-width, not width, so a three-digit count doesn't break the column. */
-        .sd-hn { font-family:Poppins,sans-serif; font-size:17px; font-weight:700; line-height:1.2;
+        .sd-hn { font-family:var(--font-display); font-size:17px; font-weight:700; line-height:1.2;
           color:${T.amber}; min-width:26px; flex:none; text-align:right; }
         .sd-hl { font-size:12.5px; font-weight:600; color:${T.ink}; line-height:1.35; }
         .sd-hint { display:block; font-size:11px; color:${T.muted}; margin-top:3px; line-height:1.45; }
@@ -373,17 +373,17 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
           box-shadow:-24px 0 60px ${alpha(T.evergreen, .18)}; }
         .drx-head { display:flex; justify-content:space-between; align-items:center; padding:16px 20px;
           border-bottom:1px solid ${T.line}; }
-        .drx-title { font-family:Poppins,sans-serif; font-size:14px; font-weight:700; color:${T.ink}; }
+        .drx-title { font-family:var(--font-display); font-size:14px; font-weight:700; color:${T.ink}; }
         .drx-x { border:none; background:none; font-size:15px; color:${T.tertiary}; cursor:pointer; }
         .drx-body { padding:18px 20px; overflow-y:auto; }
-        .drx-val { font-family:Poppins,sans-serif; font-size:30px; font-weight:700; color:${T.ink};
+        .drx-val { font-family:var(--font-display); font-size:30px; font-weight:700; color:${T.ink};
           letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
         .drx-sub { font-size:12px; color:${T.muted}; margin:2px 0 12px; }
         .drx-steps { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; margin-bottom:12px; }
         .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:12.5px;
           border-bottom:1px solid ${alpha(T.line, .5)}; }
         .drx-step:last-child { border-bottom:none; }
-        .drx-step span { color:${T.secondary}; } .drx-step b { color:${T.ink}; font-family:Poppins,sans-serif;
+        .drx-step span { color:${T.secondary}; } .drx-step b { color:${T.ink}; font-family:var(--font-display);
           font-weight:600; text-align:right; }
         .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:${T.teal};
           background:${alpha(T.teal, .07)}; border-radius:8px; padding:8px 11px; margin-bottom:10px; }

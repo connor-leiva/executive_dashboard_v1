@@ -41,7 +41,7 @@ function Card({ children, style }) {
   return <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, ...style }}>{children}</div>;
 }
 function Eyebrow({ children }) {
-  return <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: T.tertiary }}>{children}</span>;
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: T.tertiary }}>{children}</span>;
 }
 function Dot({ s, size = 8 }) {
   return <span style={{ width: size, height: size, borderRadius: 99, background: (OSTATUS[s] || OSTATUS.none).dot, display: "inline-block", flexShrink: 0 }} />;
@@ -62,7 +62,7 @@ function Legend() {
   return (
     <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
       {Object.entries(OSTATUS).map(([k, s]) => (
-        <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter,sans-serif", fontSize: 11, color: T.slate }}>
+        <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-text)", fontSize: 11, color: T.slate }}>
           <Dot s={k} size={7} />{s.label}
         </span>
       ))}
@@ -76,7 +76,7 @@ function Cell({ code, label }) {
   return (
     <span style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, minWidth: 0 }}>
       <Dot s={code} size={7} />
-      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: code === "overdue" ? 700 : 500,
+      <span style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: code === "overdue" ? 700 : 500,
         color: code === "none" || code === "not_applicable" ? T.muted : st.text, whiteSpace: "nowrap" }}>{label}</span>
     </span>
   );
@@ -85,15 +85,15 @@ function Cell({ code, label }) {
 function ObligationsMatrix({ kinds, groups, onOpen }) {
   const GroupHeader = ({ label, count }) => (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", background: T.meadowBg, borderTop: `1px solid ${T.line}` }}>
-      <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.tertiary }}>{label}</span>
-      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.meadow }}>· {count}</span>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.tertiary }}>{label}</span>
+      <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.meadow }}>· {count}</span>
     </div>
   );
   const Row = ({ e, first }) => (
     <button onClick={() => onOpen(e)} className="cc-nav" style={{
       width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "11px 16px",
       background: T.white, border: "none", borderTop: first ? "none" : `1px solid ${T.line}`, cursor: "pointer", textAlign: "left" }}>
-      <span style={{ width: 196, flexShrink: 0, fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink,
+      <span style={{ width: 196, flexShrink: 0, fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: T.ink,
         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</span>
       {kinds.map((k) => { const cell = e.cells[k.key] || { status: "none", label: "—" }; return <Cell key={k.key} code={cell.status} label={cell.label} />; })}
     </button>
@@ -102,9 +102,9 @@ function ObligationsMatrix({ kinds, groups, onOpen }) {
     <div style={{ overflowX: "auto", border: `1px solid ${T.line}`, borderRadius: 14, background: T.white }}>
       <div style={{ minWidth: 780 }}>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "12px 16px", background: T.evergreen, borderRadius: "13px 13px 0 0" }}>
-          <span style={{ width: 196, flexShrink: 0, fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: T.onDark }}>Entity</span>
+          <span style={{ width: 196, flexShrink: 0, fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: T.onDark }}>Entity</span>
           {kinds.map((k) => (
-            <span key={k.key} title={KIND_DEFS[k.key]} style={{ flex: 1, fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.03em", textTransform: "uppercase", color: T.onDarkMute, textAlign: "center", lineHeight: 1.25, cursor: KIND_DEFS[k.key] ? "help" : "default" }}>{k.label}</span>
+            <span key={k.key} title={KIND_DEFS[k.key]} style={{ flex: 1, fontFamily: "var(--font-display)", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.03em", textTransform: "uppercase", color: T.onDarkMute, textAlign: "center", lineHeight: 1.25, cursor: KIND_DEFS[k.key] ? "help" : "default" }}>{k.label}</span>
           ))}
         </div>
         {groups.map((g) => g.entities.length > 0 && (
@@ -129,15 +129,15 @@ function Overview({ matrix, onOpen }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <Icon name="warning" size={15} color={T.poppyText} />
             <Eyebrow>Needs attention</Eyebrow>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>· {flags.attention.length} of {totalEntities} entities</span>
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>· {flags.attention.length} of {totalEntities} entities</span>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {flags.attention.map((a) => (
               <button key={a.id} onClick={() => onOpen({ id: a.id, name: a.name })} className="cc-nav" style={{
                 display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 12px", background: T.white,
                 border: `1px solid ${T.line}`, borderRadius: 10, borderLeft: `3px solid ${a.worst === "overdue" ? T.poppy : T.daffodil}`, cursor: "pointer" }}>
-                <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{a.name}</span>
-                <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 700, color: a.worst === "overdue" ? T.poppyText : T.daffodilText }}>{a.open} to handle</span>
+                <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{a.name}</span>
+                <span style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 700, color: a.worst === "overdue" ? T.poppyText : T.daffodilText }}>{a.open} to handle</span>
               </button>
             ))}
           </div>
@@ -145,7 +145,7 @@ function Overview({ matrix, onOpen }) {
       )}
 
       {totalEntities === 0 ? (
-        <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13, textAlign: "center", padding: "34px" }}>
+        <Card style={{ color: T.muted, fontFamily: "var(--font-text)", fontSize: 13, textAlign: "center", padding: "34px" }}>
           No entities yet. Add one under the Manage tab, then obligations appear here as documents are confirmed.
         </Card>
       ) : (
@@ -159,7 +159,7 @@ function Overview({ matrix, onOpen }) {
 /* ── entity list (scope=operating|holding) ───────────────────── */
 function EntityListView({ rows, scope, onOpen }) {
   if (rows.length === 0) return (
-    <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13, textAlign: "center", padding: "30px" }}>
+    <Card style={{ color: T.muted, fontFamily: "var(--font-text)", fontSize: 13, textAlign: "center", padding: "30px" }}>
       No {scope} entities yet. Add one under the Manage tab.
     </Card>
   );
@@ -175,19 +175,19 @@ function EntityListView({ rows, scope, onOpen }) {
             background: i % 2 ? T.parchment : T.white, border: "none",
             borderTop: i ? `1px solid ${T.line}` : "none", cursor: "pointer", textAlign: "left" }}>
             <Dot s={w} size={10} />
-            <span style={{ width: 220, flexShrink: 0, fontFamily: "Inter,sans-serif", fontSize: 13.5, fontWeight: 600, color: T.ink,
+            <span style={{ width: 220, flexShrink: 0, fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.ink,
               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</span>
-            <span style={{ width: 160, flexShrink: 0, fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate,
+            <span style={{ width: 160, flexShrink: 0, fontFamily: "var(--font-text)", fontSize: 12, color: T.slate,
               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.business_name || e.nickname || ""}</span>
-            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>{sub}</span>
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>{sub}</span>
             <span style={{ flex: 1 }} />
             {open > 0 ? (
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 700, color: w === "overdue" ? T.poppyText : T.daffodilText,
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 700, color: w === "overdue" ? T.poppyText : T.daffodilText,
                 background: w === "overdue" ? "rgba(250,128,105,0.14)" : T.daffodilBg, borderRadius: 6, padding: "3px 10px" }}>
                 {open} to Handle
               </span>
             ) : (
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, fontWeight: 600, color: T.tertiary }}>All Current</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 600, color: T.tertiary }}>All Current</span>
             )}
             <Icon name="chevron_backward" size={15} color={T.muted} style={{ transform: "scaleX(-1)", marginLeft: 4 }} />
           </button>
@@ -225,10 +225,10 @@ async function uploadDocuments(files, entityId) {
 /* Inline editor for one obligation. Save routes through the manual upsert endpoint, which
    handles both first-time configure and edits of an existing row (records the user either way). */
 function labelStyle() {
-  return { fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.tertiary, marginBottom: 4, display: "block" };
+  return { fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.tertiary, marginBottom: 4, display: "block" };
 }
 function inputStyle() {
-  return { width: "100%", fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.ink, background: T.white,
+  return { width: "100%", fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, background: T.white,
     border: `1px solid ${T.line}`, borderRadius: 7, padding: "6px 8px", boxSizing: "border-box" };
 }
 
@@ -263,11 +263,11 @@ function ObligationEditor({ o, entityId, usingSample, onClose, onSaved }) {
   return (
     <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 10, padding: 12, marginTop: 4 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontFamily: "Inter,sans-serif", fontSize: 12, color: T.slate }}>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontFamily: "var(--font-text)", fontSize: 12, color: T.slate }}>
           <input type="checkbox" checked={f.applicable} onChange={(ev) => setF((s) => ({ ...s, applicable: ev.target.checked }))} />
           Applies to This Entity
         </label>
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted }}>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: T.muted }}>
           {f.applicable ? "" : "unchecking marks this N/A"}
         </span>
       </div>
@@ -281,7 +281,7 @@ function ObligationEditor({ o, entityId, usingSample, onClose, onSaved }) {
         <div><label style={labelStyle()}>Reminder Lead (Days)</label><input type="number" min="0" value={f.lead_days} onChange={set("lead_days")} style={inputStyle()} disabled={!f.applicable} /></div>
       </div>
       <div style={{ marginTop: 10 }}><label style={labelStyle()}>Notes</label><input value={f.notes} onChange={set("notes")} placeholder="Optional Context" style={inputStyle()} /></div>
-      {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText, marginTop: 8 }}>{err}</div>}
+      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.poppyText, marginTop: 8 }}>{err}</div>}
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 10 }}>
         {o.configured && o.id && (
           <button onClick={complete} disabled={busy} className="cc-nav" style={btnStyle(T.slate, T.white)}>Mark Complete</button>
@@ -294,7 +294,7 @@ function ObligationEditor({ o, entityId, usingSample, onClose, onSaved }) {
   );
 }
 function btnStyle(color, bg, border = T.line) {
-  return { fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color, background: bg,
+  return { fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color, background: bg,
     border: `1px solid ${border}`, borderRadius: 8, padding: "7px 13px", cursor: "pointer" };
 }
 
@@ -313,18 +313,18 @@ function ObligationRow({ o, first, entityId, usingSample, onSaved, onPreview }) 
         </button>
         <Dot s={o.status} size={9} />
         <span title={def} style={{ flex: 1, display: "inline-flex", alignItems: "center", gap: 5,
-          fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 500, color: o.status === "none" ? T.muted : T.ink, cursor: def ? "help" : "default" }}>
+          fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 500, color: o.status === "none" ? T.muted : T.ink, cursor: def ? "help" : "default" }}>
           {o.kind_label}
           {def && <Icon name="info" size={12} color={T.muted} />}
         </span>
-        {o.status === "in_progress" && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.teal, fontStyle: "italic" }}>Waiting on Books Close</span>}
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: o.status === "overdue" ? 700 : 600, color: st.text,
+        {o.status === "in_progress" && <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: T.teal, fontStyle: "italic" }}>Waiting on Books Close</span>}
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: o.status === "overdue" ? 700 : 600, color: st.text,
           background: o.status === "overdue" ? "rgba(250,128,105,0.12)" : o.status === "due_soon" ? T.daffodilBg : "transparent",
           borderRadius: 5, padding: (o.status === "overdue" || o.status === "due_soon") ? "2px 8px" : 0 }}>
           {showLabel}
         </span>
         <button onClick={() => setEditing((v) => !v)} className="cc-nav" style={{
-          fontFamily: "Poppins,sans-serif", fontSize: 11.5, fontWeight: 600, color: o.configured ? T.slate : T.tertiary,
+          fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600, color: o.configured ? T.slate : T.tertiary,
           background: o.configured ? T.white : T.meadowBg, border: `1px solid ${T.line}`, borderRadius: 7, padding: "4px 10px", cursor: "pointer" }}>
           {editing ? "Close" : o.configured ? "Edit" : "Configure"}
         </button>
@@ -353,7 +353,7 @@ function DocPreview({ doc, usingSample, onClose, onReplace, onDelete }) {
   const name = doc.filename || "document";
   const ext = (name.split(".").pop() || "").toLowerCase();
   const isPdf = ext === "pdf", isImg = IMG_EXT.includes(ext);
-  const msg = (t) => <div style={{ margin: "auto", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.muted }}>{t}</div>;
+  const msg = (t) => <div style={{ margin: "auto", fontFamily: "var(--font-text)", fontSize: 13, color: T.muted }}>{t}</div>;
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,46,44,0.42)",
       display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -361,7 +361,7 @@ function DocPreview({ doc, usingSample, onClose, onReplace, onDelete }) {
         border: `1px solid ${T.line}`, borderRadius: 14, boxShadow: "0 24px 60px rgba(0,46,44,.28)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${T.line}` }}>
           <Icon name="open" size={15} color={T.slate} />
-          <span style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
+          <span style={{ flex: 1, fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
           {url && <a href={url} download={name} className="cc-nav" style={{ ...btnStyle(T.slate, T.white), textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="download" size={13} color={T.slate} />Download</a>}
           {onReplace && <button onClick={onReplace} className="cc-nav" style={{ ...btnStyle(T.slate, T.white), display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="sync" size={13} color={T.slate} />Replace</button>}
           {onDelete && <button onClick={onDelete} className="cc-nav" style={btnStyle(T.poppyText, T.white)}>Delete</button>}
@@ -375,7 +375,7 @@ function DocPreview({ doc, usingSample, onClose, onReplace, onDelete }) {
           {state === "ready" && isImg && <img src={url} alt={name} style={{ margin: "auto", maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />}
           {state === "ready" && !isPdf && !isImg && (
             <div style={{ margin: "auto", textAlign: "center" }}>
-              <div style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate, marginBottom: 10 }}>This file type can't be previewed inline.</div>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, marginBottom: 10 }}>This file type can't be previewed inline.</div>
               <a href={url} download={name} className="cc-nav" style={{ ...btnStyle(T.onDark, T.evergreen, T.evergreen), textDecoration: "none" }}>Download {name}</a>
             </div>
           )}
@@ -393,11 +393,11 @@ function DocRow({ it, onPreview, onReplace, onDelete }) {
         flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 9, padding: "5px 6px", margin: "0 -6px",
         background: "transparent", border: "none", borderRadius: 7, cursor: "pointer", textAlign: "left" }}>
         <Icon name="open" size={13} color={it.expired ? T.poppyText : T.muted} />
-        <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter,sans-serif", fontSize: 12.5, color: it.expired ? T.poppyText : T.ink,
+        <span style={{ flex: 1, minWidth: 0, fontFamily: "var(--font-text)", fontSize: 12.5, color: it.expired ? T.poppyText : T.ink,
           whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.filename}</span>
         {it.expired
-          ? <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, color: T.poppyText, background: "rgba(250,128,105,0.12)", borderRadius: 5, padding: "1px 6px", flexShrink: 0 }}>Expired</span>
-          : (it.year ? <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{it.year}</span> : null)}
+          ? <span style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, color: T.poppyText, background: "rgba(250,128,105,0.12)", borderRadius: 5, padding: "1px 6px", flexShrink: 0 }}>Expired</span>
+          : (it.year ? <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{it.year}</span> : null)}
       </button>
       <button onClick={() => onReplace(it.id)} title="Replace" className="cc-nav" style={docIconBtn}><Icon name="sync" size={12} color={T.muted} /></button>
       <button onClick={() => onDelete(it.id)} title="Delete" className="cc-nav" style={docIconBtn}><Icon name="close" size={12} color={T.muted} /></button>
@@ -414,9 +414,9 @@ function DocGroup({ grp, first, onPreview, onReplace, onDelete }) {
   const rowProps = { onPreview, onReplace, onDelete };
   return (
     <div style={{ paddingTop: first ? 8 : 12, borderTop: first ? "none" : `1px solid ${T.line}`, marginTop: first ? 0 : 6 }}>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, color: T.tertiary, marginBottom: 6 }}>{grp.category}</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, color: T.tertiary, marginBottom: 6 }}>{grp.category}</div>
       {cur.length === 0 && (
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, fontStyle: "italic", padding: "2px 0 4px" }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, fontStyle: "italic", padding: "2px 0 4px" }}>
           {hist.length === 0 ? "None on File Yet" : "No active documents"}
         </div>
       )}
@@ -424,7 +424,7 @@ function DocGroup({ grp, first, onPreview, onReplace, onDelete }) {
       {hist.length > 0 && (
         <div style={{ marginTop: 4 }}>
           <button onClick={() => setShowHist((v) => !v)} className="cc-nav" style={{
-            display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600,
+            display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600,
             color: T.tertiary, background: "transparent", border: "none", cursor: "pointer", padding: "3px 0" }}>
             <Icon name="chevron_down" size={12} color={T.tertiary} style={{ transform: showHist ? "none" : "rotate(-90deg)" }} />
             Historical ({hist.length})
@@ -451,17 +451,17 @@ function ObligationDetail({ o, usingSample, onPreview }) {
   const rel = o.related_documents || [];
   return (
     <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 10, padding: 12, marginTop: 4 }}>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, lineHeight: 1.5 }}>{o.status_reason}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, lineHeight: 1.5 }}>{o.status_reason}</div>
       {rel.length > 0 && (
         <div style={{ marginTop: 10 }}>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.tertiary, marginBottom: 4 }}>Related Documents</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.tertiary, marginBottom: 4 }}>Related Documents</div>
           {rel.map((d) => (
             <button key={d.id} onClick={() => onPreview(d)} className="cc-nav" style={{
               width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", margin: "0 -6px",
               background: "transparent", border: "none", borderRadius: 6, cursor: "pointer", textAlign: "left" }}>
               <Icon name="open" size={12} color={d.expired ? T.poppyText : T.muted} />
-              <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter,sans-serif", fontSize: 12, color: d.expired ? T.poppyText : T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.filename}</span>
-              {d.expired ? <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, color: T.poppyText, flexShrink: 0 }}>Expired</span> : (d.year ? <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{d.year}</span> : null)}
+              <span style={{ flex: 1, minWidth: 0, fontFamily: "var(--font-text)", fontSize: 12, color: d.expired ? T.poppyText : T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.filename}</span>
+              {d.expired ? <span style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, color: T.poppyText, flexShrink: 0 }}>Expired</span> : (d.year ? <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{d.year}</span> : null)}
             </button>
           ))}
         </div>
@@ -470,15 +470,15 @@ function ObligationDetail({ o, usingSample, onPreview }) {
         <div style={{ marginTop: 10, borderTop: `1px solid ${T.line}`, paddingTop: 10 }}>
           {ai ? (
             <div style={{ display: "flex", gap: 8 }}>
-              <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 9.5, fontWeight: 700, color: T.teal, background: T.meadowBg, borderRadius: 5, padding: "2px 6px", height: "fit-content" }}>AI</span>
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, lineHeight: 1.5 }}>{ai}</span>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 9.5, fontWeight: 700, color: T.teal, background: T.meadowBg, borderRadius: 5, padding: "2px 6px", height: "fit-content" }}>AI</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, lineHeight: 1.5 }}>{ai}</span>
             </div>
           ) : (
             <button onClick={explain} disabled={busy} className="cc-nav" style={{ ...btnStyle(T.slate, T.white), display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Icon name="spark" size={13} color={T.slate} />{busy ? "Thinking…" : "Explain with AI"}
             </button>
           )}
-          {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.poppyText, marginTop: 6 }}>{err}</div>}
+          {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.poppyText, marginTop: 6 }}>{err}</div>}
         </div>
       )}
     </div>
@@ -546,11 +546,11 @@ function EntityBinder({ row, usingSample, onBack, onChanged }) {
       <BackBtn onBack={onBack} />
       <Card style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <Icon name="warning" size={16} color={T.poppyText} />
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate, flex: 1 }}>Could not load this entity.</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, flex: 1 }}>Could not load this entity.</span>
       </Card>
     </div>
   );
-  if (!data) return (<div><BackBtn onBack={onBack} /><Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13 }}>Loading…</Card></div>);
+  if (!data) return (<div><BackBtn onBack={onBack} /><Card style={{ color: T.muted, fontFamily: "var(--font-text)", fontSize: 13 }}>Loading…</Card></div>);
 
   const e = data.entity;
   const meta = [e.type && (TYPE_LABEL[e.type] || e.type.toUpperCase()), e.jurisdiction, e.ownership,
@@ -560,10 +560,10 @@ function EntityBinder({ row, usingSample, onBack, onChanged }) {
       <BackBtn onBack={onBack} />
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         <span style={{ width: 4, height: 22, borderRadius: 2, background: T.meadow }} />
-        <span style={{ fontFamily: "Poppins,sans-serif", fontSize: 20, fontWeight: 600, color: T.ink }}>{e.name}</span>
-        {e.nickname && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>{e.nickname}</span>}
-        <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>{meta}</span>
-        {e.business_name && <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.muted }}>· {e.business_name}</span>}
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, color: T.ink }}>{e.name}</span>
+        {e.nickname && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{e.nickname}</span>}
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{meta}</span>
+        {e.business_name && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>· {e.business_name}</span>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)", gap: 18, alignItems: "start" }}>
@@ -587,11 +587,11 @@ function EntityBinder({ row, usingSample, onBack, onChanged }) {
           <input ref={replaceRef} type="file" onChange={onReplaceFile} style={{ display: "none" }} />
           <button onClick={() => fileRef.current?.click()} disabled={uploading} className="cc-nav" style={{
             marginTop: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
-            fontFamily: "Poppins,sans-serif", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment,
+            fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment,
             border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: uploading ? "default" : "pointer", width: "100%", opacity: uploading ? 0.6 : 1 }}>
             <Icon name="download" size={14} color={T.slate} />{uploading ? "Uploading…" : "Upload Documents"}
           </button>
-          {note && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted, marginTop: 8 }}>{note}</div>}
+          {note && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 8 }}>{note}</div>}
         </Card>
       </div>
 
@@ -605,7 +605,7 @@ function EntityBinder({ row, usingSample, onBack, onChanged }) {
 function BackBtn({ onBack }) {
   return (
     <button onClick={onBack} className="cc-nav" style={{ display: "inline-flex", alignItems: "center", gap: 5,
-      fontFamily: "Inter,sans-serif", fontSize: 12.5, fontWeight: 600, color: T.tertiary, background: "transparent",
+      fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: T.tertiary, background: "transparent",
       border: "none", cursor: "pointer", marginBottom: 12, padding: 0 }}>
       <Icon name="chevron_backward" size={14} color={T.tertiary} />Back
     </button>
@@ -620,11 +620,11 @@ export default function BinderBrowse({ scope = "all" }) {
   useEffect(() => { setOpenRow(null); }, [scope]);   // switching browse tabs closes the detail
 
   if (openRow) return <EntityBinder row={openRow} usingSample={usingSample} onBack={() => setOpenRow(null)} onChanged={reload} />;
-  if (loading) return <Card style={{ color: T.muted, fontFamily: "Inter,sans-serif", fontSize: 13 }}>Loading…</Card>;
+  if (loading) return <Card style={{ color: T.muted, fontFamily: "var(--font-text)", fontSize: 13 }}>Loading…</Card>;
   if (error && !data) return (
     <Card style={{ display: "flex", alignItems: "center", gap: 12 }}>
       <Icon name="warning" size={16} color={T.poppyText} />
-      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 13, color: T.slate, flex: 1 }}>Could not load the Binder.</span>
+      <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, flex: 1 }}>Could not load the Binder.</span>
       <button onClick={reload} className="cc-nav" style={btnStyle(T.slate, T.white)}>Retry</button>
     </Card>
   );

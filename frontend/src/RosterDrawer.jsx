@@ -43,7 +43,7 @@ function Seg({ seg }) {
   const f = seg === "F";
   return (
     <span style={{
-      fontFamily: "Poppins,sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+      fontFamily: "var(--font-display)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
       color: f ? T.evergreen : T.teal, background: f ? T.daffodil : T.mist,
       borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0,
     }}>{f ? "Forum" : "IC"}</span>
@@ -54,7 +54,7 @@ function Plan({ payment }) {
   const p = PLAN[payment];
   if (!p) return <span style={{ color: T.muted, fontSize: 12 }}>—</span>;
   return (
-    <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, color: p.fg,
+    <span style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, color: p.fg,
       background: p.bg, borderRadius: 5, padding: "3px 8px", whiteSpace: "nowrap" }}>{p.label}</span>
   );
 }
@@ -64,7 +64,7 @@ function Plan({ payment }) {
 function PayCell({ p }) {
   if (!p || (!p.amount && !p.date)) return <span style={{ color: T.muted }}>—</span>;
   const amt = p.amount ? usd(p.amount) : "—";
-  const amtStyle = { fontFamily: "Poppins,sans-serif", fontSize: 12.5, fontWeight: 600, fontVariantNumeric: "tabular-nums" };
+  const amtStyle = { fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, fontVariantNumeric: "tabular-nums" };
   return (
     <div style={{ whiteSpace: "nowrap" }}>
       {p.url
@@ -118,7 +118,7 @@ function passDate(iso, f, dir) {
   if (dir === "future") return f === "30" ? (d >= t && d <= shiftISO(30)) : (d >= t && d <= shiftISO(90));
   return f === "30" ? (d <= t && d >= shiftISO(-30)) : (d <= t && d >= shiftISO(-90));
 }
-const linkBtn = { fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.meadow, background: "transparent", border: "none", cursor: "pointer", padding: "2px 4px" };
+const linkBtn = { fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.meadow, background: "transparent", border: "none", cursor: "pointer", padding: "2px 4px" };
 
 function DrIc({ name, size = 13, color = "currentColor", sw = 1.8 }) {
   const p = {
@@ -134,7 +134,7 @@ function Checkbox({ on, onClick, label, dot }) {
     <button onClick={onClick} className="roster-opt" style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "6px 8px", background: "transparent", border: "none", cursor: "pointer", borderRadius: 7, textAlign: "left" }}>
       <span style={{ width: 16, height: 16, borderRadius: 5, border: `1.5px solid ${on ? T.meadow : T.line}`, background: on ? T.meadow : T.white, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on && <DrIc name="check" size={11} color="#fff" sw={2.6} />}</span>
       {dot && <span style={{ width: 8, height: 8, borderRadius: 2, background: dot }} />}
-      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.body || T.ink }}>{label}</span>
+      <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.body || T.ink }}>{label}</span>
     </button>
   );
 }
@@ -142,7 +142,7 @@ function Radio({ on, onClick, label }) {
   return (
     <button onClick={onClick} className="roster-opt" style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "6px 8px", background: "transparent", border: "none", cursor: "pointer", borderRadius: 7, textAlign: "left" }}>
       <span style={{ width: 15, height: 15, borderRadius: 99, border: `1.5px solid ${on ? T.meadow : T.line}`, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on && <span style={{ width: 7, height: 7, borderRadius: 99, background: T.meadow }} />}</span>
-      <span style={{ fontFamily: "Inter,sans-serif", fontSize: 12, color: T.body || T.ink }}>{label}</span>
+      <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.body || T.ink }}>{label}</span>
     </button>
   );
 }
@@ -154,13 +154,13 @@ function FunnelMenu({ col, pos, filters, setFilters, sort, setSort, onClose }) {
     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
       {[["asc", loLbl], ["desc", hiLbl]].map(([dd, lbl]) => {
         const on = sort && sort.col === col.key && sort.dir === dd;
-        return <button key={dd} onClick={() => setSort(on ? null : { col: col.key, dir: dd })} style={{ flex: 1, fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 7, padding: "6px 8px", border: `1px solid ${on ? T.meadow : T.line}`, background: on ? "rgba(97,131,94,.08)" : T.white, color: on ? T.ink : T.slate }}>{lbl}</button>;
+        return <button key={dd} onClick={() => setSort(on ? null : { col: col.key, dir: dd })} style={{ flex: 1, fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 7, padding: "6px 8px", border: `1px solid ${on ? T.meadow : T.line}`, background: on ? "rgba(97,131,94,.08)" : T.white, color: on ? T.ink : T.slate }}>{lbl}</button>;
       })}
     </div>
   );
   let body;
   if (col.type === "text") {
-    body = <input autoFocus value={filters[col.key] || ""} onChange={(e) => setF(e.target.value)} placeholder="Contains…" style={{ width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 12, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, outline: "none", color: T.ink }} />;
+    body = <input autoFocus value={filters[col.key] || ""} onChange={(e) => setF(e.target.value)} placeholder="Contains…" style={{ width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 12, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, outline: "none", color: T.ink }} />;
   } else if (col.type === "set" || col.type === "bucket") {
     const cur = filters[col.key] || [];
     body = (<>
@@ -193,15 +193,15 @@ function FunnelMenu({ col, pos, filters, setFilters, sort, setSort, onClose }) {
 function Stat({ label, children }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
         textTransform: "uppercase", color: T.muted, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 15, fontWeight: 600, color: T.ink,
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink,
         display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>{children}</div>
     </div>
   );
 }
 
-const TAG = { fontFamily: "Inter,sans-serif", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em",
+const TAG = { fontFamily: "var(--font-text)", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em",
   borderRadius: 4, padding: "1px 5px", textTransform: "uppercase", flexShrink: 0 };
 const td = { padding: "11px 14px", verticalAlign: "middle" };
 const dcell = { ...td, fontSize: 12.5, color: T.slate, whiteSpace: "nowrap" };
@@ -214,7 +214,7 @@ function MemberRow({ r }) {
       <td style={{ ...td, padding: "11px 14px 11px 24px", minWidth: 210 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
           <span style={{ width: 32, height: 32, borderRadius: 99, flexShrink: 0, background: T.meadowBg,
-            color: T.meadowInk, fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700,
+            color: T.meadowInk, fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700,
             display: "flex", alignItems: "center", justifyContent: "center" }}>{initials(r.name)}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
@@ -230,7 +230,7 @@ function MemberRow({ r }) {
         </div>
       </td>
       <td style={td}><Plan payment={r.payment} /></td>
-      <td style={{ ...td, textAlign: "right", fontFamily: "Poppins,sans-serif", fontSize: 13, fontWeight: 600,
+      <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600,
         color: r.amount ? T.ink : T.muted, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{r.amount ? usd(r.amount) : "—"}</td>
       <td style={td}><PayCell p={r.last_payment} /></td>
       <td style={td}><PayCell p={r.next_payment} /></td>
@@ -306,7 +306,7 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
   }, [inScope, sort]);
 
   const tab = (k, on) => ({
-    fontFamily: "Inter,sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none",
+    fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none",
     borderRadius: 7, padding: "6px 12px", background: on ? T.white : "transparent",
     color: on ? T.ink : T.muted, boxShadow: on ? "0 1px 3px rgba(0,46,44,.12)" : "none",
   });
@@ -337,15 +337,15 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
       <aside className="roster-aside" style={{
         position: "fixed", top: 0, right: 0, bottom: 0, width: "min(1040px, 96vw)", background: T.page,
         borderLeft: `1px solid ${T.line}`, boxShadow: "-24px 0 60px rgba(0,46,44,.20)", zIndex: 41,
-        display: "flex", flexDirection: "column", fontFamily: "Inter,sans-serif",
+        display: "flex", flexDirection: "column", fontFamily: "var(--font-text)",
       }}>
         {/* Header band — title + live composition summary (the CRM at a glance) */}
         <div style={{ padding: "18px 24px 16px", borderBottom: `1px solid ${T.line}`, background: T.white }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
             <div>
-              <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10.5, fontWeight: 600, color: T.slate,
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.slate,
                 background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px" }}>Go High Level</span>
-              <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 19, fontWeight: 600, color: T.ink, marginTop: 8 }}>{isBc ? "beCollective · Roster" : "The Forum · Roster"}</div>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600, color: T.ink, marginTop: 8 }}>{isBc ? "beCollective · Roster" : "The Forum · Roster"}</div>
             </div>
             <button onClick={onClose} aria-label="Close" style={{ fontSize: 17, color: T.slate, background: "transparent", border: "none", cursor: "pointer", lineHeight: 1 }}>✕</button>
           </div>
@@ -371,17 +371,17 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
           <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", opacity: .5 }}><DrIc name="search" size={14} color={T.slate} /></span>
             <input value={qtext} onChange={(e) => setQ(e.target.value)} placeholder="Search members…"
-              style={{ width: "100%", boxSizing: "border-box", fontFamily: "Inter,sans-serif", fontSize: 13, color: T.ink,
+              style={{ width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink,
                 background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px 8px 32px", outline: "none" }} />
           </div>
-          <span style={{ fontFamily: "Inter,sans-serif", fontSize: 11.5, color: T.muted }}>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>
             {inScope.length} shown{subset ? ` · sample of ${sm.total}` : ""}
           </span>
         </div>
         {activeCols.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "10px 24px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap", background: T.parchment }}>
             {activeCols.map((c) => (
-              <span key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, color: T.ink, background: "rgba(97,131,94,.10)", border: `1px solid ${T.meadow}`, borderRadius: 7, padding: "4px 6px 4px 9px" }}>
+              <span key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, color: T.ink, background: "rgba(97,131,94,.10)", border: `1px solid ${T.meadow}`, borderRadius: 7, padding: "4px 6px 4px 9px" }}>
                 {chipText(c)}
                 <button onClick={() => clearCol(c.key)} aria-label="Remove filter" style={{ background: "transparent", border: "none", cursor: "pointer", opacity: .6, display: "inline-flex" }}><DrIc name="close" size={11} color={T.slate} sw={2.2} /></button>
               </span>
@@ -413,7 +413,7 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
                       return (
                         <th key={c.key} style={{ ...th, ...(i === 0 ? { paddingLeft: 24 } : {}) }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "13px 0", justifyContent: c.align === "right" ? "flex-end" : "flex-start" }}>
-                            <span style={{ fontFamily: "Inter,sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: on || isSorted ? T.ink : T.muted, whiteSpace: "nowrap" }}>{c.label}{isSorted ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}</span>
+                            <span style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: on || isSorted ? T.ink : T.muted, whiteSpace: "nowrap" }}>{c.label}{isSorted ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}</span>
                             <button onClick={(e) => openMenu(c, e)} title="Sort & filter" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, cursor: "pointer", background: on ? T.meadow : "transparent", border: `1px solid ${on ? T.meadow : T.line}` }}>
                               <DrIc name="funnel" size={12} color={on ? "#fff" : T.slate} sw={1.9} />
                             </button>
@@ -432,7 +432,7 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
                   return (
                     <tbody key={g}>
                       <tr>
-                        <td colSpan={8} style={{ padding: "14px 24px 6px", fontFamily: "Poppins,sans-serif",
+                        <td colSpan={8} style={{ padding: "14px 24px 6px", fontFamily: "var(--font-display)",
                           fontSize: 12, fontWeight: 600, color: T.slate, background: T.page }}>
                           {GROUP_LABEL[g]}
                           <span style={{ color: T.muted, fontWeight: 500 }}> · {gr.length}</span>

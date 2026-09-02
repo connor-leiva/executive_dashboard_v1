@@ -9,16 +9,16 @@ import { getJSON, postJSON, API_BASE } from "./api.js";
 const box = {
   background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, marginBottom: 16,
 };
-const label = { fontFamily: "Inter,sans-serif", fontSize: 11, fontWeight: 600, color: T.tertiary, marginBottom: 6, display: "block" };
+const label = { fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, color: T.tertiary, marginBottom: 6, display: "block" };
 const input = {
   // 16px: iOS zooms the whole page when a focused field is smaller, which then leaves the
   // layout scrolled sideways. maxWidth so it can't overflow a phone-width card.
-  fontFamily: "Inter,sans-serif", fontSize: 16, padding: "9px 11px", boxSizing: "border-box",
+  fontFamily: "var(--font-text)", fontSize: 16, padding: "9px 11px", boxSizing: "border-box",
   border: `1px solid ${T.line}`, borderRadius: 9, color: T.ink, background: T.white,
   width: 190, maxWidth: "100%",
 };
 const button = (tone = "primary", disabled = false) => ({
-  fontFamily: "Inter,sans-serif", fontSize: 13, fontWeight: 700, border: "none", borderRadius: 9,
+  fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 700, border: "none", borderRadius: 9,
   padding: "9px 16px", cursor: disabled ? "default" : "pointer",
   color: tone === "danger" ? T.amber : T.onDark,
   background: disabled ? T.muted : tone === "danger" ? alpha(T.amber, 0.12) : T.evergreen,
@@ -72,29 +72,29 @@ export default function SecuritySettings() {
   return (
     <div>
       <div style={box}>
-        <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 4 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 4 }}>
           Two-factor authentication
         </div>
-        <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, lineHeight: 1.6, marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, lineHeight: 1.6, marginBottom: 14 }}>
           An authenticator app (1Password, Google Authenticator, Authy) protects the sections that
           hold sensitive records. Today that's <b style={{ color: T.ink }}>Binder</b> — your legal-entity
           and compliance files. You'll be asked for a code when you open it; the unlock lasts 20 minutes.
         </div>
 
         {status.sample ? (
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>
             Connect the backend to manage two-factor.
           </div>
         ) : status.enabled ? (
           <>
             <div style={{
-              display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "Inter,sans-serif",
+              display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "var(--font-text)",
               fontSize: 12, fontWeight: 700, color: T.meadow, background: T.meadowBg,
               borderRadius: 7, padding: "5px 11px", marginBottom: 12,
             }}>
               <span style={{ width: 7, height: 7, borderRadius: 99, background: T.meadow }} /> On
             </div>
-            <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, marginBottom: 14 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, marginBottom: 14 }}>
               {status.recovery_remaining} recovery code{status.recovery_remaining === 1 ? "" : "s"} left.
               {status.recovery_remaining === 0 && " Turn it off and set it up again to get a new set."}
             </div>
@@ -112,7 +112,7 @@ export default function SecuritySettings() {
               <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, padding: 10 }}
                    dangerouslySetInnerHTML={{ __html: enroll.qr }} />
               <div style={{ flex: 1, minWidth: 220 }}>
-                <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.slate, lineHeight: 1.6, marginBottom: 10 }}>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, lineHeight: 1.6, marginBottom: 10 }}>
                   Scan this with your authenticator app, then enter the 6-digit code it shows.
                 </div>
                 <label style={label}>Can't scan? Enter this key by hand</label>
@@ -138,15 +138,15 @@ export default function SecuritySettings() {
           </button>
         )}
 
-        {err && <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.amber, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.amber, marginTop: 12 }}>{err}</div>}
       </div>
 
       {codes && (
         <div style={{ ...box, borderColor: alpha(T.amber, 0.4) }}>
-          <div style={{ fontFamily: "Poppins,sans-serif", fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 4 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 4 }}>
             Save your recovery codes
           </div>
-          <div style={{ fontFamily: "Inter,sans-serif", fontSize: 12.5, color: T.muted, lineHeight: 1.6, marginBottom: 12 }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, lineHeight: 1.6, marginBottom: 12 }}>
             This is the only time these are shown. Each opens Binder once if you lose your phone —
             store them somewhere safe and offline.
           </div>

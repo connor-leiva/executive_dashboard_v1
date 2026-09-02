@@ -139,20 +139,20 @@ export default function ShareDesk() {
     <div className="sh-root">
       <style>{`
         .sh-root { min-height:100vh; background:${T.parchment}; color:${T.ink};
-          font-family:Inter,system-ui,sans-serif; padding:26px 16px 48px; }
+          font-family:var(--font-text); padding:26px 16px 48px; }
         .sh-root * { box-sizing:border-box; }
         .sh-wrap { max-width:640px; margin:0 auto; }
         .sh-head { display:flex; gap:12px; align-items:center; margin-bottom:16px; }
         .sh-bar { width:4px; height:34px; border-radius:2px; background:${T.petal}; }
-        .sh-name { font-family:Poppins,sans-serif; font-size:20px; font-weight:700; letter-spacing:-.01em; }
+        .sh-name { font-family:var(--font-display); font-size:20px; font-weight:700; letter-spacing:-.01em; }
         .sh-sub { font-size:12px; color:${T.muted}; }
         .sh-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:10px; }
         .sh-stat { background:${T.white}; border:1px solid ${T.line}; border-radius:12px; padding:10px 12px; }
         .sh-l { font-size:9.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:${T.tertiary}; }
-        .sh-v { font-family:Poppins,sans-serif; font-size:20px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
+        .sh-v { font-family:var(--font-display); font-size:20px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
         .sh-s { font-size:10px; color:${T.muted}; margin-top:1px; }
         .sh-card { background:${T.white}; border:1px solid ${T.line}; border-radius:14px; padding:14px 16px; margin-top:12px; }
-        .sh-t { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.12em;
+        .sh-t { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.12em;
           text-transform:uppercase; margin-bottom:8px; }
         .sh-t em { font-style:normal; color:${T.amber}; margin-left:6px; }
         .sh-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
@@ -175,17 +175,17 @@ export default function ShareDesk() {
           box-shadow:-24px 0 60px ${alpha(T.evergreen, .18)}; }
         .drx-head { display:flex; justify-content:space-between; align-items:center; padding:16px 20px;
           border-bottom:1px solid ${T.line}; }
-        .drx-title { font-family:Poppins,sans-serif; font-size:14px; font-weight:700; color:${T.ink}; }
+        .drx-title { font-family:var(--font-display); font-size:14px; font-weight:700; color:${T.ink}; }
         .drx-x { border:none; background:none; font-size:15px; color:${T.tertiary}; cursor:pointer; }
         .drx-body { padding:18px 20px; overflow-y:auto; }
-        .drx-val { font-family:Poppins,sans-serif; font-size:30px; font-weight:700; color:${T.ink};
+        .drx-val { font-family:var(--font-display); font-size:30px; font-weight:700; color:${T.ink};
           letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
         .drx-sub { font-size:12px; color:${T.muted}; margin:2px 0 12px; }
         .drx-steps { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; margin-bottom:12px; }
         .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:12.5px;
           border-bottom:1px solid ${alpha(T.line, .5)}; }
         .drx-step:last-child { border-bottom:none; }
-        .drx-step span { color:${T.secondary}; } .drx-step b { color:${T.ink}; font-family:Poppins,sans-serif;
+        .drx-step span { color:${T.secondary}; } .drx-step b { color:${T.ink}; font-family:var(--font-display);
           font-weight:600; text-align:right; }
         .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:${T.teal};
           background:${alpha(T.teal, .07)}; border-radius:8px; padding:8px 11px; margin-bottom:10px; }
