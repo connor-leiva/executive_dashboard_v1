@@ -6,6 +6,7 @@ import { useParams } from "react-router-dom";
 import { getPublic } from "./api";
 import { T, alpha } from "./theme.js";
 import { DrillRecords, DrillCalc } from "./LaunchSection.jsx";
+import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
 
@@ -197,7 +198,7 @@ export default function ShareDesk() {
         .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${alpha(T.line, .5)}; color:${T.secondary}; }
         .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
       `}</style>
-      <div className="sh-wrap">{body()}</div>
+      <div className="sh-wrap">{body()}<PoweredByAcumyn /></div>
       {drill && <ShDrawer token={token} metric={drill} onClose={() => setDrill(null)} />}
     </div>
   );

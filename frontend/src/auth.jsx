@@ -1,17 +1,19 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 // Lazy so the operator console is its own chunk. A customer's browser has no reason to download
 // the screen that suspends customers, and a static import puts it in everybody's bundle.
 const PlatformConsole = lazy(() => import("./platform/PlatformConsole.jsx"));
 import { T } from "./theme.js";
-import { login, hasToken } from "./api.js";
+import { login, hasToken, getJSON } from "./api.js";
 import CommandCenter from "./CommandCenter.jsx";
 import Settings from "./Settings.jsx";
 import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
 import ShareScorecard from "./ulrg/ShareScorecard.jsx";
 import ShareDesk from "./ShareDesk.jsx";
-import { SpringSignature } from "./Brand.jsx";
+import { SpringSignature, setBrand, ribbedHero } from "./Brand.jsx";
+import { applyPalette, applyType } from "./palette.js";
+import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -27,6 +29,24 @@ const IS_OPERATOR_HOST = window.location.hostname.split(".")[0] === "admin";
 export function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // The sign-in screen has no session, so it asks who this host belongs to. Until that answers
+  // it renders Acumyn's own identity, which is the truthful state rather than a placeholder:
+  // before you sign in you are at the platform, not inside a workspace.
+  const [chrome, setChrome] = useState(null);
+  useEffect(() => {
+    let live = true;
+    if (!API_BASE) return undefined;
+    getJSON("/public/brand")
+      .then((b) => {
+        if (!live || !b) return;
+        applyPalette(b.palette || {});
+        applyType(b.type || {});
+        setBrand(b);
+        setChrome(b);
+      })
+      .catch(() => { /* unreachable API: keep the platform's own chrome */ });
+    return () => { live = false; };
+  }, []);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -54,18 +74,25 @@ export function Login({ onLogin }) {
   return (
     <div className="login-root" style={{
       minHeight: "100vh", position: "relative", overflow: "hidden", display: "flex", alignItems: "center",
-      padding: "24px 7vw", backgroundImage: "url(/brand/photos/gradient_1.jpg)", backgroundSize: "cover", backgroundPosition: "center",
+      padding: "24px 7vw", backgroundSize: "cover", backgroundPosition: "center",
+      // A configured image, else the neutral ribbed hero over this workspace's own colour —
+      // which is a real answer for any brand, not a stand-in for a missing file.
+      ...(chrome && chrome.hero_image
+        ? { backgroundImage: `url(${chrome.hero_image})` }
+        : ribbedHero("evergreen")),
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
         .login-photo { position:absolute; top:0; right:0; bottom:0; width:48%;
-          background:url(/brand/photos/spring_pic_10.jpg) center 22%/cover no-repeat;
+          background:var(--login-photo) center 22%/cover no-repeat;
           -webkit-mask-image:linear-gradient(90deg, transparent 0%, #000 30%); mask-image:linear-gradient(90deg, transparent 0%, #000 30%); }
         @media (max-width:900px){ .login-photo{ display:none; } }
         .login-input:focus-visible, .login-btn:focus-visible { outline:2px solid ${T.teal}; outline-offset:2px; }
         .login-btn:hover:not(:disabled){ background:${T.poppyActive}; }
       `}</style>
-      <div className="login-photo" aria-hidden />
+      {chrome && chrome.photo
+        ? <div className="login-photo" aria-hidden
+               style={{ "--login-photo": `url(${chrome.photo})` }} />
+        : null}
       <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 400 }}>
         <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 16, padding: "30px 28px", boxShadow: "0 24px 70px rgba(0,46,44,.16)" }}>
           <SpringSignature tone="dark" height={44} />
@@ -93,6 +120,7 @@ export function Login({ onLogin }) {
           <span style={{ color: T.muted, margin: "0 8px" }}>·</span>
           <a href="/eula.html" style={{ color: T.muted, textDecoration: "none" }}>Terms</a>
         </div>
+        <PoweredByAcumyn tone="light" align="flex-start" />
       </div>
     </div>
   );

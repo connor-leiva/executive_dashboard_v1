@@ -1,40 +1,45 @@
+import { ref } from "./palette.js";
+
 /* Spring · Command Center — shared brand tokens + formatting helpers.
    Palette + type from Spring's Visual Identity System:
    Evergreen / Parchment / Poppy, Poppins + Inter, ribbed gradient.
    Copied verbatim from the canonical mockup. */
 
 /* Ramp-native brand tokens (Spring Command Center brand spec, Section 3). */
+/* The 30 palette slots. Their VALUES are CSS variable references, not colours — see palette.js.
+   Components keep saying `T.ink`; what `T.ink` resolves to is now decided at runtime by whichever
+   workspace is signed in, with Acumyn's identity as the default. */
 export const T = {
-  evergreen: "#002E2C",
-  ink: "#002E2C",          // text 1
-  secondary: "#334733",    // text 2
-  tertiary: "#4D6A4D",     // text 3
-  slate: "#334733",        // secondary text
-  muted: "#89A989",        // text 4 / muted
-  meadow: "#61835E",
-  meadowInk: "#4D6A4D",
-  meadowBg: "#E9EFE7",
-  sprout: "#B8CCB8",
-  parchment: "#F6F0E9",    // page surface
-  page: "#F6F0E9",
-  line: "#EAE1D6",         // hairline
-  white: "#FFFFFF",
-  petal: "#FFBA9F",
-  petalDeep: "#E08863",    // deeper petal — pre-window pill, plan accents, focus rings
-  poppy: "#FA8069",
-  poppyActive: "#F74926",
-  poppyText: "#D92B08",    // gap / danger text
-  gapText: "#D92B08",
-  mist: "#DCE7E9",
-  teal: "#227175",
-  edge: "#B26248",         // The Edge nav/identity — terracotta, distinct from the other programs
-  daffodil: "#FFDD1F",     // flag dot / attention accent
-  daffodilBg: "#FFF9D6",
-  daffodilText: "#6D5336",
-  amber: "#6D5336",        // alias → daffodilText (Forum/drawer "watch" text)
-  amberBg: "#FFF9D6",      // alias → daffodilBg
-  onDark: "#F3EEE7",
-  onDarkMute: "#9CB0AB",
+  evergreen: ref("evergreen"),
+  ink: ref("ink"),          // text 1
+  secondary: ref("secondary"),    // text 2
+  tertiary: ref("tertiary"),     // text 3
+  slate: ref("slate"),        // secondary text
+  muted: ref("muted"),        // text 4 / muted
+  meadow: ref("meadow"),
+  meadowInk: ref("meadowInk"),
+  meadowBg: ref("meadowBg"),
+  sprout: ref("sprout"),
+  parchment: ref("parchment"),    // page surface
+  page: ref("page"),
+  line: ref("line"),         // hairline
+  white: ref("white"),
+  petal: ref("petal"),
+  petalDeep: ref("petalDeep"),    // deeper petal — pre-window pill, plan accents, focus rings
+  poppy: ref("poppy"),
+  poppyActive: ref("poppyActive"),
+  poppyText: ref("poppyText"),    // gap / danger text
+  gapText: ref("gapText"),
+  mist: ref("mist"),
+  teal: ref("teal"),
+  edge: ref("edge"),         // The Edge nav/identity — terracotta, distinct from the other programs
+  daffodil: ref("daffodil"),     // flag dot / attention accent
+  daffodilBg: ref("daffodilBg"),
+  daffodilText: ref("daffodilText"),
+  amber: ref("amber"),        // alias → daffodilText (Forum/drawer "watch" text)
+  amberBg: ref("amberBg"),      // alias → daffodilBg
+  onDark: ref("onDark"),
+  onDarkMute: ref("onDarkMute"),
 };
 
 /* ── Books Statement ledger palette + type ────────────────────────────────────────────────
@@ -113,9 +118,16 @@ export const STATUS = {
 
 // A brand token (or any #rrggbb) as an rgba() string — lets translucent overlays derive
 // from the palette instead of hardcoding rgb triples.
-export const alpha = (hex, a) => {
-  const h = String(hex).replace("#", "");
+export const alpha = (value, a) => {
+  // A token is now `var(--t-poppy)`. JavaScript cannot read what that resolves to — only the
+  // browser can — so rewrite it to the rgb triple palette.js emits alongside every token.
+  // Everything else (OPS's greyscale, any literal) still takes the hex path unchanged.
+  const v = String(value);
+  const m = v.match(/^var\((--[\w-]+)\)$/);
+  if (m) return `rgba(var(${m[1]}-rgb), ${a})`;
+  const h = v.replace("#", "");
   const n = parseInt(h.length === 3 ? h.replace(/./g, "$&$&") : h, 16);
+  if (Number.isNaN(n)) return v;                  // unknown shape: hand it back untouched
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
 

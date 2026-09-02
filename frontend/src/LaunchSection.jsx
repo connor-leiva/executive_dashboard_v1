@@ -1475,7 +1475,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         /* Hero — official petal ribbed gradient (beCollective's brand colorway), light surface. */
         .bcl .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 24px;
           background-color:${T.petal};
-          background-image:url(/brand/RibbedGradient_Petal.jpg);
+          background-image:url(/brand/RibbedGradient.jpg);
           background-size:cover; background-position:center; background-blend-mode:multiply;
           box-shadow:0 2px 6px ${alpha(T.evergreen, .10)}, 0 16px 38px ${alpha(T.evergreen, .12)}; }
         .bcl .eyebrow { font-family:Poppins,sans-serif; font-size:11px; font-weight:700; letter-spacing:.13em;

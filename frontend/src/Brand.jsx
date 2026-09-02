@@ -81,20 +81,30 @@ export function BrandLogomark({ tone = "dark", size = 28, color, style }) {
 export const SpringSignature = BrandSignature;
 export const SpringLogomark = BrandLogomark;
 
-/* Ribbed-gradient hero surface: the delivered gradient (light ground, colored
-   ribs) placed over the business token color with multiply — white ground
-   becomes the brand color, ribs become deeper texture. One ribbed surface per
-   view (always the hero band). tone drives the text stack, not per-element. */
+/* Ribbed-gradient hero surface. A NEUTRAL texture multiplied over a palette colour: the white
+   ground leaves the colour untouched and the ribs deepen it. One ribbed surface per view, always
+   the hero band.
+
+   This used to be eight files, one per colour — RibbedGradient_Evergreen.jpg and friends. They
+   are the same artwork tinted eight ways (measured: after normalising, they differ by at most
+   5.3/255, which is JPEG noise), so the tint was doing nothing the multiply could not. Collapsing
+   them to one greyscale master removed seven files AND removed the ceiling: a hero band now
+   exists for any colour a workspace ever configures, including colours nobody has drawn yet.
+   That is the difference between eight supported brands and all of them.
+
+   On the texture's strength: the eight originals did not darken equally — a yellow tint darkens
+   barely at all, an evergreen one a great deal — so no single master reproduces all eight
+   exactly. The master is cut at 82%, which was the closest match across the range when compared
+   against all eight, and which keeps the ribs visible on the dark grounds the hero actually uses
+   rather than optimising for the light ones that outnumber them. */
 const HERO_BG = {
   evergreen: T.evergreen, meadow: T.meadow, poppy: T.poppy,
   mist: T.mist, parchment: T.parchment, petal: T.petal, daffodil: T.daffodilBg,
 };
 export function ribbedHero(gradient = "evergreen") {
-  const g = gradient.toLowerCase();
-  const file = g.charAt(0).toUpperCase() + g.slice(1);
   return {
-    backgroundColor: HERO_BG[g] || T.evergreen,
-    backgroundImage: `url(/brand/RibbedGradient_${file}.jpg)`,
+    backgroundColor: HERO_BG[String(gradient).toLowerCase()] || T.evergreen,
+    backgroundImage: "url(/brand/RibbedGradient.jpg)",
     backgroundSize: "cover", backgroundPosition: "center",
     backgroundBlendMode: "multiply",
   };

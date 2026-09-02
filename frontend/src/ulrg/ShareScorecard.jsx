@@ -4,6 +4,7 @@
 import { useParams } from "react-router-dom";
 import Scorecard from "./Scorecard.jsx";
 import { T } from "./l10tokens.jsx";
+import { PoweredByAcumyn } from "../brand/PoweredBy.jsx";
 
 export default function ShareScorecard() {
   const { token } = useParams();
@@ -11,6 +12,7 @@ export default function ShareScorecard() {
     <div style={{ minHeight: "100vh", background: T.shell, padding: "20px 18px 48px" }}>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         <Scorecard shareToken={token} />
+        <PoweredByAcumyn />
       </div>
     </div>
   );

@@ -31,6 +31,33 @@ def _aware(d):
     return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
 
 
+@router.get("/public/brand")
+async def public_brand(s: AsyncSession = Depends(get_session)):
+    """The workspace's identity, BEFORE anyone signs in. No auth, by necessity.
+
+    The login screen has no session, so it cannot ask /me who it belongs to — which is why it
+    used to render one customer's photograph and wordmark to everybody who ever reached it. This
+    resolves the workspace from the host the browser is already sending and hands back only the
+    chrome: name, marks, colours, type.
+
+    A HOST THAT RESOLVES TO NOTHING GETS THE PLATFORM'S OWN IDENTITY, not a 404. That is
+    deliberate on two counts. It is the honest answer — before you are signed in you are at
+    Acumyn, not inside a workspace — and it means this endpoint cannot be used to ask "does a
+    workspace exist at this address", which a 404 would answer for anyone who cared to iterate.
+
+    Nothing here is private: it is the same branding painted on the page a moment later.
+    """
+    tid = None
+    try:
+        tid = current_tenant_id()
+    except Exception:                       # unresolved host: fall through to the platform
+        tid = None
+    tenant = await s.get(Tenant, tid) if tid else None
+    if tenant is not None and tenant.status != "active":
+        tenant = None                       # a suspended workspace shows nothing of itself
+    return roles.brand(tenant) if tenant is not None else roles.platform_brand()
+
+
 @router.post("/auth/login", response_model=LoginResponse)
 async def login(body: LoginRequest, s: AsyncSession = Depends(get_session)):
     tid = current_tenant_id()

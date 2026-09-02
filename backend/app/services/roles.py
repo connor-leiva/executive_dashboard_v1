@@ -153,7 +153,26 @@ BRAND_DEFAULTS = {
     "product_name": "Command Center",
     "logo": None,          # URL of a transparent-ground mark, tinted via CSS mask
     "logomark": None,      # the square/bare form, for tight spaces
+    # token name -> hex, and font slot -> stack. EMPTY means "use the platform's own identity",
+    # which is the honest default: a workspace that has not chosen colours should look like
+    # Acumyn, never like whichever customer happened to be built first.
+    "palette": {},
+    "type": {},
+    # The sign-in screen, which renders before there is a session and so cannot read any of the
+    # above from /me. None means the neutral ribbed hero tinted by the palette — which is a real
+    # answer for any workspace, not a placeholder. These used to be two hardcoded file paths, so
+    # every workspace's sign-in screen showed the first customer's photograph.
+    "hero_image": None,    # full-bleed background behind the sign-in card
+    "photo": None,         # the masked panel on the right at >900px
 }
+
+
+def platform_brand() -> dict:
+    """Acumyn's own identity — what an unresolved host, or a surface with no workspace behind it
+    yet, is honestly branded as. Empty palette/type means the SPA keeps its compiled-in defaults,
+    which ARE Acumyn's; sending them again over the wire would be a second copy to keep in step."""
+    return {**BRAND_DEFAULTS, "display_name": "Acumyn", "product_name": "Acumyn",
+            "palette": {}, "type": {}, "is_platform": True}
 
 
 def brand(tenant) -> dict:

@@ -22,6 +22,8 @@ import AIEmployees from "./AIEmployees.jsx";
 import { useAiEmployees } from "./useAiEmployees.js";
 import Assistant from "./Assistant.jsx";
 import { SpringSignature, setBrand, ribbedHero, Icon } from "./Brand.jsx";
+import { applyPalette, applyType } from "./palette.js";
+import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
 
 /* ──────────────────────────────────────────────────────────────
    Spring · Command Center — production
@@ -1078,6 +1080,11 @@ function useMe() {
       // Identity lands before first paint of the shell, so the wordmark and the tab title
       // are this tenant's from the start rather than flashing another's.
       setBrand(u.brand || { display_name: u.tenant_name || "" });
+      // Colour and type are this workspace's too. Applied here rather than in a component so it
+      // happens once, at the same moment as the wordmark — a palette that arrives later would
+      // repaint the whole shell in front of the user.
+      applyPalette((u.brand && u.brand.palette) || {});
+      applyType((u.brand && u.brand.type) || {});
       const product = (u.brand && u.brand.product_name) || "Command Center";
       const who = (u.brand && u.brand.display_name) || u.tenant_name || "";
       document.title = who ? `${who} · ${product}` : product;
@@ -1352,6 +1359,10 @@ export default function CommandCenter() {
           />
 
           <div style={{ padding: 26, maxWidth: 1100 }}>{content}</div>
+          {/* Attribution sits in the SHELL, not in each view, so it is present on every tab by
+              construction — including tabs nobody has written yet. A footer added per page is a
+              footer that is missing from the next one. */}
+          <div style={{ padding: "0 26px", maxWidth: 1100 }}><PoweredByAcumyn align="flex-start" /></div>
         </main>
       </div>
 

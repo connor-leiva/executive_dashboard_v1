@@ -78,7 +78,7 @@ export const C = {
    references the files rather than carrying eighty kilobytes of duplicated image data in a
    source file - and a rebrand then reaches this tab by replacing an asset, not by editing JSX. */
 export const ASSET = {
-  ever: "/brand/RibbedGradient_Evergreen.jpg",   // the dark band behind the hero
+  ever: "/brand/RibbedGradient.jpg",   // the dark band behind the hero
   sig: "/brand/logo/spring_logomark.png",
   chev: "/brand/icons/chevron_down.png",
   open: "/brand/icons/open.png",
