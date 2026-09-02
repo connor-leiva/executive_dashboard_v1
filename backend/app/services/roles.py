@@ -157,6 +157,11 @@ BRAND_DEFAULTS = {
     # which is the honest default: a workspace that has not chosen colours should look like
     # Acumyn, never like whichever customer happened to be built first.
     "palette": {},
+    # The five a workspace chose. Undeclared keys are DROPPED by brand(), which is how typeface
+    # went missing and how this went missing with it — the browser received neither an explicit
+    # palette nor the seeds to derive one, so it fell back to the platform's colours while the
+    # database held the workspace's.
+    "seeds": {},
     # The pairing NAME. Without this key brand() silently drops it — every key not declared here
     # is dropped — so a workspace's stored typeface never reached the browser and the SPA fell
     # back to fetching the platform's fonts while naming the workspace's. The variables said

@@ -340,6 +340,35 @@ export function applyBrand(brand, el) {
 }
 
 
+/**
+ * Fetch this workspace's identity once and apply it, for ANY authenticated route.
+ *
+ * applyBrand used to be called only from CommandCenter's /me handler. Settings is a sibling
+ * route that never mounts CommandCenter, so landing there applied nothing and the page rendered
+ * in the platform's colours — and then leaving the Appearance panel applied them via its unmount
+ * cleanup, so the same screen changed colour depending on how you arrived at it.
+ *
+ * Identity is a property of the SESSION, not of a component, so it is fetched here and memoised:
+ * every route gets it, and a second caller costs nothing.
+ */
+let _brandOnce = null;
+
+export function loadBrandOnce(getJSON) {
+  if (_brandOnce) return _brandOnce;
+  _brandOnce = getJSON("/me")
+    .then((u) => {
+      if (u && u.brand) applyBrand(u.brand);
+      return u;
+    })
+    .catch((e) => { _brandOnce = null; throw e; });   // let a retry happen
+  return _brandOnce;
+}
+
+export function resetBrandOnce() {
+  _brandOnce = null;                                   // sign-out, or after saving new colours
+}
+
+
 export function applyType(fonts, el) {
   const root = el || (typeof document !== "undefined" && document.documentElement);
   if (!root || !fonts) return;

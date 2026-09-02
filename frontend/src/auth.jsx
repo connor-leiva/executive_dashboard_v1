@@ -12,7 +12,7 @@ import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
 import ShareScorecard from "./ulrg/ShareScorecard.jsx";
 import ShareDesk from "./ShareDesk.jsx";
 import { SpringSignature, setBrand, ribbedHero } from "./Brand.jsx";
-import { applyBrand, applyType } from "./palette.js";
+import { applyBrand, loadBrandOnce } from "./palette.js";
 import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -153,6 +153,15 @@ export function Login({ onLogin }) {
 export function App() {
   const [authed, setAuthed] = useState(hasToken());
   const needsLogin = Boolean(API_BASE) && !authed;
+
+  // The workspace's colours, type and marks, applied for EVERY authenticated route. This used to
+  // live inside CommandCenter, which Settings never mounts — so Settings rendered in the
+  // platform's palette, and the only thing that fixed it was visiting Appearance and leaving
+  // again, because its cleanup applied the brand on the way out.
+  useEffect(() => {
+    if (needsLogin || !API_BASE) return;
+    loadBrandOnce(getJSON).catch(() => { /* the dashboard surfaces its own load failure */ });
+  }, [needsLogin]);
 
   /* The operator host serves the console and NOTHING else — no tenant login, no dashboard, not
      even a redirect into one. Previously this was a /platform route inside the tenant app, which

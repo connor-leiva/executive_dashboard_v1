@@ -162,13 +162,19 @@ async def set_appearance(body: dict, user: User = Depends(require_role("owner", 
 
     cfg = dict(tenant.config or {})
     brand = dict(cfg.get("brand") or {})
+    prior_seeds = brand.get("seeds") or {}
+    seeds_changed = clean != prior_seeds
     brand["seeds"] = clean
     if typeface is not None:
         brand["typeface"] = typeface
-    # The derived palette is NOT stored. Storing it would freeze a workspace's colours against the
-    # derivation that happened to exist the day they saved, and every later improvement to the
-    # ramps would reach new workspaces only.
-    brand.pop("palette", None)
+    # An explicit palette is given up ONLY when the seeds are what changed.
+    #
+    # This used to pop unconditionally, so saving a TYPEFACE discarded thirty hand-built colours —
+    # a workspace changing its font lost its palette, twice, because the two live in one endpoint
+    # and the save did not ask which had moved. The derived palette itself is still never stored:
+    # doing that would freeze a workspace against whichever derivation existed the day they saved.
+    if seeds_changed:
+        brand.pop("palette", None)
     cfg["brand"] = brand
     tenant.config = cfg
     flag_modified(tenant, "config")

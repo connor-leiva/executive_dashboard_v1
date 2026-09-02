@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { T, alpha } from "./theme.js";
 import {
   SEEDS, SEED_META, applyBrand, applyPalette, applyType, contrast, contrastProblems, derive,
-  seedsFromAcumyn, seedsFromPalette,
+  seedsFromAcumyn, seedsFromPalette, resetBrandOnce,
 } from "./palette.js";
 import { getJSON, patchJSON, API_BASE, authHeaders, fileUrl } from "./api.js";
 import { PAIRINGS, DEFAULT_PAIRING, loadTypeface, stacks } from "./typefaces.js";
@@ -217,6 +217,9 @@ export default function Appearance() {
       await patchJSON("/settings/appearance", { seeds, typeface });
       setSaved(JSON.stringify({ seeds, typeface }));
       original.current = { brand: { seeds, typeface } };
+      // The root memoised the OLD identity. Without this the next route would re-apply it and
+      // the change would appear to undo itself.
+      resetBrandOnce();
     } catch (e) {
       setErr(String(e && e.message ? e.message : e));
     } finally { setBusy(false); }

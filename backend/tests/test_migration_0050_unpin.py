@@ -261,3 +261,75 @@ def test_a_mark_url_carries_the_workspace_because_an_image_request_cannot():
     assert "current_tenant_id" not in route, (
         "the asset route reads the workspace from a header again — an image request has none")
     assert "Tenant.slug == slug" in route
+
+
+# ── 0054: the palette was destroyed a second time, by a different route ──────────────────
+def _mod54():
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/0054_restore_palette_again.py"
+    spec = importlib.util.spec_from_file_location("mig0054", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+async def test_it_restores_after_a_typeface_save_discarded_the_palette():
+    """The second loss looked nothing like the first. 0052 restored a workspace whose seeds were
+    the PLATFORM defaults; afterwards its seeds were its own five, so when saving a TYPEFACE
+    popped the palette, 0052 correctly declined to help.
+
+    The condition here is the durable one: the palette is absent AND the seeds are exactly those
+    the missing palette implies. True after any loss that preserved the seeds, false the moment
+    somebody picks colours of their own.
+    """
+    mod = _mod54()
+    implied = mod._seeds_from(mod.LEGACY_PALETTE)
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        _table(conn)
+        _insert(conn, "t1", "springb", "2026-07-01",
+                {"seeds": dict(implied), "typeface": "classic"})
+        import alembic.op
+        from unittest.mock import patch
+        with patch.object(alembic.op, "get_bind", return_value=conn):
+            mod.upgrade()
+        brand = json.loads(conn.execute(sa.text("SELECT config FROM tenant")).scalar_one())["brand"]
+
+    assert brand["palette"] == mod.LEGACY_PALETTE
+    assert brand["typeface"] == "classic", "the setting being saved was disturbed"
+
+
+async def test_it_is_safe_to_run_a_third_time():
+    """Twice is a pattern. The condition has to stay true for the next occurrence and stay false
+    for a workspace that has made a real choice."""
+    mod = _mod54()
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        _table(conn)
+        _insert(conn, "t1", "springb", "2026-07-01", {"seeds": dict(mod.PLATFORM_SEEDS)})
+        import alembic.op
+        from unittest.mock import patch
+        with patch.object(alembic.op, "get_bind", return_value=conn):
+            mod.upgrade()
+            once = conn.execute(sa.text("SELECT config FROM tenant")).scalar_one()
+            mod.upgrade()
+            twice = conn.execute(sa.text("SELECT config FROM tenant")).scalar_one()
+    assert json.loads(once) == json.loads(twice)
+
+
+async def test_it_will_not_overwrite_colours_somebody_chose():
+    mod = _mod54()
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        _table(conn)
+        _insert(conn, "t1", "springb", "2026-07-01",
+                {"seeds": {"brand": "#123456", "surface": "#FFFFFF", "ink": "#000000",
+                           "positive": "#008000", "negative": "#800000"}})
+        import alembic.op
+        from unittest.mock import patch
+        with patch.object(alembic.op, "get_bind", return_value=conn):
+            mod.upgrade()
+        brand = json.loads(conn.execute(sa.text("SELECT config FROM tenant")).scalar_one())["brand"]
+    assert "palette" not in brand or not brand["palette"]
+    assert brand["seeds"]["brand"] == "#123456"

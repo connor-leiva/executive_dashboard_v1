@@ -209,3 +209,45 @@ def test_only_one_place_applies_type():
         if re.search(r"\bapplyType\s*\(", code):
             offenders[path.name] = True
     assert not offenders, f"applyType called outside applyBrand: {sorted(offenders)}"
+
+
+def test_the_brand_payload_carries_everything_the_browser_needs_to_render_it():
+    """brand() drops every key not declared in BRAND_DEFAULTS, silently. That has now cost two
+    separate outages: `typeface` went missing, so fonts were named and never fetched; `seeds`
+    went missing, so a workspace with no explicit palette had nothing to derive from and rendered
+    in the platform's colours while its own sat in the database.
+
+    The list is asserted rather than trusted, because the failure mode is a key quietly absent
+    from a dict — which nothing else in the system will ever complain about.
+    """
+    from app.services.roles import BRAND_DEFAULTS, brand
+
+    for key in ("palette", "seeds", "typeface", "type", "logo", "logomark",
+                "hero_image", "photo", "product_name"):
+        assert key in BRAND_DEFAULTS, f"{key} will be dropped on the way to the browser"
+
+    class _T:
+        name = "Acme"
+        config = {"brand": {"palette": {"ink": "#111111"}, "seeds": {"brand": "#222222"},
+                            "typeface": "classic"}}
+
+    out = brand(_T())
+    assert out["palette"] == {"ink": "#111111"}
+    assert out["seeds"] == {"brand": "#222222"}
+    assert out["typeface"] == "classic"
+
+
+def test_saving_a_typeface_does_not_discard_a_palette():
+    """The appearance endpoint popped `palette` on EVERY save, so a workspace changing its font
+    gave up thirty hand-built colours. It is the second way that palette has been destroyed, and
+    both times the save did not ask which setting had actually moved."""
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "app" / "routers" / "users.py").read_text(
+        encoding="utf-8")
+    body = src[src.index("async def set_appearance"):]
+    body = body[: body.index("@router.")]
+    assert "seeds_changed" in body, "the save no longer distinguishes what changed"
+    idx = body.index('brand.pop("palette", None)')
+    guard = body[max(0, idx - 200): idx]
+    assert "if seeds_changed:" in guard, "palette is popped without checking the seeds moved"
