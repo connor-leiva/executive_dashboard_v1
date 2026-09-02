@@ -17,6 +17,7 @@ from decimal import Decimal
 from sqlalchemy import delete, select
 
 from .config import settings
+from . import plans
 from .db import SessionLocal, engine
 from .models import (
     Base, Tenant, Domain, User, Business, Integration, Agent, Transaction, Lead,
@@ -157,7 +158,10 @@ async def seed():
         if existing:
             await _wipe(s, existing.id)
 
-        tenant = Tenant(slug="springb", name="Spring")
+        # The fixture is a FULL-FEATURED workspace: it seeds Books entities, Binder rules,
+        # AI employees and the flywheel, and the suite exercises all of them. Seeding it on
+        # the entry plan would leave the fixture unable to reach most of what it seeds.
+        tenant = Tenant(slug="springb", name="Spring", plan=plans.PORTFOLIO)
         # Recording is opt-in per tenant and fails closed, so tenant #1 has to carry its own
         # opt-in or the bots simply stop. `recall_legacy_adopt_before` is the date GHL's
         # Appointment Link field went live: calls BEFORE it have no meeting_url and may still

@@ -30,6 +30,13 @@ class Tenant(Base):
     # read it on the hot path, and because "which tenants are suspended" is a question the
     # operator surface asks directly.
     status: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
+    # team | business | portfolio — see app/plans.py, which owns every limit attached to them.
+    # A column rather than config because gates read it on the hot path and the operator console
+    # asks "who is on what" directly. Existing workspaces are backfilled to `portfolio` so nobody
+    # loses a tab they were already using; plans.plan_of() also defaults generously for the same
+    # reason, since guessing low costs a paying customer a feature and guessing high only costs
+    # revenue nobody was collecting.
+    plan: Mapped[str] = mapped_column(String(16), default="team", server_default="team")
     # Portfolio-scoped, non-secret config (e.g. Books intercompany elimination account
     # list `books_elim_accounts`). Portfolio-level because eliminations span businesses.
     config: Mapped[dict | None] = mapped_column(JSONType, nullable=True)

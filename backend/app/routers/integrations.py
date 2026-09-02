@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_session, SessionLocal
+from .. import plans
 from ..deps import current_user, require_role
-from ..models import (User, Integration, Business, SyncRun, MetricRecord,
+from ..models import (User, Integration, Business, SyncRun, MetricRecord, Tenant,
                       PLSnapshot, PLLine, BookTxn, ICLink, ClosePeriod)
 from ..services.audit import audit
 from ..security import enc, dec, make_capability, read_capability
@@ -150,6 +151,10 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
     if provider not in ("ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy",
                         "sisu", "fub", "meta_ads"):
         raise HTTPException(400, "Unsupported provider")
+    tenant = await s.get(Tenant, user.tenant_id)
+    if not plans.allows_source(tenant, provider):
+        lim = plans.limits(tenant)
+        raise HTTPException(402, f"{provider} is not included in the {lim['name']} plan.")
     wanted = body.get("business_key")
     biz = (await s.execute(select(Business).where(
         Business.tenant_id == user.tenant_id, Business.key == wanted))).scalar_one_or_none()
@@ -324,6 +329,14 @@ async def create_qbo_entity(body: dict, user: User = Depends(require_role("owner
         raise HTTPException(400, "Unknown entity kind.")
     key = await _unique_key(s, user.tenant_id, _slugify(name))
     destination = (body.get("display_tab") or "").strip() or key   # route to a page; default = own page
+    tenant = await s.get(Tenant, user.tenant_id)
+    have = (await s.execute(select(func.count()).select_from(Business).where(
+        Business.tenant_id == user.tenant_id))).scalar_one()
+    if plans.over_limit(tenant, "max_businesses", have):
+        lim = plans.limits(tenant)
+        raise HTTPException(402, f"The {lim['name']} plan includes {lim['max_businesses']} "
+                                 f"business{'' if lim['max_businesses'] == 1 else 'es'} and this "
+                                 f"workspace has {have}. Upgrade to add another.")
     max_so = (await s.execute(select(func.coalesce(func.max(Business.sort_order), 0)).where(
         Business.tenant_id == user.tenant_id))).scalar() or 0
     cfg = {"books_enabled": bool(body.get("books_enabled", True)), "books_onboarding": True}

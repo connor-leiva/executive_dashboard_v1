@@ -173,3 +173,91 @@ def test_the_single_tenant_fallback_exemption_cannot_follow_a_build_into_product
     assert SC.is_deployed() is True, (
         "a Postgres deployment with ENV unset must still count as deployed, or the fallback "
         "serves one customer's dashboard to every unrecognised host")
+
+
+# ── plans ────────────────────────────────────────────────────────────────────────────────
+def test_a_plan_gates_the_platform_modules_but_never_a_workspaces_own_entities():
+    """A plan limits how many businesses a workspace may HAVE. It does not limit whether it may
+    look at the ones it has — those are its own entities and its own numbers. Only the platform
+    modules are gated."""
+    from app import plans
+
+    class _T:
+        def __init__(self, plan): self.plan = plan
+
+    nav = ["portfolio", "ulrg", "forum", "flywheel", "books", "binder", "ai_employees"]
+    assert plans.plan_tabs(_T("team"), nav) == ["portfolio", "ulrg", "forum"]
+    assert plans.plan_tabs(_T("business"), nav) == [
+        "portfolio", "ulrg", "forum", "flywheel", "books", "ai_employees"]
+    assert plans.plan_tabs(_T("portfolio"), nav) == nav
+    # Its own business and programme tabs survive on every plan.
+    for plan in plans.ORDER:
+        got = plans.plan_tabs(_T(plan), nav)
+        assert "ulrg" in got and "forum" in got and "portfolio" in got, plan
+
+
+def test_an_unknown_or_missing_plan_defaults_generously():
+    """Guessing low takes a tab away from somebody who is paying; guessing high costs revenue that
+    was not being collected and shows up in the operator console rather than a support ticket."""
+    from app import plans
+
+    class _T:
+        plan = None
+
+    assert plans.plan_of(_T()) == plans.PORTFOLIO
+    assert plans.plan_of(object()) == plans.PORTFOLIO
+
+    class _Bogus:
+        plan = "enterprise-plus"
+
+    assert plans.plan_of(_Bogus()) == plans.PORTFOLIO
+
+
+def test_the_plan_is_applied_before_a_members_grants():
+    """A member carrying a Binder grant from when their workspace was on Portfolio must not keep
+    reaching Binder after it moves down. A stale grant is not an entitlement, and a downgrade that
+    leaves a door open is not a downgrade."""
+    from app.services.tabs import effective_tabs
+
+    class _T:
+        plan = "team"
+
+    class _U:
+        role = "member"
+        tab_access = ["portfolio", "binder", "books"]
+
+    assert effective_tabs(_U(), ["portfolio", "binder", "books"], tenant=_T()) == ["portfolio"]
+
+    class _O(_U):
+        role = "owner"
+
+    # ...and an OWNER does not escape it either. The plan is the workspace's, not the user's.
+    assert effective_tabs(_O(), ["portfolio", "binder", "books"], tenant=_T()) == ["portfolio"]
+
+
+def test_sources_are_listed_not_counted():
+    """A count would invite a workspace to disconnect QuickBooks to stay under a limit, and a
+    pricing rule that encourages somebody to make their own numbers wrong is a bug in the pricing."""
+    from app import plans
+
+    class _T:
+        def __init__(self, plan): self.plan = plan
+
+    assert plans.allows_source(_T("team"), "sisu")
+    assert not plans.allows_source(_T("team"), "qbo")
+    assert plans.allows_source(_T("business"), "qbo")
+    assert plans.allows_source(_T("portfolio"), "arive")
+
+
+def test_every_plan_is_complete_so_a_gate_cannot_read_a_missing_key():
+    """A limit that is absent reads as None, and None means unlimited everywhere in plans.py. A
+    typo in a key name would therefore hand out an unlimited allowance silently."""
+    from app import plans
+
+    required = {"name", "price_monthly", "max_businesses", "max_users", "sources", "extra_tabs",
+                "max_share_links", "history_months", "custom_branding", "max_ai_employees"}
+    for key, plan in plans.PLANS.items():
+        assert set(plan) == required, f"{key} is missing or has extra: {set(plan) ^ required}"
+    # Prices ascend with the tier, which is the one relationship a reader will assume.
+    prices = [plans.PLANS[p]["price_monthly"] for p in plans.ORDER]
+    assert prices == sorted(prices) and len(set(prices)) == len(prices), prices

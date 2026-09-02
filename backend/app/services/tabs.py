@@ -10,6 +10,7 @@ from sqlalchemy import select
 from ..config import settings
 from ..models import Business
 from . import roles
+from .. import plans
 
 # Operational multi-view businesses expose more than one nav tab: springb runs both
 # The Forum and beCollective from one GHL location. Financial-only entities (a QBO
@@ -134,12 +135,20 @@ async def tenant_tab_descriptors(s, tenant_id) -> list[dict]:
     return ordered
 
 
-def effective_tabs(user, all_tabs: list[str]) -> list[str]:
-    """The tabs a user actually sees. Owners/admins get all; members get grants."""
+def effective_tabs(user, all_tabs: list[str], tenant=None) -> list[str]:
+    """The tabs a user actually sees. Owners/admins get all; members get grants.
+
+    The PLAN is applied first and to everybody, including owners. A member carrying a grant for
+    Binder from when their workspace was on Portfolio must not keep reaching Binder after it moves
+    down — a stale grant is not an entitlement, and a downgrade that leaves a door open is not a
+    downgrade. `tenant` is optional so call sites migrate one at a time; without it the plan is
+    not applied, which is the old behaviour and correct for anything that has not been passed one.
+    """
+    tabs = plans.plan_tabs(tenant, all_tabs) if tenant is not None else list(all_tabs)
     if user.role in ("owner", "admin"):
-        return list(all_tabs)
+        return list(tabs)
     granted = set(user.tab_access or [])
-    return [t for t in all_tabs if t in granted]        # preserve nav order, drop stale keys
+    return [t for t in tabs if t in granted]            # preserve nav order, drop stale keys
 
 
 # ── lineage metric key → owning tab (drill-down enforcement, §2.5) ──
