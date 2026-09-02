@@ -10,6 +10,7 @@ from ..models import User, Tenant
 from ..schemas import (LoginRequest, LoginResponse, MeResponse, ChangePasswordRequest,
                        AcceptInviteRequest, ResetPasswordRequest)
 from ..security import (verify_pw, make_token, hash_pw, hash_action_token, MIN_PASSWORD_LEN)
+from .. import plans
 from ..services.audit import audit
 from ..services import binder_storage, roles
 from ..services.tabs import tenant_tabs, tenant_tab_descriptors, effective_tabs
@@ -29,6 +30,13 @@ def _aware(d):
     if d is None:
         return None
     return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+
+
+def _tenant_apps(tenant: Tenant) -> list[dict]:
+    apps = [{"id": "dashboard", "name": "Dashboard", "href": "/"}]
+    if plans.allows(tenant, "intranet"):
+        apps.append({"id": "intranet", "name": "Intranet", "href": "/intranet/"})
+    return apps
 
 
 @router.get("/public/brand")
@@ -148,6 +156,7 @@ async def me(user: User = Depends(current_user), s: AsyncSession = Depends(get_s
     return MeResponse(id=str(user.id), email=user.email, name=user.name, role=user.role,
                       status=user.status, tenant=tenant.slug, tenant_name=tenant.name,
                       tabs=tabs, brand=roles.brand(tenant),
+                      apps=_tenant_apps(tenant),
                       # Filtered to what this user may see, so the rail cannot render a tab
                       # the API would refuse — the nav and the grant come from one source.
                       nav=[d for d in descriptors if d["key"] in granted])

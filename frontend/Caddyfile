@@ -1,0 +1,17 @@
+:{$PORT:3000} {
+  encode zstd gzip
+
+  redir /intranet /intranet/ 308
+
+  handle_path /intranet/* {
+    root * /srv/intranet
+    try_files {path} /index.html
+    file_server
+  }
+
+  handle {
+    root * /srv/dashboard
+    try_files {path} /index.html
+    file_server
+  }
+}

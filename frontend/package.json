@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev:intranet": "vite --config vite.intranet.config.js",
+    "build": "npm run build:dashboard && npm run build:intranet",
+    "build:dashboard": "vite build --outDir dist/dashboard",
+    "build:intranet": "vite build --config vite.intranet.config.js",
+    "preview": "vite preview --outDir dist/dashboard",
+    "preview:intranet": "vite preview --config vite.intranet.config.js"
   },
   "dependencies": {
     "qrcode": "^1.5.4",

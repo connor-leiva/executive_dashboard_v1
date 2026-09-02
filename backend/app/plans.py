@@ -80,6 +80,11 @@ PLANS: dict[str, dict] = {
 _FEATURE_TABS = {"books": "books", "flywheel": "flywheel", "binder": "binder",
                  "ai_employees": "ai_employees"}
 
+# Tenant-level add-on modules. These are plan features, but not dashboard tabs:
+# once enabled for a workspace every active user can open them, regardless of
+# their per-tab dashboard grants.
+_CONFIG_FEATURES = {"intranet"}
+
 
 def plan_of(tenant) -> str:
     """A workspace's plan, defaulting to the most generous one.
@@ -102,6 +107,14 @@ def allows(tenant, feature: str) -> bool:
     lim = limits(tenant)
     if feature in _FEATURE_TABS:
         return _FEATURE_TABS[feature] in lim["extra_tabs"]
+    if feature in _CONFIG_FEATURES:
+        cfg = getattr(tenant, "config", None) or {}
+        features = cfg.get("features") or {}
+        if isinstance(features, dict):
+            return bool(features.get(feature))
+        if isinstance(features, (list, tuple, set)):
+            return feature in features
+        return False
     if feature == "custom_branding":
         return bool(lim["custom_branding"])
     return False

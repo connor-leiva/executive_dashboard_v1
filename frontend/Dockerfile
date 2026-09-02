@@ -11,10 +11,9 @@ ARG VITE_API_BASE
 ENV VITE_API_BASE=$VITE_API_BASE
 RUN npm run build
 
-FROM node:20-alpine
-RUN npm i -g serve
-WORKDIR /app
-COPY --from=build /app/dist ./dist
+FROM caddy:2.8-alpine
+WORKDIR /srv
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/dist/dashboard /srv/dashboard
+COPY --from=build /app/dist/intranet /srv/intranet
 EXPOSE 3000
-# Bind Railway's injected $PORT (falls back to 3000 locally).
-CMD ["sh", "-c", "serve -s dist -l ${PORT:-3000}"]

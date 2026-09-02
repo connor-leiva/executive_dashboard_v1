@@ -45,3 +45,6 @@ expense-normalization-2026-08/4 - Findings Memo.md
 
 # Ads module Phase 0 probe output - per-tenant funnel coverage, never commit
 backend/ads_probe_out/
+
+# Temporary intranet bundle inspection output
+work/intranet/unpacked/

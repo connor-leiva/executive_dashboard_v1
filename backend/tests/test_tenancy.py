@@ -227,7 +227,8 @@ async def test_the_hosts_a_real_deployment_is_served_from_resolve():
         normalize_slug("www")
 
 
-async def test_app_is_claimable_by_an_operator_but_not_by_a_slug():
+@pytest.mark.parametrize("name", ["app", "intranet"])
+async def test_wildcard_reserved_hosts_are_claimable_by_an_operator_but_not_by_a_slug(name):
     """`app.PLATFORM_DOMAIN` is the most conventional host a SaaS app is served from, so the
     reservation on it is narrower than the one on api./admin.: no tenant may claim it merely by
     being NAMED `app`, but an operator who adds the domain row deliberately gets it.
@@ -244,16 +245,16 @@ async def test_app_is_claimable_by_an_operator_but_not_by_a_slug():
 
     from app.services.provisioning import normalize_slug
 
-    host = f"app.{settings.PLATFORM_DOMAIN}"
+    host = f"{name}.{settings.PLATFORM_DOMAIN}"
 
     # Nothing can be NAMED `app` in the first place — provisioning refuses the slug.
     with pytest.raises(ValueError):
-        normalize_slug("app")
+        normalize_slug(name)
 
     # The resolver filters it independently, which is what matters if a row ever arrives by
     # another route: a slug reserved after the fact, a restore, a hand-written INSERT.
     async with SessionLocal() as s:
-        squatter = Tenant(slug="app", name="Squatter", status="active")
+        squatter = Tenant(slug=name, name="Squatter", status="active")
         s.add(squatter)
         await s.commit()
         squatter_id = squatter.id
@@ -264,7 +265,7 @@ async def test_app_is_claimable_by_an_operator_but_not_by_a_slug():
     assert await tenancy.resolve_tenant(_Req(host)) != squatter_id
 
     # ...but an explicit operator-added row does resolve.
-    other = await _provision("realco", hostname=host)
+    other = await _provision(f"real{name}", hostname=host)
     tenancy.set_tenant(None)
     assert await tenancy.resolve_tenant(_Req(host)) == other
 

@@ -28,7 +28,7 @@ PLATFORM_HOSTS = {"api", "admin", "auth", "static", "assets"}
 # `app.` are the two most conventional hosts a real app is ever served from; refusing them
 # outright is what broke production, and pointing one at a tenant is a deliberate operator act
 # rather than something a signup can do.
-WILDCARD_RESERVED = {"app", "www", "staging"}
+WILDCARD_RESERVED = {"app", "www", "staging", "intranet"}
 
 RESERVED_SLUGS = PLATFORM_HOSTS | WILDCARD_RESERVED
 
