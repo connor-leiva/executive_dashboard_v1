@@ -167,6 +167,14 @@ class Settings(BaseSettings):
     RECALL_CHAPTER_MODEL: str = "claude-haiku-4-5-20251001"
     RECALL_CHAPTER_BATCH: int = 15            # per tick; one model call each
 
+    # ── Email (Resend). Empty key = no send, and every endpoint still returns its link, so
+    # onboarding degrades to today's copy-paste flow rather than breaking. Must be set on BOTH
+    # the api and worker services — the worker is what sends Binder digests, so a key on api
+    # alone leaves those silently logging.
+    RESEND_API_KEY: str = ""
+    MAIL_FROM: str = "Acumyn <mail@acumyn.io>"
+    MAIL_REPLY_TO: str = ""      # fallback; invites override with the inviter's own address
+
     # The platform's own domain. Tenants live at {slug}.PLATFORM_DOMAIN unless they bring a
     # custom domain (a `domain` row). Drives tenant-host resolution, the CORS origin regex,
     # and the invite links provisioning hands out — so it is set in ONE place, not three.

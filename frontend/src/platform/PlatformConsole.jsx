@@ -76,15 +76,16 @@ function Notice({ error, children }) {
   );
 }
 
-/* A one-time invite link is the only moment the raw token exists — it cannot be read back out of
-   the database afterwards, only reissued. So it gets a copy button rather than a line of text
-   somebody has to select by hand and might truncate. */
+/* The owner is emailed this link. It is shown here too, because a one-time invite is the only
+   moment the raw token exists — it cannot be read back out of the database afterwards, only
+   reissued — and a brand-new sending domain is exactly where a first email goes missing. So it
+   gets a copy button rather than a line of text somebody has to select by hand and truncate. */
 function InviteLink({ url }) {
   const [copied, setCopied] = useState(false);
   if (!url) return null;
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={label}>One-time invite link</div>
+      <div style={label}>Or copy the link</div>
       <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "stretch" }}>
         <code style={{
           ...input, fontFamily: "ui-monospace,SFMono-Regular,Menlo,monospace", fontSize: 12,
@@ -98,7 +99,7 @@ function InviteLink({ url }) {
         }}>{copied ? "Copied" : "Copy"}</Button>
       </div>
       <div style={{ fontFamily: FONT, fontSize: 12, color: OPS.tertiary, marginTop: 6 }}>
-        Send this to the owner. It is shown once — if it is lost, reissue it from the workspace.
+        Emailed to the owner. Shown once — if it is lost, reissue it from the workspace.
       </div>
     </div>
   );
@@ -261,8 +262,8 @@ function NewWorkspace({ onCreated, onCancel }) {
           {result.slug} is live
         </div>
         <div style={{ fontFamily: FONT, fontSize: 13, color: OPS.tertiary, marginTop: 6 }}>
-          Reachable at <strong>{result.hostname}</strong>. Owner invited: {result.owner_email}.
-          Its businesses and catalogs are seeded and ready.
+          Reachable at <strong>{result.hostname}</strong>. We emailed the owner invite to
+          {" "}{result.owner_email}. Its businesses and catalogs are seeded and ready.
         </div>
         <InviteLink url={result.invite_url} />
         <div style={{ marginTop: 16 }}><Button kind="quiet" onClick={onCancel}>Done</Button></div>
@@ -442,8 +443,8 @@ function WorkspaceDetail({ slug, onBack, onChanged }) {
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
             {row.users_pending_invite > 0 && (
               <Button kind="quiet" disabled={busy}
-                      onClick={() => act(resendInvite, "A fresh invite link was issued.")}>
-                Reissue owner invite
+                      onClick={() => act(resendInvite, "A fresh invite was emailed to the owner.")}>
+                Resend owner invite
               </Button>
             )}
             {suspended

@@ -7,9 +7,13 @@ and assembles a per-entity digest for the owner/admins + the ``binder``-tab main
 
 Delivery: in-app is always on (the matrix flags + the review badge render the counts). Email
 is a digest (``BINDER_REMINDER_DIGEST`` = daily | weekly) plus an immediate note when something
-first crosses into overdue. There is no email transport wired in this app yet, so ``_deliver``
-LOGS the assembled digest — that log line is the single hook where an SMTP/provider send drops
-in later (recipients + subject + body are already built). No behavior depends on it sending.
+first crosses into overdue. ``_deliver`` sends it through ``services.mailer``, and no behavior
+depends on that succeeding: with no ``RESEND_API_KEY`` the mailer logs the digest and the worker
+tick proceeds exactly as it did before there was any transport at all.
+
+THIS RUNS IN THE WORKER, not the api. ``RESEND_API_KEY`` and ``MAIL_FROM`` have to be set on
+BOTH Railway services — set on the api alone and these digests keep silently logging while
+every invite sends fine, which reads as a Binder bug rather than a missing variable.
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Obligation, LegalEntity, User, SyncRun
+from . import mail_templates, mailer
 from .binder import KIND_LABELS
 
 log = logging.getLogger("app")
@@ -57,12 +62,13 @@ async def _recipients(s: AsyncSession, tenant_id) -> list[str]:
     return sorted(set(out))
 
 
-def _deliver(recipients: list[str], subject: str, body: str) -> None:
-    """The email hook. No transport wired yet, so we log the fully-assembled digest; swap this
-    for an SMTP/provider send (recipients/subject/body are ready). Deliberately never raises —
-    a reminder-send failure must not break the worker."""
-    log.info("binder_reminders digest -> %s | %s\n%s", ", ".join(recipients) or "(no recipients)",
-             subject, body)
+async def _deliver(recipients: list[str], subject: str, body: str) -> None:
+    """Send the assembled digest. Deliberately never raises — a reminder-send failure must not
+    break the worker tick, and the SyncRun row is written either way."""
+    if not recipients:
+        log.info("binder_reminders digest: no recipients")
+        return
+    await mailer.send(recipients, *mail_templates.binder_digest(subject, body))
 
 
 def _cadence_days() -> int:
@@ -116,7 +122,7 @@ async def run_reminders(s: AsyncSession, tenant_id, today: dt.date | None = None
         subject = f"Binder: {sum(len(v) for v in flagged.values())} obligation(s) need attention"
         if overdue_new:
             subject = f"Binder: {overdue_new} newly overdue + more"
-        _deliver(await _recipients(s, tenant_id), subject, "\n".join(lines))
+        await _deliver(await _recipients(s, tenant_id), subject, "\n".join(lines))
         run = SyncRun(tenant_id=tenant_id, provider="binder_reminders", status="ok",
                       finished_at=now, stats={"fired": fired, "overdue_new": overdue_new,
                                               "entities_flagged": len(flagged)})

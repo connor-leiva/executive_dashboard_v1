@@ -1,7 +1,8 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
+from fastapi import (APIRouter, BackgroundTasks, Depends, File, Form, HTTPException,
+                     UploadFile, Request)
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -12,7 +13,7 @@ from ..deps import require_role
 from ..models import User, Tenant, Domain
 from ..schemas import InviteRequest, UserUpdate, UserOut
 from ..security import new_action_token
-from ..services import binder_storage
+from ..services import binder_storage, mail_templates, mailer
 from ..services.audit import audit
 from ..services.tabs import tenant_tabs, effective_tabs
 from ..services.users import (assert_can_manage, assert_grantable_role, assert_not_last_owner)
@@ -59,6 +60,12 @@ async def _link_base(request: Request, s, tenant_id) -> str:
     if origin:
         return origin
     return f"https://{await _primary_host(s, tenant_id)}"
+
+
+async def _workspace_name(s, tenant_id) -> str:
+    """What the email calls this workspace. The recipient recognises their company, not ours."""
+    t = await s.get(Tenant, tenant_id)
+    return (t.name if t else None) or "your workspace"
 
 
 async def _get_target(s, tenant_id, user_id) -> User:
@@ -267,7 +274,7 @@ async def clear_logo(kind: str = "logo", user: User = Depends(require_role("owne
 
 
 @router.post("/users/invite")
-async def invite_user(body: InviteRequest, request: Request,
+async def invite_user(body: InviteRequest, request: Request, bg: BackgroundTasks,
                       user: User = Depends(require_role("owner", "admin")),
                       s: AsyncSession = Depends(get_session)):
     email = body.email.strip().lower()
@@ -300,12 +307,22 @@ async def invite_user(body: InviteRequest, request: Request,
     audit(s, user.tenant_id, user.id, "user.invited", "user", u.id, {"role": body.role})
     await s.commit()
     base = await _link_base(request, s, user.tenant_id)
-    return {"user": _user_out(u, all_tabs),
-            "invite_url": f"{base}/accept-invite?token={raw}"}
+    url = f"{base}/accept-invite?token={raw}"
+    ws = await _workspace_name(s, user.tenant_id)
+    # reply_to is the inviter, not a support queue: a reply to "what is this?" should reach the
+    # colleague who sent it, during the exact moment the recipient is deciding to trust it.
+    #
+    # In the background, and the link is STILL returned. The user row is already committed by
+    # now, so a provider outage that propagated would show a 500 for a user that exists, and
+    # the retry would hit the 409 above.
+    bg.add_task(mailer.send, email,
+                *mail_templates.invite(url, user.name, ws, INVITE_DAYS),
+                reply_to=user.email)
+    return {"user": _user_out(u, all_tabs), "invite_url": url}
 
 
 @router.post("/users/{user_id}/resend-invite")
-async def resend_invite(user_id: uuid.UUID, request: Request,
+async def resend_invite(user_id: uuid.UUID, request: Request, bg: BackgroundTasks,
                         user: User = Depends(require_role("owner", "admin")),
                         s: AsyncSession = Depends(get_session)):
     u = await _get_target(s, user.tenant_id, user_id)
@@ -319,7 +336,15 @@ async def resend_invite(user_id: uuid.UUID, request: Request,
     audit(s, user.tenant_id, user.id, "user.reinvited", "user", u.id)
     await s.commit()
     base = await _link_base(request, s, user.tenant_id)
-    return {"invite_url": f"{base}/accept-invite?token={raw}"}
+    url = f"{base}/accept-invite?token={raw}"
+    ws = await _workspace_name(s, user.tenant_id)
+    # Keyed on the token's expiry, so a double-clicked button sends once and a genuinely fresh
+    # invite (new token, new expiry) is a different key and does send.
+    bg.add_task(mailer.send, u.email,
+                *mail_templates.invite(url, user.name, ws, INVITE_DAYS),
+                reply_to=user.email,
+                idempotency_key=f"invite-{u.id}-{u.action_token_expires.isoformat()}")
+    return {"invite_url": url}
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
@@ -382,7 +407,7 @@ async def enable_user(user_id: uuid.UUID, user: User = Depends(require_role("own
 
 
 @router.post("/users/{user_id}/reset-link")
-async def reset_link(user_id: uuid.UUID, request: Request,
+async def reset_link(user_id: uuid.UUID, request: Request, bg: BackgroundTasks,
                      user: User = Depends(require_role("owner", "admin")),
                      s: AsyncSession = Depends(get_session)):
     u = await _get_target(s, user.tenant_id, user_id)
@@ -394,4 +419,9 @@ async def reset_link(user_id: uuid.UUID, request: Request,
     audit(s, user.tenant_id, user.id, "user.reset_link", "user", u.id)
     await s.commit()
     base = await _link_base(request, s, user.tenant_id)
-    return {"reset_url": f"{base}/reset-password?token={raw}"}
+    url = f"{base}/reset-password?token={raw}"
+    ws = await _workspace_name(s, user.tenant_id)
+    # No reply_to override here, unlike an invite: a reply to a password reset should reach a
+    # monitored inbox, not whichever admin happened to click the button.
+    bg.add_task(mailer.send, u.email, *mail_templates.reset(url, ws, RESET_HOURS))
+    return {"reset_url": url}

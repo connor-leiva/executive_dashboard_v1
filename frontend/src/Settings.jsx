@@ -1478,12 +1478,15 @@ const TAB_META = {
 };
 const ROLE_COLOR = { owner: T.evergreen, admin: T.meadow, member: T.slate };
 
-function CopyLink({ url }) {
+function CopyLink({ url, caption }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+    <div style={{ marginTop: 8 }}>
+    {caption && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginBottom: 4 }}>{caption}</div>}
+    <div style={{ display: "flex", gap: 8 }}>
       <input readOnly value={url} onFocus={(e) => e.target.select()} style={{ flex: 1, fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px" }} />
       <button onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={btn("primary")}>{copied ? "Copied" : "Copy"}</button>
+    </div>
     </div>
   );
 }
@@ -1540,9 +1543,9 @@ function InviteModal({ tabs, me, onClose, onInvited }) {
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)", maxHeight: "88vh", overflowY: "auto" }}>
         {result ? (
           <>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Invite ready</div>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 4 }}>Send <b style={{ color: T.ink }}>{result.user.email}</b> this link. It works once and expires in 7 days.</div>
-            <CopyLink url={result.invite_url} />
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Invite sent</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 4 }}>We emailed <b style={{ color: T.ink }}>{result.user.email}</b> an invite. It works once and expires in 7 days.</div>
+            <CopyLink url={result.invite_url} caption="or copy the link" />
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={onClose} style={btn("primary")}>Done</button>
             </div>
@@ -1608,8 +1611,8 @@ function UserRow({ u, me, tabs, onChanged }) {
     try { await postJSON(`/users/${u.id}/${u.status === "disabled" ? "enable" : "disable"}`); onChanged(); }
     catch { /* invariant blocked (last owner) */ } finally { setBusy(false); }
   }
-  async function copyInvite() { const r = await postJSON(`/users/${u.id}/resend-invite`); setLink(r.invite_url); }
-  async function copyReset() { const r = await postJSON(`/users/${u.id}/reset-link`); setLink(r.reset_url); }
+  async function sendInvite() { const r = await postJSON(`/users/${u.id}/resend-invite`); setLink(r.invite_url); }
+  async function sendReset() { const r = await postJSON(`/users/${u.id}/reset-link`); setLink(r.reset_url); }
 
   return (
     <div style={{ borderTop: `1px solid ${T.line}` }}>
@@ -1651,12 +1654,12 @@ function UserRow({ u, me, tabs, onChanged }) {
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
                 <button onClick={save} disabled={busy || (role === "member" && !grants.length)} style={btn("primary")}>Save</button>
-                {u.status === "invited" ? <button onClick={copyInvite} style={btn()}>Copy invite link</button> : <button onClick={copyReset} style={btn()}>Copy reset link</button>}
+                {u.status === "invited" ? <button onClick={sendInvite} style={btn()}>Send invite</button> : <button onClick={sendReset} style={btn()}>Send reset</button>}
                 <span style={{ flex: 1 }} />
                 <button onClick={toggleStatus} disabled={busy} style={btn("danger")}>{u.status === "disabled" ? "Enable" : "Disable"}</button>
               </div>
               {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 10 }}>{err}</div>}
-              {link && <CopyLink url={link} />}
+              {link && <CopyLink url={link} caption="Sent. Or copy the link — email can bounce or land in spam." />}
             </>
           ) : (
             <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>{isSelf ? "Manage your own name and password on the Account page." : "You can't manage this user."}</div>

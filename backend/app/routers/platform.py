@@ -15,7 +15,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from ..deps import current_platform_user
 from ..models import (AuditLog, Business, Domain, Integration, PlatformUser, SyncRun,
                       Tenant, User)
 from ..security import hash_pw, make_platform_token, new_action_token, verify_pw
+from ..services import mail_templates, mailer
 from ..services.audit import audit
 from ..services.provisioning import INVITE_VALID_DAYS, invite_url, provision_tenant
 
@@ -151,7 +152,8 @@ async def get_tenant(slug: str, op: PlatformUser = Depends(current_platform_user
 
 
 @router.post("/tenants", status_code=201)
-async def create_tenant(body: NewTenant, op: PlatformUser = Depends(current_platform_user),
+async def create_tenant(body: NewTenant, bg: BackgroundTasks,
+                        op: PlatformUser = Depends(current_platform_user),
                         s: AsyncSession = Depends(get_session)):
     """Provision a tenant. Same path as the CLI — scripts.create_tenant and this route both
     call provision_tenant, so a tenant cannot be created two different ways."""
@@ -166,6 +168,10 @@ async def create_tenant(body: NewTenant, op: PlatformUser = Depends(current_plat
     audit(s, r.tenant_id, None, "tenant.created", "tenant", r.tenant_id,
           {"by": op.email, "slug": r.slug, "hostname": r.hostname})
     await s.commit()
+    # Emailed AND returned. The operator keeps the link for the case the customer never sees
+    # the mail, which on a brand-new sending domain is the case worth planning for.
+    bg.add_task(mailer.send, r.owner_email,
+                *mail_templates.owner_invite(r.invite_url, body.name, INVITE_VALID_DAYS))
     return {"slug": r.slug, "hostname": r.hostname, "owner_email": r.owner_email,
             "invite_url": r.invite_url, "catalogs": r.catalogs}
 
@@ -192,7 +198,8 @@ async def resume_tenant(slug: str, op: PlatformUser = Depends(current_platform_u
 
 
 @router.post("/tenants/{slug}/resend-invite")
-async def resend_owner_invite(slug: str, op: PlatformUser = Depends(current_platform_user),
+async def resend_owner_invite(slug: str, bg: BackgroundTasks,
+                              op: PlatformUser = Depends(current_platform_user),
                               s: AsyncSession = Depends(get_session)):
     """Mint a fresh owner invite. The commonest real failure of onboarding is a link that
     expired before the customer got to it, and there was no way to issue another."""
@@ -211,7 +218,11 @@ async def resend_owner_invite(slug: str, op: PlatformUser = Depends(current_plat
         Domain.tenant_id == t.id).order_by(Domain.is_primary.desc()))).scalars().first()
     audit(s, t.id, None, "tenant.invite_resent", "user", owner.id, {"by": op.email})
     await s.commit()
-    return {"owner_email": owner.email, "invite_url": invite_url(host or t.slug, raw)}
+    url = invite_url(host or t.slug, raw)
+    bg.add_task(mailer.send, owner.email,
+                *mail_templates.owner_invite(url, t.name, INVITE_VALID_DAYS),
+                idempotency_key=f"owner-invite-{owner.id}-{owner.action_token_expires.isoformat()}")
+    return {"owner_email": owner.email, "invite_url": url}
 
 
 @router.get("/tenants/{slug}/audit")
