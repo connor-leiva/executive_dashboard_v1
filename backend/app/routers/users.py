@@ -109,6 +109,10 @@ async def get_appearance(user: User = Depends(require_role("owner", "admin")),
     return {"seeds": brand.get("seeds") or {},
             "typeface": brand.get("typeface") or "acumyn",
             "logo": brand.get("logo"), "logomark": brand.get("logomark"),
+            # Sent so the panel can open on a hand-built palette's own colours rather than the
+            # platform's — the difference between editing what you have and being offered a
+            # redesign with a Save button next to it.
+            "palette": brand.get("palette") or {},
             "allowed": plans.allows(tenant, "custom_branding"),
             "plan": plans.describe(tenant)}
 
@@ -222,7 +226,10 @@ async def upload_logo(kind: str = Form("logo"), file: UploadFile = File(...),
 
     cfg = dict(tenant.config or {})
     brand = dict(cfg.get("brand") or {})
-    brand[kind] = f"/api/v1/public/brand/{kind}?v={digest}"
+    # Server-relative and API-base-free: the browser resolves it through fileUrl(), the way
+    # every other stored media path works. An absolute URL here would bake the current API
+    # host into the workspace's config and break the day it moves.
+    brand[kind] = f"/public/brand/{kind}?v={digest}"
     brand[f"{kind}_ref"] = ref
     cfg["brand"] = brand
     tenant.config = cfg

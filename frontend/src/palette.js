@@ -164,6 +164,30 @@ export const SEED_META = {
   negative: { label: "Negative", hint: "Behind, at risk, money out." },
 };
 
+/**
+ * The five seeds that best describe an EXISTING thirty-token palette.
+ *
+ * A workspace that predates the picker has thirty hand-chosen colours, not five. Opening the
+ * settings panel on Acumyn's defaults rather than theirs is how a save turns into a redesign
+ * nobody asked for — which is exactly what happened to the first workspace: the panel offered
+ * Acumyn's colours, Save wrote them, and thirty hand-built tokens were replaced by Cadet.
+ *
+ * These five are the slots the derivation reads BACK from, so re-deriving reproduces the palette
+ * closely — not identically, because a hand-built palette can say things five seeds cannot, which
+ * is why the explicit palette is kept until somebody deliberately saves over it.
+ */
+export function seedsFromPalette(palette) {
+  const p = palette || {};
+  const base = seedsFromAcumyn();
+  return {
+    brand: p.poppy || base.brand,
+    surface: p.page || p.parchment || base.surface,
+    ink: p.ink || p.evergreen || base.ink,
+    positive: p.meadow || base.positive,
+    negative: p.poppyText || p.gapText || base.negative,
+  };
+}
+
 export function seedsFromAcumyn() {
   return { brand: CADET[500], surface: NEUTRAL[50], ink: CORE.ink,
            positive: SEMANTIC.success, negative: SEMANTIC.error };

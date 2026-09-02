@@ -157,3 +157,75 @@ def test_the_platform_default_is_not_derived_from_a_customer_asset():
     # And her originals must still be present, since her config now points at them.
     for tint in ("Evergreen", "Meadow", "Petal"):
         assert (brand / f"RibbedGradient_{tint}.jpg").exists(), f"{tint} was not restored"
+
+
+# ── 0052: restoring what the appearance panel overwrote ──────────────────────────────────
+def _mod52():
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/0052_restore_lost_palette.py"
+    spec = importlib.util.spec_from_file_location("mig0052", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+async def test_it_restores_a_palette_the_settings_panel_overwrote():
+    """The panel opened on the PLATFORM's five colours rather than the workspace's own, so Save
+    replaced thirty hand-built tokens with Cadet. A settings page that redecorates the product
+    when you press Save is the one thing a settings page must never do."""
+    mod = _mod52()
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        _table(conn)
+        _insert(conn, "t1", "springb", "2026-07-01",
+                {"palette": {}, "seeds": dict(mod.PLATFORM_SEEDS), "typeface": "classic",
+                 "logo": "/api/v1/public/brand/logo?v=abc"})
+        import alembic.op
+        from unittest.mock import patch
+        with patch.object(alembic.op, "get_bind", return_value=conn):
+            mod.upgrade()
+        brand = json.loads(conn.execute(sa.text("SELECT config FROM tenant")).scalar_one())["brand"]
+
+    assert brand["palette"] == mod.LEGACY_PALETTE
+    # The seeds now describe HER palette, so the panel opens on her colours rather than Acumyn's.
+    assert brand["seeds"]["brand"] == "#FA8069"      # her coral, not Cadet
+    assert brand["seeds"]["ink"] == "#002E2C"        # her evergreen
+    assert brand["typeface"] == "classic", "an unrelated setting was disturbed"
+    # A mark stored with the API prefix baked in double-prefixes and 404s as a silent CSS mask.
+    assert brand["logo"] == "/public/brand/logo?v=abc"
+
+
+async def test_it_refuses_to_overwrite_colours_somebody_actually_chose():
+    """The restraint that matters. Restoring an old palette over a real decision would be this
+    migration repeating the mistake it exists to undo."""
+    mod = _mod52()
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        _table(conn)
+        _insert(conn, "t1", "springb", "2026-07-01",
+                {"palette": {}, "seeds": {"brand": "#123456", "surface": "#FFFFFF",
+                                          "ink": "#000000", "positive": "#008000",
+                                          "negative": "#800000"}})
+        import alembic.op
+        from unittest.mock import patch
+        with patch.object(alembic.op, "get_bind", return_value=conn):
+            mod.upgrade()
+        brand = json.loads(conn.execute(sa.text("SELECT config FROM tenant")).scalar_one())["brand"]
+
+    assert brand["palette"] == {}, "clobbered a workspace's own choice"
+    assert brand["seeds"]["brand"] == "#123456"
+
+
+async def test_it_leaves_a_workspace_that_still_has_its_palette_alone():
+    mod = _mod52()
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        _table(conn)
+        _insert(conn, "t1", "springb", "2026-07-01", {"palette": {"ink": "#111111"}})
+        import alembic.op
+        from unittest.mock import patch
+        with patch.object(alembic.op, "get_bind", return_value=conn):
+            mod.upgrade()
+        brand = json.loads(conn.execute(sa.text("SELECT config FROM tenant")).scalar_one())["brand"]
+    assert brand["palette"] == {"ink": "#111111"}

@@ -1,4 +1,5 @@
 import { T, alpha } from "./theme.js";
+import { fileUrl } from "./api.js";
 
 /* Brand assets. The delivered logo/logomark/icon files are black art on a
    transparent ground, so we render them as CSS masks over a colored box — one
@@ -22,7 +23,14 @@ const mask = (url) => ({
 let _brand = { logo: null, logomark: null, display_name: "" };
 
 export function setBrand(b) {
-  _brand = { logo: null, logomark: null, display_name: "", ...(b || {}) };
+  const next = { logo: null, logomark: null, display_name: "", ...(b || {}) };
+  // An uploaded mark is stored server-relative; the API lives on another origin, so a bare path
+  // would resolve against the app host and 404. A failed CSS mask shows NOTHING — no broken-image
+  // icon, no console error — so this went unnoticed until somebody asked where their logo was.
+  for (const k of ["logo", "logomark"]) {
+    if (typeof next[k] === "string" && next[k].startsWith("/public/")) next[k] = fileUrl(next[k]);
+  }
+  _brand = next;
 }
 
 export function getBrand() {

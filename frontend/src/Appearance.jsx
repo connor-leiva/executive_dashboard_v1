@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { T, alpha } from "./theme.js";
 import {
   SEEDS, SEED_META, applyBrand, applyPalette, applyType, contrast, contrastProblems, derive,
-  seedsFromAcumyn,
+  seedsFromAcumyn, seedsFromPalette,
 } from "./palette.js";
 import { getJSON, patchJSON, API_BASE, authHeaders } from "./api.js";
 import { PAIRINGS, DEFAULT_PAIRING, loadTypeface, stacks } from "./typefaces.js";
@@ -80,6 +80,7 @@ export default function Appearance() {
   const [typeface, setTypeface] = useState(DEFAULT_PAIRING);
   const [marks, setMarks] = useState({ logo: null, logomark: null });
   const [upErr, setUpErr] = useState(null);
+  const [hadExplicit, setHadExplicit] = useState(false);
   const [allowed, setAllowed] = useState(true);
   const [plan, setPlan] = useState(null);
   const [saved, setSaved] = useState(null);
@@ -93,7 +94,14 @@ export default function Appearance() {
       if (!live || !r) return;
       setAllowed(!!r.allowed);
       setPlan(r.plan || null);
-      const s = { ...seedsFromAcumyn(), ...(r.seeds || {}) };
+      // Open on THIS workspace's colours. A workspace with a hand-built palette and no seeds
+      // gets seeds read back out of that palette, so the panel shows what they actually have
+      // rather than the platform's defaults with a Save button next to them.
+      const explicit = r.palette && Object.keys(r.palette).length ? r.palette : null;
+      const s = (r.seeds && Object.keys(r.seeds).length)
+        ? { ...seedsFromAcumyn(), ...r.seeds }
+        : seedsFromPalette(explicit);
+      setHadExplicit(!!explicit);
       setSeeds(s);
       setTypeface(r.typeface || DEFAULT_PAIRING);
       setMarks({ logo: r.logo || null, logomark: r.logomark || null });
@@ -259,6 +267,15 @@ export default function Appearance() {
           </div>
         )}
 
+        {hadExplicit && dirty && (
+          <div role="note" style={{ background: T.mist, border: `1px solid ${T.petal}`,
+                                    borderRadius: 10, padding: "10px 12px", marginBottom: 12,
+                                    fontFamily: FONT, fontSize: 12, color: T.slate,
+                                    lineHeight: 1.55 }}>
+            This workspace has a hand-built palette. Saving replaces it with these five colours
+            and the twenty-five worked out from them — close, but not identical.
+          </div>
+        )}
         <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
           <button onClick={save} disabled={busy || !dirty || problems.length > 0}
                   style={{ background: problems.length ? T.sprout : T.poppy, color: T.white,
