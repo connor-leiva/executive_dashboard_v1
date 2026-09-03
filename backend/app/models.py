@@ -562,6 +562,50 @@ class IntranetAiSetting(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class IntranetMarketingSetting(Base):
+    """How a marketing request leaves the building, per tenant.
+
+    A singleton keyed on tenant, the same shape as IntranetAiSetting, rather than more columns on
+    IntranetWorkspace: the workspace row is the tenant's IDENTITY, and a delivery destination is
+    not that. It also keeps Phase 10's request table free to reference this without dragging the
+    workspace into it.
+
+    THE DESTINATION IS NOT A CREDENTIAL. `destination` holds a channel name, an address or an
+    https URL -- something a person types and can read back. Anything token-shaped belongs in
+    IntranetIntegration, which already encrypts and masks; storing a Slack bot token here would
+    put a secret in a row this API returns to the browser in full.
+
+    `connected` is deliberately absent as a column. Whether the destination actually works is not
+    a fact the config can assert about itself -- it is the result of the last delivery attempt, and
+    inventing a boolean here would let the console claim a connection nobody has tested.
+    """
+
+    __tablename__ = "intranet_marketing_setting"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # none | slack | email | webhook. "none" is a real answer and the default: a workspace that
+    # has not chosen where requests go should say so, not pretend to have somewhere to send them.
+    destination_type: Mapped[str] = mapped_column(Text, default="none", server_default="none")
+    destination: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Which role picks the request up. Null means nobody is assigned yet, which the intranet says
+    # out loud rather than routing into a void.
+    default_role_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_role.id", ondelete="SET NULL"), nullable=True)
+    # Field keys the submitter must fill. A list, because the set is the tenant's decision.
+    required_fields: Mapped[list] = mapped_column(JSONType, default=list, server_default=text("'[]'"))
+    notify: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Set by a real delivery attempt, never by saving the form. Null means never tested.
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_test_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class IntranetContentGap(Base):
     __tablename__ = "intranet_content_gap"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)

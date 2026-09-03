@@ -128,6 +128,8 @@ export const getOverview = () => consoleGet("/overview");
 export const getWorkspace = () => consoleGet("/workspace");
 export const patchWorkspace = (body) => consoleSend("PATCH", "/workspace", body);
 export const uploadWorkspaceLogo = (kind, file) => consoleUpload("/workspace/logo", { kind, file });
+export const getMarketing = () => consoleGet("/marketing");
+export const patchMarketing = (body) => consoleSend("PATCH", "/marketing", body);
 export const getRoles = () => consoleGet("/roles");
 export const patchRole = (roleId, body) => consoleSend("PATCH", `/roles/${roleId}`, body);
 export const getPermissions = () => consoleGet("/permissions");

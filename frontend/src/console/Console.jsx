@@ -24,6 +24,7 @@ import AiAssistant from "./pages/AiAssistant.jsx";
 import AuditLog from "./pages/AuditLog.jsx";
 import BrandIdentity from "./pages/BrandIdentity.jsx";
 import Integrations from "./pages/Integrations.jsx";
+import MarketingRequests from "./pages/MarketingRequests.jsx";
 import Overview from "./pages/Overview.jsx";
 import RolesPermissions from "./pages/RolesPermissions.jsx";
 import Roster from "./pages/Roster.jsx";
@@ -358,6 +359,7 @@ export default function Console() {
           />
           <Route path="/calendar" element={<TeamCalendar />} />
           <Route path="/integrations" element={<Integrations />} />
+          <Route path="/marketing" element={<MarketingRequests />} />
           <Route path="/assistant" element={<AiAssistant />} />
           <Route path="/audit" element={<AuditLog />} />
           <Route path="*" element={<Navigate to="/" replace />} />

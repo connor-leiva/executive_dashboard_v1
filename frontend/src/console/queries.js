@@ -28,6 +28,7 @@ import {
   getPendingChanges,
   getPermissions,
   getPreview,
+  getMarketing,
   getRoles,
   getSetupTasks,
   getSop,
@@ -45,6 +46,7 @@ import {
   patchCalendarCategory,
   patchContentGap,
   patchIntegration,
+  patchMarketing,
   patchMember,
   patchSetupTask,
   patchSop,
@@ -75,6 +77,7 @@ export const keys = {
   workspace: ["console", "workspace"],
   calendarCategories: ["console", "calendar-categories"],
   integrations: ["console", "integrations"],
+  marketing: ["console", "marketing"],
   ai: ["console", "ai"],
   contentGaps: ["console", "content-gaps"],
   members: (params) => ["console", "members", params],
@@ -203,6 +206,22 @@ export function usePreview(role, enabled) {
     queryKey: keys.preview(role),
     queryFn: () => getPreview(role),
     enabled: enabled && Boolean(role),
+  });
+}
+
+export function useMarketing(enabled) {
+  return useQuery({ queryKey: keys.marketing, queryFn: getMarketing, enabled });
+}
+
+export function usePatchMarketing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: patchMarketing,
+    onSuccess: () => {
+      invalidateOverview(queryClient);
+      queryClient.invalidateQueries({ queryKey: keys.marketing });
+      queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
+    },
   });
 }
 

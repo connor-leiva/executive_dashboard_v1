@@ -13,7 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from .. import plans
 from ..db import get_session
 from ..deps import current_user, require_role
-from ..models import IntranetUserState, Tenant, User
+from ..models import IntranetMarketingSetting, IntranetRole, IntranetUserState, Tenant, User
 from ..services.audit import audit
 
 router = APIRouter(prefix="/intranet", tags=["intranet"])
@@ -104,11 +104,43 @@ def _stored_config(tenant: Tenant) -> dict:
     return _merge_known(_default_config(), cfg.get("intranet") or {})
 
 
-def _config_out(tenant: Tenant, user: User) -> dict:
+def _marketing_out(row: IntranetMarketingSetting | None, role_name: str | None) -> dict:
+    """What the INTRANET is told about marketing requests.
+
+    Deliberately not the console's view of the same row. The destination -- an ops Slack channel,
+    a shared inbox, a webhook -- is internal routing, and there is no reason every agent in the
+    workspace can read it off an API response. What an agent needs is whether the form is open,
+    what they will be asked for, and who picks it up.
+
+    `available` is the two console facts combined, because from the intranet's side "switched on
+    but pointing nowhere" and "switched off" are the same thing: no form. `delivery_pending` is
+    reported separately so the UI can say the request will be recorded but not yet routed, rather
+    than implying delivery it cannot perform.
+    """
+    if row is None:
+        return {"available": False, "required_fields": [], "assigned_role": None,
+                "delivery_pending": True}
+    complete = bool(row.enabled and row.destination_type != "none"
+                    and (row.destination or "").strip())
+    return {
+        "available": complete,
+        "required_fields": list(row.required_fields or []),
+        "assigned_role": role_name,
+        # True until the Phase 10 delivery path exists. The intranet says so rather than
+        # presenting a form that looks like it sends somewhere.
+        "delivery_pending": True,
+    }
+
+
+def _config_out(tenant: Tenant, user: User,
+                marketing: IntranetMarketingSetting | None = None,
+                marketing_role: str | None = None) -> dict:
+    config = _stored_config(tenant)
+    config["marketing"] = _marketing_out(marketing, marketing_role)
     return {
         "enabled": True,
         "can_configure": user.role in ("owner", "admin"),
-        "config": _stored_config(tenant),
+        "config": config,
     }
 
 
@@ -141,7 +173,15 @@ def _check_state_value(value: dict) -> dict:
 @router.get("/config")
 async def get_config(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     tenant = await _enabled_tenant(s, user)
-    return _config_out(tenant, user)
+    # Read-only: the console owns this row and creates it. A tenant that has never opened the
+    # Marketing Requests screen has no row, and None is the honest answer for that -- creating one
+    # here would write to the database on a GET.
+    marketing = await s.get(IntranetMarketingSetting, user.tenant_id)
+    role_name = None
+    if marketing is not None and marketing.default_role_id is not None:
+        role = await s.get(IntranetRole, marketing.default_role_id)
+        role_name = role.name if role is not None and role.tenant_id == user.tenant_id else None
+    return _config_out(tenant, user, marketing, role_name)
 
 
 @router.patch("/config")

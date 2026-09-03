@@ -30,6 +30,7 @@ export const NAV_SECTIONS = [
     items: [
       { to: "/calendar", label: "Team Calendar" },
       { to: "/integrations", label: "Integrations" },
+      { to: "/marketing", label: "Marketing Requests" },
     ],
   },
   {
@@ -468,20 +469,19 @@ export const COPY = {
 
 export const DEFAULT_TENANT_HOST = "utah-life.acumyn.io";
 
-export const ROUTE_TITLES = {
-  "/": "Overview",
-  "/brand": "Brand & Identity",
-  "/roster": "People & Roster",
-  "/perms": "Roles & Permissions",
-  "/training": "Training Library",
-  "/sops": "SOP Library",
-  "/wtd": "Win the Day",
-  "/launchpad": "Tool Launchpad",
-  "/calendar": "Team Calendar",
-  "/integrations": "Integrations",
-  "/assistant": "AI Assistant",
-  "/audit": "Audit Log",
-};
+/* Derived from NAV_SECTIONS, not listed again.
+ *
+ * This was a second hand-kept map of every route to its heading, and it had to agree with the nav
+ * for the page title to be right. It silently did not: adding Marketing Requests to the nav gave
+ * it a working screen with "Overview" in the header, because the title map had never heard of it
+ * and titleFor() falls back to "/".
+ *
+ * The nav already carries the route and its label for every screen, so the map is the same facts
+ * a second time. Deriving it means a screen added to the nav cannot ship with the wrong heading.
+ * Verified lossless against the literal it replaces: all twelve entries were already identical. */
+export const ROUTE_TITLES = Object.fromEntries(
+  NAV_SECTIONS.flatMap((section) => section.items.map((item) => [item.to, item.label])),
+);
 
 export const COUNT_ROUTES = {
   members: "/roster",

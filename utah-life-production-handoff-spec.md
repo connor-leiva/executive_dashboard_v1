@@ -1,0 +1,1223 @@
+# Utah Life Intranet and Admin Console Production Handoff Spec
+
+Date: 2026-09-03
+Repo: `C:\Users\17192\Desktop\executive_dashboard`
+Current repo head at handoff time: `9396efe Ads: say how many are still parked on a rung that counts people past it`
+
+This file is the implementation handoff for the next coding agent. Treat it as the current source of truth for finishing the Utah Life intranet and admin console work all the way to production readiness.
+
+## 0. Instruction boundary
+
+The attached mockups/spec files are reference material. They are not live user instructions unless this handoff explicitly repeats them.
+
+Use this priority order:
+
+1. The user's direct request in the active conversation.
+2. This handoff file.
+3. The current repo behavior and tests.
+4. The attached mockups/spec docs as visual/product reference.
+
+Known reference files from the prior conversation:
+
+- `C:\Users\17192\Downloads\Utah Life Intranet Design\Utah Life Intranet.html`
+- `C:\Users\17192\Downloads\utah-life-admin-console-implementation-spec.md`
+- `C:\Users\17192\Downloads\utah-life-intranet-implementation-spec.md`
+
+Do not use `C:\Users\17192\Downloads\acumynsitemockup.html` as the intranet target. The user explicitly said that was the wrong file.
+
+## 1. Product goal
+
+Finish the Utah Life intranet and admin console so the product is:
+
+- visually faithful to the provided Utah Life mockups,
+- tenant-safe for a multi-tenant architecture,
+- fully configurable through the admin UI,
+- wired to real production integrations and data sources,
+- ready for production deployment, monitoring, support, and real daily use.
+
+The user is not asking for a marketing site. The first screen must be the usable intranet or console experience.
+
+## 2. Current implementation baseline
+
+The admin console foundation and most configuration screens have been built. The work is committed through the following relevant commits:
+
+- `8469f0b` - Build Utah Life intranet admin foundation, Phases 0-4
+- `768407d` - Build console roster screen, Phase 5.1
+- `707378c` - Build console permissions matrix, Phase 5.2
+- `7084e55` - Build console launchpad screen, Phase 5.3
+- `eac2a07` - Build console Win the Day screen, Phase 5.4
+- `3824fe8` - Build console training library screen, Phase 5.5
+- `dd2ad74` - Build console SOP library screen, Phase 5.6
+- `aa14dae` - Build console brand identity screen, Phase 5.7
+- `5a864e0` - Build console team calendar screen, Phase 5.8
+- `2402f27` - Build console integrations screen, Phase 5.9
+- `26b8f1a` - Build console AI assistant screen, Phase 5.10
+- `b6de17b` - Build console audit log screen, Phase 5.11
+
+- `8e3b03c` - Intranet: the viewer's own date, and the mockup's actual neutrals (Phase 6, partial)
+- `<this pass>` - Marketing Requests configuration, console screen + API (Phase 7, partial)
+
+Later ads-related commits exist on top of those. Do not assume they are part of this
+intranet/admin-console effort.
+
+Last known verification before this handoff:
+
+- `pytest tests/test_console_api.py -q` passed with `264 passed, 5 warnings`
+- `npm run build:all` passed from `frontend/`
+- `bash frontend/scripts/check-no-mock-data.sh` passed
+- Browser smoke checks passed for `/console/brand`, `/console/calendar`, `/console/integrations`, `/console/assistant`, and `/console/audit`
+- `git diff --check` passed for the touched console files
+
+Always re-run the relevant checks after changing code. The current repo may have changed since this handoff was written.
+
+## 3. Local development URLs
+
+Backend API:
+
+- `http://127.0.0.1:8000`
+
+Intranet app:
+
+- `http://localhost:5174/intranet/`
+
+Admin console app:
+
+- `http://localhost:5175/console/`
+
+The repo root does not have a `package.json`. Frontend scripts are in `frontend/`.
+
+Typical local commands:
+
+```powershell
+cd C:\Users\17192\Desktop\executive_dashboard\backend
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+```powershell
+cd C:\Users\17192\Desktop\executive_dashboard\frontend
+npm run dev:intranet -- --host 127.0.0.1 --port 5174
+npm run dev:console -- --host 127.0.0.1 --port 5175
+```
+
+If those ports are busy, check active listeners before starting new servers:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000,5174,5175 -State Listen | Select-Object LocalPort,OwningProcess
+```
+
+## 4. User decisions already made
+
+These decisions came from prior user answers and should be treated as settled unless the user changes them:
+
+- Use a close proxy for the final fonts until the real font files are provided.
+- Choose conservative tenant-protection defaults for multi-tenant architecture.
+- The intranet is an additional Acumyn plan feature.
+- Every user gets access to the intranet by default.
+- Role/audience tightening is configurable.
+- Use generic avatars until real profile photos are connected.
+- Some pages may ship initially as shells, but only when they are honest empty/config-required states.
+- Win the Day state resets per user, per local day, based on the user's local time.
+- Win the Day progress must persist.
+- Numeric business metrics should render as `0` until real API integrations are configured.
+- Do not display fake data or representative production-looking numbers.
+- Google Calendar must be configurable in the UI and may ship empty until connected.
+- Marketing Requests must be configurable in the UI and may ship empty until connected.
+- The user does not want hardwired integrations or destinations. Admin-configurable wiring is required.
+- TT Drugs and TT Norms Pro are the target close-proxy font direction until final assets arrive.
+- Asset access should be proxied.
+- The final Utah Life mark is still needed.
+- Do not include items the user explicitly said to omit in prior Q&A.
+- Wire to real integrations before production use.
+
+## 5. Product principles for the remaining work
+
+The most important correction from prior feedback: the intranet must look like the provided Utah Life mockup. It should not feel like a separate generic workspace product.
+
+Production behavior rules:
+
+- No fake operational data.
+- No seeded demo metrics outside explicitly demo-only tenants.
+- No secrets returned to browsers.
+- No secret-shaped values in audit logs.
+- No cross-tenant reads, writes, asset access, search results, or integration state.
+- No uploaded asset file paths or data URIs exposed as public truth.
+- All tenant-specific content and destinations must be configurable through the admin UI.
+- All writes must be audited.
+- Publish/preview/live behavior must be clear and testable.
+- Empty states must say what is not connected or configured without pretending to be live.
+- Console users without `console_access=Full` must fail closed.
+
+Visual rules:
+
+- Intranet visual language must follow the Utah Life mockup: dark left rail, Utah Life identity, muted warm canvas, compact top utility bar, role switcher, metric cards, goal/progress card, dark Sunburst coaching panel, Needs You Today, Quick Launch, and floating Ask button.
+- Do not keep the earlier generic "Workspace Intranet" styling as the final product.
+- The admin console can remain a dense operational configuration surface, but it must feel coherent with the Utah Life product.
+- Avoid landing-page treatment, oversized hero marketing layout, decorative blobs, and fake illustrative content.
+
+## 6. Architecture overview
+
+Backend:
+
+- FastAPI app in `backend/app/main.py`.
+- SQLAlchemy async models in `backend/app/models.py`.
+- Tenant resolution through host headers in `backend/app/tenancy.py`.
+- Console API router in `backend/app/routers/console.py`, mounted at `/api/console`.
+- Intranet API router in `backend/app/routers/intranet.py`, mounted at `/api/v1/intranet`.
+- Console auth/authorization uses `ConsolePrincipal` and `require_console_access`.
+- Seed data for the intranet lives in `backend/scripts/seed_intranet.py`.
+- Uploaded logo/SOP bytes use `backend/app/services/binder_storage.py`.
+
+Frontend:
+
+- Vite React app in `frontend/`.
+- Intranet routes live under `frontend/src/intranet/`.
+- Console routes live under `frontend/src/console/`.
+- Console navigation and copy live in `frontend/src/console/constants.js`.
+- Build scripts live in `frontend/package.json`.
+
+Storage:
+
+- `binder_storage` supports remote object storage when configured and local storage in dev.
+- Production must use durable object storage with private keys, scoped access, content-type metadata, size limits, and signed/proxied downloads.
+
+Publishing:
+
+- Admin changes are tracked in pending-change/publish-batch models.
+- Published config is consumed by the intranet.
+- Preserve draft/live separation and make rollback exact.
+
+## 7. Current completed phase state
+
+Use this as the starting point, then update as work is finished.
+
+- [x] Phase 0 - Repo and local app orientation.
+- [x] Phase 1 - Tenant-scoped intranet module foundation.
+- [x] Phase 2 - Published config endpoint and per-user Win the Day state.
+- [x] Phase 3 - Intranet app shell and mockup-proxy routes.
+- [x] Phase 4 - Admin console foundation, overview, pending changes, publish controls, preview.
+- [x] Phase 5.1 - People and Roster admin screen.
+- [x] Phase 5.2 - Roles and Permissions admin screen.
+- [x] Phase 5.3 - Tool Launchpad admin screen.
+- [x] Phase 5.4 - Win the Day admin screen.
+- [x] Phase 5.5 - Training Library admin screen.
+- [x] Phase 5.6 - SOP Library admin screen.
+- [x] Phase 5.7 - Brand and Identity admin screen.
+- [x] Phase 5.8 - Team Calendar admin screen.
+- [x] Phase 5.9 - Integrations admin screen.
+- [x] Phase 5.10 - AI Assistant admin screen.
+- [x] Phase 5.11 - Audit Log admin screen.
+- [~] Phase 6 - Intranet visual parity and production polish. PARTIAL, see section 8a.
+- [~] Phase 7 - Admin console completion and configuration coverage. PARTIAL, see section 9a.
+- [ ] Phase 8 - Production authentication, identity, and tenant access.
+- [ ] Phase 9 - Real integration wiring and sync jobs.
+- [ ] Phase 10 - Marketing Requests production workflow.
+- [ ] Phase 11 - AI Assistant production implementation.
+- [ ] Phase 12 - Data model, migrations, and seed hardening.
+- [ ] Phase 13 - Publish/runtime config hardening.
+- [ ] Phase 14 - Observability, operations, and deployment.
+- [ ] Phase 15 - Security, privacy, and tenant-isolation review.
+- [ ] Phase 16 - QA, UAT, and release readiness.
+- [ ] Phase 17 - Production launch and first-week support.
+
+## 8. Phase 6 - Intranet visual parity and production polish
+
+Goal: make the live intranet app visually and conceptually match the provided Utah Life mockup.
+
+Primary files:
+
+- `frontend/src/intranet/IntranetApp.jsx`
+- `frontend/src/intranet/IntranetApp.css`
+- `frontend/src/intranet/constants.js`
+- `frontend/src/intranet/api.js`
+- `frontend/vite.intranet.config.js`
+
+Required work:
+
+- Re-check the provided Utah Life intranet HTML mockup before editing.
+- Align the left rail with the mockup:
+  - Utah Life logo lockup at the top.
+  - "Powered by PLACE" supporting line.
+  - "Team Intranet" label.
+  - Grouped nav: Workspace, Learn, Team, Marketing, Partners.
+  - Active Home treatment matching the mockup.
+- Align the top utility bar:
+  - Search input.
+  - Ask Utah Life button.
+  - Role switcher with Buyer Agent, Listing Agent, Ops/Admin, Team Leader.
+  - User identity chip.
+- Align Home content:
+  - Date line.
+  - Greeting: `Good Morning, Jordan.` until real user first name is wired.
+  - Supporting priority sentence based on real/empty state, not fake data.
+  - `Open My Tools` and `My Numbers` actions.
+  - Four metric cards matching the mockup's visual language.
+  - Annual goal/progress bar.
+  - Team YTD block.
+  - Dark Sunburst coaching panel.
+  - Needs You Today.
+  - Quick Launch.
+  - Floating Ask button.
+- Replace current generic "Workspace Intranet" card treatment where it conflicts with the mockup.
+- Keep placeholders honest:
+  - numbers are `0` or visibly unconfigured if the integration is not connected,
+  - calendar says disconnected until configured,
+  - marketing request destination says disconnected until configured,
+  - AI assistant says not connected until the real service exists.
+- Use close-proxy fonts now. Switch to the final brand fonts when the user provides them.
+- Ensure responsive behavior at desktop, tablet, and mobile widths.
+
+Acceptance criteria:
+
+- At `http://localhost:5174/intranet/`, the first viewport reads as the same product as the Utah Life mockup.
+- There are no fake production-looking metrics.
+- Calendar and Marketing Requests can be configured in UI and render empty/not-connected before setup.
+- Win the Day progress persists per user per local day.
+- All intranet routes still work after visual refactor.
+- Screenshots pass at:
+  - `1920x1080`
+  - `1440x900`
+  - `390x844`
+
+Suggested tests:
+
+```powershell
+cd C:\Users\17192\Desktop\executive_dashboard\backend
+.\.venv\Scripts\python.exe -m pytest tests/test_intranet.py tests/test_console_api.py -q
+```
+
+```powershell
+cd C:\Users\17192\Desktop\executive_dashboard\frontend
+npm run build:intranet
+```
+
+## 8a. Phase 6 progress and what is left
+
+Done in this pass:
+
+- The date line and the greeting now come from the VIEWER'S clock. Both were the mockup's frozen
+  instant -- a `MOCK_DATE` constant and a hardcoded "Good Morning" -- rendered on every screen. The
+  app was announcing a Monday last August. A one-minute tick keeps a tab left open overnight right.
+- The search box no longer ships pre-filled with the mockup's sample query; that text is a
+  placeholder now. Every user was opening the intranet with somebody else's search already typed.
+- Colour tokens measured against the mockup and corrected. Every neutral had drifted: rail
+  `#10191E` -> `#171E22` (the rail is the same ink as the body text, which is the trick of it),
+  canvas `#E9E6E3` -> `#EAE7E6`, border `#D7D2CF` -> `#DED9D7` in ~160 places, hairline
+  `#E2DEDB` -> `#EFEBEA`, panels -> flat `#FFFFFF`. The Sunburst accent was two different
+  invented magentas for the mockup's one `#C04BD1`. A body-copy step the mockup uses 91 times had
+  no token, so that copy rendered at `--muted`.
+- Type scale corrected. It ran 2-4px large and one weight heavy at every step: h1 42/500 ->
+  40/400 with -0.6px tracking, hero copy 19 -> 16, stat figures 36/500 -> 34/400, nav 16 -> 14.5.
+- Rail: width 293 -> 266; the active marker is now the mockup's 3x16 tick that EVERY item carries
+  (transparent when inactive), which is what keeps labels on one vertical line.
+- `check-no-mock-data.sh` gained a frozen-date rule and the path to it is corrected above.
+- Verified: no horizontal scroll at 390x844, off-canvas rail works.
+
+Left for Phase 6:
+
+- Screenshot pass at `1920x1080` (1440x900 and 390x844 were checked).
+- Needs You Today and Quick Launch blocks were not compared against the mockup in detail.
+- The mockup's rail footer is a "Need A Hand?" block with a #help link. The app ships
+  "Powered by PLACE" instead, which section 8 of this document asks for. THE TWO SOURCES
+  DISAGREE and it was left as the document says. Worth a decision.
+- Final TT Drugs / TT Norms Pro files. DM Sans + Archivo are the close proxies and are what the
+  mockup itself uses; the swap point is the `--font-*` block at the top of `ui.css`.
+
+## 9a. Phase 7 progress and what is left
+
+Done in this pass -- Marketing Requests configuration:
+
+- New table `intranet_marketing_setting`, migration `0056_marketing_requests_config`. A per-tenant
+  singleton shaped like `intranet_ai_setting`, NOT columns on `intranet_workspace`: the workspace
+  row is the tenant's identity and a delivery destination is not, and Phase 10's request table
+  can foreign-key this without dragging the workspace in.
+- `GET /api/console/marketing` and `PATCH /api/console/marketing`. Registered in the test file's
+  route tables, so they inherit the auth-401, buyer-403 and exactly-one-audit-row coverage.
+- Console screen at `/console/marketing`, listed under Connections.
+- Validation is per destination type, because "destination" means three different things: a
+  Slack channel (`#`), an email address (`@`), or an https URL. A webhook is stored normalised.
+- Enabling with no destination is REFUSED rather than saved, so the intranet cannot show a
+  working request form over a destination that does not exist.
+- `required_fields` is a fixed vocabulary. These keys drive the intranet form, so an unknown one
+  would be a required field with no input behind it.
+
+WHAT THIS DELIBERATELY DOES NOT DO. There is no `connected` flag and no test-delivery button.
+Configuration completeness and delivery health are reported as two separate facts, because a
+saved form proves only that somebody typed a destination. Section 23 still lists the production
+Marketing Requests destination as an open decision, and building a delivery path against a
+guess would have meant either dead code or a console claiming a connection nobody has made. The
+screen says "configuration saved, runtime connection pending" in as many words, which is what
+section 9 of this document asks for.
+
+Left for Phase 7:
+
+- The intranet side still renders Marketing Requests as the old `{url, label}` link from the
+  JSON config. It should read this new config and show the honest unavailable state when
+  `config_complete` is false. That is the natural next task and it is small.
+- Google Calendar config was reviewed and is largely covered already (per-category
+  `calendar_address`, role audience, plus workspace `timezone` / `week_starts_on` /
+  `default_calendar_view`). A distinct Google connection status is the gap, and it belongs with
+  the Phase 9 integration work rather than here.
+- Feature/plan gating flags (intranet enabled, AI enabled, Marketing Requests enabled by plan)
+  are not built. `marketing.enabled` is a tenant switch, not a plan gate.
+- Setup checklist mapping was not touched.
+
+Incidental fix found on the way: `_https_url` in `console.py` accepted `"not a url"`, because it
+prepends a scheme and the netloc then parses as `not`. That validator also guards launchpad tile
+URLs and AI source base URLs, so a tile could be saved pointing at something that is not an
+address. It now rejects raw whitespace. Encoded `%20` is untouched.
+
+Two more things found on the way, both worth knowing before the next pass:
+
+- `_set_publish_state` was a hand-written tuple of seventeen model classes, and a publishable
+  table added without being added to it is never marked published -- `draft_dirty` stays true
+  forever and the live intranet keeps serving pre-publish state, with nothing raising. The new
+  table was in exactly that position. It now derives the set from the mapper registry (any model
+  with `tenant_id` + `published_at` + `draft_dirty`), verified to reproduce all seventeen and add
+  only the new one, with a test asserting the derivation still matches the schema.
+
+- THE INTRANET CANNOT REACH THE API FROM `localhost` IN DEV. `src/api.js` sends
+  `X-Tenant-Host: window.location.hostname` with no override, so a browser on `localhost:5174`
+  identifies as tenant `localhost` and every call 401s; the dev server sidesteps this by running
+  with no `VITE_API_BASE` at all, in a demo fallback with a hardcoded "Jordan Hale". Browsing via
+  `utah-life.localhost` fixes the header (and `vite.intranet.config.js` allows `.localhost` hosts
+  for what looks like that reason) but that origin is not in `ALLOWED_ORIGINS`, so CORS blocks it
+  instead. Consequence: the intranet's CONNECTED states cannot currently be seen in a browser
+  locally -- only the demo fallback and the API payload itself. Adding `http://*.localhost:PORT`
+  to the dev CORS list would close this, and it is worth doing before Phase 6's remaining
+  screenshot work.
+
+## 9. Phase 7 - Admin console completion and configuration coverage
+
+Goal: every tenant-visible intranet behavior must be configurable in the admin console, including items currently shipped as honest empty states.
+
+Primary files:
+
+- `frontend/src/console/Console.jsx`
+- `frontend/src/console/pages/*.jsx`
+- `frontend/src/console/constants.js`
+- `frontend/src/console/api.js`
+- `backend/app/routers/console.py`
+- `backend/app/models.py`
+- `backend/scripts/seed_intranet.py`
+- `backend/tests/test_console_api.py`
+
+Required work:
+
+- Finish any missing config fields from the user's admin-console mockup.
+- Add a Google Calendar configuration surface:
+  - tenant calendar URL,
+  - optional Google calendar ID,
+  - timezone,
+  - default view,
+  - category color/audience,
+  - connection status,
+  - no fake event preview when disconnected.
+- Add Marketing Requests configuration:
+  - enabled flag,
+  - request destination type,
+  - request destination URL/channel/email,
+  - default assignee or role,
+  - required fields,
+  - notification routing,
+  - connection status.
+- Add any missing workspace identity fields:
+  - final mark/logo slots,
+  - brand font selection/proxy,
+  - custom domain settings,
+  - domain verification state,
+  - workspace address if required by the latest mockup.
+- Add feature/plan gating config:
+  - intranet enabled flag,
+  - AI assistant enabled flag,
+  - Marketing Requests enabled flag,
+  - integrations enabled by plan,
+  - no client-only gating for privileged behavior.
+- Finish setup checklist mapping so checklist items close only when the underlying config is truly complete.
+- Make disabled buttons and "not yet available" labels accurate. If a feature is still future-work, it should clearly say configuration is saved but runtime connection is pending.
+
+Acceptance criteria:
+
+- A console admin can configure all current intranet empty states without editing code or seed files.
+- All config writes are tenant-scoped, validated, audited, publish-aware, and reflected in preview/live.
+- Buyer-agent or non-console users receive 403 on console reads/writes.
+- Cross-tenant IDs return 404/403 and never leak existence.
+
+Suggested tests:
+
+```powershell
+cd C:\Users\17192\Desktop\executive_dashboard\backend
+.\.venv\Scripts\python.exe -m pytest tests/test_console_api.py -q
+```
+
+```powershell
+cd C:\Users\17192\Desktop\executive_dashboard\frontend
+npm run build:console
+```
+
+## 10. Phase 8 - Production authentication, identity, and tenant access
+
+Goal: replace local/dev auth assumptions with production-grade identity and access control.
+
+Required work:
+
+- Decide and implement production SSO. Likely Google Workspace for Utah Life.
+- Support manual invite/reset flows for users not covered by SSO.
+- Enforce tenant by verified host/custom domain and authenticated user tenant.
+- Ensure all app tokens include tenant, user, and role claims.
+- Ensure all console routes require a role with `console_access=Full`.
+- Implement secure session lifecycle:
+  - short-lived access tokens,
+  - refresh token rotation or equivalent,
+  - logout invalidation,
+  - secure cookie/token storage decision,
+  - CSRF protection if cookies are used,
+  - MFA/TOTP policy where required.
+- Add profile data:
+  - first name,
+  - last name,
+  - display name,
+  - avatar URL or initials,
+  - role,
+  - timezone.
+- Add admin UI for invite resend, deactivate, reactivate, and role changes if any are missing.
+
+Acceptance criteria:
+
+- A real Utah Life user can sign in via the chosen provider.
+- A deactivated user loses access.
+- A user from tenant A cannot access tenant B by host spoofing, token replay, asset key, or API ID.
+- A console-less user cannot load console data.
+- Auth failures are observable but do not leak secret details.
+
+## 11. Phase 9 - Real integration wiring and sync jobs
+
+Goal: connect the product to real systems, using admin-configured credentials and destinations.
+
+General integration rules:
+
+- Do not hardcode provider credentials or tenant destinations.
+- Store secrets encrypted or in the production secret manager, not in generic JSON config.
+- Return only masked/safe connection metadata to the browser.
+- Audit connect, disconnect, config update, test, and sync state changes.
+- Include retry/backoff, rate-limit handling, and last-sync status.
+- Sync jobs must be idempotent.
+- If a provider is disconnected, UI renders empty state or `0`, not fake data.
+
+Required providers and likely mappings:
+
+### Sisu
+
+Purpose:
+
+- My Numbers cards.
+- YTD units, pending, appointments held, GCI.
+- Goal progress.
+- Team YTD block.
+
+Admin config:
+
+- API credential reference.
+- Tenant/team ID.
+- User matching field.
+- Metric mapping.
+- Sync schedule.
+
+Runtime behavior:
+
+- Sync user-level and team-level metrics.
+- Use `0` while disconnected.
+- Show stale status when sync is old or failed.
+
+### Follow Up Boss
+
+Purpose:
+
+- Needs You Today.
+- Win the Day inputs/lists where relevant.
+- Lead/call/task follow-up items.
+
+Admin config:
+
+- API credential reference.
+- Smart list IDs.
+- User matching field.
+- Follow-up rules.
+
+Runtime behavior:
+
+- Pull actionable items.
+- Preserve per-user completion state.
+- Do not reset completed state until the user's local day changes.
+
+### Google Workspace and Google Calendar
+
+Purpose:
+
+- SSO.
+- Roster/group sync if chosen.
+- Team calendar display.
+
+Admin config:
+
+- OAuth or service account credential reference.
+- Calendar IDs.
+- Role/audience mapping.
+- Timezone and week-start defaults.
+
+Runtime behavior:
+
+- Calendar renders real events after connection.
+- Disconnected calendar renders empty state.
+- Respect role/audience filters.
+
+### Slack
+
+Purpose:
+
+- Announcements.
+- Marketing request notifications or destination.
+
+Admin config:
+
+- Workspace connection.
+- Channel IDs.
+- Bot/user token reference.
+- Notification rules.
+
+Runtime behavior:
+
+- Test connection verifies channel access.
+- Marketing request events can post to configured channel when enabled.
+
+### Training/content sources
+
+Likely providers:
+
+- Skool.
+- Loom.
+- PLACE.
+- eXp.
+- Google Drive or other document source if selected.
+
+Purpose:
+
+- Training Library.
+- First 30 Days.
+- SOP/source documents.
+- AI Assistant sources.
+
+Runtime behavior:
+
+- Source content syncs into tenant-scoped records.
+- All imported content has source metadata and freshness.
+- Broken links are surfaced in console health.
+
+### Other launchpad providers
+
+Examples from current UX:
+
+- Brivity.
+- Canva.
+- SkySlope.
+- Meraki Title.
+- TT Drugs.
+- TT Norms Pro.
+
+Purpose:
+
+- Launchpad tiles and deep links.
+- Optional integration status where relevant.
+
+Runtime behavior:
+
+- Configurable tile destination, auth type, role audience, and active state.
+- No provider-specific hardcoding unless there is a real integration contract.
+
+Acceptance criteria:
+
+- Every connected provider has:
+  - config UI,
+  - secure credential storage,
+  - test endpoint,
+  - sync endpoint/job,
+  - status display,
+  - audit trail,
+  - tenant isolation tests,
+  - failure-state UI.
+
+## 12. Phase 10 - Marketing Requests production workflow
+
+Goal: replace the empty/configurable shell with a real request workflow.
+
+Required work:
+
+- Define request model:
+  - tenant ID,
+  - requester member/user,
+  - listing/client context,
+  - request type,
+  - title,
+  - description,
+  - due date,
+  - priority,
+  - attachments,
+  - status,
+  - assignee/owner,
+  - destination delivery metadata.
+- Define admin config:
+  - enabled,
+  - destination type,
+  - Slack channel/email/webhook/project board,
+  - required fields,
+  - default assignee,
+  - SLA/due-date defaults,
+  - file attachment policy.
+- Build intranet UI:
+  - create request,
+  - view my requests,
+  - see status,
+  - upload attachments where allowed.
+- Build console UI:
+  - workflow configuration,
+  - request list,
+  - status management,
+  - export/audit if needed.
+- Wire destination delivery:
+  - Slack post,
+  - email,
+  - webhook,
+  - or project-management provider once selected.
+
+Acceptance criteria:
+
+- A user can submit a real marketing request from the intranet.
+- The request persists and is visible to permitted admins.
+- Destination delivery either succeeds or shows an actionable failure.
+- A disconnected destination keeps requests saved locally and does not drop user input.
+- All writes and status changes are audited.
+
+Open decision:
+
+- The exact production destination for Marketing Requests is TBD.
+
+## 13. Phase 11 - AI Assistant production implementation
+
+Goal: turn Ask Utah Life from a shell into a sourced, tenant-safe assistant.
+
+Required work:
+
+- Select production provider/model and retrieval stack.
+- Add tenant-scoped content indexing:
+  - SOP versions,
+  - training lessons,
+  - First 30 Days content,
+  - Win the Day docs/config,
+  - calendar policy docs if available,
+  - brand kit docs,
+  - directory metadata where appropriate.
+- Add vector storage or equivalent retrieval index.
+- Add source freshness and crawl status.
+- Add answer endpoint:
+  - authenticated,
+  - tenant-scoped,
+  - role-aware,
+  - cites sources,
+  - refuses when no source is available if guardrail is enabled,
+  - offers escalation if enabled.
+- Add content gap workflow:
+  - unanswered or low-confidence question creates a content gap,
+  - console can assign/resolve/no-action,
+  - resolved gaps can trigger re-index.
+- Add usage/rate limits:
+  - per user,
+  - per tenant,
+  - reset by user's local day where relevant.
+- Add privacy/logging controls:
+  - redact sensitive values,
+  - avoid storing full prompts if policy says not to,
+  - no tenant data used for training unless explicitly allowed.
+
+Acceptance criteria:
+
+- The intranet Ask button and Ask page call the real answer endpoint.
+- Answers include citations to tenant-owned content.
+- If no relevant source exists, the assistant does not hallucinate.
+- User can see a graceful unavailable state if AI is disabled.
+- Console AI source health reflects real crawl/index state.
+
+## 14. Phase 12 - Data model, migrations, and seed hardening
+
+Goal: make database shape production-safe and migration-managed.
+
+Required work:
+
+- Audit every intranet/console model for `tenant_id` and indexes.
+- Add missing constraints:
+  - uniqueness by tenant where appropriate,
+  - foreign key cascade rules,
+  - enum/value validation,
+  - non-null fields for production-critical data.
+- Move schema evolution to Alembic migrations for production.
+- Keep SQLite dev convenience only for local development.
+- Make `seed_intranet.py` idempotent and safe to re-run.
+- Separate demo seed data from production tenant bootstrap.
+- Remove or quarantine representative mock numbers outside demo tenants.
+- Add migration tests.
+- Add data-backfill scripts for new fields.
+
+Potential model/config additions:
+
+- Workspace address and legal/company fields if required by the final admin mockup.
+- Domain verification status and timestamps.
+- Marketing request destination config.
+- Integration credential references.
+- Calendar source IDs.
+- AI source index metadata.
+- User timezone and locale.
+- Asset metadata table if object storage needs signing/expiry rules.
+
+Acceptance criteria:
+
+- A blank production database can migrate and provision a tenant.
+- Existing dev database can migrate without manual cleanup.
+- All tenant-scoped tables have tenant isolation tests.
+- Seeds do not overwrite admin-configured values.
+
+## 15. Phase 13 - Publish and runtime config hardening
+
+Goal: make draft, preview, publish, rollback, and live runtime behavior exact.
+
+Required work:
+
+- Ensure every admin-configurable field participates in draft/pending state or has an explicit immediate-write reason.
+- Preview must show draft state.
+- Live intranet must show only published state unless the route is explicitly preview.
+- Add ETag/cache behavior for published config.
+- Add cache invalidation on publish/rollback.
+- Add rollback tests for every configurable domain:
+  - workspace/brand,
+  - roles/permissions,
+  - roster,
+  - launchpad,
+  - Win the Day,
+  - training,
+  - SOPs,
+  - calendar,
+  - integrations,
+  - AI settings,
+  - marketing requests.
+- Make publish history readable in console.
+- Prevent stale client overwrites where possible.
+
+Acceptance criteria:
+
+- A console admin can preview draft changes, publish them, and roll back to a prior published version.
+- The intranet does not show unpublished draft changes to normal users.
+- Rollback restores the expected previous live state.
+
+## 16. Phase 14 - Observability, operations, and deployment
+
+Goal: run the product like a production system.
+
+Required work:
+
+- Add structured logging with request IDs and tenant IDs.
+- Add metrics:
+  - API latency/error rate,
+  - sync job success/failure,
+  - integration stale counts,
+  - AI usage/errors,
+  - publish events,
+  - auth failures,
+  - upload failures.
+- Add health checks:
+  - API health,
+  - DB connectivity,
+  - object storage connectivity,
+  - worker/scheduler health.
+- Add background worker deployment plan.
+- Add backup and restore plan:
+  - database,
+  - object storage,
+  - secrets.
+- Add CI/CD:
+  - backend tests,
+  - frontend builds,
+  - lint/type checks if adopted,
+  - migration checks,
+  - smoke tests.
+- Add staging environment.
+- Add production environment.
+- Document env vars.
+- Document incident and rollback runbooks.
+
+Acceptance criteria:
+
+- Production deploy can be reproduced from docs.
+- A failed deploy can be rolled back.
+- Operators can see whether integrations, workers, and AI are healthy.
+- Backups are tested.
+
+## 17. Phase 15 - Security, privacy, and tenant isolation
+
+Goal: complete a launch-grade security pass.
+
+Required work:
+
+- Review OWASP basics:
+  - auth bypass,
+  - broken access control,
+  - injection,
+  - XSS,
+  - CSRF if cookie auth,
+  - insecure direct object references,
+  - upload vulnerabilities,
+  - SSRF through configurable URLs,
+  - CORS origin mistakes.
+- Harden uploads:
+  - MIME sniffing,
+  - file size limits,
+  - extension policy,
+  - malware scanning if available,
+  - private storage,
+  - signed/proxied delivery.
+- Harden secret handling:
+  - no secrets in JSON config,
+  - no secrets in logs,
+  - no secrets in audit details,
+  - no secrets in browser local storage,
+  - credential rotation path.
+- Add tenant isolation tests:
+  - API ID probing,
+  - asset key probing,
+  - preview/publish probing,
+  - integration status probing,
+  - AI retrieval probing.
+- Add rate limiting:
+  - auth,
+  - assistant,
+  - uploads,
+  - sync/test endpoints,
+  - marketing request submit.
+- Add security headers/CSP for frontend deployment.
+- Verify custom-domain onboarding cannot hijack another tenant's host.
+
+Acceptance criteria:
+
+- A scripted cross-tenant probe cannot read or mutate another tenant's data.
+- Secret-shaped values never appear in browser responses or audit rows.
+- Uploads cannot escape storage boundaries or execute in browser context.
+- Security tests are part of CI.
+
+## 18. Phase 16 - QA, UAT, and release readiness
+
+Goal: verify the entire product against real user workflows.
+
+Required QA matrix:
+
+- Browser coverage:
+  - Chrome,
+  - Safari,
+  - Edge.
+- Viewports:
+  - `390x844`,
+  - `768x1024`,
+  - `1440x900`,
+  - `1920x1080`.
+- User roles:
+  - Buyer Agent,
+  - Listing Agent,
+  - Ops/Admin,
+  - Team Leader,
+  - JV Partner if still included.
+- Intranet screens:
+  - Home,
+  - Ask Utah Life,
+  - Win the Day,
+  - Sunburst Coaching,
+  - Team Calendar,
+  - Tool Launchpad,
+  - My Numbers,
+  - First 30 Days,
+  - Training Library,
+  - SOPs,
+  - Who's Who,
+  - On The Phone,
+  - Brand Kit,
+  - Listing Marketing,
+  - Requests,
+  - JV Partners.
+- Admin screens:
+  - Overview,
+  - Brand and Identity,
+  - People and Roster,
+  - Roles and Permissions,
+  - Training Library,
+  - SOP Library,
+  - Win the Day,
+  - Tool Launchpad,
+  - Team Calendar,
+  - Integrations,
+  - AI Assistant,
+  - Audit Log,
+  - Marketing Requests config if added as separate screen.
+
+Automated checks to run before handoff:
+
+```powershell
+cd C:\Users\17192\Desktop\executive_dashboard\backend
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+```powershell
+cd C:\Users\17192\Desktop\executive_dashboard\frontend
+npm run build:all
+```
+
+```powershell
+cd C:\Users\17192\Desktop\executive_dashboard
+bash frontend/scripts/check-no-mock-data.sh
+git diff --check -- .
+```
+
+If `git diff --check -- .` reports whitespace in unrelated files, narrow it to the files touched by the current pass and call out the unrelated failures.
+
+Acceptance criteria:
+
+- User acceptance testing approves visual parity with the Utah Life mockup.
+- All required integrations work in staging with sandbox or real test credentials.
+- All production launch roles can perform their daily workflows.
+- No required screen is a dead shell unless the user explicitly approves it as post-launch.
+
+## 19. Phase 17 - Production launch and first-week support
+
+Goal: launch for real users and keep it healthy.
+
+Required launch tasks:
+
+- Provision production tenant.
+- Configure production custom domain and SSL.
+- Upload final Utah Life mark and font assets.
+- Configure all production integrations.
+- Import or sync real roster.
+- Confirm role/audience mappings.
+- Publish live configuration.
+- Invite initial users.
+- Run production smoke test.
+- Monitor logs, metrics, sync jobs, and user support for the first week.
+- Keep rollback plan ready.
+
+Launch checklist:
+
+- [ ] Production env vars set.
+- [ ] Database migrated.
+- [ ] Object storage configured.
+- [ ] Secrets manager configured.
+- [ ] Custom domain verified.
+- [ ] SSO configured.
+- [ ] Final brand assets uploaded.
+- [ ] Roster synced/imported.
+- [ ] Sisu connected and metrics verified.
+- [ ] Follow Up Boss connected and Needs You Today verified.
+- [ ] Google Calendar connected and event visibility verified.
+- [ ] Marketing Requests destination connected and test request delivered.
+- [ ] Slack or notification provider connected if used.
+- [ ] AI indexed tenant content and answered cited test questions.
+- [ ] Audit log verified.
+- [ ] Backup job verified.
+- [ ] Monitoring alerts active.
+- [ ] UAT signoff recorded.
+
+## 20. Screen acceptance matrix
+
+### Intranet Home
+
+Must match the Utah Life mockup in structure and mood. It must show real identity/config, real or zero metrics, real quick-launch tools, honest disconnected states, and the floating Ask entry point.
+
+### Ask Utah Life
+
+Before AI is wired: honest disabled/unavailable shell. After Phase 11: sourced answers with citations, tenant-safe retrieval, rate limits, and escalation/content-gap workflow.
+
+### Win the Day
+
+Configurable lists, daily targets, role/audience availability, persisted completion state, reset by user local day, and no cross-user leakage.
+
+### Sunburst Coaching
+
+Initially a configured shell matching the mockup's dark panel. Production version should use real weekly performance inputs from Sisu/FUB or another selected source, then produce actionable coaching only from available data.
+
+### Team Calendar
+
+Admin-configured calendar settings. Empty before Google Calendar connection. Real events after connection, filtered by audience/role where configured.
+
+### Tool Launchpad
+
+Admin-configured tiles, groups, auth type, destination, role audience, ordering, active state. No hardcoded provider links.
+
+### My Numbers
+
+Sisu-backed or configured integration-backed metrics. Render `0` or unavailable until connected. Do not seed fake business numbers.
+
+### First 30 Days
+
+Configurable onboarding path with persisted per-user progress. Content comes from admin training/SOP configuration or connected sources.
+
+### Training Library
+
+Admin-managed courses/lessons, source metadata, role audience, progress where implemented, source health in console.
+
+### SOPs
+
+Admin-managed categories/SOPs/versions, downloads through proxied storage, acknowledgements if required, source health in console.
+
+### Who's Who
+
+Real roster from admin/manual/SSO sync. Generic avatars allowed until photos are connected. No fake staff outside seed/demo context.
+
+### Brand Kit
+
+Live brand assets from tenant config. Show honest missing-mark state until final assets are uploaded.
+
+### Marketing Requests
+
+Production workflow from Phase 10. Until connected, render local configuration state and do not pretend a destination exists.
+
+### Admin Overview
+
+Real counts, setup checklist, pending changes, recent audit, preview, publish, discard, rollback where applicable.
+
+### Admin Brand and Identity
+
+Tenant brand config, palette validation, logo uploads, domain settings, font/proxy settings, live preview.
+
+### Admin People and Roster
+
+Invite/manual users, role assignment, auth source, active/invited/removed filters, sync status when identity provider is connected.
+
+### Admin Roles and Permissions
+
+Role capabilities, required `console_access=Full` invariant, fail-closed permissions, role/audience usage in content and tools.
+
+### Admin Training Library
+
+CRUD courses/lessons, source type, source URL, state, audience, ordering, health.
+
+### Admin SOP Library
+
+CRUD categories/SOPs, upload/download versions, status, audience if needed, health.
+
+### Admin Win the Day
+
+CRUD/config lists, daily target, source mapping, sort order, active state, validation.
+
+### Admin Tool Launchpad
+
+CRUD/config tiles, groups, auth type, URLs, audience, ordering, active state.
+
+### Admin Team Calendar
+
+Calendar categories, role audience, colors, timezone/week-start/default view, calendar URL/ID, status.
+
+### Admin Integrations
+
+Provider list, credential/config editor, status, connect/disconnect/test/sync, no secrets returned, clear unavailable states.
+
+### Admin AI Assistant
+
+Guardrails, sources, crawl/index state, content gaps, assignments, rates/limits if added.
+
+### Admin Audit Log
+
+Read-only filterable/paginated table covering every write and meaningful system event. No secret leakage.
+
+## 21. API and data implementation notes
+
+Before adding endpoints:
+
+- Check existing `backend/app/routers/console.py` patterns.
+- Reuse helper validation functions where possible.
+- Use tenant-scoped queries anchored by `p.user.tenant_id`.
+- For cross-tenant IDs, return 404/403 without leaking object existence.
+- Add tests in `backend/tests/test_console_api.py` or a focused new test file.
+- Audit mutating endpoints through `backend/app/services/audit.py`.
+
+Before adding models:
+
+- Add tenant ID and useful indexes.
+- Add Alembic migrations if production schema is active.
+- Backfill existing SQLite/dev data if needed.
+- Update seed scripts idempotently.
+- Update schema/serializer tests.
+
+Before adding frontend config:
+
+- Extend API helpers in `frontend/src/console/api.js` or `frontend/src/intranet/api.js`.
+- Keep state refresh/query invalidation consistent with existing React Query patterns.
+- Prefer existing console UI primitives in `frontend/src/console/ui.jsx`.
+- Keep text compact and operational.
+- Build full empty/loading/error states.
+
+## 22. Production environment checklist
+
+Minimum env/config categories:
+
+- API base URL.
+- Frontend public API URL.
+- Database URL.
+- Session/JWT signing secret.
+- Encryption key for provider credentials.
+- Platform/custom domain settings.
+- CORS allowed origins and/or origin regex.
+- Object storage bucket/account/access keys.
+- Email provider credentials.
+- Google OAuth/client/service account config.
+- Sisu credentials.
+- Follow Up Boss credentials.
+- Slack app credentials.
+- AI provider credentials.
+- Vector store configuration if separate.
+- Worker/scheduler flags.
+- Logging/metrics/tracing endpoints.
+
+Production startup must fail closed if required secrets are unset or known dev defaults are present.
+
+## 23. Open decisions before final production launch
+
+These are not blockers for code organization, but they are blockers for real launch:
+
+- Final Utah Life mark and exact brand assets.
+- Final font files and licensing.
+- Exact SSO provider and whether Google Workspace groups drive roles.
+- Which users/roles get console access at launch.
+- Exact Marketing Requests destination and workflow owner.
+- Exact Google Calendar account/calendar IDs and whether event writes are needed.
+- Sisu account/team/user mapping details.
+- Follow Up Boss smart list IDs and task/list mapping.
+- Slack workspace/channel/app details if Slack is used.
+- AI provider/model/vector store/retention policy.
+- Whether prompt/question logs may be retained.
+- Custom domain verification flow and owner.
+- Production hosting target.
+- Backup retention policy.
+- Support/on-call owner after launch.
+
+## 24. Definition of done
+
+This build is not completely done until all of the following are true:
+
+- The intranet visually matches the Utah Life mockup closely enough for user approval.
+- The admin console can configure every tenant-specific intranet behavior.
+- All required production integrations are connected, tested, and observable.
+- The AI assistant gives sourced, tenant-safe answers or refuses gracefully.
+- Marketing Requests works end to end.
+- No required workflow depends on seed edits or code changes.
+- No fake data appears in production tenant screens.
+- Tenant isolation is covered by automated tests and manual probes.
+- Auth, secrets, uploads, and custom domains have passed security review.
+- Database schema is migration-managed.
+- Production deploy, backup, rollback, and monitoring are documented and tested.
+- Backend tests pass.
+- Frontend builds pass.
+- Browser smoke and visual checks pass.
+- Utah Life UAT signoff is complete.
+

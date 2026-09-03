@@ -18,6 +18,9 @@ import {
 const DEFAULT_CONFIG = {
   calendar: { google_calendar_url: "" },
   marketing_requests: { url: "", label: "Marketing requests" },
+  // Mirrors what the API sends. Not available and delivery pending is the honest default for a
+  // workspace nobody has configured, and it is what the offline fallback should show too.
+  marketing: { available: false, required_fields: [], assigned_role: null, delivery_pending: true },
   links: { tools: {}, fub_lists: {} },
   brand: {
     font_mode: "proxy",
@@ -257,7 +260,10 @@ function useScopedState(scope, stateKey, initial, ready) {
 function Shell({ me, children }) {
   const [navOpen, setNavOpen] = useState(false);
   const [roleView, setRoleView] = useState(ROLE_OPTIONS[0]);
-  const [search, setSearch] = useState("buyer consultation");
+  // Empty, not "buyer consultation". That was the mockup's sample query sitting in the box as a
+  // real value, so every user opened the intranet with somebody else's search already typed in --
+  // and pressing enter would have run it. The mockup's text belongs in the placeholder.
+  const [search, setSearch] = useState("");
   const location = useLocation();
   const active = activeIdForPath(location.pathname);
   const current = ALL_NAV.find((item) => item.id === active) || ALL_NAV[0];
@@ -303,7 +309,8 @@ function Shell({ me, children }) {
           </button>
           <label className="ut-search">
             <span aria-hidden />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)}
+                   placeholder="Search training, SOPs, people, tools…" aria-label="Search" />
           </label>
           <NavLink className="ut-ask-top" to="/ask">
             <span aria-hidden />
@@ -827,22 +834,52 @@ function Calendar({ config, canConfigure, saveConfig }) {
   );
 }
 
-function Marketing({ config, canConfigure, saveConfig }) {
-  const request = config.marketing_requests || {};
+/* Requests.
+ *
+ * THE EDITOR THAT USED TO LIVE HERE IS GONE. This page carried its own "Request URL" form, so the
+ * destination could be set in two places -- here and, once the console screen existed, there --
+ * with nothing keeping them in step. The handoff is explicit that tenant-configurable behaviour
+ * belongs in the admin console, and one setting with two editors is how they end up disagreeing.
+ *
+ * A workspace's existing `marketing_requests.url` still renders, so nothing anybody configured
+ * has disappeared; it is just no longer edited from inside the product it configures.
+ */
+function Marketing({ config, canConfigure }) {
+  const legacy = config.marketing_requests || {};
+  const marketing = config.marketing || {};
+
   return (
-    <Page title="Requests" subtitle="Marketing request destination remains tenant configurable.">
+    <Page title="Requests" subtitle="Marketing requests for listings, events and collateral.">
       <Panel title="Requests and Turnaround">
-        {request.url
-          ? <a className="ut-open-request" href={request.url} target="_blank" rel="noreferrer">{request.label || "Open request form"}</a>
-          : <Empty title="Request destination not connected">Add a request URL when the workflow is ready.</Empty>}
+        {marketing.available ? (
+          <>
+            <p className="ut-note">
+              Requests are open{marketing.assigned_role ? ` and picked up by ${marketing.assigned_role}` : ""}.
+              {marketing.required_fields?.length
+                ? ` You will be asked for: ${marketing.required_fields.join(", ").replace(/_/g, " ")}.`
+                : ""}
+            </p>
+            {marketing.delivery_pending && (
+              /* Said plainly rather than hidden. The destination is configured and the delivery
+                 path is not built yet, so promising a submitted request would go somewhere is
+                 the one thing this screen must not do. */
+              <Empty title="Submission is not switched on yet">
+                The destination is configured, but requests cannot be sent from here until the
+                delivery step ships. Use the existing process in the meantime.
+              </Empty>
+            )}
+          </>
+        ) : legacy.url ? (
+          <a className="ut-open-request" href={legacy.url} target="_blank" rel="noreferrer">
+            {legacy.label || "Open request form"}
+          </a>
+        ) : (
+          <Empty title="Requests are not set up">
+            No destination has been configured for this workspace yet.
+            {canConfigure && " Set one in the admin console under Marketing Requests."}
+          </Empty>
+        )}
       </Panel>
-      <ConfigUrlForm
-        canConfigure={canConfigure}
-        label="Request URL"
-        value={request.url || ""}
-        placeholder="https://..."
-        onSave={(next) => saveConfig({ marketing_requests: { url: next, label: request.label || "Marketing requests" } })}
-      />
     </Page>
   );
 }
@@ -960,7 +997,7 @@ export default function IntranetApp() {
         <Route path="/sops" element={<Sops state={sops} setState={setSops} />} />
         <Route path="/numbers" element={<Numbers config={boot.config} />} />
         <Route path="/calendar" element={<Calendar config={boot.config} canConfigure={boot.canConfigure} saveConfig={boot.saveConfig} />} />
-        <Route path="/marketing" element={<Marketing config={boot.config} canConfigure={boot.canConfigure} saveConfig={boot.saveConfig} />} />
+        <Route path="/marketing" element={<Marketing config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/directory" element={<Directory />} />
         <Route path="/brand" element={<BrandKit config={boot.config} />} />
         <Route path="/ask" element={<Ask />} />

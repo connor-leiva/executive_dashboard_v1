@@ -1299,6 +1299,13 @@ input {
   font-weight: 700;
 }
 
+.ut-note {
+  margin: 0 0 12px;
+  color: var(--body);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .ut-empty {
   min-height: 150px;
   display: flex;

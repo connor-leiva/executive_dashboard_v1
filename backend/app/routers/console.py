@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..deps import ConsolePrincipal, require_console_access
 from ..models import (
+    Base,
     AuditLog,
     IntranetAiSetting,
     IntranetAiSource,
@@ -22,6 +23,7 @@ from ..models import (
     IntranetCourse,
     IntranetCourseRole,
     IntranetIntegration,
+    IntranetMarketingSetting,
     IntranetLaunchpadTile,
     IntranetLaunchpadTileRole,
     IntranetLesson,
@@ -226,6 +228,13 @@ def _https_url(body: dict, field: str, *, required: bool = False) -> str | None:
     if not raw:
         return None
     value = raw.strip()
+    # A raw space is never valid in a URL, and without this the scheme-prepending below turns
+    # "not a url" into "https://not a url", whose netloc parses as "not" and passes every check
+    # underneath. That reaches the launchpad tile and AI source validators too, so a tile could be
+    # saved pointing at a destination that is not an address. %20 is untouched: this rejects the
+    # unescaped character, not an encoded space.
+    if any(ch.isspace() for ch in value):
+        _unprocessable(field, "Expected a valid http or https URL.")
     parsed = urlparse(value)
     if not parsed.scheme:
         value = f"https://{value}"
@@ -671,6 +680,49 @@ def _ai_settings(row: IntranetAiSetting) -> dict:
     }
 
 
+MARKETING_DESTINATIONS = {"none", "slack", "email", "webhook"}
+
+# The fields a tenant may demand of a submitter. A fixed vocabulary rather than free text: these
+# keys drive the intranet's form, so an unknown one would be a required field nothing renders.
+MARKETING_FIELDS = {"listing", "client", "request_type", "due_date", "priority", "description",
+                    "attachments"}
+
+
+def _marketing_ready(row: IntranetMarketingSetting) -> bool:
+    """Whether the CONFIG is complete -- not whether delivery works.
+
+    Those are different questions and the second one cannot be answered from this row. A complete
+    configuration with a destination nobody has ever delivered to is exactly the state this
+    product is in until Phase 10, and the console has to be able to say so without claiming a
+    connection."""
+    if not row.enabled or row.destination_type == "none":
+        return False
+    return bool((row.destination or "").strip())
+
+
+def _marketing(row: IntranetMarketingSetting,
+               roles: dict[uuid.UUID, IntranetRole] | None = None) -> dict:
+    role = (roles or {}).get(row.default_role_id) if row.default_role_id else None
+    return {
+        "enabled": bool(row.enabled),
+        "destination_type": row.destination_type,
+        "destination": row.destination,
+        "default_role_id": _id(row.default_role_id),
+        "default_role_name": role.name if role is not None else None,
+        "required_fields": list(row.required_fields or []),
+        "notify": row.notify,
+        # Configuration completeness and delivery health are reported separately and never
+        # collapsed into one "connected" flag, because a saved form proves nothing about a
+        # destination. `last_tested_at: null` means nobody has tried, which is the truth today.
+        "config_complete": _marketing_ready(row),
+        "last_tested_at": _iso(row.last_tested_at),
+        "last_test_ok": None if row.last_test_ok is None else bool(row.last_test_ok),
+        "last_test_detail": row.last_test_detail,
+        "delivery": "pending_runtime",
+        "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
+    }
+
+
 def _content_gap(row: IntranetContentGap, assignee: IntranetMember | None = None) -> dict:
     return {
         "id": _id(row.id), "question": row.question, "ask_count": int(row.ask_count or 0),
@@ -843,6 +895,7 @@ async def _config_bundle(s: AsyncSession, tenant_id) -> dict:
     ai_sources = (await s.execute(select(IntranetAiSource).where(
         IntranetAiSource.tenant_id == tenant_id).order_by(IntranetAiSource.sort))).scalars().all()
     ai_setting = await _ai_setting_row(s, tenant_id)
+    marketing = await _marketing_row(s, tenant_id)
     setup = (await s.execute(select(IntranetSetupTask).where(
         IntranetSetupTask.tenant_id == tenant_id).order_by(IntranetSetupTask.sort))).scalars().all()
     gaps = (await s.execute(select(IntranetContentGap).where(
@@ -860,6 +913,7 @@ async def _config_bundle(s: AsyncSession, tenant_id) -> dict:
         "integrations": _list([_integration(r) for r in integrations]),
         "ai": {"settings": _ai_settings(ai_setting),
                "sources": _list([_ai_source(r, role_map) for r in ai_sources])},
+        "marketing": _marketing(marketing, role_map),
         "content_gaps": _list([_content_gap(r) for r in gaps]),
         "setup_tasks": _list([_setup_task(r) for r in setup]),
         "pending_changes": await _pending_count(s, tenant_id),
@@ -870,6 +924,17 @@ async def _ai_setting_row(s: AsyncSession, tenant_id) -> IntranetAiSetting:
     row = await s.get(IntranetAiSetting, tenant_id)
     if row is None:
         row = IntranetAiSetting(tenant_id=tenant_id)
+        s.add(row)
+        await s.flush()
+    return row
+
+
+async def _marketing_row(s: AsyncSession, tenant_id) -> IntranetMarketingSetting:
+    row = await s.get(IntranetMarketingSetting, tenant_id)
+    if row is None:
+        # Created disabled with destination "none": a tenant that has never opened this screen
+        # has not chosen a destination, and the row has to say that rather than default to one.
+        row = IntranetMarketingSetting(tenant_id=tenant_id)
         s.add(row)
         await s.flush()
     return row
@@ -953,6 +1018,101 @@ async def patch_workspace(body: dict = Body(...),
         summary="Updated calendar defaults" if calendar_only else f"Updated workspace identity for {row.portal_name}",
         target_type="workspace", target_id=row.id, entity_type="workspace", entity_id=row.id)
     return _with_pending(_workspace(row), pending)
+
+
+@router.get("/marketing")
+async def get_marketing(p: ConsolePrincipal = Depends(require_console_access),
+                        s: AsyncSession = Depends(get_session)):
+    row = await _marketing_row(s, p.user.tenant_id)
+    roles = await _roles_by_id(s, p.user.tenant_id)
+    # _marketing_row creates the singleton on first read; commit so a later PATCH updates the
+    # same row rather than racing a second insert on the primary key.
+    await s.commit()
+    return {"item": _marketing(row, roles),
+            "field_options": sorted(MARKETING_FIELDS),
+            "destination_types": sorted(MARKETING_DESTINATIONS)}
+
+
+@router.patch("/marketing")
+async def patch_marketing(body: dict = Body(...),
+                          p: ConsolePrincipal = Depends(require_console_access),
+                          s: AsyncSession = Depends(get_session)):
+    """Where a marketing request goes, and what a submitter must fill in.
+
+    VALIDATION IS PER DESTINATION TYPE, because "destination" means a different thing in each:
+    a Slack channel, an email address, or an https URL. Accepting any string for all three would
+    let a workspace save `#marketing` as a webhook and only discover it when a real request
+    silently failed to deliver.
+
+    The https requirement on webhooks is not cosmetic. This value is a URL the server will later
+    POST to on a user's behalf, which is server-side request forgery surface (handoff Sec 17), so
+    the scheme is pinned here and the egress allowlist belongs with the delivery code in Phase 10.
+    """
+    body = _body(body)
+    _unknown(body, {"enabled", "destination_type", "destination", "default_role_id",
+                    "required_fields", "notify"})
+    row = await _marketing_row(s, p.user.tenant_id)
+
+    if "destination_type" in body:
+        kind = _enum(body, "destination_type", MARKETING_DESTINATIONS)
+        row.destination_type = kind or row.destination_type
+    if "destination" in body:
+        raw = _text(body, "destination", nullable=True, max_len=500)
+        kind = row.destination_type
+        if raw and kind == "webhook":
+            # Normalised, not just checked: _https_url adds a missing scheme and upgrades http,
+            # so the stored value is the one the server would actually POST to.
+            raw = _https_url({"destination": raw}, "destination", required=True)
+        elif raw and kind == "email":
+            if "@" not in raw or raw.startswith("@") or raw.endswith("@"):
+                _unprocessable("destination", "Must be an email address.")
+        elif raw and kind == "slack":
+            if not raw.startswith("#"):
+                _unprocessable("destination", "Must be a channel name beginning with #.")
+        elif raw and kind == "none":
+            _unprocessable("destination",
+                           "Choose a destination type before setting a destination.")
+        row.destination = raw
+    if "default_role_id" in body:
+        role_id = _uuid_value(body, "default_role_id", nullable=True)
+        if role_id is not None:
+            await _role(s, p.user.tenant_id, role_id)      # 404s a cross-tenant or unknown role
+        row.default_role_id = role_id
+    if "required_fields" in body:
+        raw = body.get("required_fields")
+        if raw is None:
+            raw = []
+        if not isinstance(raw, list):
+            _unprocessable("required_fields", "Expected a list of field keys.")
+        unknown = [f for f in raw if f not in MARKETING_FIELDS]
+        if unknown:
+            _unprocessable("required_fields",
+                           f"Unknown field(s): {', '.join(sorted(str(u) for u in unknown))}. "
+                           f"Expected: {', '.join(sorted(MARKETING_FIELDS))}.")
+        # Deduped and ordered by the vocabulary so the stored list is stable to compare.
+        row.required_fields = [f for f in sorted(MARKETING_FIELDS) if f in set(raw)]
+    if "notify" in body:
+        row.notify = _text(body, "notify", nullable=True, max_len=500)
+    if "enabled" in body:
+        enabled = _bool(body, "enabled")
+        # Turning it on with nowhere to send is refused rather than saved: the intranet would
+        # show a working request form over a destination that does not exist.
+        if enabled and (row.destination_type == "none" or not (row.destination or "").strip()):
+            _unprocessable("enabled",
+                           "Set a destination type and destination before enabling requests.")
+        row.enabled = bool(enabled)
+
+    row.draft_dirty = True
+    roles = await _roles_by_id(s, p.user.tenant_id)
+    pending = await _record_mutation(
+        s, p,
+        action="config.marketing.updated",
+        category="Marketing",
+        summary=("Marketing requests set to "
+                 f"{row.destination_type}" if row.enabled else "Marketing requests disabled"),
+        target_type="marketing_setting", target_id=p.user.tenant_id,
+        entity_type="marketing_setting")
+    return _with_pending(_marketing(row, roles), pending)
 
 
 @router.post("/workspace/logo")
@@ -2174,15 +2334,30 @@ async def get_pending_changes(p: ConsolePrincipal = Depends(require_console_acce
     return _list([_pending(r) for r in rows], len(rows))
 
 
+def _publishable_models() -> tuple:
+    """Every tenant-scoped model that participates in draft/publish, found rather than listed.
+
+    This was a hand-written tuple of seventeen classes, and a publishable table added without
+    being added to it would never be marked published: `draft_dirty` stays true forever, and the
+    live intranet keeps serving the pre-publish state with nothing raising. That is not a
+    hypothetical -- intranet_marketing_setting was written and the tuple did not know about it.
+
+    The three columns ARE the contract. A model carrying tenant_id, published_at and draft_dirty
+    is by definition something the publish cycle owns, so asking the mapper registry is both
+    shorter and the actual question. Checked against the tuple it replaces: it reproduces all
+    seventeen exactly and adds only the new table.
+    """
+    found = []
+    for mapper in Base.registry.mappers:
+        columns = {col.key for col in mapper.columns}
+        if {"tenant_id", "published_at", "draft_dirty"} <= columns:
+            found.append(mapper.class_)
+    # Sorted by name so the write order is stable between runs and across processes.
+    return tuple(sorted(found, key=lambda m: m.__name__))
+
+
 async def _set_publish_state(s: AsyncSession, tenant_id, when: dt.datetime, dirty: bool) -> None:
-    models = (
-        IntranetWorkspace, IntranetRole, IntranetCapability, IntranetPermission,
-        IntranetCourse, IntranetCourseRole, IntranetLesson, IntranetSopCategory,
-        IntranetSop, IntranetSopVersion, IntranetWtdList, IntranetLaunchpadTile,
-        IntranetLaunchpadTileRole, IntranetCalendarCategory, IntranetCalendarCategoryRole,
-        IntranetAiSource, IntranetAiSetting,
-    )
-    for model in models:
+    for model in _publishable_models():
         rows = (await s.execute(select(model).where(model.tenant_id == tenant_id))).scalars().all()
         for row in rows:
             row.published_at = when

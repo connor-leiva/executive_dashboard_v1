@@ -212,6 +212,7 @@ READ_ROUTES = [
     ("tiles.get", "GET", lambda ids: "/api/console/tiles", {}),
     ("calendar.get", "GET", lambda ids: "/api/console/calendar-categories", {}),
     ("integrations.get", "GET", lambda ids: "/api/console/integrations", {}),
+    ("marketing.get", "GET", lambda ids: "/api/console/marketing", {}),
     ("ai.get", "GET", lambda ids: "/api/console/ai", {}),
     ("content_gaps.get", "GET", lambda ids: "/api/console/content-gaps", {}),
     ("setup.get", "GET", lambda ids: "/api/console/setup-tasks", {}),
@@ -259,6 +260,7 @@ MUTATION_ROUTES = [
     "integration.patch",
     "integration.connect",
     "integration.test",
+    "marketing.patch",
     "ai_settings.patch",
     "ai_source.patch",
     "content_gap.patch",
@@ -372,6 +374,8 @@ def _mutation_request(name: str, ids: dict):
         }
     if name == "integration.test":
         return "POST", f"/api/console/integrations/{ids['integration']}/test", {}
+    if name == "marketing.patch":
+        return "PATCH", "/api/console/marketing", {"json": {"notify": f"ops-{uniq}"}}
     if name == "ai_settings.patch":
         return "PATCH", "/api/console/ai/settings", {"json": {"always_cite": True}}
     if name == "ai_source.patch":
@@ -1194,6 +1198,8 @@ INVALID_ROUTES = [
     ("calendar", "POST", "/api/console/calendar-categories", {"json": {"name": ""}}),
     ("integration", "PATCH", None, {"json": {"status": "Unknown"}}),
     ("ai_settings", "PATCH", "/api/console/ai/settings", {"json": {"always_cite": "yes"}}),
+    ("marketing_type", "PATCH", "/api/console/marketing",
+     {"json": {"destination_type": "carrier_pigeon"}}),
     ("ai_source", "PATCH", None, {"json": {"enabled": "yes"}}),
     ("content_gap", "PATCH", None, {"json": {"status": "Done"}}),
     ("setup", "PATCH", None, {"json": {"completed": "yes"}}),
@@ -1218,3 +1224,128 @@ async def test_invalid_console_input_returns_422(ctx, name, method, path, kwargs
     async with _client() as c:
         r = await _request(c, method, path, _H(ctx["a"]["admin"], ctx["a"]["host"]), kwargs)
     assert r.status_code == 422, f"{name}: {r.status_code} {r.text}"
+
+
+async def test_marketing_requests_cannot_be_enabled_without_somewhere_to_send(ctx):
+    """Enabling the form while the destination is unset is refused, not saved.
+
+    The handoff's rule is that an unconfigured feature renders an honest empty state. A saved
+    `enabled: true` over `destination_type: none` is the opposite of that: the intranet would put
+    a working request form in front of an agent, take their listing details, and have nowhere to
+    deliver them. The failure would land on the person who filled the form in.
+    """
+    async with _client() as c:
+        h = _H(ctx["a"]["admin"], ctx["a"]["host"])
+        blocked = await c.patch("/api/console/marketing", headers=h, json={"enabled": True})
+        assert blocked.status_code == 422, blocked.text
+
+        ok = await c.patch("/api/console/marketing", headers=h, json={
+            "destination_type": "slack", "destination": "#marketing", "enabled": True})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["item"]["enabled"] is True
+
+
+@pytest.mark.parametrize("kind,bad,good", [
+    ("slack", "marketing", "#marketing"),
+    ("email", "marketing-team", "marketing@example.test"),
+    ("webhook", "not a url", "https://hooks.example.test/abc"),
+])
+async def test_marketing_destination_is_validated_for_the_type_it_claims_to_be(ctx, kind, bad, good):
+    """"Destination" means three different things, so one string check for all three is no check.
+
+    Without this a workspace can save `#marketing` as a webhook URL and only find out when a real
+    request fails to deliver -- by which time the person who submitted it has gone home.
+    """
+    async with _client() as c:
+        h = _H(ctx["b"]["admin"], ctx["b"]["host"])
+        await c.patch("/api/console/marketing", headers=h, json={"destination_type": kind})
+        rejected = await c.patch("/api/console/marketing", headers=h, json={"destination": bad})
+        accepted = await c.patch("/api/console/marketing", headers=h, json={"destination": good})
+    assert rejected.status_code == 422, f"{kind} accepted {bad!r}: {rejected.text}"
+    assert accepted.status_code == 200, accepted.text
+
+
+async def test_a_webhook_destination_is_stored_normalised(ctx):
+    """The scheme is pinned because the server will later POST to this value on a user's behalf,
+    which is SSRF surface (handoff Sec 17). Storing what the user typed rather than what was
+    validated would mean the check and the request disagree."""
+    async with _client() as c:
+        h = _H(ctx["b"]["admin"], ctx["b"]["host"])
+        await c.patch("/api/console/marketing", headers=h, json={"destination_type": "webhook"})
+        r = await c.patch("/api/console/marketing", headers=h,
+                          json={"destination": "http://hooks.example.test/x"})
+    assert r.status_code == 200, r.text
+    assert r.json()["item"]["destination"] == "https://hooks.example.test/x"
+
+
+async def test_marketing_required_fields_reject_keys_nothing_renders(ctx):
+    """These keys drive the intranet's form. An unknown one is a required field with no input
+    behind it, which makes a request impossible to submit and impossible to diagnose."""
+    async with _client() as c:
+        h = _H(ctx["a"]["admin"], ctx["a"]["host"])
+        bad = await c.patch("/api/console/marketing", headers=h,
+                            json={"required_fields": ["listing", "blood_type"]})
+        good = await c.patch("/api/console/marketing", headers=h,
+                             json={"required_fields": ["due_date", "listing"]})
+    assert bad.status_code == 422, bad.text
+    assert good.status_code == 200, good.text
+    # Stored against the vocabulary's own order, so two equivalent saves compare equal.
+    assert good.json()["item"]["required_fields"] == ["due_date", "listing"]
+
+
+async def test_marketing_default_role_cannot_be_borrowed_from_another_tenant(ctx):
+    """A role id is a tenant-scoped object reference reaching the API from a browser."""
+    other_role = ctx["b"]["ids"]["role"]
+    async with _client() as c:
+        r = await c.patch("/api/console/marketing",
+                          headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+                          json={"default_role_id": str(other_role)})
+    assert r.status_code in (403, 404), f"cross-tenant role accepted: {r.status_code} {r.text}"
+
+
+async def test_marketing_reports_configuration_and_delivery_as_separate_facts(ctx):
+    """There is no `connected` flag, deliberately.
+
+    A saved form proves the config is complete. It proves nothing about whether anything can be
+    delivered to the destination -- nobody has tried. Collapsing the two into one boolean is how a
+    console ends up claiming a connection that has never been exercised, which is the state this
+    product is genuinely in until the Phase 10 delivery path exists.
+    """
+    async with _client() as c:
+        h = _H(ctx["a"]["admin"], ctx["a"]["host"])
+        r = await c.patch("/api/console/marketing", headers=h, json={
+            "destination_type": "email", "destination": "marketing@example.test", "enabled": True})
+        cfg = await c.get("/api/console/config", headers=h)
+    item = r.json()["item"]
+    assert item["config_complete"] is True
+    assert item["last_tested_at"] is None, "nothing has delivered; this must stay null"
+    assert item["delivery"] == "pending_runtime"
+    assert "connected" not in item, "config cannot assert a connection it has not made"
+    assert cfg.json()["marketing"]["destination"] == "marketing@example.test"
+
+
+def test_the_publish_cycle_finds_every_publishable_table_by_itself():
+    """`_set_publish_state` used to be a hand-written tuple of seventeen model classes.
+
+    A publishable table added without being added to that tuple is never marked published:
+    `draft_dirty` stays true for the life of the workspace, the console keeps offering a publish
+    that does nothing for it, and the live intranet keeps serving pre-publish state. Nothing
+    raises. That is not hypothetical -- intranet_marketing_setting was written and the tuple did
+    not know about it, which is what prompted this.
+
+    The three columns are the contract, so this asserts the derivation still agrees with the
+    columns rather than with a list somebody has to remember to update.
+    """
+    from app.models import Base
+    from app.routers.console import _publishable_models
+
+    by_columns = {
+        mapper.class_.__name__
+        for mapper in Base.registry.mappers
+        if {"tenant_id", "published_at", "draft_dirty"} <= {c.key for c in mapper.columns}
+    }
+    found = {model.__name__ for model in _publishable_models()}
+    assert found == by_columns, f"publish cycle and schema disagree: {found ^ by_columns}"
+    # Guards the derivation itself: if this ever returns nothing, publish silently no-ops.
+    assert len(found) > 15, f"suspiciously few publishable models: {sorted(found)}"
+    assert "IntranetMarketingSetting" in found
