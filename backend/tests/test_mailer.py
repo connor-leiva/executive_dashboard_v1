@@ -266,3 +266,22 @@ async def test_a_digest_with_nobody_to_send_to_is_not_sent(monkeypatch):
     _enable(monkeypatch)
     await binder_reminders._deliver([], "Binder: something", "body")
     assert calls == []
+
+
+# ── the paste hazard ────────────────────────────────────────────────
+async def test_a_key_pasted_with_whitespace_still_authorizes(monkeypatch):
+    """A secret set through a terminal carries a trailing newline more often than anyone
+    expects, and the header it builds is malformed. Resend then answers "API key is invalid",
+    which reads as a wrong key and sends you to the dashboard to reissue a key that was fine."""
+    calls = _capture(monkeypatch)
+    _enable(monkeypatch, key="  re_realkey\n")
+    assert await mailer.send("a@b.com", "S", "<p>h</p>", "h") is True
+    assert calls[0][1]["Authorization"] == "Bearer re_realkey"
+
+
+async def test_a_whitespace_only_key_counts_as_absent(monkeypatch):
+    """Which is what somebody setting the variable to a space means."""
+    calls = _capture(monkeypatch)
+    _enable(monkeypatch, key="   ")
+    assert await mailer.send("a@b.com", "S", "<p>h</p>", "h") is False
+    assert calls == []

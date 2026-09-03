@@ -135,6 +135,40 @@ config change to remember. Point each customer's domain at the `web` service and
   missing, the app quietly serves bundled sample data instead of live numbers.
 - **`RAILWAY_DOCKERFILE_PATH`** is required only for the worker (alternate Dockerfile name).
 
+## Transactional email (Resend)
+
+Invites, password resets and owner invites send from **`api`**. Binder reminder digests send
+from **`worker`**. Railway variables are per-service, so these must be set on BOTH — set on
+`api` alone and every invite works while digests silently log and never appear in Resend's
+dashboard, which reads as a Binder bug rather than a missing variable. The cleanest fix is a
+project **Shared Variable** referenced from both as `${{shared.RESEND_API_KEY}}`, so the two
+cannot drift.
+
+Empty key = no send, no error: every endpoint still returns its copy-paste link and the digest
+still logs. That is the local-dev and test state, and it is also the safe state to deploy into.
+
+| variable | default | why it exists |
+|---|---|---|
+| `RESEND_API_KEY` | *(empty)* | Empty disables sending without breaking anything. Resend shows a key ONCE at creation, so a partial paste is the usual cause of `400 validation_error: API key is invalid` — reissue rather than retry. The key must belong to the same Resend team as the verified domain. |
+| `MAIL_FROM` | `Acumyn <mail@acumyn.io>` | Must be an address on a domain **verified in Resend**, or nothing is delivered. A key that is valid for a domain it may not send from fails differently: "not allowed to send from". |
+| `MAIL_REPLY_TO` | *(empty)* | Fallback only. An invite overrides it with the inviter's own address, so a reply reaches the colleague who sent it. A password reset deliberately does not. |
+
+To find out which of those is wrong without another deploy cycle, ask the service itself:
+
+```
+railway ssh --service executive_dashboard_v1 "python -m scripts.check_mail"
+railway ssh --service worker "python -m scripts.check_mail you@example.com"
+```
+
+With no address it reports the key's length and shape (never its value) — enough to tell "not
+set" from "truncated on paste". With an address it sends one real email and prints Resend's
+exact answer, translated into what to go and change. Run it in the service you are asking about;
+the two have different environments and "it works" on one says nothing about the other.
+
+**Accepted is not delivered.** Resend accepting a message means the API call succeeded. Check
+resend.com/emails for the delivery event, and check the inbox — the first sends from a new
+domain are the ones most likely to be filtered.
+
 ## Meta Ads module
 
 None of these are secret; the System User token is Fernet-encrypted on the Integration row and

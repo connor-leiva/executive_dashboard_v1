@@ -24,6 +24,21 @@ log = logging.getLogger("app")
 _API = "https://api.resend.com/emails"
 
 
+def api_key() -> str:
+    """The key, stripped.
+
+    A pasted secret carries a trailing newline more often than anyone expects — through
+    `railway variables --set`, through a copied line from a terminal, through a heredoc. The
+    header it builds is then malformed and Resend answers "API key is invalid", which reads as a
+    wrong key rather than a whitespace problem and sends you back to the dashboard to reissue a
+    key that was fine. Stripping costs nothing and removes that whole class of afternoon.
+
+    It also makes a whitespace-only value count as absent, which is what a human setting the
+    variable to a space means.
+    """
+    return (settings.RESEND_API_KEY or "").strip()
+
+
 async def _post(payload: dict, headers: dict) -> tuple[int, str]:
     """The network seam. Tests monkeypatch THIS, so no test ever reaches Resend."""
     async with httpx.AsyncClient(timeout=10) as c:
@@ -34,12 +49,13 @@ async def _post(payload: dict, headers: dict) -> tuple[int, str]:
 async def send(to: str | list[str], subject: str, html: str, text: str,
                reply_to: str | None = None, idempotency_key: str | None = None) -> bool:
     """Send one email. True if Resend accepted it. Never raises."""
-    if not settings.RESEND_API_KEY:
+    key = api_key()
+    if not key:
         log.info("mail (no RESEND_API_KEY, not sent) -> %s | %s", to, subject)
         return False
 
     payload = {
-        "from": settings.MAIL_FROM,
+        "from": settings.MAIL_FROM.strip(),
         "to": [to] if isinstance(to, str) else list(to),
         "subject": subject,
         "html": html,
@@ -49,7 +65,7 @@ async def send(to: str | list[str], subject: str, html: str, text: str,
     if rt:
         payload["reply_to"] = rt
 
-    headers = {"Authorization": f"Bearer {settings.RESEND_API_KEY}"}
+    headers = {"Authorization": f"Bearer {key}"}
     if idempotency_key:
         # Resend dedups on this, so a double-clicked "resend invite" sends once.
         headers["Idempotency-Key"] = idempotency_key
