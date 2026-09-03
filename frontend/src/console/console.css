@@ -748,6 +748,135 @@ select {
   font-weight: 700;
 }
 
+.permissions-savebar {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: var(--console-surface);
+}
+
+.permissions-savebar strong {
+  color: var(--console-muted);
+  font-size: 13px;
+}
+
+.permissions-savebar span {
+  color: var(--console-teal);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.permissions-savebar.dirty {
+  border-color: rgba(183, 123, 50, 0.38);
+  background: rgba(183, 123, 50, 0.08);
+}
+
+.permissions-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+}
+
+.permissions-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+}
+
+.permissions-table th,
+.permissions-table td {
+  border-bottom: 1px solid var(--console-lineSoft);
+  padding: 13px;
+  vertical-align: top;
+}
+
+.permissions-table thead th {
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.permissions-table thead th:first-child {
+  text-align: left;
+}
+
+.permissions-table tbody th {
+  width: 260px;
+  text-align: left;
+}
+
+.permissions-table tbody th span,
+.permissions-table tbody th small {
+  display: block;
+}
+
+.permissions-table tbody th span {
+  font-size: 14px;
+}
+
+.permissions-table tbody th small {
+  margin-top: 5px;
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 400;
+}
+
+.permissions-table td {
+  text-align: center;
+}
+
+.permissions-table tr:last-child th,
+.permissions-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.permission-cell {
+  width: 92px;
+  min-height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  color: var(--console-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.permission-cell.dirty {
+  box-shadow: inset 0 0 0 2px var(--console-gold);
+}
+
+.level-full {
+  border-color: rgba(92, 127, 113, 0.45);
+  background: rgba(92, 127, 113, 0.13);
+  color: var(--console-good);
+}
+
+.level-view {
+  border-color: rgba(56, 86, 103, 0.35);
+  background: rgba(56, 86, 103, 0.11);
+  color: var(--console-teal);
+}
+
+.level-limited {
+  border-color: rgba(183, 123, 50, 0.4);
+  background: rgba(183, 123, 50, 0.12);
+  color: var(--console-warn);
+}
+
+.level-none {
+  color: var(--console-muted);
+}
+
 @keyframes console-pulse {
   to {
     background-position: -220% 0;

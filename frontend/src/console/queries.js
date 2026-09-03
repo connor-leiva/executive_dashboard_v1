@@ -7,6 +7,7 @@ import {
   getMembers,
   getOverview,
   getPendingChanges,
+  getPermissions,
   getPreview,
   getSetupTasks,
   inviteMember,
@@ -14,6 +15,7 @@ import {
   patchMember,
   patchSetupTask,
   publishChanges,
+  putPermissions,
   syncMembers,
 } from "./api.js";
 
@@ -23,6 +25,7 @@ export const keys = {
   pending: ["console", "publish", "pending"],
   audit: ["console", "audit"],
   members: (params) => ["console", "members", params],
+  permissions: ["console", "permissions"],
   preview: (role) => ["console", "preview", role],
 };
 
@@ -86,6 +89,14 @@ export function useMembers(params, enabled) {
   });
 }
 
+export function usePermissions(enabled) {
+  return useQuery({
+    queryKey: keys.permissions,
+    queryFn: getPermissions,
+    enabled,
+  });
+}
+
 export function useLogin() {
   return useMutation({
     mutationFn: ({ email, password, tenantHost }) => login(email, password, tenantHost),
@@ -121,6 +132,17 @@ export function useSyncMembers() {
   return useMutation({
     mutationFn: syncMembers,
     onSuccess: () => invalidateRoster(queryClient),
+  });
+}
+
+export function useSavePermissions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: putPermissions,
+    onSuccess: () => {
+      invalidateOverview(queryClient);
+      queryClient.invalidateQueries({ queryKey: keys.permissions });
+    },
   });
 }
 

@@ -460,6 +460,58 @@ async def test_roster_guest_invite_defaults_to_jv_partner(ctx):
     assert body["role_key"] == "jv_partner"
 
 
+async def test_permissions_reject_zero_console_access_full_roles(ctx):
+    async with _client() as c:
+        current = await c.get("/api/console/permissions", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+        assert current.status_code == 200, current.text
+        body = current.json()
+        console_cap = next(cap for cap in body["capabilities"] if cap["key"] == "console_access")
+        items = [
+            {
+                "capability_id": item["capability_id"],
+                "role_id": item["role_id"],
+                "level": "None" if item["capability_id"] == console_cap["id"] else item["level"],
+            }
+            for item in body["items"]
+        ]
+        r = await c.put("/api/console/permissions", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+                        json={"items": items})
+    assert r.status_code == 422, r.text
+    assert "console_access=Full" in r.text
+
+
+async def test_permissions_audit_names_changed_cell(ctx):
+    async with _client() as c:
+        current = await c.get("/api/console/permissions", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+        assert current.status_code == 200, current.text
+        body = current.json()
+        cap = next(cap for cap in body["capabilities"] if cap["key"] != "console_access")
+        role = body["roles"][0]
+        old = next(item for item in body["items"]
+                   if item["capability_id"] == cap["id"] and item["role_id"] == role["id"])
+        new_level = "View" if old["level"] != "View" else "Full"
+        items = [
+            {
+                "capability_id": item["capability_id"],
+                "role_id": item["role_id"],
+                "level": new_level if item["id"] == old["id"] else item["level"],
+            }
+            for item in body["items"]
+        ]
+        r = await c.put("/api/console/permissions", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+                        json={"items": items})
+    assert r.status_code == 200, r.text
+    async with SessionLocal() as s:
+        latest = (await s.execute(select(AuditLog).where(
+            AuditLog.tenant_id == uuid.UUID(ctx["b"]["tenant_id"])
+        ).order_by(AuditLog.created_at.desc()).limit(1))).scalar_one()
+    assert latest.action == "access.permissions.updated"
+    assert cap["name"] in latest.summary
+    assert role["name"] in latest.summary
+    assert old["level"] in latest.summary
+    assert new_level in latest.summary
+
+
 def _request_for_name(name: str, ids: dict):
     for read_name, method, path_fn, kwargs in READ_ROUTES:
         if read_name == name:

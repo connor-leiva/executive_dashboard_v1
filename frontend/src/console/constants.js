@@ -68,6 +68,17 @@ export const GUEST_AUTH_SOURCE = "Guest";
 export const GUEST_ROLE_KEY = "jv_partner";
 export const REMOVED_MEMBER_STATUS = "Removed";
 
+export const PERMISSION_LEVELS = ["Full", "View", "Limited", "None"];
+export const DEFAULT_PERMISSION_LEVEL = "None";
+export const CONSOLE_ACCESS_KEY = "console_access";
+export const CONSOLE_ACCESS_LEVELS = ["Full", "None"];
+export const LEVEL_CLASS = {
+  Full: "full",
+  View: "view",
+  Limited: "limited",
+  None: "none",
+};
+
 export const OVERVIEW_COUNTS = [
   { key: "members", label: "People" },
   { key: "courses", label: "Courses" },
@@ -118,6 +129,16 @@ export const COPY = {
   rosterRemove: "Remove",
   rosterInvited: "Invited",
   rosterSaved: "Saved",
+  permissionsTitle: "Roles & Permissions",
+  permissionsEmpty: "No permission matrix is configured.",
+  permissionsSave: "Save Matrix",
+  permissionsSaving: "Saving",
+  permissionsDirty: "Unsaved permission changes",
+  permissionsClean: "Matrix is current",
+  permissionsCapability: "Capability",
+  permissionsDescription: "Description",
+  permissionsError: "Permission matrix failed to load.",
+  permissionsSaved: "Permissions saved",
   emptyActivity: "No activity yet.",
   emptySetup: "No setup tasks yet.",
   previewingAs: "Viewing as",

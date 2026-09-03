@@ -859,6 +859,7 @@ async def put_permissions(body: dict = Body(...),
         _unprocessable("items", f"Expected the full {expected}-permission matrix.")
     seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
     console_full = 0
+    changes: list[str] = []
     existing = {(r.capability_id, r.role_id): r for r in (await s.execute(
         select(IntranetPermission).where(IntranetPermission.tenant_id == p.user.tenant_id)
     )).scalars().all()}
@@ -885,14 +886,23 @@ async def put_permissions(body: dict = Body(...),
             row = IntranetPermission(
                 tenant_id=p.user.tenant_id, capability_id=cap_id, role_id=role_id, level=level)
             s.add(row)
+            changes.append(f"{cap.name} for {roles[role_id].name}: None to {level}")
         else:
+            if row.level != level:
+                changes.append(f"{cap.name} for {roles[role_id].name}: {row.level} to {level}")
             row.level = level
         row.draft_dirty = True
     if console_full == 0:
         _unprocessable("items", "At least one role must keep console_access=Full.")
+    if changes:
+        first = changes[0]
+        extra = f" plus {len(changes) - 1} more" if len(changes) > 1 else ""
+        summary = f"Updated permission {first}{extra}"
+    else:
+        summary = "Reviewed the roles and permissions matrix"
     pending = await _record_mutation(
-        s, p, action="console.permissions.update", category="Roles",
-        summary="Updated the roles and permissions matrix", target_type="permission",
+        s, p, action="access.permissions.updated", category="Roles",
+        summary=summary, target_type="permission",
         target_id=None, entity_type="permission", entity_id=None)
     return {**(await _permissions_bundle(s, p.user.tenant_id)), "pending_changes": pending}
 
