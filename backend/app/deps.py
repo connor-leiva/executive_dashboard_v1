@@ -1,23 +1,34 @@
 import uuid
+from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import plans
 from .db import get_session
 from .security import read_token, read_capability
-from .models import PlatformUser, Tenant, User
+from .models import (
+    IntranetCapability,
+    IntranetMember,
+    IntranetPermission,
+    PlatformUser,
+    Tenant,
+    User,
+)
 from .tenancy import current_tenant_id
 from .services.tabs import tenant_tabs, effective_tabs
 
-bearer = HTTPBearer()
+bearer = HTTPBearer(auto_error=False)
 
 
 async def current_user(
-    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
     s: AsyncSession = Depends(get_session),
 ) -> User:
+    if creds is None:
+        raise HTTPException(401, "Authentication required")
     try:
         payload = read_token(creds.credentials)
     except Exception:
@@ -59,6 +70,49 @@ def require_role(*roles: str):
             raise HTTPException(403, "Insufficient role")
         return user
     return dep
+
+
+@dataclass(frozen=True)
+class ConsolePrincipal:
+    user: User
+    tenant: Tenant
+    member: IntranetMember
+
+
+async def require_console_access(
+    user: User = Depends(current_user),
+    s: AsyncSession = Depends(get_session),
+) -> ConsolePrincipal:
+    """Tenant console gate: active intranet member plus console_access=Full."""
+    tenant = await s.get(Tenant, user.tenant_id)
+    if tenant is None or not plans.allows(tenant, "intranet"):
+        raise HTTPException(403, "Intranet is not enabled for this workspace.")
+
+    email = (user.email or "").strip().lower()
+    member = (await s.execute(
+        select(IntranetMember).where(
+            IntranetMember.tenant_id == user.tenant_id,
+            or_(IntranetMember.user_id == user.id, IntranetMember.email == email),
+        )
+    )).scalars().first()
+    if member is None or member.status != "Active":
+        raise HTTPException(403, "You don't have access to this console.")
+
+    allowed = (await s.execute(
+        select(IntranetPermission.id)
+        .join(IntranetCapability, IntranetCapability.id == IntranetPermission.capability_id)
+        .where(
+            IntranetPermission.tenant_id == user.tenant_id,
+            IntranetPermission.role_id == member.role_id,
+            IntranetCapability.tenant_id == user.tenant_id,
+            IntranetCapability.key == "console_access",
+            IntranetPermission.level == "Full",
+        )
+    )).first()
+    if allowed is None:
+        raise HTTPException(403, "You don't have access to this console.")
+
+    return ConsolePrincipal(user=user, tenant=tenant, member=member)
 
 
 async def assert_tab(user: User, s: AsyncSession, tab: str) -> None:
@@ -141,7 +195,7 @@ def require_tab_with_step_up(tab: str, scope: str):
 # member of THIS tenant do"; the operator surface answers "what may this operator do to
 # tenants", which no tenant session should ever be able to reach.
 async def current_platform_user(
-    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
     s: AsyncSession = Depends(get_session),
 ) -> PlatformUser:
     """The signed-in platform operator, or 401.
@@ -150,6 +204,8 @@ async def current_platform_user(
     rejects them. The converse holds in current_user, which compares the token's `tid` to the
     resolved tenant and finds None. Neither guard depends on anyone remembering a rule.
     """
+    if creds is None:
+        raise HTTPException(401, "Authentication required")
     try:
         payload = read_token(creds.credentials)
     except Exception:

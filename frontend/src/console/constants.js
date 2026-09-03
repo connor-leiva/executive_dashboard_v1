@@ -1,0 +1,135 @@
+export const TOKEN_KEY = "cc_token";
+export const TENANT_HOST_KEY = "cc_console_tenant_host";
+
+export const NAV_SECTIONS = [
+  {
+    label: "Workspace",
+    items: [
+      { to: "/", label: "Overview" },
+      { to: "/brand", label: "Brand & Identity" },
+    ],
+  },
+  {
+    label: "Access",
+    items: [
+      { to: "/roster", label: "People & Roster" },
+      { to: "/perms", label: "Roles & Permissions" },
+    ],
+  },
+  {
+    label: "Content",
+    items: [
+      { to: "/training", label: "Training Library" },
+      { to: "/sops", label: "SOP Library" },
+      { to: "/wtd", label: "Win the Day" },
+      { to: "/launchpad", label: "Tool Launchpad" },
+    ],
+  },
+  {
+    label: "Connections",
+    items: [
+      { to: "/calendar", label: "Team Calendar" },
+      { to: "/integrations", label: "Integrations" },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { to: "/assistant", label: "AI Assistant" },
+      { to: "/audit", label: "Audit Log" },
+    ],
+  },
+];
+
+export const ROLE_OPTIONS = [
+  { key: "buyer_agent", label: "Buyer Agent" },
+  { key: "listing_agent", label: "Listing Agent" },
+  { key: "ops_admin", label: "Ops / Admin" },
+  { key: "team_leader", label: "Team Leader" },
+  { key: "jv_partner", label: "JV Partner" },
+];
+
+export const OVERVIEW_COUNTS = [
+  { key: "members", label: "People" },
+  { key: "courses", label: "Courses" },
+  { key: "sops", label: "SOPs" },
+  { key: "tiles", label: "Tiles" },
+  { key: "wtd_lists", label: "WTD lists" },
+];
+
+export const COPY = {
+  productName: "Utah Life",
+  consoleName: "Admin Console",
+  poweredBy: "Powered by PLACE",
+  loginTitle: "Sign in to continue",
+  loginButton: "Sign in",
+  tenantHostLabel: "Tenant host",
+  emailLabel: "Email",
+  passwordLabel: "Password",
+  signOut: "Sign out",
+  loading: "Loading",
+  retry: "Retry",
+  noAccess: "You don't have access to this console.",
+  loadFailed: "Console data failed to load.",
+  overview: "Overview",
+  publish: "Publish",
+  discard: "Discard",
+  pending: "pending",
+  noPending: "No draft changes",
+  setupTitle: "Setup Checklist",
+  recentTitle: "Recent Activity",
+  emptyActivity: "No activity yet.",
+  emptySetup: "No setup tasks yet.",
+  previewingAs: "Viewing as",
+  ask: "Ask Utah Life",
+  search: "Search configuration",
+  tenant: "Tenant",
+  updateTenant: "Use tenant",
+  configured: "configured",
+  complete: "complete",
+  draftChanges: "Draft changes",
+  publishReady: "Ready to publish",
+  allClear: "All clear",
+  signedOut: "Signed out",
+  overviewEmpty: "No console configuration exists yet.",
+  incompleteScreen: "This screen will be wired in its build phase.",
+};
+
+export const DEFAULT_TENANT_HOST = "utah-life.acumyn.io";
+
+export const ROUTE_TITLES = {
+  "/": "Overview",
+  "/brand": "Brand & Identity",
+  "/roster": "People & Roster",
+  "/perms": "Roles & Permissions",
+  "/training": "Training Library",
+  "/sops": "SOP Library",
+  "/wtd": "Win the Day",
+  "/launchpad": "Tool Launchpad",
+  "/calendar": "Team Calendar",
+  "/integrations": "Integrations",
+  "/assistant": "AI Assistant",
+  "/audit": "Audit Log",
+};
+
+export const COUNT_ROUTES = {
+  members: "/roster",
+  courses: "/training",
+  sops: "/sops",
+  tiles: "/launchpad",
+  wtd_lists: "/wtd",
+};
+
+export const PARKED_ROUTES = {
+  "/brand": "Brand & Identity",
+  "/roster": "People & Roster",
+  "/perms": "Roles & Permissions",
+  "/training": "Training Library",
+  "/sops": "SOP Library",
+  "/wtd": "Win the Day",
+  "/launchpad": "Tool Launchpad",
+  "/calendar": "Team Calendar",
+  "/integrations": "Integrations",
+  "/assistant": "AI Assistant",
+  "/audit": "Audit Log",
+};

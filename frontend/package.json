@@ -6,13 +6,18 @@
   "scripts": {
     "dev": "vite",
     "dev:intranet": "vite --config vite.intranet.config.js",
+    "dev:console": "vite --config vite.console.config.js",
     "build": "npm run build:dashboard && npm run build:intranet",
     "build:dashboard": "vite build --outDir dist/dashboard",
     "build:intranet": "vite build --config vite.intranet.config.js",
+    "build:console": "vite build --config vite.console.config.js",
+    "build:all": "npm run build:dashboard && npm run build:intranet && npm run build:console",
     "preview": "vite preview --outDir dist/dashboard",
-    "preview:intranet": "vite preview --config vite.intranet.config.js"
+    "preview:intranet": "vite preview --config vite.intranet.config.js",
+    "preview:console": "vite preview --config vite.console.config.js"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.102.8",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

@@ -1,47 +1,93 @@
-export const NAV = [
-  { id: "home", label: "Home", icon: "H" },
-  { id: "tools", label: "Tool Launchpad", icon: "T" },
-  { id: "wtd", label: "Win the Day", icon: "W" },
-  { id: "training", label: "Training", icon: "R" },
-  { id: "onboarding", label: "First 30 Days", icon: "30" },
-  { id: "sops", label: "SOP Library", icon: "S" },
-  { id: "numbers", label: "My Numbers", icon: "#" },
-  { id: "calendar", label: "Team Calendar", icon: "C" },
-  { id: "marketing", label: "Marketing Requests", icon: "M" },
-  { id: "directory", label: "Who's Who", icon: "P" },
-  { id: "brand", label: "Brand Kit", icon: "B" },
-  { id: "ask", label: "Ask", icon: "A" },
+export const ROLE_OPTIONS = ["Buyer Agent", "Listing Agent", "Ops / Admin", "Team Leader"];
+
+export const NAV_GROUPS = [
+  {
+    label: "Workspace",
+    items: [
+      { id: "home", label: "Home" },
+      { id: "ask", label: "Ask Utah Life" },
+      { id: "wtd", label: "Win the Day" },
+      { id: "sunburst", label: "Sunburst Coaching" },
+      { id: "calendar", label: "Team Calendar" },
+      { id: "tools", label: "Tool Launchpad" },
+      { id: "numbers", label: "My Numbers" },
+    ],
+  },
+  {
+    label: "Learn",
+    items: [
+      { id: "onboarding", label: "Your First 30 Days" },
+      { id: "training", label: "Training Library" },
+      { id: "sops", label: "SOPs" },
+    ],
+  },
+  {
+    label: "Team",
+    items: [
+      { id: "directory", label: "Who's Who" },
+      { id: "phone", label: "On The Phone" },
+    ],
+  },
+  {
+    label: "Marketing",
+    items: [
+      { id: "brand", label: "Brand Kit" },
+      { id: "listing", label: "Listing Marketing" },
+      { id: "marketing", label: "Requests" },
+    ],
+  },
+  {
+    label: "Partners",
+    items: [
+      { id: "partners", label: "JV Partners" },
+    ],
+  },
 ];
 
 export const TOOL_GROUPS = [
   {
-    id: "crm",
-    label: "Client Work",
+    id: "daily",
+    label: "Daily Work",
     tools: [
-      { key: "follow_up_boss", name: "Follow Up Boss", note: "CRM and lead follow-up" },
-      { key: "brivity", name: "Brivity", note: "Listings and home search" },
-      { key: "sisu", name: "Sisu", note: "Scorecards and transactions" },
-      { key: "skyslope", name: "SkySlope", note: "Transaction documents" },
+      { key: "follow_up_boss", name: "Follow Up Boss", note: "CRM and follow-up" },
+      { key: "sisu", name: "Sisu", note: "Production numbers" },
+      { key: "slack", name: "Slack", note: "Team communication" },
+      { key: "google_calendar", name: "Google Calendar", note: "Team schedule" },
     ],
   },
   {
     id: "learning",
-    label: "Learning",
+    label: "Coaching and Learning",
     tools: [
-      { key: "place", name: "PLACE", note: "Training and resources" },
+      { key: "sunburst", name: "Sunburst", note: "Weekly coaching" },
+      { key: "place", name: "PLACE", note: "Training resources" },
       { key: "skool", name: "Skool", note: "Community learning" },
-      { key: "sunburst", name: "Coaching", note: "Coaching resources" },
+      { key: "training_library", name: "Training Library", note: "Internal lessons" },
     ],
   },
   {
-    id: "ops",
-    label: "Operations",
+    id: "marketing",
+    label: "Marketing",
     tools: [
-      { key: "slack", name: "Slack", note: "Team communication" },
-      { key: "canva", name: "Canva", note: "Design templates" },
-      { key: "brand_guide", name: "Brand Guide", note: "Approved assets" },
+      { key: "canva", name: "Canva" },
+      { key: "brand_kit", name: "Brand Kit" },
+      { key: "listing_marketing", name: "Listing Marketing" },
+      { key: "marketing_requests", name: "Requests" },
     ],
   },
+];
+
+export const QUICK_LAUNCH = [
+  { key: "sunburst", name: "Sunburst", note: "Weekly plan" },
+  { key: "slack", name: "Slack", note: "Team channels" },
+  { key: "sisu", name: "Sisu", note: "Numbers" },
+  { key: "follow_up_boss", name: "Follow Up Boss", note: "CRM" },
+];
+
+export const PRIORITY_ITEMS = [
+  { title: "New lead follow-up", source: "Follow Up Boss", note: "Source not connected" },
+  { title: "Appointment prep", source: "Calendar", note: "Calendar not connected" },
+  { title: "Marketing request", source: "Requests", note: "Destination not connected" },
 ];
 
 export const WTD_BLOCKS = [

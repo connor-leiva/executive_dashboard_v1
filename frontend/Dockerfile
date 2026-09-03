@@ -9,11 +9,12 @@ COPY . .
 # data. Set VITE_API_BASE as a build variable on the `web` service.
 ARG VITE_API_BASE
 ENV VITE_API_BASE=$VITE_API_BASE
-RUN npm run build
+RUN npm run build:all
 
 FROM caddy:2.8-alpine
 WORKDIR /srv
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/dist/dashboard /srv/dashboard
 COPY --from=build /app/dist/intranet /srv/intranet
+COPY --from=build /app/dist/console /srv/console
 EXPOSE 3000

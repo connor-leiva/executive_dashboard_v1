@@ -5,8 +5,8 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from sqlalchemy import (
-    String, Text, ForeignKey, Numeric, Integer, Boolean, DateTime, Date, Float,
-    CheckConstraint, UniqueConstraint, Index, func, text,
+    String, Text, ForeignKey, Numeric, Integer, SmallInteger, BigInteger,
+    Boolean, DateTime, Date, Float, CheckConstraint, UniqueConstraint, Index, func, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -143,11 +143,503 @@ class AuditLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    actor_type: Mapped[str] = mapped_column(String(16), default="user", server_default="user")
+    actor_member_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id"), nullable=True)
+    actor_label: Mapped[str] = mapped_column(String(255), default="Unknown", server_default="Unknown")
     action: Mapped[str] = mapped_column(String(48))       # user.invited | user.role_changed | integration.connected …
+    category: Mapped[str] = mapped_column(String(24), default="System", server_default="System")
+    summary: Mapped[str] = mapped_column(String(500), default="", server_default="")
     target_type: Mapped[str | None] = mapped_column(String(24), nullable=True)   # user | integration | business
     target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     detail: Mapped[dict | None] = mapped_column(JSONType, nullable=True)          # {"from": "member", "to": "admin"}
+    event_metadata: Mapped[dict] = mapped_column(
+        "metadata", JSONType, default=dict, server_default=text("'{}'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class IntranetWorkspace(Base):
+    __tablename__ = "intranet_workspace"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    portal_name: Mapped[str] = mapped_column(Text)
+    tagline: Mapped[str | None] = mapped_column(Text, nullable=True)
+    subdomain: Mapped[str] = mapped_column(Text)
+    custom_domain: Mapped[str | None] = mapped_column(Text, nullable=True)
+    custom_domain_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    palette: Mapped[dict] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))
+    logo_light_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    logo_dark_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    logo_mark_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timezone: Mapped[str] = mapped_column(Text, default="America/Denver", server_default="America/Denver")
+    week_starts_on: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1")
+    default_calendar_view: Mapped[str] = mapped_column(Text, default="week", server_default="week")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_intranet_workspace_tenant"),)
+
+
+class IntranetRole(Base):
+    __tablename__ = "intranet_role"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+    sort: Mapped[int] = mapped_column(SmallInteger)
+    is_leadership: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_intranet_role_tenant_key"),)
+
+
+class IntranetCapability(Base):
+    __tablename__ = "intranet_capability"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text)
+    sort: Mapped[int] = mapped_column(SmallInteger)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_intranet_capability_tenant_key"),)
+
+
+class IntranetPermission(Base):
+    __tablename__ = "intranet_permission"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    capability_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_capability.id", ondelete="CASCADE"), nullable=False)
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_role.id", ondelete="CASCADE"), nullable=False)
+    level: Mapped[str] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("level IN ('Full','View','Limited','None')", name="ck_intranet_permission_level"),
+        UniqueConstraint("tenant_id", "capability_id", "role_id",
+                         name="uq_intranet_permission_tenant_capability_role"),
+    )
+
+
+class IntranetMember(Base):
+    __tablename__ = "intranet_member"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    full_name: Mapped[str] = mapped_column(Text)
+    email: Mapped[str] = mapped_column(String(255))
+    role_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("intranet_role.id"), nullable=False)
+    market: Mapped[str | None] = mapped_column(Text, nullable=True)
+    auth_source: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("auth_source IN ('SSO','Guest','Manual')", name="ck_intranet_member_auth_source"),
+        CheckConstraint("status IN ('Active','Invited','Removed')", name="ck_intranet_member_status"),
+        UniqueConstraint("tenant_id", "email", name="uq_intranet_member_tenant_email"),
+    )
+
+
+class IntranetCourse(Base):
+    __tablename__ = "intranet_course"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    state: Mapped[str] = mapped_column(Text)
+    track_progress: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    required_for_onboarding: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    issues_certificate: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    sequential: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    sort: Mapped[int] = mapped_column(SmallInteger)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("state IN ('Draft','Live','Needs Review')", name="ck_intranet_course_state"),
+    )
+
+
+class IntranetCourseRole(Base):
+    __tablename__ = "intranet_course_role"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_course.id", ondelete="CASCADE"), primary_key=True)
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_role.id", ondelete="CASCADE"), primary_key=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntranetLesson(Base):
+    __tablename__ = "intranet_lesson"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_course.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(Text)
+    source_type: Mapped[str] = mapped_column(Text)
+    source_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    sort: Mapped[int] = mapped_column(SmallInteger)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("source_type IN ('LOOM','SKOOL','HERE','PDF','EXP','PLACE')",
+                        name="ck_intranet_lesson_source_type"),
+    )
+
+
+class IntranetSopCategory(Base):
+    __tablename__ = "intranet_sop_category"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text)
+    sort: Mapped[int] = mapped_column(SmallInteger)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_intranet_sop_category_tenant_name"),)
+
+
+class IntranetSop(Base):
+    __tablename__ = "intranet_sop"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text)
+    category_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("intranet_sop_category.id"), nullable=False)
+    owner_member_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id"), nullable=True)
+    state: Mapped[str] = mapped_column(Text)
+    review_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    current_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_sop_version.id", use_alter=True, name="fk_sop_current_version"), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("state IN ('Draft','Live','Needs Review','Archived')", name="ck_intranet_sop_state"),
+    )
+
+
+class IntranetSopVersion(Base):
+    __tablename__ = "intranet_sop_version"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    sop_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_sop.id", ondelete="CASCADE"), nullable=False)
+    version_label: Mapped[str] = mapped_column(Text)
+    filename: Mapped[str] = mapped_column(Text)
+    storage_key: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str] = mapped_column(Text)
+    byte_size: Mapped[int] = mapped_column(BigInteger)
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id"), nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("sop_id", "version_label", name="uq_intranet_sop_version_label"),)
+
+
+class IntranetSopAcknowledgement(Base):
+    __tablename__ = "intranet_sop_acknowledgement"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    sop_version_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_sop_version.id"), nullable=False)
+    member_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("intranet_member.id"), nullable=False)
+    acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        UniqueConstraint("sop_version_id", "member_id", name="uq_intranet_sop_ack_version_member"),
+    )
+
+
+class IntranetWtdList(Base):
+    __tablename__ = "intranet_wtd_list"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    position: Mapped[int] = mapped_column(SmallInteger)
+    name: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(Text, default="follow_up_boss", server_default="follow_up_boss")
+    external_list_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    script_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    daily_target: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "position", name="uq_intranet_wtd_tenant_position"),)
+
+
+class IntranetLaunchpadTile(Base):
+    __tablename__ = "intranet_launchpad_tile"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text)
+    logo_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tile_group: Mapped[str] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(Text)
+    auth_type: Mapped[str] = mapped_column(Text)
+    sort: Mapped[int] = mapped_column(SmallInteger)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("auth_type IN ('SSO','Deeplink','Invite','Link')",
+                        name="ck_intranet_launchpad_auth_type"),
+    )
+
+
+class IntranetLaunchpadTileRole(Base):
+    __tablename__ = "intranet_launchpad_tile_role"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    tile_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_launchpad_tile.id", ondelete="CASCADE"), primary_key=True)
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_role.id", ondelete="CASCADE"), primary_key=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntranetCalendarCategory(Base):
+    __tablename__ = "intranet_calendar_category"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text)
+    color: Mapped[str] = mapped_column(Text)
+    calendar_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort: Mapped[int] = mapped_column(SmallInteger)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntranetCalendarCategoryRole(Base):
+    __tablename__ = "intranet_calendar_category_role"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    category_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_calendar_category.id", ondelete="CASCADE"), primary_key=True)
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_role.id", ondelete="CASCADE"), primary_key=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntranetIntegration(Base):
+    __tablename__ = "intranet_integration"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider_key: Mapped[str] = mapped_column(Text)
+    display_name: Mapped[str] = mapped_column(Text)
+    role_label: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text)
+    base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    config: Mapped[dict] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))
+    credential_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("status IN ('Connected','Action Needed','Not Connected')",
+                        name="ck_intranet_integration_status"),
+        UniqueConstraint("tenant_id", "provider_key", name="uq_intranet_integration_tenant_provider"),
+    )
+
+
+class IntranetAiSource(Base):
+    __tablename__ = "intranet_ai_source"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_kind: Mapped[str] = mapped_column(Text)
+    min_role_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("intranet_role.id"), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    last_crawled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    indexed_item_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    sort: Mapped[int] = mapped_column(SmallInteger)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntranetAiSetting(Base):
+    __tablename__ = "intranet_ai_setting"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    always_cite: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    refuse_without_source: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    offer_escalation: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    learn_from_corrections: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    escalation_channel: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntranetContentGap(Base):
+    __tablename__ = "intranet_content_gap"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    question: Mapped[str] = mapped_column(Text)
+    ask_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    status: Mapped[str] = mapped_column(Text)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assigned_member_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id"), nullable=True)
+    first_asked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_asked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("status IN ('Open','Assigned','Resolved','No Action')",
+                        name="ck_intranet_content_gap_status"),
+    )
+
+
+class IntranetSetupTask(Base):
+    __tablename__ = "intranet_setup_task"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(Text)
+    label: Mapped[str] = mapped_column(Text)
+    destination: Mapped[str] = mapped_column(Text)
+    sort: Mapped[int] = mapped_column(SmallInteger)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("intranet_member.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_intranet_setup_task_tenant_key"),)
+
+
+class IntranetPublishBatch(Base):
+    __tablename__ = "intranet_publish_batch"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    published_by: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("intranet_member.id"), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    snapshot: Mapped[dict] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rolled_back_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("intranet_member.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntranetPendingChange(Base):
+    __tablename__ = "intranet_pending_change"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(Text)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    change_kind: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actor_member_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("intranet_member.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    publish_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_publish_batch.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("change_kind IN ('created','updated','deleted')",
+                        name="ck_intranet_pending_change_kind"),
+        Index("ix_intranet_pending_change_unpublished", "tenant_id",
+              sqlite_where=text("publish_batch_id IS NULL"),
+              postgresql_where=text("publish_batch_id IS NULL")),
+    )
 
 
 class Business(Base):

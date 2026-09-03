@@ -48,3 +48,5 @@ backend/ads_probe_out/
 
 # Temporary intranet bundle inspection output
 work/intranet/unpacked/
+chrome-smoke-profile/
+intranet-*.png
