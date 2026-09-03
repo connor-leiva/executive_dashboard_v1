@@ -160,7 +160,7 @@ still logs. That is the local-dev and test state, and it is also the safe state 
 | variable | default | why it exists |
 |---|---|---|
 | `RESEND_API_KEY` | *(empty)* | Empty disables sending without breaking anything. Resend shows a key ONCE at creation, so a partial paste is the usual cause of `400 validation_error: API key is invalid` — reissue rather than retry. The key must belong to the same Resend team as the verified domain. |
-| `MAIL_FROM` | `Acumyn <mail@acumyn.io>` | Must be an address on a domain **verified in Resend**, or nothing is delivered. A key that is valid for a domain it may not send from fails differently: "not allowed to send from". |
+| `MAIL_FROM` | `Acumyn <hello@acumyn.io>` | Must be an address on a domain **verified in Resend**. A SUBDOMAIN IS A DIFFERENT DOMAIN to an ESP: verifying `mail.acumyn.io` does not let you send from `acumyn.io`, and the failure is `403 not authorized for this domain` — which reads as a bad key and is not one. Resend keys are also scoped per domain, so the key must cover whichever one this names. Replies to a password reset land here (it sets no reply-to), so it should be a mailbox somebody reads. |
 | `MAIL_REPLY_TO` | *(empty)* | Fallback only. An invite overrides it with the inviter's own address, so a reply reaches the colleague who sent it. A password reset deliberately does not. |
 
 To find out which of those is wrong without another deploy cycle, ask the service itself:

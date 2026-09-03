@@ -172,7 +172,10 @@ class Settings(BaseSettings):
     # the api and worker services — the worker is what sends Binder digests, so a key on api
     # alone leaves those silently logging.
     RESEND_API_KEY: str = ""
-    MAIL_FROM: str = "Acumyn <mail@acumyn.io>"
+    # Must be an address on a domain VERIFIED IN RESEND. A domain that merely exists at the
+    # registrar is not verified, and the send fails 403 "not authorized for this domain" —
+    # which reads as a key problem and is not one.
+    MAIL_FROM: str = "Acumyn <hello@acumyn.io>"
     MAIL_REPLY_TO: str = ""      # fallback; invites override with the inviter's own address
 
     # The platform's own domain. Tenants live at {slug}.PLATFORM_DOMAIN unless they bring a
