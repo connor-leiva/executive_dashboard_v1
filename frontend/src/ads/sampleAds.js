@@ -98,10 +98,13 @@ export const sampleAdsOverview = {
       conversion: (71 / 96) * 100, cost_per: SPEND / 71, dated: 71, undated: 0 },
     { key: "held", label: "Call held", zone: "acumyn", n: 58, prev: 71,
       conversion: (58 / 71) * 100, cost_per: SPEND / 58, dated: 46, undated: 12 },
-    { key: "committed", label: "Cash received", zone: "acumyn", n: 19, prev: 58,
-      conversion: (19 / 58) * 100, cost_per: SPEND / 19, dated: 19, undated: 0, value: 95000 },
-    { key: "closed", label: "Enrolled", zone: "acumyn", closes: true, n: 14, prev: 19,
-      conversion: (14 / 19) * 100, cost_per: SPEND / 14, dated: 14, undated: 0, value: 174000 },
+    // Cash received counts everyone who HAS paid, not only those still sitting at the stage -
+    // the 14 enrolled members paid to get where they are. 19 + 14 = 33, which is why Enrolled
+    // now converts at 42% instead of the impossible 600% the exclusive count produced.
+    { key: "committed", label: "Cash received", zone: "acumyn", n: 33, prev: 58,
+      conversion: (33 / 58) * 100, cost_per: SPEND / 33, dated: 33, undated: 0, value: 118500 },
+    { key: "closed", label: "Enrolled", zone: "acumyn", closes: true, n: 14, prev: 33,
+      conversion: (14 / 33) * 100, cost_per: SPEND / 14, dated: 14, undated: 0, value: 174000 },
   ],
   revenue: {
     // TWO TOTALS. Contracted is signed value over the enrolled; cash is due-at-signing over

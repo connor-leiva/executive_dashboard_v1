@@ -266,14 +266,46 @@ FUNNEL_DEFS = {
         {"key": "booked", "label": "Call booked", "src": "sales_call", "zone": "acumyn"},
         {"key": "applied", "label": "Applied", "src": "stage_group", "zone": "acumyn"},
         {"key": "held", "label": "Call held", "src": "sales_call", "zone": "acumyn"},
-        {"key": "committed", "label": "Cash received", "src": "stage_group", "zone": "acumyn"},
+        # `implied_by` NAMES THE STAGES WHOSE MEMBERS MUST HAVE PASSED THROUGH THIS ONE, and it
+        # exists because two of these rungs are a different KIND of fact from the other four.
+        #
+        # registered, booked and held come from event logs, and an event never un-happens - those
+        # rungs are cumulative for free. committed and closed come from the launch's stage GROUP,
+        # and classify_stage puts a person in exactly ONE current group: signing MOVES her out of
+        # committed and into closed. So the raw group count answers "who is sitting here", while
+        # every other rung answers "who has reached here", and a ladder cannot mix the two.
+        #
+        # Mixed, it produced a funnel that REFILLS: 34 held, 1 at cash received, 6 enrolled. Every
+        # figure derived from that was then wrong in a way that looked entirely plausible - a 600%
+        # conversion, a cost-per of the whole ad spend divided by one person, and a "biggest leak"
+        # callout blaming a step nobody had dropped at. The six enrolled members had all paid; they
+        # had simply stopped sitting at the rung that counts payment.
+        {"key": "committed", "label": "Cash received", "src": "stage_group", "zone": "acumyn",
+         "implied_by": ("closed",)},
         {"key": "closed", "label": "Enrolled", "src": "stage_group", "zone": "acumyn",
          "closes": True},
     ],
 }
 
+RUNG_DEFS = {d["key"]: d for d in FUNNEL_DEFS["program"]}
 ACUMYN_STAGES = ("registered", "booked", "applied", "held", "committed", "closed")
 HELD_OUTCOMES = ("showed", "held", "attended")
+
+
+def rung_population(by_stage: dict, d: dict) -> list:
+    """Everyone who has REACHED this rung - not everyone currently sitting at it.
+
+    ONE DEFINITION, used by the rung count, the rung's dollars, the hero's cash total and the
+    drill. They are four renderings of one population and the moment any of them computes its own
+    the four start disagreeing, which is the failure mode this whole module is built against.
+
+    Deduped by attribution, and a LATER stage wins on anyone holding rows at both: it is the more
+    recent and stronger fact about the same person.
+    """
+    best = {c.attribution_id: c for c in by_stage.get(d["key"], [])}
+    for later in d.get("implied_by", ()):
+        best.update({c.attribution_id: c for c in by_stage.get(later, [])})
+    return list(best.values())
 
 
 def _annualize(amount, payment_type):
@@ -572,15 +604,10 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
     # and for the same reason it states there: "Committed IS paid by definition, so cash must
     # include it." The ads tab summed `closed` only, so the money sitting on the rung LABELLED
     # "Cash received" was excluded from the cash figure. Both rungs, one definition, both tabs.
-    # ONE ROW PER PERSON. Somebody carrying a committed row AND a closed row - an earlier
-    # opportunity the pipeline never cleared, or a stage that moved backwards - would otherwise
-    # be counted twice, once at each price. Closed wins: it is the later and stronger fact.
-    best: dict = {}
-    for c in closes + by_stage.get("committed", []):
-        cur = best.get(c.attribution_id)
-        if cur is None or (c.stage_key == "closed" and cur.stage_key != "closed"):
-            best[c.attribution_id] = c
-    paid = list(best.values())
+    # EVERYONE WHO HAS PAID, which is exactly the Cash received rung's population - the same call
+    # the rung itself makes, so the hero total and the rung's dollars cannot drift apart. Deduped
+    # by person: somebody carrying a committed row AND a closed row is one person, not two.
+    paid = rung_population(by_stage, RUNG_DEFS["committed"])
 
     # PER ROW, NEVER ALL-OR-NOTHING. Preferring the price sheet only when it had priced ANYBODY
     # discarded every matched payment the moment one person was priced: one priced deposit of
@@ -601,19 +628,18 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
     for d in FUNNEL_DEFS["program"]:
         key = d["key"]
         if d.get("src") == "ads":
-            n = int((ads_rungs or {}).get(key) or 0)
+            rows_, n = [], int((ads_rungs or {}).get(key) or 0)
         else:
-            n = len(by_stage.get(key, []))
-        dated = sum(1 for c in by_stage.get(key, []) if c.dated) if d.get("src") != "ads" else n
+            rows_ = rung_population(by_stage, d)
+            n = len(rows_)
+        dated = sum(1 for c in rows_ if c.dated) if d.get("src") != "ads" else n
         # The two money rungs carry their dollars. A rung called "Cash received" that shows only
         # a headcount is the reader's job half done, and it is the figure the hero totals.
         value = None
         if key == "closed":
             value = contracted or None
         elif key == "committed":
-            value = sum(float(c.value_upfront) if c.value_upfront is not None
-                         else float(c.value_collected or 0)
-                         for c in by_stage.get(key, [])) or None
+            value = collected or None
         rungs.append({
             **d, "n": n, "prev": prev, "value": value,
             "conversion": conversion(n, prev) if prev is not None else None,

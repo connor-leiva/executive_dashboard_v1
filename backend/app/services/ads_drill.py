@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import AdAttribution, AdCampaign, AdConversion, MetricRecord
-from .ads_funnel import ACUMYN_STAGES, FUNNEL_DEFS
+from .ads_funnel import ACUMYN_STAGES, FUNNEL_DEFS, RUNG_DEFS
 
 # Stages whose source field exists but is never populated on this tenant's data are NOT errors,
 # and the drill is the natural place to say so - somebody clicking a zero wants to know whether
@@ -66,9 +66,14 @@ async def drill_ads(s: AsyncSession, tenant_id, acct, metric: str, start, end,
     camps = {c.id: c.name for c in (await s.execute(select(AdCampaign).where(
         AdCampaign.tenant_id == tenant_id))).scalars()}
 
+    # THE SAME POPULATION RULE THE RUNG USED. "Cash received" is a stage group, so a member who
+    # has since signed no longer sits in it - but she has still paid, and the rung counts her.
+    # A drill that read the raw group would list one person under a figure that says seven.
+    d = RUNG_DEFS.get(stage) or {}
+    wanted = (stage,) + tuple(d.get("implied_by", ()))
     convs = list((await s.execute(select(AdConversion).where(
         AdConversion.tenant_id == tenant_id,
-        AdConversion.stage_key == stage))).scalars())
+        AdConversion.stage_key.in_(wanted)))).scalars())
 
     # The SAME window rule the funnel used, or the drill would open a different population than
     # the number it was opened from - the one failure that makes a drill worse than none.
@@ -83,6 +88,10 @@ async def drill_ads(s: AsyncSession, tenant_id, acct, metric: str, start, end,
         return a.first_seen_on is not None and start <= a.first_seen_on <= end
 
     convs = [c for c in convs if in_window(c)]
+    # One row per PERSON, the later stage winning - rung_population's rule, on the same rows.
+    # Own-stage rows are placed FIRST so an implied later stage overwrites them in the dict.
+    convs = list({c.attribution_id: c
+                  for c in sorted(convs, key=lambda x: x.stage_key != stage)}.values())
 
     keys = {by_attr[c.attribution_id].identity_key for c in convs if c.attribution_id in by_attr}
     recs = _identity_rows(list((await s.execute(select(MetricRecord).where(
@@ -135,7 +144,9 @@ async def drill_ads(s: AsyncSession, tenant_id, acct, metric: str, start, end,
                   if basis == "period" else
                   "counted where the person was FIRST SEEN in this window, wherever the stage "
                   "landed later")
-    subtitle = f"{len(rows)} at this stage · {basis_note}"
+    reached = ("who have reached this stage, including those who have since moved past it"
+               if d.get("implied_by") else "at this stage")
+    subtitle = f"{len(rows)} {reached} · {basis_note}"
 
     # An empty rung is either "nobody got here" or "we do not record this", and those are
     # completely different facts. The funnel cannot tell them apart; the drill can, because it
@@ -144,7 +155,7 @@ async def drill_ads(s: AsyncSession, tenant_id, acct, metric: str, start, end,
     if not rows:
         total_at_stage = (await s.execute(select(AdConversion).where(
             AdConversion.tenant_id == tenant_id,
-            AdConversion.stage_key == stage))).scalars().first()
+            AdConversion.stage_key.in_(wanted)))).scalars().first()
         note = (f"No {label.lower()} records exist anywhere in this workspace, for any window or "
                 f"campaign - so this rung reads zero because the stage is not being recorded, "
                 f"not because nobody reached it."

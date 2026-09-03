@@ -287,7 +287,10 @@ async def test_the_hero_gets_both_totals_and_names_where_the_cash_came_from():
 
 
 async def test_the_two_money_rungs_carry_their_dollars():
+    """And Cash received carries the dollars of EVERYONE who has paid, which is the same figure
+    the hero totals - one call, so the rung and the hero cannot drift apart."""
     tid, bid, launch = await _ctx()
+    up = float(launch.price_map["PIF"]["upfront"])
     await _person(tid, bid, launch, "r1", "pif", four="PIF")
     await _person(tid, bid, launch, "r2", "pif", four="PIF", group="committed")
     async with SessionLocal() as s:
@@ -297,10 +300,65 @@ async def test_the_two_money_rungs_carry_their_dollars():
                                  ads_rungs={"spend": 1000})
     rungs = {r["key"]: r for r in f["rungs"]}
     assert rungs["closed"]["value"] == pytest.approx(float(launch.price_map["PIF"]["acv"]))
-    assert rungs["committed"]["value"] == pytest.approx(
-        float(launch.price_map["PIF"]["upfront"]))
+    assert rungs["committed"]["value"] == pytest.approx(up * 2),         "the enrolled member paid too; her cash belongs on the rung that counts cash"
+    assert rungs["committed"]["value"] == pytest.approx(f["revenue"]["collected"])
     # An ads rung is Meta measuring itself. There is no dollar figure to put on an impression.
     assert rungs["impression"]["value"] is None
+
+
+# -- the funnel that refilled --------------------------------------------------------------------
+
+async def test_cash_received_counts_everyone_who_has_paid_not_only_those_sitting_there():
+    """CONNOR'S REPORT. The rung showed 1 person and a cost-each of the ENTIRE ad spend, sitting
+    above an Enrolled rung of 6 - a funnel that refills, and a 600% conversion.
+
+    classify_stage puts a member in exactly one CURRENT group, so signing moves her out of
+    `committed` and into `closed`. Every other rung on the ladder answers "who has reached here";
+    only these two answered "who is sitting here", and mixing the two kinds broke the count, the
+    conversion, the cost-per and the biggest-leak callout at once.
+    """
+    tid, bid, launch = await _ctx()
+    for i in range(6):
+        await _person(tid, bid, launch, f"e{i}", "pif", four="PIF")            # enrolled
+    await _person(tid, bid, launch, "c0", "pif", four="PIF", group="committed")  # still deciding
+
+    async with SessionLocal() as s:
+        await F.sync_ad_conversions(s, tid)
+        f = await F.build_funnel(s, tid, None, DAY - dt.timedelta(days=2),
+                                 DAY + dt.timedelta(days=2), "cohort",
+                                 ads_rungs={"spend": 70000})
+    rungs = {r["key"]: r for r in f["rungs"]}
+
+    assert rungs["committed"]["n"] == 7, "the six who signed had all paid to get there"
+    assert rungs["closed"]["n"] == 6
+    # The number that made this visible: spend / 1 was the whole budget on one person's head.
+    assert rungs["committed"]["cost_per"] == pytest.approx(10000.0)
+    # A funnel does not refill. Nothing below the crossing may convert above 100%.
+    for r in f["rungs"]:
+        if r["zone"] == "acumyn" and r["conversion"] is not None:
+            assert r["conversion"] <= 100.0, f"{r['key']} converts at {r['conversion']}%"
+
+
+async def test_the_cash_received_drill_lists_the_same_people_the_rung_counted():
+    """A drill that answers a different question than the number above it is worse than no
+    drill. The rung counts everyone who has paid, so the drill must list them - including the
+    members who have since signed and left the group."""
+    from app.services.ads_drill import drill_ads
+
+    tid, bid, launch = await _ctx()
+    await _person(tid, bid, launch, "dc1", "pif", four="PIF", email="dc1@x.test")
+    await _person(tid, bid, launch, "dc2", "pif", four="PIF", group="committed",
+                  email="dc2@x.test")
+    async with SessionLocal() as s:
+        await F.sync_ad_conversions(s, tid)
+        f = await F.build_funnel(s, tid, None, DAY - dt.timedelta(days=2),
+                                 DAY + dt.timedelta(days=2), "cohort",
+                                 ads_rungs={"spend": 1000})
+        d = await drill_ads(s, tid, None, "funnel.committed", DAY - dt.timedelta(days=2),
+                            DAY + dt.timedelta(days=2))
+    rung = next(r["n"] for r in f["rungs"] if r["key"] == "committed")
+    assert d["count"] == rung == 2, f"drill says {d['count']}, the rung says {rung}"
+    assert len({r["email"] for r in d["rows"]}) == 2, "somebody was listed twice"
 
 
 async def test_the_drill_shows_the_contract_the_deposit_and_the_cash_apart():
