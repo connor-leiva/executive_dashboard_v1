@@ -512,6 +512,28 @@ async def test_permissions_audit_names_changed_cell(ctx):
     assert new_level in latest.summary
 
 
+async def test_launchpad_tile_url_normalizes_to_https(ctx):
+    async with _client() as c:
+        r = await c.post(
+            "/api/console/tiles",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"name": "Normalized URL", "url": "example.test/tool", "auth_type": "Link"},
+        )
+    assert r.status_code == 200, r.text
+    assert r.json()["item"]["url"] == "https://example.test/tool"
+
+
+@pytest.mark.parametrize("url", ["javascript:alert(1)", "data:text/plain,test"])
+async def test_launchpad_tile_rejects_unsafe_url_schemes(ctx, url):
+    async with _client() as c:
+        r = await c.post(
+            "/api/console/tiles",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"name": "Unsafe URL", "url": url, "auth_type": "Link"},
+        )
+    assert r.status_code == 422, r.text
+
+
 def _request_for_name(name: str, ids: dict):
     for read_name, method, path_fn, kwargs in READ_ROUTES:
         if read_name == name:

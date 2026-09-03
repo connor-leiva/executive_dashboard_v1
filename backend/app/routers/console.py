@@ -4,6 +4,7 @@ import datetime as dt
 import re
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import delete as sa_delete, func, select
@@ -174,6 +175,23 @@ def _json_object(body: dict, field: str, default: dict | None = None) -> dict | 
     if not isinstance(body[field], dict):
         _unprocessable(field, "Expected an object.")
     return dict(body[field])
+
+
+def _https_url(body: dict, field: str, *, required: bool = False) -> str | None:
+    raw = _text(body, field, required=required)
+    if not raw:
+        return None
+    value = raw.strip()
+    parsed = urlparse(value)
+    if not parsed.scheme:
+        value = f"https://{value}"
+        parsed = urlparse(value)
+    scheme = parsed.scheme.lower()
+    if scheme in {"javascript", "data"} or scheme not in {"http", "https"} or not parsed.netloc:
+        _unprocessable(field, "Expected a valid http or https URL.")
+    if scheme == "http":
+        value = "https://" + value[len("http://"):]
+    return value
 
 
 async def _pending_count(s: AsyncSession, tenant_id) -> int:
@@ -1554,14 +1572,14 @@ async def create_tile(body: dict = Body(...), p: ConsolePrincipal = Depends(requ
         name=_text(body, "name", required=True) or "",
         logo_key=_text(body, "logo_key", nullable=True),
         tile_group=_text(body, "tile_group") or "Tools",
-        url=_text(body, "url", required=True) or "",
+        url=_https_url(body, "url", required=True) or "",
         auth_type=_enum(body, "auth_type", TILE_AUTH_TYPES, "Link") or "Link",
         sort=_int(body, "sort", default=await _count(s, IntranetLaunchpadTile, p.user.tenant_id), min_value=0) or 0,
         active=_bool(body, "active", True),
     )
     s.add(row)
     pending = await _record_mutation(
-        s, p, action="console.tile.create", category="Launchpad",
+        s, p, action="config.tile.created", category="Launchpad",
         summary=f"Created launchpad tile {row.name}", target_type="tile",
         target_id=row.id, entity_type="tile", entity_id=row.id, change_kind="created")
     return _with_pending(_tile(row), pending)
@@ -1581,7 +1599,7 @@ async def patch_tile(tile_id: uuid.UUID, body: dict = Body(...),
     if "tile_group" in body:
         row.tile_group = _text(body, "tile_group", required=True) or row.tile_group
     if "url" in body:
-        row.url = _text(body, "url", required=True) or row.url
+        row.url = _https_url(body, "url", required=True) or row.url
     if "auth_type" in body:
         row.auth_type = _enum(body, "auth_type", TILE_AUTH_TYPES) or row.auth_type
     if "sort" in body:
@@ -1590,7 +1608,7 @@ async def patch_tile(tile_id: uuid.UUID, body: dict = Body(...),
         row.active = bool(_bool(body, "active"))
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.tile.update", category="Launchpad",
+        s, p, action="config.tile.updated", category="Launchpad",
         summary=f"Updated launchpad tile {row.name}", target_type="tile",
         target_id=row.id, entity_type="tile", entity_id=row.id)
     return _with_pending(_tile(row), pending)
@@ -1603,7 +1621,7 @@ async def delete_tile(tile_id: uuid.UUID, p: ConsolePrincipal = Depends(require_
     row.active = False
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.tile.archive", category="Launchpad",
+        s, p, action="config.tile.archived", category="Launchpad",
         summary=f"Set launchpad tile {row.name} to inactive", target_type="tile",
         target_id=row.id, entity_type="tile", entity_id=row.id, change_kind="deleted")
     return _with_pending(_tile(row), pending)
@@ -1634,7 +1652,7 @@ async def put_tile_roles(tile_id: uuid.UUID, body: dict = Body(...),
         s.add(IntranetLaunchpadTileRole(tenant_id=p.user.tenant_id, tile_id=tile_id, role_id=rid))
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.tile.roles", category="Launchpad",
+        s, p, action="config.tile.roles_updated", category="Launchpad",
         summary=f"Updated launchpad visibility for {row.name}", target_type="tile",
         target_id=row.id, entity_type="tile", entity_id=row.id)
     return _with_pending(_tile(row, await _tile_roles(s, p.user.tenant_id, [row.id])), pending)
@@ -1655,7 +1673,7 @@ async def put_tile_order(body: dict = Body(...), p: ConsolePrincipal = Depends(r
         by_id[str(row_id)].sort = sort
         by_id[str(row_id)].draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.tile.order", category="Launchpad",
+        s, p, action="config.tile.reordered", category="Launchpad",
         summary="Reordered launchpad tiles", target_type="tile", entity_type="tile")
     return {**(await get_tiles(p, s)), "pending_changes": pending}
 

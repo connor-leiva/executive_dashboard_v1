@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  createTile,
+  deleteTile,
   deleteMember,
   discardChanges,
   getAudit,
@@ -9,13 +11,18 @@ import {
   getPendingChanges,
   getPermissions,
   getPreview,
+  getRoles,
   getSetupTasks,
+  getTiles,
   inviteMember,
   login,
   patchMember,
   patchSetupTask,
+  patchTile,
   publishChanges,
   putPermissions,
+  putTileOrder,
+  putTileRoles,
   syncMembers,
 } from "./api.js";
 
@@ -26,6 +33,8 @@ export const keys = {
   audit: ["console", "audit"],
   members: (params) => ["console", "members", params],
   permissions: ["console", "permissions"],
+  roles: ["console", "roles"],
+  tiles: ["console", "tiles"],
   preview: (role) => ["console", "preview", role],
 };
 
@@ -39,6 +48,12 @@ function invalidateOverview(queryClient) {
 function invalidateRoster(queryClient) {
   invalidateOverview(queryClient);
   queryClient.invalidateQueries({ queryKey: ["console", "members"] });
+}
+
+function invalidateLaunchpad(queryClient) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.tiles });
+  queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
 }
 
 export function useOverview(enabled) {
@@ -97,6 +112,22 @@ export function usePermissions(enabled) {
   });
 }
 
+export function useRoles(enabled) {
+  return useQuery({
+    queryKey: keys.roles,
+    queryFn: getRoles,
+    enabled,
+  });
+}
+
+export function useTiles(enabled) {
+  return useQuery({
+    queryKey: keys.tiles,
+    queryFn: getTiles,
+    enabled,
+  });
+}
+
 export function useLogin() {
   return useMutation({
     mutationFn: ({ email, password, tenantHost }) => login(email, password, tenantHost),
@@ -143,6 +174,46 @@ export function useSavePermissions() {
       invalidateOverview(queryClient);
       queryClient.invalidateQueries({ queryKey: keys.permissions });
     },
+  });
+}
+
+export function useCreateTile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createTile,
+    onSuccess: () => invalidateLaunchpad(queryClient),
+  });
+}
+
+export function usePatchTile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tileId, body }) => patchTile(tileId, body),
+    onSuccess: () => invalidateLaunchpad(queryClient),
+  });
+}
+
+export function useRemoveTile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteTile,
+    onSuccess: () => invalidateLaunchpad(queryClient),
+  });
+}
+
+export function useSaveTileRoles() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tileId, body }) => putTileRoles(tileId, body),
+    onSuccess: () => invalidateLaunchpad(queryClient),
+  });
+}
+
+export function useOrderTiles() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: putTileOrder,
+    onSuccess: () => invalidateLaunchpad(queryClient),
   });
 }
 

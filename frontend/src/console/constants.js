@@ -63,10 +63,19 @@ export const AUTH_SOURCE_OPTIONS = [
   { key: "SSO", label: "SSO" },
 ];
 
+export const TILE_AUTH_OPTIONS = [
+  { key: "SSO", label: "SSO" },
+  { key: "Deeplink", label: "Deeplink" },
+  { key: "Invite", label: "Invite" },
+  { key: "Link", label: "Link" },
+];
+
 export const DEFAULT_ROSTER_FILTER = "active";
 export const GUEST_AUTH_SOURCE = "Guest";
 export const GUEST_ROLE_KEY = "jv_partner";
 export const REMOVED_MEMBER_STATUS = "Removed";
+export const DEFAULT_TILE_GROUP = "Tools";
+export const DEFAULT_TILE_AUTH = "Link";
 
 export const PERMISSION_LEVELS = ["Full", "View", "Limited", "None"];
 export const DEFAULT_PERMISSION_LEVEL = "None";
@@ -139,6 +148,27 @@ export const COPY = {
   permissionsDescription: "Description",
   permissionsError: "Permission matrix failed to load.",
   permissionsSaved: "Permissions saved",
+  launchpadTitle: "Tool Launchpad",
+  launchpadEmpty: "No launchpad tiles are configured.",
+  launchpadPreview: "Role Preview",
+  launchpadVisible: "visible",
+  launchpadNew: "New Tile",
+  launchpadSave: "Save Tile",
+  launchpadCreate: "Create Tile",
+  launchpadRemove: "Set Inactive",
+  launchpadName: "Name",
+  launchpadLogo: "Logo key",
+  launchpadGroup: "Group",
+  launchpadUrl: "URL",
+  launchpadAuth: "Auth type",
+  launchpadActive: "Active",
+  launchpadRoles: "Role visibility",
+  launchpadSaved: "Tile saved",
+  launchpadCreated: "Tile created",
+  launchpadError: "Launchpad tiles failed to load.",
+  launchpadNoSelection: "Select a tile or create a new one.",
+  moveUp: "Up",
+  moveDown: "Down",
   emptyActivity: "No activity yet.",
   emptySetup: "No setup tasks yet.",
   previewingAs: "Viewing as",

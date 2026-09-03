@@ -346,7 +346,16 @@ export default function Console() {
           <Route path="/training" element={<Training />} />
           <Route path="/sops" element={<SopLibrary />} />
           <Route path="/wtd" element={<WinTheDay />} />
-          <Route path="/launchpad" element={<ToolLaunchpad />} />
+          <Route
+            path="/launchpad"
+            element={(
+              <ToolLaunchpad
+                selectedRole={selectedRole}
+                preview={previewQuery.data}
+                previewLoading={previewQuery.isPending}
+              />
+            )}
+          />
           <Route path="/calendar" element={<TeamCalendar />} />
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/assistant" element={<AiAssistant />} />
