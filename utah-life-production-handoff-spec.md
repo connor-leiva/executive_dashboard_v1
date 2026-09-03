@@ -312,13 +312,37 @@ Done in this pass:
 - `check-no-mock-data.sh` gained a frozen-date rule and the path to it is corrected above.
 - Verified: no horizontal scroll at 390x844, off-canvas rail works.
 
+Second pass:
+
+- Rail footer added. The mockup ends the rail with a "Need A Hand?" block and the app had no
+  counterpart -- it is the one place that tells a new agent what to do when the intranet does not
+  answer their question. `#help` renders as emphasised text rather than an `<a href="#">`,
+  because no help channel is configured and a link that goes nowhere is a link that lies about
+  being one. It becomes a real link when there is somewhere to point it.
+- I WAS WRONG THAT THE TWO SOURCES DISAGREED about the rail. "Powered by PLACE" sits under the
+  wordmark at the TOP of the rail; the mockup's "Need A Hand?" block sits at the BOTTOM. Different
+  positions, no conflict -- the app now has both, and no decision is needed.
+- Content frame aligned to the mockup: `max-width` 1268 -> 1240, padding -> `38px 44px 90px`.
+  Only visible above ~1300px, which is exactly what a 1920 check is for.
+- Checked at `1920x1080`: no horizontal scroll, nothing overflowing, rail 266px, frame capped.
+  All three required viewports have now been checked (1920x1080, 1440x900, 390x844).
+
 Left for Phase 6:
 
-- Screenshot pass at `1920x1080` (1440x900 and 390x844 were checked).
-- Needs You Today and Quick Launch blocks were not compared against the mockup in detail.
-- The mockup's rail footer is a "Need A Hand?" block with a #help link. The app ships
-  "Powered by PLACE" instead, which section 8 of this document asks for. THE TWO SOURCES
-  DISAGREE and it was left as the document says. Worth a decision.
+- PANEL HEADINGS: 19 vs 17, and why it was left alone. Reading every `h2` in the mockup, the
+  rule is not "sidebar panels are smaller" -- it is that the WIDE column's panel is 19px and the
+  NARROW column stacked beside it is 17px. Home ("Needs You Today" 19 / "Quick Launch",
+  "From Leadership", "This Week" 17) and My Numbers ("Closings by Month" 19 / "Training
+  Completed", "Connected Accounts" 17) both follow it.
+
+  The app's Home lower row is a different layout: two EQUAL columns, Needs You Today beside Quick
+  Launch, with no stacked third panel and no "From Leadership" or "This Week" to stack. In equal
+  columns, 19/19 is the internally consistent answer; setting one to 17 would import the number
+  without the narrowness that justifies it. Matching the mockup here means adopting its
+  wide-plus-stack structure, which is a layout decision with real content behind it (two panels
+  this product does not have yet), not a font size.
+- Needs You Today and Quick Launch match on structure and on the tokens they inherit, but their
+  internal rows were not compared field by field against the mockup.
 - Final TT Drugs / TT Norms Pro files. DM Sans + Archivo are the close proxies and are what the
   mockup itself uses; the swap point is the `--font-*` block at the top of `ui.css`.
 
@@ -348,18 +372,53 @@ guess would have meant either dead code or a console claiming a connection nobod
 screen says "configuration saved, runtime connection pending" in as many words, which is what
 section 9 of this document asks for.
 
+Second pass:
+
+- THE SETUP CHECKLIST NO LONGER TAKES ITS OWN WORD FOR IT. It was eleven manual checkboxes:
+  `completed` was whatever somebody clicked, so a workspace could show "SOPs uploaded" complete
+  with no SOPs. That matters because the checklist is what an operator reads to decide whether a
+  workspace is ready for real users. `_setup_evidence()` derives, per task, whether the
+  underlying configuration exists, and a VERIFIABLE task cannot be ticked past it (422). The
+  console disables the box and says "nothing configured yet" rather than letting somebody click
+  into a server error, and flags the reverse case -- ticked, but the config has since gone.
+  Against the seeded workspace this correctly reports `calendar` as unsatisfied: categories
+  exist, none has an address.
+- A NOTE ON TESTING THIS. The first version of the gate's test searched the checklist for
+  any unconfigured task. It passed alone and failed in the full suite, because other tests
+  configure that workspace and by the time it ran there was nothing unconfigured left. A
+  test that depends on how much of the workspace its neighbours happened to fill in is
+  testing the neighbours. It now clears one specific field, asserts, and restores in a
+  `finally`. Worth knowing: this suite shares one SQLite database and randomises order, so
+  any test that reads ambient state is a future flake.
+- `satisfied: null` is a real answer for the three that cannot be derived (permissions reviewed,
+  onboarding path assigned, announcement channel). Whether somebody has genuinely reviewed
+  permissions is not visible in a row count, and a proxy invented for it would be a checkbox
+  claiming more than it knows with extra steps. Those stay a human judgement and say so.
+- The intranet's Requests page reads the console config now, shows the honest unavailable state,
+  and no longer carries its own editor.
+- THE DEV ENVIRONMENT REACHES THE API. Two things were wrong, and the first hid the second:
+  `<slug>.localhost` was not an allowed CORS origin, and -- once it was -- the tenancy layer did
+  not resolve it either, so the request fell through to the single-tenant fallback and returned a
+  DIFFERENT tenant, which 401s and reads as a bad token. `is_local_host()`'s docstring had
+  claimed dev subdomain resolution worked since it was written; nothing implemented it. Both are
+  gated on `is_deployed()` and both have tests, including that a deployed config never gets the
+  localhost rule and that a reserved name cannot be claimed through `.localhost`.
+
+  To use it: browse `http://<slug>.localhost:<port>` and the tenant resolves by slug, exactly as
+  `<slug>.PLATFORM_DOMAIN` does in production. This is how the connected states are now verified.
+
 Left for Phase 7:
 
-- The intranet side still renders Marketing Requests as the old `{url, label}` link from the
-  JSON config. It should read this new config and show the honest unavailable state when
-  `config_complete` is false. That is the natural next task and it is small.
 - Google Calendar config was reviewed and is largely covered already (per-category
   `calendar_address`, role audience, plus workspace `timezone` / `week_starts_on` /
   `default_calendar_view`). A distinct Google connection status is the gap, and it belongs with
   the Phase 9 integration work rather than here.
-- Feature/plan gating flags (intranet enabled, AI enabled, Marketing Requests enabled by plan)
-  are not built. `marketing.enabled` is a tenant switch, not a plan gate.
-- Setup checklist mapping was not touched.
+- Feature/plan gating. `plans.allows(tenant, "intranet")` already gates the intranet itself, but
+  the AI assistant and Marketing Requests are tenant switches with no plan behind them. Doing it
+  properly means deciding which tier includes what, which is a pricing decision rather than an
+  implementation one and belongs with the user.
+- The three non-derivable checklist items could become derivable if the product gains a way to
+  record the underlying decision. Worth revisiting rather than treating as permanently manual.
 
 Incidental fix found on the way: `_https_url` in `console.py` accepted `"not a url"`, because it
 prepends a scheme and the netloc then parses as `not`. That validator also guards launchpad tile

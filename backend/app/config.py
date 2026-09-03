@@ -268,7 +268,26 @@ class Settings(BaseSettings):
         and with a literal-dot suffix so `notacumyn.io` and `acumyn.io.evil.com` do not
         match. Tenants on their own custom domain are still added to ALLOWED_ORIGINS.
         """
-        return r"https://([A-Za-z0-9-]+\.)*" + re.escape(self.PLATFORM_DOMAIN) + r"$"
+        platform = r"https://([A-Za-z0-9-]+\.)*" + re.escape(self.PLATFORM_DOMAIN)
+        if self._deployed:
+            return platform
+        # DEV ONLY, and gated rather than appended unconditionally. The intranet sends
+        # `X-Tenant-Host: window.location.hostname` with no override, so the only way to browse a
+        # real tenant locally is at `<slug>.localhost:<port>` -- which is why the vite configs
+        # already allow `.localhost` hosts. Without this the browser gets through the host check
+        # and then dies on a CORS preflight, so the connected states could not be seen at all
+        # locally, only the demo fallback.
+        #
+        # `localhost` must be the LAST label: `([A-Za-z0-9-]+\.)*localhost` requires a dot after
+        # every preceding segment and Starlette fullmatches, so `http://localhost.evil.com` and
+        # `http://notlocalhost:4173` are both refused. There is a test enumerating those.
+        return platform + r"|http://([A-Za-z0-9-]+\.)*localhost(:\d{1,5})?"
+
+    @property
+    def _deployed(self) -> bool:
+        """Mirrors startup_checks.is_deployed(). Inlined because that module imports `settings`
+        from here, and the rule is short enough that duplicating it beats a circular import."""
+        return (not self.is_sqlite) or self.ENV.strip().lower() in {"production", "prod", "staging"}
 
     @property
     def is_sqlite(self) -> bool:

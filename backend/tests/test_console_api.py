@@ -23,6 +23,7 @@ from app.models import (
     IntranetSop,
     IntranetSopCategory,
     IntranetSopVersion,
+    IntranetWorkspace,
     Tenant,
     User,
 )
@@ -1349,3 +1350,89 @@ def test_the_publish_cycle_finds_every_publishable_table_by_itself():
     # Guards the derivation itself: if this ever returns nothing, publish silently no-ops.
     assert len(found) > 15, f"suspiciously few publishable models: {sorted(found)}"
     assert "IntranetMarketingSetting" in found
+
+
+async def test_a_setup_task_cannot_be_ticked_past_its_own_configuration(ctx):
+    """The checklist was eleven manual checkboxes: `completed` was whatever somebody clicked.
+
+    A workspace could therefore show "SOPs uploaded" complete with no SOPs. That matters because
+    the checklist is what an operator reads to decide whether a workspace is ready for real users
+    -- a green row over an empty library makes that read wrong, and whoever trusted it pays.
+
+    THIS TEST MAKES ITS OWN CONDITION rather than hunting for an unconfigured task in the seed.
+    The first version looked for any task with `satisfied: false`, which passed alone and failed
+    in the full suite: other tests configure this workspace, so by the time it ran there was
+    nothing left unconfigured and the search came up empty. A test that depends on how much of
+    the workspace its neighbours happen to have filled in is testing the neighbours.
+    """
+    tenant_id = uuid.UUID(ctx["b"]["tenant_id"])
+    async with SessionLocal() as s:
+        ws = (await s.execute(select(IntranetWorkspace).where(
+            IntranetWorkspace.tenant_id == tenant_id))).scalar_one()
+        before = (ws.logo_light_key, ws.logo_dark_key, ws.logo_mark_key)
+        ws.logo_light_key = ws.logo_dark_key = ws.logo_mark_key = None
+        await s.commit()
+
+    try:
+        async with _client() as c:
+            h = _H(ctx["b"]["admin"], ctx["b"]["host"])
+            tasks = (await c.get("/api/console/setup-tasks", headers=h)).json()["items"]
+            brand = next(t for t in tasks if t["key"] == "brand")
+            assert brand["verifiable"] is True
+            assert brand["satisfied"] is False, "no mark uploaded, so brand is not configured"
+
+            blocked = await c.patch("/api/console/setup-tasks/brand", headers=h,
+                                    json={"completed": True})
+        assert blocked.status_code == 422, (
+            f"brand was marked complete with no mark uploaded: {blocked.status_code}")
+    finally:
+        async with SessionLocal() as s:
+            ws = (await s.execute(select(IntranetWorkspace).where(
+                IntranetWorkspace.tenant_id == tenant_id))).scalar_one()
+            ws.logo_light_key, ws.logo_dark_key, ws.logo_mark_key = before
+            await s.commit()
+
+
+async def test_a_configured_setup_task_can_still_be_completed(ctx):
+    """The gate must not make the checklist impossible to finish: once the configuration is
+    there, the tick goes through. Asserted because a rule that only ever refuses is easy to
+    write and useless."""
+    tenant_id = uuid.UUID(ctx["b"]["tenant_id"])
+    async with SessionLocal() as s:
+        ws = (await s.execute(select(IntranetWorkspace).where(
+            IntranetWorkspace.tenant_id == tenant_id))).scalar_one()
+        before = ws.logo_mark_key
+        ws.logo_mark_key = "intranet/test/mark.png"
+        await s.commit()
+    try:
+        async with _client() as c:
+            h = _H(ctx["b"]["admin"], ctx["b"]["host"])
+            r = await c.patch("/api/console/setup-tasks/brand", headers=h,
+                              json={"completed": True})
+        assert r.status_code == 200, r.text
+        assert r.json()["item"]["completed_at"] is not None
+    finally:
+        async with SessionLocal() as s:
+            ws = (await s.execute(select(IntranetWorkspace).where(
+                IntranetWorkspace.tenant_id == tenant_id))).scalar_one()
+            ws.logo_mark_key = before
+            await s.commit()
+
+
+async def test_a_task_that_cannot_be_verified_stays_a_human_judgement(ctx):
+    """`satisfied: null` is a real answer, not a gap.
+
+    Whether somebody has actually reviewed permissions is not visible in a row count, and a proxy
+    invented for it would be a checkbox claiming more than it knows with extra steps. Those tasks
+    must still be tickable, or the checklist becomes impossible to finish.
+    """
+    async with _client() as c:
+        h = _H(ctx["b"]["admin"], ctx["b"]["host"])
+        tasks = (await c.get("/api/console/setup-tasks", headers=h)).json()["items"]
+        manual = [t for t in tasks if not t["verifiable"]]
+        assert manual, "expected some tasks to be non-derivable"
+        assert all(t["satisfied"] is None for t in manual)
+        r = await c.patch(f"/api/console/setup-tasks/{manual[0]['key']}",
+                          headers=h, json={"completed": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["item"]["completed_at"] is not None

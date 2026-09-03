@@ -733,11 +733,54 @@ def _content_gap(row: IntranetContentGap, assignee: IntranetMember | None = None
     }
 
 
-def _setup_task(row: IntranetSetupTask) -> dict:
+async def _setup_evidence(s: AsyncSession, tenant_id) -> dict[str, bool | None]:
+    """Whether each checklist item's underlying configuration actually exists.
+
+    The checklist was a row of manual checkboxes: `completed` was whatever somebody ticked, so a
+    workspace could show "SOPs uploaded" complete with no SOPs and "Calendars connected" complete
+    with no calendar. A setup checklist that can be satisfied by clicking it is a progress bar for
+    the person clicking, not a statement about the workspace.
+
+    `None` MEANS "NOT DERIVABLE HERE", and it is a real answer rather than a gap to fill in later.
+    Whether somebody has genuinely assigned an onboarding path, or reviewed permissions, is not
+    visible in a row count, and inventing a proxy for it would put us back to a checkbox that
+    claims more than it knows -- just with extra steps. Those stay manual and say so.
+    """
+    ws = await _workspace_row(s, tenant_id)
+
+    async def any_of(model, *where) -> bool:
+        return await _count(s, model, tenant_id, *where) > 0
+
+    return {
+        # A workspace has its identity when a mark has actually been uploaded.
+        "brand": bool(ws.logo_light_key or ws.logo_dark_key or ws.logo_mark_key),
+        "training": await any_of(IntranetCourse),
+        "sops": await any_of(IntranetSop),
+        "wtd": await any_of(IntranetWtdList),
+        "launchpad": await any_of(IntranetLaunchpadTile),
+        # A calendar CATEGORY is not a connected calendar; an address is.
+        "calendar": await any_of(IntranetCalendarCategory,
+                                 IntranetCalendarCategory.calendar_address.is_not(None)),
+        "assistant": await any_of(IntranetAiSource),
+        # Somebody arrived through the identity provider, which is what "sync" means here.
+        # Members can also be added by hand, and those do not evidence a sync.
+        "roster": await any_of(IntranetMember, IntranetMember.auth_source == "SSO"),
+        # Not derivable, deliberately -- see the docstring.
+        "perms": None,
+        "onboarding_path": None,
+        "announcement_channel": None,
+    }
+
+
+def _setup_task(row: IntranetSetupTask, satisfied: bool | None = None) -> dict:
     return {
         "id": _id(row.id), "key": row.key, "label": row.label,
         "destination": row.destination, "sort": row.sort,
         "completed_at": _iso(row.completed_at), "completed_by": _id(row.completed_by),
+        # Reported next to the tick, never instead of it. `satisfied: false` beside a completed
+        # task is the interesting state: somebody ticked it and the configuration is not there.
+        "satisfied": satisfied,
+        "verifiable": satisfied is not None,
     }
 
 
@@ -896,6 +939,7 @@ async def _config_bundle(s: AsyncSession, tenant_id) -> dict:
         IntranetAiSource.tenant_id == tenant_id).order_by(IntranetAiSource.sort))).scalars().all()
     ai_setting = await _ai_setting_row(s, tenant_id)
     marketing = await _marketing_row(s, tenant_id)
+    evidence = await _setup_evidence(s, tenant_id)
     setup = (await s.execute(select(IntranetSetupTask).where(
         IntranetSetupTask.tenant_id == tenant_id).order_by(IntranetSetupTask.sort))).scalars().all()
     gaps = (await s.execute(select(IntranetContentGap).where(
@@ -915,7 +959,7 @@ async def _config_bundle(s: AsyncSession, tenant_id) -> dict:
                "sources": _list([_ai_source(r, role_map) for r in ai_sources])},
         "marketing": _marketing(marketing, role_map),
         "content_gaps": _list([_content_gap(r) for r in gaps]),
-        "setup_tasks": _list([_setup_task(r) for r in setup]),
+        "setup_tasks": _list([_setup_task(r, evidence.get(r.key)) for r in setup]),
         "pending_changes": await _pending_count(s, tenant_id),
     }
 
@@ -2299,7 +2343,9 @@ async def get_setup_tasks(p: ConsolePrincipal = Depends(require_console_access),
                           s: AsyncSession = Depends(get_session)):
     rows = (await s.execute(select(IntranetSetupTask).where(
         IntranetSetupTask.tenant_id == p.user.tenant_id).order_by(IntranetSetupTask.sort))).scalars().all()
-    return _list([_setup_task(r) for r in rows], await _count(s, IntranetSetupTask, p.user.tenant_id))
+    evidence = await _setup_evidence(s, p.user.tenant_id)
+    return _list([_setup_task(r, evidence.get(r.key)) for r in rows],
+                 await _count(s, IntranetSetupTask, p.user.tenant_id))
 
 
 @router.patch("/setup-tasks/{key}")
@@ -2315,13 +2361,23 @@ async def patch_setup_task(key: str, body: dict = Body(...),
     body = _body(body)
     _unknown(body, {"completed"})
     completed = _bool(body, "completed")
+    evidence = await _setup_evidence(s, p.user.tenant_id)
+    satisfied = evidence.get(row.key)
+    # A VERIFIABLE task cannot be ticked past its own configuration. Not paternalism: the
+    # checklist is what an operator reads to decide whether a workspace is ready to hand to real
+    # users, and a green row over an empty SOP library makes that read wrong. Tasks whose state
+    # cannot be derived (satisfied is None) stay a human judgement and are accepted as given.
+    if completed and satisfied is False:
+        _unprocessable("completed",
+                       f"{row.label} is not configured yet, so it cannot be marked complete. "
+                       f"Finish it under {row.destination} first.")
     row.completed_at = _now() if completed else None
     row.completed_by = p.member.id if completed else None
     pending = await _record_mutation(
         s, p, action="console.setup.update", category="Setup",
         summary=f"{'Completed' if completed else 'Reopened'} setup task {row.label}",
         target_type="setup_task", target_id=row.id, pending=False)
-    return _with_pending(_setup_task(row), pending)
+    return _with_pending(_setup_task(row, satisfied), pending)
 
 
 @router.get("/publish/pending")

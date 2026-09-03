@@ -120,6 +120,11 @@ input {
   padding: 30px 26px 28px;
   background: var(--rail);
   color: var(--rail-text);
+  /* Column flex so the footer's margin-top:auto pins it to the bottom of a short rail, which is
+     how the mockup holds it there. The children stacked vertically as blocks already, so this
+     changes the layout algorithm without changing the layout. */
+  display: flex;
+  flex-direction: column;
 }
 
 .ut-logo-lockup {
@@ -220,6 +225,34 @@ input {
 
 .ut-nav-item.active::before {
   background: var(--accent);
+}
+
+/* Rail footer — pinned to the bottom by margin-top:auto, above the nav's natural end. */
+.ut-rail-footer {
+  margin-top: auto;
+  padding: 18px 12px 6px;
+  border-top: 1px solid var(--rail-line);
+}
+
+.ut-rail-footer-label {
+  color: var(--rail-label);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.ut-rail-footer p {
+  margin: 8px 0 0;
+  color: var(--rail-text);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.ut-rail-footer b {
+  color: var(--accent);
+  font-weight: 500;
 }
 
 .ut-main {
@@ -445,12 +478,16 @@ input {
 
 .ut-page-frame {
   flex: 1;
-  padding: 40px 48px 64px;
+  /* The mockup's main padding. The generous bottom is deliberate there: the floating Ask button
+     sits over the lower right, so content has to be able to clear it. */
+  padding: 38px 44px 90px;
 }
 
 .ut-home,
 .ut-page {
-  width: min(1268px, 100%);
+  /* 1240 is the mockup's main max-width. It was 1268, which only shows above ~1300px but is
+     exactly what a 1920 check is for. */
+  width: min(1240px, 100%);
 }
 
 .ut-home {

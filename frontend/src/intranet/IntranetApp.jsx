@@ -301,6 +301,21 @@ function Shell({ me, children }) {
             </div>
           ))}
         </nav>
+        {/* The mockup's rail footer, which had no counterpart here. It is the one place in the
+            product that tells somebody what to do when the intranet does not answer their
+            question, and on a tool aimed at new agents that is not decoration. Sits below the nav
+            on margin-top:auto, so it stays pinned to the bottom of a short rail and scrolls
+            naturally on a tall one. */}
+        <div className="ut-rail-footer">
+          <div className="ut-rail-footer-label">Need A Hand?</div>
+          <p>
+            {/* `#help` is emphasised text, not an anchor. The mockup links it, but no help
+                channel is configured for this workspace and an <a href="#"> that goes nowhere is
+                a link that lies about being one. It becomes a real link when there is somewhere
+                to point it. */}
+            Ask in the <b>#help</b> channel or text ops. Someone always answers.
+          </p>
+        </div>
       </aside>
       <main className="ut-main">
         <header className="ut-topbar">

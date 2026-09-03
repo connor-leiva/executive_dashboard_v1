@@ -399,3 +399,106 @@ async def test_sisu_and_fub_are_connectable_through_the_api():
         si = (await s.execute(select(Integration).where(
             Integration.tenant_id == spring.id, Integration.provider == "sisu"))).scalars().first()
         assert _sisu_creds(si).auth == ("renamed@example.com", "sisu-secret")
+
+
+def test_cors_lets_a_dev_tenant_subdomain_in_without_letting_anyone_else():
+    """The dev origin rule, and the boundary it must not cross.
+
+    WHY IT EXISTS: the intranet sends `X-Tenant-Host: window.location.hostname` with no override,
+    so browsing a real tenant locally means browsing `<slug>.localhost:<port>`. That origin was
+    not allowed, so the request got past the host check and died on the CORS preflight -- the
+    connected states could not be seen locally at all, only the demo fallback.
+
+    WHY IT IS TESTED RATHER THAN EYEBALLED: a CORS regex that matches one thing too many is a
+    real hole, and `localhost` appearing anywhere in a hostname is exactly the mistake to make.
+    `http://localhost.evil.com` is an attacker's domain; it must not match because `localhost`
+    has to be the LAST label.
+    """
+    import re
+
+    from app.config import Settings
+
+    dev = Settings(DATABASE_URL="sqlite+aiosqlite:///./x.db", ENV="development",
+                   PLATFORM_DOMAIN="acumyn.io")
+    rx = re.compile(dev.origin_regex)
+
+    for origin in ("http://utah-life.localhost:4173", "http://localhost:5174",
+                   "http://a.b.localhost:5175", "https://springb.acumyn.io", "https://acumyn.io"):
+        assert rx.fullmatch(origin), f"dev CORS should allow {origin}"
+
+    for origin in ("http://localhost.evil.com", "http://notlocalhost:4173",
+                   "https://acumyn.io.evil.com", "https://notacumyn.io", "http://evil.com",
+                   "https://localhost:4173.evil.com", "http://localhost.acumyn.io.evil.com"):
+        assert not rx.fullmatch(origin), f"dev CORS must refuse {origin}"
+
+
+def test_a_deployed_config_never_gets_the_localhost_origin_rule():
+    """The dev convenience is gated, not appended. A production origin list that accepted any
+    `*.localhost` would let a page served from an attacker-controlled resolver read authenticated
+    responses, so the gate is the security property here and the rule above is only convenience.
+    """
+    import re
+
+    from app.config import Settings
+
+    for env, url in (("production", "sqlite+aiosqlite:///./x.db"),
+                     ("staging", "sqlite+aiosqlite:///./x.db"),
+                     ("development", "postgresql+asyncpg://u:p@h/db")):
+        deployed = Settings(DATABASE_URL=url, ENV=env, PLATFORM_DOMAIN="acumyn.io")
+        assert deployed._deployed, f"{env}/{url} should count as deployed"
+        rx = re.compile(deployed.origin_regex)
+        assert "localhost" not in deployed.origin_regex, f"localhost rule leaked into {env}"
+        assert not rx.fullmatch("http://utah-life.localhost:4173")
+        assert rx.fullmatch("https://springb.acumyn.io"), "platform origins must still work"
+
+
+async def test_a_dev_subdomain_resolves_the_tenant_it_names():
+    """`<slug>.localhost` resolves by slug in dev, exactly as `<slug>.PLATFORM_DOMAIN` does.
+
+    is_local_host()'s docstring claimed this already worked. Nothing implemented it, so a browser
+    at `utah-life.localhost` matched no domain row, missed the platform suffix, and fell through
+    to the single-tenant fallback -- which hands back a DIFFERENT tenant. Every authenticated call
+    then 401s, because the session's tenant and the request's disagree, and it reads as a bad
+    token rather than a bad host. That is the whole reason the intranet's connected states could
+    not be reached locally.
+
+    Asserted at the RESOLVER rather than through an endpoint: the fallback answers for unknown
+    hosts in dev, so a status code cannot tell "resolved the right tenant" from "resolved
+    something". The tenant id can.
+    """
+    from app import tenancy
+
+    class _Req:
+        def __init__(self, host): self.headers = {"x-tenant-host": host}
+
+    alpha = await _provision("alphadev", hostname="alphadev.internal")
+    beta = await _provision("betadev", hostname="betadev.internal")
+
+    tenancy.set_tenant(None)
+    assert await tenancy.resolve_tenant(_Req("alphadev.localhost")) == alpha
+    tenancy.set_tenant(None)
+    assert await tenancy.resolve_tenant(_Req("betadev.localhost")) == beta, (
+        "each dev subdomain must name its own tenant, not whatever the fallback returns")
+
+
+async def test_a_dev_subdomain_cannot_claim_a_reserved_platform_name():
+    """`app.localhost` must not reach something `app.PLATFORM_DOMAIN` would refuse.
+
+    provision_tenant rejects a reserved slug, so the row here is inserted directly -- the check in
+    the resolver is defence against exactly that: a row that did not come through provisioning.
+    """
+    from app import tenancy
+
+    class _Req:
+        def __init__(self, host): self.headers = {"x-tenant-host": host}
+
+    async with SessionLocal() as s:
+        row = (await s.execute(select(Tenant).where(Tenant.slug == "app"))).scalar_one_or_none()
+        if row is None:
+            row = Tenant(name="Squatter", slug="app")
+            s.add(row)
+            await s.commit()
+        squatter = row.id
+
+    tenancy.set_tenant(None)
+    assert await tenancy.resolve_tenant(_Req("app.localhost")) != squatter

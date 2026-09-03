@@ -2644,3 +2644,15 @@ textarea {
     flex-direction: column;
   }
 }
+
+/* Setup checklist evidence — the configuration behind a task, next to the tick rather than
+   instead of it. */
+.setup-row.is-blocked { opacity: .72; }
+.setup-hint {
+  margin-left: auto;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--muted, #6E767B);
+  white-space: nowrap;
+}
+.setup-hint.is-warn { color: #93413A; }

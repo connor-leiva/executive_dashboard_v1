@@ -157,6 +157,30 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
                 if t:
                     _current_tenant.set(t.id)
                     return t.id
+        # DEV ONLY: <slug>.localhost resolves by slug, exactly as <slug>.PLATFORM_DOMAIN does
+        # above. is_local_host()'s docstring has claimed since it was written that "a tenant
+        # subdomain in dev resolves there" -- nothing ever implemented it. So a browser at
+        # utah-life.localhost matched no domain row, missed the platform suffix, and fell through
+        # to the single-tenant fallback, which handed back a DIFFERENT tenant. Every authenticated
+        # call then 401s, because the session's tenant and the request's disagree, and the failure
+        # looks like a bad token rather than a bad host. That is why the intranet's connected
+        # states could not be seen locally at all.
+        #
+        # Gated on deployment for the same reason the dev CORS rule is. `.localhost` is reserved
+        # by RFC 6761 and cannot be registered, so this is belt and braces rather than the only
+        # thing standing between prod and a spoofed host -- but prod resolution should be
+        # identical whether or not somebody remembered to set ENV.
+        from .startup_checks import is_deployed
+        if not is_deployed() and host.endswith(".localhost"):
+            slug = host[: -len(".localhost")]
+            # Same reservation as the platform wildcard: dev must not be able to reach a name
+            # that production would refuse, or dev stops predicting production.
+            if slug and slug not in RESERVED_SLUGS:
+                t = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
+                if t:
+                    _current_tenant.set(t.id)
+                    return t.id
+
         tid = await _fallback_tenant(s)
         if tid:
             _current_tenant.set(tid)
