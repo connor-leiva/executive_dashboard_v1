@@ -21,6 +21,7 @@ from app.models import (
     IntranetRole,
     IntranetSop,
     IntranetSopCategory,
+    IntranetSopVersion,
     Tenant,
     User,
 )
@@ -684,6 +685,110 @@ async def test_training_writes_content_audit_actions(ctx):
         ))).scalars().all()
     assert "content.course.created" in actions
     assert "content.lesson.created" in actions
+
+
+async def test_sops_include_health_and_category_counts(ctx):
+    async with _client() as c:
+        sops = await c.get("/api/console/sops", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+        categories = await c.get("/api/console/sop-categories", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+    assert sops.status_code == 200, sops.text
+    assert categories.status_code == 200, categories.text
+    health = sops.json()["health"]
+    assert set(health) == {"current", "due_soon", "overdue"}
+    assert sum(health.values()) == sops.json()["total"]
+    assert sum(category["sop_count"] for category in categories.json()["items"]) == sops.json()["total"]
+
+
+async def test_sop_upload_downloads_byte_identical_and_moves_current_version(ctx):
+    sop_id = ctx["b"]["ids"]["sop"]
+    first = b"%PDF-1.4\nfirst upload\n"
+    second = b"%PDF-1.4\nsecond upload\n"
+    label_a = f"v-{uuid.uuid4().hex}"
+    label_b = f"v-{uuid.uuid4().hex}"
+    async with _client() as c:
+        first_upload = await c.post(
+            f"/api/console/sops/{sop_id}/versions",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            data={"version_label": label_a},
+            files={"file": ("policy.pdf", first, "application/pdf")},
+        )
+        assert first_upload.status_code == 200, first_upload.text
+        first_version = first_upload.json()["item"]["id"]
+        second_upload = await c.post(
+            f"/api/console/sops/{sop_id}/versions",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            data={"version_label": label_b},
+            files={"file": ("policy.pdf", second, "application/pdf")},
+        )
+        assert second_upload.status_code == 200, second_upload.text
+        second_version = second_upload.json()["item"]["id"]
+        detail = await c.get(f"/api/console/sops/{sop_id}", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+        versions = await c.get(f"/api/console/sops/{sop_id}/versions", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+        downloaded = await c.get(
+            f"/api/console/sops/{sop_id}/versions/{second_version}/download",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+        )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["current_version_id"] == second_version
+    assert first_version in {version["id"] for version in versions.json()["items"]}
+    assert second_version in {version["id"] for version in versions.json()["items"]}
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content == second
+
+
+async def test_sop_duplicate_version_label_returns_422(ctx):
+    sop_id = ctx["b"]["ids"]["sop"]
+    label = f"v-{uuid.uuid4().hex}"
+    async with _client() as c:
+        first = await c.post(
+            f"/api/console/sops/{sop_id}/versions",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            data={"version_label": label},
+            files={"file": ("dup.pdf", b"%PDF-1.4", "application/pdf")},
+        )
+        duplicate = await c.post(
+            f"/api/console/sops/{sop_id}/versions",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            data={"version_label": label},
+            files={"file": ("dup.pdf", b"%PDF-1.4", "application/pdf")},
+        )
+    assert first.status_code == 200, first.text
+    assert duplicate.status_code == 422, duplicate.text
+
+
+async def test_sop_writes_spec_audit_actions(ctx):
+    async with _client() as c:
+        created = await c.post(
+            "/api/console/sops",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"title": "Audit SOP", "category_id": ctx["b"]["ids"]["category"], "state": "Draft"},
+        )
+        assert created.status_code == 200, created.text
+        patched = await c.patch(
+            f"/api/console/sops/{created.json()['item']['id']}",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"state": "Live"},
+        )
+        assert patched.status_code == 200, patched.text
+        version = await c.post(
+            f"/api/console/sops/{created.json()['item']['id']}/versions",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            data={"version_label": f"v-{uuid.uuid4().hex}"},
+            files={"file": ("audit.pdf", b"%PDF-1.4", "application/pdf")},
+        )
+    assert version.status_code == 200, version.text
+    async with SessionLocal() as s:
+        actions = (await s.execute(select(AuditLog.action).where(
+            AuditLog.tenant_id == uuid.UUID(ctx["b"]["tenant_id"]),
+            AuditLog.action.in_([
+                "content.sop.created",
+                "content.sop.state_changed",
+                "content.sop.version_uploaded",
+            ]),
+        ))).scalars().all()
+    assert "content.sop.created" in actions
+    assert "content.sop.state_changed" in actions
+    assert "content.sop.version_uploaded" in actions
 
 
 def _request_for_name(name: str, ids: dict):

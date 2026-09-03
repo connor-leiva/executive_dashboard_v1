@@ -3,12 +3,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createCourse,
   createLesson,
+  createSop,
+  createSopCategory,
   createTile,
   deleteCourse,
   deleteLesson,
+  deleteSop,
+  deleteSopCategory,
   deleteTile,
   deleteMember,
   discardChanges,
+  downloadSopVersion,
   getAudit,
   getCourse,
   getCourses,
@@ -19,12 +24,18 @@ import {
   getPreview,
   getRoles,
   getSetupTasks,
+  getSop,
+  getSopCategories,
+  getSops,
+  getSopVersions,
   getTiles,
   getWtdLists,
   inviteMember,
   login,
   patchMember,
   patchSetupTask,
+  patchSop,
+  patchSopCategory,
   patchTile,
   patchCourse,
   patchLesson,
@@ -37,6 +48,7 @@ import {
   putTileRoles,
   putWtdOrder,
   syncMembers,
+  uploadSopVersion,
 } from "./api.js";
 
 export const keys = {
@@ -50,6 +62,10 @@ export const keys = {
   tiles: ["console", "tiles"],
   courses: ["console", "courses"],
   course: (courseId) => ["console", "courses", courseId],
+  sopCategories: ["console", "sop-categories"],
+  sops: ["console", "sops"],
+  sop: (sopId) => ["console", "sops", sopId],
+  sopVersions: (sopId) => ["console", "sops", sopId, "versions"],
   wtdLists: ["console", "wtd-lists"],
   preview: (role) => ["console", "preview", role],
 };
@@ -82,6 +98,17 @@ function invalidateTraining(queryClient, courseId) {
   invalidateOverview(queryClient);
   queryClient.invalidateQueries({ queryKey: keys.courses });
   if (courseId) queryClient.invalidateQueries({ queryKey: keys.course(courseId) });
+  queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
+}
+
+function invalidateSops(queryClient, sopId) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.sops });
+  queryClient.invalidateQueries({ queryKey: keys.sopCategories });
+  if (sopId) {
+    queryClient.invalidateQueries({ queryKey: keys.sop(sopId) });
+    queryClient.invalidateQueries({ queryKey: keys.sopVersions(sopId) });
+  }
   queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
 }
 
@@ -178,6 +205,38 @@ export function useCourse(courseId, enabled) {
     queryKey: keys.course(courseId),
     queryFn: () => getCourse(courseId),
     enabled: enabled && Boolean(courseId),
+  });
+}
+
+export function useSops(enabled) {
+  return useQuery({
+    queryKey: keys.sops,
+    queryFn: getSops,
+    enabled,
+  });
+}
+
+export function useSop(sopId, enabled) {
+  return useQuery({
+    queryKey: keys.sop(sopId),
+    queryFn: () => getSop(sopId),
+    enabled: enabled && Boolean(sopId),
+  });
+}
+
+export function useSopCategories(enabled) {
+  return useQuery({
+    queryKey: keys.sopCategories,
+    queryFn: getSopCategories,
+    enabled,
+  });
+}
+
+export function useSopVersions(sopId, enabled) {
+  return useQuery({
+    queryKey: keys.sopVersions(sopId),
+    queryFn: () => getSopVersions(sopId),
+    enabled: enabled && Boolean(sopId),
   });
 }
 
@@ -347,6 +406,68 @@ export function useOrderLessons() {
   return useMutation({
     mutationFn: ({ courseId, body }) => putLessonOrder(courseId, body),
     onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function useCreateSopCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createSopCategory,
+    onSuccess: () => invalidateSops(queryClient),
+  });
+}
+
+export function usePatchSopCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ categoryId, body }) => patchSopCategory(categoryId, body),
+    onSuccess: () => invalidateSops(queryClient),
+  });
+}
+
+export function useRemoveSopCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteSopCategory,
+    onSuccess: () => invalidateSops(queryClient),
+  });
+}
+
+export function useCreateSop() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createSop,
+    onSuccess: () => invalidateSops(queryClient),
+  });
+}
+
+export function usePatchSop() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sopId, body }) => patchSop(sopId, body),
+    onSuccess: (_data, vars) => invalidateSops(queryClient, vars.sopId),
+  });
+}
+
+export function useArchiveSop() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteSop,
+    onSuccess: (_data, sopId) => invalidateSops(queryClient, sopId),
+  });
+}
+
+export function useUploadSopVersion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sopId, versionLabel, file }) => uploadSopVersion(sopId, versionLabel, file),
+    onSuccess: (_data, vars) => invalidateSops(queryClient, vars.sopId),
+  });
+}
+
+export function useDownloadSopVersion() {
+  return useMutation({
+    mutationFn: ({ sopId, versionId }) => downloadSopVersion(sopId, versionId),
   });
 }
 

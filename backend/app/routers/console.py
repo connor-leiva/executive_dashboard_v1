@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +40,7 @@ from ..models import (
     IntranetWorkspace,
 )
 from ..services.audit import audit
+from ..services import binder_storage
 
 router = APIRouter(prefix="/console", tags=["console"])
 
@@ -429,9 +430,10 @@ def _lesson(row: IntranetLesson) -> dict:
     }
 
 
-def _sop_category(row: IntranetSopCategory) -> dict:
+def _sop_category(row: IntranetSopCategory, sop_count: int = 0) -> dict:
     return {
         "id": _id(row.id), "name": row.name, "sort": row.sort,
+        "sop_count": sop_count,
         "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
     }
 
@@ -709,6 +711,32 @@ async def _sops_bundle(s: AsyncSession, tenant_id, *, include_archived: bool = F
              version_counts.get(r.id, 0), ack_counts.get(r.id, 0))
         for r in rows
     ], total)
+
+
+async def _sop_category_counts(s: AsyncSession, tenant_id) -> dict[uuid.UUID, int]:
+    rows = (await s.execute(select(IntranetSop.category_id, func.count()).where(
+        IntranetSop.tenant_id == tenant_id,
+        IntranetSop.archived_at.is_(None),
+    ).group_by(IntranetSop.category_id))).all()
+    return {row[0]: int(row[1]) for row in rows}
+
+
+async def _sop_health(s: AsyncSession, tenant_id) -> dict:
+    today = dt.date.today()
+    due_by = today + dt.timedelta(days=30)
+    base = (
+        IntranetSop.tenant_id == tenant_id,
+        IntranetSop.archived_at.is_(None),
+    )
+    overdue = await _count(s, IntranetSop, tenant_id, IntranetSop.archived_at.is_(None),
+                           IntranetSop.review_due_on.is_not(None), IntranetSop.review_due_on < today)
+    due_soon = await _count(s, IntranetSop, tenant_id, IntranetSop.archived_at.is_(None),
+                            IntranetSop.review_due_on >= today, IntranetSop.review_due_on <= due_by)
+    current = int((await s.execute(select(func.count()).select_from(IntranetSop).where(
+        *base,
+        (IntranetSop.review_due_on.is_(None)) | (IntranetSop.review_due_on > due_by),
+    ))).scalar_one())
+    return {"current": current, "due_soon": int(due_soon), "overdue": int(overdue)}
 
 
 async def _config_bundle(s: AsyncSession, tenant_id) -> dict:
@@ -1342,7 +1370,9 @@ async def get_sop_categories(p: ConsolePrincipal = Depends(require_console_acces
     rows = (await s.execute(select(IntranetSopCategory).where(
         IntranetSopCategory.tenant_id == p.user.tenant_id).order_by(
             IntranetSopCategory.sort, IntranetSopCategory.name))).scalars().all()
-    return _list([_sop_category(r) for r in rows], await _count(s, IntranetSopCategory, p.user.tenant_id))
+    counts = await _sop_category_counts(s, p.user.tenant_id)
+    return _list([_sop_category(r, counts.get(r.id, 0)) for r in rows],
+                 await _count(s, IntranetSopCategory, p.user.tenant_id))
 
 
 @router.post("/sop-categories")
@@ -1357,7 +1387,7 @@ async def create_sop_category(body: dict = Body(...), p: ConsolePrincipal = Depe
     )
     s.add(row)
     pending = await _record_mutation(
-        s, p, action="console.sop_category.create", category="SOPs",
+        s, p, action="content.sop_category.created", category="SOPs",
         summary=f"Created SOP category {row.name}", target_type="sop_category",
         target_id=row.id, entity_type="sop_category", entity_id=row.id, change_kind="created")
     return _with_pending(_sop_category(row), pending)
@@ -1376,7 +1406,7 @@ async def patch_sop_category(category_id: uuid.UUID, body: dict = Body(...),
         row.sort = _int(body, "sort", min_value=0) or 0
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.sop_category.update", category="SOPs",
+        s, p, action="content.sop_category.updated", category="SOPs",
         summary=f"Updated SOP category {row.name}", target_type="sop_category",
         target_id=row.id, entity_type="sop_category", entity_id=row.id)
     return _with_pending(_sop_category(row), pending)
@@ -1392,7 +1422,7 @@ async def delete_sop_category(category_id: uuid.UUID, p: ConsolePrincipal = Depe
     out = _sop_category(row)
     await s.delete(row)
     pending = await _record_mutation(
-        s, p, action="console.sop_category.delete", category="SOPs",
+        s, p, action="content.sop_category.deleted", category="SOPs",
         summary=f"Deleted SOP category {out['name']}", target_type="sop_category",
         target_id=category_id, entity_type="sop_category", entity_id=category_id,
         change_kind="deleted")
@@ -1402,7 +1432,9 @@ async def delete_sop_category(category_id: uuid.UUID, p: ConsolePrincipal = Depe
 @router.get("/sops")
 async def get_sops(p: ConsolePrincipal = Depends(require_console_access),
                    s: AsyncSession = Depends(get_session)):
-    return await _sops_bundle(s, p.user.tenant_id)
+    out = await _sops_bundle(s, p.user.tenant_id)
+    out["health"] = await _sop_health(s, p.user.tenant_id)
+    return out
 
 
 @router.get("/sops/{sop_id}")
@@ -1435,7 +1467,7 @@ async def create_sop(body: dict = Body(...), p: ConsolePrincipal = Depends(requi
     )
     s.add(row)
     pending = await _record_mutation(
-        s, p, action="console.sop.create", category="SOPs",
+        s, p, action="content.sop.created", category="SOPs",
         summary=f"Created SOP {row.title}", target_type="sop", target_id=row.id,
         entity_type="sop", entity_id=row.id, change_kind="created")
     return _with_pending(await get_sop(row.id, p, s), pending)
@@ -1459,12 +1491,16 @@ async def patch_sop(sop_id: uuid.UUID, body: dict = Body(...),
         await _member_by_id_or_none(s, p.user.tenant_id, owner_id)
         row.owner_member_id = owner_id
     if "state" in body:
+        old_state = row.state
         row.state = _enum(body, "state", SOP_STATES) or row.state
+    else:
+        old_state = row.state
     if "review_due_on" in body:
         row.review_due_on = _date_value(body, "review_due_on")
     row.draft_dirty = True
+    action = "content.sop.state_changed" if old_state != row.state else "content.sop.updated"
     pending = await _record_mutation(
-        s, p, action="console.sop.update", category="SOPs",
+        s, p, action=action, category="SOPs",
         summary=f"Updated SOP {row.title}", target_type="sop", target_id=row.id,
         entity_type="sop", entity_id=row.id)
     return _with_pending(await get_sop(row.id, p, s), pending)
@@ -1478,7 +1514,7 @@ async def delete_sop(sop_id: uuid.UUID, p: ConsolePrincipal = Depends(require_co
     row.state = "Archived"
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.sop.archive", category="SOPs",
+        s, p, action="content.sop.state_changed", category="SOPs",
         summary=f"Archived SOP {row.title}", target_type="sop", target_id=row.id,
         entity_type="sop", entity_id=row.id, change_kind="deleted")
     return _with_pending(await get_sop(row.id, p, s), pending)
@@ -1496,6 +1532,25 @@ async def get_sop_versions(sop_id: uuid.UUID, p: ConsolePrincipal = Depends(requ
     return _list([_sop_version(r) for r in rows], total)
 
 
+@router.get("/sops/{sop_id}/versions/{version_id}/download")
+async def download_sop_version(sop_id: uuid.UUID, version_id: uuid.UUID,
+                               p: ConsolePrincipal = Depends(require_console_access),
+                               s: AsyncSession = Depends(get_session)):
+    await _one(s, IntranetSop, p.user.tenant_id, sop_id)
+    row = await _one(s, IntranetSopVersion, p.user.tenant_id, version_id)
+    if row.sop_id != sop_id:
+        raise HTTPException(404, "Not found.")
+    if not binder_storage.exists(row.storage_key):
+        raise HTTPException(404, "Stored SOP version file not found.")
+    data = binder_storage.read(row.storage_key)
+    filename = binder_storage.safe_filename(row.filename)
+    return Response(
+        content=data,
+        media_type=row.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/sops/{sop_id}/versions")
 async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
                              file: UploadFile = File(...),
@@ -1505,15 +1560,25 @@ async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
     label = (version_label or "").strip()
     if not label:
         _unprocessable("version_label", "Required.")
+    duplicate = await _count(s, IntranetSopVersion, p.user.tenant_id,
+                             IntranetSopVersion.sop_id == sop.id,
+                             IntranetSopVersion.version_label == label)
+    if duplicate:
+        _unprocessable("version_label", "Version label already exists for this SOP.")
     data = await file.read()
-    name = SAFE_NAME_RE.sub("-", file.filename or "sop.bin").strip("-") or "sop.bin"
+    version_id = uuid.uuid4()
+    name = binder_storage.safe_filename(file.filename or "sop.bin")
+    content_type = file.content_type or "application/octet-stream"
+    storage_key = f"intranet/{p.user.tenant_id}/sops/{sop.id}/{version_id}-{name}"
+    binder_storage.put(storage_key, data, content_type)
     row = IntranetSopVersion(
+        id=version_id,
         tenant_id=p.user.tenant_id,
         sop_id=sop.id,
         version_label=label,
         filename=name,
-        storage_key=f"intranet/{p.user.tenant_id}/sops/{sop.id}/{uuid.uuid4()}-{name}",
-        content_type=file.content_type or "application/octet-stream",
+        storage_key=storage_key,
+        content_type=content_type,
         byte_size=len(data),
         uploaded_by=p.member.id,
         uploaded_at=_now(),
@@ -1523,7 +1588,7 @@ async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
     sop.current_version_id = row.id
     sop.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.sop.version", category="SOPs",
+        s, p, action="content.sop.version_uploaded", category="SOPs",
         summary=f"Uploaded {label} for SOP {sop.title}", target_type="sop_version",
         target_id=row.id, entity_type="sop", entity_id=sop.id, change_kind="updated")
     return _with_pending(_sop_version(row), pending)

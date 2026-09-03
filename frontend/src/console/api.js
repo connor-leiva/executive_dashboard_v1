@@ -88,6 +88,10 @@ function consoleGet(path) {
   return request(apiRoot(), `/api/console${path}`, { headers: authHeaders() });
 }
 
+function consolePath(path) {
+  return `${apiRoot()}/api/console${path}`;
+}
+
 function consoleSend(method, path, body) {
   return request(apiRoot(), `/api/console${path}`, {
     method,
@@ -156,6 +160,13 @@ export const getSopVersions = (sopId) => consoleGet(`/sops/${sopId}/versions`);
 export const uploadSopVersion = (sopId, versionLabel, file) => (
   consoleUpload(`/sops/${sopId}/versions`, { version_label: versionLabel, file })
 );
+export async function downloadSopVersion(sopId, versionId) {
+  const res = await fetch(consolePath(`/sops/${sopId}/versions/${versionId}/download`), {
+    headers: authHeaders(),
+  });
+  if (!res.ok) await throwFor(res);
+  return res.blob();
+}
 export const getWtdLists = () => consoleGet("/wtd-lists");
 export const patchWtdList = (listId, body) => consoleSend("PATCH", `/wtd-lists/${listId}`, body);
 export const putWtdOrder = (body) => consoleSend("PUT", "/wtd-lists/order", body);
