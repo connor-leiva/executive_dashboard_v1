@@ -472,6 +472,39 @@ def _wtd(row: IntranetWtdList) -> dict:
     }
 
 
+async def _wtd_stats(s: AsyncSession, tenant_id) -> dict:
+    active_filter = (
+        IntranetWtdList.tenant_id == tenant_id,
+        IntranetWtdList.active.is_(True),
+    )
+    lists_in_run = await s.scalar(select(func.count()).select_from(IntranetWtdList).where(*active_filter))
+    paired_scripts = await s.scalar(
+        select(func.count(func.distinct(IntranetWtdList.script_name)))
+        .select_from(IntranetWtdList)
+        .where(*active_filter, IntranetWtdList.script_name.is_not(None))
+    )
+    daily_touch_target = await s.scalar(
+        select(func.coalesce(func.sum(IntranetWtdList.daily_target), 0))
+        .select_from(IntranetWtdList)
+        .where(*active_filter)
+    )
+    return {
+        "lists_in_run": int(lists_in_run or 0),
+        "paired_scripts": int(paired_scripts or 0),
+        "daily_touch_target": int(daily_touch_target or 0),
+    }
+
+
+async def _wtd_integrations(s: AsyncSession, tenant_id, providers: set[str]) -> dict:
+    if not providers:
+        return {}
+    rows = (await s.execute(select(IntranetIntegration).where(
+        IntranetIntegration.tenant_id == tenant_id,
+        IntranetIntegration.provider_key.in_(providers),
+    ))).scalars().all()
+    return {row.provider_key: _integration(row) for row in rows}
+
+
 async def _tile_roles(s: AsyncSession, tenant_id, tile_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
     if not tile_ids:
         return {}
@@ -1499,7 +1532,10 @@ async def get_wtd_lists(p: ConsolePrincipal = Depends(require_console_access),
                         s: AsyncSession = Depends(get_session)):
     rows = (await s.execute(select(IntranetWtdList).where(
         IntranetWtdList.tenant_id == p.user.tenant_id).order_by(IntranetWtdList.position))).scalars().all()
-    return _list([_wtd(r) for r in rows], await _count(s, IntranetWtdList, p.user.tenant_id))
+    out = _list([_wtd(r) for r in rows], await _count(s, IntranetWtdList, p.user.tenant_id))
+    out["stats"] = await _wtd_stats(s, p.user.tenant_id)
+    out["integrations"] = await _wtd_integrations(s, p.user.tenant_id, {r.provider for r in rows})
+    return out
 
 
 @router.patch("/wtd-lists/{list_id}")
@@ -1520,12 +1556,12 @@ async def patch_wtd_list(list_id: uuid.UUID, body: dict = Body(...),
     if "script_name" in body:
         row.script_name = _text(body, "script_name", nullable=True)
     if "daily_target" in body:
-        row.daily_target = _int(body, "daily_target", min_value=0)
+        row.daily_target = _int(body, "daily_target", min_value=1)
     if "active" in body:
         row.active = bool(_bool(body, "active"))
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.wtd.update", category="Win the Day",
+        s, p, action="content.wtd_list.updated", category="Win the Day",
         summary=f"Updated Win the Day list {row.position}", target_type="wtd_list",
         target_id=row.id, entity_type="wtd_list", entity_id=row.id)
     return _with_pending(_wtd(row), pending)
@@ -1546,7 +1582,7 @@ async def put_wtd_order(body: dict = Body(...), p: ConsolePrincipal = Depends(re
         by_id[str(row_id)].position = pos
         by_id[str(row_id)].draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.wtd.order", category="Win the Day",
+        s, p, action="content.wtd_list.reordered", category="Win the Day",
         summary="Reordered Win the Day lists", target_type="wtd_list",
         entity_type="wtd_list")
     return {**(await get_wtd_lists(p, s)), "pending_changes": pending}

@@ -503,7 +503,8 @@ async def test_permissions_audit_names_changed_cell(ctx):
     assert r.status_code == 200, r.text
     async with SessionLocal() as s:
         latest = (await s.execute(select(AuditLog).where(
-            AuditLog.tenant_id == uuid.UUID(ctx["b"]["tenant_id"])
+            AuditLog.tenant_id == uuid.UUID(ctx["b"]["tenant_id"]),
+            AuditLog.action == "access.permissions.updated",
         ).order_by(AuditLog.created_at.desc()).limit(1))).scalar_one()
     assert latest.action == "access.permissions.updated"
     assert cap["name"] in latest.summary
@@ -532,6 +533,54 @@ async def test_launchpad_tile_rejects_unsafe_url_schemes(ctx, url):
             json={"name": "Unsafe URL", "url": url, "auth_type": "Link"},
         )
     assert r.status_code == 422, r.text
+
+
+async def test_wtd_lists_include_queried_stats_and_provider_metadata(ctx):
+    async with _client() as c:
+        r = await c.get("/api/console/wtd-lists", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["stats"] == {
+        "lists_in_run": 12,
+        "paired_scripts": 12,
+        "daily_touch_target": 103,
+    }
+    fub = body["integrations"]["follow_up_boss"]
+    assert fub["status"] == "Not Connected"
+    assert fub["base_url"].endswith("/2/people/list/")
+
+
+async def test_wtd_daily_target_is_positive_or_null(ctx):
+    async with _client() as c:
+        null_target = await c.patch(
+            f"/api/console/wtd-lists/{ctx['b']['ids']['wtd']}",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"daily_target": None},
+        )
+        zero_target = await c.patch(
+            f"/api/console/wtd-lists/{ctx['b']['ids']['wtd']}",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"daily_target": 0},
+        )
+    assert null_target.status_code == 200, null_target.text
+    assert null_target.json()["item"]["daily_target"] is None
+    assert zero_target.status_code == 422, zero_target.text
+
+
+async def test_wtd_patch_writes_content_audit_action(ctx):
+    async with _client() as c:
+        r = await c.patch(
+            f"/api/console/wtd-lists/{ctx['b']['ids']['wtd']}",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"active": False},
+        )
+    assert r.status_code == 200, r.text
+    async with SessionLocal() as s:
+        latest = (await s.execute(select(AuditLog).where(
+            AuditLog.tenant_id == uuid.UUID(ctx["b"]["tenant_id"]),
+            AuditLog.action == "content.wtd_list.updated",
+        ).order_by(AuditLog.created_at.desc()).limit(1))).scalar_one()
+    assert latest.action == "content.wtd_list.updated"
 
 
 def _request_for_name(name: str, ids: dict):

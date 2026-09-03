@@ -877,6 +877,115 @@ select {
   color: var(--console-muted);
 }
 
+.wtd-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.wtd-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.wtd-stat {
+  min-height: 108px;
+  display: grid;
+  align-content: space-between;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  padding: 20px;
+}
+
+.wtd-stat span,
+.wtd-provider span {
+  color: var(--console-faint);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.wtd-stat strong {
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.wtd-list {
+  display: grid;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.wtd-row {
+  min-width: 1160px;
+  display: grid;
+  grid-template-columns: 100px minmax(176px, 1fr) minmax(190px, 1fr) minmax(176px, 1fr) 118px 150px 118px auto;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: white;
+  padding: 14px;
+}
+
+.wtd-row.inactive {
+  background: var(--console-surface);
+  opacity: 0.72;
+}
+
+.wtd-position,
+.wtd-provider {
+  display: grid;
+  gap: 8px;
+}
+
+.wtd-position strong {
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.wtd-position .tile-actions {
+  justify-content: start;
+}
+
+.wtd-row .console-field input {
+  width: 100%;
+}
+
+.wtd-external {
+  display: grid;
+  gap: 6px;
+}
+
+.wtd-external a,
+.wtd-external small {
+  color: var(--console-teal);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.wtd-external small {
+  color: var(--console-muted);
+}
+
+.wtd-provider strong {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: var(--console-surface);
+  padding: 0 12px;
+  color: var(--console-muted);
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
 .launchpad-grid {
   display: grid;
   grid-template-columns: minmax(300px, 0.44fr) minmax(420px, 0.56fr);
@@ -1151,6 +1260,10 @@ select {
   }
 
   .launchpad-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wtd-stats {
     grid-template-columns: 1fr;
   }
 

@@ -14,15 +14,18 @@ import {
   getRoles,
   getSetupTasks,
   getTiles,
+  getWtdLists,
   inviteMember,
   login,
   patchMember,
   patchSetupTask,
   patchTile,
+  patchWtdList,
   publishChanges,
   putPermissions,
   putTileOrder,
   putTileRoles,
+  putWtdOrder,
   syncMembers,
 } from "./api.js";
 
@@ -35,6 +38,7 @@ export const keys = {
   permissions: ["console", "permissions"],
   roles: ["console", "roles"],
   tiles: ["console", "tiles"],
+  wtdLists: ["console", "wtd-lists"],
   preview: (role) => ["console", "preview", role],
 };
 
@@ -53,6 +57,12 @@ function invalidateRoster(queryClient) {
 function invalidateLaunchpad(queryClient) {
   invalidateOverview(queryClient);
   queryClient.invalidateQueries({ queryKey: keys.tiles });
+  queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
+}
+
+function invalidateWtd(queryClient) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.wtdLists });
   queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
 }
 
@@ -124,6 +134,14 @@ export function useTiles(enabled) {
   return useQuery({
     queryKey: keys.tiles,
     queryFn: getTiles,
+    enabled,
+  });
+}
+
+export function useWtdLists(enabled) {
+  return useQuery({
+    queryKey: keys.wtdLists,
+    queryFn: getWtdLists,
     enabled,
   });
 }
@@ -214,6 +232,22 @@ export function useOrderTiles() {
   return useMutation({
     mutationFn: putTileOrder,
     onSuccess: () => invalidateLaunchpad(queryClient),
+  });
+}
+
+export function usePatchWtdList() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ listId, body }) => patchWtdList(listId, body),
+    onSuccess: () => invalidateWtd(queryClient),
+  });
+}
+
+export function useOrderWtdLists() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: putWtdOrder,
+    onSuccess: () => invalidateWtd(queryClient),
   });
 }
 
