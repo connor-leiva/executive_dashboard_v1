@@ -12,7 +12,8 @@
  *
  * Colours interpolate from adsTokens, which is still the only file here permitted a hex.
  */
-import { ASSET, C } from "./adsTokens.js";
+import { heroCss } from "../Brand.jsx";
+import { C } from "./adsTokens.js";
 
 export const adsCss = () => `
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
@@ -53,9 +54,11 @@ export const adsCss = () => `
 .adsx .range { font-size:var(--a-small); color:${C.muted}; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .adsx .range::before { content:''; width:20px; height:1px; background:${C.hairDeep}; }
 
-/* ── The dark band. Full width, one edge into the light page. ────────── */
-.adsx .band { background-color:${C.evergreen}; background-image:url(${ASSET.ever});
-  background-size:cover; background-position:center; background-blend-mode:multiply;
+/* ── The dark band. Full width, one edge into the light page. ──────────
+   The plate is resolved per workspace by heroCss, not named here: ASSET.ever pointed straight at
+   one customer's licensed ribbed gradient, so every workspace's Ads tab downloaded and displayed
+   it regardless of whose brand they had configured. */
+.adsx .band { ${heroCss("evergreen")}
   padding:26px var(--a-gut) 22px; border-bottom:1px solid rgba(184,204,184,.28);
   box-shadow:0 18px 34px -26px rgba(0,46,44,.55); }
 .adsx .hero { position:relative; }

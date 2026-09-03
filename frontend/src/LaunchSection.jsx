@@ -7,7 +7,7 @@
    cash collected is a demoted line. The settings drawer PUTs config and refetches. */
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { T, alpha, usd } from "./theme.js";
-import { SpringSignature , HeroMark} from "./Brand.jsx";
+import { SpringSignature, HeroMark, heroCss } from "./Brand.jsx";
 import { putJSON, postJSON, getJSON } from "./api.js";
 
 /* Every number on the tab is a drill target. A context carries the opener so any nested
@@ -1472,11 +1472,11 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .drx-tbl tr.on td { background:${T.meadowBg}; color:${T.ink}; font-weight:600; }
         .bcl .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
 
-        /* Hero — official petal ribbed gradient (beCollective's brand colorway), light surface. */
+        /* Hero — the petal colorway, light surface. The plate is resolved per workspace rather
+           than named here; writing the path in pinned one customer's licensed artwork into the
+           bundle everybody downloads. */
         .bcl .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 24px;
-          background-color:${T.petal};
-          background-image:url(/brand/RibbedGradient_Petal.jpg);
-          background-size:cover; background-position:center; background-blend-mode:multiply;
+          ${heroCss("petal")}
           box-shadow:0 2px 6px ${alpha(T.evergreen, .10)}, 0 16px 38px ${alpha(T.evergreen, .12)}; }
         .bcl .eyebrow { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em;
           text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; color:${T.evergreen}; }

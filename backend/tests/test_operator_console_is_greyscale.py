@@ -223,7 +223,7 @@ def test_the_brand_payload_carries_everything_the_browser_needs_to_render_it():
     from app.services.roles import BRAND_DEFAULTS, brand
 
     for key in ("palette", "seeds", "typeface", "type", "logo", "logomark",
-                "hero_image", "photo", "product_name"):
+                "hero_image", "photo", "product_name", "hero_plates"):
         assert key in BRAND_DEFAULTS, f"{key} will be dropped on the way to the browser"
 
     class _T:
@@ -235,6 +235,31 @@ def test_the_brand_payload_carries_everything_the_browser_needs_to_render_it():
     assert out["palette"] == {"ink": "#111111"}
     assert out["seeds"] == {"brand": "#222222"}
     assert out["typeface"] == "classic"
+
+
+def test_every_brand_key_the_browser_reads_is_declared_on_the_server():
+    """The list in the test above is written from the keys that have already broken -- which is
+    exactly why it did not contain `hero_plates` until `hero_plates` broke, three keys and three
+    incidents into the same defect.
+
+    This asks the other side instead. Brand.jsx reads the payload through a single module-level
+    holder, so every key the browser depends on appears as `_brand.<name>`; if one of those is not
+    declared in BRAND_DEFAULTS it is dropped in transit and the feature silently renders its
+    fallback. Adding a reader to the SPA now fails here rather than in production.
+    """
+    import re
+    from pathlib import Path
+
+    from app.services.roles import BRAND_DEFAULTS
+
+    src = Path(__file__).resolve().parents[2] / "frontend" / "src" / "Brand.jsx"
+    if not src.exists():                       # backend-only checkout
+        return
+
+    read = set(re.findall(r"_brand\.([a-z_][a-z0-9_]*)", src.read_text(encoding="utf-8")))
+    # display_name is synthesised by brand() from the tenant row rather than stored in config.
+    missing = sorted(read - set(BRAND_DEFAULTS) - {"display_name"})
+    assert not missing, f"Brand.jsx reads {missing}, which brand() will drop on the way out"
 
 
 def test_saving_a_typeface_does_not_discard_a_palette():
@@ -251,3 +276,64 @@ def test_saving_a_typeface_does_not_discard_a_palette():
     idx = body.index('brand.pop("palette", None)')
     guard = body[max(0, idx - 200): idx]
     assert "if seeds_changed:" in guard, "palette is popped without checking the seeds moved"
+
+
+def test_no_module_names_a_brand_plate_file():
+    """The hero band's artwork is a per-workspace SETTING, so no module may name a file.
+
+    Four stylesheets did: Financials, the Forum's beCollective card, LaunchSection and the Ads
+    tokens each wrote `/brand/RibbedGradient_*.jpg` into a rule. Migration 0050 exists to unpin
+    exactly that artwork from workspaces which do not own it, and it could not reach any of these
+    -- they are in the JavaScript bundle every workspace downloads, so every workspace displayed
+    one customer's licensed gradient no matter what its own brand said.
+
+    Excluded: the migration that seeds the paths (it is configuration, and it is server-side) and
+    the bokeh, which is Acumyn's own and is the platform default by design.
+    """
+    import re
+    from pathlib import Path
+
+    src_dir = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    if not src_dir.exists():
+        return
+
+    offenders = {}
+    for path in sorted(src_dir.rglob("*.js*")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for n, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith(("*", "//", "/*")):
+                continue                       # the comments explaining why it is gone
+            if re.search(r"RibbedGradient_\w+\.(jpg|png|svg)", line):
+                offenders[f"{path.name}:{n}"] = stripped[:90]
+    assert not offenders, f"a brand plate is named in the bundle: {offenders}"
+
+
+def test_every_hero_band_asks_for_its_surface_rather_than_drawing_one():
+    """Eleven panels wear the hero band. They had five different surfaces between them.
+
+    Three called ribbedHero. Four wrote a customer's file path into a rule. Two drew a pinstripe
+    with repeating-linear-gradient -- a 13px one in Books, a 118deg one in the Forum -- imitating
+    the ribbed gradient rather than asking for it. One painted a flat fill.
+
+    A screenshot of six tabs side by side is what exposed it, which is a slow way to find out. So
+    the imitations are asserted against here: a repeating-linear-gradient in this codebase is
+    almost always somebody rebuilding the plate by hand.
+    """
+    import re
+    from pathlib import Path
+
+    src_dir = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    if not src_dir.exists():
+        return
+
+    offenders = {}
+    for path in sorted(src_dir.rglob("*.js*")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for n, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith(("*", "//", "/*")):
+                continue
+            if re.search(r"repeating-linear-gradient", line):
+                offenders[f"{path.name}:{n}"] = stripped[:90]
+    assert not offenders, f"a hero surface is being drawn by hand: {offenders}"

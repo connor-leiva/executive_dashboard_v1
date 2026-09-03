@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useFinancials } from "./useFinancials.js";
-import { SpringSignature , HeroMark} from "./Brand.jsx";
+import { SpringSignature, HeroMark, heroCss } from "./Brand.jsx";
 
 /* ULRG + Team — three-lens Financials (Live / Projection / Booked).
    Design source of truth: ulrg-financial-focus.jsx. Wired to the live API via
@@ -235,10 +235,11 @@ const FIN_CSS = `
   .fin-root .ctx-bar { width:4px; height:19px; border-radius:2px; background:${C.meadow}; }
   .fin-root .ctx-h { font-family:var(--font-display); font-size:17px; font-weight:600; letter-spacing:-.01em; }
   .fin-root .ctx-s { font-size:12px; color:${C.muted}; }
+  /* The meadow colorway. The file path used to be written in here, which pinned one customer's
+     licensed artwork into the bundle every workspace downloads and put this panel beyond the
+     reach of the migration that unpinned the rest of that brand. */
   .fin-root .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 22px;
-    background-color:${C.meadow};
-    background-image:url(/brand/RibbedGradient_Meadow.jpg);
-    background-size:cover; background-position:center; background-blend-mode:multiply;
+    ${heroCss("meadow")}
     box-shadow:0 2px 6px rgba(0,46,44,.12), 0 18px 40px rgba(0,46,44,.13); }
   .fin-root .feat { min-height:104px; }
   .fin-root .eyebrow { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; }

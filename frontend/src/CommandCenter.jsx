@@ -805,7 +805,11 @@ function MoneyCard({ fw }) {
   const share = fw.per_loan_share;    // null/0 → unset
   const label = fw.period_label || "this period";
   const target = fw.capture_target ?? 60;
-  const cardStyle = { flex: "0 1 320px", minWidth: 280, background: T.evergreen, border: "none" };
+  // A hero-scale card -- it carries the flywheel's headline figure at 38px -- so it gets the hero
+  // band's surface rather than a flat fill. It was the only dark panel of that size left painting
+  // itself a solid colour, which is what made the Flywheel tab look unfinished beside Portfolio.
+  const cardStyle = { flex: "0 1 320px", minWidth: 280, border: "none",
+                      ...ribbedHero("evergreen") };
   if (!share) {
     return (
       <Card style={cardStyle}>

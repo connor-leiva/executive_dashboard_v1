@@ -1,5 +1,6 @@
 /* Shared Books UI primitives — port of the acumyn-books-v2 mockup's kit, mapped onto the
    live dashboard theme tokens (theme.js). */
+import { ribbedHero } from "../Brand.jsx";
 import { T, usd } from "../theme.js";
 
 export const signed = (n) => (n < 0 ? `(${usd(n)})` : usd(n));
@@ -97,11 +98,13 @@ export function QboLink({ url, entity }) {
   );
 }
 
-/* The evergreen "on dark" surface the mockup uses for the rail, review, and IC hero. */
-export const DARK = {
-  background: T.evergreen,
-  backgroundImage: "repeating-linear-gradient(90deg, rgba(255,255,255,0.045) 0px, rgba(255,255,255,0.045) 1.5px, rgba(255,255,255,0) 1.5px, rgba(255,255,255,0) 13px)",
-};
+/* The "on dark" surface the mockup uses for the rail, review, and IC hero.
+ *
+ * It was a hand-drawn pinstripe -- a 13px repeating-linear-gradient standing in for the ribbed
+ * gradient the brand actually ships. Three panels in this module wore it, and none of them
+ * matched the hero band on Portfolio, which was the whole point of having a hero band. Now it
+ * IS that band: the workspace's own plate where one is configured, Acumyn's bokeh otherwise. */
+export const DARK = ribbedHero("evergreen");
 
 /* loading skeleton / error+retry / empty — the three data states. */
 export function StatePanel({ loading, error, retry, empty, emptyTitle, emptyMsg, children }) {

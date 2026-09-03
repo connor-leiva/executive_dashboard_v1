@@ -16,9 +16,12 @@ function PipelineRail({ rail }) {
     { label: "Escalated", sub: "CFO decides", v: rail.escalated, tone: "esc" },
   ];
   return (
+    // The corner glow this used to append to DARK.backgroundImage is gone. It gave a flat
+    // pinstriped band some depth, and the band now carries real artwork -- a ribbed gradient or
+    // Acumyn's bokeh -- which is the depth it was imitating. Two texture systems on one panel
+    // fight, and the glow held the last two raw hex values in this file.
     <div style={{ position: "relative", overflow: "hidden", borderRadius: 16, padding: "24px 26px",
-      ...DARK, backgroundImage: DARK.backgroundImage +
-        ", radial-gradient(135% 130% at 88% -15%, rgba(97,131,94,0.5) 0%, rgba(0,46,44,0) 55%)" }}>
+      ...DARK }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
         <Eyebrow onDark>How every number travels</Eyebrow>
         <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.onDarkMute }}>

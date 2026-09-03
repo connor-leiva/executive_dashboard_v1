@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { heroCss } from "./Brand.jsx";
 import { usd, signed } from "./theme.js";
 import { A } from "./forumIcons.js";
 
@@ -604,11 +605,10 @@ const CSS = `
   .lift:hover { transform:translateY(-3px); }
   .lift:active { transform:translateY(-1px) scale(.995); }
 
+  /* Three stacked layers -- a radial bloom, an 118deg pinstripe and a diagonal ramp -- were
+     imitating the ribbed gradient the brand ships. heroCss serves the real one. */
   .hero { border-radius:20px; padding:22px 24px; overflow:hidden; color:${C.heroText}; display:flex; flex-direction:column;
-    background:
-      radial-gradient(620px 320px at 12% -20%, rgba(103,165,170,.22), transparent 60%),
-      repeating-linear-gradient(118deg, rgba(255,255,255,.022) 0 2px, transparent 2px 10px),
-      linear-gradient(152deg, ${C.heroMid}, ${C.evergreen} 52%, ${C.heroDeep});
+    ${heroCss("evergreen")}
     box-shadow:0 10px 24px rgba(0,33,31,.28), 0 30px 64px rgba(0,33,31,.32), inset 0 1px 0 rgba(255,255,255,.10); border:1px solid rgba(0,33,31,.5); }
   .hero-eyebrow { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:700; letter-spacing:.005em; color:rgba(217,232,225,.8); margin-bottom:16px; }
   .hero-dot { width:6px; height:6px; border-radius:99px; background:${C.mistDeep}; box-shadow:0 0 0 3px rgba(103,165,170,.28); animation:breathe 2.4s ease-in-out infinite; }
@@ -631,11 +631,11 @@ const CSS = `
   .hero-slabel { font-family:var(--font-text); font-size:11px; color:rgba(217,232,225,.72); margin-top:3px; font-weight:500; }
   .hero-ssub { font-family:var(--font-text); font-size:10px; color:rgba(217,232,225,.42); margin-top:2px; }
 
-  /* beCollective Cash card — official petal ribbed gradient (light surface, dark ink). */
+  /* beCollective Cash card — the petal colorway, light surface with dark ink. The file path was
+     written in here directly, which pinned one customer's licensed artwork into the bundle every
+     workspace downloads; a workspace with no plates of its own now gets Acumyn's over petal. */
   .hero.bc { color:${C.ink};
-    background-color:${C.petal};
-    background-image:url(/brand/RibbedGradient_Petal.jpg);
-    background-size:cover; background-position:center; background-blend-mode:multiply;
+    ${heroCss("petal")}
     box-shadow:0 2px 6px ${C.evergreen}1A, 0 16px 38px ${C.evergreen}1F, inset 0 1px 0 rgba(255,255,255,.35);
     border:1px solid ${C.petalDeep}55; }
   .hero.bc .hero-eyebrow { color:${C.evergreen}; }

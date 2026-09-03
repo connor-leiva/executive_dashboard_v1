@@ -1,3 +1,4 @@
+import { fileUrl } from "./api.js";
 import { loadTypeface, pairingFromStacks, stacks } from "./typefaces.js";
 
 /* The palette, as runtime data rather than compiled-in constants.
@@ -305,6 +306,104 @@ export function applyPalette(tokens, el) {
   }
 }
 
+/* ── THE HERO BAND'S SURFACE ──────────────────────────────────────────────────────────────
+ *
+ * The dark (or petal, or meadow) plate behind the headline number, on eleven panels across six
+ * files. It is emitted as CSS VARIABLES for the same reason the colours are, and for one more:
+ *
+ * HALF THESE PANELS ARE STYLED BY A TEMPLATE STRING EVALUATED AT MODULE LOAD. ForumView's `CSS`,
+ * Financials' `FIN_CSS` and the Ads stylesheet are all built when the module is imported, which
+ * is long before /me answers and therefore before anything is known about whose workspace this
+ * is. A JavaScript helper reading the brand would have returned the platform's answer in those
+ * three files forever, and the bug would have looked exactly like the one being fixed. A variable
+ * has no such timing: the stylesheet names it once, and the value arrives whenever it arrives.
+ *
+ * TWO ROUTES, and which one runs is a question about whose artwork it is.
+ *
+ * A workspace that supplies `hero_plates` -- a map of ground colour to image -- gets its own,
+ * multiplied over the ground the way its designer intended. Eight ribbed gradients delivered as
+ * part of a visual identity system are exactly that, and they belong to the customer who paid
+ * for them.
+ *
+ * Everything else gets Acumyn's bokeh: soft aperture-shaped blurs echoing the mark's own blades,
+ * laid UNDER a wash of the ground colour. The plate carries texture, the wash carries the brand,
+ * so it works for any colour a workspace ever configures -- including colours chosen after this
+ * was written. That is why the wash is `rgba(var(--t-*-rgb), .78)` rather than a fixed value: it
+ * follows the palette without being recomputed.
+ */
+
+// Slot -> the palette token that is its ground. `daffodil` is the one that differs: the plate
+// sits on the pale wash, not on the saturated yellow, which is unreadable under white text.
+export const HERO_GROUND = {
+  evergreen: "evergreen", meadow: "meadow", poppy: "poppy", mist: "mist",
+  parchment: "parchment", petal: "petal", daffodil: "daffodilBg", sprout: "sprout",
+};
+
+export const HERO_SLOTS = Object.keys(HERO_GROUND);
+
+/* Which bokeh reads better under the wash. Keyed on the SLOT, not the colour, because by the
+   time this runs the colour is a CSS variable and JavaScript cannot measure it. */
+const HERO_LIGHT = new Set(["mist", "parchment", "petal", "daffodil", "sprout"]);
+
+const BOKEH = "/brand/acumyn/";
+
+export const heroSlot = (name) => {
+  const g = String(name || "").toLowerCase();
+  return HERO_GROUND[g] ? g : "evergreen";
+};
+
+/** The three declarations a hero band needs, as a style object. */
+export function heroStyle(slot) {
+  const g = heroSlot(slot);
+  return {
+    backgroundColor: `var(--hero-${g}-ground)`,
+    backgroundImage: `var(--hero-${g}-image)`,
+    backgroundBlendMode: `var(--hero-${g}-blend)`,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+  };
+}
+
+/** The same three, as CSS text, for the panels styled by a stylesheet rather than a prop. */
+export function heroCss(slot) {
+  const g = heroSlot(slot);
+  return `background-color:var(--hero-${g}-ground); background-image:var(--hero-${g}-image); `
+       + `background-blend-mode:var(--hero-${g}-blend); background-size:cover; `
+       + "background-position:center;";
+}
+
+/** Write the eight slots onto the document root. Called with the platform's answer at load, then
+ *  again with a workspace's own plates when /me answers. */
+export function applyHeroPlates(plates, el) {
+  const root = el || (typeof document !== "undefined" && document.documentElement);
+  if (!root) return;
+  const own = plates || {};
+  for (const slot of HERO_SLOTS) {
+    const ground = VAR(HERO_GROUND[slot]);
+    let file = own[slot];
+    if (typeof file !== "string" || !file.trim()) file = null;
+    // An uploaded plate is stored server-relative and the API is on another origin, so a bare
+    // path would resolve against the app host and 404 -- silently, because a background image
+    // that fails to load simply does not paint. Same rule the marks needed.
+    if (file && file.startsWith("/public/")) file = fileUrl(file.trim());
+
+    root.style.setProperty(`--hero-${slot}-ground`, `var(${ground})`);
+    if (file) {
+      root.style.setProperty(`--hero-${slot}-image`, `url(${file.trim()})`);
+      root.style.setProperty(`--hero-${slot}-blend`, "multiply");
+    } else {
+      const plate = HERO_LIGHT.has(slot) ? "bokeh-light" : "bokeh-ink";
+      root.style.setProperty(
+        `--hero-${slot}-image`,
+        `linear-gradient(rgba(var(${ground}-rgb), .78), rgba(var(${ground}-rgb), .88)), `
+        + `url(${BOKEH}${plate}.jpg)`,
+      );
+      root.style.setProperty(`--hero-${slot}-blend`, "normal");
+    }
+  }
+}
+
+
 /**
  * Apply a workspace's colours, whichever shape they are stored in.
  *
@@ -325,6 +424,10 @@ export function applyBrand(brand, el) {
   const face = b.typeface || pairingFromStacks(b.type) || undefined;
   applyType(stacks(face), el);
   loadTypeface(face);
+  // Before the early returns below, and unconditionally: a workspace's plates are independent of
+  // which SHAPE its colours are stored in, and hanging this off one branch is how a setting ends
+  // up applying only to the workspaces that happen to have taken that path.
+  applyHeroPlates(b.hero_plates, el);
   if (b.palette && Object.keys(b.palette).length) {
     applyPalette(b.palette, el);
     return "explicit";
@@ -381,5 +484,6 @@ export function applyType(fonts, el) {
    from the first frame and a workspace override later only ever CHANGES a value, never
    introduces one. A missing variable would resolve to nothing and paint the page unstyled. */
 applyPalette(ACUMYN);
+applyHeroPlates(null);            // the platform's bokeh, present from the first frame
 applyType(stacks(undefined));
 loadTypeface(undefined);          // the platform pairing, requested at module load

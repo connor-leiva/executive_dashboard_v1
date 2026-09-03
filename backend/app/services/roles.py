@@ -177,6 +177,13 @@ BRAND_DEFAULTS = {
     # every workspace's sign-in screen showed the first customer's photograph.
     "hero_image": None,    # full-bleed background behind the sign-in card
     "photo": None,         # the masked panel on the right at >900px
+    # Ground-colour slot -> image URL, for the hero BANDS inside the product (the dark plate
+    # behind the headline number on Portfolio, Books, Ads, the Forum). Migration 0050 wrote eight
+    # of these for the workspace that owns them and the browser never saw one, because this key
+    # was not declared here: the FOURTH setting lost to that, after `typeface`, `seeds` and the
+    # marks. Empty means the platform's own bokeh plate, tinted to whatever colours the workspace
+    # configured -- a real answer for any brand rather than a placeholder.
+    "hero_plates": {},
 }
 
 

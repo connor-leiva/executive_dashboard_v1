@@ -78,7 +78,9 @@ export const C = {
    references the files rather than carrying eighty kilobytes of duplicated image data in a
    source file - and a rebrand then reaches this tab by replacing an asset, not by editing JSX. */
 export const ASSET = {
-  ever: "/brand/RibbedGradient_Evergreen.jpg",   // the dark band behind the hero
+  // `ever` used to live here: a direct path to one customer's ribbed gradient, behind the hero
+  // band. It is gone rather than repointed -- the band asks heroCss for a plate now, and the
+  // whole point is that no module names a brand file.
   chev: "/brand/icons/chevron_down.png",
   open: "/brand/icons/open.png",
   warn: "/brand/icons/info.png",
