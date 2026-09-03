@@ -137,12 +137,22 @@ config change to remember. Point each customer's domain at the `web` service and
 
 ## Transactional email (Resend)
 
-Invites, password resets and owner invites send from **`api`**. Binder reminder digests send
-from **`worker`**. Railway variables are per-service, so these must be set on BOTH — set on
-`api` alone and every invite works while digests silently log and never appear in Resend's
-dashboard, which reads as a Binder bug rather than a missing variable. The cleanest fix is a
-project **Shared Variable** referenced from both as `${{shared.RESEND_API_KEY}}`, so the two
-cannot drift.
+Invites, password resets and owner invites send from the **api**. Binder reminder digests send
+from wherever the SCHEDULER runs, and that is not the same place in every deployment:
+
+| deployment | scheduler | where to set the mail variables |
+|---|---|---|
+| a separate `worker` service (this file's §3) | `python -m app.worker` | api **and** worker |
+| one backend service, `RUN_WORKER_IN_API=true` | inside the api process | api only |
+
+**Acumyn's own production is the second one.** There is no worker service — the project is
+`zippy-cat` (web) + `executive_dashboard_v1` (api) + Postgres, and the api runs the scheduler
+in-process. So one set of variables on `executive_dashboard_v1` covers every send.
+
+Check which you have before trusting either row: `RUN_WORKER_IN_API` on the api service settles
+it, and the api logs `in-API scheduler started` at boot when it is on. If you ever split the
+worker out, the mail variables have to be copied to it or digests will silently stop — a project
+**Shared Variable** referenced as `${{shared.RESEND_API_KEY}}` from both makes that automatic.
 
 Empty key = no send, no error: every endpoint still returns its copy-paste link and the digest
 still logs. That is the local-dev and test state, and it is also the safe state to deploy into.
@@ -157,13 +167,14 @@ To find out which of those is wrong without another deploy cycle, ask the servic
 
 ```
 railway ssh --service executive_dashboard_v1 "python -m scripts.check_mail"
-railway ssh --service worker "python -m scripts.check_mail you@example.com"
+railway ssh --service executive_dashboard_v1 "python -m scripts.check_mail you@example.com"
 ```
 
 With no address it reports the key's length and shape (never its value) — enough to tell "not
 set" from "truncated on paste". With an address it sends one real email and prints Resend's
-exact answer, translated into what to go and change. Run it in the service you are asking about;
-the two have different environments and "it works" on one says nothing about the other.
+exact answer, translated into what to go and change. Run it in whichever service runs the
+scheduler; if that is a separate worker, run it there too, because the two have different
+environments and "it works" on one says nothing about the other.
 
 **Accepted is not delivered.** Resend accepting a message means the API call succeeded. Check
 resend.com/emails for the delivery event, and check the inbox — the first sends from a new

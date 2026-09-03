@@ -11,9 +11,12 @@ first crosses into overdue. ``_deliver`` sends it through ``services.mailer``, a
 depends on that succeeding: with no ``RESEND_API_KEY`` the mailer logs the digest and the worker
 tick proceeds exactly as it did before there was any transport at all.
 
-THIS RUNS IN THE WORKER, not the api. ``RESEND_API_KEY`` and ``MAIL_FROM`` have to be set on
-BOTH Railway services — set on the api alone and these digests keep silently logging while
-every invite sends fine, which reads as a Binder bug rather than a missing variable.
+THIS RUNS ON THE SCHEDULER, which is not always the same process as the api. With a separate
+``worker`` service it is that service; with ``RUN_WORKER_IN_API`` it is the api itself (which is
+how Acumyn's own production is deployed). Either way ``RESEND_API_KEY`` and ``MAIL_FROM`` must
+be set wherever the scheduler runs — on a split deployment, set on the api alone, these digests
+keep silently logging while every invite sends fine, which reads as a Binder bug rather than a
+missing variable.
 """
 from __future__ import annotations
 

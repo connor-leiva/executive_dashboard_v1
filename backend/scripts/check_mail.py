@@ -3,9 +3,10 @@
     railway ssh --service executive_dashboard_v1 "python -m scripts.check_mail"
     railway ssh --service worker "python -m scripts.check_mail you@example.com"
 
-Run it in the SERVICE you are asking about. That is the whole point: the api and the worker have
-separate environments, they send different mail (invites vs Binder digests), and "it works" on
-one says nothing about the other. A key set only on the api leaves digests silently logging.
+Run it in the SERVICE you are asking about. Invites send from the api; Binder digests send from
+whichever process runs the scheduler, which is the api itself when RUN_WORKER_IN_API is on and a
+separate `worker` service otherwise. On a split deployment those are two environments and "it
+works" on one says nothing about the other, so this reports which case it is looking at.
 
 With no argument it inspects the configuration and stops. Give it a recipient and it sends one
 real email and prints Resend's exact answer — which is the only way to tell a wrong key from a
@@ -94,6 +95,23 @@ async def _send(to: str) -> int:
     return 1
 
 
+def _digest_home() -> list[str]:
+    """Where Binder digests send from, which is not always where invites send from.
+
+    The scheduler lives either inside this api process (RUN_WORKER_IN_API) or in a separate
+    `worker` service. Only the first case is covered by the variables printed above, and there
+    is no way to tell from the api's own environment whether a worker exists — so this states
+    what is true HERE and names what to go and check when it isn't.
+    """
+    if settings.RUN_WORKER_IN_API:
+        return ["  scheduler        in this process (RUN_WORKER_IN_API=true), so Binder digests",
+                "                   send from here too and these variables cover every send"]
+    return ["  scheduler        NOT in this process (RUN_WORKER_IN_API is off)",
+            "                   Binder digests send from wherever the scheduler runs. If that is",
+            "                   a separate `worker` service, run this there as well. If there is",
+            "                   no worker either, NOTHING scheduled runs — syncs included."]
+
+
 def main() -> int:
     key = mailer.api_key()
     print()
@@ -101,12 +119,12 @@ def main() -> int:
         print(line)
     print(f"  {'MAIL_FROM':<16} {settings.MAIL_FROM.strip()!r}")
     print(f"  {'MAIL_REPLY_TO':<16} {settings.MAIL_REPLY_TO.strip() or '(none)'}")
+    for line in _digest_home():
+        print(line)
     print()
 
     if not key:
-        print("  [FAIL] No key in THIS service's environment, so nothing here sends mail.")
-        print("         Invites and resets come from the api; Binder digests come from the")
-        print("         worker. Both need RESEND_API_KEY and MAIL_FROM.\n")
+        print("  [FAIL] No key in THIS service's environment, so nothing here sends mail.\n")
         return 1
     if not key.startswith("re_"):
         print("  [FAIL] Resend keys begin with 're_'. This value is something else.\n")
