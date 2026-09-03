@@ -129,6 +129,30 @@ export const DEFAULT_BRAND_PALETTE = {
   gold: "#C9A227",
 };
 
+export const CALENDAR_VIEW_OPTIONS = [
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
+  { key: "agenda", label: "Agenda" },
+];
+
+export const WEEK_START_OPTIONS = [
+  { key: 0, label: "Sunday" },
+  { key: 1, label: "Monday" },
+  { key: 2, label: "Tuesday" },
+  { key: 3, label: "Wednesday" },
+  { key: 4, label: "Thursday" },
+  { key: 5, label: "Friday" },
+  { key: 6, label: "Saturday" },
+];
+
+export const TIMEZONE_OPTIONS = [
+  "America/Denver",
+  "America/Chicago",
+  "America/New_York",
+  "America/Los_Angeles",
+  "America/Phoenix",
+];
+
 export const PERMISSION_LEVELS = ["Full", "View", "Limited", "None"];
 export const DEFAULT_PERMISSION_LEVEL = "None";
 export const CONSOLE_ACCESS_KEY = "console_access";
@@ -322,6 +346,28 @@ export const COPY = {
   brandNoLogo: "No logo uploaded",
   brandVerified: "Verified",
   brandNotVerified: "Not verified",
+  calendarTitle: "Team Calendar",
+  calendarError: "Team calendar failed to load.",
+  calendarDefaults: "Calendar Defaults",
+  calendarCategories: "Calendar Categories",
+  calendarPreview: "Week Preview",
+  calendarName: "Category name",
+  calendarColor: "Colour",
+  calendarAddress: "External calendar address",
+  calendarVisibility: "Role audience",
+  calendarActive: "Active",
+  calendarSave: "Save Category",
+  calendarSaveDefaults: "Save Defaults",
+  calendarCreate: "Add Category",
+  calendarRemove: "Set Inactive",
+  calendarSaved: "Calendar saved",
+  calendarCreated: "Calendar category created",
+  calendarDefaultsSaved: "Calendar defaults saved",
+  calendarDefaultView: "Default view",
+  calendarWeekStart: "Week starts on",
+  calendarTimezone: "Timezone",
+  calendarDisconnected: "Connect Google Workspace to preview",
+  calendarNoEvents: "No calendar events available.",
   emptyActivity: "No activity yet.",
   emptySetup: "No setup tasks yet.",
   previewingAs: "Viewing as",

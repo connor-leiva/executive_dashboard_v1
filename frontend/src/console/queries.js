@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  createCalendarCategory,
   createCourse,
   createLesson,
   createSop,
   createSopCategory,
   createTile,
+  deleteCalendarCategory,
   deleteCourse,
   deleteLesson,
   deleteSop,
@@ -15,6 +17,7 @@ import {
   discardChanges,
   downloadSopVersion,
   getAudit,
+  getCalendarCategories,
   getCourse,
   getCourses,
   getMembers,
@@ -33,6 +36,7 @@ import {
   getWtdLists,
   inviteMember,
   login,
+  patchCalendarCategory,
   patchMember,
   patchSetupTask,
   patchSop,
@@ -60,6 +64,7 @@ export const keys = {
   pending: ["console", "publish", "pending"],
   audit: ["console", "audit"],
   workspace: ["console", "workspace"],
+  calendarCategories: ["console", "calendar-categories"],
   members: (params) => ["console", "members", params],
   permissions: ["console", "permissions"],
   roles: ["console", "roles"],
@@ -88,6 +93,13 @@ function invalidateRoster(queryClient) {
 
 function invalidateWorkspace(queryClient) {
   invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.workspace });
+  queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
+}
+
+function invalidateCalendar(queryClient) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.calendarCategories });
   queryClient.invalidateQueries({ queryKey: keys.workspace });
   queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
 }
@@ -166,6 +178,14 @@ export function useWorkspace(enabled) {
   return useQuery({
     queryKey: keys.workspace,
     queryFn: getWorkspace,
+    enabled,
+  });
+}
+
+export function useCalendarCategories(enabled) {
+  return useQuery({
+    queryKey: keys.calendarCategories,
+    queryFn: getCalendarCategories,
     enabled,
   });
 }
@@ -309,6 +329,30 @@ export function useUploadWorkspaceLogo() {
   return useMutation({
     mutationFn: ({ kind, file }) => uploadWorkspaceLogo(kind, file),
     onSuccess: () => invalidateWorkspace(queryClient),
+  });
+}
+
+export function useCreateCalendarCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createCalendarCategory,
+    onSuccess: () => invalidateCalendar(queryClient),
+  });
+}
+
+export function usePatchCalendarCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ categoryId, body }) => patchCalendarCategory(categoryId, body),
+    onSuccess: () => invalidateCalendar(queryClient),
+  });
+}
+
+export function useRemoveCalendarCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteCalendarCategory,
+    onSuccess: () => invalidateCalendar(queryClient),
   });
 }
 

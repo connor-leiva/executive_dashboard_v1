@@ -256,6 +256,25 @@ async def _role_by_key(s: AsyncSession, tenant_id, key: str) -> IntranetRole:
     return row
 
 
+async def _role_ids_from_body(s: AsyncSession, tenant_id, body: dict, *, default_all: bool = False) -> list[uuid.UUID]:
+    role_ids = body.get("role_ids")
+    roles = await _roles_by_id(s, tenant_id)
+    if role_ids is None and default_all:
+        return [role.id for role in sorted(roles.values(), key=lambda item: item.sort)]
+    if not isinstance(role_ids, list):
+        _unprocessable("role_ids", "Expected a list.")
+    parsed: list[uuid.UUID] = []
+    for idx, rid in enumerate(role_ids):
+        try:
+            val = uuid.UUID(str(rid))
+        except ValueError:
+            _unprocessable(f"role_ids.{idx}", "Expected a UUID.")
+        if val not in roles:
+            raise HTTPException(404, "Role not found.")
+        parsed.append(val)
+    return sorted(set(parsed), key=lambda value: roles[value].sort)
+
+
 async def _member_by_id_or_none(s: AsyncSession, tenant_id, member_id: uuid.UUID | None) -> IntranetMember | None:
     if member_id is None:
         return None
@@ -881,9 +900,14 @@ async def patch_workspace(body: dict = Body(...),
         view = _enum(body, "default_calendar_view", {"month", "week", "agenda"})
         row.default_calendar_view = view or row.default_calendar_view
     row.draft_dirty = True
+    fields = set(body)
+    calendar_fields = {"timezone", "week_starts_on", "default_calendar_view"}
+    calendar_only = bool(fields) and fields <= calendar_fields
     pending = await _record_mutation(
-        s, p, action="config.brand.updated", category="Workspace",
-        summary=f"Updated workspace identity for {row.portal_name}",
+        s, p,
+        action="config.calendar.updated" if calendar_only else "config.brand.updated",
+        category="Calendar" if calendar_only else "Workspace",
+        summary="Updated calendar defaults" if calendar_only else f"Updated workspace identity for {row.portal_name}",
         target_type="workspace", target_id=row.id, entity_type="workspace", entity_id=row.id)
     return _with_pending(_workspace(row), pending)
 
@@ -1826,22 +1850,29 @@ async def create_calendar_category(body: dict = Body(...),
                                    p: ConsolePrincipal = Depends(require_console_access),
                                    s: AsyncSession = Depends(get_session)):
     body = _body(body)
-    _unknown(body, {"name", "color", "calendar_address", "sort", "active"})
+    _unknown(body, {"name", "color", "calendar_address", "sort", "active", "role_ids"})
+    color = _text(body, "color") or "#C9A227"
+    if not _hex_color(color):
+        _unprocessable("color", "Expected #RRGGBB.")
+    role_ids = await _role_ids_from_body(s, p.user.tenant_id, body, default_all=True)
     row = IntranetCalendarCategory(
         tenant_id=p.user.tenant_id,
         name=_text(body, "name", required=True) or "",
-        color=_text(body, "color") or "#C9A227",
+        color=color.upper(),
         calendar_address=_text(body, "calendar_address", nullable=True),
         sort=_int(body, "sort", default=await _count(s, IntranetCalendarCategory, p.user.tenant_id), min_value=0) or 0,
         active=_bool(body, "active", True),
     )
     s.add(row)
+    await s.flush()
+    for rid in role_ids:
+        s.add(IntranetCalendarCategoryRole(tenant_id=p.user.tenant_id, category_id=row.id, role_id=rid))
     pending = await _record_mutation(
-        s, p, action="console.calendar.create", category="Calendar",
+        s, p, action="config.calendar.created", category="Calendar",
         summary=f"Created calendar category {row.name}", target_type="calendar_category",
         target_id=row.id, entity_type="calendar_category", entity_id=row.id,
         change_kind="created")
-    return _with_pending(_calendar_category(row), pending)
+    return _with_pending(_calendar_category(row, {row.id: [_id(rid) for rid in role_ids]}), pending)
 
 
 @router.patch("/calendar-categories/{category_id}")
@@ -1850,23 +1881,34 @@ async def patch_calendar_category(category_id: uuid.UUID, body: dict = Body(...)
                                   s: AsyncSession = Depends(get_session)):
     row = await _one(s, IntranetCalendarCategory, p.user.tenant_id, category_id)
     body = _body(body)
-    _unknown(body, {"name", "color", "calendar_address", "sort", "active"})
+    _unknown(body, {"name", "color", "calendar_address", "sort", "active", "role_ids"})
     if "name" in body:
         row.name = _text(body, "name", required=True) or row.name
     if "color" in body:
-        row.color = _text(body, "color", required=True, max_len=32) or row.color
+        color = _text(body, "color", required=True, max_len=32) or row.color
+        if not _hex_color(color):
+            _unprocessable("color", "Expected #RRGGBB.")
+        row.color = color.upper()
     if "calendar_address" in body:
         row.calendar_address = _text(body, "calendar_address", nullable=True)
     if "sort" in body:
         row.sort = _int(body, "sort", min_value=0) or 0
     if "active" in body:
         row.active = bool(_bool(body, "active"))
+    if "role_ids" in body:
+        role_ids = await _role_ids_from_body(s, p.user.tenant_id, body)
+        await s.execute(sa_delete(IntranetCalendarCategoryRole).where(
+            IntranetCalendarCategoryRole.tenant_id == p.user.tenant_id,
+            IntranetCalendarCategoryRole.category_id == category_id,
+        ))
+        for rid in role_ids:
+            s.add(IntranetCalendarCategoryRole(tenant_id=p.user.tenant_id, category_id=row.id, role_id=rid))
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.calendar.update", category="Calendar",
+        s, p, action="config.calendar.updated", category="Calendar",
         summary=f"Updated calendar category {row.name}", target_type="calendar_category",
         target_id=row.id, entity_type="calendar_category", entity_id=row.id)
-    return _with_pending(_calendar_category(row), pending)
+    return _with_pending(_calendar_category(row, await _calendar_roles(s, p.user.tenant_id, [row.id])), pending)
 
 
 @router.delete("/calendar-categories/{category_id}")
@@ -1877,7 +1919,7 @@ async def delete_calendar_category(category_id: uuid.UUID,
     row.active = False
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.calendar.archive", category="Calendar",
+        s, p, action="config.calendar.archived", category="Calendar",
         summary=f"Set calendar category {row.name} to inactive", target_type="calendar_category",
         target_id=row.id, entity_type="calendar_category", entity_id=row.id,
         change_kind="deleted")

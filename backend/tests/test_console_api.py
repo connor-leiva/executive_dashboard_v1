@@ -497,6 +497,71 @@ async def test_workspace_palette_rejects_unknown_or_invalid_swatch(ctx):
     assert invalid.status_code == 422, invalid.text
 
 
+async def test_calendar_category_roles_and_workspace_defaults_persist(ctx):
+    async with _client() as c:
+        roles = await c.get("/api/console/roles", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+        assert roles.status_code == 200, roles.text
+        role_ids = [item["id"] for item in roles.json()["items"][:2]]
+        created = await c.post(
+            "/api/console/calendar-categories",
+            headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+            json={
+                "name": "Listings Calendar",
+                "color": "#aecbd4",
+                "calendar_address": "listings@example.test",
+                "role_ids": role_ids,
+                "active": True,
+            },
+        )
+        defaults = await c.patch(
+            "/api/console/workspace",
+            headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+            json={
+                "timezone": "America/Chicago",
+                "week_starts_on": 0,
+                "default_calendar_view": "agenda",
+            },
+        )
+        refreshed_categories = await c.get("/api/console/calendar-categories", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+        refreshed_workspace = await c.get("/api/console/workspace", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+    assert created.status_code == 200, created.text
+    item = created.json()["item"]
+    assert item["color"] == "#AECBD4"
+    assert item["role_ids"] == role_ids
+    assert defaults.status_code == 200, defaults.text
+    assert refreshed_categories.status_code == 200, refreshed_categories.text
+    got = next(row for row in refreshed_categories.json()["items"] if row["id"] == item["id"])
+    assert got["calendar_address"] == "listings@example.test"
+    assert got["role_ids"] == role_ids
+    assert refreshed_workspace.status_code == 200, refreshed_workspace.text
+    assert refreshed_workspace.json()["timezone"] == "America/Chicago"
+    assert refreshed_workspace.json()["week_starts_on"] == 0
+    assert refreshed_workspace.json()["default_calendar_view"] == "agenda"
+    async with SessionLocal() as s:
+        actions = (await s.execute(select(AuditLog.action).where(
+            AuditLog.tenant_id == uuid.UUID(ctx["a"]["tenant_id"]),
+            AuditLog.action.in_(["config.calendar.created", "config.calendar.updated"]),
+        ))).scalars().all()
+    assert "config.calendar.created" in actions
+    assert "config.calendar.updated" in actions
+
+
+async def test_calendar_category_rejects_invalid_color_or_role_list(ctx):
+    async with _client() as c:
+        bad_color = await c.post(
+            "/api/console/calendar-categories",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"name": "Bad Color", "color": "gold"},
+        )
+        bad_roles = await c.post(
+            "/api/console/calendar-categories",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"name": "Bad Roles", "role_ids": "everyone"},
+        )
+    assert bad_color.status_code == 422, bad_color.text
+    assert bad_roles.status_code == 422, bad_roles.text
+
+
 @pytest.mark.parametrize(
     "filter_name,field,allowed",
     [
