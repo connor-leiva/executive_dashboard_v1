@@ -27,16 +27,26 @@ from app.services import mailer
 
 # What Resend's own errors mean, in terms of what to go and change. The API returns these as
 # prose, and prose is exactly what gets skimmed past at the end of a deploy.
+#
+# The needles are the wording Resend ACTUALLY returned, not a paraphrase. An earlier version of
+# this table guessed at "not allowed to send from" and the real 403 says "not authorized for this
+# domain", so the one error it most needed to explain fell through to no hint at all.
 _HINTS = {
     "API key is invalid":
         "The key is not one Resend recognises. Resend shows a key ONCE at creation, so the\n"
         "     usual cause is a partial paste. Reissue at resend.com/api-keys and set it again.\n"
         "     Check it belongs to the same Resend team as the verified domain.",
-    "not allowed to send from":
-        "The key is fine; the FROM domain is not verified for it. Verify the domain in\n"
-        "     Resend and make MAIL_FROM an address on that exact domain.",
+    "not authorized":
+        "The key is VALID — this is a permissions problem, not a bad key. A Resend key is\n"
+        "     scoped to one domain or to all of them, and this one is not scoped to the domain\n"
+        "     in MAIL_FROM. Either issue a key with access to that domain (resend.com/api-keys\n"
+        "     -> Domain: the domain, or All domains), or point MAIL_FROM at a domain this key\n"
+        "     already covers. Confirm the domain is Verified at resend.com/domains too.",
+    "not allowed to send":
+        "The key is valid but may not send from the domain in MAIL_FROM. Check the key's\n"
+        "     domain permission and that the domain is Verified in Resend.",
     "Invalid `from`":
-        "MAIL_FROM is malformed. It wants either mail@acumyn.io or Acumyn <mail@acumyn.io>.",
+        "MAIL_FROM is malformed. It wants either hello@acumyn.io or Acumyn <hello@acumyn.io>.",
 }
 
 
