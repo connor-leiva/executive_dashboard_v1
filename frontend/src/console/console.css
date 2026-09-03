@@ -757,6 +757,305 @@ textarea {
   font-weight: 700;
 }
 
+.brand-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(360px, 1.1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.brand-form,
+.brand-palette,
+.brand-logo-list {
+  display: grid;
+  gap: 14px;
+}
+
+.brand-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.brand-fields .console-field input,
+.brand-color-control input:last-child,
+.brand-logo-slot input[type="file"] {
+  width: 100%;
+}
+
+.brand-domain-status {
+  min-height: 58px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid rgba(183, 123, 50, 0.34);
+  border-radius: 8px;
+  background: rgba(183, 123, 50, 0.08);
+  padding: 12px 14px;
+}
+
+.brand-domain-status.verified {
+  border-color: rgba(92, 127, 113, 0.35);
+  background: rgba(92, 127, 113, 0.12);
+}
+
+.brand-domain-status span,
+.brand-logo-slot span,
+.brand-logo-slot small {
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.brand-domain-status strong {
+  color: var(--console-muted);
+  font-size: 14px;
+}
+
+.brand-form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.brand-form-actions > span {
+  color: var(--console-teal);
+  font-weight: 700;
+}
+
+.brand-error {
+  color: var(--console-bad) !important;
+}
+
+.brand-swatch-row {
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: white;
+  padding: 12px;
+}
+
+.brand-swatch-row > span {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--console-line);
+  border-radius: 50%;
+}
+
+.brand-color-control {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.brand-color-control input[type="color"] {
+  width: 44px;
+  height: 42px;
+  padding: 2px;
+}
+
+.brand-logo-slot {
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.8fr) auto;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: white;
+  padding: 14px;
+}
+
+.brand-logo-slot div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.brand-logo-slot strong {
+  overflow: hidden;
+  color: var(--console-ink);
+  font-size: 14px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brand-logo-slot input[type="file"] {
+  min-height: 42px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: var(--console-surface);
+  color: var(--console-muted);
+  padding: 8px;
+}
+
+.brand-preview {
+  min-height: 360px;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--preview-ink) 16%, white);
+  border-radius: 8px;
+  background: var(--preview-canvas);
+  color: var(--preview-ink);
+}
+
+.brand-preview aside {
+  display: grid;
+  align-content: start;
+  gap: 28px;
+  background: var(--preview-ink);
+  color: white;
+  padding: 22px 18px;
+}
+
+.brand-preview-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-preview-logo > span {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--preview-accent);
+  color: var(--preview-ink);
+  font-weight: 800;
+}
+
+.brand-preview-logo div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.brand-preview-logo strong,
+.brand-preview-logo small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brand-preview-logo strong {
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.brand-preview-logo small,
+.brand-preview nav span,
+.brand-preview-top span,
+.brand-preview section small {
+  color: color-mix(in srgb, white 68%, var(--preview-accent));
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.brand-preview nav {
+  display: grid;
+  gap: 8px;
+}
+
+.brand-preview nav strong,
+.brand-preview nav span {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  padding: 0 10px;
+}
+
+.brand-preview nav strong {
+  background: color-mix(in srgb, var(--preview-brand) 58%, black);
+}
+
+.brand-preview main {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 48px minmax(0, 1fr);
+}
+
+.brand-preview-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--preview-ink) 14%, white);
+  background: rgba(255, 255, 255, 0.46);
+  padding: 0 18px;
+}
+
+.brand-preview-top span {
+  color: color-mix(in srgb, var(--preview-ink) 62%, white);
+}
+
+.brand-preview-top strong {
+  color: var(--preview-brand);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.brand-preview section {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  padding: 28px;
+}
+
+.brand-preview section small {
+  color: color-mix(in srgb, var(--preview-ink) 48%, white);
+  letter-spacing: 0;
+}
+
+.brand-preview h3 {
+  margin: 0;
+  color: var(--preview-ink);
+  font-size: 42px;
+  line-height: 1.02;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.brand-preview p {
+  max-width: 520px;
+  margin: 0;
+  color: color-mix(in srgb, var(--preview-ink) 76%, white);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.brand-preview section div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.brand-preview button {
+  min-height: 38px;
+  border: 1px solid color-mix(in srgb, var(--preview-brand) 34%, white);
+  border-radius: 8px;
+  background: white;
+  color: var(--preview-ink);
+  padding: 0 14px;
+  font-weight: 800;
+}
+
+.brand-preview button + button {
+  background: var(--preview-brand);
+  color: white;
+}
+
 .permissions-savebar {
   min-height: 52px;
   display: flex;
@@ -1612,6 +1911,10 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .brand-grid {
+    grid-template-columns: 1fr;
+  }
+
   .training-grid {
     grid-template-columns: 1fr;
   }
@@ -1676,6 +1979,20 @@ textarea {
 
   .roster-stats {
     grid-template-columns: 1fr;
+  }
+
+  .brand-fields,
+  .brand-logo-slot,
+  .brand-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .brand-preview h3 {
+    font-size: 30px;
+  }
+
+  .brand-preview aside {
+    gap: 14px;
   }
 
   .training-fields,

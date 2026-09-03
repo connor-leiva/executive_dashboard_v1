@@ -107,6 +107,28 @@ export const REMOVED_MEMBER_STATUS = "Removed";
 export const DEFAULT_TILE_GROUP = "Tools";
 export const DEFAULT_TILE_AUTH = "Link";
 
+export const BRAND_SWATCHES = [
+  { key: "ink", label: "Ink" },
+  { key: "brand", label: "Brand" },
+  { key: "accent", label: "Accent" },
+  { key: "canvas", label: "Canvas" },
+  { key: "gold", label: "Gold" },
+];
+
+export const BRAND_LOGO_SLOTS = [
+  { kind: "light", key: "logo_light_key", label: "Light wordmark" },
+  { kind: "dark", key: "logo_dark_key", label: "Dark wordmark" },
+  { kind: "mark", key: "logo_mark_key", label: "Mark" },
+];
+
+export const DEFAULT_BRAND_PALETTE = {
+  ink: "#171E22",
+  brand: "#395262",
+  accent: "#AECBD4",
+  canvas: "#EAE7E6",
+  gold: "#C9A227",
+};
+
 export const PERMISSION_LEVELS = ["Full", "View", "Limited", "None"];
 export const DEFAULT_PERMISSION_LEVEL = "None";
 export const CONSOLE_ACCESS_KEY = "console_access";
@@ -279,6 +301,27 @@ export const COPY = {
   sopDownload: "Download",
   sopUploaded: "Version uploaded",
   sopSelect: "Select an SOP to edit.",
+  brandTitle: "Brand & Identity",
+  brandError: "Brand configuration failed to load.",
+  brandIdentity: "Identity",
+  brandPalette: "Palette",
+  brandLogos: "Logo slots",
+  brandPreview: "Live preview",
+  brandPortalName: "Portal name",
+  brandTagline: "Tagline",
+  brandSubdomain: "Subdomain",
+  brandCustomDomain: "Custom domain",
+  brandDomainStatus: "Domain status",
+  brandSave: "Save Brand",
+  brandSaved: "Brand saved",
+  brandUpload: "Upload",
+  brandLogoLight: "Light wordmark",
+  brandLogoDark: "Dark wordmark",
+  brandLogoMark: "Mark",
+  brandStoredKey: "Stored key",
+  brandNoLogo: "No logo uploaded",
+  brandVerified: "Verified",
+  brandNotVerified: "Not verified",
   emptyActivity: "No activity yet.",
   emptySetup: "No setup tasks yet.",
   previewingAs: "Viewing as",

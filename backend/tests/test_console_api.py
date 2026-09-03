@@ -26,6 +26,7 @@ from app.models import (
     User,
 )
 from app.security import hash_pw, make_token
+from app.services import binder_storage
 
 TRANSPORT = ASGITransport(app=app)
 
@@ -422,6 +423,78 @@ async def test_console_overview_counts_are_real_seed_counts(ctx):
         "setup_tasks": 11,
         "pending_changes": 0,
     }
+
+
+async def test_workspace_brand_update_and_logo_upload_use_spec_audit_actions(ctx):
+    palette = {
+        "ink": "#101820",
+        "brand": "#395262",
+        "accent": "#AECBD4",
+        "canvas": "#F4F1ED",
+        "gold": "#C9A227",
+    }
+    async with _client() as c:
+        update = await c.patch(
+            "/api/console/workspace",
+            headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+            json={
+                "portal_name": "Utah Life Test Intranet",
+                "tagline": "Configured for the team",
+                "palette": palette,
+            },
+        )
+        upload = await c.post(
+            "/api/console/workspace/logo",
+            headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+            data={"kind": "mark"},
+            files={"file": ("mark.png", b"png-bytes", "image/png")},
+        )
+        refreshed = await c.get("/api/console/workspace", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+    assert update.status_code == 200, update.text
+    assert upload.status_code == 200, upload.text
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["portal_name"] == "Utah Life Test Intranet"
+    assert refreshed.json()["palette"] == palette
+    key = upload.json()["item"]["logo_mark_key"]
+    assert key.startswith(f"intranet/{ctx['a']['tenant_id']}/workspace/mark-")
+    assert not key.startswith("data:")
+    assert "\\" not in key
+    assert binder_storage.exists(key)
+    assert binder_storage.read(key) == b"png-bytes"
+    async with SessionLocal() as s:
+        actions = (await s.execute(select(AuditLog.action).where(
+            AuditLog.tenant_id == uuid.UUID(ctx["a"]["tenant_id"]),
+            AuditLog.action.in_(["config.brand.updated", "config.brand.logo_uploaded"]),
+        ))).scalars().all()
+    assert "config.brand.updated" in actions
+    assert "config.brand.logo_uploaded" in actions
+
+
+async def test_workspace_logo_rejects_non_image_upload(ctx):
+    async with _client() as c:
+        r = await c.post(
+            "/api/console/workspace/logo",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            data={"kind": "light"},
+            files={"file": ("logo.txt", b"not an image", "text/plain")},
+        )
+    assert r.status_code == 422, r.text
+
+
+async def test_workspace_palette_rejects_unknown_or_invalid_swatch(ctx):
+    async with _client() as c:
+        unknown = await c.patch(
+            "/api/console/workspace",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"palette": {"brand": "#395262", "shadow": "#000000"}},
+        )
+        invalid = await c.patch(
+            "/api/console/workspace",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"palette": {"brand": "blue"}},
+        )
+    assert unknown.status_code == 422, unknown.text
+    assert invalid.status_code == 422, invalid.text
 
 
 @pytest.mark.parametrize(

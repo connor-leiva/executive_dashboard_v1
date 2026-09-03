@@ -29,6 +29,7 @@ import {
   getSops,
   getSopVersions,
   getTiles,
+  getWorkspace,
   getWtdLists,
   inviteMember,
   login,
@@ -39,6 +40,7 @@ import {
   patchTile,
   patchCourse,
   patchLesson,
+  patchWorkspace,
   patchWtdList,
   publishChanges,
   putCourseRoles,
@@ -49,6 +51,7 @@ import {
   putWtdOrder,
   syncMembers,
   uploadSopVersion,
+  uploadWorkspaceLogo,
 } from "./api.js";
 
 export const keys = {
@@ -56,6 +59,7 @@ export const keys = {
   setupTasks: ["console", "setup-tasks"],
   pending: ["console", "publish", "pending"],
   audit: ["console", "audit"],
+  workspace: ["console", "workspace"],
   members: (params) => ["console", "members", params],
   permissions: ["console", "permissions"],
   roles: ["console", "roles"],
@@ -80,6 +84,12 @@ function invalidateOverview(queryClient) {
 function invalidateRoster(queryClient) {
   invalidateOverview(queryClient);
   queryClient.invalidateQueries({ queryKey: ["console", "members"] });
+}
+
+function invalidateWorkspace(queryClient) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.workspace });
+  queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
 }
 
 function invalidateLaunchpad(queryClient) {
@@ -149,6 +159,14 @@ export function usePreview(role, enabled) {
     queryKey: keys.preview(role),
     queryFn: () => getPreview(role),
     enabled: enabled && Boolean(role),
+  });
+}
+
+export function useWorkspace(enabled) {
+  return useQuery({
+    queryKey: keys.workspace,
+    queryFn: getWorkspace,
+    enabled,
   });
 }
 
@@ -275,6 +293,22 @@ export function useSyncMembers() {
   return useMutation({
     mutationFn: syncMembers,
     onSuccess: () => invalidateRoster(queryClient),
+  });
+}
+
+export function usePatchWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: patchWorkspace,
+    onSuccess: () => invalidateWorkspace(queryClient),
+  });
+}
+
+export function useUploadWorkspaceLogo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, file }) => uploadWorkspaceLogo(kind, file),
+    onSuccess: () => invalidateWorkspace(queryClient),
   });
 }
 

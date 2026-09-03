@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import re
 import uuid
 from typing import Any
 from urllib.parse import urlparse
@@ -55,7 +54,9 @@ TILE_AUTH_TYPES = {"SSO", "Deeplink", "Invite", "Link"}
 INTEGRATION_STATUSES = {"Connected", "Action Needed", "Not Connected"}
 GAP_STATUSES = {"Open", "Assigned", "Resolved", "No Action"}
 LOGO_KINDS = {"light": "logo_light_key", "dark": "logo_dark_key", "mark": "logo_mark_key"}
-SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+LOGO_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/svg+xml"}
+PALETTE_KEYS = {"ink", "brand", "accent", "canvas", "gold"}
+MAX_LOGO_BYTES = 2 * 1024 * 1024
 
 
 def _now() -> dt.datetime:
@@ -176,6 +177,27 @@ def _json_object(body: dict, field: str, default: dict | None = None) -> dict | 
     if not isinstance(body[field], dict):
         _unprocessable(field, "Expected an object.")
     return dict(body[field])
+
+
+def _hex_color(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 7
+        and value.startswith("#")
+        and all(ch in "0123456789abcdefABCDEF" for ch in value[1:])
+    )
+
+
+def _palette(body: dict) -> dict:
+    palette = _json_object(body, "palette") or {}
+    clean = {}
+    for key, value in palette.items():
+        if key not in PALETTE_KEYS:
+            _unprocessable("palette", f"Unknown swatch {key}.")
+        if not _hex_color(value):
+            _unprocessable(f"palette.{key}", "Expected #RRGGBB.")
+        clean[key] = value.upper()
+    return clean
 
 
 def _https_url(body: dict, field: str, *, required: bool = False) -> str | None:
@@ -850,7 +872,7 @@ async def patch_workspace(body: dict = Body(...),
         row.custom_domain = _text(body, "custom_domain", nullable=True, max_len=255)
         row.custom_domain_verified_at = None
     if "palette" in body:
-        row.palette = _json_object(body, "palette") or {}
+        row.palette = _palette(body)
     if "timezone" in body:
         row.timezone = _text(body, "timezone", required=True, max_len=80) or row.timezone
     if "week_starts_on" in body:
@@ -860,7 +882,7 @@ async def patch_workspace(body: dict = Body(...),
         row.default_calendar_view = view or row.default_calendar_view
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.workspace.update", category="Workspace",
+        s, p, action="config.brand.updated", category="Workspace",
         summary=f"Updated workspace identity for {row.portal_name}",
         target_type="workspace", target_id=row.id, entity_type="workspace", entity_id=row.id)
     return _with_pending(_workspace(row), pending)
@@ -875,12 +897,20 @@ async def upload_workspace_logo(kind: str = Form(...), file: UploadFile = File(.
         _unprocessable("kind", "Must be light, dark, or mark.")
     row = await _workspace_row(s, p.user.tenant_id)
     data = await file.read()
-    name = SAFE_NAME_RE.sub("-", file.filename or f"{kind}.bin").strip("-") or f"{kind}.bin"
+    if not data:
+        _unprocessable("file", "Logo file is empty.")
+    if len(data) > MAX_LOGO_BYTES:
+        _unprocessable("file", "Logo file must be 2 MB or smaller.")
+    content_type = file.content_type or "application/octet-stream"
+    if content_type not in LOGO_CONTENT_TYPES:
+        _unprocessable("file", "Logo must be PNG, JPEG, WebP, or SVG.")
+    name = binder_storage.safe_filename(file.filename or f"{kind}.bin")
     key = f"intranet/{p.user.tenant_id}/workspace/{kind}-{uuid.uuid4()}-{name}"
+    binder_storage.put(key, data, content_type)
     setattr(row, LOGO_KINDS[kind], key)
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.workspace.logo", category="Workspace",
+        s, p, action="config.brand.logo_uploaded", category="Workspace",
         summary=f"Uploaded {kind} workspace logo", target_type="workspace",
         target_id=row.id, detail={"filename": name, "bytes": len(data)},
         entity_type="workspace", entity_id=row.id)
