@@ -133,7 +133,7 @@ try {
       returnByValue: true,
     });
     text = result.result.value || "";
-    if (expectedText.some((value) => text.includes(value)) || text.includes("Console data failed")) break;
+    if (expectedText.every((value) => text.includes(value)) || text.includes("Console data failed")) break;
   }
   const probe = await cdp("Runtime.evaluate", {
     expression: `fetch('http://localhost:8000/api/console/overview', { headers: { Authorization: 'Bearer ' + localStorage.getItem('cc_token'), 'X-Tenant-Host': localStorage.getItem('cc_console_tenant_host') } }).then(async (res) => ({ status: res.status, text: (await res.text()).slice(0, 120) })).catch((err) => ({ error: String(err) }))`,

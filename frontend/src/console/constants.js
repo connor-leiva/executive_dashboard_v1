@@ -70,6 +70,30 @@ export const TILE_AUTH_OPTIONS = [
   { key: "Link", label: "Link" },
 ];
 
+export const COURSE_STATE_OPTIONS = [
+  { key: "Draft", label: "Draft" },
+  { key: "Live", label: "Live" },
+  { key: "Needs Review", label: "Needs Review" },
+];
+
+export const LESSON_SOURCE_OPTIONS = [
+  { key: "HERE", label: "Hosted" },
+  { key: "LOOM", label: "Loom" },
+  { key: "SKOOL", label: "Skool" },
+  { key: "PLACE", label: "PLACE" },
+  { key: "EXP", label: "eXp" },
+  { key: "PDF", label: "PDF" },
+];
+
+export const LESSON_SOURCE_COLORS = {
+  HERE: "#395262",
+  LOOM: "#8E4EA8",
+  SKOOL: "#2F6444",
+  PLACE: "#C9A227",
+  EXP: "#4D6FB3",
+  PDF: "#A44A33",
+};
+
 export const DEFAULT_ROSTER_FILTER = "active";
 export const GUEST_AUTH_SOURCE = "Guest";
 export const GUEST_ROLE_KEY = "jv_partner";
@@ -185,6 +209,39 @@ export const COPY = {
   wtdDisconnected: "Disconnected",
   wtdSave: "Save List",
   wtdSaved: "List saved",
+  trainingTitle: "Training Library",
+  trainingEmpty: "No courses are configured.",
+  trainingError: "Training library failed to load.",
+  trainingNewCourse: "New Course",
+  trainingCreateCourse: "Create Course",
+  trainingSaveCourse: "Save Course",
+  trainingArchiveCourse: "Archive Course",
+  trainingCourseSaved: "Course saved",
+  trainingCourseCreated: "Course created",
+  trainingLessonSaved: "Lesson saved",
+  trainingLessonCreated: "Lesson created",
+  trainingCourseTitle: "Title",
+  trainingCategory: "Category",
+  trainingDescription: "Description",
+  trainingState: "State",
+  trainingTrackProgress: "Track progress",
+  trainingRequiredOnboarding: "Required for onboarding",
+  trainingCertificate: "Issue certificate",
+  trainingSequential: "Lock lessons in order",
+  trainingVisibility: "Role visibility",
+  trainingLessons: "Lessons",
+  trainingAddLesson: "Add Lesson",
+  trainingSaveLesson: "Save Lesson",
+  trainingRemoveLesson: "Remove",
+  trainingImportSkool: "Import from Skool",
+  trainingImportUnavailable: "Import from Skool is out of scope for this phase.",
+  trainingLessonTitle: "Lesson title",
+  trainingSourceType: "Source",
+  trainingSourceRef: "URL or storage key",
+  trainingSourceLabel: "Source label",
+  trainingDuration: "Minutes",
+  trainingRequiredLesson: "Required",
+  trainingSelectCourse: "Select a course to edit.",
   emptyActivity: "No activity yet.",
   emptySetup: "No setup tasks yet.",
   previewingAs: "Viewing as",

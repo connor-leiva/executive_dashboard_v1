@@ -1149,7 +1149,7 @@ async def create_course(body: dict = Body(...), p: ConsolePrincipal = Depends(re
     )
     s.add(row)
     pending = await _record_mutation(
-        s, p, action="console.course.create", category="Training",
+        s, p, action="content.course.created", category="Training",
         summary=f"Created course {row.title}", target_type="course", target_id=row.id,
         entity_type="course", entity_id=row.id, change_kind="created")
     return _with_pending(_course(row), pending)
@@ -1178,7 +1178,7 @@ async def patch_course(course_id: uuid.UUID, body: dict = Body(...),
         row.sort = _int(body, "sort", min_value=0) or 0
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.course.update", category="Training",
+        s, p, action="content.course.updated", category="Training",
         summary=f"Updated course {row.title}", target_type="course", target_id=row.id,
         entity_type="course", entity_id=row.id)
     return _with_pending(_course(row), pending)
@@ -1191,7 +1191,7 @@ async def delete_course(course_id: uuid.UUID, p: ConsolePrincipal = Depends(requ
     row.archived_at = _now()
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.course.archive", category="Training",
+        s, p, action="content.course.archived", category="Training",
         summary=f"Archived course {row.title}", target_type="course", target_id=row.id,
         entity_type="course", entity_id=row.id, change_kind="deleted")
     return _with_pending(_course(row), pending)
@@ -1223,7 +1223,7 @@ async def put_course_roles(course_id: uuid.UUID, body: dict = Body(...),
         s.add(IntranetCourseRole(tenant_id=p.user.tenant_id, course_id=course_id, role_id=rid))
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.course.roles", category="Training",
+        s, p, action="content.course.roles_updated", category="Training",
         summary=f"Updated role visibility for {row.title}", target_type="course",
         target_id=row.id, entity_type="course", entity_id=row.id)
     return _with_pending(await get_course(course_id, p, s), pending)
@@ -1249,7 +1249,7 @@ async def put_lesson_order(course_id: uuid.UUID, body: dict = Body(...),
         by_id[str(lesson_id)].draft_dirty = True
     course.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.lesson.order", category="Training",
+        s, p, action="content.lesson.reordered", category="Training",
         summary=f"Reordered lessons in {course.title}", target_type="course",
         target_id=course.id, entity_type="lesson", entity_id=course.id)
     return _with_pending(await get_course(course_id, p, s), pending)
@@ -1278,7 +1278,7 @@ async def create_lesson(course_id: uuid.UUID, body: dict = Body(...),
     s.add(row)
     course.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.lesson.create", category="Training",
+        s, p, action="content.lesson.created", category="Training",
         summary=f"Added lesson {row.title} to {course.title}", target_type="lesson",
         target_id=row.id, entity_type="lesson", entity_id=row.id, change_kind="created")
     return _with_pending(_lesson(row), pending)
@@ -1288,7 +1288,7 @@ async def create_lesson(course_id: uuid.UUID, body: dict = Body(...),
 async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = Body(...),
                        p: ConsolePrincipal = Depends(require_console_access),
                        s: AsyncSession = Depends(get_session)):
-    await _one(s, IntranetCourse, p.user.tenant_id, course_id)
+    course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
     row = await _one(s, IntranetLesson, p.user.tenant_id, lesson_id)
     if row.course_id != course_id:
         raise HTTPException(404, "Not found.")
@@ -1310,8 +1310,9 @@ async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = 
     if "sort" in body:
         row.sort = _int(body, "sort", min_value=0) or 0
     row.draft_dirty = True
+    course.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.lesson.update", category="Training",
+        s, p, action="content.lesson.updated", category="Training",
         summary=f"Updated lesson {row.title}", target_type="lesson", target_id=row.id,
         entity_type="lesson", entity_id=row.id)
     return _with_pending(_lesson(row), pending)
@@ -1321,14 +1322,15 @@ async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = 
 async def delete_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID,
                         p: ConsolePrincipal = Depends(require_console_access),
                         s: AsyncSession = Depends(get_session)):
-    await _one(s, IntranetCourse, p.user.tenant_id, course_id)
+    course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
     row = await _one(s, IntranetLesson, p.user.tenant_id, lesson_id)
     if row.course_id != course_id:
         raise HTTPException(404, "Not found.")
     out = _lesson(row)
     await s.delete(row)
+    course.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.lesson.delete", category="Training",
+        s, p, action="content.lesson.deleted", category="Training",
         summary=f"Removed lesson {out['title']}", target_type="lesson", target_id=lesson_id,
         entity_type="lesson", entity_id=lesson_id, change_kind="deleted")
     return _with_pending(out, pending)

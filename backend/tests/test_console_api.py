@@ -583,6 +583,109 @@ async def test_wtd_patch_writes_content_audit_action(ctx):
     assert latest.action == "content.wtd_list.updated"
 
 
+async def test_training_create_course_and_lesson_updates_derived_counts(ctx):
+    async with _client() as c:
+        course = await c.post(
+            "/api/console/courses",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={
+                "title": "Contract Writing Lab",
+                "category": "Transactions",
+                "description": "Practice course for accepted offers.",
+                "state": "Draft",
+                "track_progress": True,
+                "required_for_onboarding": False,
+                "issues_certificate": False,
+                "sequential": True,
+            },
+        )
+        assert course.status_code == 200, course.text
+        course_id = course.json()["item"]["id"]
+        lesson = await c.post(
+            f"/api/console/courses/{course_id}/lessons",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={
+                "title": "Write the Offer",
+                "source_type": "HERE",
+                "source_ref": "utah-life/training/write-the-offer",
+                "source_label": "Hosted lesson",
+                "duration_minutes": 17,
+                "required": True,
+            },
+        )
+        assert lesson.status_code == 200, lesson.text
+        detail = await c.get(f"/api/console/courses/{course_id}", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["lesson_count"] == 1
+    assert body["total_duration_minutes"] == 17
+    assert body["lessons"][0]["source_type"] == "HERE"
+
+
+async def test_training_course_toggles_persist(ctx):
+    course_id = ctx["b"]["ids"]["course"]
+    async with _client() as c:
+        patched = await c.patch(
+            f"/api/console/courses/{course_id}",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={
+                "track_progress": False,
+                "required_for_onboarding": True,
+                "issues_certificate": True,
+                "sequential": True,
+            },
+        )
+        assert patched.status_code == 200, patched.text
+        detail = await c.get(f"/api/console/courses/{course_id}", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["track_progress"] is False
+    assert body["required_for_onboarding"] is True
+    assert body["issues_certificate"] is True
+    assert body["sequential"] is True
+
+
+async def test_training_lesson_order_persists(ctx):
+    course_id = ctx["b"]["ids"]["course"]
+    async with _client() as c:
+        before = await c.get(f"/api/console/courses/{course_id}", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+        assert before.status_code == 200, before.text
+        ids = [lesson["id"] for lesson in before.json()["lessons"]]
+        ordered = list(reversed(ids))
+        moved = await c.put(
+            f"/api/console/courses/{course_id}/lessons/order",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"ids": ordered},
+        )
+        assert moved.status_code == 200, moved.text
+        after = await c.get(f"/api/console/courses/{course_id}", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+    assert after.status_code == 200, after.text
+    assert [lesson["id"] for lesson in after.json()["lessons"]] == ordered
+
+
+async def test_training_writes_content_audit_actions(ctx):
+    async with _client() as c:
+        course = await c.post(
+            "/api/console/courses",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"title": "Audit Course", "category": "Ops", "state": "Draft"},
+        )
+        assert course.status_code == 200, course.text
+        lesson = await c.post(
+            f"/api/console/courses/{course.json()['item']['id']}/lessons",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"title": "Audit Lesson", "source_type": "PLACE"},
+        )
+    assert lesson.status_code == 200, lesson.text
+    async with SessionLocal() as s:
+        actions = (await s.execute(select(AuditLog.action).where(
+            AuditLog.tenant_id == uuid.UUID(ctx["b"]["tenant_id"]),
+            AuditLog.action.in_(["content.course.created", "content.lesson.created"]),
+        ))).scalars().all()
+    assert "content.course.created" in actions
+    assert "content.lesson.created" in actions
+
+
 def _request_for_name(name: str, ids: dict):
     for read_name, method, path_fn, kwargs in READ_ROUTES:
         if read_name == name:

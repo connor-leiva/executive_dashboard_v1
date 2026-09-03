@@ -1,11 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  createCourse,
+  createLesson,
   createTile,
+  deleteCourse,
+  deleteLesson,
   deleteTile,
   deleteMember,
   discardChanges,
   getAudit,
+  getCourse,
+  getCourses,
   getMembers,
   getOverview,
   getPendingChanges,
@@ -20,8 +26,12 @@ import {
   patchMember,
   patchSetupTask,
   patchTile,
+  patchCourse,
+  patchLesson,
   patchWtdList,
   publishChanges,
+  putCourseRoles,
+  putLessonOrder,
   putPermissions,
   putTileOrder,
   putTileRoles,
@@ -38,6 +48,8 @@ export const keys = {
   permissions: ["console", "permissions"],
   roles: ["console", "roles"],
   tiles: ["console", "tiles"],
+  courses: ["console", "courses"],
+  course: (courseId) => ["console", "courses", courseId],
   wtdLists: ["console", "wtd-lists"],
   preview: (role) => ["console", "preview", role],
 };
@@ -63,6 +75,13 @@ function invalidateLaunchpad(queryClient) {
 function invalidateWtd(queryClient) {
   invalidateOverview(queryClient);
   queryClient.invalidateQueries({ queryKey: keys.wtdLists });
+  queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
+}
+
+function invalidateTraining(queryClient, courseId) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.courses });
+  if (courseId) queryClient.invalidateQueries({ queryKey: keys.course(courseId) });
   queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
 }
 
@@ -143,6 +162,22 @@ export function useWtdLists(enabled) {
     queryKey: keys.wtdLists,
     queryFn: getWtdLists,
     enabled,
+  });
+}
+
+export function useCourses(enabled) {
+  return useQuery({
+    queryKey: keys.courses,
+    queryFn: getCourses,
+    enabled,
+  });
+}
+
+export function useCourse(courseId, enabled) {
+  return useQuery({
+    queryKey: keys.course(courseId),
+    queryFn: () => getCourse(courseId),
+    enabled: enabled && Boolean(courseId),
   });
 }
 
@@ -248,6 +283,70 @@ export function useOrderWtdLists() {
   return useMutation({
     mutationFn: putWtdOrder,
     onSuccess: () => invalidateWtd(queryClient),
+  });
+}
+
+export function useCreateCourse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createCourse,
+    onSuccess: () => invalidateTraining(queryClient),
+  });
+}
+
+export function usePatchCourse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, body }) => patchCourse(courseId, body),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function useArchiveCourse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteCourse,
+    onSuccess: (_data, courseId) => invalidateTraining(queryClient, courseId),
+  });
+}
+
+export function useSaveCourseRoles() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, body }) => putCourseRoles(courseId, body),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function useCreateLesson() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, body }) => createLesson(courseId, body),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function usePatchLesson() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, lessonId, body }) => patchLesson(courseId, lessonId, body),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function useRemoveLesson() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, lessonId }) => deleteLesson(courseId, lessonId),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function useOrderLessons() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, body }) => putLessonOrder(courseId, body),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
   });
 }
 

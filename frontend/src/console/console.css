@@ -18,7 +18,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -141,6 +142,7 @@ select {
 .console-search:focus,
 .console-field input:focus,
 .console-field select:focus,
+.console-field textarea:focus,
 .roster-search:focus,
 .roster-table select:focus,
 .tenant-switch input:focus {
@@ -565,13 +567,20 @@ select {
 }
 
 .console-field input,
-.console-field select {
+.console-field select,
+.console-field textarea {
   height: 42px;
   border: 1px solid var(--console-line);
   border-radius: 8px;
   padding: 0 12px;
   color: var(--console-ink);
   background: white;
+}
+
+.console-field textarea {
+  min-height: 96px;
+  padding-top: 10px;
+  resize: vertical;
 }
 
 .console-form-error {
@@ -875,6 +884,189 @@ select {
 
 .level-none {
   color: var(--console-muted);
+}
+
+.training-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.training-course-list {
+  display: grid;
+  gap: 9px;
+}
+
+.training-course-row {
+  min-height: 102px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: white;
+  color: var(--console-ink);
+  cursor: pointer;
+  padding: 16px;
+  text-align: left;
+}
+
+.training-course-row.selected {
+  border-color: rgba(56, 86, 103, 0.42);
+  box-shadow: inset 3px 0 0 var(--console-teal);
+}
+
+.training-course-row span {
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.training-course-row strong {
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.training-course-row small,
+.training-lessons header span {
+  color: var(--console-muted);
+  font-size: 13px;
+}
+
+.training-detail-form {
+  display: grid;
+  gap: 16px;
+}
+
+.training-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.training-fields .console-field:last-child {
+  grid-column: 1 / -1;
+}
+
+.training-toggle-grid,
+.training-role-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.training-role-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: var(--console-surface);
+}
+
+.training-role-panel h3,
+.training-lessons h3 {
+  margin: 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  color: var(--console-faint);
+}
+
+.training-role-list label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.training-role-list input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--console-teal);
+}
+
+.training-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.training-lessons {
+  display: grid;
+  gap: 14px;
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--console-lineSoft);
+}
+
+.training-lessons header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lesson-list {
+  display: grid;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.lesson-row {
+  min-width: 1180px;
+  display: grid;
+  grid-template-columns: 100px minmax(170px, 1fr) 132px minmax(170px, 1fr) minmax(150px, 0.8fr) 100px 116px 98px 190px;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: white;
+  padding: 12px;
+}
+
+.lesson-row-new {
+  background: var(--console-surface);
+}
+
+.lesson-row .console-field input,
+.lesson-row .console-field select,
+.training-fields .console-field input,
+.training-fields .console-field select,
+.training-fields .console-field textarea {
+  width: 100%;
+}
+
+.lesson-order {
+  display: grid;
+  gap: 8px;
+}
+
+.lesson-order strong {
+  font-size: 23px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.lesson-source {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--lesson-source) 38%, white);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--lesson-source) 12%, white);
+  color: var(--lesson-source);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.lesson-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .wtd-grid {
@@ -1259,6 +1451,10 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .training-grid {
+    grid-template-columns: 1fr;
+  }
+
   .launchpad-grid {
     grid-template-columns: 1fr;
   }
@@ -1315,6 +1511,17 @@ select {
 
   .roster-stats {
     grid-template-columns: 1fr;
+  }
+
+  .training-fields,
+  .training-toggle-grid,
+  .training-role-list {
+    grid-template-columns: 1fr;
+  }
+
+  .training-lessons header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .launchpad-preview > div:first-child {
