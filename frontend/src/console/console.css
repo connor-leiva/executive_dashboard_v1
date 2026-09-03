@@ -17,7 +17,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -139,6 +140,9 @@ input {
 
 .console-search:focus,
 .console-field input:focus,
+.console-field select:focus,
+.roster-search:focus,
+.roster-table select:focus,
 .tenant-switch input:focus {
   border-color: var(--console-teal);
   box-shadow: 0 0 0 3px rgba(56, 86, 103, 0.15);
@@ -560,17 +564,187 @@ input {
   font-weight: 700;
 }
 
-.console-field input {
+.console-field input,
+.console-field select {
   height: 42px;
   border: 1px solid var(--console-line);
   border-radius: 8px;
   padding: 0 12px;
   color: var(--console-ink);
+  background: white;
 }
 
 .console-form-error {
   margin: 0;
   color: var(--console-bad);
+  font-weight: 700;
+}
+
+.roster-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 18px;
+}
+
+.roster-stats {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  gap: 14px;
+}
+
+.roster-stat {
+  min-height: 96px;
+  display: grid;
+  align-content: space-between;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  padding: 18px;
+}
+
+.roster-stat span,
+.roster-count {
+  color: var(--console-faint);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.roster-stat strong {
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.roster-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.roster-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.roster-tabs button {
+  min-height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  color: var(--console-muted);
+  padding: 0 13px;
+  cursor: pointer;
+}
+
+.roster-tabs button.active {
+  background: var(--console-teal);
+  border-color: var(--console-teal);
+  color: white;
+  font-weight: 700;
+}
+
+.roster-search {
+  width: min(280px, 100%);
+  height: 38px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  color: var(--console-ink);
+  padding: 0 12px;
+  outline: none;
+}
+
+.roster-count {
+  margin: 0 0 12px;
+}
+
+.roster-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+}
+
+.roster-table {
+  width: 100%;
+  min-width: 880px;
+  border-collapse: collapse;
+}
+
+.roster-table th,
+.roster-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--console-lineSoft);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.roster-table th {
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.roster-table td {
+  color: var(--console-ink);
+  font-size: 14px;
+}
+
+.roster-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.roster-table select {
+  width: 100%;
+  min-width: 150px;
+  height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  color: var(--console-ink);
+  padding: 0 10px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--console-lineSoft);
+  color: var(--console-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-active {
+  background: rgba(92, 127, 113, 0.16);
+  color: var(--console-good);
+}
+
+.status-invited {
+  background: rgba(183, 123, 50, 0.16);
+  color: var(--console-warn);
+}
+
+.status-removed {
+  background: rgba(162, 77, 67, 0.16);
+  color: var(--console-bad);
+}
+
+.roster-form {
+  display: grid;
+  gap: 14px;
+}
+
+.roster-form-message {
+  margin: 0;
+  color: var(--console-teal);
   font-weight: 700;
 }
 
@@ -618,6 +792,14 @@ input {
   .overview-grid {
     grid-template-columns: 1fr;
   }
+
+  .roster-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .roster-stats {
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -648,6 +830,20 @@ input {
   }
 
   .overview-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .roster-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .roster-search,
+  .roster-tabs {
+    width: 100%;
+  }
+
+  .roster-stats {
     grid-template-columns: 1fr;
   }
 }

@@ -46,6 +46,7 @@ LEVELS = {"Full", "View", "Limited", "None"}
 COURSE_STATES = {"Draft", "Live", "Needs Review"}
 SOP_STATES = {"Draft", "Live", "Needs Review", "Archived"}
 MEMBER_STATUSES = {"Active", "Invited", "Removed"}
+MEMBER_FILTERS = {"active", "pending", "guests", "leadership", "everyone"}
 AUTH_SOURCES = {"SSO", "Guest", "Manual"}
 LESSON_SOURCE_TYPES = {"LOOM", "SKOOL", "HERE", "PDF", "EXP", "PLACE"}
 TILE_AUTH_TYPES = {"SSO", "Deeplink", "Invite", "Link"}
@@ -204,6 +205,16 @@ async def _roles_by_id(s: AsyncSession, tenant_id) -> dict[uuid.UUID, IntranetRo
     return {r.id: r for r in rows}
 
 
+async def _role_by_key(s: AsyncSession, tenant_id, key: str) -> IntranetRole:
+    row = (await s.execute(select(IntranetRole).where(
+        IntranetRole.tenant_id == tenant_id,
+        IntranetRole.key == key,
+    ))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(404, "Role not found.")
+    return row
+
+
 async def _member_by_id_or_none(s: AsyncSession, tenant_id, member_id: uuid.UUID | None) -> IntranetMember | None:
     if member_id is None:
         return None
@@ -312,6 +323,39 @@ def _member(row: IntranetMember, roles: dict[uuid.UUID, IntranetRole] | None = N
         "auth_source": row.auth_source, "status": row.status,
         "invited_at": _iso(row.invited_at), "activated_at": _iso(row.activated_at),
         "removed_at": _iso(row.removed_at), "last_synced_at": _iso(row.last_synced_at),
+    }
+
+
+async def _member_stats(s: AsyncSession, tenant_id, roles: dict[uuid.UUID, IntranetRole]) -> dict:
+    leadership_ids = [role_id for role_id, role in roles.items() if role.is_leadership]
+    guest_role = next((role for role in roles.values() if role.key == "jv_partner"), None)
+    month_start = _now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_synced_at = (await s.execute(select(func.max(IntranetMember.last_synced_at)).where(
+        IntranetMember.tenant_id == tenant_id,
+    ))).scalar_one_or_none()
+    return {
+        "active": await _count(s, IntranetMember, tenant_id, IntranetMember.status == "Active"),
+        "pending": await _count(s, IntranetMember, tenant_id, IntranetMember.status == "Invited"),
+        "guests": await _count(
+            s,
+            IntranetMember,
+            tenant_id,
+            IntranetMember.role_id == guest_role.id if guest_role else False,
+        ),
+        "leadership": await _count(
+            s,
+            IntranetMember,
+            tenant_id,
+            IntranetMember.role_id.in_(leadership_ids) if leadership_ids else False,
+        ),
+        "removed_this_month": await _count(
+            s,
+            IntranetMember,
+            tenant_id,
+            IntranetMember.status == "Removed",
+            IntranetMember.removed_at >= month_start,
+        ),
+        "last_synced_at": _iso(last_synced_at),
     }
 
 
@@ -855,11 +899,26 @@ async def put_permissions(body: dict = Body(...),
 
 @router.get("/members")
 async def get_members(status: str | None = Query(None), q: str | None = Query(None),
+                      filter: str | None = Query(None),
                       role: str | None = Query(None),
                       p: ConsolePrincipal = Depends(require_console_access),
                       s: AsyncSession = Depends(get_session)):
     roles = await _roles_by_id(s, p.user.tenant_id)
     where = [IntranetMember.tenant_id == p.user.tenant_id]
+    if filter:
+        value = filter.strip().lower()
+        if value not in MEMBER_FILTERS:
+            _unprocessable("filter", "Invalid member filter.")
+        if value == "active":
+            where.append(IntranetMember.status == "Active")
+        elif value == "pending":
+            where.append(IntranetMember.status == "Invited")
+        elif value == "guests":
+            guest_role = next((r for r in roles.values() if r.key == "jv_partner"), None)
+            where.append(IntranetMember.role_id == guest_role.id if guest_role else False)
+        elif value == "leadership":
+            leadership_ids = [role_id for role_id, role_row in roles.items() if role_row.is_leadership]
+            where.append(IntranetMember.role_id.in_(leadership_ids) if leadership_ids else False)
     if status:
         if status not in MEMBER_STATUSES:
             _unprocessable("status", "Invalid member status.")
@@ -875,7 +934,11 @@ async def get_members(status: str | None = Query(None), q: str | None = Query(No
     rows = (await s.execute(select(IntranetMember).where(*where).order_by(
         IntranetMember.status, IntranetMember.full_name))).scalars().all()
     total = int((await s.execute(select(func.count()).select_from(IntranetMember).where(*where))).scalar_one())
-    return _list([_member(r, roles) for r in rows], total)
+    return {
+        **_list([_member(r, roles) for r in rows], total),
+        "roles": [_role_out(r) for r in sorted(roles.values(), key=lambda item: item.sort)],
+        "stats": await _member_stats(s, p.user.tenant_id, roles),
+    }
 
 
 @router.post("/members/invite")
@@ -884,7 +947,10 @@ async def invite_member(body: dict = Body(...),
                         s: AsyncSession = Depends(get_session)):
     body = _body(body)
     _unknown(body, {"full_name", "email", "role_id", "market", "auth_source"})
-    role_id = _uuid_value(body, "role_id", required=True)
+    auth_source = _enum(body, "auth_source", AUTH_SOURCES, "Manual") or "Manual"
+    role_id = _uuid_value(body, "role_id", required=auth_source != "Guest")
+    if role_id is None:
+        role_id = (await _role_by_key(s, p.user.tenant_id, "jv_partner")).id
     await _role(s, p.user.tenant_id, role_id)
     email = (_text(body, "email", required=True, max_len=255) or "").lower()
     if "@" not in email:
@@ -901,13 +967,13 @@ async def invite_member(body: dict = Body(...),
         email=email,
         role_id=role_id,
         market=_text(body, "market", nullable=True),
-        auth_source=_enum(body, "auth_source", AUTH_SOURCES, "Manual") or "Manual",
+        auth_source=auth_source,
         status="Invited",
         invited_at=_now(),
     )
     s.add(row)
     pending = await _record_mutation(
-        s, p, action="console.member.invite", category="People",
+        s, p, action="access.member.invited", category="People",
         summary=f"Invited {row.full_name} to the intranet", target_type="member",
         target_id=row.id, pending=False)
     return _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id)), pending)
@@ -920,6 +986,10 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
     body = _body(body)
     _unknown(body, {"full_name", "email", "role_id", "market", "status", "auth_source"})
     row = await _one(s, IntranetMember, p.user.tenant_id, member_id)
+    roles = await _roles_by_id(s, p.user.tenant_id)
+    old_role = roles.get(row.role_id)
+    new_role = old_role
+    role_changed = False
     if "full_name" in body:
         row.full_name = _text(body, "full_name", required=True) or row.full_name
     if "email" in body:
@@ -929,7 +999,8 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
         row.email = email
     if "role_id" in body:
         role_id = _uuid_value(body, "role_id", required=True)
-        await _role(s, p.user.tenant_id, role_id)
+        new_role = await _role(s, p.user.tenant_id, role_id)
+        role_changed = role_id != row.role_id
         row.role_id = role_id
     if "market" in body:
         row.market = _text(body, "market", nullable=True)
@@ -942,9 +1013,14 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
             row.activated_at = _now()
         if status == "Removed":
             row.removed_at = _now()
+    action = "access.member.role_changed" if role_changed else "access.member.updated"
+    if role_changed:
+        summary = f"Changed {row.full_name} from {old_role.name if old_role else 'Unknown'} to {new_role.name}"
+    else:
+        summary = f"Updated roster record for {row.full_name}"
     pending = await _record_mutation(
-        s, p, action="console.member.update", category="People",
-        summary=f"Updated roster record for {row.full_name}", target_type="member",
+        s, p, action=action, category="People",
+        summary=summary, target_type="member",
         target_id=row.id, pending=False)
     return _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id)), pending)
 
@@ -956,7 +1032,7 @@ async def remove_member(member_id: uuid.UUID, p: ConsolePrincipal = Depends(requ
     row.status = "Removed"
     row.removed_at = _now()
     pending = await _record_mutation(
-        s, p, action="console.member.remove", category="People",
+        s, p, action="access.member.removed", category="People",
         summary=f"Removed {row.full_name} from the intranet roster", target_type="member",
         target_id=row.id, pending=False)
     return _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id)), pending)
@@ -966,7 +1042,7 @@ async def remove_member(member_id: uuid.UUID, p: ConsolePrincipal = Depends(requ
 async def sync_members(p: ConsolePrincipal = Depends(require_console_access),
                        s: AsyncSession = Depends(get_session)):
     pending = await _record_mutation(
-        s, p, action="console.member.sync", category="People",
+        s, p, action="access.roster.synced", category="People",
         summary="Roster sync: no source connected yet", target_type="member",
         target_id=None, pending=False)
     return {"added": 0, "removed": 0, "updated": 0, "pending_changes": pending}

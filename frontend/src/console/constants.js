@@ -49,6 +49,25 @@ export const ROLE_OPTIONS = [
   { key: "jv_partner", label: "JV Partner" },
 ];
 
+export const ROSTER_FILTERS = [
+  { key: "active", label: "Active" },
+  { key: "pending", label: "Pending" },
+  { key: "guests", label: "Guests" },
+  { key: "leadership", label: "Leadership" },
+  { key: "everyone", label: "Everyone" },
+];
+
+export const AUTH_SOURCE_OPTIONS = [
+  { key: "Manual", label: "Manual" },
+  { key: "Guest", label: "Guest" },
+  { key: "SSO", label: "SSO" },
+];
+
+export const DEFAULT_ROSTER_FILTER = "active";
+export const GUEST_AUTH_SOURCE = "Guest";
+export const GUEST_ROLE_KEY = "jv_partner";
+export const REMOVED_MEMBER_STATUS = "Removed";
+
 export const OVERVIEW_COUNTS = [
   { key: "members", label: "People" },
   { key: "courses", label: "Courses" },
@@ -78,6 +97,27 @@ export const COPY = {
   noPending: "No draft changes",
   setupTitle: "Setup Checklist",
   recentTitle: "Recent Activity",
+  rosterTitle: "People & Roster",
+  rosterSearch: "Search name or email",
+  rosterInvite: "Invite Person",
+  rosterSync: "Sync Roster",
+  rosterEmpty: "No people match this view.",
+  rosterName: "Full name",
+  rosterEmail: "Email",
+  rosterMarket: "Market",
+  rosterRole: "Role",
+  rosterAuth: "Auth source",
+  rosterStatus: "Status",
+  rosterActive: "Active",
+  rosterPending: "Pending",
+  rosterGuests: "Guests",
+  rosterLeadership: "Leadership",
+  rosterRemoved: "Removed this month",
+  rosterLastSync: "Last sync",
+  rosterNeverSynced: "Not synced",
+  rosterRemove: "Remove",
+  rosterInvited: "Invited",
+  rosterSaved: "Saved",
   emptyActivity: "No activity yet.",
   emptySetup: "No setup tasks yet.",
   previewingAs: "Viewing as",

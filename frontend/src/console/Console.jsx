@@ -341,7 +341,7 @@ export default function Console() {
             )}
           />
           <Route path="/brand" element={<BrandIdentity />} />
-          <Route path="/roster" element={<Roster />} />
+          <Route path="/roster" element={<Roster overview={overviewQuery.data} />} />
           <Route path="/perms" element={<RolesPermissions />} />
           <Route path="/training" element={<Training />} />
           <Route path="/sops" element={<SopLibrary />} />

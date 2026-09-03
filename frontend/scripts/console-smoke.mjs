@@ -17,6 +17,10 @@ const loginUrl = process.env.LOGIN_URL || "http://127.0.0.1:8000/api/v1/auth/log
 const tenantHost = process.env.TENANT_HOST || "utah-life.acumyn.io";
 const email = process.env.CONSOLE_EMAIL || "justin@utahliferealestate.com";
 const password = process.env.CONSOLE_PASSWORD || "password123";
+const expectedText = (process.env.SMOKE_EXPECT || "Overview|Setup Checklist|Recent Activity|People|Courses|SOPs")
+  .split("|")
+  .map((value) => value.trim())
+  .filter(Boolean);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -154,7 +158,7 @@ try {
     console.log("BROWSER EVENTS");
     console.log(JSON.stringify(events.slice(0, 6), null, 2));
   }
-  for (const value of ["Overview", "Setup Checklist", "Recent Activity", "People", "Courses", "SOPs"]) {
+  for (const value of expectedText) {
     if (!assertionText.includes(value)) throw new Error(`missing ${value}`);
   }
 } finally {

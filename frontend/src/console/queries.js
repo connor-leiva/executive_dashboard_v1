@@ -1,15 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  deleteMember,
   discardChanges,
   getAudit,
+  getMembers,
   getOverview,
   getPendingChanges,
   getPreview,
   getSetupTasks,
+  inviteMember,
   login,
+  patchMember,
   patchSetupTask,
   publishChanges,
+  syncMembers,
 } from "./api.js";
 
 export const keys = {
@@ -17,6 +22,7 @@ export const keys = {
   setupTasks: ["console", "setup-tasks"],
   pending: ["console", "publish", "pending"],
   audit: ["console", "audit"],
+  members: (params) => ["console", "members", params],
   preview: (role) => ["console", "preview", role],
 };
 
@@ -25,6 +31,11 @@ function invalidateOverview(queryClient) {
   queryClient.invalidateQueries({ queryKey: keys.setupTasks });
   queryClient.invalidateQueries({ queryKey: keys.pending });
   queryClient.invalidateQueries({ queryKey: keys.audit });
+}
+
+function invalidateRoster(queryClient) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: ["console", "members"] });
 }
 
 export function useOverview(enabled) {
@@ -67,9 +78,49 @@ export function usePreview(role, enabled) {
   });
 }
 
+export function useMembers(params, enabled) {
+  return useQuery({
+    queryKey: keys.members(params),
+    queryFn: () => getMembers(params),
+    enabled,
+  });
+}
+
 export function useLogin() {
   return useMutation({
     mutationFn: ({ email, password, tenantHost }) => login(email, password, tenantHost),
+  });
+}
+
+export function useInviteMember() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: inviteMember,
+    onSuccess: () => invalidateRoster(queryClient),
+  });
+}
+
+export function usePatchMember() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memberId, body }) => patchMember(memberId, body),
+    onSuccess: () => invalidateRoster(queryClient),
+  });
+}
+
+export function useRemoveMember() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteMember,
+    onSuccess: () => invalidateRoster(queryClient),
+  });
+}
+
+export function useSyncMembers() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: syncMembers,
+    onSuccess: () => invalidateRoster(queryClient),
   });
 }
 

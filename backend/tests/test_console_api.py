@@ -423,6 +423,43 @@ async def test_console_overview_counts_are_real_seed_counts(ctx):
     }
 
 
+@pytest.mark.parametrize(
+    "filter_name,field,allowed",
+    [
+        ("active", "status", {"Active"}),
+        ("pending", "status", {"Invited"}),
+        ("guests", "role_key", {"jv_partner"}),
+        ("leadership", "role_key", {"ops_admin", "team_leader"}),
+    ],
+)
+async def test_roster_filters_are_resolved_by_the_server(ctx, filter_name, field, allowed):
+    async with _client() as c:
+        r = await c.get(
+            f"/api/console/members?filter={filter_name}",
+            headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "stats" in body and "roles" in body
+    assert body["items"]
+    assert {item[field] for item in body["items"]} <= allowed
+
+
+async def test_roster_guest_invite_defaults_to_jv_partner(ctx):
+    email = f"guest-{uuid.uuid4().hex[:8]}@example.test"
+    async with _client() as c:
+        r = await c.post(
+            "/api/console/members/invite",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"full_name": "Guest Partner", "email": email, "auth_source": "Guest"},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()["item"]
+    assert body["status"] == "Invited"
+    assert body["auth_source"] == "Guest"
+    assert body["role_key"] == "jv_partner"
+
+
 def _request_for_name(name: str, ids: dict):
     for read_name, method, path_fn, kwargs in READ_ROUTES:
         if read_name == name:
