@@ -167,6 +167,14 @@ export const AI_BEHAVIOUR_FIELDS = [
   { key: "learn_from_corrections", label: "Learn from corrections" },
 ];
 
+export const AUDIT_FILTERS = [
+  { key: "Everything", label: "Everything" },
+  { key: "Publish", label: "Publish" },
+  { key: "Access", label: "Access" },
+  { key: "Content", label: "Content" },
+  { key: "Read", label: "Read" },
+];
+
 export const PERMISSION_LEVELS = ["Full", "View", "Limited", "None"];
 export const DEFAULT_PERMISSION_LEVEL = "None";
 export const CONSOLE_ACCESS_KEY = "console_access";
@@ -432,6 +440,15 @@ export const COPY = {
   aiSaveGap: "Save Gap",
   aiGapSaved: "Gap saved",
   aiNoAssignee: "Unassigned",
+  auditTitle: "Audit Log",
+  auditError: "Audit log failed to load.",
+  auditEmpty: "No audit events match this filter.",
+  auditLoadMore: "Load More",
+  auditTimestamp: "Timestamp",
+  auditActor: "Actor",
+  auditSummary: "Summary",
+  auditCategory: "Category",
+  auditAction: "Action",
   emptyActivity: "No activity yet.",
   emptySetup: "No setup tasks yet.",
   previewingAs: "Viewing as",

@@ -1531,6 +1531,115 @@ textarea {
   padding: 14px;
 }
 
+.audit-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.audit-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.audit-filterbar button {
+  min-height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  color: var(--console-muted);
+  cursor: pointer;
+  padding: 0 13px;
+  font-weight: 800;
+}
+
+.audit-filterbar button.active {
+  border-color: var(--console-teal);
+  background: var(--console-teal);
+  color: white;
+}
+
+.audit-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+}
+
+.audit-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.audit-table th,
+.audit-table td {
+  border-bottom: 1px solid var(--console-lineSoft);
+  padding: 13px 14px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.audit-table th {
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.audit-table td {
+  color: var(--console-ink);
+  font-size: 14px;
+}
+
+.audit-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.audit-table time,
+.audit-table code {
+  color: var(--console-muted);
+  font-size: 12px;
+}
+
+.audit-chip {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 999px;
+  background: var(--console-surface);
+  color: var(--console-muted);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.audit-chip.publish {
+  border-color: rgba(56, 86, 103, 0.34);
+  background: rgba(56, 86, 103, 0.1);
+  color: var(--console-teal);
+}
+
+.audit-chip.people,
+.audit-chip.roles {
+  border-color: rgba(92, 127, 113, 0.35);
+  background: rgba(92, 127, 113, 0.12);
+  color: var(--console-good);
+}
+
+.audit-chip.system {
+  border-color: rgba(183, 123, 50, 0.38);
+  background: rgba(183, 123, 50, 0.12);
+  color: var(--console-warn);
+}
+
+.audit-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
 .permissions-savebar {
   min-height: 52px;
   display: flex;

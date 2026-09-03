@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Response, UploadFile
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
@@ -2264,15 +2264,36 @@ async def get_audit(category: str | None = Query(None), before: dt.datetime | No
                     p: ConsolePrincipal = Depends(require_console_access),
                     s: AsyncSession = Depends(get_session)):
     where = [AuditLog.tenant_id == p.user.tenant_id]
-    if category:
+    category_key = str(category or "").strip().lower()
+    if category_key in {"", "everything"}:
+        pass
+    elif category_key == "publish":
+        where.append(AuditLog.category == "Publish")
+    elif category_key == "access":
+        where.append(or_(
+            AuditLog.action.like("access.%"),
+            AuditLog.action == "console.role.update",
+            AuditLog.category.in_(["People", "Roles"]),
+        ))
+    elif category_key == "content":
+        where.append(or_(
+            AuditLog.action.like("content.%"),
+            AuditLog.action.like("config.%"),
+        ))
+    elif category_key == "read":
+        where.append(or_(
+            AuditLog.action.like("read.%"),
+            AuditLog.category == "Read",
+        ))
+    elif category:
         where.append(AuditLog.category == category)
     if before:
         where.append(AuditLog.created_at < before)
     rows = (await s.execute(select(AuditLog).where(*where).order_by(
         AuditLog.created_at.desc()).limit(limit + 1))).scalars().all()
-    next_cursor = _iso(rows[-1].created_at) if len(rows) > limit else None
-    rows = rows[:limit]
-    return {"items": [_audit(r) for r in rows], "total": len(rows), "cursor": next_cursor}
+    page = rows[:limit]
+    next_cursor = _iso(page[-1].created_at) if len(rows) > limit and page else None
+    return {"items": [_audit(r) for r in page], "total": len(page), "cursor": next_cursor}
 
 
 @router.get("/preview")

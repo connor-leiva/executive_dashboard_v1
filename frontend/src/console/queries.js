@@ -182,11 +182,19 @@ export function usePendingChanges(enabled) {
   });
 }
 
-export function useAudit(enabled) {
+export function useAudit(params, enabled = true) {
+  const queryParams = typeof params === "boolean" ? { limit: 6 } : (params || { limit: 6 });
+  const isEnabled = typeof params === "boolean" ? params : enabled;
   return useQuery({
-    queryKey: keys.audit,
-    queryFn: () => getAudit({ limit: 6 }),
-    enabled,
+    queryKey: [...keys.audit, queryParams],
+    queryFn: () => getAudit(queryParams),
+    enabled: isEnabled,
+  });
+}
+
+export function useLoadAudit() {
+  return useMutation({
+    mutationFn: getAudit,
   });
 }
 

@@ -696,6 +696,45 @@ async def test_content_gap_assignment_writes_content_gap_assigned(ctx):
     assert event.category == "AI"
 
 
+async def test_audit_filters_and_cursor_pagination_are_server_side(ctx):
+    tid = uuid.UUID(ctx["a"]["tenant_id"])
+    now = dt.datetime.now(dt.timezone.utc)
+    async with SessionLocal() as s:
+        s.add_all([
+            AuditLog(tenant_id=tid, actor_label="System", action="read.config", category="Read",
+                     summary="Audit read marker 1", created_at=now - dt.timedelta(seconds=1)),
+            AuditLog(tenant_id=tid, actor_label="System", action="read.preview", category="Read",
+                     summary="Audit read marker 2", created_at=now - dt.timedelta(seconds=2)),
+            AuditLog(tenant_id=tid, actor_label="System", action="read.audit", category="Read",
+                     summary="Audit read marker 3", created_at=now - dt.timedelta(seconds=3)),
+            AuditLog(tenant_id=tid, actor_label="System", action="access.member.updated", category="People",
+                     summary="Audit access marker", created_at=now - dt.timedelta(seconds=4)),
+            AuditLog(tenant_id=tid, actor_label="System", action="content.course.updated", category="Training",
+                     summary="Audit content marker", created_at=now - dt.timedelta(seconds=5)),
+            AuditLog(tenant_id=tid, actor_label="System", action="console.publish", category="Publish",
+                     summary="Audit publish marker", created_at=now - dt.timedelta(seconds=6)),
+        ])
+        await s.commit()
+    async with _client() as c:
+        page_one = await c.get("/api/console/audit?category=Read&limit=2", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+        page_two = await c.get(
+            f"/api/console/audit?category=Read&limit=2&before={page_one.json()['cursor']}",
+            headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+        )
+        access = await c.get("/api/console/audit?category=Access&limit=30", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+        content = await c.get("/api/console/audit?category=Content&limit=30", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+        publish = await c.get("/api/console/audit?category=Publish&limit=30", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+    assert page_one.status_code == 200, page_one.text
+    assert page_two.status_code == 200, page_two.text
+    first_summaries = [row["summary"] for row in page_one.json()["items"]]
+    second_summaries = [row["summary"] for row in page_two.json()["items"]]
+    assert first_summaries == ["Audit read marker 1", "Audit read marker 2"]
+    assert "Audit read marker 3" in second_summaries
+    assert "Audit access marker" in [row["summary"] for row in access.json()["items"]]
+    assert "Audit content marker" in [row["summary"] for row in content.json()["items"]]
+    assert "Audit publish marker" in [row["summary"] for row in publish.json()["items"]]
+
+
 @pytest.mark.parametrize(
     "filter_name,field,allowed",
     [
