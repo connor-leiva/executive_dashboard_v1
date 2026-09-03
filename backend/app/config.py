@@ -175,8 +175,12 @@ class Settings(BaseSettings):
     # Must be an address on a domain VERIFIED IN RESEND. A domain that merely exists at the
     # registrar is not verified, and the send fails 403 "not authorized for this domain" —
     # which reads as a key problem and is not one.
-    MAIL_FROM: str = "Acumyn <hello@acumyn.io>"
-    MAIL_REPLY_TO: str = ""      # fallback; invites override with the inviter's own address
+    MAIL_FROM: str = "Acumyn <hello@mail.acumyn.io>"
+    # A sending subdomain does not RECEIVE mail, and a password reset deliberately sets no
+    # reply-to (a reply about your own password should not go to whichever admin clicked the
+    # button). Without this, those replies bounce off a mailbox that was never created. An
+    # invite still overrides it with the inviter's own address.
+    MAIL_REPLY_TO: str = ""
 
     # The platform's own domain. Tenants live at {slug}.PLATFORM_DOMAIN unless they bring a
     # custom domain (a `domain` row). Drives tenant-host resolution, the CORS origin regex,

@@ -56,7 +56,7 @@ def _capture(monkeypatch):
     return calls
 
 
-def _enable(monkeypatch, key="re_test", frm="Acumyn <hello@acumyn.io>", reply=""):
+def _enable(monkeypatch, key="re_test", frm="Acumyn <hello@mail.acumyn.io>", reply=""):
     monkeypatch.setattr(settings, "RESEND_API_KEY", key)
     monkeypatch.setattr(settings, "MAIL_FROM", frm)
     monkeypatch.setattr(settings, "MAIL_REPLY_TO", reply)
@@ -78,7 +78,7 @@ async def test_a_successful_send_carries_both_bodies(monkeypatch):
     assert await mailer.send("a@b.com", "Subject", "<p>hi</p>", "hi") is True
 
     payload, headers = calls[0]
-    assert payload["from"] == "Acumyn <hello@acumyn.io>"
+    assert payload["from"] == "Acumyn <hello@mail.acumyn.io>"
     assert payload["to"] == ["a@b.com"], "a single recipient must still be a list"
     assert payload["subject"] == "Subject"
     # Both, always. A text part is what non-HTML clients render and what spam scoring expects to
