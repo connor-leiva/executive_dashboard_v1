@@ -339,6 +339,57 @@ async def test_cash_received_counts_everyone_who_has_paid_not_only_those_sitting
             assert r["conversion"] <= 100.0, f"{r['key']} converts at {r['conversion']}%"
 
 
+async def test_the_rung_says_how_many_are_still_parked_there():
+    """"Cash received 6, Enrolled 6" is correct and reads as though nothing happens between
+    them. The question actually being asked is how many have paid and NOT yet signed, and that
+    number has to be on the rung or the reader goes looking for it in the wrong place."""
+    tid, bid, launch = await _ctx()
+    for i in range(3):
+        await _person(tid, bid, launch, f"s{i}", "pif", four="PIF")               # signed
+    await _person(tid, bid, launch, "waiting", "pif", four="PIF", group="committed")
+
+    async with SessionLocal() as s:
+        await F.sync_ad_conversions(s, tid)
+        f = await F.build_funnel(s, tid, None, DAY - dt.timedelta(days=2),
+                                 DAY + dt.timedelta(days=2), "cohort",
+                                 ads_rungs={"spend": 4000})
+    cash = next(r for r in f["rungs"] if r["key"] == "committed")
+    assert cash["n"] == 4, "everyone who has paid"
+    assert cash["still_here"] == 1, "one of them has not signed yet"
+    # A rung nobody can move past has no occupancy to report, and a 0 would read as a finding.
+    assert next(r for r in f["rungs"] if r["key"] == "closed")["still_here"] is None
+    assert next(r for r in f["rungs"] if r["key"] == "held")["still_here"] is None
+
+
+async def test_a_stale_committed_row_does_not_count_as_still_parked():
+    """CONNOR'S 1. AdConversion is insert-only, so a member who paid, then signed, keeps her
+    committed row forever. Counting those rows raw said one person was sitting at Cash received
+    when she had already enrolled - she was the sixth enrolled member, not a seventh payer."""
+    tid, bid, launch = await _ctx()
+    await _person(tid, bid, launch, "moved", "pif", four="PIF")     # now enrolled
+    async with SessionLocal() as s:
+        await F.sync_ad_conversions(s, tid)
+    async with SessionLocal() as s:
+        attr = (await s.execute(select(AdAttribution).where(
+            AdAttribution.tenant_id == tid,
+            AdAttribution.identity_key == f"{PREFIX}moved"))).scalar_one()
+        # The row her earlier sync left behind, while she was still at Payment Received.
+        s.add(AdConversion(
+            tenant_id=tid, attribution_id=attr.id, business_id=bid, stage_key="committed",
+            source_kind="bc_launch_opp", source_ref=f"{PREFIX}opp_moved", occurred_on=DAY,
+            dated=True, value_upfront=Decimal(str(launch.price_map["PIF"]["upfront"])),
+            value_source="price_map"))
+        await s.commit()
+
+    async with SessionLocal() as s:
+        f = await F.build_funnel(s, tid, None, DAY - dt.timedelta(days=2),
+                                 DAY + dt.timedelta(days=2), "cohort",
+                                 ads_rungs={"spend": 1000})
+    cash = next(r for r in f["rungs"] if r["key"] == "committed")
+    assert cash["n"] == 1, "one person, holding rows at two stages, is still one person"
+    assert cash["still_here"] == 0, "she has signed; nobody is waiting"
+
+
 async def test_the_cash_received_drill_lists_the_same_people_the_rung_counted():
     """A drill that answers a different question than the number above it is worse than no
     drill. The rung counts everyone who has paid, so the drill must list them - including the

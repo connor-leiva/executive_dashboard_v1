@@ -102,7 +102,8 @@ export const sampleAdsOverview = {
     // the 14 enrolled members paid to get where they are. 19 + 14 = 33, which is why Enrolled
     // now converts at 42% instead of the impossible 600% the exclusive count produced.
     { key: "committed", label: "Cash received", zone: "acumyn", n: 33, prev: 58,
-      conversion: (33 / 58) * 100, cost_per: SPEND / 33, dated: 33, undated: 0, value: 118500 },
+      conversion: (33 / 58) * 100, cost_per: SPEND / 33, dated: 33, undated: 0, value: 118500,
+      still_here: 19 },
     { key: "closed", label: "Enrolled", zone: "acumyn", closes: true, n: 14, prev: 33,
       conversion: (14 / 33) * 100, cost_per: SPEND / 14, dated: 14, undated: 0, value: 174000 },
   ],

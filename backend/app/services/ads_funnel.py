@@ -632,6 +632,23 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
         else:
             rows_ = rung_population(by_stage, d)
             n = len(rows_)
+
+        # HOW MANY ARE STILL PARKED HERE, for a rung that counts people who have moved past it.
+        #
+        # Without this the rung answers a question nobody asked. "Cash received 6, Enrolled 6" is
+        # correct and reads as though the two rungs are the same thing - and it silently drops the
+        # fact somebody was actually looking for, which is how many have paid and NOT yet signed.
+        #
+        # Derived from the rows rather than from the current group, and it cannot be a raw count
+        # of committed rows: those are insert-only, so a member who paid in June and signed in
+        # July keeps her committed row forever. Still here means she has a row at this stage and
+        # NO row at any stage that implies it.
+        still_here = None
+        if d.get("implied_by"):
+            past = {c.attribution_id for later in d["implied_by"]
+                    for c in by_stage.get(later, [])}
+            still_here = sum(1 for c in by_stage.get(key, [])
+                             if c.attribution_id not in past)
         dated = sum(1 for c in rows_ if c.dated) if d.get("src") != "ads" else n
         # The two money rungs carry their dollars. A rung called "Cash received" that shows only
         # a headcount is the reader's job half done, and it is the figure the hero totals.
@@ -641,7 +658,7 @@ async def build_funnel(s: AsyncSession, tenant_id, account, start, end, basis="c
         elif key == "committed":
             value = collected or None
         rungs.append({
-            **d, "n": n, "prev": prev, "value": value,
+            **d, "n": n, "prev": prev, "value": value, "still_here": still_here,
             "conversion": conversion(n, prev) if prev is not None else None,
             "cost_per": cost_per(spend, n) if n else None,
             # A stage is only ever TIMED on the rows that carry a date. Reported so the reader

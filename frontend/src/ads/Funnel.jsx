@@ -155,6 +155,20 @@ export default function Funnel({ rungs, spend, onDrill }) {
                       {num(r.undated)} undated
                     </span>
                   )}
+                  {/* OCCUPANCY, for a rung that counts people who have moved past it. Without
+                      it, "Cash received 6" above "Enrolled 6" is correct and reads as though
+                      the two are the same thing - while the number actually being looked for,
+                      how many have paid and not yet signed, is nowhere on the page. */}
+                  {r.still_here !== null && r.still_here !== undefined && (
+                    <span title={r.still_here
+                      ? `${num(r.still_here)} of these ${num(r.n)} have not moved past this stage yet`
+                      : "everyone who reached this stage has since moved past it"}
+                          style={{ fontFamily: FONT, fontSize: 10, color: C.slate,
+                                   border: `1px solid ${C.line}`, borderRadius: 999,
+                                   padding: "1px 7px" }}>
+                      {r.still_here ? `${num(r.still_here)} still here` : "none still here"}
+                    </span>
+                  )}
                 </div>
 
                 {barPct !== null && (
