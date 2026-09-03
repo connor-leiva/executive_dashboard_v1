@@ -1,25 +1,67 @@
 :root {
-  --ink: #171e22;
-  --muted: #6e767b;
-  --faint: #9aa1a5;
-  --primary: #395262;
-  --accent: #aecbd4;
-  --rail: #10191e;
-  --rail-active: #1e2d34;
-  --page: #e9e6e3;
-  --panel: #fbfaf9;
-  --line: #d7d2cf;
-  --soft-line: #e2dedb;
-  --white: #ffffff;
-  --black: #0c0d10;
+  /* MEASURED FROM THE UTAH LIFE MOCKUP, not chosen. Every value below is a hex that appears in
+     `Utah Life Intranet.html`, and the frequency is why the neutrals matter: #DED9D7 appears 161
+     times and #EFEBEA 46, so a border one step off is wrong in a hundred and sixty places at
+     once. The structure here already matched the mockup; the greys did not, which is how a
+     faithful layout still reads as a different product.
+
+     What moved, and by how much: the rail was #10191E against the mockup's #171E22 -- the rail is
+     the SAME ink as the body text there, which is the whole trick of it -- the canvas was
+     #E9E6E3 against #EAE7E6, borders #D7D2CF against #DED9D7, hairlines #E2DEDB against #EFEBEA,
+     and panels an off-white #FBFAF9 where the mockup's cards are flatly #FFFFFF over the warm
+     canvas. Each is a small number and all of them together are the difference. */
+
+  /* Ink and type on light */
+  --ink: #171e22;          /* x146 - body text, and the rail */
+  --body: #41484b;         /* x91  - the step under ink: hero paragraph, card sub-copy.
+                                     Was missing, so this copy was rendering at --muted. */
+  --muted: #6e767b;        /* x101 - secondary copy */
+  --faint: #9aa1a5;        /* x124 - eyebrows, labels, placeholders */
+
+  /* Brand */
+  --primary: #395262;      /* x152 - the action colour */
+  --accent: #aecbd4;       /* x43  - the light blue: active bar, dots, pending segment */
+
+  /* Surfaces */
+  --page: #eae7e6;         /* x41  - the warm canvas */
+  --panel: #ffffff;        /* x201 - cards sit flatly white on the canvas */
+  --wash: #fbfafa;         /* x20  - the one step off white, for nested fills */
+  --line: #ded9d7;         /* x161 - every card border */
+  --soft-line: #efebea;    /* x46  - hairlines inside a card */
+
+  /* The rail: ink ground, and four steps of text on it */
+  --rail: #171e22;
+  --rail-active: #222c31;
+  --rail-hover: #1e282d;
+  --rail-text: #a9b2b7;    /* inactive nav label */
+  --rail-dim: #7c8a92;     /* "Team Intranet", the wordmark's supporting line */
+  --rail-label: #5f6c74;   /* nav group headings */
+  --rail-line: #262f34;    /* the divider above the footer */
+  --dark-line: #2a343a;    /* border on an ink-coloured button */
+
+  /* The Sunburst panel is its own near-black with a magenta accent -- deliberately not the
+     rail's ink, because it is somebody else's product embedded in ours. */
+  --black: #0d0d10;
+  --sun-panel: #141419;
+  --sun-line: #24242a;
+  --sun-accent: #c04bd1;
+  --sun-dim: #8c979d;
+
+  /* Semantic. Not from the mockup's palette -- it has no failure states drawn -- so these stay
+     as they were rather than being invented from a colour that happened to appear once. */
   --good: #7f998a;
   --warn: #d8755e;
+
+  /* Compatibility shims for shared components that read dashboard token names. */
   --t-ink: var(--ink);
   --t-slate: var(--primary);
   --t-line: var(--line);
   --t-parchment: #f6f0e9;
-  --t-white: var(--white);
+  --t-white: var(--panel);
   --t-teal: var(--primary);
+
+  /* DM Sans and Archivo are the close proxies for TT Norms Pro and TT Drugs, which is what the
+     mockup itself uses. Swap here when the licensed files arrive. */
   --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
   --font-text: "DM Sans", "Segoe UI", Arial, sans-serif;
   --font-ui: "Archivo", "Segoe UI", Arial, sans-serif;
@@ -67,15 +109,17 @@ input {
 }
 
 .ut-rail {
-  width: 293px;
-  flex: 0 0 293px;
+  /* 266px is the mockup's rail. It was 293, which is enough wider that the canvas beside it
+     loses most of a grid column at 1440. */
+  width: 266px;
+  flex: 0 0 266px;
   height: 100vh;
   position: sticky;
   top: 0;
   overflow-y: auto;
-  padding: 22px 28px 34px;
+  padding: 30px 26px 28px;
   background: var(--rail);
-  color: #eef4f4;
+  color: var(--rail-text);
 }
 
 .ut-logo-lockup {
@@ -128,34 +172,54 @@ input {
 
 .ut-nav-label {
   margin: 0 0 8px;
-  color: rgba(174, 203, 212, .68);
+  padding: 0 12px;
+  color: var(--rail-label);
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
-  letter-spacing: 0;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 .ut-nav-item {
-  min-height: 43px;
   display: flex;
   align-items: center;
-  border-radius: 8px;
-  padding: 0 16px;
-  color: #cad9df;
+  gap: 10px;
+  border-radius: 9px;
+  padding: 10px 12px;
+  color: var(--rail-text);
   text-decoration: none;
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 14.5px;
+  font-weight: 400;
 }
 
-.ut-nav-item:hover,
-.ut-nav-item.active {
-  background: var(--rail-active);
+/* The active marker is a 3px x 16px tick, and EVERY item carries one -- transparent when the
+   item is not active. That is the mockup's own construction and it is not decoration: it is what
+   keeps the labels on one vertical line instead of shifting by the width of the marker when a
+   nav item becomes active. The previous `inset 3px 0 0` box-shadow drew a full-height rule down
+   the item's edge, which reads as a different device and moved nothing into alignment. */
+.ut-nav-item::before {
+  content: "";
+  flex: 0 0 3px;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.ut-nav-item:hover {
+  background: var(--rail-hover);
   color: #ffffff;
 }
 
 .ut-nav-item.active {
-  box-shadow: inset 3px 0 0 var(--accent);
+  background: var(--rail-active);
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.ut-nav-item.active::before {
+  background: var(--accent);
 }
 
 .ut-main {
@@ -219,7 +283,7 @@ input {
   border: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .ut-ask-top,
@@ -301,8 +365,8 @@ input {
   color: var(--muted);
   padding: 0 13px;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 400;
   white-space: nowrap;
 }
 
@@ -407,9 +471,9 @@ input {
   margin-bottom: 12px;
   color: var(--faint);
   font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
@@ -418,23 +482,23 @@ input {
   margin: 0;
   color: var(--ink);
   font-family: var(--font-text);
-  font-size: 42px;
-  line-height: 1.06;
-  font-weight: 500;
-  letter-spacing: 0;
+  font-size: 40px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: -0.6px;
 }
 
 .ut-page-title h1 {
-  font-size: 38px;
+  font-size: 34px;
 }
 
 .ut-hero p,
 .ut-page-title p {
-  max-width: 650px;
+  max-width: 540px;
   margin: 8px 0 0;
-  color: #4e565a;
-  font-size: 19px;
-  line-height: 1.35;
+  color: var(--body);
+  font-size: 16px;
+  line-height: 1.45;
 }
 
 .ut-hero-actions {
@@ -450,8 +514,8 @@ input {
   justify-content: center;
   border-radius: 10px;
   padding: 0 24px;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 500;
   text-decoration: none;
   border: 1px solid transparent;
   cursor: pointer;
@@ -546,15 +610,16 @@ input {
   margin-top: 18px;
   color: var(--ink);
   font-family: var(--font-text);
-  font-size: 36px;
+  font-size: 34px;
   line-height: 1;
-  font-weight: 500;
+  font-weight: 400;
+  letter-spacing: -0.8px;
 }
 
 .ut-stat-card p {
   margin: 10px 0 0;
-  color: #4e565a;
-  font-size: 15px;
+  color: var(--body);
+  font-size: 13.5px;
 }
 
 .ut-stat-line {
@@ -589,8 +654,8 @@ input {
 }
 
 .ut-goal-head strong {
-  font-size: 17px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 500;
 }
 
 .ut-goal-head span {
@@ -667,9 +732,10 @@ input {
 }
 
 .ut-team-ytd strong {
-  font-size: 28px;
+  font-size: 24px;
   line-height: 1;
   font-weight: 500;
+  letter-spacing: -0.4px;
 }
 
 .ut-team-ytd em {
@@ -710,7 +776,7 @@ input {
 .ut-sunburst-brand span {
   width: 17px;
   height: 17px;
-  border: 1px solid #f05cff;
+  border: 1px solid var(--sun-accent);
   border-radius: 50%;
 }
 
@@ -726,9 +792,9 @@ input {
 .ut-sunburst h2 {
   margin: 29px 0 10px;
   font-family: var(--font-text);
-  font-size: 31px;
+  font-size: 27px;
   line-height: 1.15;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0;
 }
 
@@ -736,8 +802,8 @@ input {
   max-width: 670px;
   margin: 0;
   color: rgba(255, 255, 255, .68);
-  font-size: 16px;
-  line-height: 1.55;
+  font-size: 15px;
+  line-height: 1.5;
 }
 
 .ut-sunburst-actions {
@@ -770,7 +836,7 @@ input {
 }
 
 .ut-sunburst-prompts span {
-  color: #ee59f3;
+  color: var(--sun-accent);
 }
 
 .ut-lower-grid,
@@ -797,9 +863,9 @@ input {
   margin: 0;
   color: var(--ink);
   font-family: var(--font-text);
-  font-size: 22px;
+  font-size: 19px;
   line-height: 1.15;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
@@ -854,7 +920,7 @@ input {
 .ut-fub-card {
   border: 1px solid var(--soft-line);
   border-radius: 10px;
-  background: #fffdfb;
+  background: var(--wash);
 }
 
 .ut-quick-card {
@@ -1037,7 +1103,7 @@ input {
   border: 1px solid var(--line);
   border-radius: 9px;
   padding: 0 12px;
-  background: #fffdfb;
+  background: var(--wash);
   color: var(--ink);
 }
 
@@ -1115,7 +1181,7 @@ input {
   border: 1px solid var(--soft-line);
   border-radius: 10px;
   padding: 10px 12px;
-  background: #fffdfb;
+  background: var(--wash);
 }
 
 .ut-step > span {
@@ -1183,7 +1249,7 @@ input {
   min-height: 620px;
   border: 0;
   border-radius: 10px;
-  background: #fffdfb;
+  background: var(--wash);
 }
 
 .ut-open-request {
@@ -1193,7 +1259,7 @@ input {
   justify-content: center;
   border: 1px solid var(--soft-line);
   border-radius: 10px;
-  background: #fffdfb;
+  background: var(--wash);
   color: var(--primary);
   font-weight: 700;
   text-decoration: none;
@@ -1241,7 +1307,7 @@ input {
   justify-content: center;
   border: 1px solid var(--soft-line);
   border-radius: 10px;
-  background: #fffdfb;
+  background: var(--wash);
   padding: 30px;
   text-align: center;
 }
@@ -1402,7 +1468,7 @@ input {
 
   .ut-hero h1,
   .ut-page-title h1 {
-    font-size: 34px;
+    font-size: 32px;
   }
 
   .ut-hero-actions,

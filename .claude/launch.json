@@ -32,6 +32,30 @@
       ],
       "port": 4174,
       "url": "http://localhost:4174"
+    },
+    {
+      "name": "intranet",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev:intranet"
+      ],
+      "port": 5174,
+      "url": "http://localhost:5174"
+    },
+    {
+      "name": "console",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev:console"
+      ],
+      "port": 5175,
+      "url": "http://localhost:5175"
     }
   ]
 }

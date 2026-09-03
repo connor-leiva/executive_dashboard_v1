@@ -44,7 +44,49 @@ const DEFAULT_CONFIG = {
 const DEFAULT_WTD = { checked: {}, tallies: { calls: 0, conversations: 0, appointments: 0, notes: 0 } };
 const DEFAULT_PROGRESS = { done: {} };
 const DEFAULT_ACKS = { acked: {} };
-const MOCK_DATE = "MONDAY, AUGUST 17";
+/* THE DATE LINE AND THE GREETING COME FROM THE VIEWER'S CLOCK.
+ *
+ * Both were the mockup's frozen moment: a MOCK_DATE constant holding the mockup's own weekday
+ * and date, and a hardcoded "Good Morning". A mockup is entitled to one instant. A product
+ * somebody opens every morning is not, and a screen naming last August's Monday on a Thursday in
+ * September is the same kind of untruth as a fake metric -- it just wears a date instead of a
+ * number. check-no-mock-data.sh now fails on a frozen date literal, which is why this note
+ * describes the old value rather than quoting it.
+ *
+ * The VIEWER's clock rather than the server's or the workspace's timezone, deliberately, and for
+ * the reason Win the Day already resets on the user's local day: the person reading "Good
+ * Morning" is the one whose morning it is.
+ */
+function localDateLine(now) {
+  // Locale-formatted so it reads correctly outside en-US; the CSS does the uppercasing.
+  return now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+
+function greetingFor(now) {
+  const h = now.getHours();
+  if (h < 12) return "Good Morning";
+  if (h < 17) return "Good Afternoon";
+  return "Good Evening";
+}
+
+/* A tab left open overnight would otherwise still say Thursday, and still say Good Evening at
+   nine the next morning -- this product is one people leave open all day. The tick is a minute,
+   and it only re-renders when one of the two strings actually changes. */
+function useLocalNow() {
+  const [stamp, setStamp] = useState(() => {
+    const now = new Date();
+    return { date: localDateLine(now), greeting: greetingFor(now) };
+  });
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = new Date();
+      const next = { date: localDateLine(now), greeting: greetingFor(now) };
+      setStamp((prev) => (prev.date === next.date && prev.greeting === next.greeting ? prev : next));
+    }, 60000);
+    return () => clearInterval(id);
+  }, []);
+  return stamp;
+}
 
 const ALL_NAV = NAV_GROUPS.flatMap((group) => group.items);
 
@@ -365,6 +407,7 @@ function Meter({ value, total, className = "" }) {
 }
 
 function Home({ config, wtd, training, onboarding, me }) {
+  const now = useLocalNow();
   const numbers = config.numbers || DEFAULT_CONFIG.numbers;
   const totalTasks = WTD_BLOCKS.flatMap((b) => b.items).length;
   const doneToday = Object.values(wtd.checked || {}).filter(Boolean).length;
@@ -376,8 +419,8 @@ function Home({ config, wtd, training, onboarding, me }) {
     <div className="ut-home">
       <section className="ut-hero">
         <div>
-          <div className="ut-date">{MOCK_DATE}</div>
-          <h1>Good Morning, {firstName(me)}.</h1>
+          <div className="ut-date">{now.date}</div>
+          <h1>{now.greeting}, {firstName(me)}.</h1>
           <p>Your priority queue and production story will populate as tenant sources are configured.</p>
         </div>
         <div className="ut-hero-actions">
@@ -869,11 +912,12 @@ function PlaceholderPage({ title, subtitle }) {
 }
 
 function Page({ title, subtitle, children }) {
+  const now = useLocalNow();
   return (
     <div className="ut-page">
       <section className="ut-page-title">
         <div>
-          <div className="ut-date">{MOCK_DATE}</div>
+          <div className="ut-date">{now.date}</div>
           <h1>{title}</h1>
           {subtitle && <p>{subtitle}</p>}
         </div>
