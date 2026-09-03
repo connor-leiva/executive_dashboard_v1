@@ -54,13 +54,22 @@ export const adsCss = () => `
 .adsx .range { font-size:var(--a-small); color:${C.muted}; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .adsx .range::before { content:''; width:20px; height:1px; background:${C.hairDeep}; }
 
-/* ── The dark band. Full width, one edge into the light page. ──────────
+/* ── The hero band. ────────────────────────────────────────────────────
+   A ROUNDED PANEL, like every other hero, because it occupies the same box as they do. Measured:
+   this band, the Portfolio hero and the Books flow band all run 258->1351 in the content column;
+   the other two were 16px and this one was 0, so it read as the one square panel in the product.
+
+   It was a full-bleed banner ported from the mockup -- "full width, one edge into the light
+   page" -- and it carried two devices that only made sense that way: a bottom hairline where the
+   band met the page, and a downward shadow lifting it off what followed. Both are gone with the
+   full bleed. Neither peer has either, and the hairline was a hardcoded rgba of one customer's
+   sprout besides.
+
    The plate is resolved per workspace by heroCss, not named here: ASSET.ever pointed straight at
    one customer's licensed ribbed gradient, so every workspace's Ads tab downloaded and displayed
    it regardless of whose brand they had configured. */
 .adsx .band { ${heroCss("evergreen")}
-  padding:26px var(--a-gut) 22px; border-bottom:1px solid rgba(184,204,184,.28);
-  box-shadow:0 18px 34px -26px rgba(0,46,44,.55); }
+  border-radius:16px; overflow:hidden; padding:26px var(--a-gut) 22px; }
 .adsx .hero { position:relative; }
 .adsx .hgrid { display:grid; grid-template-columns:minmax(0,1fr) minmax(290px,380px); gap:30px;
   align-items:stretch; }
