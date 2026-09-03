@@ -22,6 +22,7 @@ import AIEmployees from "./AIEmployees.jsx";
 import { useAiEmployees } from "./useAiEmployees.js";
 import Assistant from "./Assistant.jsx";
 import { SpringSignature, setBrand, ribbedHero, Icon , HeroMark} from "./Brand.jsx";
+import { ProductIcon, iconFor } from "./brand/productIcons.jsx";
 import { applyBrand, applyType } from "./palette.js";
 import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
 import AppSwitcher from "./AppSwitcher.jsx";
@@ -904,7 +905,7 @@ function Flywheel({ flywheel, onDrill }) {
         </div>
       )}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 2 }}>
-        <Icon name="spark" size={20} color={T.poppyText} />
+        <ProductIcon name={iconFor("flywheel")} size={24} tone={T.poppy} />
         <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, color: T.ink, letterSpacing: "-.01em" }}>The Referral Flywheel</span>
         <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>{src} → {partner} · the connection QuickBooks can't see</span>
       </div>
@@ -1305,7 +1306,30 @@ export default function CommandCenter() {
                 padding: "10px 10px", cursor: "pointer", marginTop: n.divide ? 14 : 2,
                 borderTop: n.divide ? "1px solid rgba(248,245,242,0.10)" : "none", paddingTop: n.divide ? 16 : 10,
               }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: n.dot, flexShrink: 0 }} />
+                {/* A PLATFORM MODULE GETS ITS MARK; A BUSINESS GETS ITS COLOUR.
+                    Not a style preference — the two are different kinds of thing and the rail
+                    already separates them with a divider. A module is a product Acumyn named
+                    and drew an icon for. A business is the customer's, named by them, and its
+                    only visual identity is the accent it was assigned; there is no icon for
+                    "The Forum" and inventing one would be us naming their company.
+
+                    THE ICON TAKES THE LABEL'S COLOUR, NOT THE MODULE'S ACCENT. Measured against
+                    this rail, the accents run from 2.13:1 (AI Employees) to 13.48:1 (Books) —
+                    three of the five below 3:1, on a stroke that renders about 1.5px wide, with
+                    a 7.32:1 label beside it. And the accents are DERIVED FROM A WORKSPACE'S OWN
+                    SEEDS, so the range is not even fixed: another tenant's palette moves all
+                    five. Chrome that has to stay legible cannot be tinted by a customer choice.
+                    A module is identified by its shape; only a business needs a colour, because
+                    a business has no shape. The dot keeps the accent for exactly that reason.
+
+                    Both sit in the same 18px slot so the labels line up either way. */}
+                <span style={{ width: 18, flexShrink: 0, display: "inline-flex",
+                               alignItems: "center", justifyContent: "center" }}>
+                  {iconFor(n.k)
+                    ? <ProductIcon name={iconFor(n.k)} size={18}
+                                   tone={active ? T.onDark : T.onDarkMute} />
+                    : <span style={{ width: 8, height: 8, borderRadius: 2, background: n.dot }} />}
+                </span>
                 <span style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: active ? 600 : 500, color: active ? T.onDark : T.onDarkMute }}>{n.label}</span>
                 {n.k === "ai_employees" && ai.data && ai.data.awaiting_total > 0 && (
                   <span style={{

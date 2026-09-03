@@ -14,13 +14,14 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { ASSET, BAND, C, FIG, FONT, HEAD, band, compact, mult, num, pct, usd } from "./adsTokens.js";
+import { ProductIcon, iconFor } from "../brand/productIcons.jsx";
+import { BAND, C, FIG, FONT, HEAD, band, compact, mult, num, pct, usd } from "./adsTokens.js";
 import CreativeWall from "./CreativeWall.jsx";
 import DrillPanel from "./DrillPanel.jsx";
 import GroupingRules from "./GroupingRules.jsx";
 import Funnel from "./Funnel.jsx";
 import { API_BASE, getJSON, postJSON } from "../api";
-import { cashNote, Fig as ChromeFig, Hero, IconFilters, Icon, Kicker,
+import { cashNote, Fig as ChromeFig, Hero, Kicker,
          Section as ChromeSection,
          Source } from "./AdsChrome.jsx";
 import { adsCss } from "./adsStyles.js";
@@ -250,7 +251,6 @@ export default function AdsView() {
 
   return (
     <div className="adsx" ref={pageRef}>
-      <IconFilters />
       <style>{adsCss()}</style>
       <style>{`
         .adsx .ads-bar { transition: width .2s ease; }
@@ -271,7 +271,9 @@ export default function AdsView() {
       <div className="head" id="top">
         <div className="wrap">
           <div className="phead">
-            <Icon src={ASSET.meg} size={19} color={C.accent} />
+            {/* Was a masked bell PNG from the utility icon set. Ads is a platform module and
+                carries the module mark, the same one the rail shows for this tab. */}
+            <ProductIcon name={iconFor("ads")} size={22} tone={C.accent} />
             <span className="ptitle">Ads · Meta performance</span>
             <span className="psub">what the spend bought, all the way to a signed member</span>
             <span className="spacer" />

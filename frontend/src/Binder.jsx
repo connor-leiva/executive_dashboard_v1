@@ -6,6 +6,7 @@
 import { useMemo, useState } from "react";
 import { T } from "./theme.js";
 import { Icon } from "./Brand.jsx";
+import { ProductIcon, iconFor } from "./brand/productIcons.jsx";
 import { useBinder } from "./useBinder.js";
 import { useBinderReview } from "./useBinderReview.js";
 import BinderReview from "./BinderReview.jsx";
@@ -108,7 +109,9 @@ function EmptyState({ onAdd }) {
     <Card style={{ padding: "40px 32px", textAlign: "center", maxWidth: 560, margin: "8px auto" }}>
       <div style={{ display: "inline-flex", width: 46, height: 46, borderRadius: 12, alignItems: "center",
         justifyContent: "center", background: T.meadowBg, marginBottom: 14 }}>
-        <Icon name="puzzle" size={22} color={T.meadow} />
+        {/* Was a puzzle piece from the utility set. A module's first-run screen is the first
+            time somebody meets it, so it shows the module's own mark. */}
+        <ProductIcon name={iconFor("binder")} size={24} tone={T.meadow} />
       </div>
       <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, color: T.ink }}>Set Up Your Binder</div>
       <p style={{ fontFamily: "var(--font-text)", fontSize: 13.5, lineHeight: 1.55, color: T.slate, margin: "10px auto 20px", maxWidth: 420 }}>
@@ -313,7 +316,7 @@ export default function Binder({ role }) {
     <div>
       {/* header */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
-        <span style={{ width: 5, height: 28, borderRadius: 3, background: T.teal }} />
+        <ProductIcon name={iconFor("binder")} size={24} tone={T.teal} />
         <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: T.ink }}>Binder</span>
         <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>
           Legal entities and the documents behind their filings

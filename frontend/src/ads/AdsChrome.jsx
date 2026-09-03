@@ -1,63 +1,37 @@
 /* The mockup's primitives and page chrome, ported. SPEC-ads-module.md Part 13.
  *
- * These are the pieces the whole tab is assembled from - the icon tinting, the figure treatment,
- * the section header, the hero. They live apart from AdsView so the view reads as a layout and
- * not as a layout plus a design system.
+ * These are the pieces the whole tab is assembled from - the figure treatment, the section
+ * header, the hero. They live apart from AdsView so the view reads as a layout and not as a
+ * layout plus a design system. (Icon tinting was one of them; see below for where it went.)
  *
  * The spec's rule for this file: the mockup wins on LAYOUT, this document wins on data and
  * behaviour. So the classes, the type scale and the structure are the mockup's; every number
  * bound into them comes from the API, and anything the API cannot yet supply says so rather than
  * rendering a placeholder that looks like a measurement.
  */
-import { ASSET, C, mult, usd } from "./adsTokens.js";
+import { C, mult, usd } from "./adsTokens.js";
 import { HeroMark } from "../Brand.jsx";
 
-/* The brand icons are opaque black-on-white PNGs with no alpha channel, so masking them paints a
-   filled square in every browser. Alpha is derived from luminance by one feColorMatrix per tint.
-   The tints are a FIXED set: a colour outside it has no filter to reference and would silently
-   render the raw PNG, so Icon falls back rather than failing open. */
-export const ICON_TINTS = [C.teal, C.muted, C.slate, C.ink, C.flagText, C.onDark, C.sprout];
-const tintId = (hex) => "tint" + hex.replace("#", "");
-const rgb01 = (hex) => [1, 3, 5].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(4));
+/* THE TINTED `Icon` THAT LIVED HERE IS GONE, along with ICON_TINTS, tintId, rgb01 and the
+ * IconFilters <defs> block that AdsView mounted for it.
+ *
+ * It tinted a PNG through a generated SVG filter — one <filter> per allowed hex, each icon
+ * pointing at `url(#tint<hex>)` — on the stated premise that the delivered icons are "opaque
+ * black-on-white PNGs with no alpha channel, so masking them paints a filled square". Brand.jsx
+ * masks those same files and has always worked, so the premise did not hold.
+ *
+ * It had also been broken since the palette moved to CSS variables: `C.slate` became the STRING
+ * "var(--t-slate)", so the id became `tintvar(--t-slate)` (parentheses in a url(), matching
+ * nothing) and rgb01() read a hex out of character positions 1,3,5 of that string and got NaN —
+ * `<feFuncG> attribute intercept: Expected number, "NaN"` on every page load. The same defect
+ * `alpha()` carries a `-rgb` triple to avoid: JavaScript cannot read a value only the browser
+ * resolves.
+ *
+ * It is deleted rather than repaired because it had exactly ONE call site — the bell beside the
+ * page title — and that is now the Ads module's own mark. A tinted PNG in this tab should use
+ * Brand.jsx's Icon, which is the mechanism the rest of the app uses.
+ */
 
-export function IconFilters() {
-  return (
-    <svg aria-hidden focusable="false" width="0" height="0"
-         style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}>
-      <defs>
-        {ICON_TINTS.map((hex) => {
-          const [r, g, b] = rgb01(hex);
-          return (
-            <filter key={hex} id={tintId(hex)} colorInterpolationFilters="sRGB">
-              {/* Luminance -> alpha, then flood the tint through it. */}
-              <feColorMatrix type="matrix" values={`0 0 0 0 0
-                0 0 0 0 0
-                0 0 0 0 0
-                -1 -1 -1 0 1`} />
-              <feFlood floodColor={hex} result="f" />
-              <feComposite in="f" in2="SourceGraphic" operator="in" />
-              <feComponentTransfer>
-                <feFuncR type="linear" slope="0" intercept={r} />
-                <feFuncG type="linear" slope="0" intercept={g} />
-                <feFuncB type="linear" slope="0" intercept={b} />
-              </feComponentTransfer>
-            </filter>
-          );
-        })}
-      </defs>
-    </svg>
-  );
-}
-
-export function Icon({ src, size = 15, color = C.slate, style }) {
-  const hex = ICON_TINTS.includes(color) ? color : C.slate;
-  return <img src={src} alt="" aria-hidden
-              style={{ width: size, height: size, display: "block", flexShrink: 0,
-                       filter: `url(#${tintId(hex)})`, ...style }} />;
-}
-
-/* Headline figures set the unit smaller than the digits, so a column of them reads as quantities
-   first and currency second. Purely presentational: the string is not touched. */
 export function Fig({ v }) {
   const s = String(v);
   const pre = s.charAt(0) === "$" ? "$" : "";

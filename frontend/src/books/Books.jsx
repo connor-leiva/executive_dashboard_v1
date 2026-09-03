@@ -1,6 +1,7 @@
 /* Books — the bookkeeping module, rendered as a Command Center view (a side-nav tab).
    Header + sub-nav + the active page, all internal state (mirrors the mockup). */
 import { useState } from "react";
+import { ProductIcon, iconFor } from "../brand/productIcons.jsx";
 import { useBooksHome } from "./useBooks.js";
 import BooksHome from "./BooksHome.jsx";
 import BooksPL from "./BooksPL.jsx";
@@ -41,7 +42,9 @@ export default function Books({ period = "mtd", role }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
-        <span style={{ width: 5, height: 28, borderRadius: 3, background: T.meadow }} />
+        {/* The module's own mark, where a business page carries an accent bar. The rail draws
+            the same distinction; a header that disagreed with it would be worse than either. */}
+        <ProductIcon name={iconFor("books")} size={24} tone={T.meadow} />
         <span style={{ fontFamily: font.head, fontSize: 22, fontWeight: 600, color: T.ink }}>
           Books{PAGE_TITLE[page] && <span style={{ color: T.muted, fontWeight: 500 }}> / {PAGE_TITLE[page]}</span>}</span>
       </div>

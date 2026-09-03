@@ -337,3 +337,36 @@ def test_every_hero_band_asks_for_its_surface_rather_than_drawing_one():
             if re.search(r"repeating-linear-gradient", line):
                 offenders[f"{path.name}:{n}"] = stripped[:90]
     assert not offenders, f"a hero surface is being drawn by hand: {offenders}"
+
+
+def test_every_platform_module_has_a_mark():
+    """The rail shows a module's ICON and a business's COLOUR, and it decides which by asking
+    productIcons for the key. A module with no entry there silently falls back to the dot, so it
+    looks like one of the customer's businesses instead of one of our products -- the failure is
+    a missing dictionary entry again, and again nothing complains.
+
+    The modules are named on the server: plans.py gates them, so plans.py is the source. `ads` is
+    the exception -- it is a rail module but not plan-gated -- and is listed rather than derived,
+    because a test that silently skipped it would be no test at all.
+    """
+    import re
+    from pathlib import Path
+
+    from app.plans import _FEATURE_TABS
+
+    src = Path(__file__).resolve().parents[2] / "frontend" / "src" / "brand" / "productIcons.jsx"
+    if not src.exists():
+        return
+
+    text = src.read_text(encoding="utf-8")
+    block = text[text.index("const BY_MODULE = {"):]
+    block = block[: block.index("}")]
+    has_mark = set(re.findall(r"^\s*([a-z_]+)\s*:", block, re.M))
+
+    expected = set(_FEATURE_TABS) | {"ads"}
+    missing = sorted(expected - has_mark)
+    assert not missing, f"platform module(s) with no mark, will render as a business dot: {missing}"
+
+    # And the reverse: a mark for a key the server does not serve is a rename nobody finished.
+    stale = sorted(has_mark - expected)
+    assert not stale, f"productIcons maps {stale}, which is not a module the server knows about"

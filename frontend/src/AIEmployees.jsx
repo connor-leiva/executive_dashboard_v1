@@ -4,6 +4,7 @@
    view is where a tenant creates employees and sees what's awaiting approval.
    theme.js tokens + Brand.jsx icons, dashboard type system — no forked palette. */
 import { useState } from "react";
+import { ProductIcon, iconFor } from "./brand/productIcons.jsx";
 import { T } from "./theme.js";
 import { relativeTime } from "./theme.js";
 import { Icon } from "./Brand.jsx";
@@ -134,7 +135,9 @@ function EmptyState({ canManage, onAdd }) {
     <Card style={{ padding: "40px 32px", textAlign: "center", maxWidth: 560, margin: "8px auto" }}>
       <div style={{ display: "inline-flex", width: 46, height: 46, borderRadius: 12, alignItems: "center",
         justifyContent: "center", background: T.mist, marginBottom: 14 }}>
-        <Icon name="spark" size={22} color={T.teal} />
+        {/* `spark` is the app's generic AI affordance and still marks the AI ACTIONS elsewhere
+            (Explain with AI, Run full response). The module itself gets the module's mark. */}
+        <ProductIcon name={iconFor("ai_employees")} size={24} tone={T.teal} />
       </div>
       <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, color: T.ink }}>Hire Your First AI Employee</div>
       <p style={{ fontFamily: "var(--font-text)", fontSize: 13.5, lineHeight: 1.55, color: T.slate, margin: "10px auto 20px", maxWidth: 430 }}>
@@ -252,7 +255,10 @@ export default function AIEmployees({ data, loading, error, reload, role }) {
 
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, color: T.ink }}>AI Employees</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <ProductIcon name={iconFor("ai_employees")} size={24} tone={T.meadow} />
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, color: T.ink }}>AI Employees</div>
+          </div>
           <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, marginTop: 3 }}>
             Configured agents that draft work for your approval. Nothing ships without a human sign-off.
           </div>

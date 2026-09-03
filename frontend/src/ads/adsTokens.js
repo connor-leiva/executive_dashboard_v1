@@ -74,19 +74,15 @@ export const C = {
   flagText: T.daffodilText,
 };
 
-/* The brand assets the mockup inlines as base64. They already ship in public/brand, so the port
-   references the files rather than carrying eighty kilobytes of duplicated image data in a
-   source file - and a rebrand then reaches this tab by replacing an asset, not by editing JSX. */
-export const ASSET = {
-  // `ever` used to live here: a direct path to one customer's ribbed gradient, behind the hero
-  // band. It is gone rather than repointed -- the band asks heroCss for a plate now, and the
-  // whole point is that no module names a brand file.
-  chev: "/brand/icons/chevron_down.png",
-  open: "/brand/icons/open.png",
-  warn: "/brand/icons/info.png",
-  meg: "/brand/icons/notification.png",
-  img: "/brand/icons/puzzle.png",
-};
+/* ASSET IS GONE. It held six file paths the ported mockup referenced directly, and nothing reads
+ * it any more: `ever` pointed at one customer's licensed ribbed gradient behind the hero band
+ * (the band asks heroCss for a plate now), and the other five fed a tinted-PNG `Icon` in
+ * AdsChrome that had a single call site, since replaced by the module's own mark.
+ *
+ * Removed rather than left in place because a bag of brand file paths is how the licensed
+ * gradient got into every workspace's bundle in the first place — an unused export is the thing
+ * somebody wires back up. An icon on this tab uses Brand.jsx's Icon, by name.
+ */
 
 /* Every band decision is made by the SERVER (spec Part 10.3); the client only colours what it
  * is handed. `none` is its own state and must never render as `bad` - a missing number and a
