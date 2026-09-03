@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  connectIntegration,
   createCalendarCategory,
   createCourse,
   createLesson,
@@ -33,10 +34,12 @@ import {
   getSopVersions,
   getTiles,
   getWorkspace,
+  getIntegrations,
   getWtdLists,
   inviteMember,
   login,
   patchCalendarCategory,
+  patchIntegration,
   patchMember,
   patchSetupTask,
   patchSop,
@@ -54,6 +57,7 @@ import {
   putTileRoles,
   putWtdOrder,
   syncMembers,
+  testIntegration,
   uploadSopVersion,
   uploadWorkspaceLogo,
 } from "./api.js";
@@ -65,6 +69,7 @@ export const keys = {
   audit: ["console", "audit"],
   workspace: ["console", "workspace"],
   calendarCategories: ["console", "calendar-categories"],
+  integrations: ["console", "integrations"],
   members: (params) => ["console", "members", params],
   permissions: ["console", "permissions"],
   roles: ["console", "roles"],
@@ -102,6 +107,11 @@ function invalidateCalendar(queryClient) {
   queryClient.invalidateQueries({ queryKey: keys.calendarCategories });
   queryClient.invalidateQueries({ queryKey: keys.workspace });
   queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
+}
+
+function invalidateIntegrations(queryClient) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.integrations });
 }
 
 function invalidateLaunchpad(queryClient) {
@@ -186,6 +196,14 @@ export function useCalendarCategories(enabled) {
   return useQuery({
     queryKey: keys.calendarCategories,
     queryFn: getCalendarCategories,
+    enabled,
+  });
+}
+
+export function useIntegrations(enabled) {
+  return useQuery({
+    queryKey: keys.integrations,
+    queryFn: getIntegrations,
     enabled,
   });
 }
@@ -353,6 +371,30 @@ export function useRemoveCalendarCategory() {
   return useMutation({
     mutationFn: deleteCalendarCategory,
     onSuccess: () => invalidateCalendar(queryClient),
+  });
+}
+
+export function usePatchIntegration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ integrationId, body }) => patchIntegration(integrationId, body),
+    onSuccess: () => invalidateIntegrations(queryClient),
+  });
+}
+
+export function useConnectIntegration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ integrationId, body }) => connectIntegration(integrationId, body),
+    onSuccess: () => invalidateIntegrations(queryClient),
+  });
+}
+
+export function useTestIntegration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: testIntegration,
+    onSuccess: () => invalidateIntegrations(queryClient),
   });
 }
 

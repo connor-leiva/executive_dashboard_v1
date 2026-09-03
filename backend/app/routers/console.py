@@ -56,6 +56,7 @@ GAP_STATUSES = {"Open", "Assigned", "Resolved", "No Action"}
 LOGO_KINDS = {"light": "logo_light_key", "dark": "logo_dark_key", "mark": "logo_mark_key"}
 LOGO_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/svg+xml"}
 PALETTE_KEYS = {"ink", "brand", "accent", "canvas", "gold"}
+SECRET_CONFIG_PARTS = ("token", "secret", "password", "credential", "api_key", "apikey", "access_key", "private_key")
 MAX_LOGO_BYTES = 2 * 1024 * 1024
 
 
@@ -197,6 +198,26 @@ def _palette(body: dict) -> dict:
         if not _hex_color(value):
             _unprocessable(f"palette.{key}", "Expected #RRGGBB.")
         clean[key] = value.upper()
+    return clean
+
+
+def _secret_config_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(part in lowered for part in SECRET_CONFIG_PARTS)
+
+
+def _integration_config(body: dict) -> dict:
+    config = _json_object(body, "config") or {}
+    clean = {}
+    for raw_key, raw_value in config.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            _unprocessable("config", "Config keys cannot be blank.")
+        if _secret_config_key(key):
+            continue
+        if isinstance(raw_value, (dict, list)):
+            _unprocessable(f"config.{key}", "Expected a text, number, boolean, or empty value.")
+        clean[key] = raw_value
     return clean
 
 
@@ -594,14 +615,35 @@ def _calendar_category(row: IntranetCalendarCategory,
     }
 
 
+def _integration_status(row: IntranetIntegration) -> str:
+    if row.last_error:
+        return "Action Needed"
+    sync_status = str(row.last_sync_status or "").strip().lower()
+    if sync_status in {"connected", "ok", "success", "synced"} and row.last_sync_at:
+        return "Connected"
+    if sync_status or row.credential_ref or row.last_sync_at:
+        return "Action Needed"
+    return "Not Connected"
+
+
+def _public_integration_config(config: dict | None) -> dict:
+    return {
+        str(key): value
+        for key, value in (config or {}).items()
+        if not _secret_config_key(str(key))
+    }
+
+
 def _integration(row: IntranetIntegration) -> dict:
     return {
         "id": _id(row.id), "provider_key": row.provider_key,
         "display_name": row.display_name, "role_label": row.role_label,
-        "description": row.description, "status": row.status,
-        "base_url": row.base_url, "config": row.config or {},
+        "description": row.description, "status": _integration_status(row),
+        "base_url": row.base_url, "config": _public_integration_config(row.config),
         "last_sync_at": _iso(row.last_sync_at),
         "last_sync_status": row.last_sync_status, "last_error": row.last_error,
+        "connect_available": False,
+        "test_available": False,
     }
 
 
@@ -1941,21 +1983,19 @@ async def patch_integration(integration_id: uuid.UUID, body: dict = Body(...),
                             s: AsyncSession = Depends(get_session)):
     row = await _one(s, IntranetIntegration, p.user.tenant_id, integration_id)
     body = _body(body)
-    _unknown(body, {"display_name", "role_label", "description", "status", "base_url", "config"})
+    _unknown(body, {"display_name", "role_label", "description", "base_url", "config"})
     if "display_name" in body:
         row.display_name = _text(body, "display_name", required=True) or row.display_name
     if "role_label" in body:
         row.role_label = _text(body, "role_label", required=True) or row.role_label
     if "description" in body:
         row.description = _text(body, "description", nullable=True)
-    if "status" in body:
-        row.status = _enum(body, "status", INTEGRATION_STATUSES) or row.status
     if "base_url" in body:
-        row.base_url = _text(body, "base_url", nullable=True)
+        row.base_url = _https_url(body, "base_url")
     if "config" in body:
-        row.config = _json_object(body, "config") or {}
+        row.config = _integration_config(body)
     pending = await _record_mutation(
-        s, p, action="console.integration.update", category="Integrations",
+        s, p, action="config.integration.updated", category="Integrations",
         summary=f"Updated integration settings for {row.display_name}",
         target_type="integration", target_id=row.id, pending=False)
     return _with_pending(_integration(row), pending)
@@ -1967,15 +2007,16 @@ async def connect_integration(integration_id: uuid.UUID, body: dict = Body(defau
                               s: AsyncSession = Depends(get_session)):
     row = await _one(s, IntranetIntegration, p.user.tenant_id, integration_id)
     body = _body(body or {})
-    config = {k: v for k, v in (body.get("config") or {}).items()
-              if "token" not in k.lower() and "secret" not in k.lower() and "key" not in k.lower()}
+    _unknown(body, {"config"})
+    config = _integration_config(body)
     if config:
         row.config = {**(row.config or {}), **config}
     row.status = "Action Needed"
-    row.last_sync_status = "Not tested"
+    row.last_sync_status = "Not yet available"
+    row.last_error = "Connection flow is not available for this provider."
     pending = await _record_mutation(
-        s, p, action="console.integration.connect", category="Integrations",
-        summary=f"Prepared {row.display_name} connection settings",
+        s, p, action="config.integration.disconnected", category="Integrations",
+        summary=f"Connection flow unavailable for {row.display_name}",
         target_type="integration", target_id=row.id, pending=False)
     return {"item": _integration(row), "connected": False,
             "message": "Connection details saved; credentials still need configuration.",
@@ -1989,7 +2030,7 @@ async def test_integration(integration_id: uuid.UUID, p: ConsolePrincipal = Depe
     row.last_sync_status = "Not connected"
     row.last_error = "Integration credentials are not configured."
     pending = await _record_mutation(
-        s, p, action="console.integration.test", category="Integrations",
+        s, p, action="config.integration.test_run", category="System",
         summary=f"Tested {row.display_name}: not connected",
         target_type="integration", target_id=row.id, pending=False)
     return {"ok": False, "message": row.last_error, "item": _integration(row),

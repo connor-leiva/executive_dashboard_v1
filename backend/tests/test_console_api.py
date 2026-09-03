@@ -13,6 +13,7 @@ from app.models import (
     IntranetCapability,
     IntranetContentGap,
     IntranetCourse,
+    IntranetIntegration,
     IntranetLesson,
     IntranetMember,
     IntranetPendingChange,
@@ -560,6 +561,73 @@ async def test_calendar_category_rejects_invalid_color_or_role_list(ctx):
         )
     assert bad_color.status_code == 422, bad_color.text
     assert bad_roles.status_code == 422, bad_roles.text
+
+
+async def test_integrations_scrub_secret_config_and_derive_status(ctx):
+    integration_id = ctx["a"]["ids"]["integration"]
+    async with _client() as c:
+        patched = await c.patch(
+            f"/api/console/integrations/{integration_id}",
+            headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+            json={
+                "base_url": "example.test/app",
+                "config": {
+                    "calendar_id": "team-calendar",
+                    "marketing_request_destination": "ops-channel",
+                    "api_key": "must-not-persist",
+                    "client_secret": "must-not-persist",
+                },
+            },
+        )
+        refreshed = await c.get("/api/console/integrations", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+    assert patched.status_code == 200, patched.text
+    item = patched.json()["item"]
+    assert item["base_url"] == "https://example.test/app"
+    assert item["config"] == {
+        "calendar_id": "team-calendar",
+        "marketing_request_destination": "ops-channel",
+    }
+    assert "must-not-persist" not in patched.text
+    assert item["status"] == "Not Connected"
+    assert refreshed.status_code == 200, refreshed.text
+    async with SessionLocal() as s:
+        row = await s.get(IntranetIntegration, uuid.UUID(integration_id))
+        assert row.config == item["config"]
+        row.last_error = "Forced failure"
+        await s.commit()
+    async with _client() as c:
+        failed = await c.get("/api/console/integrations", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+    failed_item = next(row for row in failed.json()["items"] if row["id"] == integration_id)
+    assert failed_item["status"] == "Action Needed"
+    async with SessionLocal() as s:
+        row = await s.get(IntranetIntegration, uuid.UUID(integration_id))
+        row.last_error = None
+        row.last_sync_status = "ok"
+        row.last_sync_at = dt.datetime.now(dt.timezone.utc)
+        await s.commit()
+    async with _client() as c:
+        synced = await c.get("/api/console/integrations", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+    synced_item = next(row for row in synced.json()["items"] if row["id"] == integration_id)
+    assert synced_item["status"] == "Connected"
+
+
+async def test_integration_test_run_writes_system_audit(ctx):
+    integration_id = ctx["b"]["ids"]["integration"]
+    async with _client() as c:
+        tested = await c.post(
+            f"/api/console/integrations/{integration_id}/test",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+        )
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["item"]["status"] == "Action Needed"
+    assert tested.json()["ok"] is False
+    async with SessionLocal() as s:
+        event = (await s.execute(select(AuditLog).where(
+            AuditLog.tenant_id == uuid.UUID(ctx["b"]["tenant_id"]),
+            AuditLog.action == "config.integration.test_run",
+        ).order_by(AuditLog.created_at.desc()).limit(1))).scalar_one()
+    assert event.category == "System"
+    assert event.summary
 
 
 @pytest.mark.parametrize(

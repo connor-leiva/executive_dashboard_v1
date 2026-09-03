@@ -1228,6 +1228,184 @@ textarea {
   font-size: 15px;
 }
 
+.integrations-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.integration-list,
+.integration-detail-form,
+.integration-config,
+.integration-config-list {
+  display: grid;
+  gap: 12px;
+}
+
+.integration-row {
+  position: relative;
+  min-height: 116px;
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: white;
+  color: var(--console-ink);
+  cursor: pointer;
+  padding: 15px;
+  text-align: left;
+}
+
+.integration-row.selected {
+  border-color: rgba(56, 86, 103, 0.42);
+  box-shadow: inset 3px 0 0 var(--console-teal);
+}
+
+.integration-row span {
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.integration-row strong {
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.integration-row small {
+  color: var(--console-muted);
+  font-size: 12px;
+}
+
+.integration-status {
+  width: fit-content;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 999px;
+  background: var(--console-surface);
+  color: var(--console-muted);
+  padding: 0 10px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.integration-status.connected {
+  border-color: rgba(92, 127, 113, 0.38);
+  background: rgba(92, 127, 113, 0.13);
+  color: var(--console-good);
+}
+
+.integration-status.action-needed {
+  border-color: rgba(183, 123, 50, 0.4);
+  background: rgba(183, 123, 50, 0.12);
+  color: var(--console-warn);
+}
+
+.integration-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.integration-fields .console-field textarea {
+  min-height: 132px;
+}
+
+.integration-fields .console-field:last-child {
+  grid-column: 1 / -1;
+}
+
+.integration-fields .console-field input,
+.integration-fields .console-field textarea,
+.integration-config-row .console-field input {
+  width: 100%;
+}
+
+.integration-sync {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.integration-sync > div {
+  min-height: 74px;
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: var(--console-surface);
+  padding: 12px;
+}
+
+.integration-sync span,
+.integration-config h3 {
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.integration-sync strong {
+  color: var(--console-ink);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.integration-error {
+  margin: 0;
+  border: 1px solid rgba(183, 123, 50, 0.32);
+  border-radius: 8px;
+  background: rgba(183, 123, 50, 0.08);
+  color: var(--console-warn);
+  padding: 12px;
+  font-weight: 700;
+}
+
+.integration-config {
+  border-top: 1px solid var(--console-lineSoft);
+  padding-top: 16px;
+}
+
+.integration-config h3 {
+  margin: 0;
+}
+
+.integration-config-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.6fr) minmax(180px, 1fr) 38px;
+  align-items: end;
+  gap: 10px;
+}
+
+.integration-config-row > button {
+  width: 38px;
+  height: 42px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  color: var(--console-muted);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.integration-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.integration-actions > span {
+  color: var(--console-muted);
+  font-weight: 800;
+}
+
 .permissions-savebar {
   min-height: 52px;
   display: flex;
@@ -2091,6 +2269,10 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .integrations-grid {
+    grid-template-columns: 1fr;
+  }
+
   .training-grid {
     grid-template-columns: 1fr;
   }
@@ -2178,6 +2360,16 @@ textarea {
 
   .calendar-week-grid {
     grid-template-columns: repeat(7, minmax(128px, 1fr));
+  }
+
+  .integration-fields,
+  .integration-sync,
+  .integration-config-row {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-config-row > button {
+    width: 100%;
   }
 
   .training-fields,
