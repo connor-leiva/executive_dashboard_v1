@@ -153,6 +153,20 @@ export const TIMEZONE_OPTIONS = [
   "America/Phoenix",
 ];
 
+export const GAP_STATUS_OPTIONS = [
+  { key: "Open", label: "Open" },
+  { key: "Assigned", label: "Assigned" },
+  { key: "Resolved", label: "Resolved" },
+  { key: "No Action", label: "No Action" },
+];
+
+export const AI_BEHAVIOUR_FIELDS = [
+  { key: "always_cite", label: "Always cite sources" },
+  { key: "refuse_without_source", label: "Refuse without source" },
+  { key: "offer_escalation", label: "Offer escalation" },
+  { key: "learn_from_corrections", label: "Learn from corrections" },
+];
+
 export const PERMISSION_LEVELS = ["Full", "View", "Limited", "None"];
 export const DEFAULT_PERMISSION_LEVEL = "None";
 export const CONSOLE_ACCESS_KEY = "console_access";
@@ -390,6 +404,34 @@ export const COPY = {
   integrationsNotConnected: "Not Connected",
   integrationsActionNeeded: "Action Needed",
   integrationsConnected: "Connected",
+  aiTitle: "AI Assistant",
+  aiError: "AI Assistant configuration failed to load.",
+  aiBehaviour: "Behaviour",
+  aiSources: "Sources",
+  aiContentGaps: "Content Gaps",
+  aiAlwaysCite: "Always cite sources",
+  aiRefuseWithoutSource: "Refuse without source",
+  aiOfferEscalation: "Offer escalation",
+  aiLearnCorrections: "Learn from corrections",
+  aiEscalationChannel: "Escalation channel",
+  aiSaveBehaviour: "Save Behaviour",
+  aiSaveSource: "Save Source",
+  aiSaved: "AI settings saved",
+  aiSourceSaved: "Source saved",
+  aiMinimumRole: "Minimum role",
+  aiEveryUser: "Every user",
+  aiEnabled: "Enabled",
+  aiIndexed: "Indexed",
+  aiNotIndexed: "Not yet indexed",
+  aiNoGaps: "No content gaps yet.",
+  aiQuestion: "Question",
+  aiAsks: "Asks",
+  aiAssignee: "Assignee",
+  aiGapStatus: "Status",
+  aiResolution: "Resolution note",
+  aiSaveGap: "Save Gap",
+  aiGapSaved: "Gap saved",
+  aiNoAssignee: "Unassigned",
   emptyActivity: "No activity yet.",
   emptySetup: "No setup tasks yet.",
   previewingAs: "Viewing as",

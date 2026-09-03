@@ -17,8 +17,10 @@ import {
   deleteMember,
   discardChanges,
   downloadSopVersion,
+  getAi,
   getAudit,
   getCalendarCategories,
+  getContentGaps,
   getCourse,
   getCourses,
   getMembers,
@@ -38,7 +40,10 @@ import {
   getWtdLists,
   inviteMember,
   login,
+  patchAiSettings,
+  patchAiSource,
   patchCalendarCategory,
+  patchContentGap,
   patchIntegration,
   patchMember,
   patchSetupTask,
@@ -70,6 +75,8 @@ export const keys = {
   workspace: ["console", "workspace"],
   calendarCategories: ["console", "calendar-categories"],
   integrations: ["console", "integrations"],
+  ai: ["console", "ai"],
+  contentGaps: ["console", "content-gaps"],
   members: (params) => ["console", "members", params],
   permissions: ["console", "permissions"],
   roles: ["console", "roles"],
@@ -112,6 +119,13 @@ function invalidateCalendar(queryClient) {
 function invalidateIntegrations(queryClient) {
   invalidateOverview(queryClient);
   queryClient.invalidateQueries({ queryKey: keys.integrations });
+}
+
+function invalidateAi(queryClient) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.ai });
+  queryClient.invalidateQueries({ queryKey: keys.contentGaps });
+  queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
 }
 
 function invalidateLaunchpad(queryClient) {
@@ -204,6 +218,22 @@ export function useIntegrations(enabled) {
   return useQuery({
     queryKey: keys.integrations,
     queryFn: getIntegrations,
+    enabled,
+  });
+}
+
+export function useAi(enabled) {
+  return useQuery({
+    queryKey: keys.ai,
+    queryFn: getAi,
+    enabled,
+  });
+}
+
+export function useContentGaps(enabled) {
+  return useQuery({
+    queryKey: keys.contentGaps,
+    queryFn: getContentGaps,
     enabled,
   });
 }
@@ -395,6 +425,30 @@ export function useTestIntegration() {
   return useMutation({
     mutationFn: testIntegration,
     onSuccess: () => invalidateIntegrations(queryClient),
+  });
+}
+
+export function usePatchAiSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: patchAiSettings,
+    onSuccess: () => invalidateAi(queryClient),
+  });
+}
+
+export function usePatchAiSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sourceId, body }) => patchAiSource(sourceId, body),
+    onSuccess: () => invalidateAi(queryClient),
+  });
+}
+
+export function usePatchContentGap() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ gapId, body }) => patchContentGap(gapId, body),
+    onSuccess: () => invalidateAi(queryClient),
   });
 }
 

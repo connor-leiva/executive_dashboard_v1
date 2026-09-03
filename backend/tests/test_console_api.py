@@ -630,6 +630,72 @@ async def test_integration_test_run_writes_system_audit(ctx):
     assert event.summary
 
 
+async def test_ai_settings_and_sources_persist_without_invented_index_counts(ctx):
+    source_id = ctx["a"]["ids"]["ai_source"]
+    role_id = ctx["a"]["ids"]["role_ids"][0]
+    async with _client() as c:
+        settings = await c.patch(
+            "/api/console/ai/settings",
+            headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+            json={
+                "always_cite": False,
+                "refuse_without_source": True,
+                "offer_escalation": False,
+                "learn_from_corrections": True,
+                "escalation_channel": "ops-channel",
+            },
+        )
+        source = await c.patch(
+            f"/api/console/ai/sources/{source_id}",
+            headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+            json={"enabled": False, "min_role_id": role_id},
+        )
+        refreshed = await c.get("/api/console/ai", headers=_H(ctx["a"]["admin"], ctx["a"]["host"]))
+    assert settings.status_code == 200, settings.text
+    assert settings.json()["item"]["always_cite"] is False
+    assert settings.json()["item"]["learn_from_corrections"] is True
+    assert source.status_code == 200, source.text
+    assert source.json()["item"]["enabled"] is False
+    assert source.json()["item"]["min_role_id"] == role_id
+    assert source.json()["item"]["indexed_item_count"] == 0
+    assert source.json()["item"]["crawl_status"] == "Not yet indexed"
+    assert refreshed.status_code == 200, refreshed.text
+    items = refreshed.json()["sources"]["items"]
+    assert all(item["indexed_item_count"] == 0 for item in items)
+    assert all(item["crawl_status"] == "Not yet indexed" for item in items)
+    async with SessionLocal() as s:
+        actions = (await s.execute(select(AuditLog.action).where(
+            AuditLog.tenant_id == uuid.UUID(ctx["a"]["tenant_id"]),
+            AuditLog.action.in_(["config.ai.settings_updated", "config.ai.source_updated"]),
+        ))).scalars().all()
+    assert "config.ai.settings_updated" in actions
+    assert "config.ai.source_updated" in actions
+
+
+async def test_content_gap_assignment_writes_content_gap_assigned(ctx):
+    gap_id = ctx["b"]["ids"]["content_gap"]
+    member_id = ctx["b"]["ids"]["member"]
+    async with _client() as c:
+        assigned = await c.patch(
+            f"/api/console/content-gaps/{gap_id}",
+            headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+            json={"status": "Assigned", "assigned_member_id": member_id},
+        )
+        refreshed = await c.get("/api/console/content-gaps", headers=_H(ctx["b"]["admin"], ctx["b"]["host"]))
+    assert assigned.status_code == 200, assigned.text
+    assert assigned.json()["item"]["assigned_member_id"] == member_id
+    assert refreshed.status_code == 200, refreshed.text
+    got = next(row for row in refreshed.json()["items"] if row["id"] == gap_id)
+    assert got["assigned_member_id"] == member_id
+    assert got["ask_count"] == 3
+    async with SessionLocal() as s:
+        event = (await s.execute(select(AuditLog).where(
+            AuditLog.tenant_id == uuid.UUID(ctx["b"]["tenant_id"]),
+            AuditLog.action == "content.gap.assigned",
+        ).order_by(AuditLog.created_at.desc()).limit(1))).scalar_one()
+    assert event.category == "AI"
+
+
 @pytest.mark.parametrize(
     "filter_name,field,allowed",
     [

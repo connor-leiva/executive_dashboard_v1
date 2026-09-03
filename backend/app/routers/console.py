@@ -655,6 +655,7 @@ def _ai_source(row: IntranetAiSource, roles: dict[uuid.UUID, IntranetRole] | Non
         "min_role_name": role.name if role else None, "enabled": bool(row.enabled),
         "last_crawled_at": _iso(row.last_crawled_at),
         "indexed_item_count": int(row.indexed_item_count or 0), "sort": row.sort,
+        "crawl_status": "Indexed" if row.last_crawled_at else "Not yet indexed",
         "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
     }
 
@@ -2062,7 +2063,7 @@ async def patch_ai_settings(body: dict = Body(...), p: ConsolePrincipal = Depend
         row.escalation_channel = _text(body, "escalation_channel", nullable=True)
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.ai.settings", category="AI",
+        s, p, action="config.ai.settings_updated", category="AI",
         summary="Updated Utah Life assistant guardrails", target_type="ai_setting",
         target_id=p.user.tenant_id, entity_type="ai_setting", entity_id=None)
     return _with_pending(_ai_settings(row), pending)
@@ -2092,7 +2093,7 @@ async def patch_ai_source(source_id: uuid.UUID, body: dict = Body(...),
         row.sort = _int(body, "sort", min_value=0) or 0
     row.draft_dirty = True
     pending = await _record_mutation(
-        s, p, action="console.ai.source", category="AI",
+        s, p, action="config.ai.source_updated", category="AI",
         summary=f"Updated assistant source {row.name}", target_type="ai_source",
         target_id=row.id, entity_type="ai_source", entity_id=row.id)
     return _with_pending(_ai_source(row, await _roles_by_id(s, p.user.tenant_id)), pending)
@@ -2116,6 +2117,7 @@ async def patch_content_gap(gap_id: uuid.UUID, body: dict = Body(...),
     row = await _one(s, IntranetContentGap, p.user.tenant_id, gap_id)
     body = _body(body)
     _unknown(body, {"status", "resolution_note", "assigned_member_id"})
+    old_assignee = row.assigned_member_id
     if "status" in body:
         row.status = _enum(body, "status", GAP_STATUSES) or row.status
     if "resolution_note" in body:
@@ -2124,8 +2126,9 @@ async def patch_content_gap(gap_id: uuid.UUID, body: dict = Body(...),
         mid = _uuid_value(body, "assigned_member_id", nullable=True)
         await _member_by_id_or_none(s, p.user.tenant_id, mid)
         row.assigned_member_id = mid
+    assigned = "assigned_member_id" in body and old_assignee != row.assigned_member_id
     pending = await _record_mutation(
-        s, p, action="console.content_gap.update", category="AI",
+        s, p, action="content.gap.assigned" if assigned else "content.gap.updated", category="AI",
         summary=f"Updated content gap: {row.question[:80]}", target_type="content_gap",
         target_id=row.id, pending=False)
     return _with_pending(_content_gap(row, await _member_by_id_or_none(s, p.user.tenant_id, row.assigned_member_id)), pending)
