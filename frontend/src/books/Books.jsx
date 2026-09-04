@@ -53,7 +53,7 @@ export default function Books({ period = "mtd", role }) {
 
       {page === "home" && <BooksHome home={home} go={setPage} isCFO={isCFO} />}
       {page === "pl" && <BooksPL period={period} />}
-      {page === "queue" && <BooksQueue isCFO={isCFO} />}
+      {page === "queue" && <BooksQueue isCFO={isCFO} period={period} />}
       {page === "ic" && <BooksIC isCFO={isCFO} />}
       {page === "mapping" && <BooksMapping isCFO={isCFO} />}
       {page === "statement" && <BooksStatement period={period} />}

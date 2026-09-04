@@ -48,8 +48,13 @@ export function useBooksPL(business = "all", period = "mtd") {
   return useEndpoint(`/books/pl?business=${business}&period=${period}`,
                      samplePL[business] || samplePL.all, [business, period]);
 }
-export function useBooksQueue() {
-  return useEndpoint(`/books/queue`, sampleQueue, []);
+/* The review list. `period` is the GLOBAL period string — the Friday expense review reads the
+   same selector as every other tab rather than owning a private one. */
+export function useBooksQueue({ period = "mtd", state = "needs_approval",
+                                includeSignedOff = false } = {}) {
+  const q = new URLSearchParams({ period, state });
+  if (includeSignedOff) q.set("include_signed_off", "true");
+  return useEndpoint(`/books/queue?${q}`, sampleQueue, [period, state, includeSignedOff]);
 }
 export function useBooksIC() {
   return useEndpoint(`/books/ic`, sampleIC, []);

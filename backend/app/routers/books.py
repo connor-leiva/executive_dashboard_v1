@@ -29,6 +29,11 @@ class EscalateIn(BaseModel):
     note: str | None = None
 
 
+class BulkIn(BaseModel):
+    ids: list[uuid.UUID]
+    action: str                      # approve | acknowledge
+
+
 class CharacterizeIn(BaseModel):
     characterization: str
     note: str | None = None
@@ -66,8 +71,13 @@ async def get_pl(business: str = "all", period: str = "mtd", user: User = Depend
 
 
 @router.get("/queue")
-async def get_queue(user: User = Depends(books_user), s: AsyncSession = Depends(get_session)):
-    return await books.build_books_queue(s, user.tenant_id)
+async def get_queue(period: str = "mtd", state: str = "needs_approval",
+                    include_signed_off: bool = False,
+                    user: User = Depends(books_user), s: AsyncSession = Depends(get_session)):
+    if state not in books.QUEUE_FILTERS:
+        raise HTTPException(400, f"unknown state: {state}")
+    return await books.build_books_queue(s, user.tenant_id, period=period, state=state,
+                                         include_signed_off=include_signed_off)
 
 
 @router.get("/ic")
@@ -86,6 +96,22 @@ def _ok(t):
 async def approve(txn_id: uuid.UUID, user: User = Depends(books_user),
                   s: AsyncSession = Depends(get_session)):
     return _ok(await books.approve_txn(s, user.tenant_id, user, txn_id))
+
+
+@router.post("/txn/{txn_id}/acknowledge")
+async def acknowledge(txn_id: uuid.UUID, user: User = Depends(books_user),
+                      s: AsyncSession = Depends(get_session)):
+    """Seen and accepted, without claiming it went through approval."""
+    return _ok(await books.acknowledge_txn(s, user.tenant_id, user, txn_id))
+
+
+@router.post("/txn/bulk")
+async def bulk(body: BulkIn, user: User = Depends(books_user),
+               s: AsyncSession = Depends(get_session)):
+    try:
+        return await books.bulk_review(s, user.tenant_id, user, body.ids, body.action)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.post("/txn/{txn_id}/recategorize")

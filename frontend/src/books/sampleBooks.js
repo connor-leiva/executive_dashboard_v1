@@ -66,21 +66,34 @@ export const samplePL = {
 
 const QBO = (route, id) => `https://app.qbo.intuit.com/app/${route}?txnId=${id}`;
 
+/* Every row carries the review fields too — basis/priors/scan_state/signed_off — so the
+   offline view exercises the same shapes the server sends, including the two that are easy to
+   get wrong: a split (which is NOT a proposal) and a pending row (which has no opinion yet). */
+const _q = (o) => ({ basis: "history_match", basis_label: "Matched from history",
+  priors: 4, scan_state: "needs_approval", came_categorized: true, is_proposal: true,
+  signed_off: false, signed_off_at: null, decision: null, ...o });
+
 export const sampleQueue = {
   stats: { awaiting: 14, escalated: 2, approved_7d: 61 },
+  period: { key: "last_7", label: "Last 7 days", start: "2026-08-14", end: "2026-08-20" },
+  filter: { state: "needs_approval", include_signed_off: false },
+  stages: { all: 6, auto: 4, cleared: 2, needs_approval: 3, escalated: 1, pending: 0,
+            approved: 0, posted: 0, auto_categorized: 4, signed_off: 1 },
   approvals: [
-    { id: "s1", entity: "ulrg", date: "Jul 11", vendor: "Canva Teams", amount: -389,
+    _q({ id: "s1", entity: "ulrg", date: "Jul 11", vendor: "Canva Teams", amount: -389,
       qbo_type: "Purchase", memo: "Canva Teams annual - design subscription", current_category: "Marketing - Software",
       bank_account: "Delta SkyMiles (AMEX)", suggest: "Marketing - Software", conf: "92%",
-      reason: "Matches 4 prior charges categorized here.", source: "AMEX", flags: {}, qbo_url: QBO("expense", "1041") },
-    { id: "s2", entity: "ulrg", date: "Jul 10", vendor: "Realty.com", amount: -7300,
+      reason: "Matches 4 prior charges categorized here.", source: "AMEX", flags: {}, qbo_url: QBO("expense", "1041") }),
+    _q({ id: "s2", entity: "ulrg", date: "Jul 10", vendor: "Realty.com", amount: -7300,
       qbo_type: "Purchase", memo: "Realty.com - lead package Q3", current_category: "62130 Internet Lead Generation",
       bank_account: "Delta SkyMiles (AMEX)", suggest: "62130 Internet Lead Generation", conf: "88%",
-      reason: "Recurring lead-gen vendor, but 3x the usual amount.", source: "AMEX", flags: { over_band: true }, qbo_url: QBO("expense", "1042") },
-    { id: "s3", entity: "sympli", date: "Jul 9", vendor: "New Vendor LLC", amount: -1240,
+      basis: "over_band", basis_label: "Known vendor, unusual amount", priors: 9,
+      reason: "Known vendor, amount above the usual range (9 priors).", source: "AMEX", flags: { over_band: true }, qbo_url: QBO("expense", "1042") }),
+    _q({ id: "s3", entity: "sympli", date: "Jul 9", vendor: "New Vendor LLC", amount: -1240,
       qbo_type: "Bill", memo: "Invoice #4471", current_category: "Uncategorized Expense",
       bank_account: null, suggest: "68200 Office Supplies", conf: "61%",
-      reason: "First time seeing this vendor.", source: "Bank feed", flags: { first_vendor: true }, qbo_url: QBO("bill", "1043") },
+      basis: "claude", basis_label: "Claude read it", priors: null, came_categorized: false,
+      reason: "First time seeing this vendor.", source: "Bank feed", flags: { first_vendor: true }, qbo_url: QBO("bill", "1043") }),
   ],
   escalations: [
     { id: "e1", kind: "ic", date: "Jun 2", amount: 42712,

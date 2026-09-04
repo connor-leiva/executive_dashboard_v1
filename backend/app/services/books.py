@@ -17,8 +17,19 @@ from ..models import (BookTxn, PLLine, PLSnapshot, ICLink, ICRule, Integration,
 from ..integrations import qbo
 from .audit import audit
 from . import roles
-from .books_scan import IC_CHARACTERIZATIONS
-from .metrics import _pl_period
+from .books_scan import (IC_CHARACTERIZATIONS, BASIS_HISTORY, BASIS_OVER_BAND, BASIS_SPLIT,
+                         BASIS_CLAUDE, BASIS_NONE)
+from .metrics import _pl_period, _period_range, canonical_period, period_label
+
+# What the reviewer reads instead of the tag. The prose in `reason` still carries the detail;
+# this is the groupable half.
+BASIS_LABELS = {
+    BASIS_HISTORY: "Matched from history",
+    BASIS_OVER_BAND: "Known vendor, unusual amount",
+    BASIS_SPLIT: "Split — never auto-categorized",
+    BASIS_CLAUDE: "Claude read it",
+    BASIS_NONE: "Not yet reached",
+}
 
 
 def _fmt_date(d) -> str | None:
@@ -63,20 +74,30 @@ async def _books_entities(s, tenant_id) -> list[dict]:
 
 
 # ── Rail + invariant (SPEC 4.1 / Part 7 #1) ──────────────────────────────────
+RAIL_STATES = ("pending", "cleared", "needs_approval", "escalated", "approved", "posted")
+# What the review screen can filter to. "all" is the funnel's Captured; "auto" is the
+# came_categorized lens, which cross-cuts the rail rather than sitting inside it.
+QUEUE_FILTERS = RAIL_STATES + ("all", "auto")
+
+
 async def _rail(s, tenant_id, mstart, mend) -> dict:
-    """Scan-pipeline counts for the calendar month. `captured` partitions exactly into
-    the four scan states — the rail-conservation invariant."""
+    """Scan-pipeline counts for a window. `captured` partitions exactly into the scan states —
+    the rail-conservation invariant.
+
+    The partition covers approved and posted too. It previously stopped at the four upstream
+    states, which meant the invariant silently went false the moment anybody approved anything
+    inside the window: an approved txn is still captured but was counted in no bucket. Harmless
+    while approvals were rare; guaranteed to fire once the Friday review approves in bulk.
+    """
     def _c(*conds):
         return select(func.count(BookTxn.id)).where(
             BookTxn.tenant_id == tenant_id, BookTxn.txn_date >= mstart,
             BookTxn.txn_date <= mend, *conds)
     captured = (await s.execute(_c())).scalar_one()
     by_state = {st: (await s.execute(_c(BookTxn.scan_state == st))).scalar_one()
-                for st in ("cleared", "needs_approval", "escalated", "pending")}
+                for st in RAIL_STATES}
     auto = (await s.execute(_c(BookTxn.came_categorized.is_(True)))).scalar_one()
-    return {"captured": captured, "auto_categorized": auto, "cleared": by_state["cleared"],
-            "needs_approval": by_state["needs_approval"], "escalated": by_state["escalated"],
-            "pending": by_state["pending"]}
+    return {"captured": captured, "auto_categorized": auto, **by_state}
 
 
 async def books_invariants(s, tenant_id, today=None) -> dict:
@@ -84,8 +105,7 @@ async def books_invariants(s, tenant_id, today=None) -> dict:
     today = today or dt.date.today()
     mstart, mend = _month_bounds(today)
     rail = await _rail(s, tenant_id, mstart, mend)
-    rail_ok = rail["captured"] == (rail["cleared"] + rail["needs_approval"]
-                                   + rail["escalated"] + rail["pending"])
+    rail_ok = rail["captured"] == sum(rail[st] for st in RAIL_STATES)
     # No unreviewed approvals: every approved/posted txn has reviewer + decision (#5)
     bad = (await s.execute(select(func.count(BookTxn.id)).where(
         BookTxn.tenant_id == tenant_id, BookTxn.scan_state.in_(("approved", "posted")),
@@ -311,9 +331,51 @@ def _source_label(bank: str | None) -> str:
     return bank
 
 
-async def build_books_queue(s, tenant_id) -> dict:
+async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "needs_approval",
+                            include_signed_off: bool = False) -> dict:
+    """The review list.
+
+    Was hardcoded to needs_approval, which is why the only transactions Connor could see were
+    the ones the pipeline got stuck on. The Friday review goes line by line through everything,
+    so `state` selects any rail bucket (or "all") and the window comes from the global ?period=
+    string rather than a Books-only picker.
+
+    Signed-off rows are hidden by default. A cleared transaction someone eyeballed and accepted
+    should not reappear next Friday; it keeps its scan_state (so the rail still balances) and
+    carries a reviewer instead. See acknowledge_txn.
+    """
+    start, end = _period_range(period)
     bmap = {b.id: b.key for b in (await s.execute(select(Business).where(
         Business.tenant_id == tenant_id))).scalars().all()}
+
+    window = [BookTxn.tenant_id == tenant_id,
+              BookTxn.txn_date >= start, BookTxn.txn_date <= end]
+    # Stage counts describe the whole window, never the active filter — otherwise the tab you
+    # are standing on is the only one whose number you can trust.
+    stages = {st: (await s.execute(select(func.count(BookTxn.id)).where(
+        *window, BookTxn.scan_state == st))).scalar_one() for st in RAIL_STATES}
+    stages["all"] = (await s.execute(select(func.count(BookTxn.id))
+                                     .where(*window))).scalar_one()
+    stages["auto"] = stages["auto_categorized"] = (await s.execute(
+        select(func.count(BookTxn.id)).where(
+            *window, BookTxn.came_categorized.is_(True)))).scalar_one()
+    stages["signed_off"] = (await s.execute(select(func.count(BookTxn.id)).where(
+        *window, BookTxn.reviewed_at.is_not(None)))).scalar_one()
+
+    conds = list(window)
+    if state == "auto":
+        # Not a rail bucket: "came in already categorized" cross-cuts the states, which is why
+        # the home strip shows it as a stage of the funnel rather than a slot in the partition.
+        conds.append(BookTxn.came_categorized.is_(True))
+    elif state and state != "all":
+        conds.append(BookTxn.scan_state == state)
+    if not include_signed_off:
+        conds.append(BookTxn.reviewed_at.is_(None))
+    rows = (await s.execute(select(BookTxn).where(*conds)
+                            .order_by(BookTxn.txn_date.asc()))).scalars().all()
+
+    # The approval tab keeps its historical meaning (everything outstanding, not just this
+    # window) so the backlog stays visible rather than vanishing behind a date filter.
     approvals = (await s.execute(select(BookTxn).where(
         BookTxn.tenant_id == tenant_id, BookTxn.scan_state == "needs_approval")
         .order_by(BookTxn.txn_date.asc()))).scalars().all()
@@ -346,13 +408,25 @@ async def build_books_queue(s, tenant_id) -> dict:
     def _appr(t):
         sug = t.suggestion or {}
         conf = sug.get("confidence")
+        basis = sug.get("basis") or (BASIS_NONE if not sug else BASIS_CLAUDE)
         return {"id": str(t.id), "entity": bmap.get(t.business_id, "-"), "date": _fmt_date(t.txn_date),
                 "vendor": t.payee, "amount": -abs(float(t.amount)) if t.qbo_type != "Deposit" else float(t.amount),
                 "qbo_type": t.qbo_type, "memo": t.memo, "current_category": t.account_label,
                 "bank_account": t.bank_account_label, "suggest": sug.get("category"),
                 "conf": (f"{round(conf * 100)}%" if isinstance(conf, (int, float)) else None),
                 "reason": sug.get("reason"), "source": _source_label(t.bank_account_label),
-                "flags": t.flags or {}, "qbo_url": qbo.app_txn_url(t.qbo_type, t.qbo_id)}
+                "flags": t.flags or {}, "qbo_url": qbo.app_txn_url(t.qbo_type, t.qbo_id),
+                # Why this transaction is where it is — the Friday review reads these.
+                "basis": basis, "basis_label": BASIS_LABELS.get(basis, basis),
+                "priors": sug.get("priors"),
+                "scan_state": t.scan_state,
+                "came_categorized": bool(t.came_categorized),
+                # A split's "category" is where it already sits, not a proposal. Saying so stops
+                # the UI rendering it as a 0%-confidence suggestion, which reads as a bad guess.
+                "is_proposal": basis not in (BASIS_SPLIT, BASIS_NONE),
+                "signed_off": t.reviewed_at is not None,
+                "signed_off_at": t.reviewed_at.isoformat() if t.reviewed_at else None,
+                "decision": (t.decision or {}).get("action")}
 
     def _esc(l):
         sides = [_detail(txmap[tid]) for tid in (l.from_txn_id, l.to_txn_id) if tid in txmap]
@@ -377,6 +451,12 @@ async def build_books_queue(s, tenant_id) -> dict:
         "stats": {"awaiting": len(approvals), "escalated": len(esc_links), "approved_7d": approved_7d},
         "approvals": [_appr(t) for t in approvals],
         "escalations": [_esc(l) for l in esc_links],
+        # The line-by-line review: every transaction in the window, whatever happened to it.
+        "period": {"key": canonical_period(period), "label": period_label(period),
+                   "start": start.isoformat(), "end": end.isoformat()},
+        "filter": {"state": state, "include_signed_off": include_signed_off},
+        "stages": stages,
+        "rows": [_appr(t) for t in rows],
     }
 
 
@@ -441,6 +521,64 @@ async def approve_txn(s, tenant_id, user: User, txn_id) -> BookTxn | None:
     audit(s, tenant_id, user.id, "books.txn_approved", "book_txn", t.id, {"category": cat})
     await s.commit()
     return t
+
+
+async def acknowledge_txn(s, tenant_id, user: User, txn_id) -> BookTxn | None:
+    """"I looked at this on Friday and I'm fine with it."
+
+    Deliberately does NOT change scan_state. An auto-cleared transaction was never proposed for
+    approval, so calling it approved would overstate what happened — and moving it to a new
+    bucket would break rail conservation, alarming the Books home screen for no reason. It keeps
+    its state and gains a reviewer, which is enough to drop it out of next Friday's list.
+    """
+    t = await _txn(s, tenant_id, txn_id)
+    if t is None:
+        return None
+    t.decision = {"action": "acknowledged", "category": t.account_label,
+                  "was_state": t.scan_state}
+    t.reviewed_by, t.reviewed_at = user.id, dt.datetime.now(dt.timezone.utc)
+    audit(s, tenant_id, user.id, "books.txn_acknowledged", "book_txn", t.id,
+          {"category": t.account_label, "scan_state": t.scan_state})
+    await s.commit()
+    return t
+
+
+BULK_ACTIONS = ("approve", "acknowledge")
+BULK_MAX = 500
+
+
+async def bulk_review(s, tenant_id, user: User, txn_ids: list, action: str) -> dict:
+    """Approve or acknowledge many at once — the Friday review's whole point.
+
+    Every row still gets its own reviewer stamp and its own audit entry, because a bulk action
+    is a hundred decisions made quickly, not one decision about a hundred things. Ids that do
+    not resolve are reported rather than silently skipped: a bulk tool that quietly does less
+    than you asked is worse than one that fails.
+    """
+    if action not in BULK_ACTIONS:
+        raise ValueError(f"invalid bulk action: {action}")
+    ids = list(dict.fromkeys(txn_ids))                  # de-dupe, keep order
+    if len(ids) > BULK_MAX:
+        raise ValueError(f"too many transactions in one action (max {BULK_MAX})")
+    rows = (await s.execute(select(BookTxn).where(
+        BookTxn.tenant_id == tenant_id, BookTxn.id.in_(ids)))).scalars().all()
+    found = {r.id for r in rows}
+    now = dt.datetime.now(dt.timezone.utc)
+    for t in rows:
+        if action == "approve":
+            cat = (t.suggestion or {}).get("category") or t.account_label
+            t.scan_state = "approved"
+            t.decision = {"action": "approve", "category": cat, "bulk": True,
+                          "account_qbo_id": (t.suggestion or {}).get("account_qbo_id")}
+        else:
+            t.decision = {"action": "acknowledged", "category": t.account_label,
+                          "was_state": t.scan_state, "bulk": True}
+        t.reviewed_by, t.reviewed_at = user.id, now
+        audit(s, tenant_id, user.id, f"books.txn_{action}d", "book_txn", t.id,
+              {"bulk": True, "category": t.decision.get("category")})
+    await s.commit()
+    return {"action": action, "requested": len(ids), "applied": len(rows),
+            "missing": [str(i) for i in ids if i not in found]}
 
 
 async def recategorize_txn(s, tenant_id, user: User, txn_id, category, account_qbo_id=None) -> BookTxn | None:
