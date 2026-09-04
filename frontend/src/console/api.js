@@ -129,6 +129,8 @@ export const getWorkspace = () => consoleGet("/workspace");
 export const patchWorkspace = (body) => consoleSend("PATCH", "/workspace", body);
 export const uploadWorkspaceLogo = (kind, file) => consoleUpload("/workspace/logo", { kind, file });
 export const getMarketing = () => consoleGet("/marketing");
+export const getMarketingRequests = (params) => consoleGet(query("/marketing/requests", params));
+export const patchMarketingRequest = (id, body) => consoleSend("PATCH", `/marketing/requests/${id}`, body);
 export const patchMarketing = (body) => consoleSend("PATCH", "/marketing", body);
 export const getRoles = () => consoleGet("/roles");
 export const patchRole = (roleId, body) => consoleSend("PATCH", `/roles/${roleId}`, body);
@@ -166,6 +168,15 @@ export async function downloadSopVersion(sopId, versionId) {
   const res = await fetch(consolePath(`/sops/${sopId}/versions/${versionId}/download`), {
     headers: authHeaders(),
   });
+  if (!res.ok) await throwFor(res);
+  return res.blob();
+}
+export async function downloadMarketingAttachment(requestId, attachmentId) {
+  // An authenticated fetch, not an <a href>: a bare link carries no Authorization header and
+  // would 401. Same shape as downloadSopVersion, which solved this first.
+  const res = await fetch(
+    consolePath(`/marketing/requests/${requestId}/attachments/${attachmentId}`),
+    { headers: authHeaders() });
   if (!res.ok) await throwFor(res);
   return res.blob();
 }

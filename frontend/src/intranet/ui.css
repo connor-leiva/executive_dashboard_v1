@@ -1571,3 +1571,109 @@ input {
     transition: none;
   }
 }
+
+/* Marketing request form and the submitter's own list. */
+.ut-request-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 520px;
+}
+
+.ut-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ut-field > span {
+  color: var(--faint);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.ut-field input,
+.ut-field select,
+.ut-field textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-text);
+  font-size: 14px;
+}
+
+.ut-field textarea { resize: vertical; }
+
+.ut-error {
+  margin: 0;
+  color: #93413a;
+  font-size: 13px;
+}
+
+.ut-request-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ut-request-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.ut-request-list li:last-child { border-bottom: none; }
+
+.ut-request-list strong {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
+.ut-request-list em {
+  color: var(--muted);
+  font-size: 13px;
+  font-style: normal;
+}
+
+/* Two of these can sit side by side (the listing, then the file count) and ran together without
+   a separator. A middot rather than a margin, so it reads as one line of metadata. */
+.ut-request-list em + em::before {
+  content: " · ";
+  color: var(--line);
+}
+
+.ut-request-status {
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--wash);
+  border: 1px solid var(--soft-line);
+  border-radius: 5px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.ut-hint {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.ut-field input[type="file"] {
+  padding: 8px;
+  border: 1px dashed var(--line);
+  background: var(--wash);
+  font-size: 13px;
+}

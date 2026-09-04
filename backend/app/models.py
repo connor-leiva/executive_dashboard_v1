@@ -628,6 +628,86 @@ class IntranetContentGap(Base):
     )
 
 
+class IntranetMarketingRequest(Base):
+    """A request an agent submitted: listing photos, an event flyer, a video edit.
+
+    WHY THIS EXISTS BEFORE DELIVERY DOES. The production destination is still an open decision, and
+    the obvious reading is to wait. That gets it backwards: a request that is typed and then lost
+    because nothing was listening is worse than no form at all, and it is the agent -- who did the
+    work of writing it up -- who pays. So the record is the product and delivery is a later
+    optimisation on top of it. `delivered_at` stays null until something actually delivers, which
+    is exactly what it should say today.
+
+    Requester is the intranet MEMBER rather than the user row: members are who the roster, the
+    role audiences and the assignee picker are all expressed in, and a request outliving a user's
+    login should still name a person.
+    """
+
+    __tablename__ = "intranet_marketing_request"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    requester_member_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id", ondelete="SET NULL"), nullable=True)
+    # Denormalised so a request still says who asked after a member is removed from the roster.
+    requester_label: Mapped[str] = mapped_column(Text)
+
+    title: Mapped[str] = mapped_column(Text)
+    request_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    listing: Mapped[str | None] = mapped_column(Text, nullable=True)
+    client: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    priority: Mapped[str] = mapped_column(Text, default="Normal", server_default="Normal")
+
+    status: Mapped[str] = mapped_column(Text, default="New", server_default="New")
+    assignee_member_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id", ondelete="SET NULL"), nullable=True)
+
+    # Delivery, recorded rather than assumed. Null delivered_at on a submitted request is the
+    # honest state while the destination is an open decision: saved here, sent nowhere.
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("status IN ('New','In Progress','Blocked','Done','Cancelled')",
+                        name="ck_intranet_marketing_request_status"),
+        CheckConstraint("priority IN ('Low','Normal','High')",
+                        name="ck_intranet_marketing_request_priority"),
+        # The console queue reads by tenant, newest first; an agent reads their own the same way.
+        Index("ix_intranet_marketing_request_tenant_created", "tenant_id", "created_at"),
+    )
+
+
+class IntranetMarketingAttachment(Base):
+    """A file that came in with a request.
+
+    Bytes live in binder_storage; this row is the metadata and the tenant scope. `content_type` is
+    what the SERVER sniffed from the first bytes, never what the client declared -- a browser will
+    happily label an HTML file as an image, and that label is what a download would echo back.
+    """
+
+    __tablename__ = "intranet_marketing_attachment"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    # CASCADE here, unlike the member FKs: an attachment has no meaning without its request, and
+    # orphaned bytes nobody can reach are worse than deleted ones.
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_marketing_request.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(Text)
+    storage_key: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str] = mapped_column(Text)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class IntranetSetupTask(Base):
     __tablename__ = "intranet_setup_task"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)

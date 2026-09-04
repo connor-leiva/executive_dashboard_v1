@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { downloadMarketingAttachment } from "../api.js";
 import { COPY } from "../constants.js";
-import { useMarketing, usePatchMarketing, useRoles } from "../queries.js";
+import {
+  useMarketing,
+  useMarketingRequests,
+  usePatchMarketing,
+  usePatchMarketingRequest,
+  useRoles,
+} from "../queries.js";
 import { Button, ErrorState, Field, LoadingState, Panel } from "../ui.jsx";
 
 /* Marketing Requests configuration.
@@ -24,8 +31,9 @@ const DESTINATION_HELP = {
   webhook: "An https endpoint. It receives a POST per request once delivery is built.",
 };
 
+// No `attachments` entry: the server no longer offers it as a requirable field, because the
+// submit form cannot collect a file yet. It comes back with the upload.
 const FIELD_LABELS = {
-  attachments: "Attachments",
   client: "Client",
   description: "Description",
   due_date: "Due date",
@@ -43,6 +51,99 @@ function formFor(item) {
     required_fields: item?.required_fields || [],
     notify: item?.notify || "",
   };
+}
+
+/* Fetch the bytes with the session's credentials, then hand the browser a blob to save. A bare
+   href would send no Authorization header and 401; this is what downloadSopVersion already does. */
+async function saveAttachment(requestId, attachment) {
+  const blob = await downloadMarketingAttachment(requestId, attachment.id);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = attachment.filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const STATUSES = ["New", "In Progress", "Blocked", "Done", "Cancelled"];
+
+/* The queue.
+ *
+ * Status here is OPERATIONAL FACT, not staged configuration -- somebody either started the work
+ * or they did not -- so it writes through immediately and does not join the publish batch. An
+ * agent watching their request would otherwise see "New" while it was already finished.
+ */
+function RequestQueue() {
+  const requests = useMarketingRequests(true);
+  const move = usePatchMarketingRequest();
+  const items = requests.data?.items || [];
+
+  if (requests.isLoading) return <Panel title="Request queue"><LoadingState /></Panel>;
+  if (requests.isError) {
+    return (
+      <Panel title="Request queue">
+        <ErrorState title={COPY.loadFailed} onRetry={() => requests.refetch()} />
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel title={`Request queue${items.length ? ` · ${items.length}` : ""}`}>
+      {!items.length ? (
+        <p className="hint">No requests submitted yet.</p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Request</th><th>From</th><th>Needed</th><th>Priority</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  <strong>{r.title}</strong>
+                  {r.listing && <div className="hint">{r.listing}</div>}
+                  {/* Proxied download, never a storage URL: the bytes come back through the API
+                      with the type the server sniffed and an attachment disposition. */}
+                  {r.attachments?.length > 0 && (
+                    <div className="hint">
+                      {r.attachments.map((a) => (
+                        <button key={a.id} type="button" className="attachment-link"
+                                onClick={() => saveAttachment(r.id, a)}>
+                          {a.filename}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </td>
+                <td>{r.requester_label}</td>
+                <td>{r.due_date || "—"}</td>
+                <td>{r.priority}</td>
+                <td>
+                  <select
+                    value={r.status}
+                    disabled={move.isPending}
+                    onChange={(e) => move.mutate({ id: r.id, body: { status: e.target.value } })}
+                  >
+                    {STATUSES.map((sv) => <option key={sv} value={sv}>{sv}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="hint">
+        {/* The queue is the delivery mechanism today, and saying so is the difference between an
+            honest interim state and a feature that looks broken. */}
+        Requests are recorded here. They are not yet posted to the configured destination
+        automatically, so this list is where the team picks them up.
+      </p>
+    </Panel>
+  );
 }
 
 export default function MarketingRequests() {
@@ -197,6 +298,8 @@ export default function MarketingRequests() {
           ))}
         </div>
       </Panel>
+
+      <RequestQueue />
 
       <Panel title="Status">
         {/* Two rows, never one. Configuration is something this screen can know; delivery is not,

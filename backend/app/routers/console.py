@@ -23,6 +23,8 @@ from ..models import (
     IntranetCourse,
     IntranetCourseRole,
     IntranetIntegration,
+    IntranetMarketingAttachment,
+    IntranetMarketingRequest,
     IntranetMarketingSetting,
     IntranetLaunchpadTile,
     IntranetLaunchpadTileRole,
@@ -273,6 +275,13 @@ async def _role(s: AsyncSession, tenant_id, role_id: uuid.UUID) -> IntranetRole:
 async def _roles_by_id(s: AsyncSession, tenant_id) -> dict[uuid.UUID, IntranetRole]:
     rows = (await s.execute(select(IntranetRole).where(
         IntranetRole.tenant_id == tenant_id).order_by(IntranetRole.sort, IntranetRole.name))).scalars().all()
+    return {r.id: r for r in rows}
+
+
+async def _members_by_id(s: AsyncSession, tenant_id) -> dict[uuid.UUID, IntranetMember]:
+    """Tenant-scoped, so a label can only ever be resolved from this workspace's own roster."""
+    rows = (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == tenant_id))).scalars().all()
     return {r.id: r for r in rows}
 
 
@@ -684,6 +693,11 @@ MARKETING_DESTINATIONS = {"none", "slack", "email", "webhook"}
 
 # The fields a tenant may demand of a submitter. A fixed vocabulary rather than free text: these
 # keys drive the intranet's form, so an unknown one would be a required field nothing renders.
+# `attachments` is back, and only because submission became ATOMIC. It was pulled when the submit
+# endpoint took JSON: an admin could require a file the form had no way to send, which makes a
+# request impossible to file and impossible to diagnose. Requiring it is only enforceable when
+# the requirement and the file arrive in the same request, which multipart submission gives us.
+# A test asserts this set stays a subset of what the intranet will accept.
 MARKETING_FIELDS = {"listing", "client", "request_type", "due_date", "priority", "description",
                     "attachments"}
 
@@ -1062,6 +1076,135 @@ async def patch_workspace(body: dict = Body(...),
         summary="Updated calendar defaults" if calendar_only else f"Updated workspace identity for {row.portal_name}",
         target_type="workspace", target_id=row.id, entity_type="workspace", entity_id=row.id)
     return _with_pending(_workspace(row), pending)
+
+
+MARKETING_STATUSES = {"New", "In Progress", "Blocked", "Done", "Cancelled"}
+
+
+def _marketing_request(row: IntranetMarketingRequest,
+                       members: dict[uuid.UUID, IntranetMember] | None = None,
+                       attachments: list | None = None) -> dict:
+    assignee = (members or {}).get(row.assignee_member_id) if row.assignee_member_id else None
+    return {
+        "id": _id(row.id), "title": row.title, "request_type": row.request_type,
+        "listing": row.listing, "client": row.client, "description": row.description,
+        "due_date": row.due_date.isoformat() if row.due_date else None,
+        "priority": row.priority, "status": row.status,
+        "requester_label": row.requester_label,
+        "assignee_member_id": _id(row.assignee_member_id),
+        "assignee_label": assignee.full_name if assignee is not None else None,
+        # Never collapsed into a "sent" boolean. Null means recorded and not delivered, which is
+        # every request today, and the queue has to be able to say that plainly.
+        "delivered_at": _iso(row.delivered_at),
+        "delivery_detail": row.delivery_detail,
+        "attachments": [
+            {"id": _id(a.id), "filename": a.filename, "content_type": a.content_type,
+             "byte_size": a.byte_size}
+            for a in (attachments or [])
+        ],
+        "created_at": _iso(row.created_at), "updated_at": _iso(row.updated_at),
+    }
+
+
+@router.get("/marketing/requests")
+async def list_marketing_requests(status: str | None = None,
+                                  p: ConsolePrincipal = Depends(require_console_access),
+                                  s: AsyncSession = Depends(get_session)):
+    where = [IntranetMarketingRequest.tenant_id == p.user.tenant_id]
+    if status:
+        if status not in MARKETING_STATUSES:
+            _unprocessable("status", f"Expected one of: {', '.join(sorted(MARKETING_STATUSES))}.")
+        where.append(IntranetMarketingRequest.status == status)
+    rows = (await s.execute(select(IntranetMarketingRequest).where(*where)
+                            .order_by(IntranetMarketingRequest.created_at.desc())
+                            .limit(200))).scalars().all()
+    members = await _members_by_id(s, p.user.tenant_id)
+    # One query for every row's attachments, grouped in Python. A per-row query here would be
+    # 200 round trips on a busy queue.
+    by_request: dict[uuid.UUID, list] = {}
+    if rows:
+        for att in (await s.execute(select(IntranetMarketingAttachment).where(
+            IntranetMarketingAttachment.tenant_id == p.user.tenant_id,
+            IntranetMarketingAttachment.request_id.in_([r.id for r in rows]),
+        ))).scalars().all():
+            by_request.setdefault(att.request_id, []).append(att)
+    total = await _count(s, IntranetMarketingRequest, p.user.tenant_id)
+    return _list([_marketing_request(r, members, by_request.get(r.id)) for r in rows], total)
+
+
+@router.get("/marketing/requests/{request_id}/attachments/{attachment_id}")
+async def download_marketing_attachment(request_id: uuid.UUID, attachment_id: uuid.UUID,
+                                        p: ConsolePrincipal = Depends(require_console_access),
+                                        s: AsyncSession = Depends(get_session)):
+    """The console reads the WORKSPACE's files, where the intranet route reads only the
+    requester's own. Different authorisation, so a separate route rather than a flag.
+
+    Served with the stored (sniffed) type and an attachment disposition, same as the intranet
+    side: a file one member uploaded is opened here by another, which is precisely the path
+    stored XSS would take.
+    """
+    row = (await s.execute(select(IntranetMarketingAttachment).where(
+        IntranetMarketingAttachment.tenant_id == p.user.tenant_id,
+        IntranetMarketingAttachment.id == attachment_id,
+        IntranetMarketingAttachment.request_id == request_id,
+    ))).scalars().first()
+    if row is None or not binder_storage.exists(row.storage_key):
+        raise HTTPException(404, "Not found")
+    safe = binder_storage.safe_filename(row.filename)
+    return Response(
+        content=binder_storage.read(row.storage_key),
+        media_type=row.content_type,
+        headers={"Content-Disposition": 'attachment; filename="' + safe + '"'},
+    )
+
+
+@router.patch("/marketing/requests/{request_id}")
+async def patch_marketing_request(request_id: uuid.UUID, body: dict = Body(...),
+                                  p: ConsolePrincipal = Depends(require_console_access),
+                                  s: AsyncSession = Depends(get_session)):
+    """Move a request through the queue.
+
+    NOT publish-aware, deliberately, and this is the one place in the console where that is
+    right. Everything else here is CONFIGURATION -- a draft of how the workspace should behave,
+    which an admin stages and publishes. A request's status is operational fact: somebody either
+    started the work or they did not, and holding that in a draft until a publish would mean an
+    agent watching their request sees "New" while it is finished. `pending=False` says so.
+    """
+    row = await _one(s, IntranetMarketingRequest, p.user.tenant_id, request_id)
+    body = _body(body)
+    _unknown(body, {"status", "assignee_member_id"})
+
+    changed = []
+    if "status" in body:
+        status = _enum(body, "status", MARKETING_STATUSES)
+        if status and status != row.status:
+            changed.append(f"status {row.status} -> {status}")
+            row.status = status
+    if "assignee_member_id" in body:
+        member_id = _uuid_value(body, "assignee_member_id", nullable=True)
+        # Resolved against THIS tenant, so a member id from elsewhere 404s rather than being
+        # written into a foreign key that would then render somebody else's name.
+        member = await _member_by_id_or_none(s, p.user.tenant_id, member_id)
+        if member_id is not None and member is None:
+            raise HTTPException(404, "Not found")
+        row.assignee_member_id = member.id if member is not None else None
+        changed.append(f"assigned to {member.full_name if member else 'nobody'}")
+
+    members = await _members_by_id(s, p.user.tenant_id)
+    summary = f"{row.title}: {'; '.join(changed) if changed else 'no change'}"
+    pending = await _record_mutation(
+        s, p, action="marketing.request_updated", category="Marketing", summary=summary,
+        target_type="marketing_request", target_id=row.id, pending=False)
+    # _record_mutation commits, and `updated_at` carries an onupdate, so the ORM expires it and
+    # the next attribute read would lazy-load outside the async greenlet -- a 500, not a warning.
+    # Refreshed explicitly rather than serialised before the commit, so the response carries the
+    # timestamp the database actually wrote.
+    await s.refresh(row)
+    attachments = (await s.execute(select(IntranetMarketingAttachment).where(
+        IntranetMarketingAttachment.tenant_id == p.user.tenant_id,
+        IntranetMarketingAttachment.request_id == row.id,
+    ))).scalars().all()
+    return _with_pending(_marketing_request(row, members, list(attachments)), pending)
 
 
 @router.get("/marketing")

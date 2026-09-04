@@ -15,6 +15,7 @@ from app.models import (
     IntranetCourse,
     IntranetIntegration,
     IntranetLesson,
+    IntranetMarketingRequest,
     IntranetMember,
     IntranetPendingChange,
     IntranetPermission,
@@ -130,11 +131,16 @@ async def _wire_console_user(slug: str) -> dict:
         batch = IntranetPublishBatch(
             tenant_id=tenant.id, published_by=leader.id, note="Existing publish batch",
             snapshot={})
-        s.add_all([delete_category, gap, batch])
+        marketing_request = IntranetMarketingRequest(
+            tenant_id=tenant.id, requester_member_id=leader.id,
+            requester_label=leader.full_name, title=f"Listing flyer for {slug}",
+            priority="Normal", status="New")
+        s.add_all([delete_category, gap, batch, marketing_request])
         await s.flush()
 
         ids = {
             "role": str(role_rows[0].id),
+            "marketing_request": str(marketing_request.id),
             "role_ids": [str(r.id) for r in role_rows],
             "preview_role": "team_leader",
             "capability": str(cap_rows[0].id),
@@ -214,6 +220,7 @@ READ_ROUTES = [
     ("calendar.get", "GET", lambda ids: "/api/console/calendar-categories", {}),
     ("integrations.get", "GET", lambda ids: "/api/console/integrations", {}),
     ("marketing.get", "GET", lambda ids: "/api/console/marketing", {}),
+    ("marketing_requests.get", "GET", lambda ids: "/api/console/marketing/requests", {}),
     ("ai.get", "GET", lambda ids: "/api/console/ai", {}),
     ("content_gaps.get", "GET", lambda ids: "/api/console/content-gaps", {}),
     ("setup.get", "GET", lambda ids: "/api/console/setup-tasks", {}),
@@ -262,6 +269,7 @@ MUTATION_ROUTES = [
     "integration.connect",
     "integration.test",
     "marketing.patch",
+    "marketing_request.patch",
     "ai_settings.patch",
     "ai_source.patch",
     "content_gap.patch",
@@ -377,6 +385,9 @@ def _mutation_request(name: str, ids: dict):
         return "POST", f"/api/console/integrations/{ids['integration']}/test", {}
     if name == "marketing.patch":
         return "PATCH", "/api/console/marketing", {"json": {"notify": f"ops-{uniq}"}}
+    if name == "marketing_request.patch":
+        return "PATCH", f"/api/console/marketing/requests/{ids['marketing_request']}", {
+            "json": {"status": "In Progress"}}
     if name == "ai_settings.patch":
         return "PATCH", "/api/console/ai/settings", {"json": {"always_cite": True}}
     if name == "ai_source.patch":
@@ -1436,3 +1447,86 @@ async def test_a_task_that_cannot_be_verified_stays_a_human_judgement(ctx):
                           headers=h, json={"completed": True})
     assert r.status_code == 200, r.text
     assert r.json()["item"]["completed_at"] is not None
+
+
+async def test_a_marketing_request_cannot_be_touched_across_tenants(ctx):
+    """A request id is a tenant-scoped object reference arriving from a browser. Reading or moving
+    another workspace's request would expose what their agents have asked for, and the 404 must
+    not distinguish "not yours" from "does not exist"."""
+    other_id = ctx["b"]["ids"]["marketing_request"]
+    async with _client() as c:
+        h = _H(ctx["a"]["admin"], ctx["a"]["host"])
+        moved = await c.patch(f"/api/console/marketing/requests/{other_id}", headers=h,
+                              json={"status": "Done"})
+        listed = await c.get("/api/console/marketing/requests", headers=h)
+    assert moved.status_code == 404, f"cross-tenant request accepted: {moved.status_code}"
+    ids = {r["id"] for r in listed.json()["items"]}
+    assert other_id not in ids, "another tenant's request appeared in this queue"
+
+
+async def test_an_assignee_cannot_be_borrowed_from_another_tenant(ctx):
+    """The assignee is a member id from a browser, and a foreign key written unchecked would then
+    render somebody else's name onto this workspace's queue."""
+    mine = ctx["a"]["ids"]["marketing_request"]
+    theirs = ctx["b"]["ids"]["member"]
+    async with _client() as c:
+        r = await c.patch(f"/api/console/marketing/requests/{mine}",
+                          headers=_H(ctx["a"]["admin"], ctx["a"]["host"]),
+                          json={"assignee_member_id": theirs})
+    assert r.status_code == 404, f"cross-tenant assignee accepted: {r.status_code} {r.text}"
+
+
+def test_the_two_marketing_field_vocabularies_agree():
+    """The console validates what an ADMIN may REQUIRE; the intranet validates what a SUBMITTER
+    may SEND. They are separate constants on purpose -- neither should quietly follow the other --
+    but a field the admin can require and the form cannot collect is an unsubmittable request.
+
+    So the submittable set must cover everything requirable. `attachments` is the live example: it
+    is absent from both until the form can actually take a file.
+    """
+    from app.routers.console import MARKETING_FIELDS
+    from app.routers.intranet import MARKETING_REQUIRABLE
+
+    unsubmittable = MARKETING_FIELDS - MARKETING_REQUIRABLE
+    assert not unsubmittable, (
+        f"an admin can require {sorted(unsubmittable)}, which the submit form cannot collect")
+
+
+async def test_the_console_can_read_a_workspace_attachment_but_not_another_tenants(ctx):
+    """The console reads the WORKSPACE's files where the intranet route reads only the
+    requester's own -- different authorisation, hence a separate route. What must not differ is
+    the tenant boundary, or an id from one workspace fetches bytes from another.
+    """
+    from app.models import IntranetMarketingAttachment
+    from app.services import binder_storage
+
+    tenant_a = uuid.UUID(ctx["a"]["tenant_id"])
+    tenant_b = uuid.UUID(ctx["b"]["tenant_id"])
+    png = bytes.fromhex("89504e470d0a1a0a") + b"body"
+
+    made = {}
+    async with SessionLocal() as s:
+        for label, tenant_id, request_id in (
+            ("a", tenant_a, uuid.UUID(ctx["a"]["ids"]["marketing_request"])),
+            ("b", tenant_b, uuid.UUID(ctx["b"]["ids"]["marketing_request"])),
+        ):
+            att_id = uuid.uuid4()
+            key = f"intranet/{tenant_id}/marketing/{request_id}/{att_id}-probe.png"
+            binder_storage.put(key, png, "image/png")
+            s.add(IntranetMarketingAttachment(
+                id=att_id, tenant_id=tenant_id, request_id=request_id, filename="probe.png",
+                storage_key=key, content_type="image/png", byte_size=len(png)))
+            made[label] = (request_id, att_id)
+        await s.commit()
+
+    h = _H(ctx["a"]["admin"], ctx["a"]["host"])
+    own_req, own_att = made["a"]
+    other_req, other_att = made["b"]
+    async with _client() as c:
+        mine = await c.get(f"/api/console/marketing/requests/{own_req}/attachments/{own_att}",
+                           headers=h)
+        theirs = await c.get(
+            f"/api/console/marketing/requests/{other_req}/attachments/{other_att}", headers=h)
+    assert mine.status_code == 200, mine.text
+    assert mine.headers["content-disposition"].startswith("attachment;")
+    assert theirs.status_code == 404, f"read another tenant's file: {theirs.status_code}"

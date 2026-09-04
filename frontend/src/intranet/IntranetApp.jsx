@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
-import { API_BASE, getJSON, hasToken, logout, patchJSON, putJSON } from "../api.js";
+import { API_BASE, getJSON, hasToken, logout, patchJSON, uploadFile } from "../api.js";
 import {
   FUB_LISTS,
   NAV_GROUPS,
@@ -859,9 +859,126 @@ function Calendar({ config, canConfigure, saveConfig }) {
  * A workspace's existing `marketing_requests.url` still renders, so nothing anybody configured
  * has disappeared; it is just no longer edited from inside the product it configures.
  */
+const REQUEST_FIELD_LABELS = {
+  client: "Client",
+  description: "What do you need?",
+  due_date: "Needed by",
+  listing: "Listing",
+  priority: "Priority",
+  request_type: "Type of request",
+};
+
+/* The submit form.
+ *
+ * It renders the workspace's REQUIRED fields as required and offers the rest as optional, from
+ * the same list the server enforces -- so the form and the rule behind it cannot drift. The
+ * server checks them again regardless: a required field validated only here is a suggestion. */
+function RequestForm({ required, onDone }) {
+  const [form, setForm] = useState({ title: "" });
+  const [picked, setPicked] = useState([]);
+  const [state, setState] = useState("idle");
+  const [error, setError] = useState("");
+  const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
+  const optional = ["request_type", "listing", "client", "due_date", "description"]
+    .filter((f) => !required.includes(f));
+
+  async function submit(event) {
+    event.preventDefault();
+    setState("saving");
+    setError("");
+    try {
+      // Multipart, because the request and its files are saved in one transaction. A
+      // create-then-upload flow whose second step fails leaves a request that reads as complete
+      // with the photograph it was about missing.
+      const fd = new FormData();
+      Object.entries(form).forEach(([k, v]) => {
+        if (String(v || "").trim() !== "") fd.append(k, v);
+      });
+      picked.forEach((file) => fd.append("files", file));
+      await uploadFile("/intranet/marketing/requests", fd);
+      setForm({ title: "" });
+      setPicked([]);
+      setState("done");
+      onDone();
+    } catch (err) {
+      setState("idle");
+      setError(err?.detail || err?.message || "Could not submit.");
+    }
+  }
+
+  const field = (key, req) => (
+    <label className="ut-field" key={key}>
+      <span>{REQUEST_FIELD_LABELS[key]}{req ? " *" : ""}</span>
+      {key === "description"
+        ? <textarea rows={3} required={req} value={form[key] || ""}
+                    onChange={(e) => set(key, e.target.value)} />
+        : key === "due_date"
+          ? <input type="date" required={req} value={form[key] || ""}
+                   onChange={(e) => set(key, e.target.value)} />
+          : key === "priority"
+            ? (
+              <select value={form[key] || "Normal"} onChange={(e) => set(key, e.target.value)}>
+                {["Low", "Normal", "High"].map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            )
+            : <input required={req} value={form[key] || ""}
+                     onChange={(e) => set(key, e.target.value)} />}
+    </label>
+  );
+
+  return (
+    <form className="ut-request-form" onSubmit={submit}>
+      <label className="ut-field">
+        <span>Title *</span>
+        <input required value={form.title}
+               onChange={(e) => set("title", e.target.value)}
+               placeholder="Listing flyer for 12 Oak St" />
+      </label>
+      {required.filter((k) => k !== "attachments").map((k) => field(k, true))}
+      {optional.map((k) => field(k, false))}
+      <label className="ut-field">
+        <span>Files{required.includes("attachments") ? " *" : ""}</span>
+        <input
+          type="file"
+          multiple
+          accept="image/png,image/jpeg,image/webp,application/pdf"
+          onChange={(e) => setPicked([...e.target.files])}
+        />
+        {/* The accept attribute is a convenience for the picker, not the rule. The server sniffs
+            the bytes: a file renamed to .png is still rejected, and an HTML file labelled
+            image/png never becomes something the next person downloads. */}
+        <em className="ut-hint">PNG, JPEG, WebP or PDF · up to 5 files, 10 MB each</em>
+      </label>
+      {error && <p className="ut-error">{error}</p>}
+      <button className="ut-button primary" type="submit" disabled={state === "saving"}>
+        {state === "saving" ? "Sending…" : "Submit request"}
+      </button>
+    </form>
+  );
+}
+
+/* Requests.
+ *
+ * THE EDITOR THAT USED TO LIVE HERE IS GONE. This page carried its own "Request URL" form, so the
+ * destination could be set in two places -- here and, once the console screen existed, there --
+ * with nothing keeping them in step. Tenant-configurable behaviour belongs in the admin console,
+ * and one setting with two editors is how they end up disagreeing.
+ *
+ * A workspace's existing `marketing_requests.url` still renders, so nothing anybody configured
+ * has disappeared; it is just no longer edited from inside the product it configures.
+ */
 function Marketing({ config, canConfigure }) {
   const legacy = config.marketing_requests || {};
   const marketing = config.marketing || {};
+  const [mine, setMine] = useState(null);
+
+  const load = useCallback(() => {
+    if (!API_BASE || !marketing.available) return;
+    getJSON("/intranet/marketing/requests")
+      .then((r) => setMine(r.items || []))
+      .catch(() => setMine([]));
+  }, [marketing.available]);
+  useEffect(() => { load(); }, [load]);
 
   return (
     <Page title="Requests" subtitle="Marketing requests for listings, events and collateral.">
@@ -870,19 +987,14 @@ function Marketing({ config, canConfigure }) {
           <>
             <p className="ut-note">
               Requests are open{marketing.assigned_role ? ` and picked up by ${marketing.assigned_role}` : ""}.
-              {marketing.required_fields?.length
-                ? ` You will be asked for: ${marketing.required_fields.join(", ").replace(/_/g, " ")}.`
+              {marketing.delivery_pending
+                /* Said out loud. The request IS saved and the team can see it in the console;
+                   what does not happen yet is automatic delivery to the destination. Promising
+                   otherwise is the one thing this screen must not do. */
+                ? " Your request is recorded for the team; automatic routing to their channel is not switched on yet."
                 : ""}
             </p>
-            {marketing.delivery_pending && (
-              /* Said plainly rather than hidden. The destination is configured and the delivery
-                 path is not built yet, so promising a submitted request would go somewhere is
-                 the one thing this screen must not do. */
-              <Empty title="Submission is not switched on yet">
-                The destination is configured, but requests cannot be sent from here until the
-                delivery step ships. Use the existing process in the meantime.
-              </Empty>
-            )}
+            <RequestForm required={marketing.required_fields || []} onDone={load} />
           </>
         ) : legacy.url ? (
           <a className="ut-open-request" href={legacy.url} target="_blank" rel="noreferrer">
@@ -895,6 +1007,30 @@ function Marketing({ config, canConfigure }) {
           </Empty>
         )}
       </Panel>
+
+      {marketing.available && (
+        <Panel title="My requests">
+          {mine === null ? <Empty title="Loading…">Fetching your requests.</Empty>
+            : mine.length === 0
+              ? <Empty title="Nothing submitted yet">Requests you file will be listed here.</Empty>
+              : (
+                <ul className="ut-request-list">
+                  {mine.map((r) => (
+                    <li key={r.id}>
+                      <div>
+                        <strong>{r.title}</strong>
+                        {r.listing && <em>{r.listing}</em>}
+                        {r.attachment_count > 0 && (
+                          <em>{r.attachment_count} file{r.attachment_count === 1 ? "" : "s"}</em>
+                        )}
+                      </div>
+                      <span className="ut-request-status">{r.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+        </Panel>
+      )}
     </Page>
   );
 }

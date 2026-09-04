@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query, Response,
+                     UploadFile)
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -13,7 +16,10 @@ from sqlalchemy.orm.attributes import flag_modified
 from .. import plans
 from ..db import get_session
 from ..deps import current_user, require_role
-from ..models import IntranetMarketingSetting, IntranetRole, IntranetUserState, Tenant, User
+from ..models import (IntranetMarketingAttachment, IntranetMarketingRequest,
+                      IntranetMarketingSetting, IntranetMember, IntranetRole,
+                      IntranetUserState, Tenant, User)
+from ..services import binder_storage
 from ..services.audit import audit
 
 router = APIRouter(prefix="/intranet", tags=["intranet"])
@@ -231,6 +237,254 @@ async def patch_config(body: IntranetConfigPatch,
           {"fields": sorted(fields)})
     await s.commit()
     return _config_out(tenant, user)
+
+
+# The fields a workspace may demand, mirroring MARKETING_FIELDS in the console router. Kept as
+# its own constant rather than imported: this router validates what a SUBMITTER sends, the console
+# validates what an ADMIN requires, and the two lists agreeing is asserted by a test rather than
+# by a shared import that would let one quietly follow the other.
+# UPLOAD POLICY. Four types a marketing request plausibly carries, and no more.
+#
+# SVG is absent deliberately even though the logo uploader accepts it: an SVG is a script host,
+# and these files are fetched by other people in the workspace. HTML for the same reason. The
+# download is served as an attachment with the sniffed type, so nothing here renders inline, but
+# the allowlist is the primary control rather than the header.
+# Magic numbers as hex, not escapes: a byte literal written through a shell heredoc gets its
+# escapes eaten, which is how this arrived as real control characters the first time.
+ATTACHMENT_TYPES = {
+    "image/png": (bytes.fromhex("89504e470d0a1a0a"), ".png"),
+    "image/jpeg": (bytes.fromhex("ffd8ff"), ".jpg"),
+    "application/pdf": (b"%PDF-", ".pdf"),
+    "image/webp": (None, ".webp"),          # RIFF....WEBP, checked separately below
+}
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_ATTACHMENTS = 5
+
+
+def sniff_attachment(data: bytes) -> str | None:
+    """The type the BYTES claim, ignoring the filename and the browser's Content-Type entirely.
+
+    A client controls both of those. If a download later echoes a declared type back, an uploaded
+    HTML file labelled `image/png` becomes stored XSS against everyone who opens it. Sniffing is
+    what makes the allowlist mean anything.
+    """
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    for content_type, (magic, _ext) in ATTACHMENT_TYPES.items():
+        if magic and data.startswith(magic):
+            return content_type
+    return None
+
+
+# The TEXT fields a submitter sends. `attachments` is deliberately not among them -- it is not a
+# text field -- but it IS requirable, so the vocabulary check below has to know about it.
+MARKETING_SUBMIT_FIELDS = {"listing", "client", "request_type", "due_date", "priority",
+                          "description"}
+# Everything an admin may require, which is the text fields plus the files. Kept separate from
+# the console's own list on purpose: this router validates what a SUBMITTER sends and that one
+# validates what an ADMIN requires, and a shared import would let one quietly follow the other.
+# A test asserts they still agree.
+MARKETING_REQUIRABLE = MARKETING_SUBMIT_FIELDS | {"attachments"}
+MARKETING_PRIORITIES = {"Low", "Normal", "High"}
+
+
+async def _member_for(s: AsyncSession, user: User) -> IntranetMember | None:
+    email = (user.email or "").strip().lower()
+    return (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == user.tenant_id,
+        or_(IntranetMember.user_id == user.id, IntranetMember.email == email),
+    ))).scalars().first()
+
+
+def _request_out(row: IntranetMarketingRequest, attachment_count: int = 0) -> dict:
+    return {
+        "id": str(row.id), "title": row.title, "request_type": row.request_type,
+        "listing": row.listing, "client": row.client, "description": row.description,
+        "due_date": row.due_date.isoformat() if row.due_date else None,
+        "priority": row.priority, "status": row.status,
+        "requester_label": row.requester_label,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        # Reported so the submitter is never left guessing whether it went anywhere. Null means
+        # it is recorded and has not been sent, which is the truth until delivery ships.
+        "delivered_at": row.delivered_at.isoformat() if row.delivered_at else None,
+        "attachment_count": attachment_count,
+    }
+
+
+@router.get("/marketing/requests")
+async def list_my_requests(user: User = Depends(current_user),
+                           s: AsyncSession = Depends(get_session)):
+    """The requests THIS person filed. Not the workspace's queue -- that is the console's, and an
+    agent has no reason to read what colleagues have asked for."""
+    await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    if member is None:
+        return {"items": [], "total": 0}
+    rows = (await s.execute(select(IntranetMarketingRequest).where(
+        IntranetMarketingRequest.tenant_id == user.tenant_id,
+        IntranetMarketingRequest.requester_member_id == member.id,
+    ).order_by(IntranetMarketingRequest.created_at.desc()).limit(50))).scalars().all()
+    # One grouped count rather than a query per row: this list is read on every visit to the page.
+    counts = dict((await s.execute(
+        select(IntranetMarketingAttachment.request_id, func.count())
+        .where(IntranetMarketingAttachment.tenant_id == user.tenant_id,
+               IntranetMarketingAttachment.request_id.in_([r.id for r in rows] or [None]))
+        .group_by(IntranetMarketingAttachment.request_id))).all())
+    return {"items": [_request_out(r, counts.get(r.id, 0)) for r in rows], "total": len(rows)}
+
+
+@router.post("/marketing/requests", status_code=201)
+async def submit_request(
+    title: str = Form(...),
+    request_type: str | None = Form(None),
+    listing: str | None = Form(None),
+    client: str | None = Form(None),
+    description: str | None = Form(None),
+    due_date: str | None = Form(None),
+    priority: str = Form("Normal"),
+    files: list[UploadFile] = File(default=[]),
+    user: User = Depends(current_user),
+    s: AsyncSession = Depends(get_session),
+):
+    """File a request, with its files, in one transaction.
+
+    MULTIPART RATHER THAN JSON, and atomic rather than upload-after-create. For a listing flyer
+    the photograph often IS the request; a two-step flow whose second step fails leaves a record
+    that reads as complete with the point of it missing, silently, and the agent who did the work
+    is the one who loses it. It is also the only shape in which `attachments` can be a REQUIRED
+    field, because the requirement and the files arrive together.
+
+    THE WORKSPACE'S REQUIRED FIELDS ARE ENFORCED HERE, not only in the form. A required field
+    checked in the browser only is a suggestion, and the console's setting would mean nothing to
+    anything that posts directly.
+    """
+    await _enabled_tenant(s, user)
+    cfg = await s.get(IntranetMarketingSetting, user.tenant_id)
+    available = bool(cfg and cfg.enabled and cfg.destination_type != "none"
+                     and (cfg.destination or "").strip())
+    if not available:
+        raise HTTPException(409, "Marketing requests are not switched on for this workspace.")
+
+    member = await _member_for(s, user)
+    if member is None:
+        raise HTTPException(403, "You are not on this workspace's roster.")
+
+    title = (title or "").strip()[:200]
+    if not title:
+        raise HTTPException(422, "A title is required.")
+
+    values = {
+        "request_type": (request_type or "").strip()[:2000] or None,
+        "listing": (listing or "").strip()[:2000] or None,
+        "client": (client or "").strip()[:2000] or None,
+        "description": (description or "").strip()[:2000] or None,
+    }
+
+    if due_date and due_date.strip():
+        try:
+            values["due_date"] = dt.date.fromisoformat(due_date.strip())
+        except ValueError:
+            raise HTTPException(422, "due_date must be a date like 2026-09-30.")
+    else:
+        values["due_date"] = None
+
+    priority = (priority or "Normal").strip().title()
+    if priority not in MARKETING_PRIORITIES:
+        raise HTTPException(
+            422, "priority must be one of: " + ", ".join(sorted(MARKETING_PRIORITIES)) + ".")
+
+    # Read and validate EVERY file before writing anything, so a bad third file cannot leave a
+    # saved request and two orphaned uploads behind.
+    uploads = []
+    real_files = [f for f in (files or []) if f is not None and (f.filename or "").strip()]
+    if len(real_files) > MAX_ATTACHMENTS:
+        raise HTTPException(422, "At most " + str(MAX_ATTACHMENTS) + " files per request.")
+    for upload in real_files:
+        data = await upload.read()
+        if not data:
+            raise HTTPException(422, (upload.filename or "file") + " is empty.")
+        if len(data) > MAX_ATTACHMENT_BYTES:
+            limit = MAX_ATTACHMENT_BYTES // (1024 * 1024)
+            raise HTTPException(
+                422, (upload.filename or "file") + " is larger than " + str(limit) + " MB.")
+        sniffed = sniff_attachment(data)
+        if sniffed is None:
+            raise HTTPException(
+                422, (upload.filename or "file") + " is not a PNG, JPEG, WebP or PDF.")
+        # The stored name keeps the user's stem but takes its extension from the SNIFFED type, so
+        # a file called photo.html that really is a PNG is stored as a PNG, and nothing
+        # downstream is asked to trust a name the client chose.
+        stem = binder_storage.safe_filename(upload.filename or "attachment").rsplit(".", 1)[0]
+        uploads.append((stem + ATTACHMENT_TYPES[sniffed][1], data, sniffed))
+
+    required = list(cfg.required_fields or [])
+    missing = [f for f in required if f in MARKETING_SUBMIT_FIELDS and not values.get(f)]
+    if "attachments" in required and not uploads:
+        missing.append("attachments")
+    if missing:
+        raise HTTPException(422, "This workspace requires: " + ", ".join(sorted(missing)) + ".")
+
+    row = IntranetMarketingRequest(
+        tenant_id=user.tenant_id,
+        requester_member_id=member.id,
+        requester_label=member.full_name or member.email or "Unknown",
+        title=title, priority=priority, assignee_member_id=None,
+        **values,
+    )
+    s.add(row)
+    await s.flush()
+
+    for name, data, content_type in uploads:
+        attachment_id = uuid.uuid4()
+        key = "intranet/" + str(user.tenant_id) + "/marketing/" + str(row.id) + "/" \
+            + str(attachment_id) + "-" + name
+        binder_storage.put(key, data, content_type)
+        s.add(IntranetMarketingAttachment(
+            id=attachment_id, tenant_id=user.tenant_id, request_id=row.id,
+            filename=name, storage_key=key, content_type=content_type,
+            byte_size=len(data), uploaded_by=member.id))
+
+    audit(s, user.tenant_id, user.id, "marketing.request_submitted",
+          "marketing_request", str(row.id),
+          {"title": title, "priority": priority, "attachments": len(uploads)},
+          category="Marketing", summary="Filed marketing request: " + title,
+          actor_member_id=member.id, actor_label=member.full_name)
+    await s.commit()
+    return _request_out(row, len(uploads))
+
+
+@router.get("/marketing/requests/{request_id}/attachments/{attachment_id}")
+async def download_attachment(request_id: uuid.UUID, attachment_id: uuid.UUID,
+                              user: User = Depends(current_user),
+                              s: AsyncSession = Depends(get_session)):
+    """Proxied, never a direct storage URL, and scoped to the requester's OWN request.
+
+    Served as an attachment with the SNIFFED content type. Both matter: an inline disposition on
+    a file somebody else uploaded is how stored XSS reaches the next person to open it, and the
+    declared type would have been the uploader's choice rather than the file's.
+    """
+    await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    if member is None:
+        raise HTTPException(404, "Not found")
+    row = (await s.execute(select(IntranetMarketingAttachment).join(
+        IntranetMarketingRequest,
+        IntranetMarketingRequest.id == IntranetMarketingAttachment.request_id,
+    ).where(
+        IntranetMarketingAttachment.tenant_id == user.tenant_id,
+        IntranetMarketingAttachment.id == attachment_id,
+        IntranetMarketingAttachment.request_id == request_id,
+        # An agent reads their own request's files. The workspace queue is the console's.
+        IntranetMarketingRequest.requester_member_id == member.id,
+    ))).scalars().first()
+    if row is None or not binder_storage.exists(row.storage_key):
+        raise HTTPException(404, "Not found")
+    safe = binder_storage.safe_filename(row.filename)
+    return Response(
+        content=binder_storage.read(row.storage_key),
+        media_type=row.content_type,
+        headers={"Content-Disposition": 'attachment; filename="' + safe + '"'},
+    )
 
 
 @router.get("/state/{scope}")

@@ -117,3 +117,222 @@ async def test_win_the_day_state_resets_by_user_and_local_date():
         other_tenant = (await c.get("/api/v1/intranet/state/wtd?state_key=2026-09-02",
                                    headers=_H(other_tokens["member"], other_host))).json()
         assert other_tenant["value"] == {}
+
+
+async def _marketing_ready(tenant_id, *, required=None, enabled=True):
+    """Configure the workspace the way the console would, and put the submitter on the roster."""
+    import uuid as _uuid
+
+    from app.models import IntranetMarketingSetting, IntranetMember, IntranetRole
+
+    async with SessionLocal() as s:
+        role = (await s.execute(select(IntranetRole).where(
+            IntranetRole.tenant_id == tenant_id))).scalars().first()
+        if role is None:
+            role = IntranetRole(tenant_id=tenant_id, key="agent", name="Agent", sort=0)
+            s.add(role)
+            await s.flush()
+        user = (await s.execute(select(User).where(
+            User.tenant_id == tenant_id, User.role == "member"))).scalar_one()
+        member = (await s.execute(select(IntranetMember).where(
+            IntranetMember.tenant_id == tenant_id,
+            IntranetMember.email == user.email))).scalar_one_or_none()
+        if member is None:
+            member = IntranetMember(tenant_id=tenant_id, role_id=role.id, full_name="Member One",
+                                    email=user.email, status="Active", auth_source="Manual")
+            s.add(member)
+        cfg = await s.get(IntranetMarketingSetting, tenant_id)
+        if cfg is None:
+            cfg = IntranetMarketingSetting(tenant_id=tenant_id)
+            s.add(cfg)
+        cfg.enabled = enabled
+        cfg.destination_type = "slack"
+        cfg.destination = "#marketing"
+        cfg.required_fields = list(required or [])
+        await s.commit()
+
+
+async def test_a_request_is_saved_even_though_nothing_delivers_it_yet():
+    """The handoff's own acceptance criterion: a disconnected destination must keep requests and
+    must not drop user input.
+
+    That is why the record ships before delivery does. A request typed up and lost because nothing
+    was listening is worse than no form at all, and the agent who wrote it is the one who pays.
+    `delivered_at` stays null, which is the truth rather than a placeholder.
+    """
+    host, tenant, tokens = await _tenant("intrareq", intranet=True)
+    await _marketing_ready(tenant.id)
+    async with _client() as c:
+        created = await c.post("/api/v1/intranet/marketing/requests",
+                               headers=_H(tokens["member"], host),
+                               data={"title": "Listing flyer for 12 Oak St",
+                                     "listing": "12 Oak St", "priority": "High"})
+        assert created.status_code == 201, created.text
+        body = created.json()
+        assert body["delivered_at"] is None, "nothing delivered it; this must not claim otherwise"
+
+        mine = await c.get("/api/v1/intranet/marketing/requests",
+                           headers=_H(tokens["member"], host))
+    assert mine.status_code == 200
+    assert [r["title"] for r in mine.json()["items"]] == ["Listing flyer for 12 Oak St"]
+
+
+async def test_required_fields_are_enforced_by_the_server_not_only_the_form():
+    """A required field checked only in the browser is a suggestion. The console's setting has to
+    mean something to anything that posts."""
+    host, tenant, tokens = await _tenant("intrareqd", intranet=True)
+    await _marketing_ready(tenant.id, required=["listing", "due_date"])
+    async with _client() as c:
+        h = _H(tokens["member"], host)
+        missing = await c.post("/api/v1/intranet/marketing/requests", headers=h,
+                               data={"title": "No listing given"})
+        assert missing.status_code == 422, missing.text
+        assert "listing" in missing.text and "due_date" in missing.text
+
+        ok = await c.post("/api/v1/intranet/marketing/requests", headers=h,
+                          data={"title": "Complete", "listing": "9 Elm", "due_date": "2026-10-01"})
+    assert ok.status_code == 201, ok.text
+
+
+async def test_requests_are_refused_while_the_workspace_has_them_switched_off():
+    """Accepting into an unconfigured feature would collect work nobody is watching for, which is
+    the exact failure this phase exists to avoid."""
+    host, tenant, tokens = await _tenant("intrareqoff", intranet=True)
+    await _marketing_ready(tenant.id, enabled=False)
+    async with _client() as c:
+        r = await c.post("/api/v1/intranet/marketing/requests",
+                         headers=_H(tokens["member"], host), data={"title": "Should not stick"})
+    assert r.status_code == 409, r.text
+
+
+async def test_an_agent_sees_only_their_own_requests():
+    """`/marketing/requests` is MY requests, not the workspace queue -- that is the console's, and
+    an agent has no reason to read what colleagues have asked for."""
+    from app.models import IntranetMarketingRequest, IntranetMember, IntranetRole
+
+    host, tenant, tokens = await _tenant("intrareqmine", intranet=True)
+    await _marketing_ready(tenant.id)
+    async with SessionLocal() as s:
+        role_id = (await s.execute(select(IntranetRole.id).where(
+            IntranetRole.tenant_id == tenant.id))).scalars().first()
+        other = IntranetMember(tenant_id=tenant.id, role_id=role_id, full_name="Someone Else",
+                               email="else@intrareqmine.test", status="Active",
+                               auth_source="Manual")
+        s.add(other)
+        await s.flush()
+        s.add(IntranetMarketingRequest(tenant_id=tenant.id, requester_member_id=other.id,
+                                       requester_label="Someone Else",
+                                       title="Not mine", priority="Normal", status="New"))
+        await s.commit()
+
+    async with _client() as c:
+        h = _H(tokens["member"], host)
+        await c.post("/api/v1/intranet/marketing/requests", headers=h, data={"title": "Mine"})
+        mine = (await c.get("/api/v1/intranet/marketing/requests", headers=h)).json()
+    titles = [r["title"] for r in mine["items"]]
+    assert titles == ["Mine"], f"another member's request leaked into my list: {titles}"
+
+
+# Real magic numbers, written as hex so no shell or editor can eat an escape.
+PNG_BYTES = bytes.fromhex("89504e470d0a1a0a") + b"fake image body"
+HTML_BYTES = b"<html><script>alert(document.cookie)</script></html>"
+
+
+async def test_a_request_and_its_files_arrive_together():
+    """Submission is atomic. For a listing flyer the photograph often IS the request, and an
+    upload-after-create flow whose second step fails leaves a record that reads as complete with
+    the point of it missing -- silently, and on the agent who did the work."""
+    host, tenant, tokens = await _tenant("intraatt", intranet=True)
+    await _marketing_ready(tenant.id)
+    async with _client() as c:
+        r = await c.post("/api/v1/intranet/marketing/requests",
+                         headers=_H(tokens["member"], host),
+                         data={"title": "Flyer with photo"},
+                         files=[("files", ("shot.png", PNG_BYTES, "image/png"))])
+        assert r.status_code == 201, r.text
+        assert r.json()["attachment_count"] == 1
+
+        mine = (await c.get("/api/v1/intranet/marketing/requests",
+                            headers=_H(tokens["member"], host))).json()
+    assert mine["items"][0]["attachment_count"] == 1
+
+
+async def test_a_file_is_judged_by_its_bytes_not_its_label():
+    """A browser will send whatever Content-Type it is told to. If a download echoes that back,
+    an HTML file labelled image/png becomes stored XSS against the next person who opens it."""
+    host, tenant, tokens = await _tenant("intrasniff", intranet=True)
+    await _marketing_ready(tenant.id)
+    async with _client() as c:
+        r = await c.post("/api/v1/intranet/marketing/requests",
+                         headers=_H(tokens["member"], host),
+                         data={"title": "Nice try"},
+                         files=[("files", ("photo.png", HTML_BYTES, "image/png"))])
+    assert r.status_code == 422, f"HTML was accepted as a PNG: {r.status_code} {r.text}"
+
+
+async def test_one_bad_file_saves_nothing_at_all():
+    """The files are validated before anything is written, so a rejected second file cannot leave
+    a saved request and one orphaned upload behind."""
+    from app.models import IntranetMarketingRequest
+
+    host, tenant, tokens = await _tenant("intraatomic", intranet=True)
+    await _marketing_ready(tenant.id)
+    async with _client() as c:
+        r = await c.post("/api/v1/intranet/marketing/requests",
+                         headers=_H(tokens["member"], host),
+                         data={"title": "Half a request"},
+                         files=[("files", ("ok.png", PNG_BYTES, "image/png")),
+                                ("files", ("bad.png", HTML_BYTES, "image/png"))])
+    assert r.status_code == 422, r.text
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(IntranetMarketingRequest).where(
+            IntranetMarketingRequest.tenant_id == tenant.id,
+            IntranetMarketingRequest.title == "Half a request"))).scalars().all()
+    assert rows == [], "a rejected upload left the request behind"
+
+
+async def test_attachments_can_be_required_now_that_they_arrive_with_the_request():
+    """The whole reason submission is multipart: a requirement and the file it demands have to be
+    in the same request for the rule to be enforceable at all."""
+    host, tenant, tokens = await _tenant("intraattreq", intranet=True)
+    await _marketing_ready(tenant.id, required=["attachments"])
+    async with _client() as c:
+        h = _H(tokens["member"], host)
+        without = await c.post("/api/v1/intranet/marketing/requests", headers=h,
+                               data={"title": "No file"})
+        assert without.status_code == 422, without.text
+        assert "attachments" in without.text
+
+        with_file = await c.post("/api/v1/intranet/marketing/requests", headers=h,
+                                 data={"title": "With file"},
+                                 files=[("files", ("a.png", PNG_BYTES, "image/png"))])
+    assert with_file.status_code == 201, with_file.text
+
+
+async def test_an_attachment_downloads_as_an_attachment_and_only_to_its_owner():
+    """Two properties in one place because they fail together: a file another user uploaded must
+    never render inline, and it must not be readable by whoever guesses its id."""
+    from app.models import IntranetMarketingAttachment
+
+    host, tenant, tokens = await _tenant("intraattdl", intranet=True)
+    await _marketing_ready(tenant.id)
+    async with _client() as c:
+        created = await c.post("/api/v1/intranet/marketing/requests",
+                               headers=_H(tokens["member"], host),
+                               data={"title": "Downloadable"},
+                               files=[("files", ("shot.png", PNG_BYTES, "image/png"))])
+        request_id = created.json()["id"]
+    async with SessionLocal() as s:
+        att = (await s.execute(select(IntranetMarketingAttachment).where(
+            IntranetMarketingAttachment.tenant_id == tenant.id))).scalars().first()
+
+    url = f"/api/v1/intranet/marketing/requests/{request_id}/attachments/{att.id}"
+    async with _client() as c:
+        mine = await c.get(url, headers=_H(tokens["member"], host))
+        # The admin user is not the requester, and this route is scoped to the requester's own
+        # files -- the workspace queue is the console's job, with its own authorisation.
+        other = await c.get(url, headers=_H(tokens["admin"], host))
+    assert mine.status_code == 200, mine.text
+    assert mine.headers["content-disposition"].startswith("attachment;")
+    assert mine.headers["content-type"].startswith("image/png")
+    assert other.status_code == 404, f"another member read the file: {other.status_code}"

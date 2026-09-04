@@ -210,7 +210,7 @@ Use this as the starting point, then update as work is finished.
 - [~] Phase 7 - Admin console completion and configuration coverage. PARTIAL, see section 9a.
 - [ ] Phase 8 - Production authentication, identity, and tenant access.
 - [ ] Phase 9 - Real integration wiring and sync jobs.
-- [ ] Phase 10 - Marketing Requests production workflow.
+- [~] Phase 10 - Marketing Requests production workflow. PARTIAL, see section 12a.
 - [ ] Phase 11 - AI Assistant production implementation.
 - [ ] Phase 12 - Data model, migrations, and seed hardening.
 - [ ] Phase 13 - Publish/runtime config hardening.
@@ -758,6 +758,72 @@ Acceptance criteria:
 Open decision:
 
 - The exact production destination for Marketing Requests is TBD.
+
+## 12a. Phase 10 progress and what is left
+
+Built, and the ordering deserves an explanation. Section 23 still lists the production
+destination as an open decision, so the obvious reading is to wait. That has it backwards: this
+document's own acceptance criteria say a disconnected destination must keep requests saved and
+must not drop user input. A request typed up and lost because nothing was listening is worse
+than no form at all, and the agent who wrote it is the one who pays. So the RECORD shipped and
+delivery is the later piece.
+
+- `intranet_marketing_request` (migration `0057`). `delivered_at` is null on every row, which is
+  the truth rather than a placeholder and needs no backfill when delivery ships. Requester is
+  denormalised alongside the member FK so a request still names who asked after somebody leaves
+  the roster; both member FKs are `SET NULL`, never CASCADE, so removing a person cannot delete
+  outstanding work.
+- Intranet: `POST /api/v1/intranet/marketing/requests` and `GET` for the submitter's OWN requests.
+  Not the workspace queue -- an agent has no reason to read what colleagues asked for, and there
+  is a test on that.
+- Console: `GET /api/console/marketing/requests` and `PATCH .../{id}` for status and assignee,
+  both registered in the shared route tables so they inherit the auth / 403 / one-audit-row
+  coverage.
+- REQUIRED FIELDS ARE ENFORCED SERVER-SIDE, not only in the form. A required field checked in the
+  browser only is a suggestion, and the console's setting would mean nothing to anything posting
+  directly.
+- Submission is REFUSED (409) while the workspace has requests switched off, because accepting
+  into an unconfigured feature collects work nobody is watching for.
+- STATUS DOES NOT JOIN THE PUBLISH BATCH, and this is the one console write where that is right.
+  Everything else there is configuration -- a draft of how the workspace should behave. A
+  request's status is operational fact: somebody either started the work or they did not, and
+  holding it in a draft until a publish means an agent sees "New" on something already finished.
+  Verified in the browser: moving a status left the pending count unchanged, and the submitter
+  saw "IN PROGRESS" on their own page immediately.
+
+`attachments` was REMOVED from the requirable field vocabulary. The console could require it and
+the submit form cannot collect a file, which makes a request impossible to file and impossible to
+diagnose -- the workspace would have switched requests on and nobody could send one. A test now
+asserts the console's requirable set stays a subset of what the intranet accepts, so the two
+cannot drift apart again. It goes back the moment the upload exists.
+
+Attachments, second pass (migration `0058`):
+
+- SUBMISSION IS NOW MULTIPART AND ATOMIC. The files arrive in the same request as the rest of the
+  form and are written in one transaction. For a listing flyer the photograph often IS the
+  request; an upload-after-create flow whose second step fails leaves a record that reads as
+  complete with the point of it missing -- silently, and on the agent who did the work. It is
+  also the ONLY shape in which `attachments` can be a required field, because the requirement and
+  the file have to arrive together, so `attachments` is back in the requirable vocabulary.
+- FILES ARE JUDGED BY THEIR BYTES. `sniff_attachment()` reads the magic number and the declared
+  Content-Type is ignored entirely -- a browser sends whatever it is told to, and if a download
+  later echoes that back, an HTML file labelled `image/png` is stored XSS against the next person
+  who opens it. PNG, JPEG, WebP and PDF only; SVG is excluded even though the logo uploader takes
+  it, because an SVG is a script host and these files are opened by other people in the workspace.
+- The stored extension comes from the SNIFFED type, not the uploaded filename.
+- Every file is validated BEFORE anything is written, so a rejected second file cannot leave a
+  saved request and one orphaned upload behind. There is a test asserting nothing survives.
+- Downloads are proxied, never a storage URL, and served `Content-Disposition: attachment` with
+  the sniffed type. Two routes rather than a flag, because the authorisation differs: the intranet
+  route serves the requester's OWN files, the console route serves the workspace's.
+- Limits: 5 files, 10 MB each.
+
+Left for Phase 10:
+- DELIVERY ITSELF: posting to the Slack channel, email address or webhook, with retry, failure
+  surfacing and `delivered_at` written by a real attempt. Blocked on section 23's destination
+  decision, and on an egress policy for webhooks (section 17 lists SSRF through configurable URLs).
+- An admin view of a single request. The queue is a list; there is no detail page.
+- Notifying the requester when status changes. Today they see it by looking.
 
 ## 13. Phase 11 - AI Assistant production implementation
 

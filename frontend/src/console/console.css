@@ -2656,3 +2656,16 @@ textarea {
   white-space: nowrap;
 }
 .setup-hint.is-warn { color: #93413A; }
+
+/* Attachment links are buttons: the download is an authenticated fetch, not a navigable URL. */
+.attachment-link {
+  display: inline-block;
+  margin-right: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand, #395262);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

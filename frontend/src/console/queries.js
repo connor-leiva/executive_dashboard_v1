@@ -29,6 +29,7 @@ import {
   getPermissions,
   getPreview,
   getMarketing,
+  getMarketingRequests,
   getRoles,
   getSetupTasks,
   getSop,
@@ -47,6 +48,7 @@ import {
   patchContentGap,
   patchIntegration,
   patchMarketing,
+  patchMarketingRequest,
   patchMember,
   patchSetupTask,
   patchSop,
@@ -78,6 +80,7 @@ export const keys = {
   calendarCategories: ["console", "calendar-categories"],
   integrations: ["console", "integrations"],
   marketing: ["console", "marketing"],
+  marketingRequests: ["console", "marketing-requests"],
   ai: ["console", "ai"],
   contentGaps: ["console", "content-gaps"],
   members: (params) => ["console", "members", params],
@@ -206,6 +209,27 @@ export function usePreview(role, enabled) {
     queryKey: keys.preview(role),
     queryFn: () => getPreview(role),
     enabled: enabled && Boolean(role),
+  });
+}
+
+export function useMarketingRequests(enabled) {
+  return useQuery({
+    queryKey: keys.marketingRequests,
+    queryFn: () => getMarketingRequests(),
+    enabled,
+  });
+}
+
+export function usePatchMarketingRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }) => patchMarketingRequest(id, body),
+    onSuccess: () => {
+      // Status is operational, not draft config, so this invalidates the queue and the audit
+      // trail but nothing publish-related -- there is nothing to publish.
+      queryClient.invalidateQueries({ queryKey: keys.marketingRequests });
+      queryClient.invalidateQueries({ queryKey: keys.audit });
+    },
   });
 }
 
