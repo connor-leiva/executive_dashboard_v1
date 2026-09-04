@@ -369,7 +369,10 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
         conds.append(BookTxn.came_categorized.is_(True))
     elif state and state != "all":
         conds.append(BookTxn.scan_state == state)
-    if not include_signed_off:
+    # Asking for the Approved stage IS asking to see signed-off work — approving stamps
+    # reviewed_at, so hiding signed-off rows there leaves the chip reading 9 above an empty
+    # list. Every other stage still hides what has been signed off, which is the point.
+    if not include_signed_off and state != "approved":
         conds.append(BookTxn.reviewed_at.is_(None))
     rows = (await s.execute(select(BookTxn).where(*conds)
                             .order_by(BookTxn.txn_date.asc()))).scalars().all()

@@ -135,6 +135,31 @@ async def test_signed_off_rows_do_not_come_back_next_friday():
     assert len(shown["rows"]) > len(hidden["rows"])
 
 
+async def test_the_approved_chip_is_never_a_count_above_an_empty_list():
+    """Approving stamps reviewed_at, so the default "hide what I've signed off" filter would
+    empty the Approved stage of its own contents — a chip reading 9 over nothing."""
+    tid, _, u = await _reset_and_seed_rows()
+    async with SessionLocal() as s:                      # approve one, the way Friday does
+        t = (await s.execute(select(BookTxn).where(
+            BookTxn.realm_id == "r-rev", BookTxn.qbo_id == "N1"))).scalar_one()
+        await books.approve_txn(s, tid, u, t.id)
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, period="ytd", state="approved")
+    assert q["stages"]["approved"] > 0
+    assert len(q["rows"]) == q["stages"]["approved"]
+    assert all(r["signed_off"] for r in q["rows"])
+
+
+async def test_other_stages_still_hide_signed_off_work():
+    """The exemption is scoped to the Approved stage only; everywhere else the whole point is
+    that what you signed off last Friday does not come back."""
+    tid, _, _ = await _reset_and_seed_rows()
+    async with SessionLocal() as s:
+        for st in ("cleared", "all"):
+            q = await books.build_books_queue(s, tid, period="ytd", state=st)
+            assert not any(r["signed_off"] for r in q["rows"]), st
+
+
 async def test_a_row_carries_why_it_is_where_it_is():
     tid, _, _ = await _reset_and_seed_rows()
     async with SessionLocal() as s:
