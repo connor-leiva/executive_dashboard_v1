@@ -267,7 +267,12 @@ input {
   min-height: 66px;
   display: flex;
   align-items: center;
-  gap: 18px;
+  /* WRAPS, because the contents are tenant data. A workspace names its own roles and there can
+     be six of them, with a long workspace name in the assistant button beside them -- at which
+     point a nowrap header pushes the role switcher off the right edge and it is simply gone.
+     The mockup's header wraps for the same reason. */
+  flex-wrap: wrap;
+  gap: 12px 18px;
   padding: 7px 28px 7px 48px;
   border-bottom: 1px solid var(--line);
   background: var(--page);
@@ -368,6 +373,12 @@ input {
   display: flex;
   align-items: center;
   gap: 14px;
+  /* The pills themselves wrap too: five roles already reach the edge at 1440. */
+  flex-wrap: wrap;
+}
+
+.ut-role-control > div {
+  flex-wrap: wrap;
 }
 
 .ut-role-control > span {
@@ -1676,4 +1687,14 @@ input {
   border: 1px dashed var(--line);
   background: var(--wash);
   font-size: 13px;
+}
+
+/* The assistant button carries the workspace's name, which can be long. Truncate rather than
+   let it push the role switcher off the header; the full name is on the title attribute. */
+.ut-ask-top b {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: inherit;
 }

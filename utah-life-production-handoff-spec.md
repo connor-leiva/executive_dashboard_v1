@@ -25,6 +25,52 @@ Known reference files from the prior conversation:
 
 Do not use `C:\Users\17192\Downloads\acumynsitemockup.html` as the intranet target. The user explicitly said that was the wrong file.
 
+## 0a. THIS IS A MULTI-TENANT PRODUCT
+
+Read this before the rest of the document, because the document's title is misleading.
+
+Utah Life is the FIRST customer, not the product. Every team that buys this gets its own
+workspace with its own admin console, and configures its own portal from it. Nothing in the
+shipped code may name Utah Life, their brokerage, their vendors, their staff or their tool stack.
+
+Two failures of exactly that kind were found and fixed (see 0b). When adding anything here, the
+test is: would a second customer, in a different industry, see something that belongs to somebody
+else? If yes, it is tenant configuration and belongs in the console.
+
+## 0b. Multi-tenancy audit, and what it found
+
+- A NEWLY PROVISIONED WORKSPACE COULD NOT OPEN ITS OWN CONSOLE. `provision_tenant` created a
+  tenant, its domain, its businesses and an invited owner, and not one intranet row -- no roles,
+  no capabilities, no `console_access` grant, no member for the owner. `require_console_access`
+  needs all of those, so a customer who had just bought the product was locked out of the console
+  they bought. The only thing that had ever created those rows was `scripts/seed_intranet.py`,
+  which is Utah Life's real staff names and email addresses, their courses and their tools;
+  running it against a paying customer would have filled their workspace with another company's
+  people. `app/services/intranet_bootstrap.py` now creates the GENERIC structure at provisioning
+  time -- Owner/Manager/Member roles they rename, capabilities they grant, the owner as first
+  member, an empty setup checklist -- and it is idempotent so a retried provision cannot
+  overwrite an admin's work.
+
+- THE CONSOLE WAS CONFIGURING TABLES THE INTRANET NEVER READ. Roles, launchpad tiles, Win the Day
+  lists, courses and SOPs were all written per tenant by the console and all ignored by the
+  intranet, which rendered a compiled-in `constants.js` shaped around the first customer. Every
+  workspace would have seen Utah Life's navigation, roles and tool stack regardless of what their
+  own admin configured. `_published_content()` now serves the workspace's own published rows,
+  with tile role-audience applied server-side, and there is a test asserting no other customer's
+  content can appear.
+
+- Smaller, same theme: the workspace names itself in the rail, the tab title, the assistant button
+  and the sign-in screen (all were `"Utah Life"` constants); `POWERED BY PLACE | exp` is gone;
+  the Sunburst panel and nav item appear only where that workspace has Sisu connected, because a
+  coaching product one customer buys is not a feature of the platform; and "Pulled From Follow Up
+  Boss" only claims that when a CRM is actually connected.
+
+STILL TENANT-SHAPED, and worth a pass: `scripts/seed_intranet.py` is Utah Life's data end to end
+and should be renamed to make that obvious (it is a demo fixture, used only by tests). The
+integration catalogue seeded per tenant is a real-estate stack, and one description names the
+`utahlife-agents` Google group. The intranet's nav STRUCTURE is still fixed in `constants.js`;
+the labels and content are now the workspace's, but which pages exist is not yet configurable.
+
 ## 1. Product goal
 
 Finish the Utah Life intranet and admin console so the product is:
@@ -413,10 +459,13 @@ Left for Phase 7:
   `calendar_address`, role audience, plus workspace `timezone` / `week_starts_on` /
   `default_calendar_view`). A distinct Google connection status is the gap, and it belongs with
   the Phase 9 integration work rather than here.
-- Feature/plan gating. `plans.allows(tenant, "intranet")` already gates the intranet itself, but
-  the AI assistant and Marketing Requests are tenant switches with no plan behind them. Doing it
-  properly means deciding which tier includes what, which is a pricing decision rather than an
-  implementation one and belongs with the user.
+- Feature/plan gating: DECIDED AND BUILT. Team has no portal; Business includes it; Portfolio
+  adds the AI assistant, which sits a tier higher because it answers from a workspace's own
+  documents and costs real money per question. Marketing Requests is deliberately NOT a plan
+  feature at any tier -- it is how a team routes work to its own marketing people, so it ships
+  with the portal. The portal used to be switched on per workspace in `config.features`; that
+  flag can now GRANT but never revoke, so grandfathered workspaces keep working while the plan
+  becomes the real answer. Removable once they are on a paying tier.
 - The three non-derivable checklist items could become derivable if the product gains a way to
   record the underlying decision. Worth revisiting rather than treating as permanently manual.
 

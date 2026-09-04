@@ -336,3 +336,75 @@ async def test_an_attachment_downloads_as_an_attachment_and_only_to_its_owner():
     assert mine.headers["content-disposition"].startswith("attachment;")
     assert mine.headers["content-type"].startswith("image/png")
     assert other.status_code == 404, f"another member read the file: {other.status_code}"
+
+
+async def test_a_workspace_gets_its_own_content_not_another_customers():
+    """THE MULTI-TENANCY FIX, asserted.
+
+    The console has always written roles, launchpad tiles, Win the Day lists, courses and SOPs
+    into tenant-scoped tables. The intranet read none of them -- it rendered a compiled-in
+    constants file shaped around the first customer, so every workspace on the platform would
+    have seen that customer's navigation, roles and tool stack no matter what their own admin
+    configured. The console was configuring tables nothing consumed.
+    """
+    from app.models import IntranetLaunchpadTile, IntranetRole, IntranetWtdList
+
+    host, tenant, tokens = await _tenant("intraown", intranet=True)
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    async with SessionLocal() as s:
+        s.add_all([
+            IntranetRole(tenant_id=tenant.id, key="stylist", name="Stylist", sort=0,
+                         published_at=now),
+            IntranetLaunchpadTile(tenant_id=tenant.id, name="Acme Booking", tile_group="Daily",
+                                  url="https://booking.example.test", auth_type="Link", sort=0,
+                                  active=True, published_at=now),
+            IntranetWtdList(tenant_id=tenant.id, position=0, name="Chair turns",
+                            provider="manual", active=True, published_at=now),
+        ])
+        await s.commit()
+
+    async with _client() as c:
+        cfg = (await c.get("/api/v1/intranet/config",
+                           headers=_H(tokens["member"], host))).json()["config"]
+
+    content = cfg["content"]
+    assert [r["name"] for r in content["roles"]] == ["Stylist"], content["roles"]
+    assert [w["name"] for w in content["wtd_lists"]] == ["Chair turns"]
+    tools = [t["name"] for g in content["tool_groups"] for t in g["tools"]]
+    assert tools == ["Acme Booking"], tools
+    # And nothing from the customer the constants file was shaped around.
+    blob = str(cfg)
+    for leaked in ("Sunburst", "Follow Up Boss", "Sisu", "Buyer Agent"):
+        assert leaked not in blob, f"another customer's content leaked in: {leaked}"
+
+
+async def test_an_unpublished_row_is_not_live_yet():
+    """The live intranet shows published state only. A tile created and never published has not
+    been released to the workspace, and showing it would make the console's publish button a
+    decoration."""
+    from app.models import IntranetLaunchpadTile
+
+    host, tenant, tokens = await _tenant("intradraft", intranet=True)
+    async with SessionLocal() as s:
+        s.add(IntranetLaunchpadTile(
+            tenant_id=tenant.id, name="Not Published Yet", tile_group="Daily",
+            url="https://draft.example.test", auth_type="Link", sort=0, active=True,
+            published_at=None))
+        await s.commit()
+
+    async with _client() as c:
+        cfg = (await c.get("/api/v1/intranet/config",
+                           headers=_H(tokens["member"], host))).json()["config"]
+    tools = [t["name"] for g in cfg["content"]["tool_groups"] for t in g["tools"]]
+    assert "Not Published Yet" not in tools, "a draft tile went live"
+
+
+async def test_the_workspace_names_itself():
+    """The rail wordmark, the page title, the assistant button and the sign-in screen all read
+    "Utah Life" from a constant, so every customer's portal wore the first customer's name."""
+    host, tenant, tokens = await _tenant("intraname", intranet=True)
+    async with _client() as c:
+        cfg = (await c.get("/api/v1/intranet/config",
+                           headers=_H(tokens["member"], host))).json()["config"]
+    assert cfg["workspace"]["name"] == tenant.name
+    assert "Utah Life" not in str(cfg["workspace"])

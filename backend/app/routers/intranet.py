@@ -16,9 +16,12 @@ from sqlalchemy.orm.attributes import flag_modified
 from .. import plans
 from ..db import get_session
 from ..deps import current_user, require_role
-from ..models import (IntranetMarketingAttachment, IntranetMarketingRequest,
-                      IntranetMarketingSetting, IntranetMember, IntranetRole,
-                      IntranetUserState, Tenant, User)
+from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTileRole,
+                      IntranetLesson, IntranetMarketingAttachment, IntranetMarketingRequest,
+                      IntranetMarketingSetting, IntranetMember, IntranetRole, IntranetSop,
+                      IntranetIntegration, IntranetSopCategory, IntranetUserState,
+                      IntranetWorkspace,
+                      IntranetWtdList, Tenant, User)
 from ..services import binder_storage
 from ..services.audit import audit
 
@@ -138,11 +141,136 @@ def _marketing_out(row: IntranetMarketingSetting | None, role_name: str | None) 
     }
 
 
+async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember | None) -> dict:
+    """The workspace's OWN configured content, as the intranet should render it.
+
+    THIS IS THE MULTI-TENANCY FIX AND IT IS NOT COSMETIC. The console has always written roles,
+    launchpad tiles, Win the Day lists, courses and SOPs into tenant-scoped tables. The intranet
+    never read any of them -- it rendered a compiled-in `constants.js` shaped around the first
+    customer, so every workspace on the platform would have seen that customer's navigation,
+    their roles, their tool stack and their daily checklists no matter what their own admin had
+    configured. The console was configuring tables nothing consumed.
+
+    PUBLISHED ONLY. A row with `published_at` unset has never been published, so the live intranet
+    must not show it; that is the draft/live separation the console's publish button exists for.
+    Preview is the console's own route and is allowed to see drafts.
+
+    ROLE AUDIENCE IS APPLIED HERE, on the server. Tiles carry a role audience, and filtering that
+    in the browser would mean shipping every tile to every agent and hiding some with CSS.
+    """
+    published = lambda model: model.published_at.is_not(None)   # noqa: E731
+
+    roles = (await s.execute(select(IntranetRole).where(
+        IntranetRole.tenant_id == tenant_id, published(IntranetRole),
+    ).order_by(IntranetRole.sort))).scalars().all()
+
+    tiles = (await s.execute(select(IntranetLaunchpadTile).where(
+        IntranetLaunchpadTile.tenant_id == tenant_id,
+        IntranetLaunchpadTile.active.is_(True),
+        published(IntranetLaunchpadTile),
+    ).order_by(IntranetLaunchpadTile.sort, IntranetLaunchpadTile.name))).scalars().all()
+
+    # A tile with NO audience rows is visible to everyone; one with rows is visible to those roles.
+    # Absence means "not restricted", which is what an admin who never opened the audience picker
+    # intends -- the alternative silently hides every tile until somebody ticks boxes.
+    audience: dict = {}
+    if tiles:
+        for tile_id, role_id in (await s.execute(select(
+            IntranetLaunchpadTileRole.tile_id, IntranetLaunchpadTileRole.role_id,
+        ).where(IntranetLaunchpadTileRole.tenant_id == tenant_id,
+                IntranetLaunchpadTileRole.tile_id.in_([t.id for t in tiles])))).all():
+            audience.setdefault(tile_id, set()).add(role_id)
+
+    my_role = member.role_id if member is not None else None
+    visible = [t for t in tiles
+               if t.id not in audience or my_role in audience[t.id]]
+
+    wtd = (await s.execute(select(IntranetWtdList).where(
+        IntranetWtdList.tenant_id == tenant_id,
+        IntranetWtdList.active.is_(True),
+        published(IntranetWtdList),
+    ).order_by(IntranetWtdList.position))).scalars().all()
+
+    courses = (await s.execute(select(IntranetCourse).where(
+        IntranetCourse.tenant_id == tenant_id,
+        IntranetCourse.state == "Live",
+        published(IntranetCourse),
+    ).order_by(IntranetCourse.sort))).scalars().all()
+
+    lessons_by_course: dict = {}
+    if courses:
+        for lesson in (await s.execute(select(IntranetLesson).where(
+            IntranetLesson.tenant_id == tenant_id,
+            IntranetLesson.course_id.in_([c.id for c in courses]),
+        ).order_by(IntranetLesson.sort))).scalars().all():
+            lessons_by_course.setdefault(lesson.course_id, []).append(lesson)
+
+    sop_categories = (await s.execute(select(IntranetSopCategory).where(
+        IntranetSopCategory.tenant_id == tenant_id, published(IntranetSopCategory),
+    ).order_by(IntranetSopCategory.sort, IntranetSopCategory.name))).scalars().all()
+
+    sops = (await s.execute(select(IntranetSop).where(
+        IntranetSop.tenant_id == tenant_id,
+        IntranetSop.state == "Live",
+        published(IntranetSop),
+    ).order_by(IntranetSop.title))).scalars().all()
+
+    category_names = {c.id: c.name for c in sop_categories}
+
+    # Which providers this workspace has actually connected. Keys and status only -- no
+    # credentials, no base URLs, nothing an agent has any reason to see. Vendor-specific surfaces
+    # (the Sunburst panel is one) are driven by this rather than being compiled in, because a
+    # coaching product one customer buys is not a feature of the platform.
+    integrations = {
+        row.provider_key: row.status
+        for row in (await s.execute(select(IntranetIntegration).where(
+            IntranetIntegration.tenant_id == tenant_id))).scalars().all()
+    }
+
+    # Grouped exactly as the launchpad renders them, so the browser does no grouping of its own.
+    groups: dict = {}
+    for tile in visible:
+        groups.setdefault(tile.tile_group or "Tools", []).append(
+            {"key": str(tile.id), "name": tile.name, "url": tile.url,
+             "auth_type": tile.auth_type})
+
+    return {
+        "roles": [{"key": r.key, "name": r.name, "is_leadership": bool(r.is_leadership)}
+                  for r in roles],
+        "my_role": next((r.key for r in roles if member is not None and r.id == member.role_id),
+                        None),
+        "tool_groups": [{"id": name.lower().replace(" ", "_"), "label": name, "tools": items}
+                        for name, items in groups.items()],
+        "wtd_lists": [{"id": str(w.id), "name": w.name, "script_name": w.script_name,
+                       "daily_target": w.daily_target, "provider": w.provider}
+                      for w in wtd],
+        "courses": [{"id": str(c.id), "title": c.title,
+                     "lessons": [{"id": str(le.id), "title": le.title}
+                                 for le in lessons_by_course.get(c.id, [])]}
+                    for c in courses],
+        "sops": [{"id": str(sop.id), "title": sop.title,
+                  "category": category_names.get(sop.category_id)}
+                 for sop in sops],
+        "integrations": integrations,
+    }
+
+
 def _config_out(tenant: Tenant, user: User,
                 marketing: IntranetMarketingSetting | None = None,
-                marketing_role: str | None = None) -> dict:
+                marketing_role: str | None = None,
+                content: dict | None = None,
+                workspace: IntranetWorkspace | None = None) -> dict:
     config = _stored_config(tenant)
     config["marketing"] = _marketing_out(marketing, marketing_role)
+    # The workspace names ITSELF. The intranet had "Utah Life" compiled into its rail, its title,
+    # its assistant button and its sign-in screen, so every customer's portal would have worn the
+    # first customer's name.
+    config["workspace"] = {
+        "name": (workspace.portal_name if workspace is not None and workspace.portal_name
+                 else tenant.name or "Workspace"),
+        "tagline": workspace.tagline if workspace is not None else None,
+    }
+    config["content"] = content or {}
     return {
         "enabled": True,
         "can_configure": user.role in ("owner", "admin"),
@@ -187,7 +315,11 @@ async def get_config(user: User = Depends(current_user), s: AsyncSession = Depen
     if marketing is not None and marketing.default_role_id is not None:
         role = await s.get(IntranetRole, marketing.default_role_id)
         role_name = role.name if role is not None and role.tenant_id == user.tenant_id else None
-    return _config_out(tenant, user, marketing, role_name)
+    member = await _member_for(s, user)
+    content = await _published_content(s, user.tenant_id, member)
+    workspace = (await s.execute(select(IntranetWorkspace).where(
+        IntranetWorkspace.tenant_id == user.tenant_id))).scalars().first()
+    return _config_out(tenant, user, marketing, role_name, content, workspace)
 
 
 @router.patch("/config")

@@ -157,7 +157,7 @@ function useBootstrap() {
         name: "Jordan Hale",
         email: "",
         role: "admin",
-        tenant_name: "Utah Life",
+        tenant_name: "Your Workspace",
         apps: [
           { id: "dashboard", name: "Dashboard", href: "/" },
           { id: "intranet", name: "Intranet", href: "/intranet/" },
@@ -177,7 +177,7 @@ function useBootstrap() {
       const [user, intranet] = await Promise.all([getJSON("/me"), getJSON("/intranet/config")]);
       setMe(user);
       setConfig(mergeDeep(DEFAULT_CONFIG, intranet.config || {}));
-      document.title = `${user.tenant_name || user.tenant || "Utah Life"} Intranet`;
+      document.title = `${user.tenant_name || user.tenant || "Intranet"} Intranet`;
       setStatus("ready");
     } catch (err) {
       if (err.status === 401) setStatus("login");
@@ -257,9 +257,22 @@ function useScopedState(scope, stateKey, initial, ready) {
   return [value, setValue, loaded];
 }
 
-function Shell({ me, children }) {
+function Shell({ me, config, children }) {
+  // The workspace's own name, from its console configuration. Never a constant: this string
+  // appears in the rail, the tab title and the assistant button, and it belongs to whoever
+  // bought the product rather than to the customer it was first built for.
+  const workspaceName = config?.workspace?.name || me?.tenant_name || "Intranet";
+  const askLabel = `Ask ${workspaceName}`;
   const [navOpen, setNavOpen] = useState(false);
-  const [roleView, setRoleView] = useState(ROLE_OPTIONS[0]);
+  // The workspace's own roles. ROLE_OPTIONS was four real-estate titles compiled in, so a
+  // salon or a law firm buying this product got "Buyer Agent" in their role switcher.
+  const roleOptions = (config?.content?.roles || []).map((r) => r.name);
+  const [roleView, setRoleView] = useState(null);
+  // Settle on the first role once the workspace's own roles arrive. Not a default in useState:
+  // the config is fetched, so at first render there are no roles to choose from yet.
+  useEffect(() => {
+    setRoleView((prev) => (prev && roleOptions.includes(prev) ? prev : roleOptions[0] || null));
+  }, [roleOptions.join("|")]);
   // Empty, not "buyer consultation". That was the mockup's sample query sitting in the box as a
   // real value, so every user opened the intranet with somebody else's search already typed in --
   // and pressing enter would have run it. The mockup's text belongs in the placeholder.
@@ -277,17 +290,20 @@ function Shell({ me, children }) {
   return (
     <div className="ut-shell">
       {navOpen && <button className="ut-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
-      <aside className={`ut-rail ${navOpen ? "open" : ""}`} aria-label="Utah Life intranet navigation">
+      <aside className={`ut-rail ${navOpen ? "open" : ""}`} aria-label={`${workspaceName} intranet navigation`}>
         <div className="ut-logo-lockup">
-          <div className="ut-logo-text">UTAH LIFE</div>
-          <div className="ut-logo-powered">POWERED BY PLACE | exp</div>
+          <div className="ut-logo-text">{workspaceName}</div>
           <div className="ut-logo-kicker">Team Intranet</div>
         </div>
         <nav className="ut-nav">
+          {/* The nav STRUCTURE is the product's -- every workspace gets Home, Training,
+              SOPs and so on. The assistant's LABEL is the workspace's, because it carries
+              their name. Anything below that is content, and comes from their console. */}
           {NAV_GROUPS.map((group) => (
             <div className="ut-nav-group" key={group.label}>
               <div className="ut-nav-label">{group.label}</div>
-              {group.items.map((item) => (
+              {group.items.filter((item) => !VENDOR_NAV[item.id]
+                                           || connected(config, VENDOR_NAV[item.id])).map((item) => (
                 <NavLink
                   key={item.id}
                   to={item.id === "home" ? "/" : `/${item.id}`}
@@ -295,7 +311,7 @@ function Shell({ me, children }) {
                   onClick={() => setNavOpen(false)}
                   className={({ isActive }) => `ut-nav-item ${isActive || active === item.id ? "active" : ""}`}
                 >
-                  <span>{item.label}</span>
+                  <span>{item.id === "ask" ? askLabel : item.label}</span>
                 </NavLink>
               ))}
             </div>
@@ -327,15 +343,22 @@ function Shell({ me, children }) {
             <input value={search} onChange={(e) => setSearch(e.target.value)}
                    placeholder="Search training, SOPs, people, tools…" aria-label="Search" />
           </label>
-          <NavLink className="ut-ask-top" to="/ask">
+          <NavLink className="ut-ask-top" to="/ask" title={askLabel}>
             <span aria-hidden />
-            Ask Utah Life
+            {/* Truncated in CSS rather than shortened here. The mockup's "Ask Utah Life" fits
+                because that name is short; a product cannot assume every customer's is, and
+                guessing at an abbreviation would mangle somebody's name. A configurable
+                assistant label is the real fix. */}
+            <b>{askLabel}</b>
             <kbd>Ctrl K</kbd>
           </NavLink>
+          {/* Hidden entirely when the workspace has no published roles yet. A "Viewing As"
+              label with nothing after it reads as broken rather than as unconfigured. */}
+          {roleOptions.length > 0 && (
           <div className="ut-role-control" role="group" aria-label="Viewing as">
             <span>Viewing As</span>
             <div>
-              {ROLE_OPTIONS.map((role) => (
+              {roleOptions.map((role) => (
                 <button
                   key={role}
                   type="button"
@@ -347,6 +370,7 @@ function Shell({ me, children }) {
               ))}
             </div>
           </div>
+          )}
           <button className="ut-profile" type="button" onClick={signOut} title="Sign out">
             <span>{initials(name)}</span>
             <strong>{name}</strong>
@@ -368,7 +392,7 @@ function Shell({ me, children }) {
 function AccessState({ title, message, action }) {
   return (
     <div className="ut-access">
-      <div className="ut-access-logo">UTAH LIFE</div>
+      <div className="ut-access-logo">Intranet</div>
       <h1>{title}</h1>
       <p>{message}</p>
       {action}
@@ -480,10 +504,14 @@ function Home({ config, wtd, training, onboarding, me }) {
 
       <GoalSnapshot numbers={numbers} />
 
-      <SunburstBanner />
+      {/* A VENDOR PANEL, NOT A PRODUCT FEATURE. Sunburst is a coaching product one customer
+          buys, and it lives inside Sisu -- so it appears only where that workspace has
+          actually connected Sisu. Compiled in, it would have put another company's brand on
+          every customer's home screen. */}
+      {connected(config, "sisu") && <SunburstBanner />}
 
       <section className="ut-lower-grid">
-        <NeedsYouToday />
+        <NeedsYouToday config={config} />
         <QuickLaunch config={config} />
       </section>
 
@@ -536,6 +564,17 @@ function GoalSnapshot({ numbers }) {
   );
 }
 
+/* Whether this workspace has a given provider connected. Vendor-specific surfaces ask this
+   rather than assuming; "connected" is the console's own status value. */
+/* Nav items that belong to a VENDOR rather than to the product. Each appears only where that
+   workspace has the relevant integration connected -- Sunburst is a coaching product sold inside
+   Sisu, and a permanent nav entry for it would put one customer's vendor in everybody's rail. */
+const VENDOR_NAV = { sunburst: "sisu" };
+
+function connected(config, providerKey) {
+  return (config?.content?.integrations || {})[providerKey] === "connected";
+}
+
 function SunburstBanner() {
   const prompts = [
     "Walk me through last week",
@@ -566,9 +605,12 @@ function SunburstBanner() {
   );
 }
 
-function NeedsYouToday() {
+function NeedsYouToday({ config }) {
+  const fubConnected = connected(config, "follow_up_boss");
   return (
-    <Panel title="Needs You Today" kicker="Pulled From Follow Up Boss" action={<NavLink to="/wtd">Open FUB {"->"}</NavLink>}>
+    <Panel title="Needs You Today"
+           kicker={fubConnected ? "Pulled From Follow Up Boss" : "No CRM connected"}
+           action={fubConnected ? <NavLink to="/wtd">Open list {"->"}</NavLink> : null}>
       <div className="ut-priority-list">
         {PRIORITY_ITEMS.map((item) => (
           <div className="ut-priority-row" key={item.title}>
@@ -584,29 +626,47 @@ function NeedsYouToday() {
   );
 }
 
+/* Quick Launch and the Tool Launchpad both render the WORKSPACE'S tiles.
+ *
+ * These were a compiled-in list -- Follow Up Boss, Sisu, Slack, Sunburst, PLACE, Skool, Canva --
+ * which is one customer's actual tool stack. The console has always had a Tool Launchpad screen
+ * writing tiles into a tenant-scoped table; nothing read it. Every workspace on the platform
+ * would have seen that customer's tools with their own URLs bolted on underneath.
+ */
+function tilesFrom(config) {
+  return config?.content?.tool_groups || [];
+}
+
+function ToolCard({ tool }) {
+  const body = (
+    <>
+      <span className="ut-tool-mark">{tool.name.slice(0, 2)}</span>
+      <div>
+        <strong>{tool.name}</strong>
+        <em>{tool.url ? "Open tool" : "No destination set"}</em>
+      </div>
+    </>
+  );
+  return tool.url
+    ? <a className="ut-quick-card" href={tool.url} target="_blank" rel="noreferrer">{body}</a>
+    : <div className="ut-quick-card muted">{body}</div>;
+}
+
 function QuickLaunch({ config }) {
-  const links = config.links?.tools || {};
+  // The first few tiles the workspace configured, in their own order. No separate "quick" list:
+  // a second list to curate is a second thing to forget, and the console has one ordering.
+  const tools = tilesFrom(config).flatMap((g) => g.tools).slice(0, 6);
   return (
     <Panel title="Quick Launch" action={<NavLink to="/tools">All Tools {"->"}</NavLink>}>
-      <div className="ut-quick-grid">
-        {QUICK_LAUNCH.map((tool) => {
-          const url = links[tool.key] || "";
-          const body = (
-            <>
-              <span className={`ut-tool-mark mark-${tool.key}`}>{tool.name.slice(0, 2)}</span>
-              <div>
-                <strong>{tool.name}</strong>
-                <em>{url ? "Open tool" : tool.note || "Configure URL"}</em>
-              </div>
-            </>
-          );
-          return url ? (
-            <a className="ut-quick-card" href={url} target="_blank" rel="noreferrer" key={tool.key}>{body}</a>
-          ) : (
-            <div className="ut-quick-card muted" key={tool.key}>{body}</div>
-          );
-        })}
-      </div>
+      {tools.length === 0 ? (
+        <Empty title="No tools yet">
+          Tools added in the admin console under Tool Launchpad will appear here.
+        </Empty>
+      ) : (
+        <div className="ut-quick-grid">
+          {tools.map((tool) => <ToolCard key={tool.key} tool={tool} />)}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -626,27 +686,20 @@ function ProgressPanel({ label, done, total, secondary }) {
 }
 
 function Tools({ config }) {
-  const links = config.links?.tools || {};
+  const groups = tilesFrom(config);
   return (
-    <Page title="Tool Launchpad" subtitle="Universal tools stay visible; tenant-specific destinations remain configurable.">
-      {TOOL_GROUPS.map((group) => (
+    <Page title="Tool Launchpad" subtitle="The tools this workspace runs on.">
+      {groups.length === 0 ? (
+        <Panel title="Tools">
+          <Empty title="No tools configured">
+            An admin can add tools in the console under Tool Launchpad. They appear here once
+            published.
+          </Empty>
+        </Panel>
+      ) : groups.map((group) => (
         <Panel key={group.id} title={group.label}>
           <div className="ut-tool-grid">
-            {group.tools.map((tool) => {
-              const url = links[tool.key] || "";
-              return (
-                <div className="ut-tool-card" key={tool.key}>
-                  <div>
-                    <span className={`ut-tool-mark mark-${tool.key}`}>{tool.name.slice(0, 2)}</span>
-                    <strong>{tool.name}</strong>
-                    <p>{tool.note || "Tenant configurable"}</p>
-                  </div>
-                  {url
-                    ? <a className="ut-button primary small" href={url} target="_blank" rel="noreferrer">Open</a>
-                    : <span className="ut-status-pill">Configure URL</span>}
-                </div>
-              );
-            })}
+            {group.tools.map((tool) => <ToolCard key={tool.key} tool={tool} />)}
           </div>
         </Panel>
       ))}
@@ -701,7 +754,7 @@ function WinTheDay({ state, setState, config }) {
           ))}
         </div>
       </Panel>
-      <Panel title="Follow Up Boss Lists" kicker="Tenant configured">
+      <Panel title="Call Lists" kicker="Configured in the admin console">
         <div className="ut-fub-grid">
           {FUB_LISTS.map((item) => {
             const url = links[item.key] || "";
@@ -723,7 +776,7 @@ function WinTheDay({ state, setState, config }) {
 function Training({ state, setState }) {
   const toggle = (key) => setState((s) => ({ ...s, done: { ...(s.done || {}), [key]: !s.done?.[key] } }));
   return (
-    <Page title="Training Library" subtitle="Proxy course shell using the Utah Life navigation and card language.">
+    <Page title="Training Library" subtitle="Courses this workspace has published.">
       <div className="ut-two-grid">
         {TRAINING.map((course) => (
           <Panel key={course.key} title={course.title}>
@@ -1048,7 +1101,7 @@ function Directory() {
 function BrandKit({ config }) {
   const brand = config.brand || DEFAULT_CONFIG.brand;
   return (
-    <Page title="Brand Kit" subtitle="Close proxy fonts are active until the final TT font files and Utah Life mark are attached.">
+    <Page title="Brand Kit" subtitle="Marks, colours and type for this workspace.">
       <div className="ut-two-grid">
         <Panel title="Brand Mark">
           {brand.mark_url
@@ -1067,10 +1120,14 @@ function BrandKit({ config }) {
   );
 }
 
-function Ask() {
+function Ask({ config, me }) {
+  // The assistant carries the workspace's name, so this needs the same source the rail uses.
+  // It previously said "Ask Utah Life" from a constant; taking askLabel from an enclosing scope
+  // would have been a runtime ReferenceError, which a build does not catch.
+  const askLabel = `Ask ${config?.workspace?.name || me?.tenant_name || "us"}`;
   return (
-    <Page title="Ask Utah Life" subtitle="Assistant surface ships as a shell until the real service is connected.">
-      <Panel title="Ask Utah Life">
+    <Page title={askLabel} subtitle="Answers drawn from this workspace’s own documents.">
+      <Panel title={askLabel}>
         <div className="ut-ask-shell">
           <input disabled placeholder="Ask about anything" />
           <button disabled>Ask</button>
@@ -1138,7 +1195,7 @@ export default function IntranetApp() {
   }
 
   return (
-    <Shell me={boot.me}>
+    <Shell me={boot.me} config={boot.config}>
       <Routes>
         <Route path="/" element={<Home config={boot.config} wtd={wtd} training={training} onboarding={onboarding} me={boot.me} />} />
         <Route path="/tools" element={<Tools config={boot.config} />} />
@@ -1151,7 +1208,7 @@ export default function IntranetApp() {
         <Route path="/marketing" element={<Marketing config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/directory" element={<Directory />} />
         <Route path="/brand" element={<BrandKit config={boot.config} />} />
-        <Route path="/ask" element={<Ask />} />
+        <Route path="/ask" element={<Ask config={boot.config} me={boot.me} />} />
         <Route path="/sunburst" element={<SunburstPage />} />
         <Route path="/phone" element={<PlaceholderPage title="On The Phone" subtitle="Team phone activity shell." />} />
         <Route path="/listing" element={<PlaceholderPage title="Listing Marketing" subtitle="Listing marketing content remains tenant configurable." />} />

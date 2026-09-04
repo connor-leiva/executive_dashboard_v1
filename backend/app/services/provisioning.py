@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
+from .intranet_bootstrap import bootstrap_intranet
 from ..models import Business, Domain, Tenant, User
 from ..security import new_action_token
 from ..tenancy import RESERVED_SLUGS, url_scheme
@@ -162,6 +163,12 @@ async def provision_tenant(
         password_hash=None, role="owner", status="invited", token_version=0,
         action_token_hash=token_hash, action_token_purpose="invite",
         action_token_expires=dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=INVITE_VALID_DAYS)))
+
+    # A workspace nobody can administer is not a provisioned workspace. This creates the roles,
+    # capabilities, console_access grant and owner membership the console requires -- generic
+    # structure only, never another customer's roster or content.
+    await bootstrap_intranet(s, tenant.id, workspace_name=name, subdomain=slug,
+                             owner_email=owner_email)
 
     catalogs: dict = {}
     if seed_catalogs:

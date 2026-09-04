@@ -502,3 +502,117 @@ async def test_a_dev_subdomain_cannot_claim_a_reserved_platform_name():
 
     tenancy.set_tenant(None)
     assert await tenancy.resolve_tenant(_Req("app.localhost")) != squatter
+
+
+async def test_a_newly_provisioned_workspace_can_open_its_own_console():
+    """THE MULTI-TENANCY BLOCKER THIS FIXES.
+
+    provision_tenant created a tenant, its domain, its businesses and an invited owner -- and no
+    intranet rows at all. require_console_access needs an active member whose role holds
+    console_access=Full, so a workspace that had just been sold could not open its own admin
+    console. The only thing that ever created those rows was the seed script, which is one
+    customer's real staff list and content; running that against a paying customer would have
+    filled their workspace with another company's people.
+    """
+    from app.models import (IntranetCapability, IntranetMember, IntranetPermission, IntranetRole,
+                            IntranetWorkspace)
+
+    tid = await _provision("freshco", hostname="freshco.internal",
+                           owner_email="owner@freshco.test")
+    async with SessionLocal() as s:
+        ws = (await s.execute(select(IntranetWorkspace).where(
+            IntranetWorkspace.tenant_id == tid))).scalars().first()
+        roles = (await s.execute(select(IntranetRole).where(
+            IntranetRole.tenant_id == tid))).scalars().all()
+        member = (await s.execute(select(IntranetMember).where(
+            IntranetMember.tenant_id == tid))).scalars().first()
+        console_cap = (await s.execute(select(IntranetCapability).where(
+            IntranetCapability.tenant_id == tid,
+            IntranetCapability.key == "console_access"))).scalars().first()
+        full = (await s.execute(select(IntranetPermission).where(
+            IntranetPermission.tenant_id == tid,
+            IntranetPermission.capability_id == console_cap.id,
+            IntranetPermission.level == "Full"))).scalars().all()
+
+    assert ws is not None, "no workspace row: the console has nothing to configure"
+    assert member is not None and member.status == "Active", "the owner is not on the roster"
+    assert len(full) == 1, "exactly one role should administer a brand-new workspace"
+    assert member.role_id == full[0].role_id, "the owner does not hold the administering role"
+
+    # Generic structure, not the first customer's org chart.
+    names = {r.name for r in roles}
+    assert names == {"Owner", "Manager", "Member"}, names
+    for borrowed in ("Buyer Agent", "Listing Agent", "JV Partner"):
+        assert borrowed not in names, f"a real-estate role leaked into a generic workspace"
+
+
+async def test_bootstrapping_twice_does_not_reset_a_configured_workspace():
+    """Provisioning is retried. A bootstrap that re-ran would overwrite roles an admin had
+    already renamed, silently undoing real work."""
+    from app.models import IntranetRole
+    from app.services.intranet_bootstrap import bootstrap_intranet
+
+    tid = await _provision("twiceco", hostname="twiceco.internal",
+                           owner_email="owner@twiceco.test")
+    async with SessionLocal() as s:
+        role = (await s.execute(select(IntranetRole).where(
+            IntranetRole.tenant_id == tid, IntranetRole.key == "member"))).scalars().one()
+        role.name = "Stylist"
+        await s.commit()
+
+    async with SessionLocal() as s:
+        await bootstrap_intranet(s, tid, workspace_name="Twiceco", subdomain="twiceco")
+        await s.commit()
+
+    async with SessionLocal() as s:
+        again = (await s.execute(select(IntranetRole).where(
+            IntranetRole.tenant_id == tid, IntranetRole.key == "member"))).scalars().all()
+    assert len(again) == 1, "bootstrap duplicated a role"
+    assert again[0].name == "Stylist", "bootstrap overwrote an admin's rename"
+
+
+def test_the_tiers_gate_the_portal_and_the_assistant_but_never_marketing_requests():
+    """The pricing decision, asserted so it cannot drift silently.
+
+    The team portal is included from Business up; the assistant, which answers from a workspace's
+    own documents and costs real money per question, sits a tier above it. Marketing Requests is
+    NOT a plan feature at any tier -- it is how a team routes work to its own marketing people,
+    so it ships with the portal rather than being sold separately.
+    """
+    from app import plans
+
+    class _T:
+        def __init__(self, plan, config=None):
+            self.plan = plan
+            self.config = config or {}
+
+    assert not plans.allows(_T("team"), "intranet")
+    assert plans.allows(_T("business"), "intranet")
+    assert plans.allows(_T("portfolio"), "intranet")
+
+    assert not plans.allows(_T("team"), "ai_assistant")
+    assert not plans.allows(_T("business"), "ai_assistant")
+    assert plans.allows(_T("portfolio"), "ai_assistant")
+
+    # Not a plan flag at all, at any tier -- asking is answered "no feature by that name".
+    for tier in ("team", "business", "portfolio"):
+        assert not plans.allows(_T(tier), "marketing_requests")
+
+
+def test_the_legacy_workspace_flag_can_grant_but_never_revoke():
+    """Before the portal was a tier it was switched on per workspace in `config.features`, and
+    workspaces provisioned that way are still using it. Honouring it keeps them working. Letting
+    it REVOKE would leave two sources of truth for one answer, and the plan has to decide."""
+    from app import plans
+
+    class _T:
+        def __init__(self, plan, config=None):
+            self.plan = plan
+            self.config = config or {}
+
+    granted = _T("team", {"features": {"intranet": True}})
+    assert plans.allows(granted, "intranet"), "a grandfathered workspace lost its portal"
+
+    # A plan that includes it wins over a flag that says otherwise.
+    revoked = _T("portfolio", {"features": {"intranet": False}})
+    assert plans.allows(revoked, "intranet"), "a stale flag revoked a paid feature"

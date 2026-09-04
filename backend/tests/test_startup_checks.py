@@ -254,10 +254,22 @@ def test_every_plan_is_complete_so_a_gate_cannot_read_a_missing_key():
     typo in a key name would therefore hand out an unlimited allowance silently."""
     from app import plans
 
-    required = {"name", "price_monthly", "max_businesses", "max_users", "sources", "extra_tabs",
-                "max_share_links", "history_months", "custom_branding", "max_ai_employees"}
+    # DERIVED, not listed. The bug this guards against is one plan missing a key the others have,
+    # which is exactly "the plans disagree about their shape" -- so the union of every plan's keys
+    # is the right expectation, and adding a legitimate new limit to all three no longer fails a
+    # list somebody has to remember to update.
+    every_key: set[str] = set()
+    for plan in plans.PLANS.values():
+        every_key |= set(plan)
     for key, plan in plans.PLANS.items():
-        assert set(plan) == required, f"{key} is missing or has extra: {set(plan) ^ required}"
+        missing = every_key - set(plan)
+        assert not missing, f"{key} is missing {sorted(missing)}, which would read as unlimited"
+
+    # A short list of the load-bearing ones, so deleting a limit from EVERY plan at once -- which
+    # the derivation above cannot see -- still fails here.
+    for key, plan in plans.PLANS.items():
+        for essential in ("name", "price_monthly", "max_businesses", "max_users", "sources"):
+            assert essential in plan, f"{key} lost {essential}"
     # Prices ascend with the tier, which is the one relationship a reader will assume.
     prices = [plans.PLANS[p]["price_monthly"] for p in plans.ORDER]
     assert prices == sorted(prices) and len(set(prices)) == len(prices), prices

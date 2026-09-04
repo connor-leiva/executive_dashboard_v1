@@ -47,6 +47,8 @@ PLANS: dict[str, dict] = {
         "history_months": 12,
         "custom_branding": False,
         "max_ai_employees": 0,
+        "intranet": False,
+        "ai_assistant": False,
     },
     BUSINESS: {
         "name": "Business",
@@ -59,6 +61,11 @@ PLANS: dict[str, dict] = {
         "history_months": 36,
         "custom_branding": True,
         "max_ai_employees": 1,
+        # The team portal is included from here up. Marketing Requests is deliberately NOT a
+        # plan feature: it is how a team routes work to its own marketing people, so it belongs
+        # to every workspace that has the portal rather than being sold separately.
+        "intranet": True,
+        "ai_assistant": False,
     },
     PORTFOLIO: {
         "name": "Portfolio",
@@ -71,6 +78,10 @@ PLANS: dict[str, dict] = {
         "history_months": None,
         "custom_branding": True,
         "max_ai_employees": None,
+        "intranet": True,
+        # The assistant reads a workspace's own documents and answers from them, which costs real
+        # money per question and is the reason it sits a tier above the portal itself.
+        "ai_assistant": True,
     },
 }
 
@@ -80,10 +91,14 @@ PLANS: dict[str, dict] = {
 _FEATURE_TABS = {"books": "books", "flywheel": "flywheel", "binder": "binder",
                  "ai_employees": "ai_employees"}
 
-# Tenant-level add-on modules. These are plan features, but not dashboard tabs:
-# once enabled for a workspace every active user can open them, regardless of
-# their per-tab dashboard grants.
-_CONFIG_FEATURES = {"intranet"}
+# Plan features that are not dashboard tabs. Once a plan includes one, every active user in the
+# workspace can open it regardless of their per-tab dashboard grants -- the portal is a place the
+# whole team works, not a tab some people are granted.
+#
+# Marketing Requests is deliberately absent. It is how a team routes work to its own marketing
+# people, so it ships with the portal for every workspace that has one; `marketing.enabled` is
+# that workspace deciding whether to use it, which is a different question from what they bought.
+_PLAN_FLAGS = {"intranet", "ai_assistant"}
 
 
 def plan_of(tenant) -> str:
@@ -107,7 +122,14 @@ def allows(tenant, feature: str) -> bool:
     lim = limits(tenant)
     if feature in _FEATURE_TABS:
         return _FEATURE_TABS[feature] in lim["extra_tabs"]
-    if feature in _CONFIG_FEATURES:
+    if feature in _PLAN_FLAGS:
+        if lim.get(feature):
+            return True
+        # LEGACY GRANT, and it can only ever grant. Before the portal was a tier it was switched
+        # on per workspace in `config.features`, and workspaces provisioned that way are still
+        # using it. Honouring the flag keeps them working; letting it REVOKE would give two
+        # sources of truth for one answer, and the plan has to be the one that decides.
+        # Removable once those workspaces are on a plan that includes the feature.
         cfg = getattr(tenant, "config", None) or {}
         features = cfg.get("features") or {}
         if isinstance(features, dict):
