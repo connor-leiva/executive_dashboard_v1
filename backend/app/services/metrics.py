@@ -43,7 +43,7 @@ _PL_LABELS = {
 _PERIOD_LABELS = {
     "mtd": "Month to date", "qtd": "Quarter to date",
     "ytd": "Year to date", "year": "Full year", "last_month": "Last month",
-    "next_month": "Next month",
+    "next_month": "Next month", "last_7": "Last 7 days",
 }
 # Periods QuickBooks snapshots exist for (see sync._QBO_PERIODS). Anything else — a custom
 # range or a forward window — has no BOOKED P&L; those surfaces flag it instead of implying $0.
@@ -109,6 +109,8 @@ def _period_range(period: str):
     if period == "next_month":                             # forward window — pipeline, not actuals
         first_next = _month_end(today) + dt.timedelta(days=1)
         return first_next, _month_end(first_next)
+    if period == "last_7":                                 # rolling week, INCLUSIVE of today
+        return today - dt.timedelta(days=6), today
     return today.replace(day=1), today  # mtd
 
 
@@ -119,7 +121,10 @@ def _pl_period(period: str) -> tuple[dt.date, dt.date]:
     go missing when viewed a day after it was synced. Custom/forward windows have no
     snapshot; they return their own range and callers flag the booked lens instead."""
     start, end = _period_range(period)
-    if parse_custom(period) or period == "next_month":
+    # No QuickBooks snapshot covers a rolling week or a custom range, so these carry their own
+    # range rather than being rounded to a month key. `has_booked_snapshot` is what makes the
+    # money surfaces say "no booked figure for this window" instead of implying $0.
+    if parse_custom(period) or period in ("next_month", "last_7"):
         return start, end
     if period == "qtd":
         m = ((start.month - 1) // 3) * 3 + 3
@@ -131,7 +136,7 @@ def _pl_period(period: str) -> tuple[dt.date, dt.date]:
     return start, _month_end(start)             # mtd
 
 
-KNOWN_PERIODS = frozenset({"mtd", "qtd", "ytd", "year", "last_month", "next_month"})
+KNOWN_PERIODS = frozenset({"mtd", "qtd", "ytd", "year", "last_month", "next_month", "last_7"})
 DEFAULT_PERIOD = "mtd"
 
 
@@ -397,7 +402,7 @@ async def _arive_kpis(s, tenant_id, business_id, start, end, states=None) -> dic
 
 _FW_PERIOD_LABEL = {"mtd": "this month", "qtd": "this quarter",
                     "ytd": "this year", "year": "this year", "last_month": "last month",
-                    "next_month": "next month"}
+                    "next_month": "next month", "last_7": "the last 7 days"}
 
 
 def _fw_label(period: str) -> str:
@@ -412,6 +417,8 @@ def _prior_range(period, start, end):
     try:
         if period == "mtd":
             return _period_range("last_month")
+        if period == "last_7":                  # the 7 days before this one
+            return (start - dt.timedelta(days=7), start - dt.timedelta(days=1))
         if period == "last_month":
             pe = start - dt.timedelta(days=1)
             return (pe.replace(day=1), pe)

@@ -153,3 +153,30 @@ async def test_business_financials_accept_custom_and_forward_periods():
                 assert booked.get("flag") != "no_snapshot", p
             else:
                 assert booked.get("flag") == "no_snapshot", p     # absence, not a $0 result
+
+
+# ── last_7: the rolling week behind the Friday expense review (2026-08-20) ──────────────────
+
+def test_last_7_is_a_rolling_inclusive_week():
+    today = dt.date.today()
+    start, end = _period_range("last_7")
+    assert end == today                                  # inclusive of today
+    assert start == today - dt.timedelta(days=6)         # 7 days total, not 8
+    assert (end - start).days == 6
+    assert period_label("last_7") == "Last 7 days"
+    assert _fw_label("last_7") == "the last 7 days"
+
+
+def test_last_7_has_no_booked_snapshot_and_is_not_forward():
+    """QuickBooks snapshots are month/quarter/year shaped. A rolling week has none, so the
+    money surfaces must flag the gap rather than render $0 and look like a catastrophic week."""
+    assert has_booked_snapshot("last_7") is False
+    assert is_forward("last_7") is False
+    # and it carries its own range rather than being rounded to a month key
+    assert _pl_period("last_7") == _period_range("last_7")
+
+
+def test_last_7_survives_the_round_trip_every_period_takes():
+    from app.services.metrics import canonical_period
+    assert canonical_period("last_7") == "last_7"         # not silently downgraded to mtd
+    assert parse_custom("last_7") is None                 # not mistaken for a custom range

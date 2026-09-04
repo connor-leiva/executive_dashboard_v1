@@ -15,7 +15,7 @@ import { T, alpha, relativeTime } from "./theme.js";
 import { Icon } from "./Brand.jsx";
 
 export const GRAINS = [
-  ["month", "Month"], ["quarter", "Quarter"], ["ytd", "YTD"], ["year", "Year"],
+  ["week", "7 days"], ["month", "Month"], ["quarter", "Quarter"], ["ytd", "YTD"], ["year", "Year"],
 ];
 const ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -24,6 +24,11 @@ const eom = (y, m) => new Date(y, m + 1, 0);
 /** Resolve { grain, anchor } into the concrete window it covers. */
 export function resolve(grain, anchor) {
   const y = anchor.getFullYear(), m = anchor.getMonth();
+  // A rolling window, not a calendar one: the 7 days ENDING on the anchor, inclusive. Day
+  // arithmetic rolls months and years over on its own, so no special-casing month ends.
+  if (grain === "week") {
+    return { start: new Date(y, m, anchor.getDate() - 6), end: new Date(y, m, anchor.getDate()) };
+  }
   if (grain === "year") return { start: new Date(y, 0, 1), end: new Date(y, 11, 31) };
   if (grain === "ytd") return { start: new Date(y, 0, 1), end: eom(y, m) };
   if (grain === "quarter") {
@@ -36,6 +41,7 @@ export function resolve(grain, anchor) {
 /** Step one window forward/back without changing granularity. */
 export function step(grain, anchor, delta) {
   const y = anchor.getFullYear(), m = anchor.getMonth();
+  if (grain === "week") return new Date(y, m, anchor.getDate() + delta * 7);
   if (grain === "year" || grain === "ytd") return new Date(y + delta, m, 1);
   if (grain === "quarter") return new Date(y, m + delta * 3, 1);
   return new Date(y, m + delta, 1);
@@ -53,6 +59,12 @@ export function periodKey(grain, anchor, custom = null, now = new Date()) {
     if (monthsApart === -1) return "last_month";
     if (monthsApart === 1) return "next_month";
   }
+  // Only a week ending TODAY is the canonical rolling window; any earlier one is a real range,
+  // so stepping back gets "c:START:END" and the server reads the exact dates rather than a
+  // window that would quietly slide the next time the page is opened.
+  if (grain === "week" && sameYear && m === now.getMonth() && anchor.getDate() === now.getDate()) {
+    return "last_7";
+  }
   if (grain === "quarter" && sameYear && Math.floor(m / 3) === Math.floor(now.getMonth() / 3)) return "qtd";
   if (grain === "ytd" && sameYear) return "ytd";
   if (grain === "year" && sameYear) return "year";
@@ -62,6 +74,7 @@ export function periodKey(grain, anchor, custom = null, now = new Date()) {
 
 /** Reverse: the { grain, anchor } a stored period string represents (for first paint). */
 export function fromPeriodKey(key, now = new Date()) {
+  if (key === "last_7") return { grain: "week", anchor: now };
   if (key === "qtd") return { grain: "quarter", anchor: now };
   if (key === "ytd") return { grain: "ytd", anchor: now };
   if (key === "year") return { grain: "year", anchor: now };
@@ -110,8 +123,10 @@ export default function PeriodNav({
   const now = new Date();
   const isNow = !custom && anchor.getFullYear() === now.getFullYear()
     && (grain === "year" || grain === "ytd" ? true
-      : grain === "quarter" ? Math.floor(anchor.getMonth() / 3) === Math.floor(now.getMonth() / 3)
-        : anchor.getMonth() === now.getMonth());
+      : grain === "week" ? (anchor.getMonth() === now.getMonth()
+                            && anchor.getDate() === now.getDate())
+        : grain === "quarter" ? Math.floor(anchor.getMonth() / 3) === Math.floor(now.getMonth() / 3)
+          : anchor.getMonth() === now.getMonth());
   const applyRange = () => {
     if (!from || !to || to < from) return;
     onChange({ grain, anchor: new Date(`${from}T00:00:00`), custom: { from, to },
