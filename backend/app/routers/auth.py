@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import current_user
-from ..models import User, Tenant
+from ..models import IntranetWorkspace, Tenant, User
 from ..schemas import (LoginRequest, LoginResponse, MeResponse, ChangePasswordRequest,
                        AcceptInviteRequest, ResetPasswordRequest)
 from ..security import (verify_pw, make_token, hash_pw, hash_action_token, MIN_PASSWORD_LEN)
@@ -32,10 +32,25 @@ def _aware(d):
     return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
 
 
-def _tenant_apps(tenant: Tenant) -> list[dict]:
+async def _tenant_apps(s: AsyncSession, tenant: Tenant) -> list[dict]:
+    """The apps this workspace can open.
+
+    ENTITLEMENT IS NOT ENOUGH; the portal has to actually EXIST. Those are two different
+    questions and collapsing them caused a real problem: moving the portal from a per-workspace
+    flag to a plan feature meant every workspace on a plan that includes it would have been shown
+    an "Intranet" link overnight -- leading to a portal with no roles, no tiles and no content,
+    and a console that 403s because nobody is on its roster. A new app appearing and not working
+    reads as a bug, not as an upsell.
+
+    So the link appears once the workspace has been bootstrapped, which provisioning now does.
+    Existing workspaces that predate that see no change until somebody sets theirs up.
+    """
     apps = [{"id": "dashboard", "name": "Dashboard", "href": "/"}]
     if plans.allows(tenant, "intranet"):
-        apps.append({"id": "intranet", "name": "Intranet", "href": "/intranet/"})
+        exists = (await s.execute(select(IntranetWorkspace.tenant_id).where(
+            IntranetWorkspace.tenant_id == tenant.id).limit(1))).first()
+        if exists:
+            apps.append({"id": "intranet", "name": "Intranet", "href": "/intranet/"})
     return apps
 
 
@@ -156,7 +171,7 @@ async def me(user: User = Depends(current_user), s: AsyncSession = Depends(get_s
     return MeResponse(id=str(user.id), email=user.email, name=user.name, role=user.role,
                       status=user.status, tenant=tenant.slug, tenant_name=tenant.name,
                       tabs=tabs, brand=roles.brand(tenant),
-                      apps=_tenant_apps(tenant),
+                      apps=await _tenant_apps(s, tenant),
                       # Filtered to what this user may see, so the rail cannot render a tab
                       # the API would refuse — the nav and the grant come from one source.
                       nav=[d for d in descriptors if d["key"] in granted])

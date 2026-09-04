@@ -27,14 +27,14 @@ from app.services.provisioning import DEFAULT_BUSINESSES, provision_tenant
 
 
 async def _run(slug: str, name: str, owner_email: str,
-               businesses: list[dict], hostname: str | None):
+               businesses: list[dict], hostname: str | None, plan: str | None):
     if settings.is_sqlite:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     async with SessionLocal() as s:
         return await provision_tenant(
             s, slug=slug, name=name, owner_email=owner_email,
-            businesses=businesses, hostname=hostname)
+            businesses=businesses, hostname=hostname, plan=plan)
 
 
 def main():
@@ -45,10 +45,13 @@ def main():
     ap.add_argument("--businesses", default=None, help="JSON list of business dicts")
     ap.add_argument("--hostname", default=None,
                     help=f"override the derived {{slug}}.{settings.PLATFORM_DOMAIN}")
+    ap.add_argument("--plan", default=None,
+                    help="team | business | portfolio. Omitted leaves the column default, which "
+                         "is `team` and does NOT include the team portal.")
     a = ap.parse_args()
     biz = json.loads(a.businesses) if a.businesses else DEFAULT_BUSINESSES
     try:
-        r = asyncio.run(_run(a.slug, a.name, a.owner_email, biz, a.hostname))
+        r = asyncio.run(_run(a.slug, a.name, a.owner_email, biz, a.hostname, a.plan))
     except ValueError as e:
         raise SystemExit(f"[error] {e}")
 

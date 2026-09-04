@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from .intranet_bootstrap import bootstrap_intranet
+from .. import plans
 from ..models import Business, Domain, Tenant, User
 from ..security import new_action_token
 from ..tenancy import RESERVED_SLUGS, url_scheme
@@ -118,6 +119,7 @@ async def provision_tenant(
     owner_name: str | None = None,
     businesses: list[dict] | None = None,
     hostname: str | None = None,
+    plan: str | None = None,
     seed_catalogs: bool = True,
 ) -> Provisioned:
     """Create a tenant, its primary domain, its businesses, and an INVITED owner.
@@ -129,6 +131,17 @@ async def provision_tenant(
     """
     slug = normalize_slug(slug)
     owner_email = owner_email.strip().lower()
+
+    # THE PLAN IS SET AT CREATION, not left to the column default. A workspace created without
+    # one landed on `team`, which includes no team portal -- so the customer who had just bought
+    # the portal got a workspace without it, and the failure looked like a bug rather than a
+    # tier. Validated against plans.PLANS so a typo is a 400 at creation rather than a workspace
+    # silently sitting on a plan that does not exist.
+    if plan is not None:
+        plan = plan.strip().lower()
+        if plan not in plans.PLANS:
+            raise ValueError(
+                f"Unknown plan {plan!r}. Expected one of: {', '.join(sorted(plans.PLANS))}.")
     host = (hostname or tenant_hostname(slug)).lower()
 
     if (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none():
@@ -136,7 +149,8 @@ async def provision_tenant(
     if (await s.execute(select(Domain).where(Domain.hostname == host))).scalar_one_or_none():
         raise ValueError(f"Host '{host}' is already claimed")
 
-    tenant = Tenant(slug=slug, name=name)
+    # Omitted plan keeps the column default, so existing callers behave exactly as before.
+    tenant = Tenant(slug=slug, name=name, **({"plan": plan} if plan else {}))
     s.add(tenant)
     await s.flush()
 

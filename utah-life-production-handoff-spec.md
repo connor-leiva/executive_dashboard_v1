@@ -106,6 +106,38 @@ console as before.
   Accepting them would write to a row nothing reads while telling the admin they had connected
   something, which is worse than refusing because it looks like it worked.
 
+## 0d. Creating a workspace, end to end
+
+`provision_tenant` now takes a `plan`, and the operator API (`POST /platform/tenants`, field
+`plan`) and the CLI (`--plan`) both pass it through. It is validated against `plans.PLANS`, so a
+typo is a 400 at creation rather than a workspace sitting on a tier that does not exist.
+
+WHY IT MATTERS: a workspace created without one takes the column default, `team`, which does NOT
+include the team portal. A customer who had just bought the portal would get a workspace without
+it, and that reads as a bug rather than as a tier.
+
+The plan stays OPTIONAL rather than required: the operator console and the CLI both had callers
+that predate it, and breaking them to force a decision trades one failure for another.
+
+    python scripts/create_tenant.py --slug utah-life --name "Utah Life Real Estate Group"         --owner-email you@example.com --plan business
+
+Steps to a working workspace in production:
+
+1. Provision it, WITH a plan that includes the portal (`business` or `portfolio`).
+2. The command returns a one-time owner invite URL -- the only moment the raw token exists. It is
+   emailed too, but keep the link; on a young sending domain the mail is the part that fails.
+3. Accept the invite and set a password.
+4. Open `https://<slug>.acumyn.io/console/` and configure. This works because provisioning
+   bootstraps the roles, capabilities, console_access grant and owner membership (see 0b);
+   before that it 403'd for everybody.
+5. The portal is at `https://<slug>.acumyn.io/intranet/`.
+
+THE PORTAL LINK IN THE APP SWITCHER requires BOTH the plan and an existing workspace row.
+Entitlement and existence are separate questions, and collapsing them meant every workspace on
+an including plan would have been shown an Intranet link the moment plan-gating shipped --
+leading to a portal with no content and a console that 403s. A new app appearing and not working
+reads as a bug, not an upsell.
+
 ## 1. Product goal
 
 Finish the Utah Life intranet and admin console so the product is:

@@ -57,7 +57,8 @@ async def _provision(slug, **kw):
         r = await provision_tenant(
             s, slug=slug, name=kw.get("name", slug.title()),
             owner_email=kw.get("owner_email", f"owner@{slug}.test"),
-            hostname=kw.get("hostname"), businesses=kw.get("businesses"))
+            hostname=kw.get("hostname"), businesses=kw.get("businesses"),
+            plan=kw.get("plan"))
         return r.tenant_id
 
 
@@ -616,3 +617,79 @@ def test_the_legacy_workspace_flag_can_grant_but_never_revoke():
     # A plan that includes it wins over a flag that says otherwise.
     revoked = _T("portfolio", {"features": {"intranet": False}})
     assert plans.allows(revoked, "intranet"), "a stale flag revoked a paid feature"
+
+
+async def test_the_portal_link_appears_only_once_the_portal_exists():
+    """Entitlement and existence are different questions, and collapsing them causes a visible
+    regression.
+
+    Moving the portal from a per-workspace flag to a plan feature meant every workspace on an
+    including plan would have been shown an "Intranet" link the moment that shipped -- leading to
+    a portal with no roles, no tiles and no content, and a console that 403s because nobody is on
+    its roster. A new app appearing and not working reads as a bug, not as an upsell.
+    """
+    from app.models import IntranetWorkspace
+    from app.routers.auth import _tenant_apps
+
+    tid = await _provision("entitledco", hostname="entitledco.internal",
+                           owner_email="owner@entitledco.test")
+    async with SessionLocal() as s:
+        tenant = await s.get(Tenant, tid)
+        tenant.plan = "portfolio"          # a plan that includes the portal
+        await s.commit()
+
+    # Bootstrapped by provisioning, so it exists and the link should show.
+    async with SessionLocal() as s:
+        tenant = await s.get(Tenant, tid)
+        apps = await _tenant_apps(s, tenant)
+    assert "intranet" in {a["id"] for a in apps}
+
+    # Now remove the workspace row: entitled, but nothing set up. The link must disappear.
+    async with SessionLocal() as s:
+        ws = (await s.execute(select(IntranetWorkspace).where(
+            IntranetWorkspace.tenant_id == tid))).scalars().one()
+        await s.delete(ws)
+        await s.commit()
+    async with SessionLocal() as s:
+        tenant = await s.get(Tenant, tid)
+        apps = await _tenant_apps(s, tenant)
+    assert "intranet" not in {a["id"] for a in apps}, (
+        "an entitled workspace with no portal was offered a link to one")
+
+
+async def test_provisioning_takes_a_plan_and_refuses_one_that_does_not_exist():
+    """A workspace created without a plan landed on the column default, `team`, which includes no
+    team portal -- so a customer who had just bought the portal got a workspace without it, and
+    the failure looked like a bug rather than a tier.
+
+    The typo case matters as much as the happy one: a workspace silently sitting on a plan that
+    does not exist would read as unlimited in some gates and empty in others.
+    """
+    import pytest as _pytest
+
+    from app.services.provisioning import provision_tenant
+
+    tid = await _provision("plannedco", hostname="plannedco.internal",
+                           owner_email="owner@plannedco.test", plan="business")
+    async with SessionLocal() as s:
+        tenant = await s.get(Tenant, tid)
+        assert tenant.plan == "business"
+
+    from app import plans
+    assert plans.allows(tenant, "intranet"), "the plan it was sold did not grant the portal"
+
+    async with SessionLocal() as s:
+        with _pytest.raises(ValueError) as ei:
+            await provision_tenant(s, slug="typoco", name="Typo Co",
+                                   owner_email="owner@typoco.test", plan="portfolioo")
+    assert "Unknown plan" in str(ei.value)
+
+
+async def test_omitting_the_plan_still_works_for_existing_callers():
+    """Optional, not required: the operator console and the CLI both had callers that predate
+    this, and breaking them to enforce a decision would trade one failure for another."""
+    tid = await _provision("defaultco", hostname="defaultco.internal",
+                           owner_email="owner@defaultco.test")
+    async with SessionLocal() as s:
+        tenant = await s.get(Tenant, tid)
+    assert tenant.plan == "team", "the column default should still apply when none is given"

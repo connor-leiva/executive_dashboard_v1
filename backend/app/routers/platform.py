@@ -56,6 +56,10 @@ class NewTenant(BaseModel):
     owner_email: str
     hostname: str | None = None
     businesses: list[dict] | None = None
+    # Optional so an operator who does not say gets the column default, but SETTABLE so a
+    # workspace that bought the portal is created with it. Validated in provision_tenant, which
+    # raises ValueError -> 400, so a typo cannot land a workspace on a plan that does not exist.
+    plan: str | None = None
 
 
 @router.post("/login")
@@ -160,13 +164,13 @@ async def create_tenant(body: NewTenant, bg: BackgroundTasks,
     try:
         r = await provision_tenant(s, slug=body.slug, name=body.name,
                                    owner_email=body.owner_email, hostname=body.hostname,
-                                   businesses=body.businesses)
+                                   businesses=body.businesses, plan=body.plan)
     except ValueError as e:
         raise HTTPException(400, str(e))
     # Audited INSIDE the new tenant, so its own trail begins with its creation and names the
     # operator who did it. actor_user_id stays null — the actor is not a user of this tenant.
     audit(s, r.tenant_id, None, "tenant.created", "tenant", r.tenant_id,
-          {"by": op.email, "slug": r.slug, "hostname": r.hostname})
+          {"by": op.email, "slug": r.slug, "hostname": r.hostname, "plan": body.plan})
     await s.commit()
     # Emailed AND returned. The operator keeps the link for the case the customer never sees
     # the mail, which on a brand-new sending domain is the case worth planning for.
