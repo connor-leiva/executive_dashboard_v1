@@ -50,3 +50,6 @@ backend/ads_probe_out/
 work/intranet/unpacked/
 chrome-smoke-profile/
 intranet-*.png
+
+# Books reason probe (read-only diagnostic, run against prod)
+backend/probe_books_reasons.py
