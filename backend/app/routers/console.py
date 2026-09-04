@@ -41,9 +41,11 @@ from ..models import (
     IntranetSopVersion,
     IntranetWtdList,
     IntranetWorkspace,
+    Tenant,
 )
 from ..services.audit import audit
 from ..services import binder_storage
+from ..services.inheritance import dashboard_connections, is_inherited
 
 router = APIRouter(prefix="/console", tags=["console"])
 
@@ -370,6 +372,8 @@ def _with_pending(entity: dict, pending_changes: int) -> dict:
 
 
 def _workspace(row: IntranetWorkspace) -> dict:
+    """The portal's workspace row. Its appearance is its OWN -- see inheritance.py: the portal and
+    the dashboard look different on purpose, so brand is not inherited."""
     return {
         "id": _id(row.id),
         "portal_name": row.portal_name,
@@ -652,16 +656,30 @@ def _public_integration_config(config: dict | None) -> dict:
     }
 
 
-def _integration(row: IntranetIntegration) -> dict:
+def _integration(row: IntranetIntegration, inherited: dict[str, str] | None = None) -> dict:
+    """One provider row, with the dashboard's answer preferred where the dashboard owns it.
+
+    `inherited` is the workspace's dashboard connections. Where a provider appears there, its
+    status comes from the dashboard and the console stops offering a credential form -- the
+    connection that does the work lives on the other surface, and a second form here would write
+    to a row nothing reads while looking like it had done something.
+    """
+    owned_elsewhere = is_inherited(row.provider_key)
+    status = (inherited or {}).get(row.provider_key) if owned_elsewhere else None
     return {
         "id": _id(row.id), "provider_key": row.provider_key,
         "display_name": row.display_name, "role_label": row.role_label,
-        "description": row.description, "status": _integration_status(row),
+        "description": row.description,
+        "status": status or _integration_status(row),
         "base_url": row.base_url, "config": _public_integration_config(row.config),
         "last_sync_at": _iso(row.last_sync_at),
         "last_sync_status": row.last_sync_status, "last_error": row.last_error,
         "connect_available": False,
         "test_available": False,
+        # Told to the console so it can say WHERE the connection lives rather than silently
+        # disabling a button.
+        "inherited": owned_elsewhere,
+        "inherited_from": "Acumyn dashboard" if owned_elsewhere else None,
     }
 
 
@@ -953,6 +971,7 @@ async def _config_bundle(s: AsyncSession, tenant_id) -> dict:
         IntranetAiSource.tenant_id == tenant_id).order_by(IntranetAiSource.sort))).scalars().all()
     ai_setting = await _ai_setting_row(s, tenant_id)
     marketing = await _marketing_row(s, tenant_id)
+    inherited_conn = await dashboard_connections(s, tenant_id)
     evidence = await _setup_evidence(s, tenant_id)
     setup = (await s.execute(select(IntranetSetupTask).where(
         IntranetSetupTask.tenant_id == tenant_id).order_by(IntranetSetupTask.sort))).scalars().all()
@@ -968,7 +987,7 @@ async def _config_bundle(s: AsyncSession, tenant_id) -> dict:
         "wtd_lists": _list([_wtd(r) for r in wtd]),
         "tiles": _list([_tile(r, tile_roles) for r in tiles]),
         "calendar_categories": _list([_calendar_category(r, cal_roles) for r in cals]),
-        "integrations": _list([_integration(r) for r in integrations]),
+        "integrations": _list([_integration(r, inherited_conn) for r in integrations]),
         "ai": {"settings": _ai_settings(ai_setting),
                "sources": _list([_ai_source(r, role_map) for r in ai_sources])},
         "marketing": _marketing(marketing, role_map),
@@ -2322,7 +2341,9 @@ async def get_integrations(p: ConsolePrincipal = Depends(require_console_access)
     rows = (await s.execute(select(IntranetIntegration).where(
         IntranetIntegration.tenant_id == p.user.tenant_id).order_by(
             IntranetIntegration.display_name))).scalars().all()
-    return _list([_integration(r) for r in rows], await _count(s, IntranetIntegration, p.user.tenant_id))
+    inherited = await dashboard_connections(s, p.user.tenant_id)
+    return _list([_integration(r, inherited) for r in rows],
+                 await _count(s, IntranetIntegration, p.user.tenant_id))
 
 
 @router.patch("/integrations/{integration_id}")
@@ -2354,6 +2375,13 @@ async def connect_integration(integration_id: uuid.UUID, body: dict = Body(defau
                               p: ConsolePrincipal = Depends(require_console_access),
                               s: AsyncSession = Depends(get_session)):
     row = await _one(s, IntranetIntegration, p.user.tenant_id, integration_id)
+    # A provider the dashboard owns is not connected from here. Accepting credentials would write
+    # them to a row nothing reads while telling the admin they had connected something -- the
+    # worst of both, because it looks like it worked.
+    if is_inherited(row.provider_key):
+        _unprocessable("provider",
+                       f"{row.display_name} is connected on the Acumyn dashboard, not here. "
+                       f"Connect it there and this workspace picks it up.")
     body = _body(body or {})
     _unknown(body, {"config"})
     config = _integration_config(body)

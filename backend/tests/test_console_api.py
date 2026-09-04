@@ -174,6 +174,9 @@ async def _wire_console_user(slug: str) -> dict:
             ("intranet_wtd_list", "wtd", "position"),
             ("intranet_launchpad_tile", "tile", "sort"),
             ("intranet_calendar_category", "calendar", "sort"),
+            # NOTE: `integration` is picked by display_name below and then narrowed -- the
+            # connect route now refuses providers the dashboard owns, so the shared harness has
+            # to exercise one the portal actually owns or its coverage breaks on a rename.
             ("intranet_integration", "integration", "display_name"),
             ("intranet_ai_source", "ai_source", "sort"),
         ):
@@ -191,6 +194,19 @@ async def _wire_console_user(slug: str) -> dict:
             {"tid": str(tenant.id)},
         )).scalar_one()
         ids["setup_key"] = setup_key
+
+        # Explicit rather than "whichever sorts first": one provider the PORTAL owns (connect
+        # works) and one the DASHBOARD owns (connect is refused). Alphabetical order picked a
+        # portal-owned provider by luck, which would have flipped on any display-name change.
+        for provider_key, id_key in (("slack", "integration"),
+                                     ("sisu", "inherited_integration")):
+            row = (await s.execute(
+                text("SELECT id FROM intranet_integration "
+                     "WHERE tenant_id = :tid AND provider_key = :pk"),
+                {"tid": str(tenant.id), "pk": provider_key},
+            )).first()
+            if row:
+                ids[id_key] = row[0]
 
         await s.commit()
         return {
@@ -1530,3 +1546,63 @@ async def test_the_console_can_read_a_workspace_attachment_but_not_another_tenan
     assert mine.status_code == 200, mine.text
     assert mine.headers["content-disposition"].startswith("attachment;")
     assert theirs.status_code == 404, f"read another tenant's file: {theirs.status_code}"
+
+
+async def test_a_dashboard_connection_shows_up_in_the_portal_without_being_made_twice(ctx):
+    """A workspace is ONE customer. They connect Sisu once.
+
+    `Integration` (dashboard) and `IntranetIntegration` (portal) both cover Sisu and Follow Up
+    Boss, and the two even spell their states differently -- `connected` against `Connected` --
+    so nothing would have matched by accident. A tenant with live production numbers on the
+    dashboard saw "Not Connected" in their portal, and the portal's figures read zero beside a
+    dashboard showing real ones.
+    """
+    from app.models import Integration
+
+    tenant_id = uuid.UUID(ctx["a"]["tenant_id"])
+    async with SessionLocal() as s:
+        s.add(Integration(tenant_id=tenant_id, provider="sisu", status="connected"))
+        await s.commit()
+
+    async with _client() as c:
+        h = _H(ctx["a"]["admin"], ctx["a"]["host"])
+        items = (await c.get("/api/console/integrations", headers=h)).json()["items"]
+
+    sisu = next(i for i in items if i["provider_key"] == "sisu")
+    assert sisu["status"] == "Connected", "the portal ignored a dashboard connection"
+    assert sisu["inherited"] is True
+    assert sisu["inherited_from"] == "Acumyn dashboard"
+
+    # A provider the dashboard has never heard of stays the portal's own.
+    slack = next(i for i in items if i["provider_key"] == "slack")
+    assert slack["inherited"] is False
+
+
+async def test_the_console_refuses_credentials_for_a_provider_the_dashboard_owns(ctx):
+    """Accepting them would write to a row nothing reads while telling the admin they had
+    connected something. That is worse than refusing, because it looks like it worked."""
+    inherited_id = ctx["b"]["ids"].get("inherited_integration")
+    assert inherited_id, "fixture did not seed an inherited provider"
+    async with _client() as c:
+        r = await c.post(f"/api/console/integrations/{inherited_id}/connect",
+                         headers=_H(ctx["b"]["admin"], ctx["b"]["host"]),
+                         json={"config": {"api_key": "must-not-persist"}})
+    assert r.status_code == 422, f"credentials accepted for an inherited provider: {r.text}"
+    assert "dashboard" in r.text.lower()
+
+
+async def test_a_provider_with_several_dashboard_rows_counts_as_connected_if_any_is(ctx):
+    """QuickBooks has one row per company, so a provider can have several. Reporting the first
+    row's status would make a workspace's portal depend on insertion order."""
+    from app.models import Integration
+    from app.services.inheritance import dashboard_connections
+
+    tenant_id = uuid.UUID(ctx["b"]["tenant_id"])
+    async with SessionLocal() as s:
+        s.add_all([
+            Integration(tenant_id=tenant_id, provider="fub", status="disconnected"),
+            Integration(tenant_id=tenant_id, provider="fub", status="connected"),
+        ])
+        await s.commit()
+        conns = await dashboard_connections(s, tenant_id)
+    assert conns["follow_up_boss"] == "Connected", conns

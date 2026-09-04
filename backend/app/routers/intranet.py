@@ -23,6 +23,7 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetWorkspace,
                       IntranetWtdList, Tenant, User)
 from ..services import binder_storage
+from ..services.inheritance import dashboard_connections
 from ..services.audit import audit
 
 router = APIRouter(prefix="/intranet", tags=["intranet"])
@@ -226,6 +227,10 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         for row in (await s.execute(select(IntranetIntegration).where(
             IntranetIntegration.tenant_id == tenant_id))).scalars().all()
     }
+    # Sisu and Follow Up Boss are connected on the DASHBOARD, and that connection wins. A
+    # workspace with live production numbers on one surface and "not connected" on the other is
+    # the same customer being asked the same question twice and getting two answers.
+    integrations.update(await dashboard_connections(s, tenant_id))
 
     # Grouped exactly as the launchpad renders them, so the browser does no grouping of its own.
     groups: dict = {}

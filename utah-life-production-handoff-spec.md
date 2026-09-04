@@ -71,6 +71,41 @@ integration catalogue seeded per tenant is a real-estate stack, and one descript
 `utahlife-agents` Google group. The intranet's nav STRUCTURE is still fixed in `constants.js`;
 the labels and content are now the workspace's, but which pages exist is not yet configurable.
 
+## 0c. What the portal INHERITS from the Acumyn dashboard
+
+CONNECTIONS ARE INHERITED. APPEARANCE IS NOT. That split is deliberate and worth stating, because
+the obvious instinct is to unify both.
+
+A workspace is ONE customer, and they connect Sisu once. `Integration` (dashboard: sisu, fub,
+qbo, arive, ghl) and `IntranetIntegration` (portal: sisu, follow_up_boss, google_workspace, slack,
+skool, brivity, skyslope, canva) BOTH cover Sisu and Follow Up Boss. A tenant with Sisu connected
+on the dashboard still saw "Not Connected" in their portal, and the portal's numbers read zero
+beside a dashboard showing live production. The two even spell their states differently --
+`connected` against `Connected` -- so nothing would have matched by accident.
+
+BRAND IS NOT INHERITED, on purpose. The dashboard and the portal are two different-looking
+products: the portal is a warm, dark-railed team space and the dashboard is an executive surface.
+Pulling the dashboard's palette across would fight the portal's design rather than unify
+anything. A workspace sets its portal's appearance in the portal's own console. Connections are
+the opposite case -- there is one Sisu account and it either works or it does not.
+
+THE DASHBOARD WINS for the connections it owns, because that is where the integration actually
+does work: it syncs, it holds the encrypted tokens, it is where the numbers come from. A portal
+that disagreed with it would be the one that was wrong. Providers the dashboard has never heard
+of (Slack, Skool, Canva, Brivity, SkySlope) stay the portal's own and are configured in its
+console as before.
+
+`app/services/inheritance.py` owns it:
+
+- `dashboard_connections()` maps portal provider keys to dashboard providers and normalises the
+  status vocabularies in ONE place, so neither side has to know the other's words and a new
+  dashboard state cannot silently read as connected. A provider with several dashboard rows
+  (QuickBooks has one per company) counts as connected when any row is -- reading the first row
+  would make a workspace's portal depend on insertion order.
+- The console REFUSES credentials for an inherited provider (422, naming where to connect it).
+  Accepting them would write to a row nothing reads while telling the admin they had connected
+  something, which is worse than refusing because it looks like it worked.
+
 ## 1. Product goal
 
 Finish the Utah Life intranet and admin console so the product is:
