@@ -56,8 +56,30 @@ async def _tenant(slug: str, *, intranet: bool):
 
 
 async def test_intranet_is_a_tenant_module_not_a_tab_grant():
-    host, _, tokens = await _tenant("intraon", intranet=True)
+    """Module access is not a per-tab grant: a member with NO dashboard tabs still gets the
+    portal, because the workspace has it and they work there.
+
+    The app LINK additionally requires the portal to exist. This test bootstraps one, which is
+    what provisioning does for a real workspace -- see
+    test_the_portal_link_appears_only_once_the_portal_exists for why entitlement alone is not
+    enough to show somebody a link.
+    """
+    from app.services.intranet_bootstrap import bootstrap_intranet
+
+    host, tenant, tokens = await _tenant("intraon", intranet=True)
     off_host, _, off_tokens = await _tenant("intraoff", intranet=False)
+
+    async with SessionLocal() as s:
+        # Entitled but not set up: the module is reachable, and the LINK is deliberately not.
+        me_before = None
+        async with _client() as c:
+            me_before = (await c.get("/api/v1/me", headers=_H(tokens["member"], host))).json()
+        assert "intranet" not in {a["id"] for a in me_before["apps"]}, (
+            "an entitled workspace with no portal was offered a link to one")
+
+        await bootstrap_intranet(s, tenant.id, workspace_name=tenant.name, subdomain="intraon")
+        await s.commit()
+
     async with _client() as c:
         member = await c.get("/api/v1/intranet/config", headers=_H(tokens["member"], host))
         assert member.status_code == 200, member.text
