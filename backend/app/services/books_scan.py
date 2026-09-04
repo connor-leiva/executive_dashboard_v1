@@ -22,6 +22,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..models import BookTxn, PLLine, ICLink, ICRule, Business
 
+# Why a suggestion exists, as a stable key stored alongside the prose in `reason`.
+# The prose interpolates counts — "Matches 195 prior charges", "Matches 12 prior charges" —
+# so it can never be grouped or filtered on. The live books already carry ten variants inside
+# the top twelve reasons plus a ~715-row tail of more. The review filters read THIS.
+BASIS_HISTORY = "history_match"     # vendor categorized the same way enough times to clear
+BASIS_OVER_BAND = "over_band"       # known vendor, amount outside its usual range
+BASIS_SPLIT = "split"               # multi-line txn: never auto-categorized, always a human
+BASIS_CLAUDE = "claude"             # Pass 3 formed an opinion
+BASIS_NONE = "none"                 # still pending: no pass has reached it yet
+
 _HISTORY_STATES = ("cleared", "approved", "posted")
 IC_CHARACTERIZATIONS = {"loan", "distribution", "contribution", "shared_expense", "rent", "payroll_alloc"}
 # The money-out side of an intercompany pair (vs. a Deposit, which is money in).
@@ -70,10 +80,10 @@ def _pass1(txn, history):
     trailing_max = max((abs(float(h.amount)) for h in history), default=0.0)
     if trailing_max and abs(float(txn.amount)) <= 1.5 * trailing_max:
         return ("clear", {"category": modal, "account_qbo_id": txn.account_qbo_id,
-                          "confidence": 0.99,
+                          "confidence": 0.99, "basis": BASIS_HISTORY, "priors": n,
                           "reason": f"Matches {n} prior charges categorized here."})
     return ("over_band", {"category": modal, "account_qbo_id": txn.account_qbo_id,
-                          "confidence": 0.6,
+                          "confidence": 0.6, "basis": BASIS_OVER_BAND, "priors": n,
                           "reason": f"Known vendor, amount above the usual range ({n} priors)."})
 
 
@@ -179,7 +189,10 @@ async def _handle_ic(s, tenant_id, txn, today) -> str:
 async def _scan_one(s, tenant_id, txn, alias_map, history_idx, today) -> str:
     if (txn.flags or {}).get("multi_line"):             # split txn -> always a human call
         if not txn.suggestion:
+            # The category here is where the txn ALREADY sits, not a guess — hence confidence
+            # 0.0. The review UI must not render this as a low-confidence suggestion.
             txn.suggestion = {"category": txn.account_label, "confidence": 0.0,
+                              "basis": BASIS_SPLIT,
                               "reason": "Split across multiple accounts; needs review."}
         txn.scan_state = "needs_approval"
         return "needs_approval"
@@ -338,7 +351,7 @@ def _route_batch(batch, parsed) -> tuple[int, int]:
         flags = item.get("flags") if isinstance(item.get("flags"), dict) else {}
         anomaly = any(bool(v) for v in flags.values())
         t.suggestion = {"category": cat, "account_qbo_id": None, "confidence": conf,
-                        "reason": item.get("reason") or ""}
+                        "basis": BASIS_CLAUDE, "reason": item.get("reason") or ""}
         set_flags = {k: True for k, v in flags.items() if v}
         if set_flags:
             t.flags = {**(t.flags or {}), **set_flags}
