@@ -146,6 +146,10 @@ function MarkSlot({ kind, label, hint, url, busy, onPick, onClear }) {
 export default function Appearance() {
   const [seeds, setSeeds] = useState(seedsFromAcumyn);
   const [typeface, setTypeface] = useState(DEFAULT_PAIRING);
+  // The sign-in screen. It renders before there is a session, so none of this can come from
+  // /me — it rides on /public/brand and is set here.
+  const [signIn, setSignIn] = useState(
+    { tagline: "", plate_side: "left", button_shape: "pill", remember_me: true });
   const [marks, setMarks] = useState({ logo: null, logomark: null });
   const [upErr, setUpErr] = useState(null);
   const [upBusy, setUpBusy] = useState(null);
@@ -173,8 +177,15 @@ export default function Appearance() {
       setHadExplicit(!!explicit);
       setSeeds(s);
       setTypeface(r.typeface || DEFAULT_PAIRING);
+      const sign = {
+        tagline: r.tagline || "",
+        plate_side: r.plate_side || "left",
+        button_shape: r.button_shape || "pill",
+        remember_me: r.remember_me !== false,
+      };
+      setSignIn(sign);
       setMarks({ logo: fileUrl(r.logo), logomark: fileUrl(r.logomark) });
-      setSaved(JSON.stringify({ seeds: s, typeface: r.typeface || DEFAULT_PAIRING }));
+      setSaved(JSON.stringify({ seeds: s, typeface: r.typeface || DEFAULT_PAIRING, sign }));
       original.current = r;
     }).catch(() => setErr("Couldn't load appearance settings."));
     return () => {
@@ -206,7 +217,8 @@ export default function Appearance() {
   const savedSeeds = saved ? JSON.parse(saved).seeds : null;
   const seedsTouched = !!savedSeeds && JSON.stringify(seeds) !== JSON.stringify(savedSeeds);
   const blocking = problems.length > 0 && (seedsTouched || !hadExplicit);
-  const dirty = saved !== null && JSON.stringify({ seeds, typeface }) !== saved;
+  const dirty = saved !== null
+    && JSON.stringify({ seeds, typeface, sign: signIn }) !== saved;
 
   function change(name, value) { setSeeds((s) => ({ ...s, [name]: value })); }
 
@@ -214,8 +226,8 @@ export default function Appearance() {
     if (blocking) return;
     setBusy(true); setErr(null);
     try {
-      await patchJSON("/settings/appearance", { seeds, typeface });
-      setSaved(JSON.stringify({ seeds, typeface }));
+      await patchJSON("/settings/appearance", { seeds, typeface, ...signIn });
+      setSaved(JSON.stringify({ seeds, typeface, sign: signIn }));
       original.current = { brand: { seeds, typeface } };
       // The root memoised the OLD identity. Without this the next route would re-apply it and
       // the change would appear to undo itself.
@@ -225,7 +237,13 @@ export default function Appearance() {
     } finally { setBusy(false); }
   }
 
-  function reset() { setSeeds(seedsFromAcumyn()); setTypeface(DEFAULT_PAIRING); }
+  function reset() {
+    setSeeds(seedsFromAcumyn());
+    setTypeface(DEFAULT_PAIRING);
+    setSignIn({ tagline: "", plate_side: "left", button_shape: "pill", remember_me: true });
+  }
+
+  const setSign = (k, v) => setSignIn((s) => ({ ...s, [k]: v }));
 
   async function uploadMark(kind, file) {
     setUpErr(null);
@@ -307,6 +325,68 @@ export default function Appearance() {
               </span>
             </label>
           ))}
+        </div>
+
+        <div style={{ margin: "0 0 18px" }}>
+          <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+            Sign-in screen
+          </div>
+          <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 10px",
+                        lineHeight: 1.5 }}>
+            The first thing anyone sees. Your mark and hero image already fill the dark plate;
+            these are the rest of it.
+          </div>
+
+          <label style={{ display: "block", marginBottom: 12 }}>
+            <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: T.slate }}>
+              Tagline <span style={{ fontWeight: 400, color: T.muted }}>· optional</span>
+            </div>
+            <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 6px" }}>
+              One line on the plate. Left empty, no line is shown — better than a claim we
+              invented for you.
+            </div>
+            <input value={signIn.tagline} maxLength={90}
+                   onChange={(e) => setSign("tagline", e.target.value)}
+                   placeholder="Track production, not spreadsheets"
+                   style={{ width: "100%", boxSizing: "border-box", padding: "9px 11px",
+                            borderRadius: 8, fontFamily: FONT, fontSize: 13,
+                            border: `1px solid ${T.line}`, color: T.ink, background: T.white }} />
+          </label>
+
+          {[["plate_side", "Plate on the", [["left", "Left"], ["right", "Right"]]],
+            ["button_shape", "Buttons", [["pill", "Pill"], ["square", "Square"]]]].map(
+            ([key, label, options]) => (
+              <div key={key} style={{ display: "flex", alignItems: "center", gap: 10,
+                                      marginBottom: 10 }}>
+                <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: T.slate,
+                              width: 96 }}>{label}</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {options.map(([value, text]) => (
+                    <button key={value} type="button" onClick={() => setSign(key, value)}
+                            style={{ fontFamily: FONT, fontSize: 12, padding: "6px 12px",
+                                     borderRadius: key === "button_shape" && value === "pill"
+                                       ? 999 : 8,
+                                     cursor: "pointer",
+                                     border: `1px solid ${signIn[key] === value ? T.poppy : T.line}`,
+                                     background: signIn[key] === value ? T.mist : T.white,
+                                     color: T.ink }}>{text}</button>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 9, cursor: "pointer",
+                          fontFamily: FONT, fontSize: 12.5, color: T.ink, marginTop: 4 }}>
+            <input type="checkbox" checked={signIn.remember_me} style={{ marginTop: 2 }}
+                   onChange={(e) => setSign("remember_me", e.target.checked)} />
+            <span>
+              Offer &ldquo;Remember me&rdquo;
+              <span style={{ display: "block", fontFamily: FONT, fontSize: 11.5, color: T.muted }}>
+                Ticked, a session lasts a month; left unticked by the user, it ends when the
+                browser closes. Hide this and every session is remembered.
+              </span>
+            </span>
+          </label>
         </div>
 
         <div style={{ margin: "0 0 18px" }}>

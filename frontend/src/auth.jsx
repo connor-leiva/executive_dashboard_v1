@@ -12,7 +12,7 @@ import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
 import ShareScorecard from "./ulrg/ShareScorecard.jsx";
 import ShareDesk from "./ShareDesk.jsx";
 import { loadBrandOnce } from "./palette.js";
-import { AuthShell, ErrorNote, Field, Handoff, PasswordField, PrimaryButton,
+import { AuthShell, ErrorNote, Field, Handoff, PasswordField, PrimaryButton, RememberMe,
          useChrome } from "./auth/AuthShell.jsx";
 import { ForgotPassword } from "./auth/ForgotPassword.jsx";
 
@@ -41,6 +41,9 @@ export function Login({ onLogin }) {
   const chrome = useChrome();
   const [error, setError] = useState(null);
   const [phase, setPhase] = useState("idle");        // idle | busy | done
+  // A workspace can hide the control. Hidden means remembered — see RememberMe.
+  const offerRemember = !chrome || chrome.remember_me !== false;
+  const [remember, setRemember] = useState(false);
   const nav = useNavigate();
 
   async function submit(e) {
@@ -48,7 +51,7 @@ export function Login({ onLogin }) {
     setPhase("busy");
     setError(null);
     try {
-      await login(email, password);
+      await login(email, password, offerRemember ? remember : true);
       // Stay on "done" rather than unmounting immediately: onLogin swaps the route to the
       // dashboard, and the overlay covers the gap while that mounts.
       setPhase("done");
@@ -85,7 +88,8 @@ export function Login({ onLogin }) {
         <PasswordField id="login-password" label="Password" autoComplete="current-password"
                        required value={password} invalid={Boolean(error)}
                        onChange={(e) => setPassword(e.target.value)} />
-        <div style={{ display: "flex", marginTop: 2 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 2 }}>
+          {offerRemember ? <RememberMe checked={remember} onChange={setRemember} /> : null}
           <a href="/forgot-password" style={{
             marginLeft: "auto", fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 500,
             color: T.poppy, textDecoration: "none",

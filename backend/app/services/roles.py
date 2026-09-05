@@ -184,6 +184,15 @@ BRAND_DEFAULTS = {
     # marks. Empty means the platform's own bokeh plate, tinted to whatever colours the workspace
     # configured -- a real answer for any brand rather than a placeholder.
     "hero_plates": {},
+    # ── the sign-in screen's own settings. It renders with no session, so these ride on
+    # /public/brand rather than /me, and every one of them is a thing the sign-in design
+    # exposed as a knob. Undeclared keys are dropped silently by brand(), which has now cost
+    # four settings; these are declared before anything writes them.
+    "tagline": None,          # the line on the dark plate. None renders no line rather than
+                              # a claim invented on the workspace's behalf.
+    "plate_side": "left",     # left | right
+    "button_shape": "pill",   # pill | square
+    "remember_me": True,      # show the checkbox at all
 }
 
 

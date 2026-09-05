@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { T } from "./theme.js";
 import { Icon } from "./Brand.jsx";
-import { getJSON, getBlob, postJSON, delJSON, tenantHeaders } from "./api.js";
+import { getJSON, getBlob, getToken, postJSON, delJSON, tenantHeaders } from "./api.js";
 import { useBinderMatrix } from "./useBinderMatrix.js";
 import sampleEntityBinder from "./sampleEntityBinder.js";
 
@@ -212,7 +212,7 @@ function useEntityBinder(row, usingSample) {
 }
 
 async function uploadDocuments(files, entityId) {
-  const token = localStorage.getItem("cc_token");
+  const token = getToken();
   const fd = new FormData();
   for (const f of files) fd.append("files", f);
   if (entityId) fd.append("entity_id", entityId);

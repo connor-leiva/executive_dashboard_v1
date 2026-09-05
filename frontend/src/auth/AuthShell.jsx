@@ -55,6 +55,8 @@ function ShellCss() {
       .acu-auth :focus-visible { outline: 2px solid ${T.teal}; outline-offset: 2px; }
       /* The plate is decoration carrying identity, not content. Below the fold of a phone it
          costs a screenful before the form, so it becomes a band. */
+      /* column, never column-reverse: on a phone the plate belongs above the form whichever
+         side it takes on a desktop, because the form is what you came for. */
       @media (max-width: 860px) {
         .acu-auth { flex-direction: column !important; }
         .acu-plate { flex: none !important; min-height: 188px; padding: 24px 26px !important; }
@@ -115,9 +117,15 @@ function Plate({ chrome }) {
  * which is why it is a separate slot rather than something a caller composes.
  */
 export function AuthShell({ chrome, title, sub, back, above, children, overlay }) {
+  // The design carried these as --acu-* variables and so do we: the button lives three
+  // components away from the workspace's choice, and threading a prop through each of them
+  // would mean every new control has to remember to ask.
+  const side = (chrome && chrome.plate_side) === "right" ? "row-reverse" : "row";
+  const radius = (chrome && chrome.button_shape) === "square" ? "10px" : "999px";
   return (
     <div className="acu-auth" style={{
       minHeight: "100vh", display: "flex", background: T.white, alignItems: "stretch",
+      flexDirection: side, "--acu-btn-r": radius,
     }}>
       <ShellCss />
       <Plate chrome={chrome} />
@@ -200,7 +208,8 @@ export function PasswordField({ id, label, invalid, ...rest }) {
 export function PrimaryButton({ busy, busyLabel, children, ...rest }) {
   return (
     <button className="acu-primary" disabled={busy} {...rest} style={{
-      height: 50, marginTop: 6, border: "none", borderRadius: 999, background: T.poppy,
+      height: 50, marginTop: 6, border: "none", borderRadius: "var(--acu-btn-r, 999px)",
+      background: T.poppy,
       color: T.white, fontFamily: FONT, fontWeight: 600, fontSize: 15, cursor: "pointer",
       display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
     }}>
@@ -210,10 +219,26 @@ export function PrimaryButton({ busy, busyLabel, children, ...rest }) {
   );
 }
 
+/** "Remember me", which is a promise rather than a preference: ticked, the token goes to
+ *  localStorage and the server gives it a month; unticked, it goes to sessionStorage and dies
+ *  with the tab. A workspace can hide the control entirely, and hiding it means remembered —
+ *  the alternative silently shortens every session in that workspace with no way to opt out. */
+export function RememberMe({ checked, onChange }) {
+  return (
+    <label style={{ display: "flex", alignItems: "center", gap: 9, fontFamily: FONT,
+                    fontSize: 13.5, color: T.secondary, cursor: "pointer", userSelect: "none" }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
+             style={{ width: 16, height: 16, margin: 0, accentColor: T.poppy, cursor: "pointer" }} />
+      Remember me
+    </label>
+  );
+}
+
 export function QuietButton({ children, ...rest }) {
   return (
     <button className="acu-quiet" {...rest} style={{
-      height: 48, border: `1px solid ${T.line}`, borderRadius: 999, background: T.white,
+      height: 48, border: `1px solid ${T.line}`, borderRadius: "var(--acu-btn-r, 999px)",
+      background: T.white,
       color: T.ink, fontFamily: FONT, fontWeight: 600, fontSize: 14.5, cursor: "pointer",
     }}>{children}</button>
   );

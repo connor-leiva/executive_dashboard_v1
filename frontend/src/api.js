@@ -1,6 +1,39 @@
 const API = import.meta.env.VITE_API_BASE; // e.g. https://api.springb.com/api/v1
 const TOKEN_KEY = "cc_token";
 
+/* WHERE THE SESSION LIVES, and why it is not always the same place.
+ *
+ * "Remember me" is a promise about a shared machine, so honouring it only on the server would
+ * be honouring half of it: a short-lived token still sitting in localStorage is readable by
+ * whoever opens the browser next. Unchecked, the token goes in sessionStorage and dies with
+ * the tab; checked, it goes in localStorage and the server gives it a month.
+ *
+ * Reads try sessionStorage first, because it is the more recent decision: signing in without
+ * the box on a machine where somebody once ticked it must not resurrect the old long session.
+ * setToken clears both before writing for the same reason.
+ *
+ * Every read goes through getToken(). Two components used to call localStorage.getItem
+ * directly, which would have worked for exactly as long as there was only one place to look.
+ */
+export function getToken() {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;                     // private window, or storage blocked entirely
+  }
+}
+
+function storeToken(token, remember) {
+  try { localStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
+  try {
+    (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
+  } catch {
+    // Storage refused. The in-memory session still works until the page reloads, which is a
+    // better outcome than throwing out of a successful sign-in.
+  }
+}
+
 /* ── step-up (second factor) grants ──────────────────────────────────────────────
    A section behind a second factor (Binder) answers 428 until the request carries a
    live grant. Grants live in sessionStorage, NOT localStorage: closing the tab
@@ -38,7 +71,7 @@ export function tenantHeaders(extra) {
 // exactly the same headers — a second copy would miss the step-up grant or the tenant host
 // the first time either changes.
 export function authHeaders(path, extra) {
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = getToken();
   const h = { ...tenantHeaders(extra), Authorization: `Bearer ${token}` };
   const scope = scopeForPath(path);
   const grant = scope ? getStepUp(scope) : null;
@@ -125,15 +158,24 @@ export async function putJSON(path, body) {
   return res.json();
 }
 
-export async function login(email, password) {
+export async function login(email, password, remember = false) {
   const res = await fetch(`${API}/auth/login`, {
     method: "POST",
     headers: tenantHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, remember }),
   });
-  if (!res.ok) throw new Error("Login failed");
+  if (!res.ok) {
+    // Carry the status: 423 is a lockout and 403 a suspended workspace, and the sign-in screen
+    // says something different for each. It used to throw one bare "Login failed" for all three,
+    // so a locked-out person was told to check a password that was correct.
+    const data = await res.json().catch(() => ({}));
+    const err = new Error(data.detail || `${res.status}`);
+    err.status = res.status;
+    err.detail = data.detail;
+    throw err;
+  }
   const { token } = await res.json();
-  localStorage.setItem(TOKEN_KEY, token);
+  storeToken(token, remember);
   return token;
 }
 
@@ -189,17 +231,18 @@ export async function getPublic(path) {
   return data;
 }
 
-export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+export function setToken(token, remember = true) {
+  storeToken(token, remember);
 }
 
 export function logout() {
-  localStorage.removeItem(TOKEN_KEY);
+  try { localStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
   // Never leave a section unlocked for whoever logs in next on this machine.
   Object.keys(sessionStorage).filter((k) => k.startsWith("cc_stepup_"))
     .forEach((k) => sessionStorage.removeItem(k));
 }
 
 export function hasToken() {
-  return Boolean(localStorage.getItem(TOKEN_KEY));
+  return Boolean(getToken());
 }

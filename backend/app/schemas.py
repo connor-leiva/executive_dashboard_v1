@@ -5,6 +5,9 @@ from pydantic import BaseModel
 class LoginRequest(BaseModel):
     email: str
     password: str
+    # "Remember me". Absent (an older client, or a workspace that hides the control) means
+    # a session that ends with the browser — the safer of the two readings.
+    remember: bool = False
 
 
 class LoginResponse(BaseModel):

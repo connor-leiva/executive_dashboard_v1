@@ -79,6 +79,14 @@ SEED_KEYS = ("brand", "surface", "ink", "positive", "negative")
 # the browser owns what each pairing resolves to, and this owns which names are legitimate. A
 # workspace supplying its own font-family string would be injecting CSS into every page.
 TYPEFACES = ("acumyn", "classic", "neutral", "editorial")
+# The sign-in screen's own settings. Enumerations rather than free text for the same reason
+# the typeface is a name and not a font stack: these end up in CSS, and a workspace supplying
+# its own value would be styling a page that renders before anyone has authenticated.
+PLATE_SIDES = ("left", "right")
+BUTTON_SHAPES = ("pill", "square")
+# Three lines at the plate's 15ch measure. Past that it stops being a line and starts being a
+# paragraph on top of a photograph.
+MAX_TAGLINE = 90
 _HEX = __import__("re").compile(r"^#[0-9A-Fa-f]{6}$")
 
 
@@ -91,6 +99,12 @@ async def get_appearance(user: User = Depends(require_role("owner", "admin")),
     return {"seeds": brand.get("seeds") or {},
             "typeface": brand.get("typeface") or "acumyn",
             "logo": brand.get("logo"), "logomark": brand.get("logomark"),
+            # The sign-in screen. Sent with the rest because it is one Appearance page, even
+            # though these reach the browser through /public/brand rather than /me.
+            "tagline": brand.get("tagline") or "",
+            "plate_side": brand.get("plate_side") or "left",
+            "button_shape": brand.get("button_shape") or "pill",
+            "remember_me": brand.get("remember_me", True),
             # Sent so the panel can open on a hand-built palette's own colours rather than the
             # platform's — the difference between editing what you have and being offered a
             # redesign with a Save button next to it.
@@ -125,6 +139,23 @@ async def set_appearance(body: dict, user: User = Depends(require_role("owner", 
         raise HTTPException(400, f"Unknown typeface {typeface!r}. "
                                  f"Expected one of: {', '.join(sorted(TYPEFACES))}.")
 
+    # ── the sign-in screen. Validated the same way as the typeface: a fixed vocabulary for
+    # anything that becomes CSS, a length cap on the one free-text field.
+    if "plate_side" in body and body["plate_side"] not in PLATE_SIDES:
+        raise HTTPException(400, f"plate_side must be one of: {', '.join(PLATE_SIDES)}")
+    if "button_shape" in body and body["button_shape"] not in BUTTON_SHAPES:
+        raise HTTPException(400, f"button_shape must be one of: {', '.join(BUTTON_SHAPES)}")
+    if "remember_me" in body and not isinstance(body["remember_me"], bool):
+        raise HTTPException(400, "remember_me must be true or false")
+    tagline = body.get("tagline")
+    if tagline is not None:
+        if not isinstance(tagline, str):
+            raise HTTPException(400, "tagline must be text")
+        tagline = " ".join(tagline.split())          # a headline is one line, whatever was pasted
+        if len(tagline) > MAX_TAGLINE:
+            raise HTTPException(400, f"Keep the tagline under {MAX_TAGLINE} characters — it sits "
+                                     f"at three lines on the sign-in plate.")
+
     seeds = body.get("seeds")
     if seeds is None:
         seeds = {}
@@ -149,6 +180,13 @@ async def set_appearance(body: dict, user: User = Depends(require_role("owner", 
     brand["seeds"] = clean
     if typeface is not None:
         brand["typeface"] = typeface
+    # None of these touch `seeds`, so the palette guard below leaves an explicit palette alone —
+    # which is the whole point of that guard: saving one setting must not discard another.
+    for key in ("plate_side", "button_shape", "remember_me"):
+        if key in body:
+            brand[key] = body[key]
+    if tagline is not None:
+        brand["tagline"] = tagline or None
     # An explicit palette is given up ONLY when the seeds are what changed.
     #
     # This used to pop unconditionally, so saving a TYPEFACE discarded thirty hand-built colours —
@@ -161,9 +199,13 @@ async def set_appearance(body: dict, user: User = Depends(require_role("owner", 
     tenant.config = cfg
     flag_modified(tenant, "config")
     audit(s, user.tenant_id, user.id, "brand.appearance_changed", "tenant", tenant.id,
-          {"seeds": sorted(clean)})
+          {"seeds": sorted(clean), "changed": sorted(k for k in body if k != "seeds")})
     await s.commit()
-    return {"seeds": clean, "typeface": brand.get("typeface")}
+    return {"seeds": clean, "typeface": brand.get("typeface"),
+            "tagline": brand.get("tagline") or "",
+            "plate_side": brand.get("plate_side") or "left",
+            "button_shape": brand.get("button_shape") or "pill",
+            "remember_me": brand.get("remember_me", True)}
 
 
 # A workspace's mark. Deliberately small: these render at 46px in a hero watermark and 28px in

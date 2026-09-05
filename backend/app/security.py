@@ -27,12 +27,23 @@ def verify_pw(p: str, h: str) -> bool:
         return False
 
 
-def make_token(user_id: uuid.UUID, tenant_id: uuid.UUID, ver: int = 0) -> str:
+# How long a session lasts, and the whole reason "Remember me" is not decoration. Unchecked,
+# a session should not outlive the working day on a machine somebody might share; checked, it
+# should not ask again for a month. The browser matches this: an unremembered token goes in
+# sessionStorage and dies with the tab, so a short expiry here and a short life there are two
+# halves of one promise rather than a server-side detail nobody sees.
+SESSION_HOURS = 12
+SESSION_REMEMBERED_DAYS = 30
+
+
+def make_token(user_id: uuid.UUID, tenant_id: uuid.UUID, ver: int = 0,
+               remember: bool = False) -> str:
     payload = {
         "sub": str(user_id),
         "tid": str(tenant_id),
         "ver": ver,                    # token_version — bumping it revokes outstanding tokens
-        "exp": dt.datetime.utcnow() + dt.timedelta(days=7),
+        "exp": dt.datetime.utcnow() + (dt.timedelta(days=SESSION_REMEMBERED_DAYS) if remember
+                                       else dt.timedelta(hours=SESSION_HOURS)),
     }
     return jwt.encode(payload, settings.APP_SECRET, algorithm=ALGO)
 

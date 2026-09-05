@@ -160,7 +160,8 @@ async def login(body: LoginRequest, s: AsyncSession = Depends(get_session)):
     user.last_login_at = _now()
     audit(s, tid, user.id, "auth.login", "user", user.id)
     await s.commit()
-    return LoginResponse(token=make_token(user.id, user.tenant_id, user.token_version or 0))
+    return LoginResponse(token=make_token(user.id, user.tenant_id, user.token_version or 0,
+                                          remember=body.remember))
 
 
 @router.post("/auth/logout")
@@ -225,7 +226,11 @@ async def accept_invite(body: AcceptInviteRequest, s: AsyncSession = Depends(get
     u.token_version = (u.token_version or 0)
     audit(s, tid, u.id, "user.accepted_invite", "user", u.id)
     await s.commit()
-    return LoginResponse(token=make_token(u.id, u.tenant_id, u.token_version or 0))
+    # Remembered, with no checkbox to ask: somebody who has just chosen a password on this
+    # machine has said as plainly as they can that it is theirs, and signing them out twelve
+    # hours into their first day would read as the account not working.
+    return LoginResponse(token=make_token(u.id, u.tenant_id, u.token_version or 0,
+                                          remember=True))
 
 
 @router.post("/auth/reset-password", response_model=LoginResponse)
@@ -250,7 +255,7 @@ async def reset_password(body: ResetPasswordRequest, s: AsyncSession = Depends(g
     u.locked_until = None
     audit(s, tid, u.id, "auth.password_reset", "user", u.id)
     await s.commit()
-    return LoginResponse(token=make_token(u.id, u.tenant_id, u.token_version))
+    return LoginResponse(token=make_token(u.id, u.tenant_id, u.token_version, remember=True))
 
 
 @router.post("/auth/forgot-password")
