@@ -3,12 +3,42 @@ in one place so every /users mutation enforces them identically (SPEC-platform �
 """
 from __future__ import annotations
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy import select, func
 
-from ..models import User
+from ..models import Domain, Tenant, User
 
 RANK = {"member": 0, "admin": 1, "owner": 2}
+
+# How long an issued link stays usable. Here rather than in a router because THREE endpoints
+# across two routers mint these, and the number is also what the email tells the recipient —
+# a second copy is a copy that eventually disagrees with the link it describes.
+INVITE_DAYS = 7
+RESET_HOURS = 24
+
+
+async def primary_host(s, tenant_id) -> str:
+    # Pick the primary domain, but tolerate a tenant that has several domains flagged primary
+    # (real setups often add both an app host and an api host): order primary-first and take
+    # one, rather than scalar_one_or_none() which RAISES on >1 row and would 500 the whole
+    # invite after the user is committed.
+    d = (await s.execute(select(Domain).where(Domain.tenant_id == tenant_id)
+                         .order_by(Domain.is_primary.desc()))).scalars().first()
+    if d:
+        return d.hostname
+    t = (await s.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one()
+    return f"{t.slug}.acumyn.io"
+
+
+async def link_base(request: Request, s, tenant_id) -> str:
+    """Base URL for invite/reset links. Prefer the origin the caller is actually using — that
+    host is, by definition, serving a working frontend — over the stored primary-domain row,
+    which may be a custom domain that is not live yet (a dead link there just loads a broken
+    page for the recipient)."""
+    origin = (request.headers.get("origin") or "").rstrip("/")
+    if origin:
+        return origin
+    return f"https://{await primary_host(s, tenant_id)}"
 
 
 def can_manage(actor: User, target: User) -> bool:

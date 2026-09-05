@@ -1,6 +1,6 @@
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,18 +8,26 @@ from ..db import get_session
 from ..deps import current_user
 from ..models import IntranetWorkspace, Tenant, User
 from ..schemas import (LoginRequest, LoginResponse, MeResponse, ChangePasswordRequest,
-                       AcceptInviteRequest, ResetPasswordRequest)
-from ..security import (verify_pw, make_token, hash_pw, hash_action_token, MIN_PASSWORD_LEN)
+                       AcceptInviteRequest, ForgotPasswordRequest, ResetPasswordRequest)
+from ..security import (verify_pw, make_token, hash_pw, hash_action_token, new_action_token,
+                        MIN_PASSWORD_LEN)
 from .. import plans
 from ..services.audit import audit
-from ..services import binder_storage, roles
+from ..services import binder_storage, mail_templates, mailer, roles
 from ..services.tabs import tenant_tabs, tenant_tab_descriptors, effective_tabs
+from ..services.users import INVITE_DAYS, RESET_HOURS, link_base
 from ..tenancy import current_tenant_id
 
 router = APIRouter(tags=["auth"])
 
 LOCK_THRESHOLD = 10
 LOCK_MINUTES = 15
+
+# Minimum gap between self-service reset emails for one account. Anybody who knows an address
+# can ask for a reset on it — that is what makes the feature work at all — so without this
+# the endpoint is a button for flooding somebody's inbox. A minute still lets a real person
+# who did not receive the first one press Resend and get a second.
+RESET_THROTTLE_SECONDS = 60
 
 
 def _now():
@@ -243,3 +251,83 @@ async def reset_password(body: ResetPasswordRequest, s: AsyncSession = Depends(g
     audit(s, tid, u.id, "auth.password_reset", "user", u.id)
     await s.commit()
     return LoginResponse(token=make_token(u.id, u.tenant_id, u.token_version))
+
+
+@router.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest, request: Request, bg: BackgroundTasks,
+                          s: AsyncSession = Depends(get_session)):
+    """Send a reset link to an address, if it belongs to somebody who can use one.
+
+    THE RESPONSE NEVER VARIES. Not on whether the address exists, not on whether that account is
+    active, disabled or still invited, not on whether an email was actually sent. A sign-in page
+    is reachable by anyone, so a form that answers differently for a real address is a way to
+    read off the customer list one guess at a time — and the addresses here are work emails at a
+    named brokerage, which makes the list worth having. The 200 below is the entire API surface.
+
+    What varies is what happens behind it:
+
+      active         a reset link, which is the ordinary case.
+      invited        their INVITE is resent instead. They have no password to reset, and the
+                     honest reading of "I can't get in" from somebody who never finished signing
+                     up is that they lost the first email. Sending a reset link would work — it
+                     sets a password — but it would skip the name they are asked for on the
+                     invite screen, and it would mean two different links doing one job.
+      disabled       nothing. An administrator turned this account off; a form on the public
+                     internet must not be able to hand it a way back in.
+      suspended      nothing, for the whole workspace. Same reasoning as login.
+      no such user   nothing.
+
+    Both branches write an audit row before returning, so the work done inside the request is
+    comparable whether or not the address was real, and so a spray against this endpoint leaves
+    a trace. `last_login_at` cannot tell you it happened.
+    """
+    tid = current_tenant_id()
+    email = (body.email or "").strip().lower()[:320]
+    ok = {"ok": True}
+
+    tenant = (await s.execute(select(Tenant).where(Tenant.id == tid))).scalar_one_or_none()
+    if tenant is not None and tenant.status == "suspended":
+        audit(s, tid, None, "auth.forgot_password", "tenant", tid, {"result": "suspended"})
+        await s.commit()
+        return ok
+
+    user = (await s.execute(select(User).where(
+        User.tenant_id == tid, User.email == email))).scalar_one_or_none()
+    if user is None or user.status == "disabled":
+        audit(s, tid, None, "auth.forgot_password", "user", None,
+              {"email": email[:160], "result": "no_such_login"})
+        await s.commit()
+        return ok
+
+    # Throttle on the account, not the caller: the address is what gets flooded, and it is the
+    # one thing an attacker cannot vary. Issue time is the expiry minus the lifetime, so this
+    # needs no extra column.
+    window = dt.timedelta(hours=RESET_HOURS if user.status == "active" else INVITE_DAYS * 24)
+    expires = _aware(user.action_token_expires)
+    if expires is not None and (expires - window) > _now() - dt.timedelta(
+            seconds=RESET_THROTTLE_SECONDS):
+        audit(s, tid, user.id, "auth.forgot_password", "user", user.id, {"result": "throttled"})
+        await s.commit()
+        return ok
+
+    raw, token_hash = new_action_token()
+    user.action_token_hash = token_hash
+    invited = user.status == "invited"
+    user.action_token_purpose = "invite" if invited else "reset"
+    user.action_token_expires = _now() + (dt.timedelta(days=INVITE_DAYS) if invited
+                                          else dt.timedelta(hours=RESET_HOURS))
+    base = await link_base(request, s, tid)
+    workspace = (tenant.name if tenant else None) or "your workspace"
+    if invited:
+        url = f"{base}/accept-invite?token={raw}"
+        template = mail_templates.invite(url, None, workspace, INVITE_DAYS)
+    else:
+        url = f"{base}/reset-password?token={raw}"
+        template = mail_templates.reset(url, workspace, RESET_HOURS)
+    audit(s, tid, user.id, "auth.forgot_password", "user", user.id,
+          {"result": "invite_resent" if invited else "sent"})
+    await s.commit()
+    # After the commit and in the background, for the reason mailer's docstring gives: the token
+    # is already saved, so an outage that propagated would report failure for a link that works.
+    bg.add_task(mailer.send, user.email, *template)
+    return ok

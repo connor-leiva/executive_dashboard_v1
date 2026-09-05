@@ -49,6 +49,12 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Self-service reset. Only an address — the response never varies on what is behind
+    it, so there is nothing else the caller could usefully send."""
+    email: str
+
+
 class InviteRequest(BaseModel):
     email: str
     role: str                     # admin | member (owner via script/other owner)

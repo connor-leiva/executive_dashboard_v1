@@ -1,113 +1,170 @@
+/* The two screens somebody reaches from a link in their email: accept an invite, or set a new
+ * password after a reset. Both end with a live session, so both are as much "sign in" as the
+ * sign-in page is — which is why they wear the same shell rather than a card of their own.
+ *
+ * THE RULES ARE SHOWN, NOT ENFORCED BY SURPRISE. The requirement list ticks as you type. The
+ * alternative — a form that accepts what you typed and then says "too short" — is the version
+ * that makes somebody try four passwords before finding one the product will take.
+ */
 import { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+
 import { T } from "./theme.js";
 import { postPublic, setToken } from "./api.js";
-import { SpringSignature } from "./Brand.jsx";
+import {
+  AuthShell, ErrorNote, Field, Handoff, PasswordField, PrimaryButton, useChrome,
+} from "./auth/AuthShell.jsx";
 
-/* Public onboarding pages — set-your-password (invite) and reset. Login-card
-   layout; on success we store the JWT and drop straight into the app. */
+const FONT = "var(--font-text)";
 
-const field = {
-  width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 14,
-  color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 9,
-  padding: "11px 12px", marginTop: 6,
-};
-const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+// Must match backend security.MIN_PASSWORD_LEN. Shown rather than discovered on submit.
+const MIN_LEN = 10;
 
-function Shell({ title, sub, children }) {
+/* What the server will and won't accept, as a list you can watch turn green. Each row is a real
+   check — a decorative one that ticks regardless teaches people to ignore the whole panel. */
+function Requirements({ value, confirm, needsConfirm }) {
+  const rows = [
+    { ok: value.length >= MIN_LEN, text: `At least ${MIN_LEN} characters` },
+    { ok: /\d/.test(value), text: "Contains a number", advisory: true },
+  ];
+  if (needsConfirm) {
+    rows.push({ ok: Boolean(value) && value === confirm, text: "Both entries match" });
+  }
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-      background: `linear-gradient(135deg, ${T.parchment}, #FBEDE6)`, padding: 24, fontFamily: "var(--font-text)" }}>
-      <div style={{ width: "100%", maxWidth: 400, background: T.white, border: `1px solid ${T.line}`,
-        borderRadius: 16, padding: "30px 28px", boxShadow: "0 24px 70px rgba(0,46,44,.16)" }}>
-        <SpringSignature tone="dark" height={30} />
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.muted, marginTop: 6, textTransform: "uppercase" }}>Command Center</div>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600, color: T.ink, marginTop: 20 }}>{title}</div>
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 4, lineHeight: 1.5 }}>{sub}</div>
-        {children}
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 9, padding: "14px 15px",
+                  borderRadius: 10, background: T.parchment }}>
+      {rows.map((r) => (
+        <div key={r.text} style={{ display: "flex", alignItems: "center", gap: 9,
+                                   fontFamily: FONT, fontSize: 13,
+                                   color: r.ok ? T.secondary : T.muted }}>
+          {r.ok ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.poppy}
+                 strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+                 style={{ flex: "none" }}><path d="M4 12.5 L9.5 18 L20 6.5" /></svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.muted}
+                 strokeWidth="2.6" strokeLinecap="round" aria-hidden
+                 style={{ flex: "none" }}><path d="M6 12 H18" /></svg>
+          )}
+          {r.text}
+          {/* Named as guidance rather than left ambiguous: the server does not require a digit,
+              and a rule that blocks nothing while looking like it does is a small lie. */}
+          {r.advisory ? <span style={{ color: T.muted, fontSize: 12 }}>· recommended</span> : null}
+        </div>
+      ))}
     </div>
   );
 }
 
-function btn(busy) {
-  return {
-    width: "100%", marginTop: 20, color: T.white, background: busy ? T.poppyActive : T.poppy,
-    border: "none", borderRadius: 9, padding: "12px", cursor: busy ? "default" : "pointer",
-    fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600, opacity: busy ? 0.7 : 1,
-  };
-}
-
-function Err({ children }) {
-  return <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 14, lineHeight: 1.5 }}>{children}</div>;
+/** A link that arrived without its token — worth its own screen, because "invalid or expired"
+ *  sends people hunting for a fresh link when the real problem is a truncated paste. */
+function BrokenLink({ chrome, what }) {
+  return (
+    <AuthShell chrome={chrome} title={`This ${what} link is incomplete`}
+               sub={`The address is missing its token, which usually means the link was cut short
+                     when it was copied. Open it straight from the email, or ask your workspace
+                     admin to send a new one.`} />
+  );
 }
 
 export function AcceptInvite({ onDone }) {
+  const chrome = useChrome();
   const [sp] = useSearchParams();
   const token = sp.get("token");
   const [name, setName] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState("idle");
   const nav = useNavigate();
 
   async function submit(e) {
     e.preventDefault();
-    setBusy(true); setErr(null);
+    setPhase("busy"); setErr(null);
     try {
-      const { token: jwt } = await postPublic("/auth/accept-invite", { token, name, password: pw });
+      const { token: jwt } = await postPublic("/auth/accept-invite",
+                                              { token, name, password: pw });
       setToken(jwt);
+      setPhase("done");
       onDone && onDone();
       nav("/", { replace: true });
     } catch (x) {
-      setErr(x.message || "Couldn't accept the invite. Ask your admin to resend it.");
-    } finally { setBusy(false); }
+      setErr(x.detail || x.message || "Couldn't accept the invite. Ask your admin to resend it.");
+      setPhase("idle");
+    }
   }
 
-  if (!token) return <Shell title="Invalid invite link" sub="This link is missing its token. Ask your admin to resend the invite." />;
+  if (!token) return <BrokenLink chrome={chrome} what="invite" />;
   return (
-    <Shell title="Set up your account" sub="Choose a name and password to accept your invite.">
-      <form onSubmit={submit}>
-        <label style={label}>Your name<input style={field} value={name} onChange={(e) => setName(e.target.value)} required /></label>
-        <label style={label}>Password <span style={{ fontWeight: 400, color: T.muted }}>· at least 10 characters</span>
-          <input style={field} type="password" value={pw} onChange={(e) => setPw(e.target.value)} minLength={10} required /></label>
-        {err && <Err>{err}</Err>}
-        <button type="submit" disabled={busy} style={btn(busy)}>{busy ? "Setting up…" : "Accept invite"}</button>
+    <AuthShell chrome={chrome} title="Set up your account"
+               sub="Choose how your name appears and a password, and you're in."
+               overlay={phase === "done"
+                 ? <Handoff title="You're in" sub="Loading your dashboard." /> : null}>
+      {err ? <ErrorNote>{err}</ErrorNote> : null}
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <Field id="invite-name" label="Your name" autoComplete="name" required autoFocus
+               value={name} onChange={(e) => setName(e.target.value)} />
+        <PasswordField id="invite-password" label="Password" autoComplete="new-password" required
+                       minLength={MIN_LEN} value={pw} onChange={(e) => setPw(e.target.value)} />
+        <Requirements value={pw} />
+        <PrimaryButton type="submit" busy={phase !== "idle"} busyLabel="Setting up">
+          Accept invite
+        </PrimaryButton>
       </form>
-    </Shell>
+    </AuthShell>
   );
 }
 
 export function ResetPassword({ onDone }) {
+  const chrome = useChrome();
   const [sp] = useSearchParams();
   const token = sp.get("token");
   const [pw, setPw] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState("idle");
   const nav = useNavigate();
+
+  const mismatch = Boolean(confirm) && pw !== confirm;
 
   async function submit(e) {
     e.preventDefault();
-    setBusy(true); setErr(null);
+    // Caught here rather than by the API: the server has no second field to compare against, so
+    // a typo in one of them would otherwise become a password nobody knows.
+    if (pw !== confirm) { setErr("Those two passwords don't match."); return; }
+    setPhase("busy"); setErr(null);
     try {
-      const { token: jwt } = await postPublic("/auth/reset-password", { token, new_password: pw });
+      const { token: jwt } = await postPublic("/auth/reset-password",
+                                              { token, new_password: pw });
       setToken(jwt);
+      setPhase("done");
       onDone && onDone();
       nav("/", { replace: true });
     } catch (x) {
-      setErr(x.message || "Couldn't reset your password. Ask your admin for a new link.");
-    } finally { setBusy(false); }
+      setErr(x.detail || x.message || "Couldn't reset your password. Ask for a new link.");
+      setPhase("idle");
+    }
   }
 
-  if (!token) return <Shell title="Invalid reset link" sub="This link is missing its token. Ask your admin for a new one." />;
+  if (!token) return <BrokenLink chrome={chrome} what="reset" />;
   return (
-    <Shell title="Choose a new password" sub="Set a new password to get back into your account.">
-      <form onSubmit={submit}>
-        <label style={label}>New password <span style={{ fontWeight: 400, color: T.muted }}>· at least 10 characters</span>
-          <input style={field} type="password" value={pw} onChange={(e) => setPw(e.target.value)} minLength={10} required /></label>
-        {err && <Err>{err}</Err>}
-        <button type="submit" disabled={busy} style={btn(busy)}>{busy ? "Saving…" : "Reset password"}</button>
+    <AuthShell chrome={chrome} title="Set a new password"
+               sub="Choose something you haven't used here before. Signing in with it takes effect
+                    on every device."
+               overlay={phase === "done"
+                 ? <Handoff title="Password changed" sub="Loading your dashboard." /> : null}>
+      {err ? <ErrorNote>{err}</ErrorNote> : null}
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <PasswordField id="reset-password" label="New password" autoComplete="new-password"
+                       required autoFocus minLength={MIN_LEN} value={pw}
+                       onChange={(e) => setPw(e.target.value)} />
+        <PasswordField id="reset-confirm" label="Confirm password" autoComplete="new-password"
+                       required value={confirm} invalid={mismatch}
+                       onChange={(e) => setConfirm(e.target.value)} />
+        <Requirements value={pw} confirm={confirm} needsConfirm />
+        <PrimaryButton type="submit" busy={phase !== "idle"} busyLabel="Saving">
+          Save and sign in
+        </PrimaryButton>
       </form>
-    </Shell>
+    </AuthShell>
   );
 }

@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 
 // Lazy so the operator console is its own chunk. A customer's browser has no reason to download
 // the screen that suspends customers, and a static import puts it in everybody's bundle.
@@ -11,9 +11,10 @@ import Settings from "./Settings.jsx";
 import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
 import ShareScorecard from "./ulrg/ShareScorecard.jsx";
 import ShareDesk from "./ShareDesk.jsx";
-import { SpringSignature, setBrand, ribbedHero } from "./Brand.jsx";
-import { applyBrand, loadBrandOnce } from "./palette.js";
-import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
+import { loadBrandOnce } from "./palette.js";
+import { AuthShell, ErrorNote, Field, Handoff, PasswordField, PrimaryButton,
+         useChrome } from "./auth/AuthShell.jsx";
+import { ForgotPassword } from "./auth/ForgotPassword.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -26,122 +27,75 @@ const IS_OPERATOR_HOST = window.location.hostname.split(".")[0] === "admin";
 
 /* ── Login screen ──────────────────────────────────────────── */
 
+/* The four states of one screen, not four screens: idle, rejected, submitting, and the handoff
+   while the dashboard loads behind the panel. The handoff matters more than it looks — without
+   it, a correct password leaves you staring at a spinner inside a form you have finished with,
+   and the slowest part of signing in (fetching a workspace of data) reads as the sign-in itself
+   having stalled. */
+
 export function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  // The sign-in screen has no session, so it asks who this host belongs to. Until that answers
-  // it renders Acumyn's own identity, which is the truthful state rather than a placeholder:
-  // before you sign in you are at the platform, not inside a workspace.
-  //
-  // WHY THE CACHE. /public/brand is a network round-trip, so the honest first paint is Acumyn's
-  // identity and the workspace's arrives a few hundred milliseconds later — which reads as the
-  // page changing its mind in front of you. The last answer for THIS host is kept and applied
-  // synchronously, so a returning visitor never sees the swap; only a genuinely first visit does.
-  //
-  // Safe to cache per host because every workspace is its own subdomain and therefore its own
-  // origin: one workspace's storage is not readable from another's, and nothing here is private
-  // anyway — it is the branding painted on the page a moment later.
-  const CACHE_KEY = `acu:brand:${window.location.hostname}`;
-  const [chrome, setChrome] = useState(() => {
-    try {
-      const raw = window.localStorage.getItem(CACHE_KEY);
-      if (!raw) return null;
-      const b = JSON.parse(raw);
-      applyBrand(b);
-      setBrand(b);
-      return b;
-    } catch { return null; }          // private window, cleared storage, corrupt value
-  });
-  useEffect(() => {
-    let live = true;
-    if (!API_BASE) return undefined;
-    getJSON("/public/brand")
-      .then((b) => {
-        if (!live || !b) return;
-        applyBrand(b);
-        setBrand(b);
-        setChrome(b);
-        try { window.localStorage.setItem(CACHE_KEY, JSON.stringify(b)); } catch { /* fine */ }
-      })
-      .catch(() => { /* unreachable API: keep whatever is already painted */ });
-    return () => { live = false; };
-  }, []);
+  // Before you sign in you are at the platform, not inside a workspace — so until /public/brand
+  // answers, the page truthfully wears Acumyn's identity rather than a placeholder.
+  const chrome = useChrome();
   const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState("idle");        // idle | busy | done
+  const nav = useNavigate();
 
   async function submit(e) {
     e.preventDefault();
-    setBusy(true);
+    setPhase("busy");
     setError(null);
     try {
       await login(email, password);
+      // Stay on "done" rather than unmounting immediately: onLogin swaps the route to the
+      // dashboard, and the overlay covers the gap while that mounts.
+      setPhase("done");
       onLogin();
     } catch (err) {
-      setError("That didn't work. Check your email and password.");
-    } finally {
-      setBusy(false);
+      // The API answers 401 for a wrong password, an unknown address, an account not yet
+      // accepted and a disabled one — all the same, on purpose. So this sentence must cover all
+      // four without hinting which, and still tell somebody what to try next.
+      const locked = err && err.status === 423;
+      const suspended = err && err.status === 403;
+      setError(suspended
+        ? (err.detail || "This workspace is suspended. Contact your administrator.")
+        : locked
+          ? "Too many attempts. Wait a few minutes and try again."
+          : "That email and password don't match. Check both, or reset your password.");
+      setPhase("idle");
     }
   }
 
-  const field = {
-    width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 14,
-    color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 9,
-    padding: "11px 12px", marginTop: 6,
-  };
-  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate };
-
   return (
-    <div className="login-root" style={{
-      minHeight: "100vh", position: "relative", overflow: "hidden", display: "flex", alignItems: "center",
-      padding: "24px 7vw", backgroundSize: "cover", backgroundPosition: "center",
-      // A configured image, else the neutral ribbed hero over this workspace's own colour —
-      // which is a real answer for any brand, not a stand-in for a missing file.
-      ...(chrome && chrome.hero_image
-        ? { backgroundImage: `url(${chrome.hero_image})` }
-        : ribbedHero("evergreen")),
-    }}>
-      <style>{`
-        .login-photo { position:absolute; top:0; right:0; bottom:0; width:48%;
-          background:var(--login-photo) center 22%/cover no-repeat;
-          -webkit-mask-image:linear-gradient(90deg, transparent 0%, #000 30%); mask-image:linear-gradient(90deg, transparent 0%, #000 30%); }
-        @media (max-width:900px){ .login-photo{ display:none; } }
-        .login-input:focus-visible, .login-btn:focus-visible { outline:2px solid ${T.teal}; outline-offset:2px; }
-        .login-btn:hover:not(:disabled){ background:${T.poppyActive}; }
-      `}</style>
-      {chrome && chrome.photo
-        ? <div className="login-photo" aria-hidden
-               style={{ "--login-photo": `url(${chrome.photo})` }} />
+    <AuthShell
+      chrome={chrome}
+      title="Sign in"
+      sub="Use the email address your workspace set up for you."
+      overlay={phase === "done"
+        ? <Handoff title="Signed in" sub="Loading your dashboard." />
         : null}
-      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 400 }}>
-        <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 16, padding: "30px 28px", boxShadow: "0 24px 70px rgba(0,46,44,.16)" }}>
-          <SpringSignature tone="dark" height={44} />
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: T.slate, marginTop: 12, textTransform: "uppercase" }}>Command Center</div>
-          <form onSubmit={submit} style={{ marginTop: 24 }}>
-            <label style={label}>Email
-              <input className="login-input" style={field} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </label>
-            <div style={{ height: 14 }} />
-            <label style={label}>Password
-              <input className="login-input" style={field} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            </label>
-            {error && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 14 }}>{error}</div>}
-            <button className="login-btn" type="submit" disabled={busy} style={{
-              width: "100%", marginTop: 20, fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600,
-              color: T.white, background: T.poppy, border: "none", borderRadius: 9, padding: "12px",
-              cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, transition: "background .15s ease",
-            }}>
-              {busy ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
+    >
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <Field id="login-email" label="Email" type="email" autoComplete="username" required
+               autoFocus value={email} invalid={Boolean(error)}
+               onChange={(e) => setEmail(e.target.value)} />
+        <PasswordField id="login-password" label="Password" autoComplete="current-password"
+                       required value={password} invalid={Boolean(error)}
+                       onChange={(e) => setPassword(e.target.value)} />
+        <div style={{ display: "flex", marginTop: 2 }}>
+          <a href="/forgot-password" style={{
+            marginLeft: "auto", fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 500,
+            color: T.poppy, textDecoration: "none",
+          }} onClick={(e) => { e.preventDefault(); nav("/forgot-password"); }}>Forgot password?</a>
         </div>
-        <div style={{ textAlign: "center", marginTop: 16, fontFamily: "var(--font-text)", fontSize: 11.5 }}>
-          <a href="/privacy.html" style={{ color: T.muted, textDecoration: "none" }}>Privacy Policy</a>
-          <span style={{ color: T.muted, margin: "0 8px" }}>·</span>
-          <a href="/eula.html" style={{ color: T.muted, textDecoration: "none" }}>Terms</a>
-        </div>
-        <PoweredByAcumyn tone="light" align="flex-start" />
-      </div>
-    </div>
+        <PrimaryButton type="submit" busy={phase !== "idle"} busyLabel="Signing in">
+          Sign in
+        </PrimaryButton>
+      </form>
+    </AuthShell>
   );
 }
 
@@ -186,6 +140,10 @@ export function App() {
         {/* Public onboarding — always reachable, even before login */}
         <Route path="/accept-invite" element={<AcceptInvite onDone={() => setAuthed(true)} />} />
         <Route path="/reset-password" element={<ResetPassword onDone={() => setAuthed(true)} />} />
+        {/* Reachable signed-out AND signed-in: somebody who is logged in on one device and
+            locked out on another still needs it, and a redirect to the dashboard here would
+            look like the link was broken. */}
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/share/:token" element={<ShareScorecard />} />       {/* public embed — no login */}
         <Route path="/desk/:token" element={<ShareDesk />} />             {/* rep's own Sales Desk — no login */}
         {needsLogin ? (

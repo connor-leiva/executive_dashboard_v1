@@ -16,12 +16,11 @@ from ..security import new_action_token
 from ..services import binder_storage, mail_templates, mailer
 from ..services.audit import audit
 from ..services.tabs import tenant_tabs, effective_tabs
-from ..services.users import (assert_can_manage, assert_grantable_role, assert_not_last_owner)
+from ..services.users import (INVITE_DAYS, RESET_HOURS, assert_can_manage,
+                              assert_grantable_role, assert_not_last_owner, link_base,
+                              primary_host)
 
 router = APIRouter(tags=["users"])
-
-INVITE_DAYS = 7
-RESET_HOURS = 24
 
 
 def _now():
@@ -36,30 +35,6 @@ def _user_out(u: User, all_tabs: list[str]) -> UserOut:
         all_tabs=implicit,
         last_login_at=u.last_login_at.isoformat() if u.last_login_at else None,
     )
-
-
-async def _primary_host(s, tenant_id) -> str:
-    # Pick the primary domain, but tolerate a tenant that has several domains
-    # flagged primary (real setups often add both an app host and an api host):
-    # order primary-first and take one, rather than scalar_one_or_none() which
-    # RAISES on >1 row and would 500 the whole invite after the user is committed.
-    d = (await s.execute(select(Domain).where(Domain.tenant_id == tenant_id)
-                         .order_by(Domain.is_primary.desc()))).scalars().first()
-    if d:
-        return d.hostname
-    t = (await s.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one()
-    return f"{t.slug}.acumyn.io"
-
-
-async def _link_base(request: Request, s, tenant_id) -> str:
-    """Base URL for invite/reset links. Prefer the origin the admin is actually
-    using — that host is, by definition, serving a working frontend — over the
-    stored primary-domain row, which may be a custom domain that isn't live yet
-    (a dead link there just loads a broken page for the invitee)."""
-    origin = (request.headers.get("origin") or "").rstrip("/")
-    if origin:
-        return origin
-    return f"https://{await _primary_host(s, tenant_id)}"
 
 
 async def _workspace_name(s, tenant_id) -> str:
@@ -306,7 +281,7 @@ async def invite_user(body: InviteRequest, request: Request, bg: BackgroundTasks
     await s.flush()
     audit(s, user.tenant_id, user.id, "user.invited", "user", u.id, {"role": body.role})
     await s.commit()
-    base = await _link_base(request, s, user.tenant_id)
+    base = await link_base(request, s, user.tenant_id)
     url = f"{base}/accept-invite?token={raw}"
     ws = await _workspace_name(s, user.tenant_id)
     # reply_to is the inviter, not a support queue: a reply to "what is this?" should reach the
@@ -335,7 +310,7 @@ async def resend_invite(user_id: uuid.UUID, request: Request, bg: BackgroundTask
     u.action_token_expires = _now() + dt.timedelta(days=INVITE_DAYS)
     audit(s, user.tenant_id, user.id, "user.reinvited", "user", u.id)
     await s.commit()
-    base = await _link_base(request, s, user.tenant_id)
+    base = await link_base(request, s, user.tenant_id)
     url = f"{base}/accept-invite?token={raw}"
     ws = await _workspace_name(s, user.tenant_id)
     # Keyed on the token's expiry, so a double-clicked button sends once and a genuinely fresh
@@ -418,7 +393,7 @@ async def reset_link(user_id: uuid.UUID, request: Request, bg: BackgroundTasks,
     u.action_token_expires = _now() + dt.timedelta(hours=RESET_HOURS)
     audit(s, user.tenant_id, user.id, "user.reset_link", "user", u.id)
     await s.commit()
-    base = await _link_base(request, s, user.tenant_id)
+    base = await link_base(request, s, user.tenant_id)
     url = f"{base}/reset-password?token={raw}"
     ws = await _workspace_name(s, user.tenant_id)
     # No reply_to override here, unlike an invite: a reply to a password reset should reach a

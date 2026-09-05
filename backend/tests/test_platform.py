@@ -233,10 +233,14 @@ async def test_invite_link_uses_request_origin():
 # ── regression: invite must survive >1 primary domain (prod) ─────────
 async def test_invite_survives_multiple_primary_domains():
     """A tenant with several domains flagged primary (e.g. an app host + an api
-    host) must not 500 the invite. _primary_host used scalar_one_or_none(), which
+    host) must not 500 the invite. primary_host used scalar_one_or_none(), which
     raised MultipleResultsFound — after the user was already committed — and the
-    bare exception bypassed CORS so the browser only saw a generic failure."""
-    from app.routers.users import _primary_host
+    bare exception bypassed CORS so the browser only saw a generic failure.
+
+    It lives in services.users now rather than in the /users router, because the public
+    forgot-password endpoint builds the same links and a second implementation of "which host
+    do this workspace's emails point at" is one that eventually disagrees."""
+    from app.services.users import primary_host as _primary_host
     sb = await _springb()
     async with SessionLocal() as s:
         s.add(Domain(tenant_id=sb.id, hostname="api.springb.test", is_primary=True))
