@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
-import { API_BASE, getJSON, hasToken, logout, patchJSON, uploadFile } from "../api.js";
+import { API_BASE, getJSON, hasToken, logout, patchJSON, putJSON, uploadFile } from "../api.js";
 import {
   FUB_LISTS,
   NAV_GROUPS,
