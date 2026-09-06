@@ -33,6 +33,17 @@ async def current_user(
         payload = read_token(creds.credentials)
     except Exception:
         raise HTTPException(401, "Invalid token")
+    # A CAPABILITY IS NOT A SESSION, and until now nothing said so. make_capability stamps a
+    # `cap` claim and make_token never does, so a token carrying one was minted for a narrow
+    # one-shot action -- and those strings go places a session must never go: the QuickBooks
+    # OAuth `state` is handed to Intuit, sits in their logs and comes back as a URL query
+    # parameter. It carries `sub` and `tid`, and its missing `ver` reads as 0, which matches
+    # every user still on token_version 0. Verified by minting one and calling /me with it: 200,
+    # authenticated as the owner. The comment at the QBO connect site claimed read_token rejected
+    # these; read_token is a bare jwt.decode and asserts nothing, so the only thing the switch to
+    # make_capability had actually bought was a shorter window.
+    if payload.get("cap"):
+        raise HTTPException(401, "Invalid token")
     tid = current_tenant_id()
     # A token whose tenant doesn't match the resolved host isn't a permission
     # problem — it's an invalid session for this realm (a stale token left over

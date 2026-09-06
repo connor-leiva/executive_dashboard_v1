@@ -50,7 +50,9 @@ async def qbo_connect(business_key: str, user: User = Depends(require_role("owne
     # 2-arg call defaults ver=0 while current_user reads a missing/zero ver as matching, the
     # state was a byte-for-byte valid Bearer token for 7 days for any user still on
     # token_version 0 — which includes the seeded owner. make_capability is purpose-scoped
-    # ("qbo_oauth"), so read_token rejects it and read_capability rejects a session token.
+    # ("qbo_oauth"), and current_user now REFUSES any token carrying a `cap` claim — which is
+    # what actually closes this. The purpose claim alone did not: read_token is a bare
+    # jwt.decode, so for a while this state stayed a working 30-minute session token.
     state = make_capability("qbo_oauth", minutes=30,
                             sub=str(user.id), tid=str(user.tenant_id), biz=str(biz.id))
     return {"url": qbo.authorize_url(state)}

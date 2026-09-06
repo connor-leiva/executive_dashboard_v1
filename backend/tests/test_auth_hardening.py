@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.main import app
 from app.models import AuditLog, ShareLink, Tenant, User
-from app.security import make_capability, new_action_token, read_token
+from app.security import make_capability, make_token, new_action_token, read_token
 from app.seed import seed
 from app.seed_ulrg_scorecard import load_ulrg_scorecard
 
@@ -147,6 +147,40 @@ async def test_disabling_a_user_also_burns_their_outstanding_links():
     assert r.status_code == 400
     async with SessionLocal() as s:
         assert (await s.get(User, uid)).action_token_hash is None
+
+
+async def test_an_oauth_state_cannot_be_used_as_a_session_token():
+    """LIVE HOLE, found while building Google sign-in and verified before it was fixed.
+
+    The QuickBooks connect endpoint mints its OAuth `state` with make_capability, and the
+    comment there said that made it unusable as a credential because "read_token rejects it".
+    read_token is a bare jwt.decode and asserts nothing. The state carries `sub` and `tid`, and
+    its missing `ver` reads as 0 -- which matches every user still on token_version 0, including
+    the seeded owner. So a string handed to Intuit, kept in their logs and returned as a URL
+    query parameter was a working 30-minute session for that account.
+
+    Calling /me with one returned 200 and the owner's profile. current_user now refuses any
+    token carrying a `cap` claim, which is the thing make_capability actually gives us.
+    """
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        owner = (await s.execute(select(User).where(
+            User.tenant_id == t.id, User.status == "active"))).scalars().first()
+
+    from app.security import make_capability
+    async with _client() as c:
+        for purpose, claims in (
+            ("qbo_oauth", {"sub": str(owner.id), "tid": str(t.id), "biz": "x"}),
+            ("google_signin", {"tid": str(t.id)}),
+            ("media_read", {"sub": str(owner.id), "tid": str(t.id)}),
+        ):
+            cap = make_capability(purpose, minutes=30, **claims)
+            r = await c.get("/api/v1/me", headers=_H(cap))
+            assert r.status_code == 401, f"{purpose} capability authenticated: {r.status_code}"
+
+        # ...and the guard must not have cost real sessions their session.
+        good = make_token(owner.id, t.id, owner.token_version or 0)
+        assert (await c.get("/api/v1/me", headers=_H(good))).status_code == 200
 
 
 # ── a password spray leaves a trace ───────────────────────────────────────────────────
