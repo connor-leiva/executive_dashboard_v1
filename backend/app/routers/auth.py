@@ -8,7 +8,8 @@ from ..db import get_session
 from ..deps import current_user
 from ..models import IntranetWorkspace, Tenant, User
 from ..schemas import (LoginRequest, LoginResponse, MeResponse, ChangePasswordRequest,
-                       AcceptInviteRequest, ForgotPasswordRequest, ResetPasswordRequest)
+                       AcceptInviteRequest, ForgotPasswordRequest, ResetPasswordRequest,
+                       ActionLinkRequest, ActionLinkInfo)
 from ..security import (verify_pw, make_token, hash_pw, hash_action_token, new_action_token,
                         MIN_PASSWORD_LEN)
 from .. import plans
@@ -209,6 +210,40 @@ async def _consume_action_token(s, tid, token: str, purpose: str) -> User:
     if not u or not u.action_token_expires or _aware(u.action_token_expires) < _now():
         raise HTTPException(400, "This link is invalid or expired. Ask your admin to resend it.")
     return u
+
+
+# The link purposes that may be read back. Enumerated rather than passed through, so this
+# cannot be aimed at some later token purpose that was never meant to be legible.
+LINK_PURPOSES = ("invite", "reset")
+
+
+@router.post("/auth/link-info", response_model=ActionLinkInfo)
+async def link_info(body: ActionLinkRequest, s: AsyncSession = Depends(get_session)):
+    """Which account a one-time link is for, WITHOUT spending it.
+
+    The invite screen asked for a name and a password and never said which email address the
+    invite was issued to; the reset screen was the same. Two things broke because of that. The
+    loud one: somebody with more than one address chooses a password, comes back the next day,
+    and cannot work out which address to type -- and login answers "Invalid email or password"
+    for every guess, correctly, because it must not confirm which addresses exist. The quiet
+    one: a password form with no username field gives the browser's password manager nothing to
+    file the credential under, so autofill has nothing to offer either. Nothing was wrong with
+    the account. The only copy of the address was in an email nobody re-reads.
+
+    This is not a disclosure. Whoever holds the token can already set the password and sign in
+    as that account, so naming the address grants nothing they did not have -- and it is what
+    the invite email said in the first place. POST rather than GET keeps the secret out of
+    access logs and Referer headers, unlike the page URL it was read from.
+    """
+    if body.purpose not in LINK_PURPOSES:
+        raise HTTPException(400, "This link is invalid or expired. Ask your admin to resend it.")
+    tid = current_tenant_id()
+    # Resolves and validates expiry; despite the name it does not spend the token -- its callers
+    # below do that. Reusing it means an expired link answers here exactly as it would on submit.
+    u = await _consume_action_token(s, tid, body.token, body.purpose)
+    tenant = await s.get(Tenant, tid)
+    return ActionLinkInfo(email=u.email, name=u.name or None,
+                          workspace=(tenant.name if tenant is not None else None))
 
 
 @router.post("/auth/accept-invite", response_model=LoginResponse)

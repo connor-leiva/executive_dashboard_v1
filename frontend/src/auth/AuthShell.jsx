@@ -43,6 +43,7 @@ function ShellCss() {
         border-color: ${T.poppy};
         box-shadow: 0 0 0 3px ${alpha(T.poppy, 0.18)};
       }
+      .acu-auth .acu-input[readonly]:focus { box-shadow: none; }
       .acu-auth .acu-input.acu-bad:focus { border-color: ${T.poppyText};
         box-shadow: 0 0 0 3px ${alpha(T.poppyText, 0.16)}; }
       .acu-auth .acu-primary { transition: filter .15s, transform .15s; }
@@ -173,7 +174,14 @@ export function Field({ id, label, invalid, hint, ...rest }) {
       <label htmlFor={id} style={{ fontFamily: FONT, fontWeight: 600, fontSize: 12.5,
                                    color: T.secondary }}>{label}</label>
       <input id={id} className={`acu-input${invalid ? " acu-bad" : ""}`} {...rest}
-             style={{ ...inputBase, border: `1px solid ${invalid ? T.poppyText : T.line}` }} />
+             style={{ ...inputBase, border: `1px solid ${invalid ? T.poppyText : T.line}`,
+                      // A read-only field is information, not an invitation to type. It still
+                      // has to LOOK like a field — password managers ignore what they cannot
+                      // see, and this one exists so the credential gets saved against a
+                      // username — it just must not look answerable. Inline, because inputBase
+                      // sets `background` inline and a stylesheet rule would lose to it.
+                      ...(rest.readOnly
+                          ? { background: T.parchment, color: T.secondary } : null) }} />
       {hint ? <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted }}>{hint}</div> : null}
     </div>
   );

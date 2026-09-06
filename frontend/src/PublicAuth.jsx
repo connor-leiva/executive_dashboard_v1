@@ -6,7 +6,7 @@
  * alternative — a form that accepts what you typed and then says "too short" — is the version
  * that makes somebody try four passwords before finding one the product will take.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
 import { T } from "./theme.js";
@@ -56,6 +56,59 @@ function Requirements({ value, confirm, needsConfirm }) {
   );
 }
 
+/* WHICH ACCOUNT this link is for, asked once when the screen opens and without spending the
+ * link. The address is not decoration: it is the thing you type to sign in tomorrow, and until
+ * now the only copy of it was in the email that carried the link. Somebody with two addresses
+ * had no way to tell which one they had just set a password for, and the sign-in page cannot
+ * help — it answers "Invalid email or password" for every guess on purpose.
+ */
+function useLinkAccount(token, purpose) {
+  const [state, setState] = useState({ phase: token ? "loading" : "ready", account: null });
+  useEffect(() => {
+    if (!token) return undefined;
+    let live = true;
+    postPublic("/auth/link-info", { token, purpose })
+      .then((a) => { if (live) setState({ phase: "ready", account: a }); })
+      // 400 is the server saying this link is spent or expired — worth saying NOW rather than
+      // after somebody has chosen a password. Nothing else may be read that way: on a blip or
+      // an offline browser the form still renders, and the submit gets the real answer.
+      .catch((x) => {
+        if (live) setState({ phase: x.status === 400 ? "dead" : "ready", account: null });
+      });
+    return () => { live = false; };
+  }, [token, purpose]);
+  return state;
+}
+
+/** The address the link belongs to. Shown so you know what you will sign in with, and carried
+ *  as a real `username` input so the browser's password manager files the new password against
+ *  an account rather than against nothing — a credential saved with no username cannot be
+ *  offered back, which is what turns "I don't remember" into "I am locked out".
+ *
+ *  Read-only: the invite decides the address. A field that looked editable but was ignored on
+ *  submit would be worse than not showing one. */
+function SignInAs({ email, hint }) {
+  return (
+    <Field id="link-email" name="username" type="email" autoComplete="username"
+           label="You'll sign in with" value={email} readOnly hint={hint} />
+  );
+}
+
+/** A link that is genuine but no longer usable. Its own screen rather than an error on the
+ *  form, because the remedy is usually nothing at all: the account is already set up and the
+ *  person simply needs the sign-in page. */
+function SpentLink({ chrome, what }) {
+  return (
+    <AuthShell chrome={chrome} title={`This ${what} link is no longer valid`}
+               sub={`${what === "invite" ? "Invite" : "Reset"} links work once and expire after a
+                     few days. If your account is already set up, sign in instead — otherwise ask
+                     your workspace admin to send a new one.`}>
+      <a href="/" style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, color: T.poppyText,
+                           textDecoration: "none" }}>Go to sign in</a>
+    </AuthShell>
+  );
+}
+
 /** A link that arrived without its token — worth its own screen, because "invalid or expired"
  *  sends people hunting for a fresh link when the real problem is a truncated paste. */
 function BrokenLink({ chrome, what }) {
@@ -71,11 +124,19 @@ export function AcceptInvite({ onDone }) {
   const chrome = useChrome();
   const [sp] = useSearchParams();
   const token = sp.get("token");
+  const link = useLinkAccount(token, "invite");
   const [name, setName] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState(null);
   const [phase, setPhase] = useState("idle");
   const nav = useNavigate();
+
+  // If whoever sent the invite already recorded a name, start with it. `v || ...` rather than a
+  // plain set: the field is autofocused, so somebody who types before the lookup lands must not
+  // have it overwritten underneath them.
+  useEffect(() => {
+    if (link.account && link.account.name) setName((v) => v || link.account.name);
+  }, [link.account]);
 
   async function submit(e) {
     e.preventDefault();
@@ -94,6 +155,10 @@ export function AcceptInvite({ onDone }) {
   }
 
   if (!token) return <BrokenLink chrome={chrome} what="invite" />;
+  if (link.phase === "dead") return <SpentLink chrome={chrome} what="invite" />;
+  if (link.phase === "loading") {
+    return <AuthShell chrome={chrome} title="Set up your account" sub="Checking your invite…" />;
+  }
   return (
     <AuthShell chrome={chrome} title="Set up your account"
                sub="Choose how your name appears and a password, and you're in."
@@ -101,6 +166,11 @@ export function AcceptInvite({ onDone }) {
                  ? <Handoff title="You're in" sub="Loading your dashboard." /> : null}>
       {err ? <ErrorNote>{err}</ErrorNote> : null}
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        {link.account ? (
+          <SignInAs email={link.account.email}
+                    hint="Set by your invite. Ask your workspace admin if it should be a
+                          different address." />
+        ) : null}
         <Field id="invite-name" label="Your name" autoComplete="name" required autoFocus
                value={name} onChange={(e) => setName(e.target.value)} />
         <PasswordField id="invite-password" label="Password" autoComplete="new-password" required
@@ -118,6 +188,7 @@ export function ResetPassword({ onDone }) {
   const chrome = useChrome();
   const [sp] = useSearchParams();
   const token = sp.get("token");
+  const link = useLinkAccount(token, "reset");
   const [pw, setPw] = useState("");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState(null);
@@ -146,6 +217,10 @@ export function ResetPassword({ onDone }) {
   }
 
   if (!token) return <BrokenLink chrome={chrome} what="reset" />;
+  if (link.phase === "dead") return <SpentLink chrome={chrome} what="reset" />;
+  if (link.phase === "loading") {
+    return <AuthShell chrome={chrome} title="Set a new password" sub="Checking your link…" />;
+  }
   return (
     <AuthShell chrome={chrome} title="Set a new password"
                sub="Choose something you haven't used here before. Signing in with it takes effect
@@ -154,6 +229,10 @@ export function ResetPassword({ onDone }) {
                  ? <Handoff title="Password changed" sub="Loading your dashboard." /> : null}>
       {err ? <ErrorNote>{err}</ErrorNote> : null}
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        {link.account ? (
+          <SignInAs email={link.account.email}
+                    hint="The account this link resets." />
+        ) : null}
         <PasswordField id="reset-password" label="New password" autoComplete="new-password"
                        required autoFocus minLength={MIN_LEN} value={pw}
                        onChange={(e) => setPw(e.target.value)} />

@@ -52,6 +52,18 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
+class ActionLinkRequest(BaseModel):
+    """Ask which account a one-time invite/reset link belongs to."""
+    token: str
+    purpose: str = "invite"
+
+
+class ActionLinkInfo(BaseModel):
+    email: str
+    name: str | None = None
+    workspace: str | None = None
+
+
 class ForgotPasswordRequest(BaseModel):
     """Self-service reset. Only an address — the response never varies on what is behind
     it, so there is nothing else the caller could usefully send."""

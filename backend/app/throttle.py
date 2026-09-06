@@ -36,6 +36,11 @@ RULES: dict[str, tuple[int, int]] = {
     # for a real person who mistyped, instead of masking it with a generic 429.
     "login": (20, 60),
     "token": (20, 300),        # accept-invite / reset-password
+    # Its OWN bucket, deliberately, rather than sharing "token". This one fires automatically
+    # on page load, so sharing would mean somebody who reloads the invite screen ten times
+    # spends the budget for the accept they actually came to do and gets a 429 on submit -- a
+    # read starving a write. It reveals nothing a token holder cannot already get.
+    "link_info": (40, 300),
     "ingest": (60, 60),        # the email provider's webhook — legitimate bursts are possible
     "platform_login": (10, 300),
 }
@@ -45,6 +50,7 @@ PATHS: dict[str, str] = {
     "/api/v1/auth/login": "login",
     "/api/v1/auth/accept-invite": "token",
     "/api/v1/auth/reset-password": "token",
+    "/api/v1/auth/link-info": "link_info",
     "/api/v1/binder/ingest": "ingest",
     # The operator login is the most valuable credential on the platform, so it gets the
     # tightest budget of the three — there is exactly one legitimate user of it.
