@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # Opens in the user's active QBO company; the route is derived from the txn type.
     QBO_APP_BASE: str = "https://app.qbo.intuit.com/app"
 
+    # Google sign-in. Only the callback URL lives here -- it is infrastructure (one API host,
+    # one path), not a credential. Each workspace's client id and secret are configured in that
+    # workspace's own console and stored encrypted per tenant, so that a team's consent screen
+    # carries their name and one revoked app cannot sign out every customer.
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
+
     # Sisu (real estate production — team-wide clients feed, Basic auth).
     # The CREDENTIALS are per tenant, on the integration row — never here: a process-wide
     # username/token meant every tenant synced the first tenant's team. What remains is the

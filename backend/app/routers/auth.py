@@ -1,6 +1,9 @@
 import datetime as dt
+import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request,
+                     Response)
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,14 +13,16 @@ from ..models import IntranetWorkspace, Tenant, User
 from ..schemas import (LoginRequest, LoginResponse, MeResponse, ChangePasswordRequest,
                        AcceptInviteRequest, ForgotPasswordRequest, ResetPasswordRequest,
                        ActionLinkRequest, ActionLinkInfo)
+from ..config import settings
 from ..security import (verify_pw, make_token, hash_pw, hash_action_token, new_action_token,
+                        make_capability, read_capability,
                         MIN_PASSWORD_LEN)
 from .. import plans
 from ..services.audit import audit
-from ..services import binder_storage, mail_templates, mailer, roles
+from ..services import binder_storage, google_auth, mail_templates, mailer, roles
 from ..services.tabs import tenant_tabs, tenant_tab_descriptors, effective_tabs
 from ..services.users import INVITE_DAYS, RESET_HOURS, link_base
-from ..tenancy import current_tenant_id
+from ..tenancy import current_tenant_id, tenant_app_url
 
 router = APIRouter(tags=["auth"])
 
@@ -215,6 +220,118 @@ async def _consume_action_token(s, tid, token: str, purpose: str) -> User:
 # The link purposes that may be read back. Enumerated rather than passed through, so this
 # cannot be aimed at some later token purpose that was never meant to be legible.
 LINK_PURPOSES = ("invite", "reset")
+
+
+# ── Google sign-in ────────────────────────────────────────────────────────────────────────
+# Three endpoints, all public: whoever is using them has no session yet -- that is the point.
+# The tenant therefore comes from the Host on the way out and from the signed `state` on the way
+# back, because the callback arrives from Google with no Host that identifies the workspace.
+
+
+@router.get("/auth/google/config")
+async def google_config(s: AsyncSession = Depends(get_session)):
+    """Whether this workspace offers Google sign-in, for the login page to decide on a button.
+
+    Deliberately returns one boolean. The client id is not secret -- it travels in the authorize
+    URL -- but an unauthenticated endpoint that hands out a workspace's configuration invites
+    exactly the kind of enumeration there is no reason to allow. The login page needs to know
+    whether to draw a button, and nothing else.
+    """
+    cfg = await google_auth.workspace_config(s, current_tenant_id())
+    return {"enabled": bool(cfg and cfg["enabled"])}
+
+
+@router.get("/auth/google/start")
+async def google_start(request: Request, s: AsyncSession = Depends(get_session)):
+    tid = current_tenant_id()
+    cfg = await google_auth.workspace_config(s, tid)
+    if not cfg or not cfg["enabled"]:
+        raise HTTPException(404, "This workspace does not use Google sign-in.")
+    # A CAPABILITY, not a session token -- the same trap QuickBooks fell into and the reason
+    # make_capability exists. This string is handed to Google, sits in their logs and comes back
+    # as a URL query parameter, so it must not be usable as a credential here. read_token
+    # rejects it because it carries a purpose claim.
+    state = make_capability("google_signin", minutes=15, tid=str(tid))
+    audit(s, tid, None, "auth.google_start", "tenant", tid)
+    await s.commit()
+    return {"url": google_auth.authorize_url(
+        cfg["client_id"], settings.GOOGLE_REDIRECT_URI, state, cfg["allowed_domains"])}
+
+
+@router.get("/auth/google/callback")
+async def google_callback(code: str = Query(None), state: str = Query(None),
+                          error: str = Query(None), s: AsyncSession = Depends(get_session)):
+    """Where Google returns. Ends in a redirect, never a JSON error.
+
+    Whoever lands here is a person in a browser who clicked "Sign in with Google", so every
+    failure has to become a page they can read. The reason travels as a short code in the query
+    string rather than a message: this URL is shared infrastructure and the specifics -- which
+    address was refused, whether an account exists -- are exactly what must not be echoed back.
+    """
+    async def fail(reason: str, tenant_id=None) -> RedirectResponse:
+        base = await tenant_app_url(s, tenant_id) if tenant_id else settings.APP_PUBLIC_URL
+        return RedirectResponse(f"{base}/?google_error={reason}")
+
+    if error or not code or not state:
+        return await fail("cancelled")
+    try:
+        tid = uuid.UUID(read_capability(state, "google_signin")["tid"])
+    except Exception:                                            # noqa: BLE001
+        return await fail("expired")
+
+    tenant = (await s.execute(select(Tenant).where(Tenant.id == tid))).scalar_one_or_none()
+    if tenant is None or tenant.status == "suspended":
+        return await fail("unavailable", tid)
+    cfg = await google_auth.workspace_config(s, tid)
+    if not cfg or not cfg["enabled"]:
+        return await fail("unavailable", tid)
+
+    try:
+        tokens = await google_auth.exchange_code(
+            cfg["client_id"], cfg["client_secret"], code, settings.GOOGLE_REDIRECT_URI)
+        claims = google_auth.read_id_token(tokens.get("id_token") or "", cfg["client_id"])
+    except google_auth.GoogleAuthError as exc:
+        audit(s, tid, None, "auth.google_failed", "tenant", tid, {"reason": str(exc)[:300]})
+        await s.commit()
+        return await fail("google", tid)
+
+    email = (claims.get("email") or "").lower()
+    if not google_auth.domain_allowed(claims, cfg["allowed_domains"]):
+        audit(s, tid, None, "auth.google_denied", "tenant", tid,
+              {"reason": "domain", "email": email[:160]})
+        await s.commit()
+        return await fail("domain", tid)
+
+    user = (await s.execute(select(User).where(
+        User.tenant_id == tid, User.email == email))).scalar_one_or_none()
+    # MATCHED, NEVER CREATED. No row means nobody invited this person to this workspace, and a
+    # verified address at an allowed domain is not an invitation -- see services/google_auth.
+    if user is None or user.status == "disabled":
+        audit(s, tid, None, "auth.google_denied", "tenant", tid,
+              {"reason": "no_account" if user is None else "disabled", "email": email[:160]})
+        await s.commit()
+        return await fail("no_account", tid)
+
+    if user.status == "invited":
+        # Proving control of the invited address IS accepting the invite. Requiring the emailed
+        # link as well would mean an agent who has just authenticated with the very account the
+        # invite was sent to gets told to go and find an email. The link is burned either way,
+        # so it cannot be replayed afterwards.
+        user.status = "active"
+        user.name = user.name or (claims.get("name") or email.split("@")[0])[:200]
+        user.action_token_hash = user.action_token_purpose = user.action_token_expires = None
+        audit(s, tid, user.id, "user.accepted_invite", "user", user.id, {"via": "google"})
+
+    user.failed_logins = 0
+    user.locked_until = None
+    user.last_login_at = _now()
+    audit(s, tid, user.id, "auth.login", "user", user.id, {"via": "google"})
+    await s.commit()
+    token = make_token(user.id, user.tenant_id, user.token_version or 0, remember=True)
+    # The session travels in the fragment, not the query string: a fragment is never sent to a
+    # server and never lands in an access log or a Referer header. The app reads it on load and
+    # replaces the URL.
+    return RedirectResponse(f"{await tenant_app_url(s, tid)}/#google_token={token}")
 
 
 @router.post("/auth/link-info", response_model=ActionLinkInfo)

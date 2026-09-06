@@ -451,7 +451,12 @@ async def test_console_overview_counts_are_real_seed_counts(ctx):
         "wtd_lists": 13,
         "tiles": 13,
         "permissions": 50,
-        "integrations": 9,
+        # 8, not the 9 rows the seed creates: google_workspace is the workspace's sign-in — the
+        # seed already calls it "Identity + calendar / SSO" — and it now has its own console
+        # panel, the only place its client secret can be set. It is filtered out of the
+        # connections list and this count together (console._not_signin), so the overview tile
+        # agrees with the page it links to.
+        "integrations": 8,
         "ai_sources": 7,
         "setup_tasks": 11,
         "pending_changes": 0,

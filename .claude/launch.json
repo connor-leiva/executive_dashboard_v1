@@ -56,6 +56,22 @@
       ],
       "port": 5175,
       "url": "http://localhost:5175"
+    },
+    {
+      "name": "console-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "preview:console",
+        "--",
+        "--port",
+        "4180",
+        "--host"
+      ],
+      "port": 4180,
+      "url": "http://localhost:4180"
     }
   ]
 }

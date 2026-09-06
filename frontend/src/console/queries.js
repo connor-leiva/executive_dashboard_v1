@@ -38,6 +38,7 @@ import {
   getSopVersions,
   getTiles,
   getWorkspace,
+  getGoogleSignin,
   getIntegrations,
   getWtdLists,
   inviteMember,
@@ -46,6 +47,7 @@ import {
   patchAiSource,
   patchCalendarCategory,
   patchContentGap,
+  patchGoogleSignin,
   patchIntegration,
   patchMarketing,
   patchMarketingRequest,
@@ -79,6 +81,7 @@ export const keys = {
   workspace: ["console", "workspace"],
   calendarCategories: ["console", "calendar-categories"],
   integrations: ["console", "integrations"],
+  googleSignin: ["console", "google-signin"],
   marketing: ["console", "marketing"],
   marketingRequests: ["console", "marketing-requests"],
   ai: ["console", "ai"],
@@ -262,6 +265,24 @@ export function useCalendarCategories(enabled) {
     queryKey: keys.calendarCategories,
     queryFn: getCalendarCategories,
     enabled,
+  });
+}
+
+export function useGoogleSignin(enabled) {
+  return useQuery({
+    queryKey: keys.googleSignin,
+    queryFn: getGoogleSignin,
+    enabled,
+  });
+}
+
+export function usePatchGoogleSignin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body) => patchGoogleSignin(body),
+    // Sign-in configuration is live the moment it saves -- it is not staged for publish like
+    // content is -- so the overview's setup checklist should reflect it immediately.
+    onSuccess: () => invalidateIntegrations(queryClient),
   });
 }
 

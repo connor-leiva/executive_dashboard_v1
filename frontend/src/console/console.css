@@ -589,6 +589,38 @@ textarea {
   font-weight: 700;
 }
 
+/* Explanatory copy inside a panel. A bare <p> in .console-panel inherits browser defaults and
+   reads at the same weight as the settings themselves, which is how a form ends up looking
+   like a wall. */
+.console-help {
+  margin: 0 0 14px;
+  max-width: 62ch;
+  color: var(--console-muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.console-help code {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 7px;
+  border: 1px solid var(--console-line);
+  border-radius: 4px;
+  background: var(--console-surface);
+  color: var(--console-ink);
+  font-size: 12.5px;
+  word-break: break-all;
+}
+
+/* A row of buttons under a form. Wraps rather than overflowing, because the labels here are
+   sentences ("Turn off Google sign-in") not verbs. */
+.console-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0 14px;
+}
+
 .roster-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);

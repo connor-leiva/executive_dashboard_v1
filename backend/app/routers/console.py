@@ -44,7 +44,9 @@ from ..models import (
     Tenant,
 )
 from ..services.audit import audit
-from ..services import binder_storage
+from ..config import settings
+from ..security import enc
+from ..services import binder_storage, google_auth
 from ..services.inheritance import dashboard_connections, is_inherited
 
 router = APIRouter(prefix="/console", tags=["console"])
@@ -256,6 +258,17 @@ async def _pending_count(s: AsyncSession, tenant_id) -> int:
         IntranetPendingChange.tenant_id == tenant_id,
         IntranetPendingChange.publish_batch_id.is_(None),
     ))).scalar_one())
+
+
+def _not_signin():
+    """Google sign-in shares the integration table but is not one of the workspace's data
+    connections, and it has its own console panel -- the only place its client secret can be
+    set, since the generic integration form strips secret-looking keys by design.
+
+    Returned as a filter rather than written out at each call site, so the list and the count
+    that sits next to it cannot drift apart.
+    """
+    return IntranetIntegration.provider_key != google_auth.PROVIDER_KEY
 
 
 async def _count(s: AsyncSession, model, tenant_id, *where) -> int:
@@ -1037,7 +1050,7 @@ async def get_overview(p: ConsolePrincipal = Depends(require_console_access),
         "wtd_lists": await _count(s, IntranetWtdList, tid),
         "tiles": await _count(s, IntranetLaunchpadTile, tid),
         "permissions": await _count(s, IntranetPermission, tid),
-        "integrations": await _count(s, IntranetIntegration, tid),
+        "integrations": await _count(s, IntranetIntegration, tid, _not_signin()),
         "ai_sources": await _count(s, IntranetAiSource, tid),
         "setup_tasks": setup_total,
         "pending_changes": await _pending_count(s, tid),
@@ -1123,6 +1136,116 @@ def _marketing_request(row: IntranetMarketingRequest,
         ],
         "created_at": _iso(row.created_at), "updated_at": _iso(row.updated_at),
     }
+
+
+# ── Google sign-in ────────────────────────────────────────────────────────────────────────
+# Each workspace registers its OWN Google OAuth client and pastes it here, so the consent screen
+# their staff see carries their name rather than Acumyn's -- see services/google_auth for why
+# this is not one shared app in env.
+
+
+async def _google_row(s: AsyncSession, tenant_id: uuid.UUID) -> IntranetIntegration:
+    row = (await s.execute(select(IntranetIntegration).where(
+        IntranetIntegration.tenant_id == tenant_id,
+        IntranetIntegration.provider_key == google_auth.PROVIDER_KEY))).scalar_one_or_none()
+    if row is None:
+        row = IntranetIntegration(
+            tenant_id=tenant_id, provider_key=google_auth.PROVIDER_KEY,
+            display_name="Google Workspace", role_label="Sign-in",
+            description="How your team signs in to the portal.",
+            status="Not Connected", config={})
+        s.add(row)
+        await s.flush()
+    return row
+
+
+def _google_out(row: IntranetIntegration) -> dict:
+    cfg = row.config or {}
+    return {
+        "client_id": cfg.get("client_id") or "",
+        # Never the secret itself, in either direction -- only whether one is stored. A form
+        # that round-trips a secret puts it in a response body, a browser cache and a screen.
+        "secret_set": bool(row.credential_ref),
+        "allowed_domains": list(cfg.get("allowed_domains") or []),
+        "enabled": bool(cfg.get("enabled", False)),
+        "status": row.status,
+        # The exact string Google Cloud demands under "Authorised redirect URIs". Handed over
+        # rather than described, because a character wrong here fails as redirect_uri_mismatch
+        # long after the admin has left the page.
+        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+    }
+
+
+@router.get("/google-signin")
+async def get_google_signin(p: ConsolePrincipal = Depends(require_console_access),
+                            s: AsyncSession = Depends(get_session)):
+    row = await _google_row(s, p.user.tenant_id)
+    await s.commit()
+    return {"item": _google_out(row)}
+
+
+@router.patch("/google-signin")
+async def patch_google_signin(body: dict = Body(...),
+                              p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    """Configure this workspace's Google sign-in.
+
+    NOT publish-aware, and that is deliberate. Everything else in this console is content an
+    admin stages and publishes to their members; this is the door. Staging it would mean an
+    admin fills the form in, clicks Test, and is told Google sign-in is not set up -- because
+    the live row is still empty. Sign-in either works now or it does not.
+    """
+    body = _body(body)
+    _unknown(body, {"client_id", "client_secret", "allowed_domains", "enabled"})
+    row = await _google_row(s, p.user.tenant_id)
+    cfg = dict(row.config or {})
+
+    if "client_id" in body:
+        cfg["client_id"] = (_text(body, "client_id", nullable=True, max_len=255) or "").strip()
+    if "client_secret" in body:
+        raw = (_text(body, "client_secret", nullable=True, max_len=255) or "").strip()
+        # Blank means "leave what is stored alone", so an admin can edit the domain list without
+        # re-pasting a secret they no longer have. Clearing is an explicit action, below.
+        if raw:
+            row.credential_ref = enc(raw)
+    if "allowed_domains" in body:
+        raw = body.get("allowed_domains") or []
+        if not isinstance(raw, list):
+            _unprocessable("allowed_domains", "Expected a list of domains.")
+        seen, domains = set(), []
+        for item in raw:
+            d = str(item or "").strip().lower().lstrip("@")
+            if not d:
+                continue
+            if " " in d or "." not in d:
+                _unprocessable("allowed_domains", f"{d!r} is not a domain name.")
+            if d not in seen:
+                seen.add(d)
+                domains.append(d)
+        cfg["allowed_domains"] = domains
+    if "enabled" in body:
+        enabled = _bool(body, "enabled")
+        # Refused rather than saved: a login page offering a Google button that cannot complete
+        # is worse than one that does not offer it.
+        if enabled and not ((cfg.get("client_id") or "").strip() and row.credential_ref):
+            _unprocessable("enabled",
+                           "Add the client ID and client secret before turning sign-in on.")
+        cfg["enabled"] = bool(enabled)
+
+    row.config = cfg
+    row.status = "Connected" if cfg.get("enabled") else "Not Connected"
+    await _record_mutation(
+        s, p,
+        action="config.google_signin.updated",
+        category="Sign-in",
+        summary=("Google sign-in enabled" if cfg.get("enabled")
+                 else "Google sign-in configuration updated"),
+        target_type="integration", target_id=row.id,
+        detail={"allowed_domains": cfg.get("allowed_domains") or []},
+        pending=False)
+    await s.commit()
+    await s.refresh(row)
+    return {"item": _google_out(row)}
 
 
 @router.get("/marketing/requests")
@@ -2339,11 +2462,11 @@ async def delete_calendar_category(category_id: uuid.UUID,
 async def get_integrations(p: ConsolePrincipal = Depends(require_console_access),
                            s: AsyncSession = Depends(get_session)):
     rows = (await s.execute(select(IntranetIntegration).where(
-        IntranetIntegration.tenant_id == p.user.tenant_id).order_by(
+        IntranetIntegration.tenant_id == p.user.tenant_id, _not_signin()).order_by(
             IntranetIntegration.display_name))).scalars().all()
     inherited = await dashboard_connections(s, p.user.tenant_id)
     return _list([_integration(r, inherited) for r in rows],
-                 await _count(s, IntranetIntegration, p.user.tenant_id))
+                 await _count(s, IntranetIntegration, p.user.tenant_id, _not_signin()))
 
 
 @router.patch("/integrations/{integration_id}")
