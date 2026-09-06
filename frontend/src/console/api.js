@@ -63,17 +63,36 @@ export function authHeaders(extra) {
   return headers;
 }
 
+/* THE SERVER'S 422 DETAIL IS NOT A STRING. `_unprocessable` answers
+   {"detail": {"errors": [{"field": ..., "message": ...}]}}, while every page in this console
+   does `setError(err.detail || err.message)` and renders the result. So an object went straight
+   into JSX, React threw #31 ("objects are not valid as a React child") and the ENTIRE console
+   went blank — on a validation error, which is the most ordinary thing a form can produce.
+   Eight call sites carried the same line, so flattening it at the source fixes all of them and
+   means a page added later cannot reintroduce it. */
+function detailText(detail) {
+  if (typeof detail === "string") return detail;
+  const errors = detail && detail.errors;
+  if (Array.isArray(errors) && errors.length) {
+    return errors.map((e) => e && e.message).filter(Boolean).join(" ");
+  }
+  return "";
+}
+
 async function throwFor(res) {
   const raw = await res.text();
-  let detail = raw;
+  let parsed = raw;
   try {
-    detail = JSON.parse(raw).detail ?? raw;
+    parsed = JSON.parse(raw).detail ?? raw;
   } catch {
-    detail = raw;
+    parsed = raw;
   }
-  const err = new Error(detail || `${res.status} ${res.statusText}`);
+  const text = detailText(parsed) || `${res.status} ${res.statusText}`;
+  const err = new Error(text);
   err.status = res.status;
-  err.detail = detail;
+  err.detail = text;                                // always renderable
+  // Kept structured for anything that wants to mark the offending field rather than print it.
+  err.errors = (parsed && parsed.errors) || null;
   throw err;
 }
 
@@ -193,6 +212,8 @@ export const getCalendarCategories = () => consoleGet("/calendar-categories");
 export const createCalendarCategory = (body) => consoleSend("POST", "/calendar-categories", body);
 export const patchCalendarCategory = (categoryId, body) => consoleSend("PATCH", `/calendar-categories/${categoryId}`, body);
 export const deleteCalendarCategory = (categoryId) => consoleSend("DELETE", `/calendar-categories/${categoryId}`);
+export const getGoogleSignin = () => consoleGet("/google-signin");
+export const patchGoogleSignin = (body) => consoleSend("PATCH", "/google-signin", body);
 export const getIntegrations = () => consoleGet("/integrations");
 export const patchIntegration = (integrationId, body) => consoleSend("PATCH", `/integrations/${integrationId}`, body);
 export const connectIntegration = (integrationId, body) => consoleSend("POST", `/integrations/${integrationId}/connect`, body);
