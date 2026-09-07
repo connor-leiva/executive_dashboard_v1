@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 
 import { API_BASE, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
 import {
@@ -824,27 +824,21 @@ function Training({ state, setState, config }) {
   return (
     <Page title="Training Library" subtitle="Courses this workspace has published.">
       <div className="ut-two-grid">
-        {courses.map((course) => (
-          <Panel key={course.id} title={course.title}>
-            {course.description ? <p className="ut-empty">{course.description}</p> : null}
-            <div className="ut-check-list">
-              {course.lessons.map((lesson) => (
-                <label key={lesson.id} className="ut-check">
-                  <input type="checkbox" checked={Boolean(state.done?.[lesson.id])}
-                         onChange={() => toggle(lesson.id)} />
-                  <span>
-                    {lesson.source_ref
-                      ? <a href={lesson.source_ref} target="_blank" rel="noreferrer noopener"
-                           onClick={(e) => e.stopPropagation()}>{lesson.title}</a>
-                      : lesson.title}
-                    {lesson.duration_minutes ? <em> · {lesson.duration_minutes} min</em> : null}
-                    {lesson.required ? <em> · required</em> : null}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </Panel>
-        ))}
+        {courses.map((course) => {
+          const done = course.lessons.filter((l) => state.done?.[l.id]).length;
+          return (
+            <Panel key={course.id} title={course.title}>
+              {course.description ? <p className="ut-empty">{course.description}</p> : null}
+              <div className="ut-course-progress">
+                <Meter value={done} total={course.lessons.length} />
+                <span>{done}/{course.lessons.length}</span>
+              </div>
+              <NavLink className="ut-button light" to={`/training/${course.id}`}>
+                {done ? "Continue" : "Start"}
+              </NavLink>
+            </Panel>
+          );
+        })}
       </div>
     </Page>
   );
@@ -876,6 +870,85 @@ function Onboarding({ state, setState }) {
    inside a team's own portal is not a secret worth keeping at the cost of the confusion. */
 function deniedBy(config, capability) {
   return (config?.content?.capabilities || {})[capability] === "None";
+}
+
+/* One course, in order. The list page is a shelf; this is the thing you work through.
+ *
+ * SEQUENTIAL IS HONOURED HERE. The console has authored `sequential` per course since it shipped
+ * and nothing read it, so a course an admin marked as ordered was a wall of checkboxes anybody
+ * could tick from the bottom. Locked lessons are shown rather than hidden -- somebody needs to
+ * see what is ahead of them -- and the gate is presentational, because a training list is a
+ * prompt and not a permission. The permissions matrix is what actually restricts access, and it
+ * has already decided whether this page loads at all.
+ */
+function CourseDetail({ state, setState, config }) {
+  const { courseId } = useParams();
+  const courses = (config?.content?.courses) || [];
+  const course = courses.find((c) => c.id === courseId);
+  const toggle = (key) => setState((s) => ({ ...s, done: { ...(s.done || {}), [key]: !s.done?.[key] } }));
+
+  if (!course) {
+    return (
+      <Page title="Training" subtitle="Courses this workspace has published.">
+        <Panel title="Course not found">
+          <p className="ut-empty">
+            That course is not in your library. It may have been unpublished, or it may not be
+            available to your role. <NavLink to="/training">Back to the library</NavLink>
+          </p>
+        </Panel>
+      </Page>
+    );
+  }
+
+  const lessons = course.lessons || [];
+  const done = lessons.filter((l) => state.done?.[l.id]).length;
+  const firstUndone = lessons.findIndex((l) => !state.done?.[l.id]);
+
+  return (
+    <Page title={course.title}
+          subtitle={course.description || "Work through the lessons in order."}>
+      <section className="ut-wtd-hero">
+        <div>
+          <span>{course.category || "Course"}</span>
+          <strong>{done}/{lessons.length} complete</strong>
+        </div>
+        <Meter value={done} total={lessons.length} />
+      </section>
+      <Panel title="Lessons"
+             kicker={course.sequential ? "In order — finish one to open the next" : null}>
+        <div className="ut-check-list">
+          {lessons.map((lesson, i) => {
+            // Everything up to the first unfinished lesson is open; beyond it is not yet.
+            const locked = course.sequential && firstUndone !== -1 && i > firstUndone;
+            return (
+              <label key={lesson.id} className={`ut-check${locked ? " locked" : ""}`}>
+                <input type="checkbox" checked={Boolean(state.done?.[lesson.id])}
+                       disabled={locked} onChange={() => toggle(lesson.id)} />
+                <span>
+                  {lesson.source_ref && !locked
+                    ? <a href={lesson.source_ref} target="_blank" rel="noreferrer noopener"
+                         onClick={(e) => e.stopPropagation()}>{lesson.title}</a>
+                    : lesson.title}
+                  {lesson.duration_minutes ? <em> · {lesson.duration_minutes} min</em> : null}
+                  {lesson.required ? <em> · required</em> : null}
+                  {locked ? <em> · locked</em> : null}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </Panel>
+      {course.issues_certificate && done === lessons.length && lessons.length ? (
+        <Panel title="Finished">
+          <p className="ut-empty">
+            You have completed every lesson. This course issues a certificate — your admin can
+            confirm it from the console.
+          </p>
+        </Panel>
+      ) : null}
+      <p className="ut-empty"><NavLink to="/training">Back to the library</NavLink></p>
+    </Page>
+  );
 }
 
 function shortDate(iso) {
@@ -1348,6 +1421,7 @@ export default function IntranetApp() {
         <Route path="/tools" element={<Tools config={boot.config} />} />
         <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} />} />
         <Route path="/training" element={<Training state={training} setState={setTraining} config={boot.config} />} />
+        <Route path="/training/:courseId" element={<CourseDetail state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/onboarding" element={<Onboarding state={onboarding} setState={setOnboarding} />} />
         <Route path="/sops" element={<Sops config={boot.config} />} />
         <Route path="/numbers" element={<Numbers config={boot.config} />} />
