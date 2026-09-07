@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
-import { API_BASE, getJSON, hasToken, logout, patchJSON, putJSON, uploadFile } from "../api.js";
+import { API_BASE, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
 import {
   FUB_LISTS,
   NAV_GROUPS,
@@ -9,9 +9,7 @@ import {
   PRIORITY_ITEMS,
   QUICK_LAUNCH,
   ROLE_OPTIONS,
-  SOPS,
   TOOL_GROUPS,
-  TRAINING,
   WTD_BLOCKS,
 } from "./constants.js";
 
@@ -46,7 +44,6 @@ const DEFAULT_CONFIG = {
 
 const DEFAULT_WTD = { checked: {}, tallies: { calls: 0, conversations: 0, appointments: 0, notes: 0 } };
 const DEFAULT_PROGRESS = { done: {} };
-const DEFAULT_ACKS = { acked: {} };
 /* THE DATE LINE AND THE GREETING COME FROM THE VIEWER'S CLOCK.
  *
  * Both were the mockup's frozen moment: a MOCK_DATE constant holding the mockup's own weekday
@@ -457,7 +454,11 @@ function Home({ config, wtd, training, onboarding, me }) {
   const numbers = config.numbers || DEFAULT_CONFIG.numbers;
   const totalTasks = WTD_BLOCKS.flatMap((b) => b.items).length;
   const doneToday = Object.values(wtd.checked || {}).filter(Boolean).length;
-  const lessons = TRAINING.flatMap((c) => c.lessons.map((l) => `${c.key}:${l}`));
+  // From the workspace's published courses, not a constant, and keyed on lesson id -- the same
+  // key the Training page ticks. Counting a hardcoded list meant this progress bar described one
+  // customer's curriculum to every other customer.
+  const lessons = ((config.content && config.content.courses) || [])
+    .flatMap((c) => (c.lessons || []).map((l) => l.id));
   const lessonsDone = lessons.filter((k) => training.done?.[k]).length;
   const onboardDone = ONBOARDING.filter((item) => onboarding.done?.[item.key]).length;
 
@@ -773,23 +774,47 @@ function WinTheDay({ state, setState, config }) {
   );
 }
 
-function Training({ state, setState }) {
+/* THE WORKSPACE'S OWN COURSES, from the API. This read a compiled-in TRAINING constant -- one
+ * customer's four courses with lesson titles and nothing else -- because the member payload only
+ * ever carried titles, so there was nothing here to render. Now that it carries source, duration
+ * and required, a lesson is something you can open. */
+function Training({ state, setState, config }) {
+  const courses = (config?.content?.courses) || [];
   const toggle = (key) => setState((s) => ({ ...s, done: { ...(s.done || {}), [key]: !s.done?.[key] } }));
+
+  if (!courses.length) {
+    return (
+      <Page title="Training Library" subtitle="Courses this workspace has published.">
+        <Panel title="Nothing published yet">
+          <p className="ut-empty">
+            Courses appear here once an admin publishes them in the console.
+          </p>
+        </Panel>
+      </Page>
+    );
+  }
+
   return (
     <Page title="Training Library" subtitle="Courses this workspace has published.">
       <div className="ut-two-grid">
-        {TRAINING.map((course) => (
-          <Panel key={course.key} title={course.title}>
+        {courses.map((course) => (
+          <Panel key={course.id} title={course.title}>
+            {course.description ? <p className="ut-empty">{course.description}</p> : null}
             <div className="ut-check-list">
-              {course.lessons.map((lesson) => {
-                const key = `${course.key}:${lesson}`;
-                return (
-                  <label key={key} className="ut-check">
-                    <input type="checkbox" checked={Boolean(state.done?.[key])} onChange={() => toggle(key)} />
-                    <span>{lesson}</span>
-                  </label>
-                );
-              })}
+              {course.lessons.map((lesson) => (
+                <label key={lesson.id} className="ut-check">
+                  <input type="checkbox" checked={Boolean(state.done?.[lesson.id])}
+                         onChange={() => toggle(lesson.id)} />
+                  <span>
+                    {lesson.source_ref
+                      ? <a href={lesson.source_ref} target="_blank" rel="noreferrer noopener"
+                           onClick={(e) => e.stopPropagation()}>{lesson.title}</a>
+                      : lesson.title}
+                    {lesson.duration_minutes ? <em> · {lesson.duration_minutes} min</em> : null}
+                    {lesson.required ? <em> · required</em> : null}
+                  </span>
+                </label>
+              ))}
             </div>
           </Panel>
         ))}
@@ -817,20 +842,104 @@ function Onboarding({ state, setState }) {
   );
 }
 
-function Sops({ state, setState }) {
-  const toggle = (key) => setState((s) => ({ ...s, acked: { ...(s.acked || {}), [key]: !s.acked?.[key] } }));
+function shortDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/* Fetched with the session and handed over as a download rather than linked directly: the bytes
+   are proxied so a URL cannot outlive the reader's access to the workspace, which means a plain
+   <a href> would 401. */
+async function saveSop(sop) {
+  const blob = await getBlob(sop.file_url);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = sop.filename || "sop";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* The workspace's own SOPs. This read a compiled-in SOPS constant -- six of one customer's
+ * procedure names -- because the payload carried only a title and a category. The documents had
+ * been uploaded and stored the whole time with no member route to serve them. */
+function Sops({ config }) {
+  const sops = (config?.content?.sops) || [];
+  const [error, setError] = useState(null);
+  // Acknowledgements the server has confirmed since this page loaded, laid over what the payload
+  // arrived with. Avoids refetching the whole workspace config to reflect one tick.
+  const [justAcked, setJustAcked] = useState({});
+  const [saving, setSaving] = useState(null);
+
+  async function open(sop) {
+    setError(null);
+    try {
+      await saveSop(sop);
+    } catch {
+      setError("That document could not be opened. It may have been replaced — reload and try again.");
+    }
+  }
+
+  async function acknowledge(sop) {
+    setError(null);
+    setSaving(sop.id);
+    try {
+      const r = await postJSON(`/intranet/sops/${sop.id}/acknowledge`, {});
+      setJustAcked((m) => ({ ...m, [sop.id]: r.acknowledged_at }));
+    } catch {
+      setError("That didn't save. Try again in a moment.");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  if (!sops.length) {
+    return (
+      <Page title="SOPs" subtitle="Standard operating procedures for this workspace.">
+        <Panel title="Nothing published yet">
+          <p className="ut-empty">
+            SOPs appear here once an admin publishes them in the console.
+          </p>
+        </Panel>
+      </Page>
+    );
+  }
+
   return (
-    <Page title="SOPs" subtitle="Standard operating procedures shell.">
+    <Page title="SOPs" subtitle="Standard operating procedures for this workspace.">
       <Panel title="Standard Operating Procedures">
+        {error ? <p className="ut-empty">{error}</p> : null}
         <div className="ut-table">
-          {SOPS.map((sop) => (
-            <div className="ut-table-row" key={sop.key}>
-              <span>{sop.area}</span>
-              <strong>{sop.title}</strong>
-              <label className="ut-check inline">
-                <input type="checkbox" checked={Boolean(state.acked?.[sop.key])} onChange={() => toggle(sop.key)} />
-                <span>Acknowledged</span>
-              </label>
+          {sops.map((sop) => (
+            <div className="ut-table-row" key={sop.id}>
+              <span>{sop.category || "—"}</span>
+              <strong>
+                {sop.file_url
+                  ? <button type="button" className="ut-linkish" onClick={() => open(sop)}>
+                      {sop.title}
+                    </button>
+                  : sop.title}
+                {sop.version ? <em> · {sop.version}</em> : null}
+                {sop.owner ? <em> · {sop.owner}</em> : null}
+              </strong>
+              {/* A BUTTON, not a checkbox. Acknowledging a procedure is an assertion recorded
+                  against a specific version -- there is no un-acknowledge -- so it must not be
+                  something a stray click can toggle off. Once done it stops being a control and
+                  becomes a fact with a date on it. */}
+              {(justAcked[sop.id] || sop.acknowledged_at) ? (
+                <span className="ut-acked">
+                  Acknowledged {shortDate(justAcked[sop.id] || sop.acknowledged_at)}
+                </span>
+              ) : (
+                <button type="button" className="ut-button" disabled={saving === sop.id}
+                        onClick={() => acknowledge(sop)}>
+                  {saving === sop.id ? "Saving…" : "Acknowledge"}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -1179,7 +1288,6 @@ export default function IntranetApp() {
   const [wtd, setWtd] = useScopedState("wtd", day, DEFAULT_WTD, ready);
   const [training, setTraining] = useScopedState("training", "global", DEFAULT_PROGRESS, ready);
   const [onboarding, setOnboarding] = useScopedState("onboarding", "global", DEFAULT_PROGRESS, ready);
-  const [sops, setSops] = useScopedState("sops", "global", DEFAULT_ACKS, ready);
 
   if (boot.status === "loading") {
     return <AccessState title="Loading intranet" message="Checking your workspace access." />;
@@ -1200,9 +1308,9 @@ export default function IntranetApp() {
         <Route path="/" element={<Home config={boot.config} wtd={wtd} training={training} onboarding={onboarding} me={boot.me} />} />
         <Route path="/tools" element={<Tools config={boot.config} />} />
         <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} />} />
-        <Route path="/training" element={<Training state={training} setState={setTraining} />} />
+        <Route path="/training" element={<Training state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/onboarding" element={<Onboarding state={onboarding} setState={setOnboarding} />} />
-        <Route path="/sops" element={<Sops state={sops} setState={setSops} />} />
+        <Route path="/sops" element={<Sops config={boot.config} />} />
         <Route path="/numbers" element={<Numbers config={boot.config} />} />
         <Route path="/calendar" element={<Calendar config={boot.config} canConfigure={boot.canConfigure} saveConfig={boot.saveConfig} />} />
         <Route path="/marketing" element={<Marketing config={boot.config} canConfigure={boot.canConfigure} />} />

@@ -1,3 +1,6 @@
+import datetime as dt
+import uuid
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -430,3 +433,253 @@ async def test_the_workspace_names_itself():
                            headers=_H(tokens["member"], host))).json()["config"]
     assert cfg["workspace"]["name"] == tenant.name
     assert "Utah Life" not in str(cfg["workspace"])
+
+
+# -- the member content payload ------------------------------------------------------------
+# _published_content was the entire member content API and it returned titles. The console
+# authored lesson sources, durations, SOP versions and owners correctly; the payload dropped all
+# of it, which is why the portal fell back to a compiled-in constants.js -- there was nothing in
+# the response to render.
+
+async def _learning(slug: str, *, lesson_published=True, course_roles=None):
+    """A workspace with one live course, one lesson, and one live SOP with a file."""
+    from app.models import (IntranetCourse, IntranetCourseRole, IntranetLesson, IntranetMember,
+                            IntranetRole, IntranetSop, IntranetSopCategory, IntranetSopVersion)
+    from app.services import binder_storage
+
+    host, tenant, tokens = await _tenant(slug, intranet=True)
+    now = dt.datetime.now(dt.timezone.utc)
+    async with SessionLocal() as s:
+        agent = IntranetRole(tenant_id=tenant.id, key="agent", name="Agent", sort=1,
+                             published_at=now)
+        leader = IntranetRole(tenant_id=tenant.id, key="leader", name="Leader", sort=2,
+                              is_leadership=True, published_at=now)
+        s.add_all([agent, leader])
+        await s.flush()
+        member = IntranetMember(tenant_id=tenant.id, full_name="A Member",
+                                email=f"member@{slug}.test", role_id=agent.id, status="Active",
+                                auth_source="Manual")
+        s.add(member)
+        await s.flush()
+
+        course = IntranetCourse(tenant_id=tenant.id, title="Listing Mastery", category="Sales",
+                                description="How we take a listing.", state="Live",
+                                required_for_onboarding=True, sequential=True, sort=1,
+                                published_at=now)
+        s.add(course)
+        await s.flush()
+        s.add(IntranetLesson(
+            tenant_id=tenant.id, course_id=course.id, title="The pre-listing packet",
+            source_type="LOOM", source_ref="https://videos.example.test/packet",
+            source_label="Loom", duration_minutes=12, required=True, sort=1,
+            published_at=now if lesson_published else None))
+        for role in (course_roles or []):
+            s.add(IntranetCourseRole(tenant_id=tenant.id, course_id=course.id,
+                                     role_id=(agent if role == "agent" else leader).id,
+                                     published_at=now))
+
+        category = IntranetSopCategory(tenant_id=tenant.id, name="Transactions", sort=1,
+                                       published_at=now)
+        s.add(category)
+        await s.flush()
+        sop = IntranetSop(tenant_id=tenant.id, title="Under contract checklist",
+                          category_id=category.id, owner_member_id=member.id, state="Live",
+                          review_due_on=dt.date(2027, 1, 31), published_at=now)
+        s.add(sop)
+        await s.flush()
+        ref = binder_storage.store(tenant.id, sop.id, "checklist.pdf", b"%PDF-1.4 checklist")
+        version = IntranetSopVersion(tenant_id=tenant.id, sop_id=sop.id, version_label="v3",
+                                     filename="checklist.pdf", storage_key=ref,
+                                     content_type="application/pdf", byte_size=18)
+        s.add(version)
+        await s.flush()
+        sop.current_version_id = version.id
+        await s.commit()
+        return host, tokens, {"sop_id": str(sop.id), "course_id": str(course.id),
+                              "tenant_id": tenant.id}
+
+
+async def _content(host, token):
+    async with _client() as c:
+        r = await c.get("/api/v1/intranet/config", headers=_H(token, host))
+    assert r.status_code == 200, r.text
+    return r.json()["config"]["content"]
+
+
+async def test_a_draft_lesson_is_not_live_yet():
+    """Lessons were the ONE content type with no published filter. Roles, tiles, lists, courses,
+    SOPs and categories all had one; lessons did not, so a half-written draft was live to the
+    whole team the moment it was saved."""
+    host, tokens, _ = await _learning("intralessondraft", lesson_published=False)
+    content = await _content(host, tokens["member"])
+    titles = [le["title"] for c in content["courses"] for le in c["lessons"]]
+    assert titles == [], f"a draft lesson went live: {titles}"
+
+
+async def test_a_lesson_carries_what_it_takes_to_play_it():
+    host, tokens, _ = await _learning("intralesson")
+    content = await _content(host, tokens["member"])
+    course = next(c for c in content["courses"] if c["title"] == "Listing Mastery")
+    assert course["category"] == "Sales"
+    assert course["required_for_onboarding"] is True
+    assert course["sequential"] is True
+    lesson = course["lessons"][0]
+    # Without source_type and source_ref there is nothing to open -- which is why the portal read
+    # a hardcoded list instead of this payload.
+    assert lesson["source_type"] == "LOOM"
+    assert lesson["source_ref"] == "https://videos.example.test/packet"
+    assert lesson["duration_minutes"] == 12
+    assert lesson["required"] is True
+
+
+async def test_a_course_is_only_offered_to_the_roles_it_names():
+    """IntranetCourseRole has been written by the console since it shipped and read by nothing.
+    Same rule as launchpad tiles: no rows means everyone, rows mean those roles."""
+    # Named for a role the member does not hold.
+    host, tokens, _ = await _learning("intracourserole", course_roles=["leader"])
+    content = await _content(host, tokens["member"])
+    assert [c["title"] for c in content["courses"]] == [], "a restricted course was offered"
+
+    # Named for the role they do hold.
+    host2, tokens2, _ = await _learning("intracourseown", course_roles=["agent"])
+    assert [c["title"] for c in (await _content(host2, tokens2["member"]))["courses"]] \
+        == ["Listing Mastery"]
+
+    # No audience rows at all: visible to everyone.
+    host3, tokens3, _ = await _learning("intracourseall")
+    assert [c["title"] for c in (await _content(host3, tokens3["member"]))["courses"]] \
+        == ["Listing Mastery"]
+
+
+async def test_an_sop_carries_its_version_owner_and_a_way_to_open_it():
+    host, tokens, ids = await _learning("intrasopmeta")
+    content = await _content(host, tokens["member"])
+    sop = content["sops"][0]
+    assert sop["title"] == "Under contract checklist"
+    assert sop["category"] == "Transactions"
+    assert sop["owner"] == "A Member"
+    assert sop["version"] == "v3"
+    assert sop["filename"] == "checklist.pdf"
+    assert sop["review_due_on"] == "2027-01-31"
+    assert sop["updated_at"]
+    assert sop["file_url"] == f"/intranet/sops/{ids['sop_id']}/file"
+
+
+async def test_an_sop_downloads_and_an_archived_one_stops_downloading():
+    """The documents have been stored since the console shipped and no member route served them
+    back, so the SOP library was a list of titles for something nobody could open."""
+    from app.models import IntranetSop
+
+    host, tokens, ids = await _learning("intrasopfile")
+    async with _client() as c:
+        r = await c.get(f"/api/v1/intranet/sops/{ids['sop_id']}/file",
+                        headers=_H(tokens["member"], host))
+    assert r.status_code == 200, r.text
+    assert r.content == b"%PDF-1.4 checklist"
+    # Never inline: a document somebody else uploaded, rendered in the tab, is stored XSS.
+    assert r.headers["content-disposition"].startswith("attachment;")
+
+    # Archived after the member took a copy of the id: the link must stop working.
+    async with SessionLocal() as s:
+        sop = await s.get(IntranetSop, uuid.UUID(ids["sop_id"]))
+        sop.state = "Archived"
+        await s.commit()
+    async with _client() as c:
+        again = await c.get(f"/api/v1/intranet/sops/{ids['sop_id']}/file",
+                            headers=_H(tokens["member"], host))
+    assert again.status_code == 404
+
+
+async def test_one_workspaces_sop_file_is_not_reachable_from_another():
+    host_a, tokens_a, ids_a = await _learning("intrasopmine")
+    host_b, tokens_b, _ = await _learning("intrasoptheirs")
+    async with _client() as c:
+        crossed = await c.get(f"/api/v1/intranet/sops/{ids_a['sop_id']}/file",
+                              headers=_H(tokens_b["member"], host_b))
+    assert crossed.status_code == 404
+
+
+async def test_acknowledging_an_sop_is_recorded_where_the_console_reads_it():
+    """IntranetSopAcknowledgement has been counted by the console since it shipped and had never
+    had a row inserted: the portal's tick box wrote to a per-user state blob nobody else could
+    see, so an admin asking "who has read the new procedure?" got zero for everybody, forever."""
+    from app.models import IntranetSopAcknowledgement
+
+    host, tokens, ids = await _learning("intraack")
+    async with _client() as c:
+        r = await c.post(f"/api/v1/intranet/sops/{ids['sop_id']}/acknowledge",
+                         headers=_H(tokens["member"], host))
+    assert r.status_code == 200, r.text
+    assert r.json()["acknowledged_at"]
+
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(IntranetSopAcknowledgement).where(
+            IntranetSopAcknowledgement.tenant_id == ids["tenant_id"]))).scalars().all()
+    assert len(rows) == 1, "nothing was recorded"
+
+    # ...and the member's own view now says so, which is what the button reads.
+    content = await _content(host, tokens["member"])
+    assert content["sops"][0]["acknowledged_at"]
+
+
+async def test_acknowledging_twice_is_the_same_fact_not_an_error():
+    """A double click is not a second assertion, and the unique constraint would otherwise turn
+    an impatient click into a 500."""
+    from app.models import IntranetSopAcknowledgement
+
+    host, tokens, ids = await _learning("intraacktwice")
+    async with _client() as c:
+        first = await c.post(f"/api/v1/intranet/sops/{ids['sop_id']}/acknowledge",
+                             headers=_H(tokens["member"], host))
+        second = await c.post(f"/api/v1/intranet/sops/{ids['sop_id']}/acknowledge",
+                              headers=_H(tokens["member"], host))
+    assert first.status_code == 200 and second.status_code == 200, second.text
+    # Same timestamp: the second call reports the original fact rather than moving it.
+    assert first.json()["acknowledged_at"] == second.json()["acknowledged_at"]
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(IntranetSopAcknowledgement).where(
+            IntranetSopAcknowledgement.tenant_id == ids["tenant_id"]))).scalars().all()
+    assert len(rows) == 1, f"acknowledging twice wrote {len(rows)} rows"
+
+
+async def test_a_new_version_asks_everybody_again():
+    """The acknowledgement is against a VERSION, not the SOP. Republishing a procedure must not
+    silently inherit an assertion about the document it replaced."""
+    from app.models import IntranetSop, IntranetSopVersion
+    from app.services import binder_storage
+
+    host, tokens, ids = await _learning("intraackversion")
+    async with _client() as c:
+        assert (await c.post(f"/api/v1/intranet/sops/{ids['sop_id']}/acknowledge",
+                             headers=_H(tokens["member"], host))).status_code == 200
+    assert (await _content(host, tokens["member"]))["sops"][0]["acknowledged_at"]
+
+    # A new version supersedes it.
+    async with SessionLocal() as s:
+        sop = await s.get(IntranetSop, uuid.UUID(ids["sop_id"]))
+        ref = binder_storage.store(sop.tenant_id, sop.id, "checklist-v4.pdf", b"%PDF-1.4 newer")
+        v4 = IntranetSopVersion(tenant_id=sop.tenant_id, sop_id=sop.id, version_label="v4",
+                                filename="checklist-v4.pdf", storage_key=ref,
+                                content_type="application/pdf", byte_size=14)
+        s.add(v4)
+        await s.flush()
+        sop.current_version_id = v4.id
+        await s.commit()
+
+    after = (await _content(host, tokens["member"]))["sops"][0]
+    assert after["version"] == "v4"
+    assert after["acknowledged_at"] is None, "an old acknowledgement carried over to a new version"
+
+
+async def test_an_archived_sop_cannot_be_acknowledged():
+    from app.models import IntranetSop
+
+    host, tokens, ids = await _learning("intraackarchived")
+    async with SessionLocal() as s:
+        sop = await s.get(IntranetSop, uuid.UUID(ids["sop_id"]))
+        sop.state = "Archived"
+        await s.commit()
+    async with _client() as c:
+        r = await c.post(f"/api/v1/intranet/sops/{ids['sop_id']}/acknowledge",
+                         headers=_H(tokens["member"], host))
+    assert r.status_code == 404

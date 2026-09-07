@@ -1265,6 +1265,34 @@ input {
   border-top: 1px solid var(--soft-line);
 }
 
+/* A button that opens a document, wearing the type it sits in. It has to be a <button> rather
+   than an <a href>: the bytes are proxied behind the session, so the file is fetched with the
+   auth header and handed over as a blob, and a plain link would 401. */
+.ut-linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+
+.ut-linkish:hover {
+  color: var(--accent, currentColor);
+}
+
+/* Not a control any more: an acknowledgement is recorded against a version and cannot be
+   taken back, so once made it reads as a dated fact rather than something still to do. */
+.ut-acked {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
 .ut-table-row > span {
   color: var(--muted);
   font-size: 13px;

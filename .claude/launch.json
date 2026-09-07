@@ -72,6 +72,22 @@
       ],
       "port": 4181,
       "url": "http://localhost:4181"
+    },
+    {
+      "name": "intranet-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "preview:intranet",
+        "--",
+        "--port",
+        "4182",
+        "--host"
+      ],
+      "port": 4182,
+      "url": "http://localhost:4182"
     }
   ]
 }

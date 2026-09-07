@@ -19,12 +19,18 @@ from ..deps import current_user, require_role
 from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTileRole,
                       IntranetLesson, IntranetMarketingAttachment, IntranetMarketingRequest,
                       IntranetMarketingSetting, IntranetMember, IntranetRole, IntranetSop,
+                      IntranetCourseRole, IntranetSopAcknowledgement, IntranetSopVersion,
                       IntranetIntegration, IntranetSopCategory, IntranetUserState,
                       IntranetWorkspace,
                       IntranetWtdList, Tenant, User)
 from ..services import binder_storage
 from ..services.inheritance import dashboard_connections
 from ..services.audit import audit
+
+def _iso(value) -> str | None:
+    """A timestamp the browser can parse, or nothing. Never a naive string."""
+    return value.isoformat() if value is not None else None
+
 
 router = APIRouter(prefix="/intranet", tags=["intranet"])
 
@@ -203,8 +209,27 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         for lesson in (await s.execute(select(IntranetLesson).where(
             IntranetLesson.tenant_id == tenant_id,
             IntranetLesson.course_id.in_([c.id for c in courses]),
+            # LESSONS WERE THE ONE CONTENT TYPE WITH NO PUBLISHED FILTER. Roles, tiles, lists,
+            # courses, SOPs and categories all had one; lessons did not, so a half-written draft
+            # was live to the whole team the moment it was saved. The publish button is the
+            # promise that does not happen, and for lessons it was not being kept.
+            published(IntranetLesson),
         ).order_by(IntranetLesson.sort))).scalars().all():
             lessons_by_course.setdefault(lesson.course_id, []).append(lesson)
+
+    # A course with NO audience rows is visible to everyone; one with rows is visible to those
+    # roles. Same rule as launchpad tiles, and for the same reason: absence means "not
+    # restricted", which is what an admin who never opened the picker intends. The console has
+    # written these rows since it shipped and nothing had ever read them.
+    course_audience: dict = {}
+    if courses:
+        for course_id, role_id in (await s.execute(select(
+            IntranetCourseRole.course_id, IntranetCourseRole.role_id,
+        ).where(IntranetCourseRole.tenant_id == tenant_id,
+                IntranetCourseRole.course_id.in_([c.id for c in courses])))).all():
+            course_audience.setdefault(course_id, set()).add(role_id)
+    courses = [c for c in courses
+               if c.id not in course_audience or my_role in course_audience[c.id]]
 
     sop_categories = (await s.execute(select(IntranetSopCategory).where(
         IntranetSopCategory.tenant_id == tenant_id, published(IntranetSopCategory),
@@ -217,6 +242,59 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     ).order_by(IntranetSop.title))).scalars().all()
 
     category_names = {c.id: c.name for c in sop_categories}
+
+    # The CURRENT version of each SOP, and who owns it. Both were authored by the console from
+    # the start and dropped here, which is why the member's SOP library could only ever be a
+    # list of titles -- no version to cite, no owner to ask, no file to open.
+    versions = {}
+    owner_names = {}
+    version_ids: list = []
+    if sops:
+        version_ids = [sop.current_version_id for sop in sops if sop.current_version_id]
+        if version_ids:
+            versions = {v.id: v for v in (await s.execute(select(IntranetSopVersion).where(
+                IntranetSopVersion.tenant_id == tenant_id,
+                IntranetSopVersion.id.in_(version_ids)))).scalars().all()}
+        owner_ids = [sop.owner_member_id for sop in sops if sop.owner_member_id]
+        if owner_ids:
+            owner_names = {m.id: m.full_name for m in (await s.execute(select(IntranetMember).where(
+                IntranetMember.tenant_id == tenant_id,
+                IntranetMember.id.in_(owner_ids)))).scalars().all()}
+
+    # What THIS member has already acknowledged. The console has counted these since it shipped
+    # and the table had never had a row inserted, because no member route wrote one -- the
+    # portal's tick box was writing to a local state blob nobody else could see.
+    acknowledged: dict = {}
+    if version_ids and member is not None:
+        for version_id, at in (await s.execute(select(
+            IntranetSopAcknowledgement.sop_version_id,
+            IntranetSopAcknowledgement.acknowledged_at,
+        ).where(IntranetSopAcknowledgement.tenant_id == tenant_id,
+                IntranetSopAcknowledgement.member_id == member.id,
+                IntranetSopAcknowledgement.sop_version_id.in_(version_ids)))).all():
+            acknowledged[version_id] = at
+
+
+    def _sop_out(sop) -> dict:
+        version = versions.get(sop.current_version_id)
+        # Per VERSION, not per SOP: acknowledging v2 says nothing about v3, and the table is
+        # keyed that way on purpose. Republishing a procedure correctly asks everybody again.
+        acked = acknowledged.get(sop.current_version_id)
+        return {
+            "id": str(sop.id),
+            "title": sop.title,
+            "category": category_names.get(sop.category_id),
+            "owner": owner_names.get(sop.owner_member_id),
+            "updated_at": _iso(sop.updated_at),
+            "review_due_on": sop.review_due_on.isoformat() if sop.review_due_on else None,
+            "version": version.version_label if version else None,
+            "filename": version.filename if version else None,
+            "byte_size": int(version.byte_size) if version else None,
+            # A path under the API base, not a storage URL: the bytes are proxied so that a
+            # link cannot outlive the reader's access to the workspace.
+            "file_url": f"/intranet/sops/{sop.id}/file" if version else None,
+            "acknowledged_at": _iso(acked),
+        }
 
     # Which providers this workspace has actually connected. Keys and status only -- no
     # credentials, no base URLs, nothing an agent has any reason to see. Vendor-specific surfaces
@@ -249,13 +327,24 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         "wtd_lists": [{"id": str(w.id), "name": w.name, "script_name": w.script_name,
                        "daily_target": w.daily_target, "provider": w.provider}
                       for w in wtd],
-        "courses": [{"id": str(c.id), "title": c.title,
-                     "lessons": [{"id": str(le.id), "title": le.title}
+        # WIDER THAN A TITLE, because a title is not a course. Everything below is already
+        # authored in the console and was being dropped here, which is why the portal fell back
+        # to a compiled-in list: there was nothing in the payload to render. `source_type` and
+        # `source_ref` are what let a lesson actually play.
+        "courses": [{"id": str(c.id), "title": c.title, "category": c.category,
+                     "description": c.description,
+                     "required_for_onboarding": bool(c.required_for_onboarding),
+                     "sequential": bool(c.sequential),
+                     "track_progress": bool(c.track_progress),
+                     "issues_certificate": bool(c.issues_certificate),
+                     "lessons": [{"id": str(le.id), "title": le.title,
+                                  "source_type": le.source_type, "source_ref": le.source_ref,
+                                  "source_label": le.source_label,
+                                  "duration_minutes": le.duration_minutes,
+                                  "required": bool(le.required)}
                                  for le in lessons_by_course.get(c.id, [])]}
                     for c in courses],
-        "sops": [{"id": str(sop.id), "title": sop.title,
-                  "category": category_names.get(sop.category_id)}
-                 for sop in sops],
+        "sops": [_sop_out(sop) for sop in sops],
         "integrations": integrations,
     }
 
@@ -620,6 +709,103 @@ async def download_attachment(request_id: uuid.UUID, attachment_id: uuid.UUID,
     return Response(
         content=binder_storage.read(row.storage_key),
         media_type=row.content_type,
+        headers={"Content-Disposition": 'attachment; filename="' + safe + '"'},
+    )
+
+
+async def _live_sop(s: AsyncSession, tenant_id, sop_id: uuid.UUID) -> IntranetSop:
+    """A published, live, unarchived SOP in this workspace, or 404.
+
+    Checked here rather than trusted from the listing: a member who kept an id from before an
+    SOP was archived must not still reach it.
+    """
+    row = (await s.execute(select(IntranetSop).where(
+        IntranetSop.tenant_id == tenant_id,
+        IntranetSop.id == sop_id,
+        IntranetSop.state == "Live",
+        IntranetSop.published_at.is_not(None),
+        IntranetSop.archived_at.is_(None),
+    ))).scalars().first()
+    if row is None:
+        raise HTTPException(404, "Not found")
+    return row
+
+
+@router.post("/sops/{sop_id}/acknowledge")
+async def acknowledge_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Record that this member has read the current version of this SOP.
+
+    THE FIRST WRITE THIS TABLE HAS EVER HAD. IntranetSopAcknowledgement has been read by the
+    console for a count since it shipped, and nothing inserted a row -- the portal's tick box
+    wrote to a per-user state blob nobody else could see, so an admin asking "who has read the
+    new procedure?" got zero for everybody, forever.
+
+    Against the CURRENT VERSION, which is what makes it mean anything: acknowledging v2 says
+    nothing about v3, so republishing a procedure asks everybody again rather than silently
+    inheriting an assertion about a document that has since changed.
+
+    One-way and idempotent. There is no un-acknowledge: the table has no revoked_at because
+    saying "I have read this" is not a state you toggle, and acknowledging twice is the same
+    fact, so a double-click is a no-op rather than an error.
+    """
+    await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    if member is None:
+        raise HTTPException(404, "Not found")
+    sop = await _live_sop(s, user.tenant_id, sop_id)
+    if not sop.current_version_id:
+        raise HTTPException(409, "This SOP has no document to acknowledge yet.")
+
+    existing = (await s.execute(select(IntranetSopAcknowledgement).where(
+        IntranetSopAcknowledgement.tenant_id == user.tenant_id,
+        IntranetSopAcknowledgement.sop_version_id == sop.current_version_id,
+        IntranetSopAcknowledgement.member_id == member.id,
+    ))).scalars().first()
+    if existing is None:
+        # acknowledged_at is left to the column's server default, so the timestamp is the
+        # database's rather than this process's clock.
+        existing = IntranetSopAcknowledgement(
+            tenant_id=user.tenant_id, sop_version_id=sop.current_version_id,
+            member_id=member.id)
+        s.add(existing)
+        audit(s, user.tenant_id, user.id, "intranet.sop_acknowledged", "sop", sop.id)
+        await s.commit()
+        await s.refresh(existing)
+    return {"acknowledged_at": _iso(existing.acknowledged_at)}
+
+
+@router.get("/sops/{sop_id}/file")
+async def download_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
+                       s: AsyncSession = Depends(get_session)):
+    """The current version of a published SOP, proxied.
+
+    The documents have been uploaded and stored since the console shipped, and no member route
+    ever served them back -- so the SOP library was a list of titles for something nobody could
+    open. This is that route.
+
+    PUBLISHED AND LIVE ONLY, checked here rather than trusted from the listing: a member who
+    kept an id from before an SOP was archived must not still be able to pull the file. Served
+    as an attachment with the stored content type, and only ever the CURRENT version, so a stale
+    link cannot be used to read a procedure that has since been replaced.
+    """
+    await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    if member is None:
+        raise HTTPException(404, "Not found")
+    row = await _live_sop(s, user.tenant_id, sop_id)
+    if not row.current_version_id:
+        raise HTTPException(404, "Not found")
+    version = (await s.execute(select(IntranetSopVersion).where(
+        IntranetSopVersion.tenant_id == user.tenant_id,
+        IntranetSopVersion.id == row.current_version_id,
+    ))).scalars().first()
+    if version is None or not binder_storage.exists(version.storage_key):
+        raise HTTPException(404, "Not found")
+    safe = binder_storage.safe_filename(version.filename)
+    return Response(
+        content=binder_storage.read(version.storage_key),
+        media_type=version.content_type,
         headers={"Content-Disposition": 'attachment; filename="' + safe + '"'},
     )
 

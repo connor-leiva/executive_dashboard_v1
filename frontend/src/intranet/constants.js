@@ -154,13 +154,6 @@ export const FUB_LISTS = [
   { key: "birthday", name: "Birthdays" },
 ];
 
-export const TRAINING = [
-  { key: "orientation", title: "Orientation", lessons: ["Team overview", "Systems tour", "First-week standards"] },
-  { key: "crm", title: "CRM Workflows", lessons: ["Daily follow-up", "Lead stages", "Database care"] },
-  { key: "sales", title: "Sales Practice", lessons: ["Discovery", "Consultation", "Objection handling"] },
-  { key: "contracts", title: "Contracts", lessons: ["Buyer path", "Listing path", "Compliance review"] },
-];
-
 export const ONBOARDING = [
   { key: "profile", title: "Profile and accounts" },
   { key: "tools", title: "Core tools access" },
@@ -172,11 +165,3 @@ export const ONBOARDING = [
   { key: "mentor", title: "Mentor check-in scheduled" },
 ];
 
-export const SOPS = [
-  { key: "lead-intake", title: "Lead Intake", area: "Sales" },
-  { key: "buyer-consult", title: "Buyer Consultation", area: "Sales" },
-  { key: "listing-launch", title: "Listing Launch", area: "Listings" },
-  { key: "contract-to-close", title: "Contract to Close", area: "Transactions" },
-  { key: "open-house", title: "Open House", area: "Marketing" },
-  { key: "referral", title: "Referral Handoff", area: "Partners" },
-];
