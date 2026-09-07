@@ -495,6 +495,14 @@ textarea {
   border-top-color: var(--console-teal);
 }
 
+/* AN EMPTY STATE MUST NOT WEAR A SPINNER'S CLOTHES. A ring with one accent segment is the
+   universal shape of "loading", and this one does not even animate -- so "No courses are
+   configured" arrived under what read as a spinner frozen mid-spin, which is indistinguishable
+   from a page that has hung. An empty state is a finished answer, so it gets a plain ring. */
+.console-empty .console-state-mark {
+  border-top-color: var(--console-line);
+}
+
 .console-error .console-state-mark {
   border-top-color: var(--console-bad);
 }

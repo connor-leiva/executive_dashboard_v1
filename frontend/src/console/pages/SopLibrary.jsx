@@ -475,7 +475,10 @@ export default function SopLibrary() {
       </div>
       {sopQuery.isPending && !isNew ? <LoadingState /> : null}
       {sopQuery.error && !isNew ? <ErrorState title={COPY.sopError} onRetry={() => sopQuery.refetch()} /> : null}
-      {(isNew || detail) && !sopQuery.isPending && !sopQuery.error ? (
+      {/* Same bug as Training's course pane, same fix: a disabled query is permanently
+          `isPending` in React Query v5, sopQuery is disabled exactly when isNew, so New SOP set
+          the state and rendered nothing. See the note there. */}
+      {isNew || detail ? (
         <SopDetail
           sop={detail}
           categories={categories}

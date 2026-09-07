@@ -559,7 +559,14 @@ export default function Training() {
       <CourseList courses={courses} selectedId={selectedId} onSelect={selectCourse} onNew={newCourse} />
       {courseQuery.isPending && !isNew ? <LoadingState /> : null}
       {courseQuery.error && !isNew ? <ErrorState title={COPY.trainingError} onRetry={() => courseQuery.refetch()} /> : null}
-      {(isNew || detail) && !courseQuery.isPending && !courseQuery.error ? (
+      {/* A DISABLED QUERY IS PERMANENTLY `isPending` in React Query v5 -- pending means "no data
+          yet", and a query that is switched off will never have any. courseQuery is switched off
+          precisely when isNew, so `!courseQuery.isPending` was false forever on this branch and
+          the new-course form could never render: clicking New Course set the state and painted
+          nothing. Waiting on a query we deliberately turned off was the mistake; when isNew there
+          is nothing to wait for. `detail` already implies the query resolved, so the other two
+          guards were doing nothing that it does not do. */}
+      {isNew || detail ? (
         <CourseDetail
           course={detail}
           roles={roles}
