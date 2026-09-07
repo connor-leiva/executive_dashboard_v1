@@ -123,19 +123,35 @@ async def public_brand_asset(slug: str, kind: str, s: AsyncSession = Depends(get
     get here. What matters is that the caller still cannot name the OBJECT — the storage ref is
     read out of that workspace's own config, so this cannot be pointed at anything else.
     """
-    if kind not in ("logo", "logomark"):
+    # The dashboard's own marks live in tenant.config.brand; the team portal's live on its
+    # IntranetWorkspace row, uploaded through that workspace's console. Two stores, one public
+    # route, because the reason this route exists -- an <img> sends no headers -- is the same for
+    # both, and a second route would be a second place to get the tenant resolution wrong.
+    portal_kinds = {"portal_light": "logo_light_key", "portal_dark": "logo_dark_key",
+                    "portal_mark": "logo_mark_key"}
+    if kind not in ("logo", "logomark") and kind not in portal_kinds:
         raise HTTPException(404, "Not found")
     tenant = (await s.execute(select(Tenant).where(Tenant.slug == slug.lower()))).scalar_one_or_none()
-    ref = ((tenant.config or {}).get("brand") or {}).get(f"{kind}_ref") if tenant else None
+    if tenant is not None and kind in portal_kinds:
+        workspace = (await s.execute(select(IntranetWorkspace).where(
+            IntranetWorkspace.tenant_id == tenant.id))).scalars().first()
+        ref = getattr(workspace, portal_kinds[kind], None) if workspace is not None else None
+    else:
+        ref = ((tenant.config or {}).get("brand") or {}).get(f"{kind}_ref") if tenant else None
     if not ref or not binder_storage.exists(ref):
         raise HTTPException(404, "Not found")
     data = binder_storage.read(ref)
     media = {"png": "image/png", "svg": "image/svg+xml", "jpg": "image/jpeg",
              "webp": "image/webp"}.get(ref.rsplit(".", 1)[-1].lower(), "application/octet-stream")
     return Response(content=data, media_type=media,
-                    headers={"Cache-Control": "public, max-age=31536000, immutable",
-                             # Fetched cross-origin from every workspace subdomain.
-                             "Access-Control-Allow-Origin": "*"})
+                    headers={
+                        # A YEAR, and immutable, only because callers append ?v=<fingerprint of
+                        # the storage ref> -- see _logo_url. Without that the URL is stable while
+                        # the asset behind it changes, so re-uploading a logo would leave every
+                        # browser showing the old one until the cache expired. Which is a year.
+                        "Cache-Control": "public, max-age=31536000, immutable",
+                        # Fetched cross-origin from every workspace subdomain.
+                        "Access-Control-Allow-Origin": "*"})
 
 
 @router.post("/auth/login", response_model=LoginResponse)

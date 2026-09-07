@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 
-import { API_BASE, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
+import { API_BASE, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
 import {
   NAV_GROUPS,
   ONBOARDING,
@@ -259,6 +259,11 @@ function Shell({ me, config, children }) {
   // bought the product rather than to the customer it was first built for.
   const workspaceName = config?.workspace?.name || me?.tenant_name || "Intranet";
   const askLabel = `Ask ${workspaceName}`;
+  const ws = config?.workspace || {};
+  // fileUrl prefixes the API base; the payload sends a path so there is one place that knows
+  // where the API lives. Empty string rather than undefined so the fallback below is a clean
+  // boolean rather than "undefined" reaching an <img src>.
+  const logoUrl = fileUrl(ws.logo_light_url || ws.logo_mark_url || "") || "";
   // Two reasons a nav item is not offered, applied together: the workspace has not connected the
   // vendor behind it, or this role's capability level is None. The server filters the content
   // either way -- this stops the rail advertising a page it would then refuse, which reads as the
@@ -296,7 +301,15 @@ function Shell({ me, config, children }) {
       {navOpen && <button className="ut-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <aside className={`ut-rail ${navOpen ? "open" : ""}`} aria-label={`${workspaceName} intranet navigation`}>
         <div className="ut-logo-lockup">
-          <div className="ut-logo-text">{workspaceName}</div>
+          {/* The uploaded mark if there is one, the workspace's name set in type if not. The
+              rail is dark, so the LIGHT wordmark is the one that belongs on it -- falling back
+              to the standalone mark, then to text. alt is empty because the name is already
+              read out by the kicker below and by the rail's own aria-label; announcing it twice
+              is noise to a screen reader. */}
+          {logoUrl
+            ? <img className="ut-logo-img" src={logoUrl} alt=""
+                   onError={(e) => { e.currentTarget.style.display = "none"; }} />
+            : <div className="ut-logo-text">{workspaceName}</div>}
           <div className="ut-logo-kicker">Team Intranet</div>
         </div>
         <nav className="ut-nav">

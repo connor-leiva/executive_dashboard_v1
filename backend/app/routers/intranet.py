@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import re
 import uuid
@@ -386,6 +387,25 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     }
 
 
+def _logo_url(tenant: Tenant, workspace: IntranetWorkspace | None,
+              kind: str, field: str) -> str | None:
+    """A public URL for one of the workspace's marks, or None if it has not uploaded one.
+
+    Relative to the API base, which the browser already knows -- the same shape as an SOP's
+    file_url, rather than a second way of naming the API.
+
+    FINGERPRINTED, because the path is stable while the file behind it is not. The asset route
+    answers with a year-long immutable cache -- correct for an image, wrong for a URL that keeps
+    pointing at whatever was uploaded last -- so `?v=` changes when the stored key changes and a
+    re-uploaded logo appears immediately instead of a year from now.
+    """
+    key = getattr(workspace, field, None) if workspace is not None else None
+    if not key or not tenant or not tenant.slug:
+        return None
+    version = hashlib.sha256(key.encode()).hexdigest()[:12]
+    return f"/public/brand/{tenant.slug}/{kind}?v={version}"
+
+
 def _config_out(tenant: Tenant, user: User,
                 marketing: IntranetMarketingSetting | None = None,
                 marketing_role: str | None = None,
@@ -404,6 +424,12 @@ def _config_out(tenant: Tenant, user: User,
         "name": (workspace.portal_name if workspace is not None and workspace.portal_name
                  else tenant.name or "Workspace"),
         "tagline": workspace.tagline if workspace is not None else None,
+        # The marks the console has been collecting with nothing to serve them back. Absolute
+        # public URLs, because the rail renders them in an <img> and an <img> sends no headers --
+        # see auth.public_brand_asset for why that route is shaped the way it is.
+        "logo_light_url": _logo_url(tenant, workspace, "portal_light", "logo_light_key"),
+        "logo_dark_url": _logo_url(tenant, workspace, "portal_dark", "logo_dark_key"),
+        "logo_mark_url": _logo_url(tenant, workspace, "portal_mark", "logo_mark_key"),
     }
     config["content"] = content or {}
     return {
