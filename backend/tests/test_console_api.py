@@ -1341,8 +1341,12 @@ async def test_marketing_reports_configuration_and_delivery_as_separate_facts(ct
 
     A saved form proves the config is complete. It proves nothing about whether anything can be
     delivered to the destination -- nobody has tried. Collapsing the two into one boolean is how a
-    console ends up claiming a connection that has never been exercised, which is the state this
-    product is genuinely in until the Phase 10 delivery path exists.
+    console ends up claiming a connection that has never been exercised.
+
+    This asserted "pending_runtime" while there was no delivery path at all. There is one now, and
+    the answer changed to "untested" rather than to "live": the destination is saved and requests
+    will be queued for it, and still nothing has ever been delivered there. Sending a test is what
+    moves it on -- see test_marketing_delivery.
     """
     async with _client() as c:
         h = _H(ctx["a"]["admin"], ctx["a"]["host"])
@@ -1352,7 +1356,7 @@ async def test_marketing_reports_configuration_and_delivery_as_separate_facts(ct
     item = r.json()["item"]
     assert item["config_complete"] is True
     assert item["last_tested_at"] is None, "nothing has delivered; this must stay null"
-    assert item["delivery"] == "pending_runtime"
+    assert item["delivery"] == "untested"
     assert "connected" not in item, "config cannot assert a connection it has not made"
     assert cfg.json()["marketing"]["destination"] == "marketing@example.test"
 

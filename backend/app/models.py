@@ -749,10 +749,17 @@ class IntranetMarketingRequest(Base):
     assignee_member_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("intranet_member.id", ondelete="SET NULL"), nullable=True)
 
-    # Delivery, recorded rather than assumed. Null delivered_at on a submitted request is the
-    # honest state while the destination is an open decision: saved here, sent nowhere.
+    # Delivery, recorded rather than assumed. These four columns are the whole state machine and
+    # there is deliberately no status enum beside them, because an enum can disagree with the
+    # facts it summarises:
+    #     delivered_at set          -> delivered, and delivery_detail says where
+    #     next_attempt_at set       -> queued, or waiting out a backoff
+    #     both null, attempts > 0   -> tried until the backoff ran out, and gave up
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivery_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    delivery_next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -764,6 +771,9 @@ class IntranetMarketingRequest(Base):
                         name="ck_intranet_marketing_request_priority"),
         # The console queue reads by tenant, newest first; an agent reads their own the same way.
         Index("ix_intranet_marketing_request_tenant_created", "tenant_id", "created_at"),
+        # The delivery tick asks "what is due?" across every tenant at once, so this one leads
+        # with the due time instead of the tenant.
+        Index("ix_intranet_marketing_request_due", "delivery_next_attempt_at"),
     )
 
 

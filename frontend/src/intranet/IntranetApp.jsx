@@ -1404,12 +1404,10 @@ function Marketing({ config, canConfigure }) {
           <>
             <p className="ut-note">
               Requests are open{marketing.assigned_role ? ` and picked up by ${marketing.assigned_role}` : ""}.
-              {marketing.delivery_pending
-                /* Said out loud. The request IS saved and the team can see it in the console;
-                   what does not happen yet is automatic delivery to the destination. Promising
-                   otherwise is the one thing this screen must not do. */
-                ? " Your request is recorded for the team; automatic routing to their channel is not switched on yet."
-                : ""}
+              {/* This used to warn that nothing was routed anywhere, which was true and worth
+                  saying. Requests are delivered now, so it says the useful thing instead: what
+                  happens next, and that they will hear back without chasing anyone. */}
+              {" Your request goes straight to the team, and you will be emailed when its status changes."}
             </p>
             <RequestForm required={marketing.required_fields || []} onDone={load} />
           </>

@@ -203,6 +203,67 @@ async def ads_funnel_tick():
             print(f"[ads_funnel_tick] tenant {tid}: {type(e).__name__}: {e}", flush=True)
 
 
+async def marketing_delivery_tick():
+    """Drain the marketing-request delivery queue. Intranet Phase 3.
+
+    Every request that is due, across every tenant, in one pass -- the index leads with the due
+    time rather than the tenant for exactly this reason. A workspace that has never switched
+    marketing requests on contributes no rows, so this costs an empty query.
+
+    ONE SESSION PER REQUEST, and a failure in one is caught here rather than allowed to end the
+    pass. A single tenant whose webhook host has vanished must not stop every other workspace's
+    requests from going out, which is precisely what a shared session and one bubbling exception
+    would do.
+
+    The due list is read first and closed before any delivery runs. Holding a transaction open
+    across ten seconds of somebody else's HTTP is how a connection pool gets exhausted by a slow
+    third party.
+    """
+    from .models import IntranetMarketingRequest, IntranetMarketingSetting
+    from .services import marketing_delivery
+    from .services.users import primary_host
+
+    now = dt.datetime.now(dt.timezone.utc)
+    async with SessionLocal() as s:
+        due = (await s.execute(
+            select(IntranetMarketingRequest.id)
+            .where(IntranetMarketingRequest.delivery_next_attempt_at.is_not(None),
+                   IntranetMarketingRequest.delivery_next_attempt_at <= now,
+                   IntranetMarketingRequest.delivered_at.is_(None))
+            .order_by(IntranetMarketingRequest.delivery_next_attempt_at)
+            .limit(200))).scalars().all()
+
+    sent = failed = 0
+    for request_id in due:
+        try:
+            async with SessionLocal() as s:
+                row = await s.get(IntranetMarketingRequest, request_id)
+                # Re-checked rather than trusted: the row was selected in an earlier transaction
+                # and another pass, or a console action, may have settled it since.
+                if row is None or row.delivered_at is not None \
+                        or row.delivery_next_attempt_at is None:
+                    continue
+                cfg = await s.get(IntranetMarketingSetting, row.tenant_id)
+                try:
+                    host = await primary_host(s, row.tenant_id)
+                    # The console list, with the request named so it can be highlighted. A
+                    # per-id detail route does not exist -- linking to one would 404 whoever
+                    # clicked it, which is worse than landing them on the queue.
+                    link = f"https://{host}/console/marketing?request={row.id}" if host else None
+                except Exception:  # noqa: BLE001 - a missing domain row is not a delivery failure
+                    link = None
+                outcome = await marketing_delivery.send_one(s, row, cfg, link)
+                marketing_delivery.record(row, outcome)
+                await s.commit()
+                sent += 1 if outcome.delivered else 0
+                failed += 0 if outcome.delivered else 1
+        except Exception as e:  # noqa: BLE001
+            print(f"[marketing_delivery_tick] request {request_id}: {type(e).__name__}: {e}",
+                  flush=True)
+    if sent or failed:
+        print(f"[marketing_delivery] sent={sent} failed={failed}", flush=True)
+
+
 def build_scheduler() -> AsyncIOScheduler:
     """Configure the scheduler with the sync tick, the daily agent-roster + scorecard-resolver ticks,
     and (when the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`)
@@ -216,6 +277,11 @@ def build_scheduler() -> AsyncIOScheduler:
     # After the syncs have had the night to land: attribution reads registrations the GHL sync
     # wrote, so running it earlier would freeze cohort days against yesterday's data.
     sched.add_job(ads_funnel_tick, "cron", hour=5, minute=45, timezone=_tz)
+    # Every minute, because this is the path a person is waiting on: an agent files a request and
+    # somebody in marketing should see it while they still remember filing it. It is also cheap --
+    # one indexed query that usually returns nothing.
+    sched.add_job(marketing_delivery_tick, "interval", minutes=1,
+                  next_run_time=dt.datetime.now())
     if settings.RECALL_API_KEY:
         sched.add_job(recall_tick, "interval", minutes=settings.RECALL_TICK_MINUTES,
                       next_run_time=dt.datetime.now())

@@ -7,7 +7,10 @@ import {
   useMarketingRequests,
   usePatchMarketing,
   usePatchMarketingRequest,
+  usePatchSlack,
   useRoles,
+  useSlack,
+  useTestMarketing,
 } from "../queries.js";
 import { Button, ErrorState, Field, LoadingState, Panel } from "../ui.jsx";
 
@@ -15,20 +18,21 @@ import { Button, ErrorState, Field, LoadingState, Panel } from "../ui.jsx";
  *
  * The screen exists because this was the last tenant-visible intranet behaviour that could only
  * be changed by editing a JSON blob in the intranet router. It configures WHERE a request goes
- * and WHAT a submitter has to fill in; the request record itself is Phase 10.
+ * and WHAT a submitter has to fill in.
  *
- * IT DOES NOT CLAIM A CONNECTION. The server reports configuration completeness and delivery
- * health as two separate facts and this screen keeps them separate, because a saved form proves
- * only that somebody typed a destination -- not that anything can be delivered to it. Until the
- * delivery path exists, "Configured" is the honest ceiling and the screen says so in as many
- * words rather than showing a green dot.
+ * IT STILL DOES NOT CLAIM A CONNECTION. Requests are delivered now, so most of this file's
+ * "not yet connected" copy has gone -- but the rule that produced it has not: the server reports
+ * configuration completeness and delivery health as two separate facts, because a saved form
+ * proves somebody typed a destination and nothing else. A complete configuration nobody has
+ * tested reads "Untested", not "Live", and the way to move it on is to send a test.
  */
 
 const DESTINATION_HELP = {
   none: "Requests are saved but not delivered anywhere.",
-  slack: "A channel name, including the #. The Slack connection itself lives in Integrations.",
+  slack: "A channel name, including the #. The bot token goes in the panel below.",
   email: "One address. Notification routing is separate, below.",
-  webhook: "An https endpoint. It receives a POST per request once delivery is built.",
+  webhook: "An https endpoint. It receives a JSON POST per request. https only, and it cannot "
+           + "point inside a private network.",
 };
 
 // No `attachments` entry: the server no longer offers it as a requirable field, because the
@@ -137,11 +141,88 @@ function RequestQueue() {
         </table>
       )}
       <p className="hint">
-        {/* The queue is the delivery mechanism today, and saying so is the difference between an
-            honest interim state and a feature that looks broken. */}
-        Requests are recorded here. They are not yet posted to the configured destination
-        automatically, so this list is where the team picks them up.
+        Requests are recorded here and delivered to the destination within a minute. This list
+        stays the record: it is where attachments are downloaded and where status is set, and
+        the person who filed a request is emailed whenever that status changes.
       </p>
+    </Panel>
+  );
+}
+
+/* What the four delivery states mean in words an admin can act on. The server never collapses
+   these into a "connected" boolean and neither does this. */
+const DELIVERY_COPY = {
+  off: "Nothing is delivered — there is no destination, or the form is switched off.",
+  untested: "Requests will be delivered here. Nothing has been sent yet, so this is unproven — "
+          + "send a test.",
+  live: "Working. The last test was delivered to this destination.",
+  failing: "The last test did not arrive. Requests are still queued and retried, but check the "
+         + "destination below.",
+};
+
+/* The Slack bot token.
+ *
+ * Separate from the channel above because they are different KINDS of thing: the channel is
+ * routing an admin should be able to read back, and the token is a credential. The token is
+ * stored encrypted and never returned -- this panel can only say whether one is set. */
+function SlackConnection() {
+  const slack = useSlack(true);
+  const save = usePatchSlack();
+  const [token, setToken] = useState("");
+  const [error, setError] = useState("");
+  const item = slack.data?.item;
+
+  return (
+    <Panel title="Slack connection">
+      <p className="hint">
+        A bot token from your Slack app, starting with xoxb-. The bot also has to be invited to
+        the channel — Slack accepts the post and refuses it otherwise.
+      </p>
+      <dl className="kv">
+        <dt>Token</dt>
+        <dd>{item?.token_set ? "Stored" : "Not set"}</dd>
+        {item?.last_error && (<><dt>Last error</dt><dd>{item.last_error}</dd></>)}
+      </dl>
+      <Field label={item?.token_set ? "Replace the token" : "Bot token"}>
+        <input
+          type="password"
+          value={token}
+          autoComplete="off"
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="xoxb-…"
+        />
+      </Field>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <Button
+          tone="primary"
+          busy={save.isPending}
+          disabled={!token.trim()}
+          onClick={async () => {
+            setError("");
+            try {
+              await save.mutateAsync({ bot_token: token.trim() });
+              setToken("");                     // never leave a credential in an input
+            } catch (err) {
+              setError(err?.detail || err?.message || "Could not save.");
+            }
+          }}
+        >
+          Save token
+        </Button>
+        {item?.token_set && (
+          <Button
+            busy={save.isPending}
+            onClick={async () => {
+              setError("");
+              try { await save.mutateAsync({ clear: true }); }
+              catch (err) { setError(err?.detail || err?.message || "Could not remove."); }
+            }}
+          >
+            Remove
+          </Button>
+        )}
+      </div>
     </Panel>
   );
 }
@@ -150,6 +231,8 @@ export default function MarketingRequests() {
   const marketing = useMarketing(true);
   const roles = useRoles(true);
   const save = usePatchMarketing();
+  const test = useTestMarketing();
+  const [testResult, setTestResult] = useState(null);
   const item = marketing.data?.item;
   const [form, setForm] = useState(() => formFor(null));
   const [error, setError] = useState("");
@@ -301,24 +384,50 @@ export default function MarketingRequests() {
 
       <RequestQueue />
 
+      {form.destination_type === "slack" && <SlackConnection />}
+
       <Panel title="Status">
-        {/* Two rows, never one. Configuration is something this screen can know; delivery is not,
-            and the difference is the whole point of reporting them apart. */}
+        {/* Two rows, never one. Configuration is something this screen can know for itself;
+            delivery is only ever known from a delivery, and the difference is the whole point of
+            reporting them apart. */}
         <dl className="kv">
           <dt>Configuration</dt>
           <dd>{item?.config_complete
             ? "Complete — destination set and the form is enabled."
             : "Incomplete — the intranet shows the request form as unavailable."}</dd>
           <dt>Delivery</dt>
-          <dd>
-            Not yet connected. Configuration is saved and will be used the moment the delivery
-            path ships; nothing has been sent to this destination and it has never been tested.
-          </dd>
+          <dd>{DELIVERY_COPY[item?.delivery] || DELIVERY_COPY.off}</dd>
           <dt>Last tested</dt>
           <dd>{item?.last_tested_at
-            ? new Date(item.last_tested_at).toLocaleString()
+            ? `${new Date(item.last_tested_at).toLocaleString()} — ${item.last_test_detail || ""}`
             : "Never"}</dd>
         </dl>
+        <div className="row">
+          <Button
+            busy={test.isPending}
+            disabled={!item?.config_complete}
+            onClick={async () => {
+              setTestResult(null);
+              try {
+                setTestResult(await test.mutateAsync());
+              } catch (err) {
+                // A refused test is still an answer worth showing; only a broken request is an
+                // error the admin cannot act on.
+                setTestResult({ ok: false, detail: err?.detail || err?.message || "Failed." });
+              }
+            }}
+          >
+            Send a test message
+          </Button>
+        </div>
+        {testResult && (
+          <p className={testResult.ok ? "hint" : "error"}>
+            {testResult.ok ? "Delivered. " : "Not delivered. "}{testResult.detail}
+          </p>
+        )}
+        {!item?.config_complete && (
+          <p className="hint">Set a destination and switch requests on before testing.</p>
+        )}
       </Panel>
     </div>
   );

@@ -53,8 +53,9 @@ from ..config import settings
 from ..security import enc
 from .. import plans
 from ..security import new_action_token
-from ..services import binder_storage, google_auth, mail_templates, mailer
-from ..services.users import INVITE_DAYS, link_base
+from ..services import (binder_storage, google_auth, mail_templates, mailer,
+                        marketing_delivery)
+from ..services.users import INVITE_DAYS, link_base, primary_host
 from ..services.inheritance import dashboard_connections, is_inherited
 
 router = APIRouter(prefix="/console", tags=["console"])
@@ -822,6 +823,22 @@ def _marketing_ready(row: IntranetMarketingSetting) -> bool:
     return bool((row.destination or "").strip())
 
 
+def _delivery_health(row: IntranetMarketingSetting) -> str:
+    """Whether requests actually leave the building.
+
+    Deliberately not derived from `enabled` alone. A saved destination proves somebody typed a
+    channel name, and the only thing that proves delivery works is a delivery -- so a complete
+    configuration nobody has tested says "untested" rather than borrowing the confidence of a
+    filled-in form."""
+    if not _marketing_ready(row):
+        return "off"
+    if row.last_test_ok is True:
+        return "live"
+    if row.last_test_ok is False:
+        return "failing"
+    return "untested"
+
+
 def _marketing(row: IntranetMarketingSetting,
                roles: dict[uuid.UUID, IntranetRole] | None = None) -> dict:
     role = (roles or {}).get(row.default_role_id) if row.default_role_id else None
@@ -840,7 +857,10 @@ def _marketing(row: IntranetMarketingSetting,
         "last_tested_at": _iso(row.last_tested_at),
         "last_test_ok": None if row.last_test_ok is None else bool(row.last_test_ok),
         "last_test_detail": row.last_test_detail,
-        "delivery": "pending_runtime",
+        # Was "pending_runtime" while nothing delivered. It now says whether requests are
+        # actually routed, which is a different question from whether the form is filled in:
+        # a complete configuration that has never delivered is "untested", not "live".
+        "delivery": _delivery_health(row),
         "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
     }
 
@@ -1190,6 +1210,18 @@ async def patch_workspace(body: dict = Body(...),
 MARKETING_STATUSES = {"New", "In Progress", "Blocked", "Done", "Cancelled"}
 
 
+def _delivery_state(row: IntranetMarketingRequest) -> str:
+    """Where this request stands, read off the timestamps that record it.
+
+    Derived and not stored. A status column would be a second account of the same facts, and the
+    day it drifts from them the console shows "Delivered" over a null delivered_at."""
+    if row.delivered_at is not None:
+        return "delivered"
+    if row.delivery_next_attempt_at is not None:
+        return "queued" if not (row.delivery_attempts or 0) else "retrying"
+    return "failed" if (row.delivery_attempts or 0) else "not_queued"
+
+
 def _marketing_request(row: IntranetMarketingRequest,
                        members: dict[uuid.UUID, IntranetMember] | None = None,
                        attachments: list | None = None) -> dict:
@@ -1202,10 +1234,15 @@ def _marketing_request(row: IntranetMarketingRequest,
         "requester_label": row.requester_label,
         "assignee_member_id": _id(row.assignee_member_id),
         "assignee_label": assignee.full_name if assignee is not None else None,
-        # Never collapsed into a "sent" boolean. Null means recorded and not delivered, which is
-        # every request today, and the queue has to be able to say that plainly.
+        # Never collapsed into a "sent" boolean, because "not delivered" has three meanings the
+        # queue has to keep apart: waiting its turn, retrying after a failure, and given up.
+        # `delivery` derives all four states from the timestamps rather than storing a fifth
+        # column that could disagree with them.
         "delivered_at": _iso(row.delivered_at),
         "delivery_detail": row.delivery_detail,
+        "delivery": _delivery_state(row),
+        "delivery_attempts": int(row.delivery_attempts or 0),
+        "delivery_next_attempt_at": _iso(row.delivery_next_attempt_at),
         "attachments": [
             {"id": _id(a.id), "filename": a.filename, "content_type": a.content_type,
              "byte_size": a.byte_size}
@@ -1394,6 +1431,7 @@ async def patch_marketing_request(request_id: uuid.UUID, body: dict = Body(...),
     _unknown(body, {"status", "assignee_member_id"})
 
     changed = []
+    was_status = row.status
     if "status" in body:
         status = _enum(body, "status", MARKETING_STATUSES)
         if status and status != row.status:
@@ -1423,7 +1461,42 @@ async def patch_marketing_request(request_id: uuid.UUID, body: dict = Body(...),
         IntranetMarketingAttachment.tenant_id == p.user.tenant_id,
         IntranetMarketingAttachment.request_id == row.id,
     ))).scalars().all()
+    # TELL THE PERSON WHO ASKED. An agent files a request and then has no way to know anything
+    # happened to it -- the portal has no inbox, so without this the only way to find out a flyer
+    # is finished is to ask the person who finished it. Only on a real status CHANGE: reassigning
+    # a request between two people in marketing is not news to the agent who filed it.
+    if row.status != was_status:
+        await _notify_requester(s, row, members, was_status)
     return _with_pending(_marketing_request(row, members, list(attachments)), pending)
+
+
+async def _notify_requester(s: AsyncSession, row: IntranetMarketingRequest,
+                            members: dict, was: str) -> None:
+    """Email the agent whose request just moved. Best effort, and never in the way.
+
+    After the commit and outside the response's success, on purpose. The status change is
+    already saved and correct; a bounced address or a Resend outage must not turn a completed
+    console action into an error the admin has to interpret -- mailer.send swallows its own
+    failures for the same reason.
+    """
+    member = (members or {}).get(row.requester_member_id)
+    to = (getattr(member, "email", None) or "").strip()
+    if not to:
+        return                        # removed from the roster, or never had an address
+    done = row.status in ("Done", "Cancelled")
+    subject = f"Your marketing request is {row.status.lower()}: {row.title}"
+    assignee = (members or {}).get(row.assignee_member_id)
+    lines = [f"{row.title}", "", f"Status: {was} -> {row.status}"]
+    if assignee is not None:
+        lines.append(f"With: {assignee.full_name}")
+    lines.append("")
+    lines.append("Nothing to do -- this is just so you know where it stands."
+                 if not done else "That is this one closed out.")
+    text = "\n".join(lines)
+    await mailer.send(to, subject, "<p>" + text.replace("\n", "<br>") + "</p>", text,
+                      # One email per request per status. A double-clicked Done button in the
+                      # console must not send the agent the same news twice.
+                      idempotency_key=f"marketing-status-{row.id}-{row.status}")
 
 
 @router.get("/marketing")
@@ -1519,6 +1592,134 @@ async def patch_marketing(body: dict = Body(...),
         target_type="marketing_setting", target_id=p.user.tenant_id,
         entity_type="marketing_setting")
     return _with_pending(_marketing(row, roles), pending)
+
+
+# ── Slack, and sending a test ─────────────────────────────────────────────────────────────
+# The Slack CHANNEL lives on the marketing setting, because it is routing an admin reads back.
+# The BOT TOKEN lives here, in intranet_integration, because it is a credential: that table
+# Fernet-encrypts it and never returns it, and the marketing setting does neither.
+
+
+async def _slack_row(s: AsyncSession, tenant_id: uuid.UUID) -> IntranetIntegration:
+    row = (await s.execute(select(IntranetIntegration).where(
+        IntranetIntegration.tenant_id == tenant_id,
+        IntranetIntegration.provider_key == marketing_delivery.SLACK_PROVIDER))).scalar_one_or_none()
+    if row is None:
+        row = IntranetIntegration(
+            tenant_id=tenant_id, provider_key=marketing_delivery.SLACK_PROVIDER,
+            display_name="Slack", role_label="Notifications",
+            description="Where marketing requests are posted.",
+            status="Not Connected", config={})
+        s.add(row)
+        await s.flush()
+    return row
+
+
+def _slack_out(row: IntranetIntegration) -> dict:
+    return {
+        # Whether a token is stored, never the token. Same rule as the Google secret: a form
+        # that round-trips a credential puts it in a response body, a browser cache and a screen.
+        "token_set": bool(row.credential_ref),
+        "status": row.status,
+        "last_error": row.last_error,
+    }
+
+
+@router.get("/slack")
+async def get_slack(p: ConsolePrincipal = Depends(require_console_access),
+                    s: AsyncSession = Depends(get_session)):
+    row = await _slack_row(s, p.user.tenant_id)
+    await s.commit()
+    return {"item": _slack_out(row)}
+
+
+@router.patch("/slack")
+async def patch_slack(body: dict = Body(...),
+                      p: ConsolePrincipal = Depends(require_console_access),
+                      s: AsyncSession = Depends(get_session)):
+    """Store or clear this workspace's Slack bot token.
+
+    Not publish-aware, for the same reason Google sign-in is not: this is plumbing an admin
+    tests immediately, not content they stage for their members.
+    """
+    body = _body(body)
+    _unknown(body, {"bot_token", "clear"})
+    row = await _slack_row(s, p.user.tenant_id)
+
+    if body.get("clear"):
+        row.credential_ref = None
+        row.status = "Not Connected"
+        row.last_error = None
+    elif "bot_token" in body:
+        raw = (_text(body, "bot_token", nullable=True, max_len=500) or "").strip()
+        if raw:
+            # xoxb- is the bot token; a user token (xoxp-) or a signing secret pasted here fails
+            # later as a permissions error that reads like a channel problem.
+            if not raw.startswith("xoxb-"):
+                _unprocessable("bot_token", "A Slack bot token starts with xoxb-.")
+            row.credential_ref = enc(raw)
+            # "Action Needed" and not "Connected": a stored token is a stored token, and only a
+            # delivery proves it works. Sending a test is what moves this on.
+            row.status = "Action Needed"
+            row.last_error = None
+
+    await _record_mutation(
+        s, p, action="config.slack.updated", category="Integrations",
+        summary=("Slack token removed" if not row.credential_ref else "Slack token saved"),
+        target_type="integration", target_id=row.id, pending=False)
+    await s.commit()
+    return {"item": _slack_out(row)}
+
+
+@router.post("/marketing/test")
+async def send_marketing_test(p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    """Deliver a real test message to the configured destination.
+
+    A REAL DELIVERY, down the same code path a request takes, rather than a shape check on the
+    saved values. Validating the form again would confirm only what saving it already confirmed;
+    every failure worth catching here -- a channel the bot was never invited to, a revoked token,
+    a webhook host that no longer resolves, a typo'd address -- is invisible until something is
+    actually sent. That is why last_test_ok exists and why nothing else may write it.
+    """
+    row = await _marketing_row(s, p.user.tenant_id)
+    if not _marketing_ready(row):
+        _unprocessable("destination",
+                       "Set a destination type and destination, and switch requests on, first.")
+
+    # A stand-in request, never saved. It carries the sender's name so whoever is looking at the
+    # channel knows who to ask, and says plainly that it is a test -- a message that reads like a
+    # real request is one somebody in marketing will start working on.
+    probe = IntranetMarketingRequest(
+        id=uuid.uuid4(), tenant_id=p.user.tenant_id,
+        requester_label=(p.user.name or p.user.email or "the console"),
+        title="Test message from the Acumyn console",
+        description=("This is a connection test, not a real request -- nothing needs doing. "
+                     "If you can read this, marketing requests will arrive here."),
+        priority="Normal", status="New", created_at=_now())
+
+    host = await primary_host(s, p.user.tenant_id)
+    link = f"https://{host}/console/marketing" if host else None
+    outcome = await marketing_delivery.send_one(s, probe, row, link)
+    ok, detail = outcome.delivered, outcome.detail
+
+    row.last_tested_at = _now()
+    row.last_test_ok = bool(ok)
+    row.last_test_detail = detail[:1000]
+    if row.destination_type == "slack":
+        # The same delivery that proves the destination proves the token, so the integration row
+        # stops guessing and says what the last attempt actually did.
+        slack = await _slack_row(s, p.user.tenant_id)
+        slack.status = "Connected" if ok else "Action Needed"
+        slack.last_error = None if ok else detail[:1000]
+
+    await _record_mutation(
+        s, p, action="config.marketing.tested", category="Marketing",
+        summary=("Marketing delivery test succeeded" if ok else "Marketing delivery test failed"),
+        target_type="marketing_setting", target_id=p.user.tenant_id, pending=False)
+    await s.commit()
+    roles = await _roles_by_id(s, p.user.tenant_id)
+    return {"ok": bool(ok), "detail": detail, "item": _marketing(row, roles)}
 
 
 @router.post("/workspace/logo")

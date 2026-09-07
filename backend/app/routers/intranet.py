@@ -149,9 +149,12 @@ def _marketing_out(row: IntranetMarketingSetting | None, role_name: str | None,
         "available": complete,
         "required_fields": list(row.required_fields or []),
         "assigned_role": role_name,
-        # True until the Phase 10 delivery path exists. The intranet says so rather than
-        # presenting a form that looks like it sends somewhere.
-        "delivery_pending": True,
+        # Was hardcoded True while nothing delivered. Now it means what it says: a configured
+        # destination is delivered to, and the only pending case left is a form that is open with
+        # nowhere to send -- which `available` already refuses, so this is False whenever the form
+        # is actually shown. Kept in the payload because the intranet reads it, and because a
+        # future destination type that cannot deliver would need it again.
+        "delivery_pending": not complete,
     }
 
 
@@ -789,6 +792,11 @@ async def submit_request(
         requester_member_id=member.id,
         requester_label=member.full_name or member.email or "Unknown",
         title=title, priority=priority, assignee_member_id=None,
+        # QUEUED, not sent. Delivery runs on the worker tick rather than here, so a destination
+        # that hangs cannot hold this response open -- see services/marketing_delivery.py. Setting
+        # it to now rather than leaving it null is what makes "queued" distinguishable from
+        # "given up", without a status column that could contradict the timestamps.
+        delivery_next_attempt_at=dt.datetime.now(dt.timezone.utc),
         **values,
     )
     s.add(row)

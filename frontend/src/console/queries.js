@@ -5,16 +5,20 @@ import {
   createCalendarCategory,
   createCourse,
   createLesson,
+  createPage,
+  createPageSection,
   createSop,
   createSopCategory,
   createTile,
   deleteCalendarCategory,
   deleteCourse,
   deleteLesson,
+  deleteMember,
+  deletePage,
+  deletePageSection,
   deleteSop,
   deleteSopCategory,
   deleteTile,
-  deleteMember,
   discardChanges,
   downloadSopVersion,
   getAi,
@@ -23,31 +27,26 @@ import {
   getContentGaps,
   getCourse,
   getCourses,
+  getGoogleSignin,
+  getIntegrations,
+  getMarketing,
+  getMarketingRequests,
   getMembers,
   getOverview,
+  getPage,
+  getPages,
   getPendingChanges,
   getPermissions,
   getPreview,
-  getMarketing,
-  getMarketingRequests,
   getRoles,
   getSetupTasks,
+  getSlack,
   getSop,
   getSopCategories,
   getSops,
   getSopVersions,
   getTiles,
   getWorkspace,
-  getGoogleSignin,
-  createPage,
-  createPageSection,
-  deletePage,
-  deletePageSection,
-  getPage,
-  getPages,
-  patchPage,
-  patchPageSection,
-  getIntegrations,
   getWtdLists,
   inviteMember,
   login,
@@ -55,17 +54,20 @@ import {
   patchAiSource,
   patchCalendarCategory,
   patchContentGap,
+  patchCourse,
   patchGoogleSignin,
   patchIntegration,
+  patchLesson,
   patchMarketing,
   patchMarketingRequest,
   patchMember,
+  patchPage,
+  patchPageSection,
   patchSetupTask,
+  patchSlack,
   patchSop,
   patchSopCategory,
   patchTile,
-  patchCourse,
-  patchLesson,
   patchWorkspace,
   patchWtdList,
   publishChanges,
@@ -77,6 +79,7 @@ import {
   putWtdOrder,
   syncMembers,
   testIntegration,
+  testMarketing,
   uploadSopVersion,
   uploadWorkspaceLogo,
 } from "./api.js";
@@ -92,6 +95,7 @@ export const keys = {
   pages: ["console", "pages"],
   googleSignin: ["console", "google-signin"],
   marketing: ["console", "marketing"],
+  slack: ["console", "slack"],
   marketingRequests: ["console", "marketing-requests"],
   ai: ["console", "ai"],
   contentGaps: ["console", "content-gaps"],
@@ -257,6 +261,36 @@ export function usePatchMarketing() {
       invalidateOverview(queryClient);
       queryClient.invalidateQueries({ queryKey: keys.marketing });
       queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
+    },
+  });
+}
+
+export function useTestMarketing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: testMarketing,
+    // A test writes last_test_ok on the setting AND the Slack integration's status, so both
+    // refetch. Without the second one the Integrations screen keeps saying "Action Needed" about
+    // a connection this very click just proved works.
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.marketing });
+      queryClient.invalidateQueries({ queryKey: keys.slack });
+      queryClient.invalidateQueries({ queryKey: keys.integrations });
+    },
+  });
+}
+
+export function useSlack(enabled) {
+  return useQuery({ queryKey: keys.slack, queryFn: getSlack, enabled });
+}
+
+export function usePatchSlack() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: patchSlack,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.slack });
+      queryClient.invalidateQueries({ queryKey: keys.integrations });
     },
   });
 }
