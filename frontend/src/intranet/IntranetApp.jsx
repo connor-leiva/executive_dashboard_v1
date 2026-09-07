@@ -3,6 +3,7 @@ import { Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-
 
 import { API_BASE, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
 import { applyPortalPalette } from "./palette.js";
+import { search as search_ } from "./search.js";
 import {
   NAV_GROUPS,
   ONBOARDING,
@@ -328,6 +329,10 @@ function Shell({ me, config, children }) {
   // real value, so every user opened the intranet with somebody else's search already typed in --
   // and pressing enter would have run it. The mockup's text belongs in the placeholder.
   const [search, setSearch] = useState("");
+  // Searched in the browser, over the payload the server already filtered -- see search.js for
+  // why that is the design and not a shortcut. useMemo because this runs on every keystroke.
+  const results = useMemo(() => search_(config?.content, search), [config, search]);
+  const searching = search.trim().length >= 2;
   const location = useLocation();
   const active = activeIdForPath(location.pathname);
   const current = ALL_NAV.find((item) => item.id === active) || ALL_NAV[0];
@@ -401,7 +406,28 @@ function Shell({ me, config, children }) {
           <label className="ut-search">
             <span aria-hidden />
             <input value={search} onChange={(e) => setSearch(e.target.value)}
+                   onKeyDown={(e) => { if (e.key === "Escape") setSearch(""); }}
                    placeholder="Search training, SOPs, people, tools…" aria-label="Search" />
+            {results.length ? (
+              <div className="ut-search-results" role="listbox">
+                {results.map((group) => (
+                  <div className="ut-search-group" key={group.type}>
+                    <p>{group.type}</p>
+                    {group.items.map((item) => (
+                      <NavLink key={`${item.type}:${item.title}:${item.to}`} to={item.to}
+                               onClick={() => setSearch("")}>
+                        <strong>{item.title}</strong>
+                        {item.detail ? <em>{item.detail}</em> : null}
+                      </NavLink>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : searching ? (
+              <div className="ut-search-results">
+                <p className="ut-search-none">Nothing matches “{search.trim()}”.</p>
+              </div>
+            ) : null}
           </label>
           <NavLink className="ut-ask-top" to="/ask" title={askLabel}>
             <span aria-hidden />
