@@ -327,6 +327,9 @@ class IntranetLesson(Base):
     source_type: Mapped[str] = mapped_column(Text)
     source_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What this lesson is for, and when to watch it. The portal renders a checklist without it --
+    # a row of titles tells somebody what exists, not why they should open it.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     sort: Mapped[int] = mapped_column(SmallInteger)
@@ -414,6 +417,50 @@ class IntranetPageRole(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class IntranetLessonAttachment(Base):
+    """A handout that belongs to a lesson: a one-pager, a packet, a template.
+
+    ONE TABLE FOR FILES AND LINKS, with `kind` deciding which. A team's handouts are split between
+    things they upload here and things that already live in a drive they keep, and to the person
+    reading the lesson both are simply the attachments -- so splitting them into two tables would
+    mean the portal merging two lists and keeping two sort orders agreeing, to preserve a
+    distinction nobody reading cares about.
+
+    `note` is the small grey text beside the name -- "2 pages", "Utah Life Drive". Free text on
+    purpose: it is a hint to a human, and deriving it would mean counting PDF pages on upload to
+    produce something a person can write better themselves.
+
+    Publishable, and that is load-bearing rather than symmetry: the three columns are what
+    `_publishable_models()` matches on, so a handout added to a draft lesson stays out of the live
+    portal until somebody publishes. Without them it would go live the moment it was saved.
+    """
+
+    __tablename__ = "intranet_lesson_attachment"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    # CASCADE, unlike the member FKs elsewhere: a handout has no meaning without its lesson.
+    lesson_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_lesson.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text, default="file", server_default="file")
+    storage_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filename: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Sniffed by the server, never the client's declared type -- see IntranetMarketingAttachment.
+    content_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    byte_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        CheckConstraint("kind IN ('file','link')", name="ck_lesson_attachment_kind"),
+        Index("ix_intranet_lesson_attachment_lesson", "lesson_id", "sort"),
+    )
 
 
 class IntranetSopCategory(Base):

@@ -2006,3 +2006,252 @@ input {
   font-size: 10px;
   color: var(--muted);
 }
+
+/* ── the lesson player ────────────────────────────────────────────────────────────────────
+   Player and copy on the left, the rest of the course down the right, which is the shape every
+   course tool uses because it answers the two questions somebody has at once: what am I watching,
+   and how much is left. Collapses to one column below 1000px -- a 16:9 player beside a lesson
+   list does not fit a laptop half-screen, let alone a phone. */
+.ut-lesson-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .ut-lesson-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.ut-lesson-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;                /* without this a wide iframe forces the whole grid to overflow */
+}
+
+.ut-crumb {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.ut-crumb a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.ut-crumb a:hover { color: var(--ink); }
+
+/* 16:9 held by aspect-ratio rather than a padding hack, so the box is the right height before
+   anything loads and the page does not jump when the player arrives. */
+.ut-player {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.ut-player video,
+.ut-player iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.ut-player-link {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+  color: #e9edee;
+}
+
+.ut-player-link p {
+  margin: 0;
+  max-width: 46ch;
+  color: #c3cbcd;
+}
+
+.ut-lesson-body h2 {
+  margin: 6px 0 10px;
+  font-size: 26px;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.ut-lesson-body p {
+  margin: 0;
+  color: var(--body);
+  line-height: 1.6;
+  max-width: 66ch;
+  white-space: pre-wrap;       /* an author's paragraph breaks are theirs to keep */
+}
+
+.ut-lesson-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ── attachments ─────────────────────────────────────────────────────────────────────────
+   A file is a <button> (it fetches with the session's credentials) and a link is an <a>, so both
+   selectors carry the full appearance rather than inheriting a browser default for one of them. */
+.ut-attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ut-attach {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 4px;
+  border: 0;
+  border-top: 1px solid var(--soft-line);
+  background: none;
+  font: inherit;
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ut-attach:first-child { border-top: 0; }
+.ut-attach:hover strong { text-decoration: underline; }
+.ut-attach:disabled { cursor: default; opacity: 0.6; }
+.ut-attach strong { font-weight: 500; min-width: 0; }
+.ut-attach em { font-style: normal; color: var(--faint); font-size: 12px; white-space: nowrap; }
+
+.ut-attach-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--wash);
+  border: 1px solid var(--line);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ── the course rail beside the player, and the lesson list on the course page ────────────── */
+.ut-lesson-side {
+  display: flex;
+  flex-direction: column;
+  margin-top: 14px;
+}
+
+.ut-side-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.ut-side-row:hover { background: var(--wash); }
+.ut-side-row.here { background: var(--wash); font-weight: 600; }
+.ut-side-row.locked { color: var(--faint); }
+.ut-side-row em { font-style: normal; color: var(--faint); font-size: 12px; }
+
+/* The completion tick. A control on the course page and a status dot in the rail, which is why
+   the button reset lives here rather than on a shared button class. */
+.ut-tick {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: var(--panel);
+  color: transparent;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.ut-tick.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.ut-tick:disabled { cursor: default; opacity: 0.5; }
+span.ut-tick { cursor: default; }
+
+.ut-lesson-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.ut-lesson-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-top: 1px solid var(--soft-line);
+}
+
+.ut-lesson-row:first-child { border-top: 0; }
+.ut-lesson-row.locked { color: var(--faint); }
+
+.ut-lesson-link {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.ut-lesson-link:hover strong { text-decoration: underline; }
+.ut-lesson-link.locked { color: var(--faint); }
+.ut-lesson-link strong { font-weight: 500; }
+
+/* One line only. A description is a paragraph and this row is a row; letting it run turns an
+   eight-lesson list into a page of prose. */
+.ut-lesson-link em {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ut-lesson-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ut-req {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--wash);
+  border: 1px solid var(--line);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}

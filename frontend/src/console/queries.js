@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  addLessonAttachment,
   connectIntegration,
   createCalendarCategory,
   createCourse,
@@ -13,6 +14,7 @@ import {
   deleteCalendarCategory,
   deleteCourse,
   deleteLesson,
+  deleteLessonAttachment,
   deleteMember,
   deletePage,
   deletePageSection,
@@ -742,6 +744,32 @@ export function usePatchLesson() {
   return useMutation({
     mutationFn: ({ courseId, lessonId, body }) => patchLesson(courseId, lessonId, body),
     onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function useAddLessonAttachment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, lessonId, fields }) =>
+      addLessonAttachment(courseId, lessonId, fields),
+    // The course detail is what carries lessons and their handouts, so that is what has to
+    // refetch -- invalidating the course LIST would leave the editor showing the old list.
+    onSuccess: (_data, { courseId }) => {
+      queryClient.invalidateQueries({ queryKey: keys.course(courseId) });
+      invalidateOverview(queryClient);
+    },
+  });
+}
+
+export function useDeleteLessonAttachment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, lessonId, attachmentId }) =>
+      deleteLessonAttachment(courseId, lessonId, attachmentId),
+    onSuccess: (_data, { courseId }) => {
+      queryClient.invalidateQueries({ queryKey: keys.course(courseId) });
+      invalidateOverview(queryClient);
+    },
   });
 }
 

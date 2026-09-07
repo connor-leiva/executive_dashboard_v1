@@ -997,24 +997,38 @@ function CourseDetail({ state, setState, config }) {
       </section>
       <Panel title="Lessons"
              kicker={course.sequential ? "In order — finish one to open the next" : null}>
-        <div className="ut-check-list">
+        {/* A lesson OPENS, it is not a checkbox with a link in it. The old row sent people to
+            loom.com in a new tab, which left the portal behind along with the description, the
+            handouts and the rest of the course. The tick is still here for marking something
+            done without watching it again, but the row itself goes to the player. */}
+        <div className="ut-lesson-rows">
           {lessons.map((lesson, i) => {
             // Everything up to the first unfinished lesson is open; beyond it is not yet.
             const locked = course.sequential && firstUndone !== -1 && i > firstUndone;
+            const done = Boolean(state.done?.[lesson.id]);
             return (
-              <label key={lesson.id} className={`ut-check${locked ? " locked" : ""}`}>
-                <input type="checkbox" checked={Boolean(state.done?.[lesson.id])}
-                       disabled={locked} onChange={() => toggle(lesson.id)} />
-                <span>
-                  {lesson.source_ref && !locked
-                    ? <a href={lesson.source_ref} target="_blank" rel="noreferrer noopener"
-                         onClick={(e) => e.stopPropagation()}>{lesson.title}</a>
-                    : lesson.title}
-                  {lesson.duration_minutes ? <em> · {lesson.duration_minutes} min</em> : null}
-                  {lesson.required ? <em> · required</em> : null}
-                  {locked ? <em> · locked</em> : null}
+              <div key={lesson.id} className={`ut-lesson-row${locked ? " locked" : ""}`}>
+                <button type="button" className={`ut-tick${done ? " on" : ""}`}
+                        aria-label={done ? "Mark not complete" : "Mark complete"}
+                        disabled={locked} onClick={() => toggle(lesson.id)}>
+                  {done ? "✓" : ""}
+                </button>
+                {locked ? (
+                  <span className="ut-lesson-link locked">
+                    <strong>{lesson.title}</strong>
+                    <em>Finish the lesson before this one first</em>
+                  </span>
+                ) : (
+                  <NavLink className="ut-lesson-link" to={`/training/${course.id}/${lesson.id}`}>
+                    <strong>{lesson.title}</strong>
+                    {lesson.description ? <em>{lesson.description}</em> : null}
+                  </NavLink>
+                )}
+                <span className="ut-lesson-meta">
+                  {lesson.required ? <span className="ut-req">Required</span> : null}
+                  {lesson.duration_minutes ? `${lesson.duration_minutes} min` : ""}
                 </span>
-              </label>
+              </div>
             );
           })}
         </div>
@@ -1029,6 +1043,213 @@ function CourseDetail({ state, setState, config }) {
       ) : null}
       <p className="ut-empty"><NavLink to="/training">Back to the library</NavLink></p>
     </Page>
+  );
+}
+
+/* One lesson, playing.
+ *
+ * This is the screen the training library existed for and did not have. The course page was a
+ * checklist whose titles opened loom.com in a new tab -- which left the portal, and with it the
+ * lesson's own copy, its handouts, and any sense of where you were in the course.
+ *
+ * WHAT PLAYS IN THE PAGE IS THE SERVER'S ANSWER, not a guess made here. `lesson.player` arrives
+ * as {mode, url, reason}: Loom, YouTube, Vimeo and PDFs frame, a video file plays natively, and
+ * Skool, PLACE and eXp are logged-in products that refuse to be framed at all. Rendering an
+ * iframe at one of those produces a blank rectangle or a browser refusal -- a player that looks
+ * broken, which is worse than the link it replaced. So those get a launch card that says where
+ * the lesson lives. See services/lesson_media.
+ */
+function LessonPlayer({ state, setState, config }) {
+  const { courseId, lessonId } = useParams();
+  const courses = (config?.content?.courses) || [];
+  const course = courses.find((c) => c.id === courseId);
+  const lessons = course?.lessons || [];
+  const index = lessons.findIndex((l) => l.id === lessonId);
+  const lesson = index >= 0 ? lessons[index] : null;
+
+  const doneMap = state.done || {};
+  const done = lessons.filter((l) => doneMap[l.id]).length;
+  const firstUndone = lessons.findIndex((l) => !doneMap[l.id]);
+  const locked = Boolean(course?.sequential) && firstUndone !== -1 && index > firstUndone;
+
+  if (!course || !lesson) {
+    return (
+      <Page title="Training" subtitle="Courses this workspace has published.">
+        <Panel title="Lesson not found">
+          <p className="ut-empty">
+            That lesson is not in your library. It may have been unpublished, or it may not be
+            available to your role. <NavLink to="/training">Back to the library</NavLink>
+          </p>
+        </Panel>
+      </Page>
+    );
+  }
+
+  if (locked) {
+    return (
+      <Page title={lesson.title} subtitle={course.title}>
+        <Panel title="Not yet">
+          <p className="ut-empty">
+            This course runs in order. Finish the lessons before this one first.{" "}
+            <NavLink to={`/training/${course.id}`}>Back to {course.title}</NavLink>
+          </p>
+        </Panel>
+      </Page>
+    );
+  }
+
+  const mark = (value) => setState((s) => ({
+    ...s, done: { ...(s.done || {}), [lesson.id]: value },
+  }));
+  const next = lessons[index + 1];
+  const player = lesson.player || { mode: "none" };
+
+  return (
+    <Page title={lesson.title}
+          subtitle={`${course.title} · Lesson ${index + 1} of ${lessons.length}`}>
+      <p className="ut-crumb"><NavLink to={`/training/${course.id}`}>← {course.title}</NavLink></p>
+
+      <div className="ut-lesson-grid">
+        <div className="ut-lesson-main">
+          <div className="ut-player">
+            {player.mode === "video" ? (
+              <video controls preload="metadata" src={player.url} />
+            ) : player.mode === "iframe" ? (
+              <iframe title={lesson.title} src={player.url} allowFullScreen
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture" />
+            ) : (
+              /* Said plainly rather than framed and hoped for. */
+              <div className="ut-player-link">
+                <p>{player.reason || "This lesson opens elsewhere."}</p>
+                {player.url ? (
+                  <a className="ut-button" href={player.url}
+                     target="_blank" rel="noreferrer noopener">
+                    {/* The server's display name, not the stored enum -- this read "Open SKOOL"
+                        until the payload carried one. */}
+                    Open {lesson.source_label || player.label || "the lesson"} ↗
+                  </a>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <div className="ut-lesson-body">
+            <span className="ut-kicker">
+              {course.category || "Course"} · Lesson {index + 1} of {lessons.length}
+            </span>
+            <h2>{lesson.title}</h2>
+            {lesson.description
+              ? <p>{lesson.description}</p>
+              : <p className="ut-note">No description has been written for this lesson yet.</p>}
+          </div>
+
+          {lesson.attachments?.length > 0 && (
+            <Panel title="Attachments">
+              <div className="ut-attach-list">
+                {lesson.attachments.map((a) => (
+                  <LessonAttachment key={a.id} attachment={a} />
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          <div className="ut-lesson-actions">
+            <button type="button" className="ut-button primary"
+                    onClick={() => { mark(!doneMap[lesson.id]); }}>
+              {doneMap[lesson.id] ? "Mark not complete" : "Mark lesson complete"}
+            </button>
+            {next ? (
+              <NavLink className="ut-button outline-dark"
+                       to={`/training/${course.id}/${next.id}`}
+                       onClick={() => mark(true)}>
+                {/* Moving on IS finishing this one -- asking for two clicks to express one
+                    intention is how progress bars end up wrong. */}
+                Next lesson →
+              </NavLink>
+            ) : (
+              <NavLink className="ut-button outline-dark" to={`/training/${course.id}`}>
+                Back to the course
+              </NavLink>
+            )}
+          </div>
+        </div>
+
+        <Panel title={course.title} kicker={`${done} of ${lessons.length} lessons complete`}>
+          <Meter value={done} total={lessons.length} />
+          <div className="ut-lesson-side">
+            {lessons.map((l, i) => {
+              const isLocked = Boolean(course.sequential) && firstUndone !== -1 && i > firstUndone;
+              const isDone = Boolean(doneMap[l.id]);
+              const here = l.id === lesson.id;
+              if (isLocked) {
+                return (
+                  <span key={l.id} className="ut-side-row locked">
+                    <span className={`ut-tick${isDone ? " on" : ""}`}>{isDone ? "✓" : ""}</span>
+                    <span>{l.title}</span>
+                    <em>{l.duration_minutes ? `${l.duration_minutes} min` : ""}</em>
+                  </span>
+                );
+              }
+              return (
+                <NavLink key={l.id} className={`ut-side-row${here ? " here" : ""}`}
+                         to={`/training/${course.id}/${l.id}`}>
+                  <span className={`ut-tick${isDone ? " on" : ""}`}>{isDone ? "✓" : ""}</span>
+                  <span>{l.title}</span>
+                  <em>{l.duration_minutes ? `${l.duration_minutes} min` : ""}</em>
+                </NavLink>
+              );
+            })}
+          </div>
+        </Panel>
+      </div>
+    </Page>
+  );
+}
+
+/* A handout. A link is the author's URL; a file is fetched through our own authenticated route,
+   because a bare href sends no Authorization header and 401s. */
+function LessonAttachment({ attachment }) {
+  const [busy, setBusy] = useState(false);
+  const note = attachment.note
+    || (attachment.byte_size ? `${Math.max(1, Math.round(attachment.byte_size / 1024))} KB` : "");
+  const badge = attachment.kind === "link"
+    ? "Link"
+    : (attachment.content_type || "").includes("pdf") ? "PDF" : "File";
+
+  if (attachment.kind === "link") {
+    return (
+      <a className="ut-attach" href={attachment.url} target="_blank" rel="noreferrer noopener">
+        <span className="ut-attach-badge">{badge}</span>
+        <strong>{attachment.title}</strong>
+        <em>{note}</em>
+      </a>
+    );
+  }
+
+  async function download() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const blob = await getBlob(attachment.url);
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = attachment.title;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button type="button" className="ut-attach" onClick={download} disabled={busy}>
+      <span className="ut-attach-badge">{badge}</span>
+      <strong>{attachment.title}</strong>
+      <em>{busy ? "Downloading…" : note}</em>
+    </button>
   );
 }
 
@@ -1696,6 +1917,7 @@ export default function IntranetApp() {
         <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} />} />
         <Route path="/training" element={<Training state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/training/:courseId" element={<CourseDetail state={training} setState={setTraining} config={boot.config} />} />
+        <Route path="/training/:courseId/:lessonId" element={<LessonPlayer state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/p/:pageKey" element={<AuthoredPage config={boot.config} />} />
         <Route path="/onboarding" element={<Onboarding state={onboarding} setState={setOnboarding} />} />
         <Route path="/sops" element={<Sops config={boot.config} />} />

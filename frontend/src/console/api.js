@@ -172,6 +172,10 @@ export const putCourseRoles = (courseId, body) => consoleSend("PUT", `/courses/$
 export const putLessonOrder = (courseId, body) => consoleSend("PUT", `/courses/${courseId}/lessons/order`, body);
 export const createLesson = (courseId, body) => consoleSend("POST", `/courses/${courseId}/lessons`, body);
 export const patchLesson = (courseId, lessonId, body) => consoleSend("PATCH", `/courses/${courseId}/lessons/${lessonId}`, body);
+export const addLessonAttachment = (courseId, lessonId, fields) =>
+  consoleUpload(`/courses/${courseId}/lessons/${lessonId}/attachments`, fields);
+export const deleteLessonAttachment = (courseId, lessonId, attachmentId) =>
+  consoleSend("DELETE", `/courses/${courseId}/lessons/${lessonId}/attachments/${attachmentId}`);
 export const deleteLesson = (courseId, lessonId) => consoleSend("DELETE", `/courses/${courseId}/lessons/${lessonId}`);
 export const getSopCategories = () => consoleGet("/sop-categories");
 export const createSopCategory = (body) => consoleSend("POST", "/sop-categories", body);

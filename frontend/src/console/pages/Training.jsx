@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import {
   COPY,
@@ -7,11 +7,13 @@ import {
   LESSON_SOURCE_OPTIONS,
 } from "../constants.js";
 import {
+  useAddLessonAttachment,
   useArchiveCourse,
   useCourse,
   useCourses,
   useCreateCourse,
   useCreateLesson,
+  useDeleteLessonAttachment,
   useOrderLessons,
   usePatchCourse,
   usePatchLesson,
@@ -73,6 +75,10 @@ function lessonPayload(form) {
     source_type: form.source_type,
     source_ref: form.source_ref.trim() || null,
     source_label: form.source_label.trim() || null,
+    // `?? ""` because NewLessonForm's draft has no description field -- a new lesson is created
+    // with its source and named, then described in the row that appears. Reading `.trim()` off
+    // undefined there would throw on every "Add Lesson".
+    description: (form.description ?? "").trim() || null,
     duration_minutes: form.duration_minutes === "" ? null : Number(form.duration_minutes),
     required: Boolean(form.required),
   };
@@ -144,6 +150,7 @@ function LessonRow({ lesson, index, total, busy, onSave, onRemove, onMove }) {
     source_type: lesson.source_type || "PLACE",
     source_ref: lesson.source_ref || "",
     source_label: lesson.source_label || "",
+    description: lesson.description || "",
     duration_minutes: lesson.duration_minutes === null || lesson.duration_minutes === undefined ? "" : String(lesson.duration_minutes),
     required: Boolean(lesson.required),
   });
@@ -154,6 +161,7 @@ function LessonRow({ lesson, index, total, busy, onSave, onRemove, onMove }) {
       source_type: lesson.source_type || "PLACE",
       source_ref: lesson.source_ref || "",
       source_label: lesson.source_label || "",
+      description: lesson.description || "",
       duration_minutes: lesson.duration_minutes === null || lesson.duration_minutes === undefined ? "" : String(lesson.duration_minutes),
       required: Boolean(lesson.required),
     });
@@ -211,11 +219,107 @@ function LessonRow({ lesson, index, total, busy, onSave, onRemove, onMove }) {
         <span>{COPY.trainingRequiredLesson}</span>
       </label>
       <LessonSourceBadge type={draft.source_type} />
+      <Field label="Description">
+        {/* The paragraph under the video in the portal. Without it the player shows a title and
+            nothing else, which is what the old checklist amounted to. */}
+        <textarea
+          rows="3"
+          value={draft.description}
+          placeholder="What this lesson is for, and when to watch it."
+          onChange={(event) => update("description", event.target.value)}
+        />
+      </Field>
+      {/* The server already worked out whether this source can play in the page. Saying so HERE
+          is the point: an admin who pastes a Skool link finds out now, rather than an agent
+          finding a launch card where a video should be. */}
+      {lesson.player?.mode === "link" && lesson.source_ref ? (
+        <p className="hint">Opens in a new tab rather than playing here. {lesson.player.reason}</p>
+      ) : null}
       <div className="lesson-actions">
         <Button type="submit" tone="primary" busy={busy}>{COPY.trainingSaveLesson}</Button>
         <Button type="button" disabled={busy} onClick={() => onRemove(lesson.id)}>{COPY.trainingRemoveLesson}</Button>
       </div>
     </form>
+  );
+}
+
+/* Handouts for one lesson: the one-pagers, packets and templates that hang off it.
+ *
+ * Outside LessonRow's <form> deliberately. Nesting an upload inside the lesson form would make
+ * one submit do two unrelated things, and an upload failure would discard a text edit the admin
+ * had already made. */
+function LessonAttachments({ courseId, lesson }) {
+  const add = useAddLessonAttachment();
+  const remove = useDeleteLessonAttachment();
+  const [kind, setKind] = useState("file");
+  const [title, setTitle] = useState("");
+  const [note, setNote] = useState("");
+  const [url, setUrl] = useState("");
+  const [file, setFile] = useState(null);
+  const [error, setError] = useState("");
+  const attachments = lesson.attachments || [];
+  const busy = add.isPending || remove.isPending;
+
+  async function submit(event) {
+    event.preventDefault();
+    // Captured BEFORE the await: React clears a synthetic event's currentTarget once the handler
+    // yields, so resetting it afterwards throws on a form that submitted perfectly well.
+    const node = event.currentTarget;
+    setError("");
+    try {
+      await add.mutateAsync({
+        courseId,
+        lessonId: lesson.id,
+        fields: kind === "link"
+          ? { title: title.trim(), kind, note: note.trim(), url: url.trim() }
+          : { title: title.trim(), kind, note: note.trim(), file },
+      });
+      setTitle(""); setNote(""); setUrl(""); setFile(null);
+      node.reset();
+    } catch (err) {
+      setError(err?.detail || err?.message || "Could not add that.");
+    }
+  }
+
+  return (
+    <div className="lesson-attachments">
+      <span className="lesson-attachments-title">Attachments</span>
+      {attachments.length ? (
+        <ul>
+          {attachments.map((a) => (
+            <li key={a.id}>
+              <span className="attachment-kind">{a.kind === "link" ? "Link" : "File"}</span>
+              <strong>{a.title}</strong>
+              {a.note ? <em>{a.note}</em> : null}
+              <button type="button" disabled={busy}
+                      onClick={() => remove.mutate({ courseId, lessonId: lesson.id, attachmentId: a.id })}>
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="hint">No attachments on this lesson.</p>}
+
+      <form className="lesson-attachment-add" onSubmit={submit}>
+        <select value={kind} onChange={(event) => setKind(event.target.value)}>
+          <option value="file">Upload a file</option>
+          <option value="link">Link somewhere else</option>
+        </select>
+        <input value={title} required placeholder="Name"
+               onChange={(event) => setTitle(event.target.value)} />
+        <input value={note} placeholder="Note — 2 pages, Team Drive…"
+               onChange={(event) => setNote(event.target.value)} />
+        {kind === "link" ? (
+          <input value={url} required placeholder="https://…"
+                 onChange={(event) => setUrl(event.target.value)} />
+        ) : (
+          <input type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp"
+                 onChange={(event) => setFile(event.target.files?.[0] || null)} />
+        )}
+        <Button type="submit" busy={add.isPending}>Add</Button>
+      </form>
+      {error ? <p className="error">{error}</p> : null}
+    </div>
   );
 }
 
@@ -375,16 +479,18 @@ function CourseDetail({
           </header>
           <div className="lesson-list">
             {lessons.map((lesson, index) => (
-              <LessonRow
-                key={lesson.id}
-                lesson={lesson}
-                index={index}
-                total={lessons.length}
-                busy={busy}
-                onSave={onSaveLesson}
-                onRemove={onRemoveLesson}
-                onMove={onMoveLesson}
-              />
+              <Fragment key={lesson.id}>
+                <LessonRow
+                  lesson={lesson}
+                  index={index}
+                  total={lessons.length}
+                  busy={busy}
+                  onSave={onSaveLesson}
+                  onRemove={onRemoveLesson}
+                  onMove={onMoveLesson}
+                />
+                <LessonAttachments courseId={course.id} lesson={lesson} />
+              </Fragment>
             ))}
             <NewLessonForm busy={busy} onCreate={onCreateLesson} />
           </div>

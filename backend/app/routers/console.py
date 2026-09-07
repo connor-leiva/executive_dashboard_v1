@@ -32,6 +32,7 @@ from ..models import (
     IntranetLaunchpadTile,
     IntranetLaunchpadTileRole,
     IntranetLesson,
+    IntranetLessonAttachment,
     IntranetMember,
     IntranetPendingChange,
     IntranetPage,
@@ -54,7 +55,8 @@ from ..config import settings
 from ..security import enc
 from .. import plans
 from ..security import new_action_token
-from ..services import (binder_storage, google_auth, mail_templates, mailer,
+from ..services import (binder_storage, google_auth, lesson_media, mail_templates,
+                        mailer, uploads,
                         marketing_delivery)
 from ..services.users import INVITE_DAYS, link_base, primary_host
 from ..services.inheritance import dashboard_connections, is_inherited
@@ -596,12 +598,26 @@ def _course(row: IntranetCourse, roles: dict[uuid.UUID, list[str]] | None = None
     }
 
 
-def _lesson(row: IntranetLesson) -> dict:
+def _lesson_attachment(row: IntranetLessonAttachment) -> dict:
+    return {
+        "id": _id(row.id), "title": row.title, "kind": row.kind, "note": row.note,
+        "url": row.url, "filename": row.filename, "content_type": row.content_type,
+        "byte_size": row.byte_size, "sort": row.sort,
+        "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
+    }
+
+
+def _lesson(row: IntranetLesson, attachments: list | None = None) -> dict:
     return {
         "id": _id(row.id), "course_id": _id(row.course_id), "title": row.title,
         "source_type": row.source_type, "source_ref": row.source_ref,
-        "source_label": row.source_label, "duration_minutes": row.duration_minutes,
+        "source_label": row.source_label, "description": row.description,
+        "duration_minutes": row.duration_minutes,
         "required": bool(row.required), "sort": row.sort,
+        # Resolved with the SAME function the portal payload uses, so the console can warn about
+        # a source that will not play BEFORE a member finds out by opening it.
+        "player": lesson_media.resolve(row.source_type, row.source_ref),
+        "attachments": [_lesson_attachment(a) for a in (attachments or [])],
         "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
     }
 
@@ -2365,9 +2381,19 @@ async def get_course(course_id: uuid.UUID, p: ConsolePrincipal = Depends(require
         IntranetLesson.tenant_id == p.user.tenant_id,
         IntranetLesson.course_id == row.id,
     ).order_by(IntranetLesson.sort, IntranetLesson.title))).scalars().all()
+    # Handouts for the whole course in one query rather than per lesson. This is the read the
+    # lesson editor loads, so without it every lesson shows "No attachments" whatever it has.
+    handouts: dict = {}
+    if lessons:
+        for att in (await s.execute(
+            select(IntranetLessonAttachment)
+            .where(IntranetLessonAttachment.tenant_id == p.user.tenant_id,
+                   IntranetLessonAttachment.lesson_id.in_([l.id for l in lessons]))
+            .order_by(IntranetLessonAttachment.sort))).scalars().all():
+            handouts.setdefault(att.lesson_id, []).append(att)
     return _course(row, roles, {row.id: {"lesson_count": len(lessons),
                                          "total_duration_minutes": sum(l.duration_minutes or 0 for l in lessons)}},
-                   [_lesson(l) for l in lessons])
+                   [_lesson(l, handouts.get(l.id)) for l in lessons])
 
 
 @router.post("/courses")
@@ -2496,13 +2522,127 @@ async def put_lesson_order(course_id: uuid.UUID, body: dict = Body(...),
     return _with_pending(await get_course(course_id, p, s), pending)
 
 
+# ── lesson handouts ───────────────────────────────────────────────────────────────────────
+# A file somebody uploads, or a link into a drive the team already keeps. One collection, because
+# to the person reading the lesson they are simply the attachments.
+
+
+async def _lesson_of(s: AsyncSession, tenant_id, course_id, lesson_id) -> IntranetLesson:
+    row = await _one(s, IntranetLesson, tenant_id, lesson_id)
+    if row.course_id != course_id:
+        raise HTTPException(404, "Not found.")
+    return row
+
+
+async def _lesson_attachments(s: AsyncSession, tenant_id, lesson_id) -> list:
+    return (await s.execute(
+        select(IntranetLessonAttachment)
+        .where(IntranetLessonAttachment.tenant_id == tenant_id,
+               IntranetLessonAttachment.lesson_id == lesson_id)
+        .order_by(IntranetLessonAttachment.sort))).scalars().all()
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_id}/attachments")
+async def add_lesson_attachment(course_id: uuid.UUID, lesson_id: uuid.UUID,
+                                title: str = Form(...),
+                                kind: str = Form("file"),
+                                note: str | None = Form(None),
+                                url: str | None = Form(None),
+                                file: UploadFile | None = File(None),
+                                p: ConsolePrincipal = Depends(require_console_access),
+                                s: AsyncSession = Depends(get_session)):
+    """Attach a handout to a lesson.
+
+    MULTIPART FOR BOTH KINDS, even though a link carries no bytes. One endpoint and one form
+    shape means the console has a single "add attachment" control with a file/link toggle,
+    instead of two controls whose difference the admin has to understand before they can use
+    either.
+
+    A link is stored as the author typed it (normalised to https), and only a FILE goes through
+    binder_storage. The content type is what the server sniffs, never what the browser declared:
+    that label is what a later download echoes back, and a mislabelled HTML file served as a PDF
+    is the shape stored XSS takes.
+    """
+    course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
+    lesson = await _lesson_of(s, p.user.tenant_id, course_id, lesson_id)
+    kind = (kind or "file").strip().lower()
+    if kind not in ("file", "link"):
+        _unprocessable("kind", "Expected file or link.")
+    title = (title or "").strip()[:200]
+    if not title:
+        _unprocessable("title", "A title is required.")
+
+    row = IntranetLessonAttachment(
+        tenant_id=p.user.tenant_id, lesson_id=lesson.id, title=title, kind=kind,
+        note=(note or "").strip()[:100] or None,
+        sort=len(await _lesson_attachments(s, p.user.tenant_id, lesson.id)))
+
+    if kind == "link":
+        row.url = _https_url({"url": (url or "").strip()}, "url", required=True)
+    else:
+        if file is None or not (file.filename or "").strip():
+            _unprocessable("file", "Choose a file to upload.")
+        data = await file.read()
+        if not data:
+            _unprocessable("file", "That file is empty.")
+        if len(data) > uploads.MAX_ATTACHMENT_BYTES:
+            _unprocessable("file", f"Larger than {MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB.")
+        sniffed = uploads.sniff_attachment(data)
+        if sniffed is None:
+            _unprocessable("file", "Handouts must be a PDF, PNG, JPEG or WebP.")
+        stem = binder_storage.safe_filename(file.filename or "handout").rsplit(".", 1)[0]
+        name = stem + uploads.ATTACHMENT_TYPES[sniffed][1]
+        row.id = uuid.uuid4()
+        key = (f"intranet/{p.user.tenant_id}/lessons/{lesson.id}/{row.id}-{name}")
+        binder_storage.put(key, data, sniffed)
+        row.storage_key, row.filename = key, name
+        row.content_type, row.byte_size = sniffed, len(data)
+
+    s.add(row)
+    lesson.draft_dirty = True
+    course.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.lesson.attachment_added", category="Training",
+        summary=f"Added {title} to {lesson.title}", target_type="lesson_attachment",
+        target_id=row.id, entity_type="lesson_attachment", entity_id=row.id,
+        change_kind="created")
+    return _with_pending(_lesson_attachment(row), pending)
+
+
+@router.delete("/courses/{course_id}/lessons/{lesson_id}/attachments/{attachment_id}",
+               status_code=204)
+async def delete_lesson_attachment(course_id: uuid.UUID, lesson_id: uuid.UUID,
+                                   attachment_id: uuid.UUID,
+                                   p: ConsolePrincipal = Depends(require_console_access),
+                                   s: AsyncSession = Depends(get_session)):
+    course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
+    lesson = await _lesson_of(s, p.user.tenant_id, course_id, lesson_id)
+    row = await _one(s, IntranetLessonAttachment, p.user.tenant_id, attachment_id)
+    if row.lesson_id != lesson.id:
+        raise HTTPException(404, "Not found.")
+    title = row.title
+    # The row goes; the bytes stay. binder_storage has no delete and inventing one here would be
+    # the first place in this product that destroys an upload -- a wrong click should not be
+    # unrecoverable, and orphaned objects cost pennies.
+    await s.delete(row)
+    lesson.draft_dirty = True
+    course.draft_dirty = True
+    await _record_mutation(
+        s, p, action="content.lesson.attachment_removed", category="Training",
+        summary=f"Removed {title} from {lesson.title}", target_type="lesson_attachment",
+        target_id=attachment_id, entity_type="lesson_attachment", entity_id=attachment_id,
+        change_kind="deleted")
+    await s.commit()
+    return Response(status_code=204)
+
+
 @router.post("/courses/{course_id}/lessons")
 async def create_lesson(course_id: uuid.UUID, body: dict = Body(...),
                         p: ConsolePrincipal = Depends(require_console_access),
                         s: AsyncSession = Depends(get_session)):
     course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
     body = _body(body)
-    _unknown(body, {"title", "source_type", "source_ref", "source_label",
+    _unknown(body, {"title", "source_type", "source_ref", "source_label", "description",
                     "duration_minutes", "required", "sort"})
     row = IntranetLesson(
         tenant_id=p.user.tenant_id,
@@ -2511,6 +2651,7 @@ async def create_lesson(course_id: uuid.UUID, body: dict = Body(...),
         source_type=_enum(body, "source_type", LESSON_SOURCE_TYPES, "PLACE") or "PLACE",
         source_ref=_text(body, "source_ref", nullable=True),
         source_label=_text(body, "source_label", nullable=True),
+        description=_text(body, "description", nullable=True, max_len=4000),
         duration_minutes=_int(body, "duration_minutes", min_value=0),
         required=_bool(body, "required", False),
         sort=_int(body, "sort", default=await _count(s, IntranetLesson, p.user.tenant_id,
@@ -2530,11 +2671,9 @@ async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = 
                        p: ConsolePrincipal = Depends(require_console_access),
                        s: AsyncSession = Depends(get_session)):
     course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
-    row = await _one(s, IntranetLesson, p.user.tenant_id, lesson_id)
-    if row.course_id != course_id:
-        raise HTTPException(404, "Not found.")
+    row = await _lesson_of(s, p.user.tenant_id, course_id, lesson_id)
     body = _body(body)
-    _unknown(body, {"title", "source_type", "source_ref", "source_label",
+    _unknown(body, {"title", "source_type", "source_ref", "source_label", "description",
                     "duration_minutes", "required", "sort"})
     if "title" in body:
         row.title = _text(body, "title", required=True) or row.title
@@ -2544,6 +2683,8 @@ async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = 
         row.source_ref = _text(body, "source_ref", nullable=True)
     if "source_label" in body:
         row.source_label = _text(body, "source_label", nullable=True)
+    if "description" in body:
+        row.description = _text(body, "description", nullable=True, max_len=4000)
     if "duration_minutes" in body:
         row.duration_minutes = _int(body, "duration_minutes", min_value=0)
     if "required" in body:
@@ -2556,7 +2697,8 @@ async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = 
         s, p, action="content.lesson.updated", category="Training",
         summary=f"Updated lesson {row.title}", target_type="lesson", target_id=row.id,
         entity_type="lesson", entity_id=row.id)
-    return _with_pending(_lesson(row), pending)
+    return _with_pending(
+        _lesson(row, await _lesson_attachments(s, p.user.tenant_id, row.id)), pending)
 
 
 @router.delete("/courses/{course_id}/lessons/{lesson_id}")

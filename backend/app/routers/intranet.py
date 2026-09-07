@@ -22,10 +22,11 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetMarketingSetting, IntranetMember, IntranetRole, IntranetSop,
                       IntranetCourseRole, IntranetSopAcknowledgement, IntranetSopVersion,
                       IntranetPage, IntranetPageRole, IntranetPageSection,
-                      IntranetIntegration, IntranetSopCategory, IntranetUserState,
+                      IntranetIntegration, IntranetLessonAttachment,
+                      IntranetSopCategory, IntranetUserState,
                       IntranetAiQuestion, IntranetContentGap, IntranetWorkspace,
                       IntranetWtdList, Tenant, User)
-from ..services import binder_storage, intranet_assistant
+from ..services import binder_storage, intranet_assistant, lesson_media, uploads
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import allows, capability_levels
 from ..services.audit import audit
@@ -36,6 +37,16 @@ def _iso(value) -> str | None:
 
 
 router = APIRouter(prefix="/intranet", tags=["intranet"])
+
+
+def published(model):
+    """The published filter, shared.
+
+    Was a lambda local to _published_content, which meant the handout download route -- which has
+    to apply exactly the same test, or unpublished means "unlisted" rather than "unavailable" --
+    could not see it at all. One definition, so a second read path cannot quietly use a different
+    rule."""
+    return model.published_at.is_not(None)
 
 STATE_SCOPES = {"wtd", "training", "onboarding", "sops"}
 MAX_STATE_BYTES = 50_000
@@ -158,6 +169,29 @@ def _marketing_out(row: IntranetMarketingSetting | None, role_name: str | None,
     }
 
 
+async def _course_audience(s: AsyncSession, tenant_id, course_ids: list) -> dict:
+    """course_id -> the set of roles it is restricted to. Absent means "not restricted"."""
+    out: dict = {}
+    if not course_ids:
+        return out
+    for course_id, role_id in (await s.execute(select(
+        IntranetCourseRole.course_id, IntranetCourseRole.role_id,
+    ).where(IntranetCourseRole.tenant_id == tenant_id,
+            IntranetCourseRole.course_id.in_(course_ids)))).all():
+        out.setdefault(course_id, set()).add(role_id)
+    return out
+
+
+def _audience_allows(audience: dict, course_id, role_id) -> bool:
+    """Absence means "not restricted" -- what an admin who never opened the role picker intends.
+
+    Extracted so the LISTING and the handout download decide this the same way. They used to be
+    one inline expression and one route that did not ask at all; two copies of a permission rule
+    is how a course restricted to Team Leaders ends up with handouts anybody can pull.
+    """
+    return course_id not in audience or role_id in audience[course_id]
+
+
 async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember | None) -> dict:
     """The workspace's OWN configured content, as the intranet should render it.
 
@@ -175,8 +209,6 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     ROLE AUDIENCE IS APPLIED HERE, on the server. Tiles carry a role audience, and filtering that
     in the browser would mean shipping every tile to every agent and hiding some with CSS.
     """
-    published = lambda model: model.published_at.is_not(None)   # noqa: E731
-
     roles = (await s.execute(select(IntranetRole).where(
         IntranetRole.tenant_id == tenant_id, published(IntranetRole),
     ).order_by(IntranetRole.sort))).scalars().all()
@@ -235,15 +267,8 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     # roles. Same rule as launchpad tiles, and for the same reason: absence means "not
     # restricted", which is what an admin who never opened the picker intends. The console has
     # written these rows since it shipped and nothing had ever read them.
-    course_audience: dict = {}
-    if courses:
-        for course_id, role_id in (await s.execute(select(
-            IntranetCourseRole.course_id, IntranetCourseRole.role_id,
-        ).where(IntranetCourseRole.tenant_id == tenant_id,
-                IntranetCourseRole.course_id.in_([c.id for c in courses])))).all():
-            course_audience.setdefault(course_id, set()).add(role_id)
-    courses = [c for c in courses
-               if c.id not in course_audience or my_role in course_audience[c.id]]
+    course_audience = await _course_audience(s, tenant_id, [c.id for c in courses])
+    courses = [c for c in courses if _audience_allows(course_audience, c.id, my_role)]
 
     # ── who's who ────────────────────────────────────────────────────────────────────────
     # ACTIVE MEMBERS ONLY. An invited colleague has not arrived and a removed one has left, and
@@ -396,6 +421,21 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
             {"key": str(tile.id), "name": tile.name, "url": tile.url,
              "auth_type": tile.auth_type})
 
+    # Handouts for every lesson in one query rather than per lesson. `published` is applied here
+    # like every other content type -- a draft handout on a live lesson would otherwise be visible
+    # the moment it was saved, which is the bug draft lessons already had once.
+    attachments_by_lesson: dict = {}
+    lesson_ids = [le.id for group in lessons_by_course.values() for le in group]
+    if lesson_ids:
+        for att in (await s.execute(
+            select(IntranetLessonAttachment)
+            .where(IntranetLessonAttachment.tenant_id == tenant_id,
+                   IntranetLessonAttachment.lesson_id.in_(lesson_ids),
+                   published(IntranetLessonAttachment))
+            .order_by(IntranetLessonAttachment.sort)
+        )).scalars().all():
+            attachments_by_lesson.setdefault(att.lesson_id, []).append(att)
+
     return {
         "roles": [{"key": r.key, "name": r.name, "is_leadership": bool(r.is_leadership)}
                   for r in roles],
@@ -420,8 +460,24 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
                      "lessons": [{"id": str(le.id), "title": le.title,
                                   "source_type": le.source_type, "source_ref": le.source_ref,
                                   "source_label": le.source_label,
+                                  "description": le.description,
                                   "duration_minutes": le.duration_minutes,
-                                  "required": bool(le.required)}
+                                  "required": bool(le.required),
+                                  # Resolved server-side: whether this source can be played in
+                                  # the page is a fact about the URL, not a rendering choice, and
+                                  # framing a logged-in platform produces a refusal rather than a
+                                  # video. See services/lesson_media.
+                                  "player": lesson_media.resolve(le.source_type, le.source_ref),
+                                  "attachments": [
+                                      {"id": str(a.id), "title": a.title, "kind": a.kind,
+                                       "note": a.note,
+                                       # A file is fetched through our own authenticated route;
+                                       # only a link is handed over as the author typed it.
+                                       "url": (a.url if a.kind == "link"
+                                               else f"/intranet/lessons/{le.id}/attachments/{a.id}"),
+                                       "content_type": a.content_type,
+                                       "byte_size": a.byte_size}
+                                      for a in attachments_by_lesson.get(le.id, [])]}
                                  for le in lessons_by_course.get(c.id, [])]}
                     for c in courses],
         "sops": [_sop_out(sop) for sop in sops],
@@ -601,37 +657,14 @@ async def patch_config(body: IntranetConfigPatch,
 # its own constant rather than imported: this router validates what a SUBMITTER sends, the console
 # validates what an ADMIN requires, and the two lists agreeing is asserted by a test rather than
 # by a shared import that would let one quietly follow the other.
-# UPLOAD POLICY. Four types a marketing request plausibly carries, and no more.
-#
-# SVG is absent deliberately even though the logo uploader accepts it: an SVG is a script host,
-# and these files are fetched by other people in the workspace. HTML for the same reason. The
-# download is served as an attachment with the sniffed type, so nothing here renders inline, but
-# the allowlist is the primary control rather than the header.
-# Magic numbers as hex, not escapes: a byte literal written through a shell heredoc gets its
-# escapes eaten, which is how this arrived as real control characters the first time.
-ATTACHMENT_TYPES = {
-    "image/png": (bytes.fromhex("89504e470d0a1a0a"), ".png"),
-    "image/jpeg": (bytes.fromhex("ffd8ff"), ".jpg"),
-    "application/pdf": (b"%PDF-", ".pdf"),
-    "image/webp": (None, ".webp"),          # RIFF....WEBP, checked separately below
-}
-MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
-MAX_ATTACHMENTS = 5
-
-
-def sniff_attachment(data: bytes) -> str | None:
-    """The type the BYTES claim, ignoring the filename and the browser's Content-Type entirely.
-
-    A client controls both of those. If a download later echoes a declared type back, an uploaded
-    HTML file labelled `image/png` becomes stored XSS against everyone who opens it. Sniffing is
-    what makes the allowlist mean anything.
-    """
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    for content_type, (magic, _ext) in ATTACHMENT_TYPES.items():
-        if magic and data.startswith(magic):
-            return content_type
-    return None
+# UPLOAD POLICY lives in services/uploads now -- the console uploads lesson handouts through the
+# same allowlist and the same sniffer, and two copies of an allowlist is how one of them quietly
+# gains an extension the other refuses. Re-exported under the old names so nothing that reads
+# them from this module has to move.
+ATTACHMENT_TYPES = uploads.ATTACHMENT_TYPES
+MAX_ATTACHMENT_BYTES = uploads.MAX_ATTACHMENT_BYTES
+MAX_ATTACHMENTS = uploads.MAX_ATTACHMENTS
+sniff_attachment = uploads.sniff_attachment
 
 
 # The TEXT fields a submitter sends. `attachments` is deliberately not among them -- it is not a
@@ -955,6 +988,67 @@ async def directory_photo(member_id: uuid.UUID, user: User = Depends(current_use
     # the uploader declared.
     return Response(content=data, media_type=media,
                     headers={"Cache-Control": "private, max-age=300"})
+
+
+@router.get("/lessons/{lesson_id}/attachments/{attachment_id}")
+async def download_lesson_attachment(lesson_id: uuid.UUID, attachment_id: uuid.UUID,
+                                     user: User = Depends(current_user),
+                                     s: AsyncSession = Depends(get_session)):
+    """A lesson handout, for a member who is allowed the lesson.
+
+    THE ROLE AUDIENCE IS RE-CHECKED HERE, not trusted from the payload. Courses carry a role
+    audience, so a course restricted to Team Leaders has handouts restricted to Team Leaders --
+    and filtering the listing alone would be cosmetic, because the ids are in the payload of
+    anybody who was ever allowed the course and an id is guessable besides. Same reasoning as the
+    SOP file route.
+
+    Published and live only, and both the lesson and its course must be published: a handout on a
+    lesson somebody unpublished must stop being downloadable, not merely stop being listed.
+    """
+    await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    if member is None:
+        raise HTTPException(404, "Not found")
+    if not allows(await capability_levels(s, user.tenant_id, member.role_id), "training_library"):
+        raise HTTPException(404, "Not found")
+
+    row = (await s.execute(
+        select(IntranetLessonAttachment)
+        .where(IntranetLessonAttachment.tenant_id == user.tenant_id,
+               IntranetLessonAttachment.id == attachment_id,
+               IntranetLessonAttachment.lesson_id == lesson_id,
+               published(IntranetLessonAttachment))
+    )).scalars().first()
+    if row is None or row.kind != "file" or not row.storage_key:
+        raise HTTPException(404, "Not found")
+
+    lesson = (await s.execute(
+        select(IntranetLesson).where(IntranetLesson.tenant_id == user.tenant_id,
+                                     IntranetLesson.id == lesson_id,
+                                     published(IntranetLesson))
+    )).scalars().first()
+    if lesson is None:
+        raise HTTPException(404, "Not found")
+
+    course = (await s.execute(
+        select(IntranetCourse).where(IntranetCourse.tenant_id == user.tenant_id,
+                                     IntranetCourse.id == lesson.course_id,
+                                     published(IntranetCourse))
+    )).scalars().first()
+    if course is None or course.state == "Archived":
+        raise HTTPException(404, "Not found")
+    audience = await _course_audience(s, user.tenant_id, [course.id])
+    if not _audience_allows(audience, course.id, member.role_id):
+        raise HTTPException(404, "Not found")
+
+    if not binder_storage.exists(row.storage_key):
+        raise HTTPException(404, "Not found")
+    safe = binder_storage.safe_filename(row.filename or row.title)
+    return Response(
+        content=binder_storage.read(row.storage_key),
+        media_type=row.content_type or "application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="' + safe + '"'},
+    )
 
 
 @router.get("/sops/{sop_id}/file")

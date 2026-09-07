@@ -2825,3 +2825,78 @@ textarea {
   color: var(--warn, #b45309);
   border-color: currentColor;
 }
+
+/* Lesson handouts, in the console. Indented under their lesson so the relationship is visible
+   without a box around it -- a lesson row is already a bordered card and nesting a second one
+   inside it makes the editor read as a stack of unrelated panels. */
+.lesson-attachments {
+  margin: -6px 0 14px 0;
+  padding: 10px 14px 14px;
+  border-left: 2px solid var(--console-line);
+  margin-left: 14px;
+}
+
+.lesson-attachments-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--console-muted, #6e767b);
+}
+
+.lesson-attachments ul {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lesson-attachments li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.lesson-attachments li em {
+  font-style: normal;
+  color: var(--console-muted, #6e767b);
+  font-size: 12px;
+}
+
+.lesson-attachments li button {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--console-muted, #6e767b);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.attachment-kind {
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--console-line);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--console-muted, #6e767b);
+}
+
+/* Wraps rather than scrolls: this sits inside an already-narrow editor column, and a row of
+   inputs that overflows sideways is one nobody can reach the last field of. */
+.lesson-attachment-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.lesson-attachment-add input,
+.lesson-attachment-add select {
+  flex: 1 1 150px;
+  min-width: 0;
+}
