@@ -2756,3 +2756,64 @@ textarea {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* The questions log. Dense on purpose -- an admin scans this for patterns, so twenty entries
+   have to fit on a screen rather than three. */
+.ai-question-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ai-question {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.ai-question:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.ai-question-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-question-q {
+  font-weight: 600;
+}
+
+.ai-question-a,
+.ai-question-cites,
+.ai-question-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ai-question-a {
+  color: var(--ink);
+}
+
+.ai-chip {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--line);
+}
+
+.ai-chip.ok {
+  color: var(--good, #15803d);
+  border-color: currentColor;
+}
+
+.ai-chip.warn {
+  color: var(--warn, #b45309);
+  border-color: currentColor;
+}

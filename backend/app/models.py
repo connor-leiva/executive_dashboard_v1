@@ -647,6 +647,44 @@ class IntranetAiSetting(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class IntranetAiQuestion(Base):
+    """One question somebody asked the assistant, with the answer it gave.
+
+    Distinct from IntranetContentGap, which deduplicates and counts the questions that could NOT
+    be answered -- that is the console's to-do list. This is the event log: every question,
+    answered or not, with the citations as they stood at the time. Neither is derivable from the
+    other, and the second signal matters as much as the first: "we have no document for this" and
+    "forty people asked about commission splits and we answered from an SOP nobody has revised
+    since March" are different problems.
+
+    IT NAMES THE PERSON WHO ASKED. A workspace admin can read what an individual member asked,
+    which is what makes a gap followable-up and also makes this staff data -- so the portal tells
+    members their questions are recorded rather than leaving them to assume otherwise. The member
+    FK is SET NULL rather than CASCADE, and asker_label is denormalised, so somebody leaving does
+    not quietly rewrite the history into anonymity.
+
+    NOT publishable. Questions are things that happened, not content staged for release.
+    """
+
+    __tablename__ = "intranet_ai_question"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    member_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id", ondelete="SET NULL"), nullable=True)
+    asker_label: Mapped[str] = mapped_column(Text)
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # False is the interesting value: it is what opens a content gap.
+    answered: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    citations: Mapped[list] = mapped_column(JSONType, default=list, server_default=text("'[]'"))
+    failure: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index("ix_intranet_ai_question_tenant_created", "tenant_id", "created_at"),
+    )
+
+
 class IntranetMarketingSetting(Base):
     """How a marketing request leaves the building, per tenant.
 

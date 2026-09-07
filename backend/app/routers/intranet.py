@@ -23,9 +23,9 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetCourseRole, IntranetSopAcknowledgement, IntranetSopVersion,
                       IntranetPage, IntranetPageRole, IntranetPageSection,
                       IntranetIntegration, IntranetSopCategory, IntranetUserState,
-                      IntranetWorkspace,
+                      IntranetAiQuestion, IntranetContentGap, IntranetWorkspace,
                       IntranetWtdList, Tenant, User)
-from ..services import binder_storage
+from ..services import binder_storage, intranet_assistant
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import allows, capability_levels
 from ..services.audit import audit
@@ -990,6 +990,131 @@ async def download_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
         media_type=version.content_type,
         headers={"Content-Disposition": 'attachment; filename="' + safe + '"'},
     )
+
+
+# ── the assistant ─────────────────────────────────────────────────────────────────────────
+
+class AskBody(BaseModel):
+    question: str = Field(min_length=2, max_length=intranet_assistant.MAX_QUESTION)
+
+
+def _ask_status(tenant: Tenant, permitted: bool) -> dict:
+    """Why the assistant is or is not available, kept as separate reasons.
+
+    Three different noes -- the platform has no key, the plan does not include it, this role is
+    denied -- and collapsing them into `available: false` would send a member to ask their admin
+    to upgrade a plan that would still not answer, or an admin to check permissions when the key
+    is missing.
+    """
+    return {
+        "available": bool(intranet_assistant.available()
+                          and plans.allows(tenant, "ai_assistant") and permitted),
+        "on_plan": plans.allows(tenant, "ai_assistant"),
+        "configured": intranet_assistant.available(),
+        "permitted": permitted,
+    }
+
+
+@router.get("/assistant")
+async def assistant_status(user: User = Depends(current_user),
+                           s: AsyncSession = Depends(get_session)):
+    tenant = await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    permitted = allows(await capability_levels(s, user.tenant_id,
+                                               member.role_id if member else None),
+                       "ai_assistant")
+    return _ask_status(tenant, permitted)
+
+
+@router.post("/ask")
+async def ask_assistant(body: AskBody, user: User = Depends(current_user),
+                        s: AsyncSession = Depends(get_session)):
+    """Answer a question from this workspace's own content, and record that it was asked.
+
+    THE CORPUS IS THIS MEMBER'S OWN PAYLOAD -- the same _published_content their screens render,
+    already filtered by capability and role audience. An assistant built on anything else would be
+    a second implementation of those rules, and getting them wrong here is worse than getting them
+    wrong in a list, because the answer quotes the document.
+
+    EVERY QUESTION IS STORED, answered or not: the console needs to see what people are asking,
+    not only what went unanswered. An unanswered one ALSO opens (or bumps) a content gap, which is
+    the admin's to-do list -- deduplicated by question text, because ten people asking the same
+    thing is one thing to write, not ten.
+    """
+    tenant = await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    permitted = allows(await capability_levels(s, user.tenant_id,
+                                               member.role_id if member else None),
+                       "ai_assistant")
+    status = _ask_status(tenant, permitted)
+    if not permitted:
+        raise HTTPException(403, "Your role does not have access to the assistant.")
+    if not status["on_plan"]:
+        raise HTTPException(402, "The assistant is not included in this workspace's plan.")
+    if not status["configured"]:
+        # 503, not 402 or 403: nothing the customer can do about this one, and telling them to
+        # upgrade or ask an admin would send them somewhere that cannot help.
+        raise HTTPException(503, "The assistant is not available right now.")
+
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(422, "Ask a question.")
+
+    content = await _published_content(s, user.tenant_id, member)
+    workspace = await s.get(IntranetWorkspace, user.tenant_id)
+    name = (workspace.name if workspace and workspace.name else tenant.name) or "this workspace"
+    result = await intranet_assistant.ask(s, user.tenant_id, name, content, question)
+
+    s.add(IntranetAiQuestion(
+        tenant_id=user.tenant_id,
+        member_id=member.id if member else None,
+        asker_label=(member.full_name if member else None) or user.name or user.email or "Unknown",
+        question=question[:intranet_assistant.MAX_QUESTION],
+        answer=result["answer"] or None,
+        answered=bool(result["answered"]),
+        citations=result["citations"],
+        failure=result["failure"]))
+
+    # A gap only when the assistant WORKED and still could not answer. An outage is our problem,
+    # not a hole in the customer's documentation, and filing it as one would fill their to-do list
+    # with our incidents.
+    if not result["answered"] and not result["failure"]:
+        await _record_gap(s, user.tenant_id, question)
+
+    audit(s, user.tenant_id, user.id, "assistant.asked", "ai_question", None,
+          {"answered": bool(result["answered"])}, category="AI",
+          summary="Asked the assistant: " + question[:120],
+          actor_member_id=member.id if member else None,
+          actor_label=member.full_name if member else None)
+    await s.commit()
+
+    if result["failure"]:
+        raise HTTPException(503, "The assistant could not answer just now. Try again shortly.")
+    return {"answer": result["answer"], "citations": result["citations"],
+            "answered": bool(result["answered"])}
+
+
+async def _record_gap(s: AsyncSession, tenant_id, question: str) -> None:
+    """Open a content gap, or bump the one that already exists.
+
+    Deduplicated on the question text, case-insensitively: ten people asking the same thing is one
+    thing for an admin to write, and ten rows would bury it. A gap somebody has already resolved
+    is REOPENED when it is asked again -- the resolution said the content now exists, and the
+    assistant just said it cannot find it, so one of those is wrong and an admin should look.
+    """
+    text = question.strip()[:1000]
+    now = dt.datetime.now(dt.timezone.utc)
+    row = (await s.execute(select(IntranetContentGap).where(
+        IntranetContentGap.tenant_id == tenant_id,
+        func.lower(IntranetContentGap.question) == text.lower()))).scalars().first()
+    if row is None:
+        s.add(IntranetContentGap(tenant_id=tenant_id, question=text, ask_count=1,
+                                 status="Open", first_asked_at=now, last_asked_at=now))
+        return
+    row.ask_count = (row.ask_count or 0) + 1
+    row.last_asked_at = now
+    if row.status == "Resolved":
+        row.status = "Open"
 
 
 @router.get("/state/{scope}")

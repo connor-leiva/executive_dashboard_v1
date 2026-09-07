@@ -22,6 +22,7 @@ import {
   discardChanges,
   downloadSopVersion,
   getAi,
+  getAiQuestions,
   getAudit,
   getCalendarCategories,
   getContentGaps,
@@ -99,6 +100,7 @@ export const keys = {
   marketingRequests: ["console", "marketing-requests"],
   ai: ["console", "ai"],
   contentGaps: ["console", "content-gaps"],
+  aiQuestions: ["console", "ai-questions"],
   members: (params) => ["console", "members", params],
   permissions: ["console", "permissions"],
   roles: ["console", "roles"],
@@ -400,6 +402,10 @@ export function useAi(enabled) {
     queryFn: getAi,
     enabled,
   });
+}
+
+export function useAiQuestions(enabled) {
+  return useQuery({ queryKey: keys.aiQuestions, queryFn: getAiQuestions, enabled });
 }
 
 export function useContentGaps(enabled) {

@@ -235,6 +235,7 @@ export const testIntegration = (integrationId) => consoleSend("POST", `/integrat
 export const getAi = () => consoleGet("/ai");
 export const patchAiSettings = (body) => consoleSend("PATCH", "/ai/settings", body);
 export const patchAiSource = (sourceId, body) => consoleSend("PATCH", `/ai/sources/${sourceId}`, body);
+export const getAiQuestions = () => consoleGet("/ai/questions");
 export const getContentGaps = () => consoleGet("/content-gaps");
 export const patchContentGap = (gapId, body) => consoleSend("PATCH", `/content-gaps/${gapId}`, body);
 export const getSetupTasks = () => consoleGet("/setup-tasks");

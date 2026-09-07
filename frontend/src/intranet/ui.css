@@ -1943,3 +1943,66 @@ input {
   white-space: nowrap;
   font-weight: inherit;
 }
+
+/* The assistant transcript. Question and answer are visually distinct because a page of
+   undifferentiated paragraphs is unreadable once there are three exchanges on it. */
+.ut-ask-turn {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 14px;
+}
+
+.ut-ask-turn:first-of-type {
+  border-top: 0;
+  margin-top: 0;
+}
+
+.ut-ask-q {
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+
+.ut-ask-a {
+  color: var(--ink);
+  line-height: 1.55;
+  margin: 0 0 10px;
+  white-space: pre-wrap;             /* the model answers in prose with its own line breaks */
+}
+
+.ut-ask-error {
+  color: var(--danger, #b42318);
+  margin: 0 0 10px;
+}
+
+.ut-ask-cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* A citation is a LINK, not a label: naming the document without opening it is the same dead
+   end as a search result you cannot click. */
+.ut-ask-cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--wash);
+  color: var(--ink);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.ut-ask-cite:hover {
+  border-color: var(--rail);
+}
+
+.ut-ask-cite-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  color: var(--muted);
+}

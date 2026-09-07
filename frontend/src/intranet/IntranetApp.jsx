@@ -1533,14 +1533,101 @@ function Ask({ config, me }) {
   // It previously said "Ask Utah Life" from a constant; taking askLabel from an enclosing scope
   // would have been a runtime ReferenceError, which a build does not catch.
   const askLabel = `Ask ${config?.workspace?.name || me?.tenant_name || "us"}`;
+  const [status, setStatus] = useState(null);
+  const [question, setQuestion] = useState("");
+  // A transcript rather than one answer. People ask follow-ups, and replacing the previous
+  // answer as they type the next question loses the thing they were reading.
+  const [thread, setThread] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!API_BASE) { setStatus({ available: false, configured: false }); return; }
+    getJSON("/intranet/assistant")
+      .then(setStatus)
+      .catch(() => setStatus({ available: false, configured: false }));
+  }, []);
+
+  async function submit(event) {
+    event.preventDefault();
+    const asked = question.trim();
+    if (!asked || busy) return;
+    setBusy(true);
+    setQuestion("");
+    setThread((prev) => [...prev, { asked, pending: true }]);
+    try {
+      const r = await postJSON("/intranet/ask", { question: asked });
+      setThread((prev) => prev.map((t, i) => (i === prev.length - 1
+        ? { asked, answer: r.answer, citations: r.citations || [], answered: r.answered }
+        : t)));
+    } catch (err) {
+      setThread((prev) => prev.map((t, i) => (i === prev.length - 1
+        ? { asked, error: err?.detail || err?.message || "Could not answer just now." }
+        : t)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Three different noes, kept apart. "Not on your plan" sent to somebody whose admin has no
+  // upgrade to make, or "ask your admin" when the platform key is missing, both send people to
+  // waste somebody's afternoon.
+  const unavailable = status && !status.available && (
+    !status.permitted
+      ? "Your role does not have access to the assistant."
+      : !status.on_plan
+        ? "The assistant is not included in this workspace's plan."
+        : "The assistant is not available right now.");
+
   return (
     <Page title={askLabel} subtitle="Answers drawn from this workspace’s own documents.">
       <Panel title={askLabel}>
-        <div className="ut-ask-shell">
-          <input disabled placeholder="Ask about anything" />
-          <button disabled>Ask</button>
-        </div>
-        <Empty title="Assistant not connected">This surface is ready for the future Ask implementation.</Empty>
+        <form className="ut-ask-shell" onSubmit={submit}>
+          <input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            disabled={!status?.available || busy}
+            placeholder={status?.available ? "Ask about anything" : "Assistant unavailable"}
+          />
+          <button type="submit" disabled={!status?.available || busy || !question.trim()}>
+            {busy ? "Asking…" : "Ask"}
+          </button>
+        </form>
+
+        {unavailable && <Empty title="Assistant unavailable">{unavailable}</Empty>}
+
+        {status?.available && !thread.length && (
+          <p className="ut-note">
+            It reads this workspace{"\u2019"}s SOPs, training, tools, pages and people — the same
+            things you can see. It has not read the inside of uploaded documents, so it will point
+            you at one rather than summarise it. Your questions are recorded, so whoever runs this
+            portal can see what people needed and write down what is missing.
+          </p>
+        )}
+
+        {thread.map((turn, i) => (
+          <div className="ut-ask-turn" key={i}>
+            <p className="ut-ask-q">{turn.asked}</p>
+            {turn.pending && <p className="ut-note">Looking…</p>}
+            {turn.error && <p className="ut-ask-error">{turn.error}</p>}
+            {turn.answer && <p className="ut-ask-a">{turn.answer}</p>}
+            {turn.citations?.length > 0 && (
+              <div className="ut-ask-cites">
+                {turn.citations.map((c) => (
+                  <NavLink className="ut-ask-cite" key={c.ref + c.title} to={c.ref}>
+                    <span className="ut-ask-cite-kind">{c.kind}</span>
+                    {c.title}
+                  </NavLink>
+                ))}
+              </div>
+            )}
+            {turn.answer && turn.answered === false && !turn.citations?.length && (
+              /* Said plainly. An answer with nothing behind it looks exactly like one with a
+                 document behind it, and only one of them is safe to act on. */
+              <p className="ut-note">Nothing in the portal covers this yet — it has been flagged
+                for whoever maintains it.</p>
+            )}
+          </div>
+        ))}
       </Panel>
     </Page>
   );

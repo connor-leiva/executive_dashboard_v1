@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { AI_BEHAVIOUR_FIELDS, COPY, GAP_STATUS_OPTIONS } from "../constants.js";
 import {
   useAi,
+  useAiQuestions,
   useContentGaps,
   useMembers,
   usePatchAiSettings,
@@ -254,10 +255,55 @@ function ContentGapsPanel({ gaps, members, busy, onSave }) {
   );
 }
 
+/* What people actually asked.
+ *
+ * Next to the gap list, not instead of it: gaps say what could not be answered and are the
+ * to-do list; this says what was asked at all. An SOP forty people ask about every month is worth
+ * revising even though the assistant answers it correctly every time, and no gap list can carry
+ * that signal.
+ *
+ * It names the asker, which is why the portal tells members their questions are recorded --
+ * finding out from an admin quoting one back at you is a worse way to learn it.
+ */
+function QuestionsPanel({ questions }) {
+  return (
+    <Panel title="Questions asked">
+      {!questions.length
+        ? <EmptyState title="Nobody has asked the assistant anything yet." />
+        : (
+          <div className="ai-question-list">
+            {questions.map((q) => (
+              <div className="ai-question" key={q.id}>
+                <div className="ai-question-head">
+                  <span className="ai-question-q">{q.question}</span>
+                  <span className={q.answered ? "ai-chip ok" : "ai-chip warn"}>
+                    {/* Three states, not two. A failure is our outage and not a hole in their
+                        documentation, so it must not read as "we could not answer this". */}
+                    {q.failure ? "Error" : q.answered ? "Answered" : "No answer"}
+                  </span>
+                </div>
+                {q.answer && <p className="ai-question-a">{q.answer}</p>}
+                {q.citations?.length > 0 && (
+                  <p className="ai-question-cites">
+                    From: {q.citations.map((c) => c.title).join(", ")}
+                  </p>
+                )}
+                <p className="ai-question-meta">
+                  {q.asker_label} · {formatDate(q.asked_at)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+    </Panel>
+  );
+}
+
 export default function AiAssistant() {
   const ai = useAi(true);
   const roles = useRoles(true);
   const gaps = useContentGaps(true);
+  const questions = useAiQuestions(true);
   const members = useMembers({ filter: "active" }, true);
   const saveSettings = usePatchAiSettings();
   const saveSource = usePatchAiSource();
@@ -294,6 +340,7 @@ export default function AiAssistant() {
         busy={saveSource.isPending}
         onSave={(sourceId, body) => saveSource.mutateAsync({ sourceId, body })}
       />
+      <QuestionsPanel questions={questions.data?.items || []} />
       <ContentGapsPanel
         gaps={gaps.data?.items || []}
         members={members.data?.items || []}

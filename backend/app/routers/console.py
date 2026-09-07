@@ -17,6 +17,7 @@ from ..models import (
     Base,
     AuditLog,
     IntranetAiSetting,
+    IntranetAiQuestion,
     IntranetAiSource,
     IntranetCalendarCategory,
     IntranetCalendarCategoryRole,
@@ -3221,6 +3222,40 @@ async def patch_ai_source(source_id: uuid.UUID, body: dict = Body(...),
         summary=f"Updated assistant source {row.name}", target_type="ai_source",
         target_id=row.id, entity_type="ai_source", entity_id=row.id)
     return _with_pending(_ai_source(row, await _roles_by_id(s, p.user.tenant_id)), pending)
+
+
+@router.get("/ai/questions")
+async def get_ai_questions(limit: int = 100,
+                           p: ConsolePrincipal = Depends(require_console_access),
+                           s: AsyncSession = Depends(get_session)):
+    """What people actually asked, newest first.
+
+    The gap list next to this one says what could not be answered; this says what was asked at
+    all, which is the signal a gap list cannot carry. An SOP forty people ask about every month is
+    worth revising even though the assistant answers it every time.
+
+    IT NAMES THE ASKER, which makes this staff data. That is deliberate -- a gap you cannot
+    attribute is a gap you cannot follow up -- and the portal tells members their questions are
+    recorded, so this is not something they learn about from an admin quoting one back at them.
+    """
+    limit = max(1, min(int(limit or 100), 500))
+    rows = (await s.execute(select(IntranetAiQuestion)
+                            .where(IntranetAiQuestion.tenant_id == p.user.tenant_id)
+                            .order_by(IntranetAiQuestion.created_at.desc())
+                            .limit(limit))).scalars().all()
+    total = await _count(s, IntranetAiQuestion, p.user.tenant_id)
+    unanswered = sum(1 for r in rows if not r.answered)
+    return {**_list([{
+        "id": _id(r.id),
+        "question": r.question,
+        "answer": r.answer,
+        "answered": bool(r.answered),
+        "citations": list(r.citations or []),
+        # Reported so an outage is not read as a hole in the workspace's documentation.
+        "failure": r.failure,
+        "asker_label": r.asker_label,
+        "asked_at": _iso(r.created_at),
+    } for r in rows], total), "unanswered_in_page": unanswered}
 
 
 @router.get("/content-gaps")
