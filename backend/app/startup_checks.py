@@ -99,6 +99,29 @@ def validate_config() -> tuple[list[str], list[str]]:
         warn.append(f"APP_SECRET is only {len(secret)} characters. {MIN_SECRET_LEN}+ recommended;"
                     f" rotating it signs out every user, so do it deliberately.")
 
+    # OBJECT STORAGE. Without the four R2 settings, binder_storage falls back to a directory
+    # under the system temp dir -- correct on a laptop, and on a deployment it means every SOP
+    # document, workspace logo and marketing attachment is written to a container filesystem that
+    # is thrown away on the next deploy. Silently: uploads succeed, the rows point at keys, and
+    # the bytes are simply gone afterwards. That is worse than refusing to boot, which is why
+    # this is fatal rather than a warning.
+    r2 = {name: (getattr(settings, name, "") or "").strip()
+          for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")}
+    missing = sorted(name for name, value in r2.items() if not value)
+    if missing and len(missing) < len(r2):
+        # Half-configured is a definite fault rather than a choice: whoever set two of these
+        # meant to use R2, and the fallback will not tell them they are not.
+        fatal.append(
+            f"Object storage is half configured: {', '.join(missing)} not set. Uploaded "
+            f"documents, logos and attachments would go to a container temp directory and be "
+            f"lost on the next deploy.")
+    elif missing:
+        fatal.append(
+            "Object storage is not configured (R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY_ID, "
+            "R2_SECRET_ACCESS_KEY). Uploaded SOP documents, workspace logos and marketing "
+            "attachments would be written to a container temp directory and lost on the next "
+            "deploy, silently — the upload succeeds and the bytes disappear.")
+
     if not settings.is_sqlite and settings.ENV.strip().lower() not in DEPLOYED_ENVS:
         warn.append(f"ENV is {settings.ENV!r} while running on Postgres. Anything keyed to ENV "
                     f"- the single-tenant fallback exemption among them - will behave as if "

@@ -24,8 +24,14 @@ def cfg(monkeypatch):
 
 
 def _postgres(cfg, **kw):
+    # A CORRECTLY CONFIGURED DEPLOYMENT, which is what this helper is for -- so object storage
+    # belongs in it now that a deployment without it refuses to boot. Two tests here assert
+    # `fatal == []`, and they mean "nothing is wrong with this deployment", not "nothing is wrong
+    # except storage". Individual tests still override any field to describe a specific fault.
     base = dict(DATABASE_URL="postgresql+asyncpg://u:p@db.example.com:5432/app",
-                APP_SECRET=REAL_SECRET, FERNET_KEY=REAL_FERNET, ENV="production")
+                APP_SECRET=REAL_SECRET, FERNET_KEY=REAL_FERNET, ENV="production",
+                R2_ACCOUNT_ID="acct", R2_BUCKET="bucket",
+                R2_ACCESS_KEY_ID="key", R2_SECRET_ACCESS_KEY="secret")
     base.update(kw)                      # callers override individual fields
     cfg(**base)
 
