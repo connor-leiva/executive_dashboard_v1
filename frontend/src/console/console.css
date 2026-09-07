@@ -612,6 +612,20 @@ textarea {
   word-break: break-all;
 }
 
+/* A one-time link an admin is expected to copy. Read-only and select-on-focus, so a click and
+   ctrl-C gets the whole thing -- a link that has to be selected by hand is a link that gets
+   truncated. */
+.console-invite-link {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--console-line);
+  border-radius: 6px;
+  background: var(--console-surface);
+  color: var(--console-ink);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 12.5px;
+}
+
 /* A row of buttons under a form. Wraps rather than overflowing, because the labels here are
    sentences ("Turn off Google sign-in") not verbs. */
 .console-actions {

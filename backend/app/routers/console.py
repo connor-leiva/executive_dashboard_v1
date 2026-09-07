@@ -5,7 +5,8 @@ import uuid
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import (APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException,
+                     Query, Request, Response, UploadFile)
 from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,12 +42,15 @@ from ..models import (
     IntranetSopVersion,
     IntranetWtdList,
     IntranetWorkspace,
-    Tenant,
+    Tenant, User,
 )
 from ..services.audit import audit
 from ..config import settings
 from ..security import enc
-from ..services import binder_storage, google_auth
+from .. import plans
+from ..security import new_action_token
+from ..services import binder_storage, google_auth, mail_templates, mailer
+from ..services.users import INVITE_DAYS, link_base
 from ..services.inheritance import dashboard_connections, is_inherited
 
 router = APIRouter(prefix="/console", tags=["console"])
@@ -310,6 +314,32 @@ async def _role_by_key(s: AsyncSession, tenant_id, key: str) -> IntranetRole:
     return row
 
 
+def guest_role_of(roles) -> IntranetRole | None:
+    """Which of these roles a guest belongs in: the least privileged one.
+
+    DERIVED, not a hardcoded key. Three places used to look up "jv_partner" -- a role that exists
+    in the Utah Life seed and in no other workspace. On any workspace created through provisioning
+    that meant the console's DEFAULT invite (auth source "Guest") answered 404 "Role not found.",
+    and the Guests stat and filter silently counted zero forever. The first customer worked and
+    every one after it did not, which is exactly the failure a multi-tenant product cannot carry.
+
+    Least privileged = the highest `sort` among non-leadership roles. For Utah Life that is still
+    JV Partner (sort 5, not leadership), so nothing changes for them; a bootstrapped workspace
+    gets Member.
+    """
+    ranked = sorted(roles, key=lambda r: (bool(r.is_leadership), -int(r.sort or 0)))
+    return ranked[0] if ranked else None
+
+
+async def _guest_role(s: AsyncSession, tenant_id) -> IntranetRole:
+    rows = (await s.execute(select(IntranetRole).where(
+        IntranetRole.tenant_id == tenant_id))).scalars().all()
+    row = guest_role_of(rows)
+    if row is None:
+        raise HTTPException(404, "This workspace has no roles yet.")
+    return row
+
+
 async def _role_ids_from_body(s: AsyncSession, tenant_id, body: dict, *, default_all: bool = False) -> list[uuid.UUID]:
     role_ids = body.get("role_ids")
     roles = await _roles_by_id(s, tenant_id)
@@ -444,7 +474,7 @@ def _member(row: IntranetMember, roles: dict[uuid.UUID, IntranetRole] | None = N
 
 async def _member_stats(s: AsyncSession, tenant_id, roles: dict[uuid.UUID, IntranetRole]) -> dict:
     leadership_ids = [role_id for role_id, role in roles.items() if role.is_leadership]
-    guest_role = next((role for role in roles.values() if role.key == "jv_partner"), None)
+    guest_role = guest_role_of(roles.values())
     month_start = _now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     last_synced_at = (await s.execute(select(func.max(IntranetMember.last_synced_at)).where(
         IntranetMember.tenant_id == tenant_id,
@@ -1589,7 +1619,7 @@ async def get_members(status: str | None = Query(None), q: str | None = Query(No
         elif value == "pending":
             where.append(IntranetMember.status == "Invited")
         elif value == "guests":
-            guest_role = next((r for r in roles.values() if r.key == "jv_partner"), None)
+            guest_role = guest_role_of(roles.values())
             where.append(IntranetMember.role_id == guest_role.id if guest_role else False)
         elif value == "leadership":
             leadership_ids = [role_id for role_id, role_row in roles.items() if role_row.is_leadership]
@@ -1617,15 +1647,32 @@ async def get_members(status: str | None = Query(None), q: str | None = Query(No
 
 
 @router.post("/members/invite")
-async def invite_member(body: dict = Body(...),
+async def invite_member(request: Request, bg: BackgroundTasks, body: dict = Body(...),
                         p: ConsolePrincipal = Depends(require_console_access),
                         s: AsyncSession = Depends(get_session)):
+    """Invite somebody to the portal, and give them a way in.
+
+    THIS USED TO CREATE A ROSTER ENTRY AND NOTHING ELSE. The invited person appeared in the
+    directory, was counted on the overview, could be assigned work -- and had no account, no
+    invite link and no email, so they could never sign in. The roster was decorative, and the
+    workspace had exactly one usable login: whoever provisioned it.
+
+    A portal member gets `role="member"` with NO dashboard tabs. They are a buyer agent, not an
+    executive: the dashboard's numbers are not theirs to see, and `_tenant_apps` leaves the
+    Dashboard out for anyone whose tab list is empty so they are not dropped into a shell where
+    every screen is blank.
+
+    Somebody who already has a dashboard account is LINKED rather than refused. The two records
+    are different things -- an account and a roster entry -- and an owner being told "user
+    already exists" when they add themselves to their own roster is the system's problem
+    leaking out.
+    """
     body = _body(body)
     _unknown(body, {"full_name", "email", "role_id", "market", "auth_source"})
     auth_source = _enum(body, "auth_source", AUTH_SOURCES, "Manual") or "Manual"
     role_id = _uuid_value(body, "role_id", required=auth_source != "Guest")
     if role_id is None:
-        role_id = (await _role_by_key(s, p.user.tenant_id, "jv_partner")).id
+        role_id = (await _guest_role(s, p.user.tenant_id)).id
     await _role(s, p.user.tenant_id, role_id)
     email = (_text(body, "email", required=True, max_len=255) or "").lower()
     if "@" not in email:
@@ -1636,9 +1683,10 @@ async def invite_member(body: dict = Body(...),
     ))).scalar_one_or_none()
     if existing is not None:
         _unprocessable("email", "Member already exists.")
+    full_name = _text(body, "full_name", required=True) or email
     row = IntranetMember(
         tenant_id=p.user.tenant_id,
-        full_name=_text(body, "full_name", required=True) or email,
+        full_name=full_name,
         email=email,
         role_id=role_id,
         market=_text(body, "market", nullable=True),
@@ -1647,11 +1695,61 @@ async def invite_member(body: dict = Body(...),
         invited_at=_now(),
     )
     s.add(row)
+
+    account = (await s.execute(select(User).where(
+        User.tenant_id == p.user.tenant_id, User.email == email))).scalar_one_or_none()
+    invite_url = None
+    if account is None:
+        tenant = await s.get(Tenant, p.user.tenant_id)
+        # An invitation is a seat somebody is expected to take, so it counts against the plan
+        # exactly as the dashboard's own invite does. Counting only accepted users would make
+        # the limit something you get around by never accepting.
+        have = (await s.execute(select(func.count()).select_from(User).where(
+            User.tenant_id == p.user.tenant_id, User.status != "disabled"))).scalar_one()
+        if plans.over_limit(tenant, "max_users", have):
+            lim = plans.limits(tenant)
+            _unprocessable("email", f"The {lim['name']} plan includes {lim['max_users']} people "
+                                    f"and this workspace has {have}. Upgrade to invite another.")
+        raw, th = new_action_token()
+        account = User(
+            tenant_id=p.user.tenant_id, email=email, name=full_name[:200],
+            password_hash=None, role="member", status="invited",
+            # Empty, not null: null means "an owner, everything". This person's app is the
+            # portal, and their portal permissions come from their intranet role.
+            tab_access=[], token_version=0, invited_by=p.user.id,
+            action_token_hash=th, action_token_purpose="invite",
+            action_token_expires=_now() + dt.timedelta(days=INVITE_DAYS))
+        s.add(account)
+        await s.flush()
+        base = await link_base(request, s, p.user.tenant_id)
+        invite_url = f"{base}/accept-invite?token={raw}"
+
+    row.user_id = account.id
     pending = await _record_mutation(
         s, p, action="access.member.invited", category="People",
         summary=f"Invited {row.full_name} to the intranet", target_type="member",
         target_id=row.id, pending=False)
-    return _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id)), pending)
+
+    if invite_url:
+        workspace = await _workspace_row(s, p.user.tenant_id)
+        # The PORTAL's name, not the company's: this invite is to the team portal, and that is
+        # the thing the recipient will recognise in a subject line. Falls back to the tenant name
+        # for a workspace that has not renamed its portal yet.
+        tenant = await s.get(Tenant, p.user.tenant_id)
+        name = ((workspace.portal_name if workspace is not None else None)
+                or (tenant.name if tenant is not None else None) or "your workspace")
+        # In the background, and the link is returned either way. The rows are committed by the
+        # time this runs, so a mail outage that propagated would 500 on a member who exists and
+        # the retry would hit "Member already exists".
+        bg.add_task(mailer.send, email,
+                    *mail_templates.invite(invite_url, p.user.name, name, INVITE_DAYS),
+                    reply_to=p.user.email)
+
+    out = _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id)), pending)
+    # Returned so an admin can hand the link over directly -- the most common reason an invite
+    # "never arrived" is a spam folder, and the answer should not be to send it again.
+    out["invite_url"] = invite_url
+    return out
 
 
 @router.patch("/members/{member_id}")

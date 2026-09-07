@@ -54,16 +54,28 @@ function InviteForm({ roles, inviteMutation }) {
   const [authSource, setAuthSource] = useState(GUEST_AUTH_SOURCE);
   const [roleId, setRoleId] = useState("");
   const [message, setMessage] = useState("");
+  // The invite link, kept after a successful invite. An admin needs a way to hand it over
+  // directly: the most common reason an invite "never arrived" is a spam folder, and the answer
+  // to that should not be to send the same email again.
+  const [inviteUrl, setInviteUrl] = useState("");
 
   useEffect(() => {
     if (roleId || !roles.length) return;
-    const guestRole = roles.find((role) => role.key === GUEST_ROLE_KEY);
-    setRoleId((guestRole || roles[0]).id);
+    // Match the server's rule (console.guest_role_of): the least privileged role, meaning the
+    // highest sort among non-leadership ones. The old fallback was roles[0] when "jv_partner"
+    // was missing -- which on any workspace but Utah Life's meant this disabled box read
+    // "Owner" while the server was quietly assigning the bottom role. A field that names the
+    // wrong answer is worse than one that names none.
+    const guestRole = roles.find((role) => role.key === GUEST_ROLE_KEY)
+      || [...roles].sort((a, b) =>
+           (a.is_leadership ? 1 : 0) - (b.is_leadership ? 1 : 0) || (b.sort || 0) - (a.sort || 0))[0];
+    setRoleId(guestRole.id);
   }, [roleId, roles]);
 
   async function submit(event) {
     event.preventDefault();
     setMessage("");
+    setInviteUrl("");
     const body = {
       full_name: fullName,
       email,
@@ -72,12 +84,18 @@ function InviteForm({ roles, inviteMutation }) {
     };
     if (authSource !== GUEST_AUTH_SOURCE) body.role_id = roleId;
     try {
-      await inviteMutation.mutateAsync(body);
+      const result = await inviteMutation.mutateAsync(body);
       setFullName("");
       setEmail("");
       setMarket("");
       setAuthSource(GUEST_AUTH_SOURCE);
-      setMessage(COPY.rosterInvited);
+      // No link means this address already had an account, so nothing was emailed and there is
+      // nothing to hand over -- they can already sign in. Saying so is more use than a bare
+      // "Invited", which would leave an admin waiting for an email that is not coming.
+      setInviteUrl(result?.invite_url || "");
+      setMessage(result?.invite_url
+        ? COPY.rosterInvited
+        : "Added. They already had an account, so no invite was needed.");
     } catch (err) {
       setMessage(err.detail || err.message);
     }
@@ -114,6 +132,16 @@ function InviteForm({ roles, inviteMutation }) {
           </select>
         </Field>
         {message ? <p className="roster-form-message">{message}</p> : null}
+        {inviteUrl ? (
+          <>
+            <p className="console-help" style={{ marginBottom: 6 }}>
+              Their invite has been emailed. If it does not arrive, send them this link — it
+              works once and expires in a week.
+            </p>
+            <input className="console-invite-link" readOnly value={inviteUrl}
+                   onFocus={(event) => event.target.select()} />
+          </>
+        ) : null}
         <Button type="submit" tone="primary" busy={inviteMutation.isPending}>{COPY.rosterInvite}</Button>
       </form>
     </Panel>

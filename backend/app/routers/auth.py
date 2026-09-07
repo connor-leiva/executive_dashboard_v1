@@ -46,7 +46,8 @@ def _aware(d):
     return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
 
 
-async def _tenant_apps(s: AsyncSession, tenant: Tenant) -> list[dict]:
+async def _tenant_apps(s: AsyncSession, tenant: Tenant, user: User,
+                       dashboard_tabs: list[str]) -> list[dict]:
     """The apps this workspace can open.
 
     ENTITLEMENT IS NOT ENOUGH; the portal has to actually EXIST. Those are two different
@@ -59,7 +60,20 @@ async def _tenant_apps(s: AsyncSession, tenant: Tenant) -> list[dict]:
     So the link appears once the workspace has been bootstrapped, which provisioning now does.
     Existing workspaces that predate that see no change until somebody sets theirs up.
     """
-    apps = [{"id": "dashboard", "name": "Dashboard", "href": "/"}]
+    apps = []
+    # THE DASHBOARD IS NOT UNIVERSAL EITHER, for the same reason the Intranet link is not. A
+    # portal member -- a buyer agent invited through the console -- carries no dashboard tabs on
+    # purpose: the executive numbers are not theirs. Offering them a Dashboard whose every screen
+    # is empty is the identical mistake, and it reads as the product being broken rather than as
+    # a permission they do not have. Owners and admins always have tabs, so nothing changes for
+    # them. If a workspace somehow leaves a person with neither app, the client falls back to
+    # showing the dashboard rather than an empty switcher.
+    # An OWNER OR ADMIN always keeps the dashboard, even with nothing on it. A freshly
+    # provisioned workspace has no businesses yet, so its tab list is genuinely empty -- and the
+    # dashboard is where its owner goes to add them. Sending them to the portal instead would
+    # lock the workspace out of its own setup, which is a far worse failure than an empty screen.
+    if user.role in ("owner", "admin") or dashboard_tabs:
+        apps.append({"id": "dashboard", "name": "Dashboard", "href": "/"})
     if plans.allows(tenant, "intranet"):
         exists = (await s.execute(select(IntranetWorkspace.tenant_id).where(
             IntranetWorkspace.tenant_id == tenant.id).limit(1))).first()
@@ -186,7 +200,7 @@ async def me(user: User = Depends(current_user), s: AsyncSession = Depends(get_s
     return MeResponse(id=str(user.id), email=user.email, name=user.name, role=user.role,
                       status=user.status, tenant=tenant.slug, tenant_name=tenant.name,
                       tabs=tabs, brand=roles.brand(tenant),
-                      apps=await _tenant_apps(s, tenant),
+                      apps=await _tenant_apps(s, tenant, user, tabs),
                       # Filtered to what this user may see, so the rail cannot render a tab
                       # the API would refuse — the nav and the grant come from one source.
                       nav=[d for d in descriptors if d["key"] in granted])

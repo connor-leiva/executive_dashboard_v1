@@ -67,11 +67,11 @@
         "preview:console",
         "--",
         "--port",
-        "4180",
+        "4181",
         "--host"
       ],
-      "port": 4180,
-      "url": "http://localhost:4180"
+      "port": 4181,
+      "url": "http://localhost:4181"
     }
   ]
 }

@@ -641,7 +641,9 @@ async def test_the_portal_link_appears_only_once_the_portal_exists():
     # Bootstrapped by provisioning, so it exists and the link should show.
     async with SessionLocal() as s:
         tenant = await s.get(Tenant, tid)
-        apps = await _tenant_apps(s, tenant)
+        owner = (await s.execute(select(User).where(
+            User.tenant_id == tid, User.role == "owner"))).scalars().first()
+        apps = await _tenant_apps(s, tenant, owner, ["portfolio"])
     assert "intranet" in {a["id"] for a in apps}
 
     # Now remove the workspace row: entitled, but nothing set up. The link must disappear.
@@ -652,9 +654,45 @@ async def test_the_portal_link_appears_only_once_the_portal_exists():
         await s.commit()
     async with SessionLocal() as s:
         tenant = await s.get(Tenant, tid)
-        apps = await _tenant_apps(s, tenant)
+        owner = (await s.execute(select(User).where(
+            User.tenant_id == tid, User.role == "owner"))).scalars().first()
+        apps = await _tenant_apps(s, tenant, owner, ["portfolio"])
     assert "intranet" not in {a["id"] for a in apps}, (
         "an entitled workspace with no portal was offered a link to one")
+
+
+async def test_a_portal_member_is_not_offered_a_dashboard_they_cannot_use():
+    """The same rule as the Intranet link above, pointed the other way.
+
+    Somebody invited through the console is a portal member -- a buyer agent, an ISA -- and
+    carries no dashboard tabs on purpose, because the executive numbers are not theirs. Offering
+    them a Dashboard whose every screen is empty reads as the product being broken rather than as
+    a permission they were never given.
+    """
+    from app.routers.auth import _tenant_apps
+
+    tid = await _provision("portalco", hostname="portalco.internal",
+                           owner_email="owner@portalco.test", plan="portfolio")
+    async with SessionLocal() as s:
+        tenant = await s.get(Tenant, tid)
+        # An owner: tabs, so both apps.
+        owner = (await s.execute(select(User).where(
+            User.tenant_id == tid, User.role == "owner"))).scalars().first()
+        member = User(tenant_id=tid, email="agent@portalco.test", name="A", password_hash=None,
+                      role="member", status="invited", tab_access=[], token_version=0)
+        s.add(member)
+        await s.flush()
+
+        both = {a["id"] for a in await _tenant_apps(s, tenant, owner, ["portfolio", "flywheel"])}
+        assert both == {"dashboard", "intranet"}, both
+        # A portal member: no tabs, so the portal only.
+        only = {a["id"] for a in await _tenant_apps(s, tenant, member, [])}
+        assert only == {"intranet"}, only
+        # ...but an OWNER of a workspace that has nothing set up yet keeps the dashboard, because
+        # that is where they go to set it up. Redirecting them would lock a new workspace out of
+        # its own configuration.
+        empty_owner = {a["id"] for a in await _tenant_apps(s, tenant, owner, [])}
+    assert "dashboard" in empty_owner, empty_owner
 
 
 async def test_provisioning_takes_a_plan_and_refuses_one_that_does_not_exist():

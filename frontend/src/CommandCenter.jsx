@@ -1067,6 +1067,18 @@ function UserMenu({ user }) {
   );
 }
 
+// One-shot guard for the portal bounce below. sessionStorage so it clears with the tab: a new
+// visit should get the redirect again, a bounce that came straight back should not.
+const PORTAL_BOUNCE_KEY = "cc_portal_bounce";
+
+function bounced() {
+  try { return sessionStorage.getItem(PORTAL_BOUNCE_KEY) === "1"; } catch { return false; }
+}
+
+function markBounced() {
+  try { sessionStorage.setItem(PORTAL_BOUNCE_KEY, "1"); } catch { /* private mode: bounce once */ }
+}
+
 function useMe() {
   const [user, setUser] = useState(null);
   useEffect(() => {
@@ -1083,6 +1095,32 @@ function useMe() {
     let alive = true;
     getJSON("/me").then((u) => {
       if (!alive) return;
+      // A PORTAL MEMBER DOES NOT BELONG HERE. Somebody invited through the team console carries
+      // no dashboard tabs on purpose — the executive numbers are not theirs — so this shell
+      // would render an empty rail and a blank page, which reads as the product being broken
+      // rather than as a permission they never had. The server already leaves Dashboard out of
+      // their app list; this sends them to the one app they do have.
+      //
+      // Keyed on the SERVER's app list rather than on a tab count re-derived here, so the two
+      // cannot disagree. The server keeps the dashboard for owners and admins even when it is
+      // empty -- a freshly provisioned workspace has no businesses yet, and the dashboard is
+      // where its owner adds them -- so this only ever moves an actual portal member.
+      const apps = Array.isArray(u.apps) ? u.apps : [];
+      const portal = apps.find((a) => a.id === "intranet");
+      if (apps.length && !apps.some((a) => a.id === "dashboard") && portal && !bounced()) {
+        // ONCE, and never again this tab. If whatever serves that path hands back THIS bundle --
+        // a missing intranet build, or a server whose SPA fallback catches every route -- an
+        // unguarded redirect is an infinite loop that also hammers /me on every pass. Not
+        // hypothetical: verified against a preview serving one bundle for both paths, and the
+        // network log was /me -> /intranet/ -> /me forever.
+        //
+        // Having bounced once, fall through and render the dashboard instead. It is empty for
+        // this person, but the app switcher still offers the portal, and an empty screen you can
+        // navigate out of beats a tab that never settles.
+        markBounced();
+        window.location.replace(portal.href);
+        return;
+      }
       setUser(u);
       // Identity lands before first paint of the shell, so the wordmark and the tab title
       // are this tenant's from the start rather than flashing another's.
