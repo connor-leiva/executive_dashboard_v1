@@ -1426,12 +1426,58 @@ function Marketing({ config, canConfigure }) {
   );
 }
 
-function Directory() {
+/* THE ROSTER WAS ALREADY THERE. This screen said "Directory is empty" while intranet_member held
+ * the whole team -- admin-only, with no member-facing read. It is the first thing a new starter
+ * looks for and it told them their workspace had nobody in it.
+ *
+ * Leadership first, then everyone else alphabetically. Not a ranking: a new agent looking for
+ * "who do I ask" needs the people whose job that is at the top, and everyone else in an order
+ * they can scan.
+ */
+function Directory({ config }) {
+  const people = config?.content?.directory || [];
+  const ordered = [...people].sort((a, b) =>
+    (b.is_leadership ? 1 : 0) - (a.is_leadership ? 1 : 0) || a.name.localeCompare(b.name));
+
+  if (!ordered.length) {
+    return (
+      <Page title="Who's Who" subtitle="Everyone in this workspace.">
+        <Panel title="Nobody yet">
+          <p className="ut-empty">
+            People appear here once they are added to the roster in the console.
+          </p>
+        </Panel>
+      </Page>
+    );
+  }
+
   return (
-    <Page title="Who's Who" subtitle="Team roster shell.">
-      <Panel title="Directory">
-        <Empty title="Directory is empty">Team profiles will come from tenant configuration or a connected roster source.</Empty>
-      </Panel>
+    <Page title="Who's Who" subtitle={`${ordered.length} ${ordered.length === 1 ? "person" : "people"} in this workspace.`}>
+      <div className="ut-directory">
+        {ordered.map((person) => (
+          <div className="ut-person" key={person.id}>
+            <div className="ut-person-head">
+              {person.photo_url
+                ? <img className="ut-person-photo" src={fileUrl(person.photo_url)} alt=""
+                       onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                : <span className="ut-person-initials">{initials(person.name)}</span>}
+              <div>
+                <strong>{person.name}</strong>
+                <em>{person.title || person.role}{person.market ? ` · ${person.market}` : ""}</em>
+              </div>
+            </div>
+            {person.owns ? <p className="ut-person-owns"><span>Owns</span> {person.owns}</p> : null}
+            {person.bio ? <p className="ut-page-body">{person.bio}</p> : null}
+            <div className="ut-person-contact">
+              {/* mailto and tel rather than plain text: on a phone this page IS how somebody
+                  calls a colleague, and making them retype a number is the difference between
+                  a directory and a list of names. */}
+              {person.email ? <a href={`mailto:${person.email}`}>{person.email}</a> : null}
+              {person.phone ? <a href={`tel:${person.phone}`}>{person.phone}</a> : null}
+            </div>
+          </div>
+        ))}
+      </div>
     </Page>
   );
 }
@@ -1545,7 +1591,7 @@ export default function IntranetApp() {
         <Route path="/numbers" element={<Numbers config={boot.config} />} />
         <Route path="/calendar" element={<Calendar config={boot.config} canConfigure={boot.canConfigure} saveConfig={boot.saveConfig} />} />
         <Route path="/marketing" element={<Marketing config={boot.config} canConfigure={boot.canConfigure} />} />
-        <Route path="/directory" element={<Directory />} />
+        <Route path="/directory" element={<Directory config={boot.config} />} />
         <Route path="/brand" element={<BrandKit config={boot.config} />} />
         <Route path="/ask" element={<Ask config={boot.config} me={boot.me} />} />
         <Route path="/sunburst" element={<SunburstPage />} />

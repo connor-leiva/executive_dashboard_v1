@@ -242,6 +242,21 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     courses = [c for c in courses
                if c.id not in course_audience or my_role in course_audience[c.id]]
 
+    # ── who's who ────────────────────────────────────────────────────────────────────────
+    # ACTIVE MEMBERS ONLY. An invited colleague has not arrived and a removed one has left, and
+    # a directory listing either is one people stop trusting. Ordered by name, because this is a
+    # list somebody scans for a person rather than a ranking.
+    #
+    # The whole roster is visible to the whole workspace -- that is what a staff directory is --
+    # but only the fields a colleague needs in order to work with somebody. Nothing about their
+    # account, their status history, or how they sign in.
+    directory_rows = (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == tenant_id,
+        IntranetMember.status == "Active",
+    ).order_by(IntranetMember.full_name))).scalars().all()
+    role_names = {r.id: r.name for r in roles}
+    leadership = {r.id for r in roles if r.is_leadership}
+
     # ── the workspace's own pages ────────────────────────────────────────────────────────
     pages = (await s.execute(select(IntranetPage).where(
         IntranetPage.tenant_id == tenant_id,
@@ -407,6 +422,12 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
                                  for le in lessons_by_course.get(c.id, [])]}
                     for c in courses],
         "sops": [_sop_out(sop) for sop in sops],
+        "directory": [{"id": str(m.id), "name": m.full_name, "title": m.title,
+                       "role": role_names.get(m.role_id), "market": m.market,
+                       "email": m.email, "phone": m.phone, "bio": m.bio, "owns": m.owns,
+                       "is_leadership": m.role_id in leadership,
+                       "photo_url": (f"/intranet/directory/{m.id}/photo" if m.photo_key else None)}
+                      for m in directory_rows],
         # Pages this workspace wrote for itself. The rail builds its own entries from these, so
         # a page that is unpublished, inactive, or not for this role never reaches the browser
         # at all rather than being hidden once it gets there.
@@ -896,6 +917,36 @@ async def acknowledge_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
         await s.commit()
         await s.refresh(existing)
     return {"acknowledged_at": _iso(existing.acknowledged_at)}
+
+
+@router.get("/directory/{member_id}/photo")
+async def directory_photo(member_id: uuid.UUID, user: User = Depends(current_user),
+                          s: AsyncSession = Depends(get_session)):
+    """A colleague's photo, proxied and behind the session.
+
+    NOT on the public asset route the logos use. A workspace's mark is public by nature -- it is
+    on their sign-in screen -- and a photograph of a member of staff is not. This one requires a
+    session and is scoped to the caller's own workspace, so a photo cannot be pulled by guessing
+    an id from somewhere else.
+    """
+    await _enabled_tenant(s, user)
+    if await _member_for(s, user) is None:
+        raise HTTPException(404, "Not found")
+    row = (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == user.tenant_id,
+        IntranetMember.id == member_id,
+        IntranetMember.status == "Active",
+    ))).scalars().first()
+    if row is None or not row.photo_key or not binder_storage.exists(row.photo_key):
+        raise HTTPException(404, "Not found")
+    data = binder_storage.read(row.photo_key)
+    media = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+             "webp": "image/webp"}.get(row.photo_key.rsplit(".", 1)[-1].lower(), "image/jpeg")
+    # Inline, unlike the SOP documents: this is displayed in an <img>, and its type comes from
+    # the short list of image formats the console accepted on upload rather than from anything
+    # the uploader declared.
+    return Response(content=data, media_type=media,
+                    headers={"Cache-Control": "private, max-age=300"})
 
 
 @router.get("/sops/{sop_id}/file")

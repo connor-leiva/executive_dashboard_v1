@@ -1027,3 +1027,103 @@ def test_pages_joined_the_publish_cycle_without_being_told_to():
 
     names = {m.__name__ for m in _publishable_models()}
     assert {"IntranetPage", "IntranetPageSection", "IntranetPageRole"} <= names
+
+
+# -- Who's Who -----------------------------------------------------------------------------
+# The roster was already there. This screen said "Directory is empty" while intranet_member held
+# the whole team, admin-only, with no member-facing read -- the first thing a new starter looks
+# for, telling them their workspace had nobody in it.
+
+async def _roster(slug: str):
+    from app.models import IntranetMember, IntranetRole
+
+    host, tenant, tokens = await _tenant(slug, intranet=True)
+    now = dt.datetime.now(dt.timezone.utc)
+    async with SessionLocal() as s:
+        agent = IntranetRole(tenant_id=tenant.id, key="agent", name="Agent", sort=1,
+                             published_at=now)
+        leader = IntranetRole(tenant_id=tenant.id, key="leader", name="Team Leader", sort=2,
+                              is_leadership=True, published_at=now)
+        s.add_all([agent, leader])
+        await s.flush()
+        s.add_all([
+            IntranetMember(tenant_id=tenant.id, full_name="Zoe Agent",
+                           email=f"member@{slug}.test", role_id=agent.id, status="Active",
+                           auth_source="Manual", title="Buyer Agent", market="Salt Lake",
+                           phone="801-555-0100", owns="Buyer pipeline",
+                           bio="Ten years in residential."),
+            IntranetMember(tenant_id=tenant.id, full_name="Alice Leader",
+                           email=f"lead@{slug}.test", role_id=leader.id, status="Active",
+                           auth_source="Manual", title="Team Leader"),
+            # Neither of these has arrived, or has left.
+            IntranetMember(tenant_id=tenant.id, full_name="Invited Person",
+                           email=f"invited@{slug}.test", role_id=agent.id, status="Invited",
+                           auth_source="Manual"),
+            IntranetMember(tenant_id=tenant.id, full_name="Gone Person",
+                           email=f"gone@{slug}.test", role_id=agent.id, status="Removed",
+                           auth_source="Manual"),
+        ])
+        await s.commit()
+    return host, tokens, tenant
+
+
+async def test_the_directory_lists_the_workspaces_own_people():
+    host, tokens, _ = await _roster("dirmine")
+    people = (await _content(host, tokens["member"]))["directory"]
+    by_name = {p["name"]: p for p in people}
+
+    assert set(by_name) == {"Zoe Agent", "Alice Leader"}, (
+        "an invited or removed colleague was listed as if they were here")
+    zoe = by_name["Zoe Agent"]
+    assert zoe["title"] == "Buyer Agent" and zoe["role"] == "Agent"
+    assert zoe["market"] == "Salt Lake"
+    assert zoe["phone"] == "801-555-0100"
+    assert zoe["owns"] == "Buyer pipeline"
+    assert zoe["bio"].startswith("Ten years")
+    assert by_name["Alice Leader"]["is_leadership"] is True
+    assert zoe["is_leadership"] is False
+
+
+async def test_the_directory_says_nothing_about_how_somebody_signs_in():
+    """A staff directory is the whole roster shown to the whole team, so what it carries matters.
+    Account state -- auth_source, status history, the linked user id -- is the console's business
+    and nobody else's."""
+    host, tokens, _ = await _roster("dirfields")
+    people = (await _content(host, tokens["member"]))["directory"]
+    leaked = {k for p in people for k in p} & {
+        "auth_source", "status", "user_id", "invited_at", "activated_at", "removed_at",
+        "last_synced_at", "photo_key", "role_id",
+    }
+    assert not leaked, f"the directory exposed account fields: {sorted(leaked)}"
+
+
+async def test_a_photo_needs_a_session_and_belongs_to_one_workspace():
+    """Unlike a workspace's logo, a photograph of a member of staff is not public."""
+    from app.models import IntranetMember
+    from app.services import binder_storage
+
+    host_a, tokens_a, tenant_a = await _roster("dirphotoa")
+    host_b, tokens_b, _ = await _roster("dirphotob")
+    async with SessionLocal() as s:
+        member = (await s.execute(select(IntranetMember).where(
+            IntranetMember.tenant_id == tenant_a.id,
+            IntranetMember.full_name == "Zoe Agent"))).scalar_one()
+        member.photo_key = binder_storage.store(tenant_a.id, member.id, "zoe.png", b"\x89PNG fake")
+        await s.commit()
+        member_id = member.id
+
+    async with _client() as c:
+        mine = await c.get(f"/api/v1/intranet/directory/{member_id}/photo",
+                           headers=_H(tokens_a["member"], host_a))
+        crossed = await c.get(f"/api/v1/intranet/directory/{member_id}/photo",
+                              headers=_H(tokens_b["member"], host_b))
+        anonymous = await c.get(f"/api/v1/intranet/directory/{member_id}/photo",
+                                headers={"x-tenant-host": host_a})
+    assert mine.status_code == 200 and mine.content == b"\x89PNG fake"
+    assert crossed.status_code == 404, "another workspace could read a colleague's photo"
+    assert anonymous.status_code in (401, 403), "a photo was served without a session"
+
+    # ...and it is offered in the payload only once there is one to serve.
+    people = {p["name"]: p for p in (await _content(host_a, tokens_a["member"]))["directory"]}
+    assert people["Zoe Agent"]["photo_url"] == f"/intranet/directory/{member_id}/photo"
+    assert people["Alice Leader"]["photo_url"] is None

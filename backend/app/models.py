@@ -250,6 +250,16 @@ class IntranetMember(Base):
     email: Mapped[str] = mapped_column(String(255))
     role_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("intranet_role.id"), nullable=False)
     market: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ── profile ──────────────────────────────────────────────────────────────────────────
+    # What a colleague needs to know to work with somebody: what they do, how to reach them,
+    # and what they own. NOT publishable, deliberately -- the roster is operational fact, not
+    # staged content, and a new hire's phone number should not wait for somebody to press
+    # Publish before the team can call them.
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    phone: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owns: Mapped[str | None] = mapped_column(Text, nullable=True)
+    photo_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     auth_source: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

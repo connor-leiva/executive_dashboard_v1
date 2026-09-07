@@ -512,6 +512,10 @@ def _member(row: IntranetMember, roles: dict[uuid.UUID, IntranetRole] | None = N
         "auth_source": row.auth_source, "status": row.status,
         "invited_at": _iso(row.invited_at), "activated_at": _iso(row.activated_at),
         "removed_at": _iso(row.removed_at), "last_synced_at": _iso(row.last_synced_at),
+        # Profile. Returned so the console can edit what the directory shows -- an admin editing
+        # a colleague's title should see the one already set rather than a blank box.
+        "title": row.title, "bio": row.bio, "phone": row.phone, "owns": row.owns,
+        "has_photo": bool(row.photo_key),
     }
 
 
@@ -1800,7 +1804,8 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
                        p: ConsolePrincipal = Depends(require_console_access),
                        s: AsyncSession = Depends(get_session)):
     body = _body(body)
-    _unknown(body, {"full_name", "email", "role_id", "market", "status", "auth_source"})
+    _unknown(body, {"full_name", "email", "role_id", "market", "status", "auth_source",
+                    "title", "bio", "phone", "owns"})
     row = await _one(s, IntranetMember, p.user.tenant_id, member_id)
     roles = await _roles_by_id(s, p.user.tenant_id)
     old_role = roles.get(row.role_id)
@@ -1834,6 +1839,13 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
         summary = f"Changed {row.full_name} from {old_role.name if old_role else 'Unknown'} to {new_role.name}"
     else:
         summary = f"Updated roster record for {row.full_name}"
+    # Profile fields. Optional and nullable: a roster row is useful with none of them, and an
+    # admin filling in one person's phone number should not have to supply their bio as well.
+    for field in ("title", "bio", "phone", "owns"):
+        if field in body:
+            setattr(row, field,
+                    _text(body, field, nullable=True, max_len=4000 if field == "bio" else 200))
+
     pending = await _record_mutation(
         s, p, action=action, category="People",
         summary=summary, target_type="member",
