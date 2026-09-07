@@ -419,3 +419,81 @@ async def test_create_requires_admin_and_reprices():
                          headers={"Authorization": f"Bearer {tok}"})
         assert r2.status_code == 200, r2.text
         assert r2.json()["seat_target"] < 77
+
+
+async def test_a_member_who_enrolled_without_a_booked_call_still_counts_as_a_seat():
+    """Enrolled read 19 against a stage of 22 where 20 was right (Connor, 2026-09-07).
+
+    Seats were counted off the four-type Payment Type, which only exists on a SalesCall row —
+    and a SalesCall row only exists for an opp with a booking, an outcome or a rep. Somebody
+    who enrolled with none of those was dropped from the headline while the audit drawer,
+    reading the opportunity snapshot, still listed them. The comped members (no payment type
+    at all) must STILL be excluded, which is the distinction the old code lost.
+    """
+    import datetime as dt
+    from app.db import SessionLocal
+    from app.models import Business, Launch, MetricRecord, SalesCall
+    from app.services.launch import (compute_launch, DEFAULT_STAGE_MAP,
+                                     DEFAULT_PAYMENT_PLAN_MAP)
+    from sqlalchemy import select, delete
+
+    PRICES = {"PIF": {"acv": 12000, "upfront": 12000},
+              "Financed": {"acv": 14000, "upfront": 5000, "monthly": 750, "months": 12},
+              "Monthly": {"acv": 13000, "upfront": 1000, "monthly": 1000, "months": 12},
+              "Custom": {"acv": None}}
+
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(SalesCall))
+        await s.execute(delete(Launch).where(Launch.business_id == biz.id))
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.business_id == biz.id, MetricRecord.kind == "bc_launch_opp"))
+        launch = Launch(tenant_id=biz.tenant_id, business_id=biz.id, name="P",
+                        program="beCollective", window_start=dt.date(2026, 8, 1),
+                        window_end=dt.date(2026, 9, 12), goal_arr=1_000_000, ticket_pif=12000,
+                        ticket_plan=14000, price_map=PRICES, goal_basis="seats", seat_goal=40,
+                        stage_map=DEFAULT_STAGE_MAP, payment_plan_map=DEFAULT_PAYMENT_PLAN_MAP,
+                        pipeline_match="be collective experience #1 sales")
+        s.add(launch)
+        await s.flush()
+        lid = str(launch.id)
+
+        def opp(eid, payment_type):
+            s.add(MetricRecord(
+                tenant_id=biz.tenant_id, business_id=biz.id, source="ghl", kind="bc_launch_opp",
+                external_id=eid, status="won",
+                meta={"launch_id": lid, "group": "enrolled", "payment_type": payment_type}))
+
+        def call(eid, four_type):
+            s.add(SalesCall(tenant_id=biz.tenant_id, launch_id=launch.id, opportunity_id=eid,
+                            booking_id=f"b{eid}", contact_name=eid, is_current=True,
+                            payment_type=four_type,
+                            call_time_utc=dt.datetime(2026, 8, 20, 15, tzinfo=dt.timezone.utc)))
+
+        for i in range(3):                       # ordinary members: call logged, four-type known
+            opp(f"pif{i}", "pif")
+            call(f"pif{i}", "PIF")
+        # Cortni: a real payment type on the opportunity, but no booking, outcome or rep — so
+        # sync never wrote a SalesCall row and her four-type is nowhere in the database.
+        opp("cortni", "plan")
+        # Beth and Lauren: comped. No payment type anywhere, and they must stay out of the count.
+        opp("beth", None)
+        opp("lauren", None)
+        await s.commit()
+        lid_uuid = launch.id
+
+    async with SessionLocal() as s:
+        launch = (await s.execute(select(Launch).where(Launch.id == lid_uuid))).scalar_one()
+        d = await compute_launch(s, launch.tenant_id, launch, today=dt.date(2026, 8, 25))
+
+    assert d["enrolled"]["seats"] == 4, "3 with calls + Cortni; the two comped stay out"
+    # The audit drawer counts the STAGE, and must still show all six - the comped members are
+    # members, they just are not paid seats. That gap between 6 and 4 is the intended one.
+    async with SessionLocal() as s:
+        launch2 = (await s.execute(select(Launch).where(Launch.id == lid_uuid))).scalar_one()
+        from app.services.launch import _launch_opps, group_counts
+        opps = await _launch_opps(s, launch2.tenant_id, launch2.business_id, launch2)
+    assert group_counts(opps)["enrolled"] == 6
+    # Priced, not silently free: 3 x 12000 known, Cortni at the blended price of the known ones.
+    assert d["enrolled"]["arr"] == 12000 * 3 + 12000
+    assert any("blended price" in w for w in d["warnings"]), d["warnings"]

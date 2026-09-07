@@ -457,8 +457,25 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
         counts = grp_counts.get(group) if price_map else None
         if counts:                                     # four-type ARR from the real Payment Type
             arr = sum(((price_map.get(t) or {}).get("acv") or 0) * counts.get(t, 0) for t in PAYMENT_TYPES)
-            return {"pif": counts.get("PIF", 0), "plan": counts.get("Financed", 0) + counts.get("Monthly", 0),
-                    "seats": sum(counts.values()), "arr": arr, "mix": dict(counts)}
+            # HEADCOUNT COMES FROM THE MEMBER, NOT FROM THE PRICE.
+            #
+            # `counts` holds only members whose four-type Payment Type reached a SalesCall row,
+            # and a SalesCall row only exists for an opp with a booking, an outcome or a rep.
+            # Somebody who enrolled without a booked call has none of those, so they were
+            # dropped from the seat count while the audit drawer - which reads the opportunity
+            # snapshot, and has always had a fallback classifier - still listed them. Enrolled
+            # read 19 against a stage of 22 where 20 was right (Connor, 2026-09-07).
+            #
+            # So seats and the pif/plan split come from each member's own payment_type, which
+            # is resolved for everyone who paid and is null exactly for the comped members the
+            # count is supposed to exclude.
+            paid = sum(1 for o in opps if o.get("group") == group and o.get("payment_type"))
+            # Those extra members are real and unpriced. Charging them the blended price keeps
+            # ARR consistent with the seat count instead of quietly pricing 19 of 20 seats -
+            # the same treatment `deciding` already gets, and surfaced as a warning below.
+            arr += max(0, paid - sum(counts.values())) * blended
+            return {"pif": legacy_split["pif"], "plan": legacy_split["plan"],
+                    "seats": max(paid, sum(counts.values())), "arr": arr, "mix": dict(counts)}
         return _priced(legacy_split, launch)           # legacy two-price fallback (unchanged; mix omitted)
 
     # Seat-primary launches target a member count directly (e.g. "100 women"); ARR-primary
@@ -511,6 +528,16 @@ async def compute_launch(s, tenant_id, launch: Launch, today=None) -> dict:
                      and o.get("payment_type") not in ("pif", "plan", "custom"))
     if unknown_pt:
         warnings.append(f"{unknown_pt} opps unknown payment type")
+    # Paid members with no four-type on a call record: counted as seats, priced at blended.
+    # Named separately from "unknown payment type" because these DID pay - the gap is that we
+    # cannot tell PIF from Financed from Monthly for them, not that we cannot tell if they paid.
+    if price_map and grp_counts:
+        blended_priced = sum(
+            max(0, sum(1 for o in opps if o.get("group") == grp and o.get("payment_type"))
+                - sum((grp_counts.get(grp) or {}).values()))
+            for grp in ("committed", "enrolled"))
+        if blended_priced:
+            warnings.append(f"{blended_priced} paid at blended price (no Payment Type on a call)")
 
     shift = await compute_shift(s, tenant_id, launch, seat_target, today)
 
