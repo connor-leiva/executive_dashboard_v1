@@ -45,12 +45,17 @@ function LogoSlot({ slot, workspace, busy, onUpload }) {
   async function submit(event) {
     event.preventDefault();
     if (!file) return;
+    // Captured BEFORE the await. React clears the synthetic event's currentTarget once
+    // the handler yields, so reading it after an await is null -- which threw
+    // "Cannot read properties of null (reading 'reset')" AFTER the upload had already
+    // succeeded, painting a red error over work that worked.
+    const form = event.currentTarget;
     setError("");
     setMessage("");
     try {
       await onUpload(slot.kind, file);
       setFile(null);
-      event.currentTarget.reset();
+      form.reset();
       setMessage(COPY.brandStoredKey);
     } catch (err) {
       setError(err.message || COPY.loadFailed);

@@ -165,10 +165,14 @@ function VersionUpload({ busy, onUpload }) {
   async function submit(event) {
     event.preventDefault();
     if (!file) return;
+    // Same trap as the brand logo slots: currentTarget is null after the await, so it is read
+    // now. Here it had no try/catch either, so the throw became an unhandled rejection on an
+    // upload that had already stored the document.
+    const form = event.currentTarget;
     await onUpload(versionLabel, file);
     setVersionLabel("");
     setFile(null);
-    event.currentTarget.reset();
+    form.reset();
   }
 
   return (
