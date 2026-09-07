@@ -833,3 +833,69 @@ async def test_a_call_list_without_a_connected_provider_has_no_link():
         cfg = (await c.get("/api/v1/intranet/config",
                            headers=_H(tokens["member"], host))).json()["config"]
     assert cfg["content"]["wtd_lists"][0]["url"] is None
+
+
+# -- the workspace's own colours -----------------------------------------------------------
+# IntranetWorkspace.palette has been authored by the console since it shipped and read by
+# nothing, so every workspace's portal wore the same five colours whatever their admin picked.
+
+async def test_the_palette_reaches_the_portal():
+    from app.models import IntranetWorkspace
+
+    host, tenant, tokens = await _tenant("palettemine", intranet=True)
+    async with SessionLocal() as s:
+        s.add(IntranetWorkspace(
+            tenant_id=tenant.id, portal_name="Mine", subdomain="palettemine",
+            palette={"ink": "#2B1B3D", "brand": "#7A4E9B", "accent": "#E0C36B",
+                     "canvas": "#F4EFE8"},
+            published_at=dt.datetime.now(dt.timezone.utc)))
+        await s.commit()
+
+    async with _client() as c:
+        cfg = (await c.get("/api/v1/intranet/config",
+                           headers=_H(tokens["member"], host))).json()["config"]
+    assert cfg["workspace"]["palette"]["ink"] == "#2B1B3D"
+    assert cfg["workspace"]["palette"]["brand"] == "#7A4E9B"
+
+
+def test_an_unreadable_ink_is_refused_rather_than_rendered():
+    """Ink is the body text colour as well as the navigation background, so a pale one is not a
+    stylistic choice the design absorbs -- it is grey text on a white page. Measured live before
+    this check existed: the nav sat at 1.23:1, which is invisible.
+
+    Refused at write time, because no amount of deriving shades rescues text with no contrast
+    against the surface it sits on, and an admin who picked it deserves to be told rather than
+    have it silently adjusted into something they did not choose.
+    """
+    from fastapi import HTTPException
+
+    from app.routers.console import MIN_INK_CONTRAST, _contrast, _palette
+
+    # Sanity on the measure itself, so the threshold means what it says.
+    assert _contrast("#171E22", "#EAE7E6") > MIN_INK_CONTRAST
+    assert _contrast("#EDE7DC", "#EAE7E6") < MIN_INK_CONTRAST
+
+    with pytest.raises(HTTPException) as caught:
+        _palette({"palette": {"ink": "#EDE7DC"}})
+    assert caught.value.status_code == 422
+    # The message has to say WHY, or an admin just tries another pale colour.
+    detail = str(caught.value.detail)
+    assert "too light to read" in detail and "body text" in detail
+
+
+def test_a_readable_ink_is_accepted_and_judged_against_its_own_canvas():
+    from app.routers.console import _palette
+
+    # Dark ink on the default canvas.
+    assert _palette({"palette": {"ink": "#171E22"}})["ink"] == "#171E22"
+    # ...and against the canvas the SAME request sets, not the default: a workspace choosing a
+    # dark canvas and a mid ink is judged on the pair it actually ships.
+    ok = _palette({"palette": {"ink": "#2B1B3D", "canvas": "#F4EFE8"}})
+    assert ok["ink"] == "#2B1B3D" and ok["canvas"] == "#F4EFE8"
+
+
+def test_a_palette_without_an_ink_is_left_alone():
+    """Setting only an accent is legitimate and must not be judged against an ink nobody sent."""
+    from app.routers.console import _palette
+
+    assert _palette({"palette": {"accent": "#E0C36B"}}) == {"accent": "#E0C36B"}

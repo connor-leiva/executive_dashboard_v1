@@ -1,9 +1,3 @@
-export const ROLE_OPTIONS = ["Buyer Agent", "Listing Agent", "Ops / Admin", "Team Leader"];
-
-/* `capability` ties a nav item to the workspace's permissions matrix. An item without one is
-   not gated -- Home and the Brand Kit are not permissions. The server filters the content
-   regardless; this only stops the rail offering a page it would then refuse, which reads as the
-   product being broken rather than as access somebody was never given. */
 export const NAV_GROUPS = [
   {
     label: "Workspace",
@@ -46,46 +40,6 @@ export const NAV_GROUPS = [
       { id: "partners", label: "JV Partners" },
     ],
   },
-];
-
-export const TOOL_GROUPS = [
-  {
-    id: "daily",
-    label: "Daily Work",
-    tools: [
-      { key: "follow_up_boss", name: "Follow Up Boss", note: "CRM and follow-up" },
-      { key: "sisu", name: "Sisu", note: "Production numbers" },
-      { key: "slack", name: "Slack", note: "Team communication" },
-      { key: "google_calendar", name: "Google Calendar", note: "Team schedule" },
-    ],
-  },
-  {
-    id: "learning",
-    label: "Coaching and Learning",
-    tools: [
-      { key: "sunburst", name: "Sunburst", note: "Weekly coaching" },
-      { key: "place", name: "PLACE", note: "Training resources" },
-      { key: "skool", name: "Skool", note: "Community learning" },
-      { key: "training_library", name: "Training Library", note: "Internal lessons" },
-    ],
-  },
-  {
-    id: "marketing",
-    label: "Marketing",
-    tools: [
-      { key: "canva", name: "Canva" },
-      { key: "brand_kit", name: "Brand Kit" },
-      { key: "listing_marketing", name: "Listing Marketing" },
-      { key: "marketing_requests", name: "Requests" },
-    ],
-  },
-];
-
-export const QUICK_LAUNCH = [
-  { key: "sunburst", name: "Sunburst", note: "Weekly plan" },
-  { key: "slack", name: "Slack", note: "Team channels" },
-  { key: "sisu", name: "Sisu", note: "Numbers" },
-  { key: "follow_up_boss", name: "Follow Up Boss", note: "CRM" },
 ];
 
 export const PRIORITY_ITEMS = [

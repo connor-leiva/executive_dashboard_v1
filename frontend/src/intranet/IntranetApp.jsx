@@ -2,13 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 
 import { API_BASE, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
+import { applyPortalPalette } from "./palette.js";
 import {
   NAV_GROUPS,
   ONBOARDING,
   PRIORITY_ITEMS,
-  QUICK_LAUNCH,
-  ROLE_OPTIONS,
-  TOOL_GROUPS,
   WTD_BLOCKS,
 } from "./constants.js";
 
@@ -123,18 +121,28 @@ function formatMoney(value) {
   return `$${formatNumber(n)}`;
 }
 
+/* A REAL PERSON, OR NOTHING INVENTED. This fell back to "Jordan Hale" -- a name belonging to
+   nobody -- so an account whose name was never filled in was greeted, labelled and initialled as
+   somebody who does not exist. The email's local part is the honest next-best thing: it is
+   theirs, and they recognise it. */
 function displayName(me) {
   const name = (me?.name || "").trim();
-  return name && name !== "Preview" ? name : "Jordan Hale";
+  if (name && name !== "Preview") return name;
+  const email = (me?.email || "").trim();
+  return email ? email.split("@")[0] : "";
 }
 
 function firstName(me) {
-  return displayName(me).split(/\s+/)[0] || "Jordan";
+  // Empty rather than a stand-in. "Good morning." is a fine greeting; "Good morning, Jordan."
+  // to somebody who is not Jordan is not.
+  return displayName(me).split(/\s+/)[0] || "";
 }
 
 function initials(name) {
-  const parts = (name || "Jordan Hale").trim().split(/\s+/).filter(Boolean);
-  return ((parts[0]?.[0] || "J") + (parts[1]?.[0] || "H")).toUpperCase();
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  // One initial is correct for a one-word name, and an empty avatar is better than somebody
+  // else's monogram. "JH" was Jordan Hale's.
+  return (parts.slice(0, 2).map((p) => p[0]).join("") || "").toUpperCase();
 }
 
 function activeIdForPath(pathname) {
@@ -150,7 +158,8 @@ function useBootstrap() {
   const refresh = useCallback(async () => {
     if (!API_BASE) {
       setMe({
-        name: "Jordan Hale",
+        // Offline preview only, and named as what it is rather than as a person.
+        name: "Preview User",
         email: "",
         role: "admin",
         tenant_name: "Your Workspace",
@@ -173,6 +182,10 @@ function useBootstrap() {
       const [user, intranet] = await Promise.all([getJSON("/me"), getJSON("/intranet/config")]);
       setMe(user);
       setConfig(mergeDeep(DEFAULT_CONFIG, intranet.config || {}));
+      // Applied here rather than in a component so it happens once, at the same moment as the
+      // rest of the workspace's identity. A palette that arrives later repaints the whole shell
+      // in front of the reader.
+      applyPortalPalette(intranet.config?.workspace?.palette);
       document.title = `${user.tenant_name || user.tenant || "Intranet"} Intranet`;
       setStatus("ready");
     } catch (err) {
@@ -194,6 +207,7 @@ function useBootstrap() {
     }
     const next = await patchJSON("/intranet/config", patch);
     setConfig(mergeDeep(DEFAULT_CONFIG, next.config || {}));
+    applyPortalPalette(next.config?.workspace?.palette);
   }, []);
 
   return {
@@ -488,7 +502,7 @@ function Home({ config, wtd, training, onboarding, me }) {
       <section className="ut-hero">
         <div>
           <div className="ut-date">{now.date}</div>
-          <h1>{now.greeting}, {firstName(me)}.</h1>
+          <h1>{firstName(me) ? `${now.greeting}, ${firstName(me)}.` : `${now.greeting}.`}</h1>
           <p>Your priority queue and production story will populate as tenant sources are configured.</p>
         </div>
         <div className="ut-hero-actions">

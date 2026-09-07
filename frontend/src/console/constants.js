@@ -196,9 +196,12 @@ export const OVERVIEW_COUNTS = [
 ];
 
 export const COPY = {
-  productName: "Utah Life",
+  productName: "Workspace",          // fallback only, until /console/workspace answers
   consoleName: "Admin Console",
-  poweredBy: "Powered by PLACE",
+  // The PLATFORM, not a brokerage. This said "Powered by PLACE" -- one customer's brokerage --
+  // on every tenant's admin console. productName is only a fallback now: the rail reads the
+  // workspace's own name from the API.
+  poweredBy: "Powered by Acumyn",
   loginTitle: "Sign in to continue",
   loginButton: "Sign in",
   tenantHostLabel: "Tenant host",

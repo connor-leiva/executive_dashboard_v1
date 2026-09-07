@@ -18,6 +18,7 @@ import {
   usePreview,
   usePublish,
   useSetupTasks,
+  useWorkspace,
 } from "./queries.js";
 import { Button, ErrorState, Field, LoadingState } from "./ui.jsx";
 import AiAssistant from "./pages/AiAssistant.jsx";
@@ -133,11 +134,18 @@ function PublishStrip({ pendingCount, pendingLoading, publishMutation, discardMu
   );
 }
 
-function Sidebar({ sections }) {
+/* THE WORKSPACE NAMES ITSELF HERE TOO. This rail read "Utah Life / Powered by PLACE" from
+   constants, so every customer who opened their own admin console was shown the first
+   customer's company and their brokerage. The portal was fixed for this months ago; the console
+   was not, and it is the screen an admin spends the most time in.
+
+   `poweredBy` is the PLATFORM, which is Acumyn for every tenant -- that line is ours, not
+   theirs, and it is the same line the portal's footer carries. */
+function Sidebar({ sections, workspaceName }) {
   return (
     <aside className="console-rail">
       <div className="console-brand-lockup">
-        <strong>{COPY.productName}</strong>
+        <strong>{workspaceName || COPY.productName}</strong>
         <span>{COPY.poweredBy}</span>
         <small>{COPY.consoleName}</small>
       </div>
@@ -161,6 +169,7 @@ function Sidebar({ sections }) {
 function Shell({
   children,
   currentTitle,
+  workspaceName,
   overview,
   pendingChanges,
   pendingLoading,
@@ -187,7 +196,7 @@ function Shell({
 
   return (
     <div className="console-app" style={cssVars()}>
-      <Sidebar sections={filteredSections} />
+      <Sidebar sections={filteredSections} workspaceName={workspaceName} />
       <main className="console-main">
         <header className="console-topbar">
           <input
@@ -255,6 +264,9 @@ export default function Console() {
   const setupTasksQuery = useSetupTasks(signedIn);
   const pendingQuery = usePendingChanges(signedIn);
   const previewQuery = usePreview(selectedRole, signedIn);
+  // So the rail can name the workspace instead of the first customer. GET /console/workspace
+  // returns the row directly, not wrapped.
+  const workspaceQuery = useWorkspace(signedIn);
   const setupMutation = usePatchSetupTask();
   const publishMutation = usePublish();
   const discardMutation = useDiscardPending();
@@ -291,6 +303,8 @@ export default function Console() {
     return (
       <Shell
         currentTitle={titleFor(location.pathname)}
+      workspaceName={workspaceQuery.data?.portal_name}
+        workspaceName={workspaceQuery.data?.portal_name}
         overview={overviewQuery.data}
         pendingChanges={pendingQuery.data}
         pendingLoading={pendingQuery.isPending}

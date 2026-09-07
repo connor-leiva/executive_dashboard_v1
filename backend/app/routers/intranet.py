@@ -430,6 +430,10 @@ def _config_out(tenant: Tenant, user: User,
         "logo_light_url": _logo_url(tenant, workspace, "portal_light", "logo_light_key"),
         "logo_dark_url": _logo_url(tenant, workspace, "portal_dark", "logo_dark_key"),
         "logo_mark_url": _logo_url(tenant, workspace, "portal_mark", "logo_mark_key"),
+        # The five swatches the console authors. Sent as-is; the portal decides which of its
+        # variables each one drives, because that mapping is a property of the portal's design
+        # and not of the workspace's choice.
+        "palette": (workspace.palette or {}) if workspace is not None else {},
     }
     config["content"] = content or {}
     return {

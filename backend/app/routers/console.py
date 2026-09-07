@@ -201,6 +201,25 @@ def _hex_color(value: Any) -> bool:
     )
 
 
+def _luminance(hex_color: str) -> float:
+    """WCAG 2.1 relative luminance."""
+    r, g, b = (int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    def channel(v: float) -> float:
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = channel(r), channel(g), channel(b)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast(a: str, b: str) -> float:
+    la, lb = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+# The portal's default canvas, for judging an ink the caller sends without one.
+DEFAULT_CANVAS = "#EAE7E6"
+MIN_INK_CONTRAST = 4.5          # WCAG AA for body text
+
+
 def _palette(body: dict) -> dict:
     palette = _json_object(body, "palette") or {}
     clean = {}
@@ -210,6 +229,26 @@ def _palette(body: dict) -> dict:
         if not _hex_color(value):
             _unprocessable(f"palette.{key}", "Expected #RRGGBB.")
         clean[key] = value.upper()
+
+    # INK IS BODY TEXT, not just a rail colour -- the portal's --ink drives paragraph copy on the
+    # canvas AND the rail behind the navigation. A light ink is therefore not a stylistic choice
+    # the design can absorb; it is grey text on a white page and white nav labels on a pale rail.
+    # Measured live before this check existed: 1.23:1, which is invisible.
+    #
+    # Refused at write time rather than worked around at render time, because no amount of
+    # deriving shades rescues text that has no contrast with the surface it sits on -- and an
+    # admin who picked it deserves to be told, not to have it silently adjusted into something
+    # they did not choose.
+    ink = clean.get("ink")
+    if ink:
+        canvas = clean.get("canvas") or DEFAULT_CANVAS
+        ratio = _contrast(ink, canvas)
+        if ratio < MIN_INK_CONTRAST:
+            _unprocessable(
+                "palette.ink",
+                f"This ink is too light to read on the canvas ({ratio:.1f}:1; needs "
+                f"{MIN_INK_CONTRAST:.1f}:1). Ink is the body text colour as well as the "
+                f"navigation background, so a pale one makes the portal unreadable.")
     return clean
 
 
