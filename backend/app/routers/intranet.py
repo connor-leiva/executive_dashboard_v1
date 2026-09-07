@@ -25,6 +25,7 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetWtdList, Tenant, User)
 from ..services import binder_storage
 from ..services.inheritance import dashboard_connections
+from ..services.intranet_permissions import allows, capability_levels
 from ..services.audit import audit
 
 def _iso(value) -> str | None:
@@ -120,7 +121,8 @@ def _stored_config(tenant: Tenant) -> dict:
     return _merge_known(_default_config(), cfg.get("intranet") or {})
 
 
-def _marketing_out(row: IntranetMarketingSetting | None, role_name: str | None) -> dict:
+def _marketing_out(row: IntranetMarketingSetting | None, role_name: str | None,
+                   permitted: bool = True) -> dict:
     """What the INTRANET is told about marketing requests.
 
     Deliberately not the console's view of the same row. The destination -- an ops Slack channel,
@@ -136,7 +138,10 @@ def _marketing_out(row: IntranetMarketingSetting | None, role_name: str | None) 
     if row is None:
         return {"available": False, "required_fields": [], "assigned_role": None,
                 "delivery_pending": True}
-    complete = bool(row.enabled and row.destination_type != "none"
+    # A role the matrix denies gets the same answer as a workspace with it switched off: no
+    # form. Three different reasons, one honest outcome -- and the endpoint refuses independently,
+    # because a hidden form is not a permission.
+    complete = bool(permitted and row.enabled and row.destination_type != "none"
                     and (row.destination or "").strip())
     return {
         "available": complete,
@@ -189,20 +194,24 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
             audience.setdefault(tile_id, set()).add(role_id)
 
     my_role = member.role_id if member is not None else None
+    # What this role may see. Until now this matrix was authored, published and read in exactly
+    # one place (console_access), so every other capability an admin set was decorative.
+    levels = await capability_levels(s, tenant_id, my_role)
     visible = [t for t in tiles
                if t.id not in audience or my_role in audience[t.id]]
 
-    wtd = (await s.execute(select(IntranetWtdList).where(
+    wtd = [] if not allows(levels, "wtd") else (await s.execute(select(IntranetWtdList).where(
         IntranetWtdList.tenant_id == tenant_id,
         IntranetWtdList.active.is_(True),
         published(IntranetWtdList),
     ).order_by(IntranetWtdList.position))).scalars().all()
 
-    courses = (await s.execute(select(IntranetCourse).where(
-        IntranetCourse.tenant_id == tenant_id,
-        IntranetCourse.state == "Live",
-        published(IntranetCourse),
-    ).order_by(IntranetCourse.sort))).scalars().all()
+    courses = [] if not allows(levels, "training_library") else (await s.execute(
+        select(IntranetCourse).where(
+            IntranetCourse.tenant_id == tenant_id,
+            IntranetCourse.state == "Live",
+            published(IntranetCourse),
+        ).order_by(IntranetCourse.sort))).scalars().all()
 
     lessons_by_course: dict = {}
     if courses:
@@ -235,11 +244,12 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         IntranetSopCategory.tenant_id == tenant_id, published(IntranetSopCategory),
     ).order_by(IntranetSopCategory.sort, IntranetSopCategory.name))).scalars().all()
 
-    sops = (await s.execute(select(IntranetSop).where(
-        IntranetSop.tenant_id == tenant_id,
-        IntranetSop.state == "Live",
-        published(IntranetSop),
-    ).order_by(IntranetSop.title))).scalars().all()
+    sops = [] if not allows(levels, "sop_library") else (await s.execute(
+        select(IntranetSop).where(
+            IntranetSop.tenant_id == tenant_id,
+            IntranetSop.state == "Live",
+            published(IntranetSop),
+        ).order_by(IntranetSop.title))).scalars().all()
 
     category_names = {c.id: c.name for c in sop_categories}
 
@@ -346,6 +356,10 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
                     for c in courses],
         "sops": [_sop_out(sop) for sop in sops],
         "integrations": integrations,
+        # Reported as well as enforced. The server is the gate -- everything above is already
+        # filtered -- but a rail that offers Win the Day to somebody it will then refuse is a
+        # worse experience than one that does not show it, and only the client can hide a link.
+        "capabilities": levels,
     }
 
 
@@ -355,7 +369,11 @@ def _config_out(tenant: Tenant, user: User,
                 content: dict | None = None,
                 workspace: IntranetWorkspace | None = None) -> dict:
     config = _stored_config(tenant)
-    config["marketing"] = _marketing_out(marketing, marketing_role)
+    # The capabilities the content payload already resolved -- not looked up again, so the form
+    # and the endpoint cannot disagree about the same role.
+    config["marketing"] = _marketing_out(
+        marketing, marketing_role,
+        permitted=(content or {}).get("capabilities", {}).get("marketing_requests") != "None")
     # The workspace names ITSELF. The intranet had "Utah Life" compiled into its rail, its title,
     # its assistant button and its sign-in screen, so every customer's portal would have worn the
     # first customer's name.
@@ -594,6 +612,11 @@ async def submit_request(
     member = await _member_for(s, user)
     if member is None:
         raise HTTPException(403, "You are not on this workspace's roster.")
+    # A role whose marketing_requests is None cannot file one. The form is hidden for them too,
+    # but hiding a form is not a permission -- this is the endpoint the form posts to.
+    if not allows(await capability_levels(s, user.tenant_id, member.role_id),
+                  "marketing_requests"):
+        raise HTTPException(403, "Your role cannot file marketing requests.")
 
     title = (title or "").strip()[:200]
     if not title:
@@ -713,12 +736,22 @@ async def download_attachment(request_id: uuid.UUID, attachment_id: uuid.UUID,
     )
 
 
-async def _live_sop(s: AsyncSession, tenant_id, sop_id: uuid.UUID) -> IntranetSop:
-    """A published, live, unarchived SOP in this workspace, or 404.
+async def _live_sop(s: AsyncSession, tenant_id, sop_id: uuid.UUID,
+                    member: IntranetMember | None = None) -> IntranetSop:
+    """A published, live, unarchived SOP this member may read, or 404.
 
-    Checked here rather than trusted from the listing: a member who kept an id from before an
-    SOP was archived must not still reach it.
+    Checked here rather than trusted from the listing: a member who kept an id from before an SOP
+    was archived must not still reach it -- and, since the SOP library is now gated by the
+    permissions matrix, NOR must somebody whose role has sop_library set to None. Filtering the
+    listing alone would be cosmetic: the ids are guessable from an old page, a bookmark or a
+    colleague, and the file endpoint is what actually hands over the document.
+
+    404 rather than 403, so this cannot be used to discover which SOPs exist.
     """
+    if member is not None:
+        levels = await capability_levels(s, tenant_id, member.role_id)
+        if not allows(levels, "sop_library"):
+            raise HTTPException(404, "Not found")
     row = (await s.execute(select(IntranetSop).where(
         IntranetSop.tenant_id == tenant_id,
         IntranetSop.id == sop_id,
@@ -753,7 +786,7 @@ async def acknowledge_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
     member = await _member_for(s, user)
     if member is None:
         raise HTTPException(404, "Not found")
-    sop = await _live_sop(s, user.tenant_id, sop_id)
+    sop = await _live_sop(s, user.tenant_id, sop_id, member)
     if not sop.current_version_id:
         raise HTTPException(409, "This SOP has no document to acknowledge yet.")
 
@@ -793,7 +826,7 @@ async def download_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
     member = await _member_for(s, user)
     if member is None:
         raise HTTPException(404, "Not found")
-    row = await _live_sop(s, user.tenant_id, sop_id)
+    row = await _live_sop(s, user.tenant_id, sop_id, member)
     if not row.current_version_id:
         raise HTTPException(404, "Not found")
     version = (await s.execute(select(IntranetSopVersion).where(

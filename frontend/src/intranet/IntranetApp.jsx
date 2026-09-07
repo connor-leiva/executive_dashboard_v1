@@ -260,6 +260,14 @@ function Shell({ me, config, children }) {
   // bought the product rather than to the customer it was first built for.
   const workspaceName = config?.workspace?.name || me?.tenant_name || "Intranet";
   const askLabel = `Ask ${workspaceName}`;
+  // Two reasons a nav item is not offered, applied together: the workspace has not connected the
+  // vendor behind it, or this role's capability level is None. The server filters the content
+  // either way -- this stops the rail advertising a page it would then refuse, which reads as the
+  // product being broken rather than as access somebody was never given.
+  const levels = config?.content?.capabilities || {};
+  const visible = (item) =>
+    (!VENDOR_NAV[item.id] || connected(config, VENDOR_NAV[item.id]))
+    && (!item.capability || levels[item.capability] !== "None");
   const [navOpen, setNavOpen] = useState(false);
   // The workspace's own roles. ROLE_OPTIONS was four real-estate titles compiled in, so a
   // salon or a law firm buying this product got "Buyer Agent" in their role switcher.
@@ -296,11 +304,12 @@ function Shell({ me, config, children }) {
           {/* The nav STRUCTURE is the product's -- every workspace gets Home, Training,
               SOPs and so on. The assistant's LABEL is the workspace's, because it carries
               their name. Anything below that is content, and comes from their console. */}
-          {NAV_GROUPS.map((group) => (
+          {NAV_GROUPS.map((group) => ({ ...group, items: group.items.filter(visible) }))
+            .filter((group) => group.items.length)
+            .map((group) => (
             <div className="ut-nav-group" key={group.label}>
               <div className="ut-nav-label">{group.label}</div>
-              {group.items.filter((item) => !VENDOR_NAV[item.id]
-                                           || connected(config, VENDOR_NAV[item.id])).map((item) => (
+              {group.items.map((item) => (
                 <NavLink
                   key={item.id}
                   to={item.id === "home" ? "/" : `/${item.id}`}
@@ -783,11 +792,14 @@ function Training({ state, setState, config }) {
   const toggle = (key) => setState((s) => ({ ...s, done: { ...(s.done || {}), [key]: !s.done?.[key] } }));
 
   if (!courses.length) {
+    const denied = deniedBy(config, "training_library");
     return (
       <Page title="Training Library" subtitle="Courses this workspace has published.">
-        <Panel title="Nothing published yet">
+        <Panel title={denied ? "Not available to your role" : "Nothing published yet"}>
           <p className="ut-empty">
-            Courses appear here once an admin publishes them in the console.
+            {denied
+              ? "Your role does not have access to the training library. Ask an admin if that looks wrong."
+              : "Courses appear here once an admin publishes them in the console."}
           </p>
         </Panel>
       </Page>
@@ -840,6 +852,15 @@ function Onboarding({ state, setState }) {
       </Panel>
     </Page>
   );
+}
+
+/* "Nothing published yet" and "your role cannot see this" look identical from here -- both are
+   an empty list -- and telling somebody their workspace has published nothing when it has
+   published plenty sends them to ask an admin the wrong question. The payload reports the level,
+   so the page can say which it is. Naming the restriction does reveal that content exists, which
+   inside a team's own portal is not a secret worth keeping at the cost of the confusion. */
+function deniedBy(config, capability) {
+  return (config?.content?.capabilities || {})[capability] === "None";
 }
 
 function shortDate(iso) {
@@ -898,11 +919,14 @@ function Sops({ config }) {
   }
 
   if (!sops.length) {
+    const denied = deniedBy(config, "sop_library");
     return (
       <Page title="SOPs" subtitle="Standard operating procedures for this workspace.">
-        <Panel title="Nothing published yet">
+        <Panel title={denied ? "Not available to your role" : "Nothing published yet"}>
           <p className="ut-empty">
-            SOPs appear here once an admin publishes them in the console.
+            {denied
+              ? "Your role does not have access to the SOP library. Ask an admin if that looks wrong."
+              : "SOPs appear here once an admin publishes them in the console."}
           </p>
         </Panel>
       </Page>

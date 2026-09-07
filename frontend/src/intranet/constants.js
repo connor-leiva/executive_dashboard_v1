@@ -1,24 +1,28 @@
 export const ROLE_OPTIONS = ["Buyer Agent", "Listing Agent", "Ops / Admin", "Team Leader"];
 
+/* `capability` ties a nav item to the workspace's permissions matrix. An item without one is
+   not gated -- Home and the Brand Kit are not permissions. The server filters the content
+   regardless; this only stops the rail offering a page it would then refuse, which reads as the
+   product being broken rather than as access somebody was never given. */
 export const NAV_GROUPS = [
   {
     label: "Workspace",
     items: [
       { id: "home", label: "Home" },
       { id: "ask", label: "Ask Utah Life" },
-      { id: "wtd", label: "Win the Day" },
+      { id: "wtd", label: "Win the Day", capability: "wtd" },
       { id: "sunburst", label: "Sunburst Coaching" },
-      { id: "calendar", label: "Team Calendar" },
+      { id: "calendar", label: "Team Calendar", capability: "team_calendar" },
       { id: "tools", label: "Tool Launchpad" },
-      { id: "numbers", label: "My Numbers" },
+      { id: "numbers", label: "My Numbers", capability: "own_numbers" },
     ],
   },
   {
     label: "Learn",
     items: [
       { id: "onboarding", label: "Your First 30 Days" },
-      { id: "training", label: "Training Library" },
-      { id: "sops", label: "SOPs" },
+      { id: "training", label: "Training Library", capability: "training_library" },
+      { id: "sops", label: "SOPs", capability: "sop_library" },
     ],
   },
   {
@@ -33,7 +37,7 @@ export const NAV_GROUPS = [
     items: [
       { id: "brand", label: "Brand Kit" },
       { id: "listing", label: "Listing Marketing" },
-      { id: "marketing", label: "Requests" },
+      { id: "marketing", label: "Requests", capability: "marketing_requests" },
     ],
   },
   {

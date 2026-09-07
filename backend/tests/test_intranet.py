@@ -683,3 +683,100 @@ async def test_an_archived_sop_cannot_be_acknowledged():
         r = await c.post(f"/api/v1/intranet/sops/{ids['sop_id']}/acknowledge",
                          headers=_H(tokens["member"], host))
     assert r.status_code == 404
+
+
+# -- the permissions matrix ----------------------------------------------------------------
+# IntranetPermission.level spans every capability a workspace defines, the console edits it, the
+# publish cycle ships it -- and the only place it had ever been read was console_access, to decide
+# who may open the console. An admin could set Training Library to None for a role, publish it,
+# see it saved, and that role would still see every course.
+
+async def _deny(tenant_id, capability_key: str, role_key: str = "agent"):
+    """Set one capability to None for one role, the way the console would."""
+    from app.models import IntranetCapability, IntranetPermission, IntranetRole
+
+    async with SessionLocal() as s:
+        role = (await s.execute(select(IntranetRole).where(
+            IntranetRole.tenant_id == tenant_id, IntranetRole.key == role_key))).scalar_one()
+        cap = (await s.execute(select(IntranetCapability).where(
+            IntranetCapability.tenant_id == tenant_id,
+            IntranetCapability.key == capability_key))).scalar_one_or_none()
+        if cap is None:
+            cap = IntranetCapability(tenant_id=tenant_id, key=capability_key,
+                                     name=capability_key, description="", sort=1,
+                                     published_at=dt.datetime.now(dt.timezone.utc))
+            s.add(cap)
+            await s.flush()
+        s.add(IntranetPermission(tenant_id=tenant_id, role_id=role.id, capability_id=cap.id,
+                                 level="None",
+                                 published_at=dt.datetime.now(dt.timezone.utc)))
+        await s.commit()
+
+
+async def test_a_denied_capability_actually_hides_its_content():
+    host, tokens, ids = await _learning("permdeny")
+    # Visible first, so the test proves the denial did it rather than the content being absent.
+    before = await _content(host, tokens["member"])
+    assert before["courses"] and before["sops"]
+
+    await _deny(ids["tenant_id"], "training_library")
+    after = await _content(host, tokens["member"])
+    assert after["courses"] == [], "a role denied Training Library was still shown every course"
+    assert after["sops"], "denying one capability took another with it"
+
+
+async def test_denying_the_sop_library_also_closes_the_document_itself():
+    """The listing is the cosmetic half. Ids are guessable from an old page, a bookmark or a
+    colleague, and the file endpoint is what actually hands over the document -- so filtering the
+    list while leaving the read path open would be a permission in name only."""
+    host, tokens, ids = await _learning("permsopfile")
+    async with _client() as c:
+        assert (await c.get(f"/api/v1/intranet/sops/{ids['sop_id']}/file",
+                            headers=_H(tokens["member"], host))).status_code == 200
+
+    await _deny(ids["tenant_id"], "sop_library")
+    async with _client() as c:
+        blocked = await c.get(f"/api/v1/intranet/sops/{ids['sop_id']}/file",
+                              headers=_H(tokens["member"], host))
+        ack = await c.post(f"/api/v1/intranet/sops/{ids['sop_id']}/acknowledge",
+                           headers=_H(tokens["member"], host))
+    # 404, not 403: the answer must not confirm which SOPs exist.
+    assert blocked.status_code == 404, "a denied role could still download the document"
+    assert ack.status_code == 404, "a denied role could still acknowledge it"
+    assert (await _content(host, tokens["member"]))["sops"] == []
+
+
+async def test_a_capability_nobody_has_set_is_permitted():
+    """Absence means permitted, matching how tile audiences already behave. Denying by default
+    would black a workspace out the moment it defined a new capability, and denial has to be a
+    decision somebody made rather than a row nobody wrote."""
+    host, tokens, _ = await _learning("permdefault")
+    content = await _content(host, tokens["member"])
+    assert content["courses"] and content["sops"]
+    # ...and the levels are reported, so the rail can hide what the server would refuse.
+    assert content["capabilities"] == {}
+
+
+async def test_the_matrix_is_reported_so_the_rail_can_match_it():
+    host, tokens, ids = await _learning("permreport")
+    await _deny(ids["tenant_id"], "wtd")
+    content = await _content(host, tokens["member"])
+    assert content["capabilities"].get("wtd") == "None"
+    assert content["wtd_lists"] == []
+
+
+async def test_a_denied_role_cannot_file_a_marketing_request():
+    """The form is hidden for them, but hiding a form is not a permission -- this is the endpoint
+    the form posts to."""
+    host, tokens, ids = await _learning("permmarketing")
+    await _marketing_ready(ids["tenant_id"])
+    await _deny(ids["tenant_id"], "marketing_requests")
+
+    async with _client() as c:
+        cfg = (await c.get("/api/v1/intranet/config",
+                           headers=_H(tokens["member"], host))).json()["config"]
+        posted = await c.post("/api/v1/intranet/marketing/requests",
+                              headers=_H(tokens["member"], host),
+                              data={"title": "Flyer please"})
+    assert cfg["marketing"]["available"] is False, "the form was offered to a denied role"
+    assert posted.status_code == 403, "a denied role filed a request anyway"
