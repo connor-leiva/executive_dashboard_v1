@@ -1123,6 +1123,38 @@ input {
 /* A lesson a sequential course has not opened yet. Shown rather than hidden -- somebody needs
    to see what is ahead of them -- but clearly not yet actionable. Presentational only: the
    permissions matrix is what restricts access, and it decided whether this page loads at all. */
+/* An authored page's prose and its link row. Deliberately plain: this is a workspace's own
+   writing, and the design's job is to set it readably rather than to decorate it. */
+.ut-page-body {
+  margin: 0 0 12px;
+  max-width: 68ch;
+  color: var(--body);
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+.ut-page-body:last-child { margin-bottom: 0; }
+
+.ut-page-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ut-page-links a {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--wash);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.ut-page-links a:hover { border-color: var(--primary); color: var(--primary); }
+
 .ut-check.locked {
   color: var(--muted);
 }

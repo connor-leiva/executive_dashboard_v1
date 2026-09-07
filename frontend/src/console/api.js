@@ -199,6 +199,17 @@ export async function downloadMarketingAttachment(requestId, attachmentId) {
   if (!res.ok) await throwFor(res);
   return res.blob();
 }
+export const getPages = () => consoleGet("/pages");
+export const getPage = (pageId) => consoleGet(`/pages/${pageId}`);
+export const createPage = (body) => consoleSend("POST", "/pages", body);
+export const patchPage = (pageId, body) => consoleSend("PATCH", `/pages/${pageId}`, body);
+export const deletePage = (pageId) => consoleSend("DELETE", `/pages/${pageId}`);
+export const createPageSection = (pageId, body) =>
+  consoleSend("POST", `/pages/${pageId}/sections`, body);
+export const patchPageSection = (pageId, sectionId, body) =>
+  consoleSend("PATCH", `/pages/${pageId}/sections/${sectionId}`, body);
+export const deletePageSection = (pageId, sectionId) =>
+  consoleSend("DELETE", `/pages/${pageId}/sections/${sectionId}`);
 export const getWtdLists = () => consoleGet("/wtd-lists");
 export const patchWtdList = (listId, body) => consoleSend("PATCH", `/wtd-lists/${listId}`, body);
 export const putWtdOrder = (body) => consoleSend("PUT", "/wtd-lists/order", body);

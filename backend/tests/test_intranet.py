@@ -899,3 +899,131 @@ def test_a_palette_without_an_ink_is_left_alone():
     from app.routers.console import _palette
 
     assert _palette({"palette": {"accent": "#E0C36B"}}) == {"accent": "#E0C36B"}
+
+
+# -- pages a workspace writes for itself ---------------------------------------------------
+# One authored page type replaces four bespoke screens (JV Partners, Listing Marketing,
+# Sunburst Coaching, On The Phone). Each of those is one customer's content wearing a route of
+# its own, and building them that way means building four more for the next customer.
+
+async def _page(slug: str, *, published=True, active=True, role_key=None, sections=True):
+    from app.models import (IntranetMember, IntranetPage, IntranetPageRole,
+                            IntranetPageSection, IntranetRole)
+
+    host, tenant, tokens = await _tenant(slug, intranet=True)
+    now = dt.datetime.now(dt.timezone.utc)
+    async with SessionLocal() as s:
+        agent = IntranetRole(tenant_id=tenant.id, key="agent", name="Agent", sort=1,
+                             published_at=now)
+        other = IntranetRole(tenant_id=tenant.id, key="leader", name="Leader", sort=2,
+                             is_leadership=True, published_at=now)
+        s.add_all([agent, other])
+        await s.flush()
+        s.add(IntranetMember(tenant_id=tenant.id, full_name="A Member",
+                             email=f"member@{slug}.test", role_id=agent.id, status="Active",
+                             auth_source="Manual"))
+        page = IntranetPage(tenant_id=tenant.id, key="partners", title="JV Partners",
+                            subtitle="Who to call", nav_group="Partners", sort=1,
+                            active=active, published_at=now if published else None)
+        s.add(page)
+        await s.flush()
+        if sections:
+            s.add(IntranetPageSection(
+                tenant_id=tenant.id, page_id=page.id, heading="Title",
+                body="First paragraph.\n\nSecond paragraph.",
+                links=[{"label": "Sympli", "url": "https://sympli.example.test"}],
+                sort=1, published_at=now))
+            # A draft section, to prove the publish gate applies here too.
+            s.add(IntranetPageSection(tenant_id=tenant.id, page_id=page.id,
+                                      heading="Not published", body="draft", links=[],
+                                      sort=2, published_at=None))
+        if role_key:
+            s.add(IntranetPageRole(tenant_id=tenant.id, page_id=page.id,
+                                   role_id=(agent if role_key == "agent" else other).id,
+                                   published_at=now))
+        await s.commit()
+        return host, tokens, {"tenant_id": tenant.id, "page_id": page.id}
+
+
+async def test_an_authored_page_reaches_the_member_with_its_sections():
+    host, tokens, _ = await _page("pagemine")
+    content = await _content(host, tokens["member"])
+    page = next(p for p in content["pages"] if p["key"] == "partners")
+    assert page["title"] == "JV Partners"
+    assert page["nav_group"] == "Partners", "the rail needs to know which group it joins"
+    assert [s["heading"] for s in page["sections"]] == ["Title"], "a draft section went live"
+    assert page["sections"][0]["links"][0]["url"] == "https://sympli.example.test"
+
+
+async def test_an_unpublished_or_inactive_page_is_not_live():
+    host, tokens, _ = await _page("pagedraft", published=False)
+    assert (await _content(host, tokens["member"]))["pages"] == [], "a draft page went live"
+
+    host2, tokens2, _ = await _page("pageoff", active=False)
+    assert (await _content(host2, tokens2["member"]))["pages"] == [], "an inactive page went live"
+
+
+async def test_a_page_is_only_offered_to_the_roles_it_names():
+    """Same rule as tiles and courses: no rows means everyone, rows mean those roles."""
+    host, tokens, _ = await _page("pagerole", role_key="leader")
+    assert (await _content(host, tokens["member"]))["pages"] == []
+
+    host2, tokens2, _ = await _page("pageown", role_key="agent")
+    assert len((await _content(host2, tokens2["member"]))["pages"]) == 1
+
+    host3, tokens3, _ = await _page("pageall")
+    assert len((await _content(host3, tokens3["member"]))["pages"]) == 1
+
+
+def test_a_page_key_is_shaped_for_a_url_and_nothing_is_reserved():
+    """Authored pages are routed under /p/<key>, so nothing can collide with a built-in screen
+    and nothing needs reserving.
+
+    This began as a reserved-key list written for a design where authored pages lived at the top
+    level. Namespacing them made that list not merely unnecessary but wrong: it refused
+    "partners", "listing", "brand" and "phone" -- exactly the four pages this feature exists to
+    let a workspace replace. The point of the whole thing, blocked by its own guard.
+    """
+    from fastapi import HTTPException
+
+    from app.routers.console import _page_key
+
+    # The four this feature replaces are all available.
+    for key in ("partners", "listing", "brand", "phone", "training", "sops"):
+        assert _page_key({"key": key}, required=True) == key
+
+    # Only the shape is enforced, so a key cannot carry a slash or a space into a URL.
+    for bad in ("Has Space", "with/slash", "-leading"):
+        with pytest.raises(HTTPException):
+            _page_key({"key": bad}, required=True)
+
+    # Case is normalised rather than refused: an admin who types "Partners" means `partners`.
+    assert _page_key({"key": "Partners"}, required=True) == "partners"
+
+
+def test_an_authored_link_cannot_be_a_javascript_url():
+    """These links are written by an admin and clicked by their whole team, so they go through
+    the same https rule every other stored URL in this product does."""
+    from fastapi import HTTPException
+
+    from app.routers.console import _page_links
+
+    ok = _page_links({"links": [{"label": "Sympli", "url": "https://sympli.example.test"}]})
+    assert ok == [{"label": "Sympli", "url": "https://sympli.example.test"}]
+
+    for bad in ("javascript:alert(1)", "not a url", ""):
+        with pytest.raises(HTTPException):
+            _page_links({"links": [{"label": "x", "url": bad}]})
+    # A link with no label is a button nobody can read.
+    with pytest.raises(HTTPException):
+        _page_links({"links": [{"label": "  ", "url": "https://ok.example.test"}]})
+
+
+def test_pages_joined_the_publish_cycle_without_being_told_to():
+    """_publishable_models derives its list from the mapper registry, so a new publishable table
+    is picked up by shape rather than by somebody remembering to add it. That is the whole point
+    of deriving it, and this pins it."""
+    from app.routers.console import _publishable_models
+
+    names = {m.__name__ for m in _publishable_models()}
+    assert {"IntranetPage", "IntranetPageSection", "IntranetPageRole"} <= names

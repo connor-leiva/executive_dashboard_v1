@@ -331,6 +331,81 @@ class IntranetLesson(Base):
     )
 
 
+class IntranetPage(Base):
+    """A page a workspace writes for itself.
+
+    THE ALTERNATIVE WAS FOUR BESPOKE SCREENS. JV Partners, Listing Marketing, Sunburst Coaching
+    and On The Phone are each one customer's content wearing a route of its own, and building
+    them that way means building four more for the next customer. One authored page type serves
+    all four and the fifth nobody has thought of yet.
+
+    `key` is the URL segment and is the workspace's to choose, so it is unique per tenant rather
+    than globally, and reserved against the built-in routes at the console so an authored page
+    cannot shadow Training or SOPs.
+    """
+    __tablename__ = "intranet_page"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    subtitle: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Which rail group it joins. Free text rather than an enum: a workspace that invents its own
+    # grouping gets one, and the portal renders any group it is handed.
+    nav_group: Mapped[str] = mapped_column(Text, default="Workspace", server_default="Workspace")
+    sort: Mapped[int] = mapped_column(SmallInteger, default=0, server_default=text("0"))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "key", name="uq_intranet_page_tenant_key"),
+    )
+
+
+class IntranetPageSection(Base):
+    """One block of a page: a heading, some words, some links, maybe an image.
+
+    ONE TABLE RATHER THAN A POLYMORPHIC BLOCK SYSTEM. Every one of the four screens this replaces
+    is the same shape -- a heading, a paragraph, a list of links, sometimes a picture -- and a
+    general block engine would be a great deal of machinery for content nobody has yet asked to
+    nest. When something genuinely needs a new shape, it earns a column.
+    """
+    __tablename__ = "intranet_page_section"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_page.id", ondelete="CASCADE"), nullable=False, index=True)
+    heading: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # [{"label": ..., "url": ...}]. Validated at the console, where the https rule already lives.
+    links: Mapped[list] = mapped_column(JSONType, default=list, server_default=text("'[]'"))
+    image_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort: Mapped[int] = mapped_column(SmallInteger, default=0, server_default=text("0"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntranetPageRole(Base):
+    """Which roles see a page. No rows means everyone -- the same rule as tiles and courses."""
+    __tablename__ = "intranet_page_role"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_page.id", ondelete="CASCADE"), primary_key=True)
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_role.id", ondelete="CASCADE"), primary_key=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class IntranetSopCategory(Base):
     __tablename__ = "intranet_sop_category"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)

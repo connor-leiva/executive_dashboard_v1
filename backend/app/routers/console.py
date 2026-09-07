@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import uuid
 from typing import Any
 from urllib.parse import urlparse
@@ -32,6 +33,9 @@ from ..models import (
     IntranetLesson,
     IntranetMember,
     IntranetPendingChange,
+    IntranetPage,
+    IntranetPageRole,
+    IntranetPageSection,
     IntranetPermission,
     IntranetPublishBatch,
     IntranetRole,
@@ -1858,6 +1862,265 @@ async def sync_members(p: ConsolePrincipal = Depends(require_console_access),
         summary="Roster sync: no source connected yet", target_type="member",
         target_id=None, pending=False)
     return {"added": 0, "removed": 0, "updated": 0, "pending_changes": pending}
+
+
+# -- Authored pages ------------------------------------------------------------------------
+# One page type instead of four bespoke screens. See models.IntranetPage.
+
+# NOTHING IS RESERVED, because nothing can collide. Authored pages are routed under /p/<key>,
+# so a page keyed "training" sits at /p/training and the built-in Training Library keeps
+# /training untouched.
+#
+# This started as a reserved-key list, written for a design where authored pages lived at the
+# top level. Namespacing them made that list not merely unnecessary but actively wrong: it
+# refused "partners", "listing", "brand" and "phone" -- precisely the four pages this feature
+# exists to let a workspace replace. A test caught it.
+#
+# Only the SHAPE is constrained, so a key cannot carry a slash, a space or a leading hyphen
+# into a URL.
+PAGE_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,48}$")
+
+
+def _page_key(body: dict, *, required: bool = False) -> str | None:
+    raw = _text(body, "key", required=required, max_len=50)
+    if raw is None:
+        return None
+    key = raw.strip().lower()
+    if not PAGE_KEY_RE.fullmatch(key):
+        _unprocessable("key", "Use lowercase letters, numbers and hyphens, starting with a "
+                              "letter or number.")
+    return key
+
+
+def _page_links(body: dict) -> list:
+    raw = body.get("links")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        _unprocessable("links", "Expected a list of links.")
+    out = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            _unprocessable(f"links.{i}", "Expected an object with a label and a url.")
+        label = str(item.get("label") or "").strip()[:120]
+        if not label:
+            _unprocessable(f"links.{i}.label", "A link needs a label.")
+        # Reuses the shared https rule, so an authored link cannot become a javascript: URL or a
+        # bare hostname that resolves somewhere unintended.
+        url = _https_url({"url": item.get("url")}, "url", required=True)
+        out.append({"label": label, "url": url})
+    return out
+
+
+def _page_out(row, sections=None, role_ids=None) -> dict:
+    return {
+        "id": _id(row.id), "key": row.key, "title": row.title, "subtitle": row.subtitle,
+        "nav_group": row.nav_group, "sort": row.sort, "active": bool(row.active),
+        "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
+        "role_ids": [_id(r) for r in (role_ids or [])],
+        "sections": [
+            {"id": _id(x.id), "heading": x.heading, "body": x.body,
+             "links": list(x.links or []), "sort": x.sort,
+             "published_at": _iso(x.published_at)}
+            for x in (sections or [])
+        ],
+    }
+
+
+async def _page_sections(s: AsyncSession, tenant_id, page_id) -> list:
+    return (await s.execute(select(IntranetPageSection).where(
+        IntranetPageSection.tenant_id == tenant_id,
+        IntranetPageSection.page_id == page_id,
+    ).order_by(IntranetPageSection.sort))).scalars().all()
+
+
+@router.get("/pages")
+async def list_pages(p: ConsolePrincipal = Depends(require_console_access),
+                     s: AsyncSession = Depends(get_session)):
+    rows = (await s.execute(select(IntranetPage).where(
+        IntranetPage.tenant_id == p.user.tenant_id,
+    ).order_by(IntranetPage.nav_group, IntranetPage.sort, IntranetPage.title))).scalars().all()
+    audience: dict = {}
+    for page_id, role_id in (await s.execute(select(
+        IntranetPageRole.page_id, IntranetPageRole.role_id,
+    ).where(IntranetPageRole.tenant_id == p.user.tenant_id))).all():
+        audience.setdefault(page_id, []).append(role_id)
+    return _list([_page_out(r, role_ids=audience.get(r.id)) for r in rows])
+
+
+@router.get("/pages/{page_id}")
+async def get_page(page_id: uuid.UUID, p: ConsolePrincipal = Depends(require_console_access),
+                   s: AsyncSession = Depends(get_session)):
+    row = await _one(s, IntranetPage, p.user.tenant_id, page_id)
+    roles = (await s.execute(select(IntranetPageRole.role_id).where(
+        IntranetPageRole.tenant_id == p.user.tenant_id,
+        IntranetPageRole.page_id == page_id))).scalars().all()
+    return _page_out(row, await _page_sections(s, p.user.tenant_id, page_id), roles)
+
+
+@router.post("/pages")
+async def create_page(body: dict = Body(...),
+                      p: ConsolePrincipal = Depends(require_console_access),
+                      s: AsyncSession = Depends(get_session)):
+    body = _body(body)
+    _unknown(body, {"key", "title", "subtitle", "nav_group", "sort", "active"})
+    key = _page_key(body, required=True)
+    clash = (await s.execute(select(IntranetPage.id).where(
+        IntranetPage.tenant_id == p.user.tenant_id, IntranetPage.key == key))).first()
+    if clash:
+        _unprocessable("key", "A page already uses that address.")
+    row = IntranetPage(
+        tenant_id=p.user.tenant_id,
+        key=key,
+        title=_text(body, "title", required=True) or "",
+        subtitle=_text(body, "subtitle", nullable=True),
+        nav_group=_text(body, "nav_group", nullable=True) or "Workspace",
+        sort=_int(body, "sort", default=await _count(s, IntranetPage, p.user.tenant_id),
+                  min_value=0) or 0,
+        active=bool(_bool(body, "active", True)),
+    )
+    s.add(row)
+    await s.flush()
+    pending = await _record_mutation(
+        s, p, action="content.page.created", category="Content",
+        summary=f"Created page {row.title}", target_type="page", target_id=row.id,
+        entity_type="page", entity_id=row.id, change_kind="created")
+    await s.commit()
+    await s.refresh(row)
+    return _with_pending(_page_out(row), pending)
+
+
+@router.patch("/pages/{page_id}")
+async def patch_page(page_id: uuid.UUID, body: dict = Body(...),
+                     p: ConsolePrincipal = Depends(require_console_access),
+                     s: AsyncSession = Depends(get_session)):
+    row = await _one(s, IntranetPage, p.user.tenant_id, page_id)
+    body = _body(body)
+    _unknown(body, {"key", "title", "subtitle", "nav_group", "sort", "active", "role_ids"})
+
+    if "key" in body:
+        key = _page_key(body, required=True)
+        clash = (await s.execute(select(IntranetPage.id).where(
+            IntranetPage.tenant_id == p.user.tenant_id, IntranetPage.key == key,
+            IntranetPage.id != page_id))).first()
+        if clash:
+            _unprocessable("key", "A page already uses that address.")
+        row.key = key
+    if "title" in body:
+        row.title = _text(body, "title", required=True) or row.title
+    if "subtitle" in body:
+        row.subtitle = _text(body, "subtitle", nullable=True)
+    if "nav_group" in body:
+        row.nav_group = _text(body, "nav_group", nullable=True) or "Workspace"
+    if "sort" in body:
+        row.sort = _int(body, "sort", min_value=0) or 0
+    if "active" in body:
+        row.active = bool(_bool(body, "active", True))
+    if "role_ids" in body:
+        role_ids = await _role_ids_from_body(s, p.user.tenant_id, body)
+        await s.execute(sa_delete(IntranetPageRole).where(
+            IntranetPageRole.tenant_id == p.user.tenant_id,
+            IntranetPageRole.page_id == page_id))
+        for role_id in role_ids:
+            s.add(IntranetPageRole(tenant_id=p.user.tenant_id, page_id=page_id, role_id=role_id))
+
+    row.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.page.updated", category="Content",
+        summary=f"Updated page {row.title}", target_type="page", target_id=row.id,
+        entity_type="page", entity_id=row.id)
+    await s.commit()
+    await s.refresh(row)
+    return _with_pending(_page_out(row, await _page_sections(s, p.user.tenant_id, page_id)),
+                         pending)
+
+
+@router.delete("/pages/{page_id}")
+async def delete_page(page_id: uuid.UUID, p: ConsolePrincipal = Depends(require_console_access),
+                      s: AsyncSession = Depends(get_session)):
+    row = await _one(s, IntranetPage, p.user.tenant_id, page_id)
+    title = row.title
+    await s.delete(row)
+    pending = await _record_mutation(
+        s, p, action="content.page.deleted", category="Content",
+        summary=f"Deleted page {title}", target_type="page", target_id=page_id,
+        entity_type="page", entity_id=page_id, change_kind="deleted")
+    await s.commit()
+    return _with_pending({"deleted": True}, pending)
+
+
+@router.post("/pages/{page_id}/sections")
+async def create_page_section(page_id: uuid.UUID, body: dict = Body(...),
+                              p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    page = await _one(s, IntranetPage, p.user.tenant_id, page_id)
+    body = _body(body)
+    _unknown(body, {"heading", "body", "links", "sort"})
+    row = IntranetPageSection(
+        tenant_id=p.user.tenant_id, page_id=page.id,
+        heading=_text(body, "heading", nullable=True),
+        body=_text(body, "body", nullable=True, max_len=8000),
+        links=_page_links(body),
+        sort=_int(body, "sort", default=len(await _page_sections(s, p.user.tenant_id, page_id)),
+                  min_value=0) or 0,
+    )
+    s.add(row)
+    page.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.page_section.created", category="Content",
+        summary=f"Added a section to {page.title}", target_type="page", target_id=page.id,
+        entity_type="page", entity_id=page.id)
+    await s.commit()
+    return _with_pending(_page_out(page, await _page_sections(s, p.user.tenant_id, page_id)),
+                         pending)
+
+
+@router.patch("/pages/{page_id}/sections/{section_id}")
+async def patch_page_section(page_id: uuid.UUID, section_id: uuid.UUID, body: dict = Body(...),
+                             p: ConsolePrincipal = Depends(require_console_access),
+                             s: AsyncSession = Depends(get_session)):
+    page = await _one(s, IntranetPage, p.user.tenant_id, page_id)
+    row = await _one(s, IntranetPageSection, p.user.tenant_id, section_id)
+    if row.page_id != page.id:
+        raise HTTPException(404, "Not found.")
+    body = _body(body)
+    _unknown(body, {"heading", "body", "links", "sort"})
+    if "heading" in body:
+        row.heading = _text(body, "heading", nullable=True)
+    if "body" in body:
+        row.body = _text(body, "body", nullable=True, max_len=8000)
+    if "links" in body:
+        row.links = _page_links(body)
+    if "sort" in body:
+        row.sort = _int(body, "sort", min_value=0) or 0
+    row.draft_dirty = True
+    page.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.page_section.updated", category="Content",
+        summary=f"Edited a section of {page.title}", target_type="page", target_id=page.id,
+        entity_type="page", entity_id=page.id)
+    await s.commit()
+    return _with_pending(_page_out(page, await _page_sections(s, p.user.tenant_id, page_id)),
+                         pending)
+
+
+@router.delete("/pages/{page_id}/sections/{section_id}")
+async def delete_page_section(page_id: uuid.UUID, section_id: uuid.UUID,
+                              p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    page = await _one(s, IntranetPage, p.user.tenant_id, page_id)
+    row = await _one(s, IntranetPageSection, p.user.tenant_id, section_id)
+    if row.page_id != page.id:
+        raise HTTPException(404, "Not found.")
+    await s.delete(row)
+    page.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.page_section.deleted", category="Content",
+        summary=f"Removed a section from {page.title}", target_type="page", target_id=page.id,
+        entity_type="page", entity_id=page.id, change_kind="deleted")
+    await s.commit()
+    return _with_pending(_page_out(page, await _page_sections(s, p.user.tenant_id, page_id)),
+                         pending)
 
 
 @router.get("/courses")

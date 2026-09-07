@@ -39,6 +39,14 @@ import {
   getTiles,
   getWorkspace,
   getGoogleSignin,
+  createPage,
+  createPageSection,
+  deletePage,
+  deletePageSection,
+  getPage,
+  getPages,
+  patchPage,
+  patchPageSection,
   getIntegrations,
   getWtdLists,
   inviteMember,
@@ -81,6 +89,7 @@ export const keys = {
   workspace: ["console", "workspace"],
   calendarCategories: ["console", "calendar-categories"],
   integrations: ["console", "integrations"],
+  pages: ["console", "pages"],
   googleSignin: ["console", "google-signin"],
   marketing: ["console", "marketing"],
   marketingRequests: ["console", "marketing-requests"],
@@ -283,6 +292,63 @@ export function usePatchGoogleSignin() {
     // Sign-in configuration is live the moment it saves -- it is not staged for publish like
     // content is -- so the overview's setup checklist should reflect it immediately.
     onSuccess: () => invalidateIntegrations(queryClient),
+  });
+}
+
+function invalidatePages(queryClient) {
+  invalidateOverview(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.pages });
+}
+
+export function usePages(enabled) {
+  return useQuery({ queryKey: keys.pages, queryFn: getPages, enabled });
+}
+
+export function usePage(pageId) {
+  return useQuery({
+    queryKey: [...keys.pages, pageId],
+    queryFn: () => getPage(pageId),
+    enabled: Boolean(pageId),
+  });
+}
+
+export function useCreatePage() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: createPage,
+                       onSuccess: () => invalidatePages(queryClient) });
+}
+
+export function usePatchPage() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: ({ pageId, body }) => patchPage(pageId, body),
+                       onSuccess: () => invalidatePages(queryClient) });
+}
+
+export function useDeletePage() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: deletePage,
+                       onSuccess: () => invalidatePages(queryClient) });
+}
+
+export function useCreatePageSection() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: ({ pageId, body }) => createPageSection(pageId, body),
+                       onSuccess: () => invalidatePages(queryClient) });
+}
+
+export function usePatchPageSection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pageId, sectionId, body }) => patchPageSection(pageId, sectionId, body),
+    onSuccess: () => invalidatePages(queryClient),
+  });
+}
+
+export function useDeletePageSection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pageId, sectionId }) => deletePageSection(pageId, sectionId),
+    onSuccess: () => invalidatePages(queryClient),
   });
 }
 

@@ -21,6 +21,7 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetLesson, IntranetMarketingAttachment, IntranetMarketingRequest,
                       IntranetMarketingSetting, IntranetMember, IntranetRole, IntranetSop,
                       IntranetCourseRole, IntranetSopAcknowledgement, IntranetSopVersion,
+                      IntranetPage, IntranetPageRole, IntranetPageSection,
                       IntranetIntegration, IntranetSopCategory, IntranetUserState,
                       IntranetWorkspace,
                       IntranetWtdList, Tenant, User)
@@ -241,6 +242,33 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     courses = [c for c in courses
                if c.id not in course_audience or my_role in course_audience[c.id]]
 
+    # ── the workspace's own pages ────────────────────────────────────────────────────────
+    pages = (await s.execute(select(IntranetPage).where(
+        IntranetPage.tenant_id == tenant_id,
+        IntranetPage.active.is_(True),
+        published(IntranetPage),
+    ).order_by(IntranetPage.sort, IntranetPage.title))).scalars().all()
+
+    # Same audience rule as tiles and courses: no rows means everyone.
+    page_audience: dict = {}
+    if pages:
+        for page_id, role_id in (await s.execute(select(
+            IntranetPageRole.page_id, IntranetPageRole.role_id,
+        ).where(IntranetPageRole.tenant_id == tenant_id,
+                IntranetPageRole.page_id.in_([x.id for x in pages])))).all():
+            page_audience.setdefault(page_id, set()).add(role_id)
+    pages = [x for x in pages
+             if x.id not in page_audience or my_role in page_audience[x.id]]
+
+    sections_by_page: dict = {}
+    if pages:
+        for section in (await s.execute(select(IntranetPageSection).where(
+            IntranetPageSection.tenant_id == tenant_id,
+            IntranetPageSection.page_id.in_([x.id for x in pages]),
+            published(IntranetPageSection),
+        ).order_by(IntranetPageSection.sort))).scalars().all():
+            sections_by_page.setdefault(section.page_id, []).append(section)
+
     sop_categories = (await s.execute(select(IntranetSopCategory).where(
         IntranetSopCategory.tenant_id == tenant_id, published(IntranetSopCategory),
     ).order_by(IntranetSopCategory.sort, IntranetSopCategory.name))).scalars().all()
@@ -379,6 +407,15 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
                                  for le in lessons_by_course.get(c.id, [])]}
                     for c in courses],
         "sops": [_sop_out(sop) for sop in sops],
+        # Pages this workspace wrote for itself. The rail builds its own entries from these, so
+        # a page that is unpublished, inactive, or not for this role never reaches the browser
+        # at all rather than being hidden once it gets there.
+        "pages": [{"key": x.key, "title": x.title, "subtitle": x.subtitle,
+                   "nav_group": x.nav_group, "sort": x.sort,
+                   "sections": [{"id": str(sec.id), "heading": sec.heading, "body": sec.body,
+                                 "links": list(sec.links or [])}
+                                for sec in sections_by_page.get(x.id, [])]}
+                  for x in pages],
         "integrations": integrations,
         # Reported as well as enforced. The server is the gate -- everything above is already
         # filtered -- but a rail that offers Win the Day to somebody it will then refuse is a

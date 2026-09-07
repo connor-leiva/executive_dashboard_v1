@@ -146,7 +146,11 @@ function initials(name) {
 }
 
 function activeIdForPath(pathname) {
-  return pathname.split("/").filter(Boolean)[0] || "home";
+  const parts = pathname.split("/").filter(Boolean);
+  // An authored page is /p/<key>, and its nav item is identified the same way -- the first
+  // segment alone would be "p" for every one of them and highlight nothing.
+  if (parts[0] === "p" && parts[1]) return `p/${parts[1]}`;
+  return parts[0] || "home";
 }
 
 function useBootstrap() {
@@ -282,6 +286,30 @@ function Shell({ me, config, children }) {
   // vendor behind it, or this role's capability level is None. The server filters the content
   // either way -- this stops the rail advertising a page it would then refuse, which reads as the
   // product being broken rather than as access somebody was never given.
+  /* THE RAIL IS PART BUILT-IN, PART THE WORKSPACE'S. NAV_GROUPS is the product's own structure;
+     authored pages join the group each one names, so a workspace can add "JV Partners" under
+     Partners without us shipping a screen for it. A group nobody built in -- a name a workspace
+     invented -- becomes a group of its own rather than being dropped, because refusing to show
+     a page because its heading is unfamiliar is the same failure as hardcoding the headings. */
+  const authored = config?.content?.pages || [];
+  const navGroups = useMemo(() => {
+    const groups = NAV_GROUPS.map((g) => ({ ...g, items: [...g.items] }));
+    const byLabel = new Map(groups.map((g) => [g.label, g]));
+    [...authored].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)).forEach((page) => {
+      const item = { id: `p/${page.key}`, label: page.title };
+      const label = page.nav_group || "Workspace";
+      const group = byLabel.get(label);
+      if (group) {
+        group.items.push(item);
+      } else {
+        const created = { label, items: [item] };
+        byLabel.set(label, created);
+        groups.push(created);
+      }
+    });
+    return groups;
+  }, [authored]);
+
   const levels = config?.content?.capabilities || {};
   const visible = (item) =>
     (!VENDOR_NAV[item.id] || connected(config, VENDOR_NAV[item.id]))
@@ -330,7 +358,7 @@ function Shell({ me, config, children }) {
           {/* The nav STRUCTURE is the product's -- every workspace gets Home, Training,
               SOPs and so on. The assistant's LABEL is the workspace's, because it carries
               their name. Anything below that is content, and comes from their console. */}
-          {NAV_GROUPS.map((group) => ({ ...group, items: group.items.filter(visible) }))
+          {navGroups.map((group) => ({ ...group, items: group.items.filter(visible) }))
             .filter((group) => group.items.length)
             .map((group) => (
             <div className="ut-nav-group" key={group.label}>
@@ -978,6 +1006,60 @@ function CourseDetail({ state, setState, config }) {
   );
 }
 
+/* A page the workspace wrote for itself.
+ *
+ * NAMESPACED UNDER /p/ ON PURPOSE. An authored page at a top-level path would collide the day
+ * somebody adds a built-in route with the same name -- and the built-in would win, silently
+ * hiding a customer's page. Adding a feature must not break a workspace's content, so authored
+ * pages live in their own namespace where nothing we ship later can land on them.
+ */
+function AuthoredPage({ config }) {
+  const { pageKey } = useParams();
+  const page = ((config?.content?.pages) || []).find((x) => x.key === pageKey);
+
+  if (!page) {
+    return (
+      <Page title="Page not found" subtitle="">
+        <Panel title="Not available">
+          <p className="ut-empty">
+            That page is not in your workspace. It may have been unpublished, or it may not be
+            available to your role. <NavLink to="/">Back to Home</NavLink>
+          </p>
+        </Panel>
+      </Page>
+    );
+  }
+
+  return (
+    <Page title={page.title} subtitle={page.subtitle || ""}>
+      {!page.sections.length ? (
+        <Panel title="Nothing here yet">
+          <p className="ut-empty">
+            This page has no published sections. An admin adds them in the console.
+          </p>
+        </Panel>
+      ) : page.sections.map((section) => (
+        <Panel key={section.id} title={section.heading || page.title}>
+          {section.body
+            ? section.body.split(/\n{2,}/).map((para, i) => (
+                <p className="ut-page-body" key={i}>{para}</p>
+              ))
+            : null}
+          {section.links?.length ? (
+            <div className="ut-page-links">
+              {section.links.map((link) => (
+                <a key={link.url} href={link.url} target="_blank" rel="noreferrer noopener">
+                  {link.label}
+                </a>
+              ))}
+            </div>
+          ) : null}
+        </Panel>
+      ))}
+    </Page>
+  );
+}
+
 function shortDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -1449,6 +1531,7 @@ export default function IntranetApp() {
         <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} />} />
         <Route path="/training" element={<Training state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/training/:courseId" element={<CourseDetail state={training} setState={setTraining} config={boot.config} />} />
+        <Route path="/p/:pageKey" element={<AuthoredPage config={boot.config} />} />
         <Route path="/onboarding" element={<Onboarding state={onboarding} setState={setOnboarding} />} />
         <Route path="/sops" element={<Sops config={boot.config} />} />
         <Route path="/numbers" element={<Numbers config={boot.config} />} />

@@ -31,6 +31,7 @@ import RolesPermissions from "./pages/RolesPermissions.jsx";
 import Roster from "./pages/Roster.jsx";
 import SopLibrary from "./pages/SopLibrary.jsx";
 import TeamCalendar from "./pages/TeamCalendar.jsx";
+import Pages from "./pages/Pages.jsx";
 import ToolLaunchpad from "./pages/ToolLaunchpad.jsx";
 import Training from "./pages/Training.jsx";
 import WinTheDay from "./pages/WinTheDay.jsx";

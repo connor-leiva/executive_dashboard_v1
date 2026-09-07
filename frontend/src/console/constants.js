@@ -23,6 +23,7 @@ export const NAV_SECTIONS = [
       { to: "/sops", label: "SOP Library" },
       { to: "/wtd", label: "Win the Day" },
       { to: "/launchpad", label: "Tool Launchpad" },
+      { to: "/pages", label: "Pages" },
     ],
   },
   {

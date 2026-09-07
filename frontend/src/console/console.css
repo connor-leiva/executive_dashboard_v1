@@ -626,6 +626,47 @@ textarea {
   font-size: 12.5px;
 }
 
+/* THESE THREE WERE ALREADY IN USE AND STYLED NOWHERE. MarketingRequests.jsx has rendered
+   `stack`, `chips` and `check` since it shipped, and console.css is the only stylesheet the
+   console loads -- so that screen has been laying out on browser defaults. Adding them here
+   fixes it as well as the Pages screen, and puts them beside the other console primitives so
+   the next screen finds them. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 4px 0 14px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--console-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.check input { margin: 0; }
+
+/* One section of an authored page, set apart from the page's own fields so a long page reads as
+   a stack of blocks rather than one continuous form. */
+.page-section-editor {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: var(--console-surface);
+}
+
+.page-section-editor textarea { width: 100%; }
+
 /* A row of buttons under a form. Wraps rather than overflowing, because the labels here are
    sentences ("Turn off Google sign-in") not verbs. */
 .console-actions {
