@@ -372,6 +372,7 @@ export default function Console() {
               />
             )}
           />
+          <Route path="/pages" element={<Pages />} />
           <Route path="/calendar" element={<TeamCalendar />} />
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/marketing" element={<MarketingRequests />} />

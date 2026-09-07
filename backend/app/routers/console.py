@@ -1945,7 +1945,20 @@ async def list_pages(p: ConsolePrincipal = Depends(require_console_access),
         IntranetPageRole.page_id, IntranetPageRole.role_id,
     ).where(IntranetPageRole.tenant_id == p.user.tenant_id))).all():
         audience.setdefault(page_id, []).append(role_id)
-    return _list([_page_out(r, role_ids=audience.get(r.id)) for r in rows])
+
+    # SECTIONS COME WITH THE LIST. They did not, and the authoring screen renders each page's
+    # sections inline -- so adding one saved it and then showed nothing, because the list it
+    # re-read had never carried them. One query for all of them rather than a fetch per page:
+    # this screen shows every page a workspace has, and that would be an N+1 by design.
+    sections: dict = {}
+    if rows:
+        for section in (await s.execute(select(IntranetPageSection).where(
+            IntranetPageSection.tenant_id == p.user.tenant_id,
+            IntranetPageSection.page_id.in_([r.id for r in rows]),
+        ).order_by(IntranetPageSection.sort))).scalars().all():
+            sections.setdefault(section.page_id, []).append(section)
+
+    return _list([_page_out(r, sections.get(r.id), audience.get(r.id)) for r in rows])
 
 
 @router.get("/pages/{page_id}")

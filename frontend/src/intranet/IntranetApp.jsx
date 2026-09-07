@@ -1013,6 +1013,14 @@ function CourseDetail({ state, setState, config }) {
  * hiding a customer's page. Adding a feature must not break a workspace's content, so authored
  * pages live in their own namespace where nothing we ship later can land on them.
  */
+/* An admin adds a section and fills it in afterwards. Until they do, it has no heading, no body
+   and no links -- and rendering that is an empty card on a live page, titled with the page's own
+   name because the heading fallback had nothing else to use. Skipped instead. */
+function hasContent(section) {
+  return Boolean((section.heading || "").trim() || (section.body || "").trim()
+                 || (section.links || []).length);
+}
+
 function AuthoredPage({ config }) {
   const { pageKey } = useParams();
   const page = ((config?.content?.pages) || []).find((x) => x.key === pageKey);
@@ -1032,13 +1040,13 @@ function AuthoredPage({ config }) {
 
   return (
     <Page title={page.title} subtitle={page.subtitle || ""}>
-      {!page.sections.length ? (
+      {!page.sections.filter(hasContent).length ? (
         <Panel title="Nothing here yet">
           <p className="ut-empty">
             This page has no published sections. An admin adds them in the console.
           </p>
         </Panel>
-      ) : page.sections.map((section) => (
+      ) : page.sections.filter(hasContent).map((section) => (
         <Panel key={section.id} title={section.heading || page.title}>
           {section.body
             ? section.body.split(/\n{2,}/).map((para, i) => (
@@ -1541,9 +1549,11 @@ export default function IntranetApp() {
         <Route path="/brand" element={<BrandKit config={boot.config} />} />
         <Route path="/ask" element={<Ask config={boot.config} me={boot.me} />} />
         <Route path="/sunburst" element={<SunburstPage />} />
-        <Route path="/phone" element={<PlaceholderPage title="On The Phone" subtitle="Team phone activity shell." />} />
-        <Route path="/listing" element={<PlaceholderPage title="Listing Marketing" subtitle="Listing marketing content remains tenant configurable." />} />
-        <Route path="/partners" element={<PlaceholderPage title="JV Partners" subtitle="Partner links remain tenant configurable." />} />
+        {/* On The Phone, Listing Marketing and JV Partners were empty PlaceholderPage shells --
+            one customer's screen names with nothing behind them. They are what the page builder
+            replaces: a workspace writes its own under /p/<key>, in whichever sidebar group it
+            chooses, with content it controls. Sunburst stays because it is a real panel gated on
+            the integrations map, which is a different mechanism. */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

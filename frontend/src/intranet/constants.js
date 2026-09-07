@@ -23,21 +23,18 @@ export const NAV_GROUPS = [
     label: "Team",
     items: [
       { id: "directory", label: "Who's Who" },
-      { id: "phone", label: "On The Phone" },
     ],
   },
   {
     label: "Marketing",
     items: [
       { id: "brand", label: "Brand Kit" },
-      { id: "listing", label: "Listing Marketing" },
       { id: "marketing", label: "Requests", capability: "marketing_requests" },
     ],
   },
   {
     label: "Partners",
     items: [
-      { id: "partners", label: "JV Partners" },
     ],
   },
 ];
