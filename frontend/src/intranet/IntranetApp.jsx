@@ -3,7 +3,6 @@ import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom"
 
 import { API_BASE, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
 import {
-  FUB_LISTS,
   NAV_GROUPS,
   ONBOARDING,
   PRIORITY_ITEMS,
@@ -718,7 +717,9 @@ function Tools({ config }) {
 }
 
 function WinTheDay({ state, setState, config }) {
-  const links = config.links?.fub_lists || {};
+  // The workspace's own call lists, from the console. `config.links.fub_lists` was an older
+  // parallel map keyed by hardcoded list names -- the console never wrote to it.
+  const lists = config?.content?.wtd_lists || [];
   const blocks = WTD_BLOCKS;
   const total = blocks.flatMap((b) => b.items).length;
   const done = Object.values(state.checked || {}).filter(Boolean).length;
@@ -765,19 +766,33 @@ function WinTheDay({ state, setState, config }) {
         </div>
       </Panel>
       <Panel title="Call Lists" kicker="Configured in the admin console">
+        {!lists.length ? (
+          <p className="ut-empty">
+            {deniedBy(config, "wtd")
+              ? "Your role does not have access to Win the Day."
+              : "Call lists appear here once an admin adds them in the console under Win the Day."}
+          </p>
+        ) : (
         <div className="ut-fub-grid">
-          {FUB_LISTS.map((item) => {
-            const url = links[item.key] || "";
+          {lists.map((item) => {
             return (
-              <div className="ut-fub-card" key={item.key}>
+              <div className="ut-fub-card" key={item.id}>
                 <strong>{item.name}</strong>
-                {url
-                  ? <a href={url} target="_blank" rel="noreferrer">Open list</a>
-                  : <span>No URL configured</span>}
+                {item.script_name || item.daily_target ? (
+                  <em>
+                    {item.script_name}
+                    {item.script_name && item.daily_target ? " · " : ""}
+                    {item.daily_target ? `${item.daily_target}/day` : ""}
+                  </em>
+                ) : null}
+                {item.url
+                  ? <a href={item.url} target="_blank" rel="noreferrer noopener">Open list</a>
+                  : <span>No list ID configured</span>}
               </div>
             );
           })}
         </div>
+        )}
       </Panel>
     </Page>
   );

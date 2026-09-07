@@ -142,22 +142,6 @@ export const WTD_BLOCKS = [
   },
 ];
 
-export const FUB_LISTS = [
-  { key: "new_leads", name: "New leads" },
-  { key: "hot_leads", name: "Hot leads" },
-  { key: "sphere", name: "Sphere" },
-  { key: "past_clients", name: "Past clients" },
-  { key: "buyers", name: "Active buyers" },
-  { key: "sellers", name: "Active sellers" },
-  { key: "nurture", name: "Nurture" },
-  { key: "database", name: "Database" },
-  { key: "open_house", name: "Open house" },
-  { key: "investors", name: "Investors" },
-  { key: "vendors", name: "Vendors" },
-  { key: "referrals", name: "Referral partners" },
-  { key: "birthday", name: "Birthdays" },
-];
-
 export const ONBOARDING = [
   { key: "profile", title: "Profile and accounts" },
   { key: "tools", title: "Core tools access" },

@@ -780,3 +780,56 @@ async def test_a_denied_role_cannot_file_a_marketing_request():
                               data={"title": "Flyer please"})
     assert cfg["marketing"]["available"] is False, "the form was offered to a denied role"
     assert posted.status_code == 403, "a denied role filed a request anyway"
+
+
+async def test_a_call_list_carries_the_link_the_console_configured():
+    """Two mechanisms existed for one thing and the portal read the wrong one. The console
+    authors a provider plus an external_list_id per list; the portal rendered an older
+    `config.links.fub_lists` map keyed by hardcoded list names that the console never writes. A
+    workspace could fill in every list id and still see "No URL configured" on every card."""
+    from app.models import IntranetIntegration, IntranetWtdList
+
+    host, tenant, tokens = await _tenant("wtdlink", intranet=True)
+    now = dt.datetime.now(dt.timezone.utc)
+    async with SessionLocal() as s:
+        s.add(IntranetIntegration(
+            tenant_id=tenant.id, provider_key="follow_up_boss", display_name="Follow Up Boss",
+            role_label="CRM", status="Connected",
+            base_url="https://team.followupboss.com/2/people/list/"))
+        s.add(IntranetWtdList(tenant_id=tenant.id, name="New leads", position=1, active=True,
+                              provider="follow_up_boss", external_list_id="42",
+                              script_name="New lead script", daily_target=15,
+                              published_at=now))
+        # A list with no id configured yet: it must still appear, just without a link.
+        s.add(IntranetWtdList(tenant_id=tenant.id, name="Sphere", position=2, active=True,
+                              provider="follow_up_boss", published_at=now))
+        await s.commit()
+
+    async with _client() as c:
+        cfg = (await c.get("/api/v1/intranet/config",
+                           headers=_H(tokens["member"], host))).json()["config"]
+    lists = {row["name"]: row for row in cfg["content"]["wtd_lists"]}
+    assert lists["New leads"]["url"] == "https://team.followupboss.com/2/people/list/42"
+    assert lists["New leads"]["script_name"] == "New lead script"
+    assert lists["New leads"]["daily_target"] == 15
+    # Present but unlinked, rather than hidden: an admin needs to see the list they have not
+    # finished configuring.
+    assert lists["Sphere"]["url"] is None
+
+
+async def test_a_call_list_without_a_connected_provider_has_no_link():
+    """No base URL means there is nothing to build a link out of, and half a URL is worse than
+    none -- it would 404 on the agent rather than tell the admin something is missing."""
+    from app.models import IntranetWtdList
+
+    host, tenant, tokens = await _tenant("wtdnolink", intranet=True)
+    async with SessionLocal() as s:
+        s.add(IntranetWtdList(tenant_id=tenant.id, name="New leads", position=1, active=True,
+                              provider="follow_up_boss", external_list_id="42",
+                              published_at=dt.datetime.now(dt.timezone.utc)))
+        await s.commit()
+
+    async with _client() as c:
+        cfg = (await c.get("/api/v1/intranet/config",
+                           headers=_H(tokens["member"], host))).json()["config"]
+    assert cfg["content"]["wtd_lists"][0]["url"] is None

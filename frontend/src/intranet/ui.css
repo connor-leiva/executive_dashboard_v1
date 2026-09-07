@@ -1024,7 +1024,10 @@ input {
   font-weight: 600;
 }
 
-.ut-quick-card em {
+/* The same secondary line the quick cards use: a script name and a daily target under the
+   list's name. Grouped rather than duplicated so the two card types cannot drift apart. */
+.ut-quick-card em,
+.ut-fub-card em {
   display: block;
   margin-top: 2px;
   color: var(--muted);

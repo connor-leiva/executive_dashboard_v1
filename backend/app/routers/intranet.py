@@ -320,6 +320,28 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     # the same customer being asked the same question twice and getting two answers.
     integrations.update(await dashboard_connections(s, tenant_id))
 
+    # THE LIST'S OWN LINK, resolved here. The console authors a provider plus an
+    # external_list_id per list; the portal was reading an older `config.links.fub_lists` map
+    # keyed by hardcoded list names, so a workspace could fill in every list id in the console
+    # and the portal would still show "No URL configured". Two mechanisms for one thing, and the
+    # one the console writes was the one nothing read.
+    #
+    # Joined server-side rather than handing over provider base URLs: the integrations map stays
+    # keys-and-status, and the browser gets a finished link or nothing.
+    provider_bases = {
+        row.provider_key: (row.base_url or "").strip()
+        for row in (await s.execute(select(IntranetIntegration).where(
+            IntranetIntegration.tenant_id == tenant_id))).scalars().all()
+        if (row.base_url or "").strip()
+    }
+
+    def _list_url(item) -> str | None:
+        base = provider_bases.get(item.provider or "")
+        ref = (item.external_list_id or "").strip()
+        if not base or not ref:
+            return None
+        return f"{base.rstrip('/')}/{ref}"
+
     # Grouped exactly as the launchpad renders them, so the browser does no grouping of its own.
     groups: dict = {}
     for tile in visible:
@@ -335,7 +357,8 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         "tool_groups": [{"id": name.lower().replace(" ", "_"), "label": name, "tools": items}
                         for name, items in groups.items()],
         "wtd_lists": [{"id": str(w.id), "name": w.name, "script_name": w.script_name,
-                       "daily_target": w.daily_target, "provider": w.provider}
+                       "daily_target": w.daily_target, "provider": w.provider,
+                       "url": _list_url(w)}
                       for w in wtd],
         # WIDER THAN A TITLE, because a title is not a course. Everything below is already
         # authored in the console and was being dropped here, which is why the portal fell back
