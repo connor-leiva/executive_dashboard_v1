@@ -468,6 +468,8 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
                                   "source_type": le.source_type, "source_ref": le.source_ref,
                                   "source_label": le.source_label,
                                   "description": le.description,
+                                  # The byline the player shows under the title.
+                                  "taught_by": le.taught_by,
                                   "duration_minutes": le.duration_minutes,
                                   "required": bool(le.required),
                                   # Resolved server-side: whether this source can be played in

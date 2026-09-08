@@ -1131,7 +1131,9 @@ function CourseDetail({ state, setState, config }) {
                 ) : (
                   <NavLink className="ut-lesson-link" to={`/training/${course.id}/${lesson.id}`}>
                     <strong>{lesson.title}</strong>
-                    {lesson.description ? <em>{lesson.description}</em> : null}
+                    {lesson.taught_by || lesson.description
+                      ? <em>{[lesson.taught_by, lesson.description].filter(Boolean).join(" · ")}</em>
+                      : null}
                   </NavLink>
                 )}
                 <span className="ut-lesson-meta">
@@ -1246,6 +1248,7 @@ function LessonPlayer({ state, setState, config }) {
           <div className="ut-lesson-body">
             <span className="ut-kicker">
               {course.category || "Course"} · Lesson {index + 1} of {lessons.length}
+              {lesson.taught_by ? ` · ${lesson.taught_by}` : ""}
             </span>
             <h2>{lesson.title}</h2>
             {lesson.description

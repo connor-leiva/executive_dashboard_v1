@@ -2900,3 +2900,641 @@ textarea {
   flex: 1 1 150px;
   min-width: 0;
 }
+
+/* ══ course builder ═══════════════════════════════════════════════════════════════════════
+   The console's densest screen: a course list that has to survive forty courses beside an
+   editor that has to hold a dozen lessons. Values track the reference design. */
+
+.cb-head {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.cb-head > div:first-child { flex: 1 1 420px; min-width: 280px; }
+
+.cb-eyebrow {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--console-faint);
+}
+
+.cb-head h1 {
+  margin: 9px 0 0;
+  font-size: 38px;
+  line-height: 1;
+  letter-spacing: -0.6px;
+  font-weight: 400;
+}
+
+.cb-head p {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #41484B;
+  max-width: 600px;
+  text-wrap: pretty;
+}
+
+.cb-stats {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 26px;
+  padding: 14px 20px;
+  background: #FFFFFF;
+  border: 1px solid var(--console-line);
+  border-radius: 12px;
+}
+
+.cb-stats strong {
+  display: block;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+}
+
+.cb-stats span {
+  display: block;
+  margin-top: 3px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--console-faint);
+}
+
+/* minmax(0,1fr) on the second track, not 1fr: a grid item default min-width is auto, so one long
+   lesson URL would push the editor wider than the page and take the rail with it. */
+.cb-shell {
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .cb-shell { grid-template-columns: minmax(0, 1fr); }
+  .cb-rail { position: static !important; }
+}
+
+/* ── the rail ─────────────────────────────────────────────────────────────────────────── */
+
+.cb-rail {
+  background: #FFFFFF;
+  border: 1px solid var(--console-line);
+  border-radius: 14px;
+  overflow: hidden;
+  position: sticky;
+  top: 86px;
+}
+
+.cb-railhead { padding: 16px 18px 13px; border-bottom: 1px solid var(--console-lineSoft); }
+
+.cb-railtop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.cb-label {
+  flex: 1;
+  display: block;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--console-faint);
+}
+
+.cb-count { font-size: 10px; color: var(--console-faint); }
+
+.cb-search {
+  width: 100%;
+  border: 1px solid var(--console-line);
+  background: #FBFAFA;
+  color: var(--console-ink);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 9px 11px;
+  border-radius: 9px;
+}
+
+.cb-filters { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+
+.cb-filter {
+  border: 1px solid var(--console-line);
+  background: #FFFFFF;
+  color: #6E767B;
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 99px;
+  cursor: pointer;
+}
+
+.cb-filter:hover { border-color: #395262; color: var(--console-ink); }
+.cb-filter.on { border-color: #171E22; background: #171E22; color: #FFFFFF; }
+
+/* Capped so the editor stays reachable: an unbounded list of forty courses would push the
+   New course button and the whole detail pane below the fold. */
+.cb-raillist { max-height: min(52vh, 440px); overflow-y: auto; }
+
+.cb-railrow {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid #F4F1F0;
+  background: #FFFFFF;
+  padding: 13px 18px;
+  cursor: pointer;
+}
+
+.cb-railrow:hover { background: #FBFAFA; }
+.cb-railrow.on { background: #F4F7F8; }
+
+.cb-railbar {
+  flex: 0 0 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.cb-railrow.on .cb-railbar { background: #395262; }
+.cb-railbody { flex: 1; min-width: 0; }
+
+.cb-railcat {
+  display: block;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--console-faint);
+}
+
+.cb-railrow.on .cb-railcat { color: #7C8A92; }
+
+.cb-railtitle {
+  display: block;
+  margin-top: 4px;
+  font-size: 14.5px;
+  color: #41484B;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cb-railrow.on .cb-railtitle { font-weight: 500; color: var(--console-ink); }
+
+.cb-railmeta {
+  display: block;
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--console-faint);
+}
+
+.cb-railrow.on .cb-railmeta { color: #6E767B; }
+.cb-railempty { margin: 0; padding: 22px 18px; font-size: 13px; color: var(--console-faint); }
+.cb-railfoot { padding: 14px 18px; display: flex; gap: 8px; }
+.cb-railfoot .console-button { flex: 1; }
+
+.cb-tag {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 99px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+/* ── the editor ───────────────────────────────────────────────────────────────────────── */
+
+.cb-detail {
+  background: #FFFFFF;
+  border: 1px solid var(--console-line);
+  border-radius: 14px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.cb-detailhead {
+  padding: 22px 26px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.cb-detailtitle { flex: 1 1 320px; min-width: 260px; }
+.cb-detailtags { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+
+.cb-detail h2 {
+  margin: 9px 0 0;
+  font-size: 27px;
+  line-height: 1.1;
+  letter-spacing: -0.4px;
+  font-weight: 500;
+}
+
+.cb-meta { margin-top: 7px; font-size: 13.5px; color: #6E767B; }
+.cb-detailactions { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+
+/* Preview in portal is an <a>, and .console-button was written for a <button>: without this it
+   renders as underlined link text sitting next to real buttons. */
+.cb-detailactions a.console-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--console-ink);
+}
+
+.cb-detailactions a.console-button:hover { border-color: #395262; text-decoration: none; }
+
+.cb-saved {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: #2F6444;
+}
+
+.cb-saved > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: currentColor;
+  flex: none;
+}
+
+.cb-saved.bad { color: #A44A33; }
+
+.cb-tabs {
+  display: flex;
+  gap: 26px;
+  margin: 20px 26px 0;
+  border-bottom: 1px solid var(--console-lineSoft);
+}
+
+.cb-tab {
+  border: 0;
+  background: transparent;
+  padding: 0 0 12px;
+  border-bottom: 2px solid transparent;
+  color: #6E767B;
+  font: inherit;
+  font-size: 14.5px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.cb-tab:hover { color: var(--console-ink); }
+.cb-tab.on { border-bottom-color: #171E22; color: var(--console-ink); font-weight: 500; }
+.cb-tab span { font-size: 10px; color: var(--console-faint); }
+
+.cb-pane { padding: 24px 26px 26px; }
+
+.cb-intro {
+  margin: 0 0 18px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: #41484B;
+  max-width: 560px;
+  text-wrap: pretty;
+}
+
+.cb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 15px 26px;
+  background: #FBFAFA;
+  border-bottom: 1px solid var(--console-lineSoft);
+}
+
+/* ── lessons ──────────────────────────────────────────────────────────────────────────── */
+
+.cb-lesson { border-bottom: 1px solid #F4F1F0; }
+.cb-lesson.dragging { opacity: 0.45; }
+
+.cb-lesson-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 26px;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+
+.cb-lesson-row:hover { background: #FBFAFA; }
+.cb-grip { flex: 0 0 auto; color: #CFC9C7; font-size: 14px; cursor: grab; }
+.cb-num { flex: 0 0 20px; font-size: 12px; color: var(--console-faint); text-align: right; }
+
+/* flex-basis 240px with min-width 0: the title takes the slack, and the ellipsis below actually
+   works instead of the subtitle forcing the row wider. */
+.cb-lesson-title { flex: 1 1 240px; min-width: 0; }
+.cb-lesson-title strong { display: block; font-size: 15px; font-weight: 500; }
+
+.cb-lesson-title em {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  font-size: 13px;
+  color: var(--console-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cb-dur { flex: 0 0 46px; font-size: 11.5px; color: #6E767B; text-align: right; }
+
+.cb-pill {
+  flex: 0 0 auto;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--console-faint);
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 99px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.cb-pill.req { font-weight: 600; color: #7A6215; border-color: #D6CFA8; }
+.cb-att { flex: 0 0 54px; font-size: 11px; color: var(--console-faint); text-align: right; }
+.cb-caret { flex: 0 0 auto; color: var(--console-faint); font-size: 11px; }
+
+.cb-open { padding: 4px 26px 24px; }
+
+.cb-card {
+  background: #FBFAFA;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.cb-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+.cb-span-12 { grid-column: span 12; }
+
+@media (max-width: 900px) {
+  .cb-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cb-grid > * { grid-column: span 4 !important; }
+}
+
+.cb-field { display: block; min-width: 0; }
+
+.cb-field > .cb-label,
+.cb-span-12 > .cb-label {
+  margin-bottom: 6px;
+  font-weight: 500;
+  flex: none;
+}
+
+.cb-field input,
+.cb-field textarea,
+.cb-attform input {
+  width: 100%;
+  border: 1px solid var(--console-line);
+  background: #FFFFFF;
+  color: var(--console-ink);
+  font: inherit;
+  font-size: 14.5px;
+  padding: 10px 12px;
+  border-radius: 9px;
+}
+
+.cb-field textarea { line-height: 1.5; resize: vertical; }
+
+.cb-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--console-faint);
+}
+
+/* The chevron is ours because appearance:none removes the platform one; without that reset the
+   native arrow and this one both draw. */
+.cb-select { position: relative; display: block; }
+
+.cb-select select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--console-line);
+  background: #FFFFFF;
+  color: var(--console-ink);
+  font: inherit;
+  font-size: 14.5px;
+  padding: 10px 30px 10px 12px;
+  border-radius: 9px;
+}
+
+.cb-select > span {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--console-faint);
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.cb-reqbtn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--console-line);
+  background: #FFFFFF;
+  color: #6E767B;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 8px 13px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.cb-reqbtn:hover { border-color: #395262; color: var(--console-ink); }
+.cb-reqbtn.on { border-color: #171E22; color: var(--console-ink); }
+
+.cb-switch {
+  width: 38px;
+  height: 22px;
+  flex: none;
+  border: 0;
+  border-radius: 99px;
+  background: var(--console-line);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.cb-switch.on { background: #171E22; justify-content: flex-end; }
+.cb-switch > span { width: 16px; height: 16px; border-radius: 99px; background: #FFFFFF; display: block; }
+.cb-reqbtn .cb-switch { width: 32px; height: 18px; padding: 2px; }
+.cb-reqbtn .cb-switch > span { width: 14px; height: 14px; }
+
+.cb-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--console-lineSoft);
+}
+
+.cb-foot > span:first-child { flex: 1; font-size: 13px; color: var(--console-faint); }
+.cb-pane > .cb-foot { border-top: 0; }
+
+.cb-listfoot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px 26px;
+}
+
+.cb-listfoot > span:nth-child(2) { flex: 1; }
+.cb-listfoot .cb-meta { margin: 0; font-size: 10.5px; letter-spacing: 0.06em; }
+
+.cb-drop {
+  border: 1px dashed #CFC9C7;
+  background: transparent;
+  color: #6E767B;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.cb-drop:hover { border-color: #395262; color: var(--console-ink); }
+
+/* ── attachments ──────────────────────────────────────────────────────────────────────── */
+
+.cb-chips { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.cb-attchip {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  background: #FFFFFF;
+  border: 1px solid var(--console-line);
+  border-radius: 10px;
+  padding: 9px 12px;
+}
+
+.cb-attchip strong { display: block; font-size: 13.5px; font-weight: 500; }
+.cb-attchip em { display: block; font-style: normal; font-size: 12px; color: var(--console-faint); }
+
+.cb-attkind {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #A44A33;
+  background: #F6E9E6;
+  border-radius: 5px;
+  padding: 4px 7px;
+}
+
+.cb-attchip button {
+  border: 0;
+  background: transparent;
+  color: var(--console-faint);
+  font-size: 13px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.cb-attchip button:hover { color: #A44A33; }
+
+.cb-attform {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.cb-attform input, .cb-attform .cb-select { flex: 1 1 150px; min-width: 0; }
+
+/* ── settings flags and visibility rows ───────────────────────────────────────────────── */
+
+.cb-flags {
+  margin-top: 22px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.cb-pane > .cb-flags:first-child { margin-top: 0; }
+
+.cb-flag {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 18px;
+  border-bottom: 1px solid #F4F1F0;
+  background: #FFFFFF;
+}
+
+.cb-flag:last-child { border-bottom: 0; }
+.cb-flag > div { flex: 1; min-width: 0; }
+.cb-flag strong { display: block; font-size: 14.5px; font-weight: 500; }
+
+.cb-flag em {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #6E767B;
+  text-wrap: pretty;
+}
+
+.cb-see {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--console-line);
+  background: #FFFFFF;
+  color: var(--console-faint);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.cb-see:hover { border-color: #395262; color: var(--console-ink); }
+.cb-see.on { border-color: #171E22; color: var(--console-ink); }
+
+.cb-see > span {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--console-line);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cb-see.on > span { background: #171E22; border-color: #171E22; color: #FFFFFF; }

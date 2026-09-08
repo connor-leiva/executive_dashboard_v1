@@ -330,6 +330,9 @@ class IntranetLesson(Base):
     # What this lesson is for, and when to watch it. The portal renders a checklist without it --
     # a row of titles tells somebody what exists, not why they should open it.
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The byline. NOT source_label wearing a second hat: "Loom" answers where the file lives,
+    # "Sharida Hansen" answers who to ask about the content, and only one of those is a person.
+    taught_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     sort: Mapped[int] = mapped_column(SmallInteger)

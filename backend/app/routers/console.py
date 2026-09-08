@@ -580,8 +580,31 @@ async def _lesson_counts(s: AsyncSession, tenant_id, course_ids: list[uuid.UUID]
     return {row[0]: {"lesson_count": int(row[1]), "total_duration_minutes": int(row[2] or 0)} for row in rows}
 
 
+async def _last_editor(s: AsyncSession, tenant_id, course_id) -> str | None:
+    """Who touched this course last, from the audit trail.
+
+    Lessons are audited against their own ids, so this asks about the course row and the entity
+    ids underneath it -- editing a lesson is editing the course as far as the header is concerned,
+    and a header that said "Aug 24" while somebody renamed a lesson a minute ago would be wrong in
+    the one way a "last edited" line must not be.
+    """
+    lesson_ids = (await s.execute(select(IntranetLesson.id).where(
+        IntranetLesson.tenant_id == tenant_id,
+        IntranetLesson.course_id == course_id))).scalars().all()
+    targets = [str(course_id)] + [str(i) for i in lesson_ids]
+    row = (await s.execute(
+        select(AuditLog.actor_label)
+        .where(AuditLog.tenant_id == tenant_id,
+               AuditLog.target_id.in_(targets),
+               AuditLog.category == "Training")
+        .order_by(AuditLog.created_at.desc())
+        .limit(1))).scalars().first()
+    return row or None
+
+
 def _course(row: IntranetCourse, roles: dict[uuid.UUID, list[str]] | None = None,
-            counts: dict[uuid.UUID, dict] | None = None, lessons: list[dict] | None = None) -> dict:
+            counts: dict[uuid.UUID, dict] | None = None, lessons: list[dict] | None = None,
+            last_editor: str | None = None) -> dict:
     derived = (counts or {}).get(row.id, {})
     return {
         "id": _id(row.id), "title": row.title, "category": row.category,
@@ -590,6 +613,11 @@ def _course(row: IntranetCourse, roles: dict[uuid.UUID, list[str]] | None = None
         "required_for_onboarding": bool(row.required_for_onboarding),
         "issues_certificate": bool(row.issues_certificate), "sequential": bool(row.sequential),
         "sort": row.sort, "archived_at": _iso(row.archived_at),
+        "updated_at": _iso(row.updated_at),
+        # Read off the audit trail rather than stored on the course. Adding an `updated_by` column
+        # would be a second record of something already written on every mutation, and the day the
+        # two disagreed the header would be the one people read.
+        "last_editor": last_editor,
         "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
         "lesson_count": derived.get("lesson_count", len(lessons or [])),
         "total_duration_minutes": derived.get("total_duration_minutes", 0),
@@ -612,7 +640,7 @@ def _lesson(row: IntranetLesson, attachments: list | None = None) -> dict:
         "id": _id(row.id), "course_id": _id(row.course_id), "title": row.title,
         "source_type": row.source_type, "source_ref": row.source_ref,
         "source_label": row.source_label, "description": row.description,
-        "duration_minutes": row.duration_minutes,
+        "taught_by": row.taught_by, "duration_minutes": row.duration_minutes,
         "required": bool(row.required), "sort": row.sort,
         # Resolved with the SAME function the portal payload uses, so the console can warn about
         # a source that will not play BEFORE a member finds out by opening it.
@@ -2393,7 +2421,8 @@ async def get_course(course_id: uuid.UUID, p: ConsolePrincipal = Depends(require
             handouts.setdefault(att.lesson_id, []).append(att)
     return _course(row, roles, {row.id: {"lesson_count": len(lessons),
                                          "total_duration_minutes": sum(l.duration_minutes or 0 for l in lessons)}},
-                   [_lesson(l, handouts.get(l.id)) for l in lessons])
+                   [_lesson(l, handouts.get(l.id)) for l in lessons],
+                   await _last_editor(s, p.user.tenant_id, row.id))
 
 
 @router.post("/courses")
@@ -2419,6 +2448,11 @@ async def create_course(body: dict = Body(...), p: ConsolePrincipal = Depends(re
         s, p, action="content.course.created", category="Training",
         summary=f"Created course {row.title}", target_type="course", target_id=row.id,
         entity_type="course", entity_id=row.id, change_kind="created")
+    # REFRESHED BEFORE SERIALISING. _record_mutation commits, `updated_at` carries an onupdate so
+    # the ORM expires it, and the next attribute read would lazy-load outside the async greenlet --
+    # a 500, not a warning. Same fix and same reason as patch_marketing_request; it only started
+    # biting courses when the header began showing when they were last edited.
+    await s.refresh(row)
     return _with_pending(_course(row), pending)
 
 
@@ -2448,6 +2482,11 @@ async def patch_course(course_id: uuid.UUID, body: dict = Body(...),
         s, p, action="content.course.updated", category="Training",
         summary=f"Updated course {row.title}", target_type="course", target_id=row.id,
         entity_type="course", entity_id=row.id)
+    # REFRESHED BEFORE SERIALISING. _record_mutation commits, `updated_at` carries an onupdate so
+    # the ORM expires it, and the next attribute read would lazy-load outside the async greenlet --
+    # a 500, not a warning. Same fix and same reason as patch_marketing_request; it only started
+    # biting courses when the header began showing when they were last edited.
+    await s.refresh(row)
     return _with_pending(_course(row), pending)
 
 
@@ -2461,6 +2500,11 @@ async def delete_course(course_id: uuid.UUID, p: ConsolePrincipal = Depends(requ
         s, p, action="content.course.archived", category="Training",
         summary=f"Archived course {row.title}", target_type="course", target_id=row.id,
         entity_type="course", entity_id=row.id, change_kind="deleted")
+    # REFRESHED BEFORE SERIALISING. _record_mutation commits, `updated_at` carries an onupdate so
+    # the ORM expires it, and the next attribute read would lazy-load outside the async greenlet --
+    # a 500, not a warning. Same fix and same reason as patch_marketing_request; it only started
+    # biting courses when the header began showing when they were last edited.
+    await s.refresh(row)
     return _with_pending(_course(row), pending)
 
 
@@ -2643,7 +2687,7 @@ async def create_lesson(course_id: uuid.UUID, body: dict = Body(...),
     course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
     body = _body(body)
     _unknown(body, {"title", "source_type", "source_ref", "source_label", "description",
-                    "duration_minutes", "required", "sort"})
+                    "taught_by", "duration_minutes", "required", "sort"})
     row = IntranetLesson(
         tenant_id=p.user.tenant_id,
         course_id=course.id,
@@ -2652,6 +2696,7 @@ async def create_lesson(course_id: uuid.UUID, body: dict = Body(...),
         source_ref=_text(body, "source_ref", nullable=True),
         source_label=_text(body, "source_label", nullable=True),
         description=_text(body, "description", nullable=True, max_len=4000),
+        taught_by=_text(body, "taught_by", nullable=True, max_len=200),
         duration_minutes=_int(body, "duration_minutes", min_value=0),
         required=_bool(body, "required", False),
         sort=_int(body, "sort", default=await _count(s, IntranetLesson, p.user.tenant_id,
@@ -2674,7 +2719,7 @@ async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = 
     row = await _lesson_of(s, p.user.tenant_id, course_id, lesson_id)
     body = _body(body)
     _unknown(body, {"title", "source_type", "source_ref", "source_label", "description",
-                    "duration_minutes", "required", "sort"})
+                    "taught_by", "duration_minutes", "required", "sort"})
     if "title" in body:
         row.title = _text(body, "title", required=True) or row.title
     if "source_type" in body:
@@ -2685,6 +2730,8 @@ async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = 
         row.source_label = _text(body, "source_label", nullable=True)
     if "description" in body:
         row.description = _text(body, "description", nullable=True, max_len=4000)
+    if "taught_by" in body:
+        row.taught_by = _text(body, "taught_by", nullable=True, max_len=200)
     if "duration_minutes" in body:
         row.duration_minutes = _int(body, "duration_minutes", min_value=0)
     if "required" in body:
