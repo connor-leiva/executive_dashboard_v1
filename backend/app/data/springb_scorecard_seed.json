@@ -15,7 +15,8 @@
       "name": "beCollective",
       "metrics": [
         {"name": "Mighty Network Growth", "type": "flow", "note": "To settle: the unit — net new members or % growth; platform or community (WhatsApp/GHL-only members aren't visible to a Mighty Networks count)."},
-        {"name": "Engagement", "type": "flow", "note": "To settle: the definition — weekly active %, call attendance, or posts + comments. Can't carry a goal until this is decided."}
+        {"name": "Engagement", "type": "flow", "note": "To settle: the definition — weekly active %, call attendance, or posts + comments. Can't carry a goal until this is decided."},
+        {"name": "Email Open Rate", "type": "rate", "note": "Open rate for this brand's GHL email sends."}
       ]
     },
     {
@@ -25,7 +26,8 @@
         {"name": "Members at Risk", "type": "snapshot", "note": "To settle: the trigger — at risk after how many missed calls."},
         {"name": "Member Referrals Generated", "type": "flow"},
         {"name": "Members Added", "type": "flow"},
-        {"name": "VIP Guests Added", "type": "flow"}
+        {"name": "VIP Guests Added", "type": "flow"},
+        {"name": "Email Open Rate", "type": "rate", "note": "Open rate for this brand's GHL email sends."}
       ]
     },
     {
@@ -37,7 +39,8 @@
         {"name": "Agents Onboarded", "type": "flow"},
         {"name": "UCs", "type": "flow"},
         {"name": "Closed Units", "type": "flow"},
-        {"name": "Agents at 0", "type": "snapshot", "note": "To settle: the window — zero production over 30 / 60 / 90 days (60 is common: it survives one slow month without flagging everyone)."}
+        {"name": "Agents at 0", "type": "snapshot", "note": "To settle: the window — zero production over 30 / 60 / 90 days (60 is common: it survives one slow month without flagging everyone)."},
+        {"name": "Email Open Rate", "type": "rate", "note": "Open rate for this brand's GHL email sends."}
       ]
     }
   ]

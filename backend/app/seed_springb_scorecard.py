@@ -19,7 +19,7 @@ import os
 import sys
 from decimal import Decimal
 
-from sqlalchemy import select, delete
+from sqlalchemy import select
 
 from .db import SessionLocal
 from .models import Tenant, ScorecardGroup, ScorecardMetric
@@ -34,36 +34,44 @@ def _load_data() -> dict:
 
 
 async def load_springb_scorecard(s, tenant_id) -> int:
-    """Seed the Spring B (membership) scorecard: 4 groups, 15 track-only manual measurables, no
-    history. Returns the number of measurables created."""
+    """Seed the Spring B (membership) scorecard: 4 groups of track-only manual measurables, no history.
+
+    IDEMPOTENT + ADDITIVE — safe to re-run on a LIVE board. It creates any group/measurable in the
+    JSON that doesn't already exist (matched by group key + measurable name) and leaves everything
+    that does exist untouched, so re-running to pick up NEW lines never wipes entered values, goals,
+    or owners. It never deletes — a line removed from the JSON (or added by hand) stays. Returns the
+    number of NEW measurables created (0 when everything is already present)."""
     data = _load_data()
     biz = await roles.membership(s, tenant_id)
     if not biz:
         raise RuntimeError("no Spring B (membership) business for this tenant")
 
-    # idempotent: clear this business's scorecard (metrics/values cascade from the group)
-    for g in (await s.execute(select(ScorecardGroup).where(
-            ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.business_id == biz.id))).scalars().all():
-        await s.execute(delete(ScorecardGroup).where(ScorecardGroup.id == g.id))
-
-    n = 0
+    existing = {g.key: g for g in (await s.execute(select(ScorecardGroup).where(
+        ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.business_id == biz.id))).scalars().all()}
+    added = 0
     for gi, g in enumerate(data["groups"]):
-        group = ScorecardGroup(
-            tenant_id=tenant_id, business_id=biz.id, key=g["key"], name=g["name"],
-            is_team_room=False, sort_order=gi)                 # brand/function groups, not Sisu team rooms
-        s.add(group)
-        await s.flush()
+        group = existing.get(g["key"])
+        if group is None:
+            group = ScorecardGroup(tenant_id=tenant_id, business_id=biz.id, key=g["key"], name=g["name"],
+                                   is_team_room=False, sort_order=gi)   # brand/function groups, not team rooms
+            s.add(group)
+            await s.flush()
+        have = {m.name for m in (await s.execute(select(ScorecardMetric).where(
+            ScorecardMetric.group_id == group.id))).scalars().all()}
         for mi, m in enumerate(g["metrics"]):
+            name = m["name"][:160]
+            if name in have:
+                continue                                       # keep existing measurable + its values/goal
             note = m.get("note")
             s.add(ScorecardMetric(
-                tenant_id=tenant_id, group_id=group.id, name=m["name"][:160],
+                tenant_id=tenant_id, group_id=group.id, name=name,
                 goal=Decimal("0"),                             # track-only until the team sets a bar
                 direction=m.get("direction", "gte"), type=m["type"], source="manual",
                 note=note[:160] if note else None,             # note is String(160) — Postgres enforces it (SQLite doesn't)
                 sort_order=mi, active=True, resolver_key=None))
-            n += 1
+            added += 1
     await s.commit()
-    return n
+    return added
 
 
 async def _main(slug: str = "springb"):
@@ -72,8 +80,8 @@ async def _main(slug: str = "springb"):
         if not t:
             print(f"[seed_springb_scorecard] no tenant '{slug}'"); return
         n = await load_springb_scorecard(s, t.id)
-        print(f"[seed_springb_scorecard] seeded {n} measurables (4 groups) for '{slug}' — "
-              f"blank board, owners/goals/history assigned via Settings over time")
+        print(f"[seed_springb_scorecard] added {n} new measurable(s) for '{slug}' "
+              f"(idempotent — existing lines + their data left untouched)")
 
 
 if __name__ == "__main__":

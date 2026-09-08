@@ -132,7 +132,7 @@ async def test_springb_is_a_separate_board_with_its_own_access_and_no_leak():
     async with SessionLocal() as s:
         t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
         n = await load_springb_scorecard(s, t.id)
-    assert n == 15
+    assert n == 18                                                      # 15 core + an Email Open Rate on 3 more groups
 
     owner = await _owner_token()
     forum_member = await _mk_user("sb-forum@x.com", tabs=["forum"])      # can see a Spring B brand tab
@@ -142,8 +142,23 @@ async def test_springb_is_a_separate_board_with_its_own_access_and_no_leak():
         d = (await c.get("/api/v1/ulrg/scorecard?scope=springb", headers=_H(owner))).json()
         assert {g["name"] for g in d["groups"]} == {"Spring B", "beCollective", "Forum", "Activated Agent"}
         rows = [r for g in d["groups"] for r in g["rows"]]
-        assert len(rows) == 15 and all(not r["auto"] for r in rows)      # all manual, nothing auto-sourced
+        assert len(rows) == 18 and all(not r["auto"] for r in rows)      # all manual, nothing auto-sourced
+        # every brand group tracks an email open rate (Spring B's is "Email Open Rate Floor")
+        by_group = {g["key"]: {r["measurable"] for r in g["rows"]} for g in d["groups"]}
+        assert all(any("Email Open Rate" in m for m in by_group[k]) for k in ("spring_b", "becollective", "forum", "activated"))
         assert d["weeks"]                                                # week columns exist despite no seeded values
+
+        # re-seeding is idempotent + non-destructive: enter a value, re-run the seed, value survives, nothing added
+        first = rows[0]["id"]
+        await c.post("/api/v1/ulrg/scorecard/values", headers=_H(owner),
+                     json={"metric_id": first, "week_start": d["weeks"][-1]["start"], "value": 5})
+        async with SessionLocal() as s:
+            assert await load_springb_scorecard(s, t.id) == 0            # everything already present
+        d2 = (await c.get("/api/v1/ulrg/scorecard?scope=springb", headers=_H(owner))).json()
+        rows2 = [r for g in d2["groups"] for r in g["rows"]]
+        assert len(rows2) == 18                                         # no duplicates
+        kept = next(r for r in rows2 if r["id"] == first)
+        assert 5 in [v for v in kept["values"] if v is not None]        # the entered value wasn't wiped
 
         # access follows the scope's tabs: a Forum member sees + edits Spring B; a ULRG-only member can't
         assert (await c.get("/api/v1/ulrg/scorecard?scope=springb", headers=_H(forum_member))).status_code == 200
@@ -155,9 +170,10 @@ async def test_springb_is_a_separate_board_with_its_own_access_and_no_leak():
                              json={"metric_id": mid, "week_start": wk, "value": 5})).status_code == 403
 
         # the two boards' Settings editors never show each other's rows
-        sb = {x["name"] for x in (await c.get("/api/v1/ulrg/goals?period=2026Q3&scope=springb", headers=_H(owner))).json()["goals"]}
+        sb_goals = (await c.get("/api/v1/ulrg/goals?period=2026Q3&scope=springb", headers=_H(owner))).json()["goals"]
+        sb = {x["name"] for x in sb_goals}
         ul = {x["name"] for x in (await c.get("/api/v1/ulrg/goals?period=2026Q3&scope=ulrg", headers=_H(owner))).json()["goals"]}
-        assert "Members Added" in sb and "Appointments Met" not in sb and len(sb) == 15
+        assert "Members Added" in sb and "Appointments Met" not in sb and len(sb_goals) == 18
         assert "Appointments Met" in ul and "Members Added" not in ul
 
 
