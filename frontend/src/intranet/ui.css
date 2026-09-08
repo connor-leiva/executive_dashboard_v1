@@ -39,12 +39,18 @@
   --rail-line: #262f34;    /* the divider above the footer */
   --dark-line: #2a343a;    /* border on an ink-coloured button */
 
-  /* The Sunburst panel is its own near-black with a magenta accent -- deliberately not the
-     rail's ink, because it is somebody else's product embedded in ours. */
+  /* SUNBURST'S OWN BRAND, sampled from the logo Connor supplied -- deliberately not the rail's
+     ink and not our accent, because it is somebody else's product embedded in ours and it should
+     look like theirs. The accent was a placeholder purple I picked before seeing the mark; it is
+     their magenta now.
+
+     These four values are the whole brand. If a hex is a shade off, this block is the only place
+     to correct it -- nothing downstream hardcodes a Sunburst colour. */
   --black: #0d0d10;
-  --sun-panel: #141419;
-  --sun-line: #24242a;
-  --sun-accent: #c04bd1;
+  --sun-panel: #11151f;    /* the near-black their logo sits on, faintly blue */
+  --sun-line: #222836;
+  --sun-accent: #ec0a78;   /* the broken ring */
+  --sun-word: #d3d6da;     /* the wordmark: a light, cool grey, not white */
   --sun-dim: #8c979d;
 
   /* Semantic. Not from the mockup's palette -- it has no failure states drawn -- so these stay
@@ -810,7 +816,7 @@ input {
   gap: 42px;
   border-radius: 16px;
   padding: 38px 35px 32px;
-  background: var(--black);
+  background: var(--sun-panel);
   color: #ffffff;
 }
 
@@ -826,18 +832,16 @@ input {
 }
 
 .ut-sunburst-brand {
-  gap: 5px;
+  gap: 7px;
   margin-right: 32px;
-  color: rgba(255, 255, 255, .72);
-  font-size: 13px;
+  color: var(--sun-word);
+  font-size: 15px;
+  letter-spacing: 0.01em;
 }
 
-.ut-sunburst-brand span {
-  width: 17px;
-  height: 17px;
-  border: 1px solid var(--sun-accent);
-  border-radius: 50%;
-}
+/* Same lockup as the Sunburst page, one size down. The ring was a 1px CSS circle here, which is
+   not their mark -- theirs breaks on the diagonal. See SunburstMark. */
+.ut-sunburst-brand .ut-sb-mark { color: var(--sun-accent); flex: none; }
 
 .ut-sunburst-kicker {
   color: var(--faint);
@@ -2453,7 +2457,7 @@ span.ut-tick { cursor: default; }
   padding: 30px 32px;
   margin-bottom: 20px;
   border-radius: 14px;
-  background: var(--rail);
+  background: var(--sun-panel);
   color: #fff;
 }
 
@@ -2463,23 +2467,24 @@ span.ut-tick { cursor: default; }
 
 .ut-sb-copy { min-width: 0; }
 
+/* Their lockup: the magenta ring, then the wordmark in a light cool grey rather than white.
+   Weight 400 and a touch of tracking, which is how the real mark is set -- a bold white
+   "Sunburst" reads as our heading rather than their logo. */
 .ut-sb-brand {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 17px;
-  font-weight: 500;
   margin-bottom: 20px;
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--sun-word);
 }
 
-.ut-sb-brand span {
-  width: 15px;
-  height: 15px;
-  border-radius: 99px;
-  border: 2px solid #C7A6E8;      /* Sunburst's own mark, not our accent */
-}
+/* currentColor on the <svg> is what makes the token the single source of the brand magenta. */
+.ut-sb-brand .ut-sb-mark { color: var(--sun-accent); flex: none; }
 
-.ut-sb-copy .ut-kicker { color: #C7A6E8; }
+.ut-sb-copy .ut-kicker { color: var(--sun-accent); }
 
 .ut-sb-copy h2 {
   margin: 8px 0 12px;

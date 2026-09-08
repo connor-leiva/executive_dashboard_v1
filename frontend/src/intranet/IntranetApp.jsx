@@ -686,7 +686,7 @@ function SunburstBanner({ config }) {
   return (
     <section className="ut-sunburst">
       <div className="ut-sunburst-copy">
-        <div className="ut-sunburst-brand"><span />Sunburst</div>
+        <div className="ut-sunburst-brand"><SunburstMark size={17} />Sunburst</div>
         <div className="ut-sunburst-kicker">Your AI business partner, inside Sisu</div>
         <h2>Your weekly check-in is ready.</h2>
         <p>{line}</p>
@@ -1988,6 +1988,26 @@ const SUNBURST_PROMPTS = [
     prompt: "Where am I leaking deals?" },
 ];
 
+/* Sunburst's mark: a ring broken on the upper-left and lower-right, not a plain circle.
+ *
+ * Drawn rather than shipped as an image because it is two arcs and a colour -- an asset would be
+ * a file to host, a request to make and a thing to re-export for a dark background, to render
+ * something `stroke-dasharray` already does. It takes its colour from `currentColor`, so the one
+ * place the brand magenta lives is the --sun-accent token.
+ *
+ * The dash maths: circumference is 2*PI*9 = 56.55, so two 23.3 arcs and two 5 gaps close the
+ * circle exactly. The rotation puts the gaps on the diagonal the logo breaks on.
+ */
+function SunburstMark({ size = 18 }) {
+  return (
+    <svg className="ut-sb-mark" width={size} height={size} viewBox="0 0 24 24"
+         aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2.4"
+              strokeLinecap="round" strokeDasharray="23.3 5" transform="rotate(61 12 12)" />
+    </svg>
+  );
+}
+
 /* Sunburst.
  *
  * Sunburst ships with Sisu and Sisu ships with this product's customers, so it is part of the
@@ -2046,7 +2066,7 @@ function SunburstPage({ config, me }) {
                     + "every link on this page opens a conversation that already knows your week."}>
       <section className="ut-sb-hero">
         <div className="ut-sb-copy">
-          <div className="ut-sb-brand"><span />Sunburst</div>
+          <div className="ut-sb-brand"><SunburstMark />Sunburst</div>
           <span className="ut-kicker">This week{"\u2019"}s check-in</span>
           <h2>Last week, then next week.</h2>
           <p>
