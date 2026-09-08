@@ -370,3 +370,72 @@ def test_every_platform_module_has_a_mark():
     # And the reverse: a mark for a key the server does not serve is a rename nobody finished.
     stale = sorted(has_mark - expected)
     assert not stale, f"productIcons maps {stale}, which is not a module the server knows about"
+
+
+def test_the_favicon_generator_uses_the_marks_real_geometry():
+    """The mark exists twice: acumyn.jsx draws it for the screen, gen_favicons.py draws it for the
+    four PNGs. Two copies because one is JSX and one is Python, and importing across that boundary
+    to build a static asset is not worth a build step.
+
+    Two copies of a spec drift, and this pair drifts SILENTLY: the favicons are generated once and
+    committed, so a change to the mark on screen leaves the browser tab showing the old shape with
+    nothing to notice it. The guide calls the blade weight and the equal gaps non-negotiable, so
+    they are held to each other here.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "frontend"
+    jsx = root / "src" / "brand" / "acumyn.jsx"
+    gen = root / "scripts" / "gen_favicons.py"
+    if not jsx.exists() or not gen.exists():
+        return
+
+    def numbers(text, names):
+        out = {}
+        for name in names:
+            m = re.search(rf"^(?:export\s+)?(?:const\s+)?{name}\s*=\s*([0-9.]+)", text, re.M)
+            if m:
+                out[name] = float(m.group(1))
+        return out
+
+    shared = ("ART", "BLADE_RADIUS", "SWEEP")
+    a = numbers(jsx.read_text(encoding="utf-8"), shared)
+    b = numbers(gen.read_text(encoding="utf-8"), shared)
+    assert set(a) == set(shared), f"acumyn.jsx no longer declares {sorted(set(shared) - set(a))}"
+    assert a == b, f"the favicon generator and the on-screen mark disagree: {a} vs {b}"
+
+    jsx_src, gen_src = jsx.read_text(encoding="utf-8"), gen.read_text(encoding="utf-8")
+
+    # The gap axes, and the two cuts. Written as literals on both sides, so compared as text.
+    assert "[90, 210, 330]" in jsx_src and "(90, 210, 330)" in gen_src, "gap axes moved"
+    for weight, pupil, which in ((8, 6.5, "standard"), (10, 8, "small")):
+        assert f"weight: {weight}" in jsx_src, f"the {which} cut's weight moved in acumyn.jsx"
+        assert f'"weight": {weight}, "pupil": {pupil}' in gen_src, \
+            f"the {which} cut moved in gen_favicons.py"
+
+
+def test_every_html_entry_point_ships_the_same_icons():
+    """Three entry points, and two of them linked only the 32 -- so the console and the intranet
+    had no 16px icon and no touch icon, and a phone bookmarking either got a scaled guess.
+
+    Also asserts the files exist. A favicon that 404s does not fall back to anything; the browser
+    just shows its own placeholder, and nobody files a bug about a tab icon.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "frontend"
+    if not root.exists():
+        return
+
+    expected = ("favicon-32.png", "favicon-16.png", "favicon-180.png")
+    for name in expected:
+        assert (root / "public" / "brand" / "logo" / name).exists(), f"{name} is missing"
+
+    for page in ("index.html", "console/index.html", "intranet/index.html"):
+        path = root / page
+        if not path.exists():
+            continue
+        html = path.read_text(encoding="utf-8")
+        missing = [n for n in expected if n not in html]
+        assert not missing, f"{page} does not link {missing}"
