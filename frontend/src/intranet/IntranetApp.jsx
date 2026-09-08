@@ -4,6 +4,7 @@ import { Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-
 import { API_BASE, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
 import { applyPortalPalette } from "./palette.js";
 import { search as search_ } from "./search.js";
+import { logoFor } from "./vendor-logos.js";
 import sunburstLogo from "./assets/sunburst-ondark.png";
 import {
   NAV_GROUPS,
@@ -687,19 +688,24 @@ function SunburstBanner({ config }) {
   return (
     <section className="ut-sunburst">
       <div className="ut-sunburst-copy">
-        <img className="ut-sb-logo small" src={sunburstLogo} alt="Sunburst" />
-        <div className="ut-sunburst-kicker">Your AI business partner, inside Sisu</div>
-        <h2>Your weekly check-in is ready.</h2>
+        {/* Lockup and eyebrow share a row -- the eyebrow sits BESIDE the mark, not under it. */}
+        <div className="ut-sunburst-lockup">
+          <img className="ut-sb-logo" src={sunburstLogo} alt="Sunburst" />
+          <span className="ut-sunburst-kicker">Your AI Business Partner, Inside Sisu</span>
+        </div>
+        <h2>Your Weekly Check-in is Ready.</h2>
         <p>{line}</p>
         <div className="ut-sunburst-actions">
-          <NavLink className="ut-button inverse" to="/sunburst">Start my check-in</NavLink>
+          <NavLink className="sun-solid" to="/sunburst">Start My Check-in</NavLink>
+          <NavLink className="sun-outline" to="/sunburst">All Prompts</NavLink>
         </div>
       </div>
       <div className="ut-sunburst-prompts">
         {SUNBURST_PROMPTS.map((p) => (
-          <NavLink key={p.kind} to="/sunburst">
+          <NavLink className="sun-prompt" key={p.kind} to="/sunburst">
             {p.title}
-            <span>{"->"}</span>
+            {/* The one place the magenta appears on this band, besides a hover border. */}
+            <span>{"\u2192"}</span>
           </NavLink>
         ))}
       </div>
@@ -740,9 +746,16 @@ function tilesFrom(config) {
 }
 
 function ToolCard({ tool }) {
+  // The logo sits OVER the initials rather than replacing them, which is the reference's own
+  // construction: the square is never empty while the image loads, and a vendor we have no file
+  // for keeps a mark that looks deliberate instead of a gap.
+  const logo = logoFor(tool.name);
   const body = (
     <>
-      <span className="ut-tool-mark">{tool.name.slice(0, 2)}</span>
+      <span className="ut-tool-mark">
+        {tool.name.slice(0, 2)}
+        {logo ? <span style={{ backgroundImage: `url(${logo})` }} /> : null}
+      </span>
       <div>
         <strong>{tool.name}</strong>
         <em>{tool.url ? "Open tool" : "No destination set"}</em>
