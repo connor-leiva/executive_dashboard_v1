@@ -260,6 +260,9 @@ class IntranetMember(Base):
     phone: Mapped[str | None] = mapped_column(Text, nullable=True)
     owns: Mapped[str | None] = mapped_column(Text, nullable=True)
     photo_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The address this person is known by in Sisu / Follow Up Boss, when it is not their portal
+    # one. NULL -- the normal case -- means "use `email`". See services/member_identity.
+    agent_email: Mapped[str | None] = mapped_column(Text, nullable=True)
     auth_source: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

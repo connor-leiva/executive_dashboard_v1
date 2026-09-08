@@ -26,7 +26,8 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetSopCategory, IntranetUserState,
                       IntranetAiQuestion, IntranetContentGap, IntranetWorkspace,
                       IntranetWtdList, Tenant, User)
-from ..services import binder_storage, intranet_assistant, lesson_media, uploads
+from ..services import (binder_storage, intranet_assistant, lesson_media,
+                        member_numbers, uploads)
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import allows, capability_levels
 from ..services.audit import audit
@@ -61,6 +62,8 @@ class IntranetConfigPatch(BaseModel):
     marketing_requests: dict | None = None
     links: dict | None = None
     brand: dict | None = None
+    sunburst: dict | None = None
+    numbers: dict | None = None
 
 
 class IntranetStateIn(BaseModel):
@@ -82,12 +85,20 @@ def _default_config() -> dict:
             "utility_font": "Archivo",
             "mono_font": "SFMono-Regular, Consolas, Liberation Mono, monospace",
         },
+        # WAS FIVE ZEROES, identical for every workspace and computed from nothing -- so every
+        # agent who opened My Numbers saw a page of noughts. The live figures come from
+        # services/member_numbers now; what stays here is the one thing a workspace TYPES rather
+        # than syncs: the annual unit goal a pace is measured against.
         "numbers": {
-            "calls_today": 0,
-            "appointments_set": 0,
-            "contracts_pending": 0,
-            "closed_units": 0,
-            "closed_volume": 0,
+            "annual_unit_goal": 0,
+        },
+        # Sunburst is a coaching product sold inside Sisu, not a feature of this platform. The
+        # link is per workspace and generated in Sisu, so it is configured here rather than
+        # compiled in -- and `prompt_template` is empty until Sisu ships a link that carries a
+        # question, at which point this becomes a settings change instead of a release.
+        "sunburst": {
+            "url": "",
+            "prompt_template": "",
         },
     }
 
@@ -536,10 +547,22 @@ def _config_out(tenant: Tenant, user: User,
                 marketing: IntranetMarketingSetting | None = None,
                 marketing_role: str | None = None,
                 content: dict | None = None,
-                workspace: IntranetWorkspace | None = None) -> dict:
+                workspace: IntranetWorkspace | None = None,
+                week: dict | None = None) -> dict:
     config = _stored_config(tenant)
     # The capabilities the content payload already resolved -- not looked up again, so the form
     # and the endpoint cannot disagree about the same role.
+    # The signed-in member's own week, computed by the caller (this is a serializer, and a
+    # serializer that opens queries is one nobody can call from a test).
+    stored_numbers = config.get("numbers") or {}
+    goal = stored_numbers.get("annual_unit_goal") or 0
+    config["numbers"] = {
+        **stored_numbers,
+        **(week or {}),
+        "annual_unit_goal": goal,
+        "pace_percent": (member_numbers.pace((week or {}).get("closed_units_ytd", 0), goal)
+                         if week else None),
+    }
     config["marketing"] = _marketing_out(
         marketing, marketing_role,
         permitted=(content or {}).get("capabilities", {}).get("marketing_requests") != "None")
@@ -610,7 +633,10 @@ async def get_config(user: User = Depends(current_user), s: AsyncSession = Depen
     content = await _published_content(s, user.tenant_id, member)
     workspace = (await s.execute(select(IntranetWorkspace).where(
         IntranetWorkspace.tenant_id == user.tenant_id))).scalars().first()
-    return _config_out(tenant, user, marketing, role_name, content, workspace)
+    # Per request rather than cached: it is four indexed counts, and a stale copy of somebody's
+    # own numbers is the kind of wrong that makes people stop trusting the page.
+    week = await member_numbers.week_for(s, user.tenant_id, member)
+    return _config_out(tenant, user, marketing, role_name, content, workspace, week)
 
 
 @router.patch("/config")
@@ -628,6 +654,33 @@ async def patch_config(body: IntranetConfigPatch,
                 incoming.get("google_calendar_url") or incoming.get("embed_url"),
                 google_calendar=True)
         current["calendar"] = cal
+    if "sunburst" in fields:
+        incoming = fields["sunburst"] or {}
+        sb = dict(current.get("sunburst") or {})
+        if "url" in incoming:
+            # The workspace's own Sunburst link, generated in Sisu. https only and normalised the
+            # same way every other outbound URL in this product is -- it is a link we hand to every
+            # agent, so a typo here is a broken button for the whole team.
+            sb["url"] = _clean_url(incoming.get("url"))
+        if "prompt_template" in incoming:
+            # Empty until Sisu ships a link that carries a question. When they do, pasting a
+            # template with {prompt} in it turns the suggestion cards into one click, with no
+            # release -- see the portal, which checks for the placeholder.
+            raw = str(incoming.get("prompt_template") or "").strip()
+            sb["prompt_template"] = _clean_url(raw) if raw else ""
+        current["sunburst"] = sb
+    if "numbers" in fields:
+        incoming = fields["numbers"] or {}
+        nums = dict(current.get("numbers") or {})
+        if "annual_unit_goal" in incoming:
+            try:
+                goal = int(incoming.get("annual_unit_goal") or 0)
+            except (TypeError, ValueError):
+                goal = 0
+            # The only stored number left. Everything else on this block is computed from the
+            # syncs; a goal is the one figure a team decides rather than earns.
+            nums["annual_unit_goal"] = max(0, min(goal, 10000))
+        current["numbers"] = nums
     if "marketing_requests" in fields:
         incoming = fields["marketing_requests"] or {}
         prior = current.get("marketing_requests") or {}

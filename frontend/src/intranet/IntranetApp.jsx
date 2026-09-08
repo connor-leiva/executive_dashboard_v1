@@ -318,7 +318,7 @@ function Shell({ me, config, children }) {
 
   const levels = config?.content?.capabilities || {};
   const visible = (item) =>
-    (!VENDOR_NAV[item.id] || connected(config, VENDOR_NAV[item.id]))
+    (!VENDOR_READY[item.id] || VENDOR_READY[item.id](config))
     && (!item.capability || levels[item.capability] !== "None");
   const [navOpen, setNavOpen] = useState(false);
   // The workspace's own roles. ROLE_OPTIONS was four real-estate titles compiled in, so a
@@ -600,10 +600,10 @@ function Home({ config, wtd, training, onboarding, me }) {
       <GoalSnapshot numbers={numbers} />
 
       {/* A VENDOR PANEL, NOT A PRODUCT FEATURE. Sunburst is a coaching product one customer
-          buys, and it lives inside Sisu -- so it appears only where that workspace has
-          actually connected Sisu. Compiled in, it would have put another company's brand on
-          every customer's home screen. */}
-      {connected(config, "sisu") && <SunburstBanner />}
+          buys; compiled in, it would put another company's brand on every customer's home
+          screen. Gated on the link an admin pasted rather than on Sisu being connected -- same
+          rule as the nav, and the same reason: the link is what makes the panel work. */}
+      {VENDOR_READY.sunburst(config) && <SunburstBanner config={config} />}
 
       <section className="ut-lower-grid">
         <NeedsYouToday config={config} />
@@ -664,34 +664,45 @@ function GoalSnapshot({ numbers }) {
 /* Nav items that belong to a VENDOR rather than to the product. Each appears only where that
    workspace has the relevant integration connected -- Sunburst is a coaching product sold inside
    Sisu, and a permanent nav entry for it would put one customer's vendor in everybody's rail. */
-const VENDOR_NAV = { sunburst: "sisu" };
+/* A vendor page appears when the thing it opens EXISTS, not when a neighbouring integration
+   happens to be connected. Sunburst was gated on Sisu, which is close but wrong in both
+   directions: a workspace can sync Sisu without buying Sunburst, and the page's actual
+   precondition is the link an admin pastes in. Returning true when there is no rule keeps every
+   non-vendor item visible. */
+const VENDOR_READY = {
+  sunburst: (config) => Boolean((config?.sunburst?.url || "").trim()),
+};
 
 function connected(config, providerKey) {
   return (config?.content?.integrations || {})[providerKey] === "connected";
 }
 
-function SunburstBanner() {
-  const prompts = [
-    "Walk me through last week",
-    "Build this week's plan",
-    "Am I on pace for my goal?",
-  ];
+function SunburstBanner({ config }) {
+  const n = config?.numbers || {};
+  // WAS "Last week: 0 appointments set, 0 held, 0 under contract" -- three literal zeroes and an
+  // instruction to configure sources, shown to everybody forever. It is their actual week now,
+  // and an unmatched agent gets a sentence about that instead of a row of noughts.
+  const line = n.sisu_connected
+    ? `Last week: ${n.appointments_set ?? 0} appointments set, ${n.appointments_held ?? 0} held, `
+      + `${n.new_contracts ?? 0} under contract. Sunburst walks you through what worked, what `
+      + "slipped, and what this week needs to look like."
+    : "Sunburst reads your Sisu activity. We have not matched your account to an agent yet, so "
+      + "it will not know your week until an admin sets your Sisu address on the roster.";
   return (
     <section className="ut-sunburst">
       <div className="ut-sunburst-copy">
         <div className="ut-sunburst-brand"><span />Sunburst</div>
-        <div className="ut-sunburst-kicker">Your AI business partner, inside SISU</div>
-        <h2>Your Weekly Check-in is Ready.</h2>
-        <p>Last week: 0 appointments set, 0 held, 0 under contract. Configure your sources and Sunburst will walk you through what worked, what slipped, and what this week needs to look like.</p>
+        <div className="ut-sunburst-kicker">Your AI business partner, inside Sisu</div>
+        <h2>Your weekly check-in is ready.</h2>
+        <p>{line}</p>
         <div className="ut-sunburst-actions">
-          <NavLink className="ut-button inverse" to="/sunburst">Start My Check-in</NavLink>
-          <NavLink className="ut-button outline-dark" to="/ask">All Prompts</NavLink>
+          <NavLink className="ut-button inverse" to="/sunburst">Start my check-in</NavLink>
         </div>
       </div>
       <div className="ut-sunburst-prompts">
-        {prompts.map((prompt) => (
-          <NavLink key={prompt} to="/sunburst">
-            {prompt}
+        {SUNBURST_PROMPTS.map((p) => (
+          <NavLink key={p.kind} to="/sunburst">
+            {p.title}
             <span>{"->"}</span>
           </NavLink>
         ))}
@@ -1967,10 +1978,159 @@ function Ask({ config, me }) {
   );
 }
 
-function SunburstPage() {
+/* The prompts the cards offer. Content, not code -- but compiled in for now on purpose: they are
+   Sunburst's own three modes rather than anything this workspace authored, and inventing a console
+   screen to edit somebody else's product's vocabulary is a setting nobody would ever change. */
+const SUNBURST_PROMPTS = [
+  { kind: "Review", title: "Walk me through last week",
+    note: "Activity, conversion, and the two things that actually moved.",
+    prompt: "Walk me through last week." },
+  { kind: "Plan", title: "Build this week's business plan",
+    note: "Targets for calls, appointments and follow-up, set against your goal.",
+    prompt: "Build this week's business plan against my annual goal." },
+  { kind: "Diagnose", title: "Where am I leaking deals?",
+    note: "Which stage loses people, and what to change first.",
+    prompt: "Where am I leaking deals?" },
+];
+
+/* Sunburst.
+ *
+ * A VENDOR PANEL, not a feature of this platform: Sunburst is a coaching product sold inside Sisu,
+ * and everything here is a way into it. The link is per workspace and generated in Sisu, so it is
+ * configured in the console rather than compiled in.
+ *
+ * TWO WAYS A PROMPT CAN TRAVEL, and which one you get is a setting rather than a release. Sisu's
+ * link today opens Sunburst with an empty box, so a card copies its question to the clipboard and
+ * opens Sunburst for you to paste -- honest, and one keystroke from the real thing. The moment Sisu
+ * ships a link that carries a question, pasting a template with {prompt} in it into the console
+ * turns every card into a single click and this code already handles it.
+ */
+function sunburstHref(config, prompt) {
+  const sb = config?.sunburst || {};
+  const template = (sb.prompt_template || "").trim();
+  if (template && prompt && template.includes("{prompt}")) {
+    return template.replace("{prompt}", encodeURIComponent(prompt));
+  }
+  return (sb.url || "").trim();
+}
+
+function SunburstPage({ config, me }) {
+  const numbers = config?.numbers || {};
+  const url = (config?.sunburst?.url || "").trim();
+  const carries = Boolean((config?.sunburst?.prompt_template || "").includes("{prompt}"));
+  const [copied, setCopied] = useState("");
+  const [typed, setTyped] = useState("");
+
+  // Whether a figure is missing and whether it is zero are different facts. An unmatched agent
+  // gets an em dash and a line telling them why; a quiet week gets a nought.
+  const stat = (value) => (numbers.sisu_connected && value !== null && value !== undefined
+    ? String(value) : "—");
+
+  function open(prompt) {
+    if (!url) return;
+    if (!carries && prompt) {
+      // Best effort: a blocked clipboard must not stop the link from opening.
+      try {
+        navigator.clipboard?.writeText(prompt);
+        setCopied(prompt);
+        setTimeout(() => setCopied(""), 4000);
+      } catch { /* the window still opens */ }
+    }
+    window.open(sunburstHref(config, prompt), "_blank", "noreferrer,noopener");
+  }
+
+  if (!url) {
+    return (
+      <Page title="Sunburst" subtitle="Your AI business partner, built into Sisu.">
+        <Panel title="Not connected yet">
+          <p className="ut-empty">
+            Sunburst opens from a link your workspace generates in Sisu. An admin can add it in
+            the console under Integrations, and this page will start working for everyone.
+          </p>
+        </Panel>
+      </Page>
+    );
+  }
+
   return (
-    <Page title="Sunburst Coaching" subtitle="Weekly coaching shell in the mockup's dark panel treatment.">
-      <SunburstBanner />
+    <Page title="Sunburst"
+          subtitle={"Your AI business partner, built into Sisu. It reads your real activity, so "
+                    + "every link on this page opens a conversation that already knows your week."}>
+      <section className="ut-sb-hero">
+        <div className="ut-sb-copy">
+          <div className="ut-sb-brand"><span />Sunburst</div>
+          <span className="ut-kicker">This week{"\u2019"}s check-in</span>
+          <h2>Last week, then next week.</h2>
+          <p>
+            One conversation, two halves. Sunburst walks your last seven days of activity, names
+            where the pipeline actually leaked, then builds the coming week{"\u2019"}s plan
+            against your goal.
+          </p>
+          <div className="ut-sb-actions">
+            <button type="button" className="ut-button inverse" onClick={() => open("")}>
+              Open my check-in in Sunburst
+            </button>
+          </div>
+        </div>
+
+        <div className="ut-sb-knows">
+          <span className="ut-kicker">What it already knows</span>
+          <dl>
+            <div><dt>Appointments set</dt><dd>{stat(numbers.appointments_set)}</dd></div>
+            <div><dt>Appointments held</dt><dd>{stat(numbers.appointments_held)}</dd></div>
+            <div><dt>New contracts</dt><dd>{stat(numbers.new_contracts)}</dd></div>
+            <div><dt>Conversations logged</dt><dd>{stat(numbers.conversations_logged)}</dd></div>
+            <div>
+              <dt>Pace to annual goal</dt>
+              <dd>{numbers.pace_percent === null || numbers.pace_percent === undefined
+                ? "—" : `${numbers.pace_percent}%`}</dd>
+            </div>
+          </dl>
+          {/* Said out loud rather than shown as zeroes. An agent whose CRM address differs cannot
+              work out why their own page is empty, and an admin cannot fix what nobody reports. */}
+          {!numbers.sisu_connected ? (
+            <p className="ut-sb-note">
+              We could not match {me?.email || "your account"} to an agent in Sisu, so these are
+              blank rather than zero. An admin can set your Sisu address on the roster.
+            </p>
+          ) : numbers.conversations_logged === null ? (
+            <p className="ut-sb-note">
+              Conversations come from your CRM{"\u2019"}s call log, which is not connected yet.
+            </p>
+          ) : null}
+        </div>
+      </section>
+
+      <Panel title="Ask Sunburst">
+        <form className="ut-sb-ask" onSubmit={(e) => { e.preventDefault(); open(typed.trim()); }}>
+          <input value={typed} placeholder="What can I help you with?"
+                 onChange={(e) => setTyped(e.target.value)} />
+          <span className="ut-sb-opens">{carries ? "Opens in Sunburst" : "Copies, then opens"}</span>
+          <button type="submit" className="ut-button primary" disabled={!typed.trim()}>Ask</button>
+        </form>
+
+        <div className="ut-sb-cards">
+          {SUNBURST_PROMPTS.map((p) => (
+            <button type="button" className="ut-sb-card" key={p.kind}
+                    onClick={() => open(p.prompt)}>
+              <span className="ut-kicker">{p.kind}</span>
+              <strong>{p.title}</strong>
+              <em>{p.note}</em>
+              <span className="ut-sb-open">
+                {copied === p.prompt ? "Copied — paste it in ↗" : "Open in Sunburst →"}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {!carries ? (
+          <p className="ut-note">
+            Sunburst opens with an empty box, so we copy your question to the clipboard for you to
+            paste. Once Sisu offers a link that carries the question, an admin can paste it in the
+            console and these become one click.
+          </p>
+        ) : null}
+      </Panel>
     </Page>
   );
 }
@@ -2040,7 +2200,7 @@ export default function IntranetApp() {
         <Route path="/directory" element={<Directory config={boot.config} />} />
         <Route path="/brand" element={<BrandKit config={boot.config} />} />
         <Route path="/ask" element={<Ask config={boot.config} me={boot.me} />} />
-        <Route path="/sunburst" element={<SunburstPage />} />
+        <Route path="/sunburst" element={<SunburstPage config={boot.config} me={boot.me} />} />
         {/* On The Phone, Listing Marketing and JV Partners were empty PlaceholderPage shells --
             one customer's screen names with nothing behind them. They are what the page builder
             replaces: a workspace writes its own under /p/<key>, in whichever sidebar group it

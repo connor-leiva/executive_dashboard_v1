@@ -53,3 +53,4 @@ intranet-*.png
 
 # Books reason probe (read-only diagnostic, run against prod)
 backend/probe_books_reasons.py
+suite.log
