@@ -125,11 +125,11 @@ async def _attach(ws, *, kind="file", published=True, title="Commission One-page
 @pytest.mark.parametrize("source_type,url,mode", [
     # Providers whose embed URL exists precisely to be framed.
     ("LOOM", "https://www.loom.com/share/9f2c1", "iframe"),
-    ("HOSTED", "https://youtu.be/dQw4w9WgXcQ", "iframe"),
-    ("HOSTED", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "iframe"),
-    ("HOSTED", "https://vimeo.com/76979871", "iframe"),
+    ("HERE", "https://youtu.be/dQw4w9WgXcQ", "iframe"),
+    ("HERE", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "iframe"),
+    ("HERE", "https://vimeo.com/76979871", "iframe"),
     # A file the browser plays itself.
-    ("HOSTED", "https://cdn.example.com/lesson.mp4", "video"),
+    ("HERE", "https://cdn.example.com/lesson.mp4", "video"),
     ("PDF", "https://cdn.example.com/handbook.pdf", "iframe"),
     # Logged-in products. Framing these produces a refusal, not a video.
     ("SKOOL", "https://www.skool.com/utah-life/classroom/abc", "link"),
@@ -152,7 +152,7 @@ def test_a_walled_source_says_where_the_lesson_lives():
 def test_the_url_is_believed_over_the_declared_type():
     """A team pastes a YouTube link into a lesson typed "Hosted" because Hosted is the first
     option in the dropdown. `<video src="https://youtube.com/watch?v=...">` plays nothing."""
-    assert lesson_media.resolve("HOSTED", "https://youtu.be/abc")["mode"] == "iframe"
+    assert lesson_media.resolve("HERE", "https://youtu.be/abc")["mode"] == "iframe"
     # ...and the reverse: an mp4 filed under a walled platform is still an mp4.
     assert lesson_media.resolve("SKOOL", "https://cdn.example.com/x.mp4")["mode"] == "video"
 
@@ -169,11 +169,11 @@ def test_a_lesson_with_no_source_says_so_rather_than_framing_nothing():
 
 
 @pytest.mark.parametrize("source_type,url", [
-    ("LOOM", "https://www.loom.com/share/a1"), ("HOSTED", "https://youtu.be/a1"),
-    ("HOSTED", "https://vimeo.com/1"), ("HOSTED", "https://x.test/a.mp4"),
+    ("LOOM", "https://www.loom.com/share/a1"), ("HERE", "https://youtu.be/a1"),
+    ("HERE", "https://vimeo.com/1"), ("HERE", "https://x.test/a.mp4"),
     ("PDF", "https://x.test/a.pdf"), ("SKOOL", "https://skool.com/a"),
     ("PLACE", "https://place.com/a"), ("EXP", "https://exp.world/a"),
-    ("HOSTED", "https://x.test/page"), ("LOOM", None), ("LOOM", ""),
+    ("HERE", "https://x.test/page"), ("LOOM", None), ("LOOM", ""),
 ])
 def test_every_branch_returns_the_same_four_keys(source_type, url):
     """The portal reads `label` to name a launch button. One branch returning it and another not
@@ -187,6 +187,43 @@ def test_every_branch_returns_the_same_four_keys(source_type, url):
 def test_a_source_is_named_the_way_it_names_itself():
     assert lesson_media.source_name("EXP") == "eXp"
     assert lesson_media.source_name("SKOOL") == "Skool"
+
+
+def test_every_source_type_the_console_accepts_has_a_name_and_a_badge():
+    """DERIVED FROM THE REAL VOCABULARY, not from a list written here.
+
+    Both maps were first written against "HOSTED", a key this product has never used -- the stored
+    value is `HERE`, shown as "Hosted". Nothing failed: a hosted lesson simply fell through to the
+    raw enum in a sentence, and dropped out of its course's badge so the card read "Course".
+    Invented rather than read, and only a check against the actual enum catches that.
+    """
+    from app.routers.console import LESSON_SOURCE_TYPES
+
+    missing_name = sorted(k for k in LESSON_SOURCE_TYPES if k not in lesson_media.NAMES)
+    missing_badge = sorted(k for k in LESSON_SOURCE_TYPES if k not in lesson_media.BADGES)
+    assert not missing_name, f"no display name for {missing_name}"
+    assert not missing_badge, f"no library badge for {missing_badge}"
+
+    invented = sorted(set(lesson_media.NAMES) - LESSON_SOURCE_TYPES)
+    assert not invented, f"names a source type the console cannot store: {invented}"
+    assert not sorted(set(lesson_media.BADGES) - LESSON_SOURCE_TYPES)
+
+    # ...and every badge value is one _BADGE_ORDER can actually order, or it silently vanishes.
+    unordered = sorted(set(lesson_media.BADGES.values()) - set(lesson_media._BADGE_ORDER))
+    assert not unordered, f"badge(s) missing from _BADGE_ORDER: {unordered}"
+
+
+def test_a_hosted_course_is_badged_as_video():
+    assert lesson_media.course_media(["HERE", "HERE"]) == "Video"
+    assert lesson_media.course_media(["HERE", "LOOM"]) == "Video"
+    assert lesson_media.course_media(["PDF", "LOOM"]) == "Video + PDF"
+    assert lesson_media.course_media(["SKOOL"]) == "Skool"
+    assert lesson_media.course_media([]) == "Course"
+
+
+def test_a_course_of_everything_stops_listing_and_counts():
+    """"Video + PDF + Skool + eXp" on a card has stopped telling anybody anything."""
+    assert lesson_media.course_media(["LOOM", "PDF", "SKOOL", "EXP"]) == "Video + 3 more"
 
 
 # ── the payload the player renders ────────────────────────────────────────────────────────

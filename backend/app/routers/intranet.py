@@ -451,8 +451,15 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         # authored in the console and was being dropped here, which is why the portal fell back
         # to a compiled-in list: there was nothing in the payload to render. `source_type` and
         # `source_ref` are what let a lesson actually play.
+        # `media` and `total_duration_minutes` are DERIVED here rather than in the browser: both
+        # are facts about the course's lessons, the library card and any future screen want the
+        # same answer, and the badge vocabulary already lives in lesson_media.
         "courses": [{"id": str(c.id), "title": c.title, "category": c.category,
                      "description": c.description,
+                     "media": lesson_media.course_media(
+                         [le.source_type for le in lessons_by_course.get(c.id, [])]),
+                     "total_duration_minutes": sum(
+                         le.duration_minutes or 0 for le in lessons_by_course.get(c.id, [])),
                      "required_for_onboarding": bool(c.required_for_onboarding),
                      "sequential": bool(c.sequential),
                      "track_progress": bool(c.track_progress),

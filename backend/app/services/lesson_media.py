@@ -40,7 +40,7 @@ VIMEO = re.compile(r"vimeo\.com/(?:video/)?(\d+)")
 # "This lesson lives in EXP" nor a button reading "Open SKOOL" is something a person would write.
 # One map, used for both the sentence and the button, so they cannot disagree.
 NAMES = {"SKOOL": "Skool", "PLACE": "PLACE", "EXP": "eXp", "LOOM": "Loom",
-         "HOSTED": "the video", "PDF": "the PDF"}
+         "HERE": "the video", "PDF": "the PDF"}
 
 # Sources that are a logged-in product, not a video host. Framing these produces a refusal.
 WALLED = {"SKOOL", "PLACE", "EXP"}
@@ -50,6 +50,32 @@ def source_name(source_type: str | None) -> str:
     """What to call this source in a sentence somebody reads."""
     kind = (source_type or "").strip().upper()
     return NAMES.get(kind) or (source_type or "the lesson")
+
+
+# The library card's badge, which answers a different question from `source_name`: not "where do I
+# open this" but "what kind of thing is this course made of". Loom and a hosted file are both just
+# video to somebody choosing what to work through, so they collapse; the platforms stay named
+# because "this one is in Skool" is exactly what a person wants to know before they start.
+BADGES = {"LOOM": "Video", "HERE": "Video", "PDF": "PDF", "SKOOL": "Skool",
+          "PLACE": "PLACE", "EXP": "eXp"}
+_BADGE_ORDER = ["Video", "PDF", "Skool", "PLACE", "eXp"]
+
+
+def course_media(source_types) -> str:
+    """One badge for a whole course: "Video", "PDF + Video", "Skool".
+
+    Ordered by _BADGE_ORDER rather than by first appearance, so re-ordering the lessons does not
+    silently re-order the badge. Capped at two -- a card reading "Video + PDF + Skool + eXp" has
+    stopped telling anybody anything.
+    """
+    kinds = {BADGES.get((t or "").strip().upper()) for t in (source_types or [])}
+    kinds.discard(None)
+    ordered = [k for k in _BADGE_ORDER if k in kinds]
+    if not ordered:
+        return "Course"
+    if len(ordered) > 2:
+        return f"{ordered[0]} + {len(ordered) - 1} more"
+    return " + ".join(ordered)
 
 
 def _clean(url: str | None) -> str:

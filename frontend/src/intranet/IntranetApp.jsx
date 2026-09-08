@@ -146,6 +146,11 @@ function initials(name) {
   return (parts.slice(0, 2).map((p) => p[0]).join("") || "").toUpperCase();
 }
 
+/* The library's own sentence. Generic on purpose -- this ships to every workspace, so it says
+   something true of any team's training rather than anything about one of them. */
+const TRAINING_BLURB =
+  "Everything we teach, in the order we teach it. Start where you are, not where you think you should be.";
+
 function activeIdForPath(pathname) {
   const parts = pathname.split("/").filter(Boolean);
   // An authored page is /p/<key>, and its nav item is identified the same way -- the first
@@ -883,14 +888,79 @@ function WinTheDay({ state, setState, config }) {
  * customer's four courses with lesson titles and nothing else -- because the member payload only
  * ever carried titles, so there was nothing here to render. Now that it carries source, duration
  * and required, a lesson is something you can open. */
-function Training({ state, setState, config }) {
+/* "2h 40m", "55m". Never "0m" for a course whose author simply never filled the minutes in --
+   an unknown length reads as an instant one. */
+function runtime(minutes) {
+  const total = Number(minutes) || 0;
+  if (!total) return null;
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
+  return hours ? `${hours}h ${String(mins).padStart(2, "0")}m` : `${mins}m`;
+}
+
+/* Where somebody stands in one course, in the three shapes the card needs at once. */
+function progressOf(course, done) {
+  const lessons = course.lessons || [];
+  const complete = lessons.filter((l) => done?.[l.id]).length;
+  const total = lessons.length;
+  const pct = total ? Math.round((complete / total) * 100) : 0;
+  return {
+    complete,
+    total,
+    pct,
+    started: complete > 0,
+    finished: total > 0 && complete === total,
+    // The first lesson they have not done -- what "Resume" and "Continue" actually mean.
+    next: lessons.find((l) => !done?.[l.id]) || null,
+  };
+}
+
+/* The shelf.
+ *
+ * A stack of title-and-bar panels told somebody what existed and nothing about what to do next,
+ * which for a library of a dozen courses is the whole question. So: one course resumed at the
+ * top, filters for a team whose library has outgrown a single screen, and cards that say what
+ * kind of thing each course is and how far in you are.
+ *
+ * EVERY NUMBER HERE IS DERIVED, none stored. Course length is the sum of its lessons, the badge
+ * comes from their sources, progress comes from the same per-lesson state the player writes. A
+ * "percent complete" column would be a second copy of a fact that is already true elsewhere, and
+ * the day it disagreed the card would be the thing people believed.
+ */
+function Training({ state, config }) {
   const courses = (config?.content?.courses) || [];
-  const toggle = (key) => setState((s) => ({ ...s, done: { ...(s.done || {}), [key]: !s.done?.[key] } }));
+  const [filter, setFilter] = useState("All");
+  const done = state.done || {};
+
+  // Fixed order, and only categories that actually have a course -- a chip that filters to an
+  // empty shelf is a dead end somebody has to discover by pressing it.
+  const categories = useMemo(() => {
+    const seen = [];
+    courses.forEach((c) => {
+      const name = (c.category || "").trim();
+      if (name && !seen.includes(name)) seen.push(name);
+    });
+    return seen.sort((a, b) => a.localeCompare(b));
+  }, [courses]);
+
+  // Furthest in without being finished. Somebody with three courses on the go wants the one they
+  // were actually working through, not whichever the admin happened to sort first.
+  const resume = useMemo(() => {
+    const started = courses
+      .map((c) => ({ course: c, p: progressOf(c, done) }))
+      .filter((x) => x.p.started && !x.p.finished && x.p.next);
+    started.sort((a, b) => b.p.complete - a.p.complete);
+    return started[0] || null;
+  }, [courses, done]);
+
+  const shown = filter === "All"
+    ? courses
+    : courses.filter((c) => (c.category || "").trim() === filter);
 
   if (!courses.length) {
     const denied = deniedBy(config, "training_library");
     return (
-      <Page title="Training Library" subtitle="Courses this workspace has published.">
+      <Page title="Training Library" subtitle={TRAINING_BLURB}>
         <Panel title={denied ? "Not available to your role" : "Nothing published yet"}>
           <p className="ut-empty">
             {denied
@@ -903,21 +973,61 @@ function Training({ state, setState, config }) {
   }
 
   return (
-    <Page title="Training Library" subtitle="Courses this workspace has published.">
-      <div className="ut-two-grid">
-        {courses.map((course) => {
-          const done = course.lessons.filter((l) => state.done?.[l.id]).length;
+    <Page title="Training Library" subtitle={TRAINING_BLURB}>
+      {resume && (
+        <NavLink className="ut-resume"
+                 to={`/training/${resume.course.id}/${resume.p.next.id}`}>
+          <span className="ut-kicker">Pick up where you left off</span>
+          <strong>{resume.course.title}</strong>
+          <em>
+            Lesson {resume.p.complete + 1} of {resume.p.total} · {resume.p.next.title}
+          </em>
+          <div className="ut-resume-bar">
+            <i style={{ width: `${resume.p.pct}%` }} />
+          </div>
+          <span className="ut-button light">Resume lesson</span>
+        </NavLink>
+      )}
+
+      {categories.length > 1 && (
+        <div className="ut-chips">
+          {["All", ...categories].map((name) => (
+            <button type="button" key={name}
+                    className={`ut-chip${filter === name ? " on" : ""}`}
+                    onClick={() => setFilter(name)}>
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="ut-course-grid">
+        {shown.map((course) => {
+          const p = progressOf(course, done);
+          const length = runtime(course.total_duration_minutes);
           return (
-            <Panel key={course.id} title={course.title}>
-              {course.description ? <p className="ut-empty">{course.description}</p> : null}
-              <div className="ut-course-progress">
-                <Meter value={done} total={course.lessons.length} />
-                <span>{done}/{course.lessons.length}</span>
-              </div>
-              <NavLink className="ut-button light" to={`/training/${course.id}`}>
-                {done ? "Continue" : "Start"}
-              </NavLink>
-            </Panel>
+            <NavLink className="ut-course-card" key={course.id} to={`/training/${course.id}`}>
+              <span className="ut-course-cover">
+                <span className="ut-course-tags">
+                  <em>{course.media || "Course"}</em>
+                  <em>{p.finished ? "Complete"
+                    : p.started ? `${p.complete} of ${p.total}`
+                      : "Not started"}</em>
+                </span>
+              </span>
+              <span className="ut-course-body">
+                {course.category ? <span className="ut-kicker">{course.category}</span> : null}
+                <strong>{course.title}</strong>
+                <em>
+                  {p.total} {p.total === 1 ? "lesson" : "lessons"}
+                  {length ? ` · ${length}` : ""}
+                </em>
+              </span>
+              <span className="ut-course-foot">
+                <span className="ut-course-bar"><i style={{ width: `${p.pct}%` }} /></span>
+                <em>{p.finished ? "Complete" : p.started ? `${p.pct}% complete` : "Not started"}</em>
+              </span>
+            </NavLink>
           );
         })}
       </div>
@@ -1915,7 +2025,7 @@ export default function IntranetApp() {
         <Route path="/" element={<Home config={boot.config} wtd={wtd} training={training} onboarding={onboarding} me={boot.me} />} />
         <Route path="/tools" element={<Tools config={boot.config} />} />
         <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} />} />
-        <Route path="/training" element={<Training state={training} setState={setTraining} config={boot.config} />} />
+        <Route path="/training" element={<Training state={training} config={boot.config} />} />
         <Route path="/training/:courseId" element={<CourseDetail state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/training/:courseId/:lessonId" element={<LessonPlayer state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/p/:pageKey" element={<AuthoredPage config={boot.config} />} />
