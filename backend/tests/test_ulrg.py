@@ -109,6 +109,24 @@ async def test_manual_kpis_are_self_serve_but_auto_rows_stay_admin_only():
         assert r.status_code == 403
 
 
+def test_springb_seed_strings_fit_their_columns():
+    """ScorecardMetric.name/note are String(160). SQLite (the test/scratch DB) doesn't enforce a
+    varchar length but Postgres (prod) does, so a too-long seed note passes locally then truncates on
+    prod. Validate the seed JSON against the real column lengths here so it can't reach prod again."""
+    import json
+    from app import seed_springb_scorecard as sb
+    from app.models import ScorecardMetric, ScorecardGroup
+    name_len = ScorecardMetric.__table__.c.name.type.length
+    note_len = ScorecardMetric.__table__.c.note.type.length
+    gname_len = ScorecardGroup.__table__.c.name.type.length
+    data = json.load(open(sb._DATA_PATH, encoding="utf-8"))
+    for g in data["groups"]:
+        assert len(g["name"]) <= (gname_len or 10**9), g["name"]
+        for m in g["metrics"]:
+            assert len(m["name"]) <= name_len, m["name"]
+            assert len(m.get("note") or "") <= note_len, m["name"]
+
+
 async def test_springb_is_a_separate_board_with_its_own_access_and_no_leak():
     from app.seed_springb_scorecard import load_springb_scorecard
     async with SessionLocal() as s:

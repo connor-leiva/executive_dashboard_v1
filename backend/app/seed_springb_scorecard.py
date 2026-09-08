@@ -54,11 +54,13 @@ async def load_springb_scorecard(s, tenant_id) -> int:
         s.add(group)
         await s.flush()
         for mi, m in enumerate(g["metrics"]):
+            note = m.get("note")
             s.add(ScorecardMetric(
-                tenant_id=tenant_id, group_id=group.id, name=m["name"],
+                tenant_id=tenant_id, group_id=group.id, name=m["name"][:160],
                 goal=Decimal("0"),                             # track-only until the team sets a bar
                 direction=m.get("direction", "gte"), type=m["type"], source="manual",
-                note=m.get("note"), sort_order=mi, active=True, resolver_key=None))
+                note=note[:160] if note else None,             # note is String(160) — Postgres enforces it (SQLite doesn't)
+                sort_order=mi, active=True, resolver_key=None))
             n += 1
     await s.commit()
     return n

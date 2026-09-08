@@ -14,7 +14,7 @@
       "key": "becollective",
       "name": "beCollective",
       "metrics": [
-        {"name": "Mighty Network Growth", "type": "flow", "note": "To settle: the unit — net new members vs % growth, and whether it counts the platform or the community (members only in WhatsApp/GHL are invisible to a Mighty Networks number)."},
+        {"name": "Mighty Network Growth", "type": "flow", "note": "To settle: the unit — net new members or % growth; platform or community (WhatsApp/GHL-only members aren't visible to a Mighty Networks count)."},
         {"name": "Engagement", "type": "flow", "note": "To settle: the definition — weekly active %, call attendance, or posts + comments. Can't carry a goal until this is decided."}
       ]
     },
