@@ -138,9 +138,13 @@ async def test_per_period_goals_override_and_history():
         row = next(rr for gg in d["groups"] if gg["key"] == "davis"
                    for rr in gg["rows"] if rr["measurable"] == "Appointments Met")
         assert row["goal"] == default + 10                                   # current-period goal
-        # every shown week is in Q2 (data ends 7/27) → still the default, NOT the new Q3 goal (history kept)
-        assert row["week_goals"] and all(wg == default for wg in row["week_goals"])
-        assert len(row["week_goals"]) == len(row["values"])
+        # history isn't recolored: each shown week keeps ITS OWN period's goal. The board now shows
+        # through the current week, so Q2 weeks (<= 7/27) stay at the default while the current Q3
+        # weeks carry the new override.
+        q2_end = dt.date(2026, 7, 27)
+        assert row["week_goals"] and len(row["week_goals"]) == len(row["values"])
+        for wg, w in zip(row["week_goals"], d["weeks"]):
+            assert wg == (default if dt.date.fromisoformat(w["start"]) <= q2_end else default + 10)
 
         # now override Q2 too → those weeks' goals move, current (Q3) unaffected
         await c.put("/api/v1/ulrg/goals", headers=_H(tok),
@@ -148,7 +152,8 @@ async def test_per_period_goals_override_and_history():
         d2 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
         row2 = next(rr for gg in d2["groups"] if gg["key"] == "davis"
                     for rr in gg["rows"] if rr["measurable"] == "Appointments Met")
-        assert all(wg == default - 5 for wg in row2["week_goals"])            # Q2 weeks use the Q2 goal
+        for wg, w in zip(row2["week_goals"], d2["weeks"]):                    # each week uses ITS period's goal
+            assert wg == (default - 5 if dt.date.fromisoformat(w["start"]) <= q2_end else default + 10)
         assert row2["goal"] == default + 10                                  # current (Q3) still its own
 
 

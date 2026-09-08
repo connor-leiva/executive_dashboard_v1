@@ -109,6 +109,40 @@ async def test_manual_kpis_are_self_serve_but_auto_rows_stay_admin_only():
         assert r.status_code == 403
 
 
+async def test_springb_is_a_separate_board_with_its_own_access_and_no_leak():
+    from app.seed_springb_scorecard import load_springb_scorecard
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        n = await load_springb_scorecard(s, t.id)
+    assert n == 15
+
+    owner = await _owner_token()
+    forum_member = await _mk_user("sb-forum@x.com", tabs=["forum"])      # can see a Spring B brand tab
+    ulrg_member = await _mk_user("sb-ulrg@x.com", tabs=["ulrg"])         # cannot
+
+    async with _client() as c:
+        d = (await c.get("/api/v1/ulrg/scorecard?scope=springb", headers=_H(owner))).json()
+        assert {g["name"] for g in d["groups"]} == {"Spring B", "beCollective", "Forum", "Activated Agent"}
+        rows = [r for g in d["groups"] for r in g["rows"]]
+        assert len(rows) == 15 and all(not r["auto"] for r in rows)      # all manual, nothing auto-sourced
+        assert d["weeks"]                                                # week columns exist despite no seeded values
+
+        # access follows the scope's tabs: a Forum member sees + edits Spring B; a ULRG-only member can't
+        assert (await c.get("/api/v1/ulrg/scorecard?scope=springb", headers=_H(forum_member))).status_code == 200
+        assert (await c.get("/api/v1/ulrg/scorecard?scope=springb", headers=_H(ulrg_member))).status_code == 403
+        mid, wk = rows[0]["id"], d["weeks"][-1]["start"]
+        assert (await c.post("/api/v1/ulrg/scorecard/values", headers=_H(forum_member),
+                             json={"metric_id": mid, "week_start": wk, "value": 5})).status_code == 201
+        assert (await c.post("/api/v1/ulrg/scorecard/values", headers=_H(ulrg_member),
+                             json={"metric_id": mid, "week_start": wk, "value": 5})).status_code == 403
+
+        # the two boards' Settings editors never show each other's rows
+        sb = {x["name"] for x in (await c.get("/api/v1/ulrg/goals?period=2026Q3&scope=springb", headers=_H(owner))).json()["goals"]}
+        ul = {x["name"] for x in (await c.get("/api/v1/ulrg/goals?period=2026Q3&scope=ulrg", headers=_H(owner))).json()["goals"]}
+        assert "Members Added" in sb and "Appointments Met" not in sb and len(sb) == 15
+        assert "Appointments Met" in ul and "Members Added" not in ul
+
+
 async def test_remove_measurable_soft_deletes_and_is_admin_only():
     owner = await _owner_token()
     member = await _mk_user("row-remover@x.com", tabs=["ulrg"])

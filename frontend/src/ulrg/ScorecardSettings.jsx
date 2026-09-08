@@ -9,7 +9,7 @@ const _field = { fontFamily: FB, fontSize: 13, color: C.ink, background: C.parch
 const _btn = { fontFamily: FM, fontSize: 11.5, borderRadius: 8, padding: "6px 12px", cursor: "pointer", border: `1px solid ${C.hair}`, color: C.slate, background: "none" };
 const _colHdr = { width: 92, textAlign: "right", fontFamily: FM, fontSize: 9.5, letterSpacing: ".08em", textTransform: "uppercase", color: C.muted };
 
-export default function ScorecardSettings({ groups, onClose, onChanged }) {
+export default function ScorecardSettings({ groups, scope = "ulrg", onClose, onChanged }) {
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.hair}`, borderRadius: 12, padding: "16px 18px", marginBottom: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
@@ -20,16 +20,16 @@ export default function ScorecardSettings({ groups, onClose, onChanged }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {(groups || []).map((g) => <OfficeRow key={g.id} g={g} onChanged={onChanged} />)}
       </div>
-      <MeasurablesEditor onChanged={onChanged} />
+      <MeasurablesEditor scope={scope} onChanged={onChanged} />
       <PeriodsEditor onChanged={onChanged} />
-      <GoalsEditor onChanged={onChanged} />
+      <GoalsEditor scope={scope} onChanged={onChanged} />
     </div>
   );
 }
 
 /* Rename measurables (owner/admin), self-service — so a static number ("130 Homes Sold Q2") never
    goes stale in the label. Names are global (not per-period); auto-sourcing is unaffected. */
-function MeasurablesEditor({ onChanged }) {
+function MeasurablesEditor({ scope = "ulrg", onChanged }) {
   const [rows, setRows] = useState(null);       // [{metric_id, name, group, dirty}]
   const [state, setState] = useState("idle");
   const [confirmId, setConfirmId] = useState(null);   // row awaiting a remove confirm
@@ -50,7 +50,7 @@ function MeasurablesEditor({ onChanged }) {
     getJSON("/ulrg/periods").then((d) => {
       const p = (d.periods || [])[0];
       const q = p ? `?period=${encodeURIComponent(p.key)}` : "?period=_";
-      return getJSON(`/ulrg/goals${q}`);
+      return getJSON(`/ulrg/goals${q}&scope=${scope}`);
     }).then((d) => setRows((d.goals || []).map((g) => ({ metric_id: g.metric_id, name: g.name, group: g.group }))))
       .catch(() => setRows([]));
   }, []);
@@ -103,7 +103,7 @@ function MeasurablesEditor({ onChanged }) {
   );
 }
 
-function GoalsEditor({ onChanged }) {
+function GoalsEditor({ scope = "ulrg", onChanged }) {
   const [periods, setPeriods] = useState(null);
   const [period, setPeriod] = useState("");
   const [goals, setGoals] = useState(null);
@@ -119,7 +119,7 @@ function GoalsEditor({ onChanged }) {
   useEffect(() => {
     if (!period) return;
     setGoals(null);
-    getJSON(`/ulrg/goals?period=${encodeURIComponent(period)}`).then((d) => setGoals(d.goals || [])).catch(() => setGoals([]));
+    getJSON(`/ulrg/goals?period=${encodeURIComponent(period)}&scope=${scope}`).then((d) => setGoals(d.goals || [])).catch(() => setGoals([]));
   }, [period]);
 
   async function save() {

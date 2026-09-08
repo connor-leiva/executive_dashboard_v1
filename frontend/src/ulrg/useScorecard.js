@@ -6,7 +6,7 @@ const API = import.meta.env.VITE_API_BASE;
 /* Fetches the L10 Scorecard payload (SPEC Part 5.1). `weeks` = the trailing window the API
    returns; the panel/window math is all server-side, so this hook only fetches + reloads.
    `shareToken` (optional) switches to the public, no-auth token endpoint for a ClickUp embed. */
-export function useScorecard(weeks = 13, shareToken = null) {
+export function useScorecard(weeks = 13, shareToken = null, scope = "ulrg") {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [nonce, setNonce] = useState(0);
@@ -18,7 +18,7 @@ export function useScorecard(weeks = 13, shareToken = null) {
     setError(null);
     const req = shareToken
       ? getPublic(`/share/${shareToken}/scorecard?weeks=${weeks}`)   // embed: no login, token-scoped
-      : getJSON(`/ulrg/scorecard?weeks=${weeks}`);
+      : getJSON(`/ulrg/scorecard?weeks=${weeks}&scope=${scope}`);    // which board (ulrg | springb)
     req.then((d) => { if (alive) setData(d); })
       .catch((e) => {
         if (!alive) return;
@@ -26,7 +26,7 @@ export function useScorecard(weeks = 13, shareToken = null) {
         setError(e);
       });
     return () => { alive = false; };
-  }, [weeks, nonce, shareToken]);
+  }, [weeks, nonce, shareToken, scope]);
 
   return { data, error, reload };
 }

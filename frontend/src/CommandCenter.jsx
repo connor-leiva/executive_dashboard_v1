@@ -10,6 +10,7 @@ import AuditDrawer from "./AuditDrawer.jsx";
 import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
 import UlrgTabs from "./ulrg/UlrgTabs.jsx";
+import BrandScorecardTabs from "./BrandScorecardTabs.jsx";
 import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
 import BecollectiveView from "./BecollectiveView.jsx";
 import EdgeView from "./EdgeView.jsx";
@@ -1252,15 +1253,17 @@ export default function CommandCenter() {
   else if (error && !data) content = <ErrorState onRetry={retry} />;
   else if (activeView === "overview") content = <Overview data={data} onOpen={goTo} onDrill={onDrill} />;
   else if (activeView === "forum") content = forum.data
-    ? <ForumView key="forum" data={forum.data} area={areas?.forum} onDrill={onDrill} />
+    ? <BrandScorecardTabs role={user?.role}
+        overview={<ForumView key="forum" data={forum.data} area={areas?.forum} onDrill={onDrill} />} />
     : <SkeletonDashboard />;
   else if (activeView === "becollective") content = becollective.data
     ? <BecollectiveView data={becollective.data} area={areas?.becollective} onDrill={onDrill}
         deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="bc_roster" role={user?.role} />
     : <SkeletonDashboard />;
   else if (activeView === "edge") content = edge.data
-    ? <EdgeView data={edge.data} area={areas?.edge} onDrill={onDrill}
-        deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="edge_roster" />
+    ? <BrandScorecardTabs role={user?.role}
+        overview={<EdgeView data={edge.data} area={areas?.edge} onDrill={onDrill}
+          deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="edge_roster" />} />
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" && areas?.ulrg) content = <UlrgTabs role={user?.role}
     overview={<AreaDetail area={areas.ulrg} onDrill={onDrill} period={periodKeyStr} />} />;

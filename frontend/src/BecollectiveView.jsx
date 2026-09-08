@@ -9,6 +9,7 @@ import { useLaunch } from "./useLaunch.js";
 import { useSalesDesk } from "./useSalesDesk.js";
 import { T } from "./theme.js";
 import SubTabs from "./SubTabs.jsx";
+import Scorecard from "./ulrg/Scorecard.jsx";
 
 /* beCollective reuses the Forum's operational component. This remaps every Forum drill key
    to beCollective's own (bc_*) key, so no drill-down or roll-up leaks Forum data. */
@@ -26,6 +27,7 @@ function SubNav({ page, setPage, hasLaunch, hasSales }) {
   const tabs = [{ k: "overview", label: "Overview" }];
   if (hasLaunch) tabs.push({ k: "launch", label: "Launch" });
   if (hasSales) tabs.push({ k: "sales", label: "Sales Desk" });     // §8 — rep throughput
+  tabs.push({ k: "scorecard", label: "Scorecard" });                // the shared Spring B L10 board
   return <SubTabs tabs={tabs} active={page} onChange={setPage} />;   // one shared switcher
 }
 
@@ -69,6 +71,8 @@ export default function BecollectiveView({ data, area, onDrill, deckSlots, drill
         {sales.loading ? "Loading the Sales Desk…" : "No active launch — the Sales Desk appears once a cohort launch is live."}
       </div>;
     }
+  } else if (page === "scorecard") {
+    pane = <Scorecard scope="springb" role={role} />;
   }
 
   return (

@@ -30,8 +30,21 @@ from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
 from ..services.scorecard_resolvers import resolver_records
+from ..services.tabs import effective_tabs, tenant_tabs
 
 router = APIRouter(prefix="/ulrg", tags=["ulrg"])
+
+
+# ── scorecard scopes ─────────────────────────────────────────────────────────────────────────────
+# A scorecard is a BUSINESS (resolved by kind, so it's tenant-agnostic — no hardcoded keys) plus the
+# tabs that grant access to it. ULRG lives under the ULRG tab; the Spring B board is company-wide and
+# reachable from any of its brand tabs. Adding a scorecard is one row here plus a seed. The routes stay
+# under /ulrg for now (ULRG shipped first); `scope` selects which board — default "ulrg" keeps every
+# existing ULRG call identical.
+SCORECARD_SCOPES = {
+    "ulrg":    {"kind": roles.REAL_ESTATE, "tabs": ("ulrg",)},
+    "springb": {"kind": roles.MEMBERSHIP,  "tabs": ("forum", "becollective", "edge")},
+}
 
 
 async def _ulrg_business(s, tenant_id):
@@ -41,22 +54,57 @@ async def _ulrg_business(s, tenant_id):
     return b
 
 
+async def _scope_business(s, tenant_id, scope: str) -> Business:
+    sc = SCORECARD_SCOPES.get(scope)
+    if not sc:
+        raise HTTPException(404, "Unknown scorecard")
+    b = await roles.primary(s, tenant_id, sc["kind"])
+    if not b:
+        raise HTTPException(404, "This scorecard has no business for this tenant")
+    return b
+
+
+async def _assert_scope_view(user: User, s, scope: str) -> None:
+    """403 unless the user can see the scorecard — i.e. holds ANY of the scope's tabs (owners/admins
+    pass implicitly, exactly like require_tab)."""
+    sc = SCORECARD_SCOPES.get(scope)
+    if not sc:
+        raise HTTPException(404, "Unknown scorecard")
+    seen = set(effective_tabs(user, await tenant_tabs(s, user.tenant_id),
+                              tenant=await s.get(Tenant, user.tenant_id)))
+    if not seen & set(sc["tabs"]):
+        raise HTTPException(403, "No access to this scorecard")
+
+
+async def _metric_scope(s, m: ScorecardMetric) -> str | None:
+    """The scorecard scope a metric belongs to, via its group's business kind — so a write endpoint
+    can gate on the RIGHT board without the client naming it."""
+    g = await s.get(ScorecardGroup, m.group_id)
+    b = await s.get(Business, g.business_id) if g else None
+    if b:
+        for scope, sc in SCORECARD_SCOPES.items():
+            if b.kind == sc["kind"]:
+                return scope
+    return None
+
+
 @router.get("/scorecard")
-async def get_scorecard(weeks: int = Query(13, ge=1, le=52),
-                        user: User = Depends(require_tab("ulrg")),
+async def get_scorecard(weeks: int = Query(13, ge=1, le=52), scope: str = "ulrg",
+                        user: User = Depends(current_user),
                         s: AsyncSession = Depends(get_session)):
-    b = await _ulrg_business(s, user.tenant_id)
+    await _assert_scope_view(user, s, scope)
+    b = await _scope_business(s, user.tenant_id, scope)
     return await scorecard.build_scorecard(s, user.tenant_id, b.id, weeks)
 
 
 @router.get("/metric/{metric_id}/records")
 async def metric_records(metric_id: str, week_start: str, week_end: str,
-                         user: User = Depends(require_tab("ulrg")),
+                         user: User = Depends(current_user),
                          s: AsyncSession = Depends(get_session)):
     """The underlying Sisu deals behind a figure — the grid drill-down (auth-only; carries client
     names, so it's never exposed on the public embed). Auto/resolver metrics return the deals that
     make up the count for [week_start, week_end]; a manual metric has no source records (the client
-    opens the value editor instead)."""
+    opens the value editor instead). Gated on the metric's own board (ULRG or Spring B)."""
     row = (await s.execute(
         select(ScorecardMetric, ScorecardGroup.business_id, ScorecardGroup.sisu_group_id)
         .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
@@ -64,6 +112,10 @@ async def metric_records(metric_id: str, week_start: str, week_end: str,
     if not row:
         raise HTTPException(404, "Unknown metric")
     m, business_id, sisu_group_id = row
+    scope = await _metric_scope(s, m)
+    if scope is None:
+        raise HTTPException(404, "Unknown metric")
+    await _assert_scope_view(user, s, scope)
     if not m.resolver_key:
         return {"source": "manual", "measurable": m.name, "records": []}
     try:
@@ -82,17 +134,21 @@ class ValueIn(BaseModel):
 
 
 @router.post("/scorecard/values", status_code=201)
-async def set_value(body: ValueIn, user: User = Depends(require_tab("ulrg")),
+async def set_value(body: ValueIn, user: User = Depends(current_user),
                     s: AsyncSession = Depends(get_session)):
-    """Manual entry (Part 3.3). SELF-SERVE: anyone who can see the scorecard (require_tab) may edit a
+    """Manual entry (Part 3.3). SELF-SERVE: anyone who can see the metric's scorecard may edit a
     hand-entered measurable — these are KPIs individuals own and update themselves, not an admin-only
     task. An AUTO (resolver-sourced) row stays locked to owner/admin (or the metric's owner): a member
     must not hand-override a live feed — that's an audited correction, and the next resolver run would
-    revert it anyway."""
+    revert it anyway. Works for any board (ULRG or Spring B); the gate follows the metric's scope."""
     m = (await s.execute(select(ScorecardMetric).where(
         ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.id == body.metric_id))).scalar_one_or_none()
     if not m:
         raise HTTPException(404, "Unknown metric")
+    scope = await _metric_scope(s, m)
+    if scope is None:
+        raise HTTPException(404, "Unknown metric")
+    await _assert_scope_view(user, s, scope)          # must be able to see the board this metric is on
     if m.resolver_key and user.role not in ("owner", "admin") and m.owner_user_id != user.id:
         raise HTTPException(403, "This measurable is auto-sourced — only an owner or admin can override it")
     try:
@@ -362,15 +418,18 @@ class GoalsIn(BaseModel):
 
 
 @router.get("/goals")
-async def get_goals(period: str, user: User = Depends(current_user),
+async def get_goals(period: str, scope: str = "ulrg", user: User = Depends(current_user),
                     s: AsyncSession = Depends(get_session)):
     """Each active measurable's weekly + cumulative goal for a period (override if set, else the
-    metric default / no cumulative), grouped for the editor. owner/admin."""
+    metric default / no cumulative), grouped for the editor. owner/admin. Scoped to ONE board so the
+    ULRG and Spring B measurables editors never show each other's rows."""
     _require_admin(user)
+    b = await _scope_business(s, user.tenant_id, scope)
     rows = (await s.execute(
         select(ScorecardMetric, ScorecardGroup.name, ScorecardGroup.sort_order)
         .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
-        .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.active.is_(True))
+        .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardGroup.business_id == b.id,
+               ScorecardMetric.active.is_(True))
         .order_by(ScorecardGroup.sort_order, ScorecardMetric.sort_order))).all()
     over = {str(mid): (float(gv), None if cg is None else float(cg))
             for mid, gv, cg in (await s.execute(select(

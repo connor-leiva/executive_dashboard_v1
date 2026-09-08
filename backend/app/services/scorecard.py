@@ -248,12 +248,17 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
     for v in values:
         vmap.setdefault(v.metric_id, {})[v.week_start] = _fv(v.value)
 
-    all_weeks = sorted({v.week_start for v in values})
+    # Always surface the trailing window ending at the current week, merged with any stored weeks, so
+    # a FULLY-MANUAL board (no resolver advancing it) still shows the current week to fill in — and a
+    # brand-new board has week columns at all. NULL cells are filtered out of every cumulative by
+    # _clean, so the extra empty weeks never change a computed number.
+    cur_week_start = today - dt.timedelta(days=today.weekday())   # Monday of the week containing today
+    window = {cur_week_start - dt.timedelta(weeks=i) for i in range(max(weeks_param or 1, 1))}
+    all_weeks = sorted({v.week_start for v in values} | window)
     weeks = all_weeks[-weeks_param:] if weeks_param else all_weeks
     # The in-progress week never counts toward the cumulative/pace — the team reviews COMPLETED weeks
     # (Mon–Sun) at their Tuesday L10, so a week only enters the totals once it has fully closed. The
     # current week's cell still shows its running tally; it's just excluded until its Sunday passes.
-    cur_week_start = today - dt.timedelta(days=today.weekday())   # Monday of the week containing today
     def _done(w) -> bool:
         return w < cur_week_start
     weeks_out = [{"n": w.isocalendar()[1], "start": w.isoformat(),

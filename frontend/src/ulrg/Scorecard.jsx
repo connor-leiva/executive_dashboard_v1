@@ -16,8 +16,8 @@ import MoveCard from "./MoveCard.jsx";
 import ShareButton from "./ShareButton.jsx";
 import ScorecardSettings from "./ScorecardSettings.jsx";
 
-export default function Scorecard({ role, shareToken = null }) {
-  const { data, reload } = useScorecard(13, shareToken);
+export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
+  const { data, reload } = useScorecard(13, shareToken, scope);
   const isAdmin = !shareToken && (role === "owner" || role === "admin");   // no Share/Settings inside an embed
   const canEditValues = !shareToken;   // hand-entered KPIs are self-serve: anyone with scorecard access edits them (server enforces the same; auto rows stay admin-only)
 
@@ -114,7 +114,7 @@ export default function Scorecard({ role, shareToken = null }) {
         <DrillDrawer drill={drill} canEdit={canEditValues} onClose={() => setDrill(null)} onSaved={reload} />
       )}
       {isAdmin && settingsOpen && (
-        <ScorecardSettings groups={data.groups} onClose={() => setSettingsOpen(false)} onChanged={reload} />
+        <ScorecardSettings groups={data.groups} scope={scope} onClose={() => setSettingsOpen(false)} onChanged={reload} />
       )}
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
@@ -199,7 +199,7 @@ export default function Scorecard({ role, shareToken = null }) {
                   Settings
                 </button>
               )}
-              {isAdmin && <ShareButton />}
+              {isAdmin && scope === "ulrg" && <ShareButton />}
             </div>
           </div>
 

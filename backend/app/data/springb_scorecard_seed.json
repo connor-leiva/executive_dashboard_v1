@@ -1,0 +1,44 @@
+{
+  "_note": "Spring B L10 Scorecard v1 — the 15 always-on measurables as agreed (see spring-b-l10-scorecard mockup). Owners, goals, and weekly history are intentionally blank: EOS wants one named person and one number per line, assigned by the team over time via the scorecard's own Settings. Goal 0 = track-only (no scoreable target yet). The four not-yet-defined lines carry the open question as a note. No resolver_key — every line is manual for v1 (nothing auto-sourced). Slots, the coverage matrix, the four derived rates, and the parked list are deliberately out of v1.",
+  "groups": [
+    {
+      "key": "spring_b",
+      "name": "Spring B",
+      "metrics": [
+        {"name": "Net New Opted-In Contacts", "type": "flow"},
+        {"name": "Content Assets Shipped vs. Planned", "type": "flow", "note": "Weekly count shipped against planned (x of y); the plan becomes the goal once set."},
+        {"name": "Email Open Rate Floor", "type": "rate"}
+      ]
+    },
+    {
+      "key": "becollective",
+      "name": "beCollective",
+      "metrics": [
+        {"name": "Mighty Network Growth", "type": "flow", "note": "To settle: the unit — net new members vs % growth, and whether it counts the platform or the community (members only in WhatsApp/GHL are invisible to a Mighty Networks number)."},
+        {"name": "Engagement", "type": "flow", "note": "To settle: the definition — weekly active %, call attendance, or posts + comments. Can't carry a goal until this is decided."}
+      ]
+    },
+    {
+      "key": "forum",
+      "name": "Forum",
+      "metrics": [
+        {"name": "Members at Risk", "type": "snapshot", "note": "To settle: the trigger — at risk after how many missed calls."},
+        {"name": "Member Referrals Generated", "type": "flow"},
+        {"name": "Members Added", "type": "flow"},
+        {"name": "VIP Guests Added", "type": "flow"}
+      ]
+    },
+    {
+      "key": "activated",
+      "name": "Activated Agent",
+      "metrics": [
+        {"name": "Recruiting Leads Generated", "type": "flow"},
+        {"name": "Recruiting Appts Held", "type": "flow"},
+        {"name": "Agents Onboarded", "type": "flow"},
+        {"name": "UCs", "type": "flow"},
+        {"name": "Closed Units", "type": "flow"},
+        {"name": "Agents at 0", "type": "snapshot", "note": "To settle: the window — zero production over 30 / 60 / 90 days (60 is common: it survives one slow month without flagging everyone)."}
+      ]
+    }
+  ]
+}
