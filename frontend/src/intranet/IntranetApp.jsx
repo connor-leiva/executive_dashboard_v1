@@ -599,11 +599,9 @@ function Home({ config, wtd, training, onboarding, me }) {
 
       <GoalSnapshot numbers={numbers} />
 
-      {/* A VENDOR PANEL, NOT A PRODUCT FEATURE. Sunburst is a coaching product one customer
-          buys; compiled in, it would put another company's brand on every customer's home
-          screen. Gated on the link an admin pasted rather than on Sisu being connected -- same
-          rule as the nav, and the same reason: the link is what makes the panel work. */}
-      {VENDOR_READY.sunburst(config) && <SunburstBanner config={config} />}
+      {/* Ungated: Sunburst ships with the platform. The panel still tells the truth about what it
+          knows -- an agent we could not match to Sisu is told so rather than shown zeroes. */}
+      <SunburstBanner config={config} />
 
       <section className="ut-lower-grid">
         <NeedsYouToday config={config} />
@@ -664,14 +662,11 @@ function GoalSnapshot({ numbers }) {
 /* Nav items that belong to a VENDOR rather than to the product. Each appears only where that
    workspace has the relevant integration connected -- Sunburst is a coaching product sold inside
    Sisu, and a permanent nav entry for it would put one customer's vendor in everybody's rail. */
-/* A vendor page appears when the thing it opens EXISTS, not when a neighbouring integration
-   happens to be connected. Sunburst was gated on Sisu, which is close but wrong in both
-   directions: a workspace can sync Sisu without buying Sunburst, and the page's actual
-   precondition is the link an admin pastes in. Returning true when there is no rule keeps every
-   non-vendor item visible. */
-const VENDOR_READY = {
-  sunburst: (config) => Boolean((config?.sunburst?.url || "").trim()),
-};
+/* Nothing is gated on a vendor any more. Sunburst was hidden unless Sisu was connected, then
+   unless a link was configured; it ships with the platform for every workspace, so both gates are
+   gone. Kept as an empty map rather than deleted because the nav filter reads it, and a page that
+   genuinely needs a precondition later belongs here rather than in a new mechanism. */
+const VENDOR_READY = {};
 
 function connected(config, providerKey) {
   return (config?.content?.integrations || {})[providerKey] === "connected";
@@ -1995,29 +1990,20 @@ const SUNBURST_PROMPTS = [
 
 /* Sunburst.
  *
- * A VENDOR PANEL, not a feature of this platform: Sunburst is a coaching product sold inside Sisu,
- * and everything here is a way into it. The link is per workspace and generated in Sisu, so it is
- * configured in the console rather than compiled in.
+ * Sunburst ships with Sisu and Sisu ships with this product's customers, so it is part of the
+ * platform: every workspace gets it and there is nothing to configure. The link is DERIVED per
+ * member on the server (services/sunburst) and handed over ready to use -- this page never builds
+ * a URL, which is why there is no template to interpolate here.
  *
- * TWO WAYS A PROMPT CAN TRAVEL, and which one you get is a setting rather than a release. Sisu's
- * link today opens Sunburst with an empty box, so a card copies its question to the clipboard and
- * opens Sunburst for you to paste -- honest, and one keystroke from the real thing. The moment Sisu
- * ships a link that carries a question, pasting a template with {prompt} in it into the console
- * turns every card into a single click and this code already handles it.
+ * Sisu's link opens Sunburst with an empty box today, so a prompt card copies its question to the
+ * clipboard and opens Sunburst for you to paste -- honest, and one keystroke from the real thing.
+ * `carries_prompt` flips to true the day Sisu ships a link that takes the question, and every card
+ * becomes one click with no change here.
  */
-function sunburstHref(config, prompt) {
-  const sb = config?.sunburst || {};
-  const template = (sb.prompt_template || "").trim();
-  if (template && prompt && template.includes("{prompt}")) {
-    return template.replace("{prompt}", encodeURIComponent(prompt));
-  }
-  return (sb.url || "").trim();
-}
-
 function SunburstPage({ config, me }) {
   const numbers = config?.numbers || {};
   const url = (config?.sunburst?.url || "").trim();
-  const carries = Boolean((config?.sunburst?.prompt_template || "").includes("{prompt}"));
+  const carries = Boolean(config?.sunburst?.carries_prompt);
   const [copied, setCopied] = useState("");
   const [typed, setTyped] = useState("");
 
@@ -2036,16 +2022,18 @@ function SunburstPage({ config, me }) {
         setTimeout(() => setCopied(""), 4000);
       } catch { /* the window still opens */ }
     }
-    window.open(sunburstHref(config, prompt), "_blank", "noreferrer,noopener");
+    window.open(url, "_blank", "noreferrer,noopener");
   }
 
+  // The only way there is no link: the viewer is not on the roster at all, so there is no member
+  // to derive one for. An owner who never added themselves is the real case.
   if (!url) {
     return (
       <Page title="Sunburst" subtitle="Your AI business partner, built into Sisu.">
-        <Panel title="Not connected yet">
+        <Panel title="You are not on the roster">
           <p className="ut-empty">
-            Sunburst opens from a link your workspace generates in Sisu. An admin can add it in
-            the console under Integrations, and this page will start working for everyone.
+            Sunburst opens a conversation for a person, and this account is not on the workspace
+            roster yet. Add yourself under People &amp; Roster in the console and it will be here.
           </p>
         </Panel>
       </Page>
@@ -2125,9 +2113,8 @@ function SunburstPage({ config, me }) {
 
         {!carries ? (
           <p className="ut-note">
-            Sunburst opens with an empty box, so we copy your question to the clipboard for you to
-            paste. Once Sisu offers a link that carries the question, an admin can paste it in the
-            console and these become one click.
+            Sunburst opens with an empty box, so we copy your question to the clipboard for you
+            to paste. When Sisu offers a link that carries the question, these become one click.
           </p>
         ) : null}
       </Panel>

@@ -27,7 +27,7 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetAiQuestion, IntranetContentGap, IntranetWorkspace,
                       IntranetWtdList, Tenant, User)
 from ..services import (binder_storage, intranet_assistant, lesson_media,
-                        member_numbers, uploads)
+                        member_numbers, sunburst, uploads)
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import allows, capability_levels
 from ..services.audit import audit
@@ -62,7 +62,8 @@ class IntranetConfigPatch(BaseModel):
     marketing_requests: dict | None = None
     links: dict | None = None
     brand: dict | None = None
-    sunburst: dict | None = None
+    # No `sunburst`. It ships with the platform and its link is derived per member -- see
+    # services/sunburst. There is nothing for a workspace to set.
     numbers: dict | None = None
 
 
@@ -91,14 +92,6 @@ def _default_config() -> dict:
         # than syncs: the annual unit goal a pace is measured against.
         "numbers": {
             "annual_unit_goal": 0,
-        },
-        # Sunburst is a coaching product sold inside Sisu, not a feature of this platform. The
-        # link is per workspace and generated in Sisu, so it is configured here rather than
-        # compiled in -- and `prompt_template` is empty until Sisu ships a link that carries a
-        # question, at which point this becomes a settings change instead of a release.
-        "sunburst": {
-            "url": "",
-            "prompt_template": "",
         },
     }
 
@@ -548,7 +541,8 @@ def _config_out(tenant: Tenant, user: User,
                 marketing_role: str | None = None,
                 content: dict | None = None,
                 workspace: IntranetWorkspace | None = None,
-                week: dict | None = None) -> dict:
+                week: dict | None = None,
+                member_id=None) -> dict:
     config = _stored_config(tenant)
     # The capabilities the content payload already resolved -- not looked up again, so the form
     # and the endpoint cannot disagree about the same role.
@@ -562,6 +556,13 @@ def _config_out(tenant: Tenant, user: User,
         "annual_unit_goal": goal,
         "pace_percent": (member_numbers.pace((week or {}).get("closed_units_ytd", 0), goal)
                          if week else None),
+    }
+    # Derived per member and handed over ready to use, so the portal never builds a URL and there
+    # is nothing for an admin to configure. A member-less viewer (an owner not on the roster) gets
+    # no link rather than somebody else's conversation.
+    config["sunburst"] = {
+        "url": (sunburst.link_for(tenant.id, member_id) if member_id else ""),
+        "carries_prompt": sunburst.carries_prompt(),
     }
     config["marketing"] = _marketing_out(
         marketing, marketing_role,
@@ -636,7 +637,8 @@ async def get_config(user: User = Depends(current_user), s: AsyncSession = Depen
     # Per request rather than cached: it is four indexed counts, and a stale copy of somebody's
     # own numbers is the kind of wrong that makes people stop trusting the page.
     week = await member_numbers.week_for(s, user.tenant_id, member)
-    return _config_out(tenant, user, marketing, role_name, content, workspace, week)
+    return _config_out(tenant, user, marketing, role_name, content, workspace, week,
+                       member.id if member is not None else None)
 
 
 @router.patch("/config")
@@ -654,21 +656,6 @@ async def patch_config(body: IntranetConfigPatch,
                 incoming.get("google_calendar_url") or incoming.get("embed_url"),
                 google_calendar=True)
         current["calendar"] = cal
-    if "sunburst" in fields:
-        incoming = fields["sunburst"] or {}
-        sb = dict(current.get("sunburst") or {})
-        if "url" in incoming:
-            # The workspace's own Sunburst link, generated in Sisu. https only and normalised the
-            # same way every other outbound URL in this product is -- it is a link we hand to every
-            # agent, so a typo here is a broken button for the whole team.
-            sb["url"] = _clean_url(incoming.get("url"))
-        if "prompt_template" in incoming:
-            # Empty until Sisu ships a link that carries a question. When they do, pasting a
-            # template with {prompt} in it turns the suggestion cards into one click, with no
-            # release -- see the portal, which checks for the placeholder.
-            raw = str(incoming.get("prompt_template") or "").strip()
-            sb["prompt_template"] = _clean_url(raw) if raw else ""
-        current["sunburst"] = sb
     if "numbers" in fields:
         incoming = fields["numbers"] or {}
         nums = dict(current.get("numbers") or {})
