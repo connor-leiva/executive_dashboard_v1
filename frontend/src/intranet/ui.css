@@ -824,24 +824,14 @@ input {
   min-width: 0;
 }
 
-.ut-sunburst-brand,
+.ut-sunburst-kicker,
 .ut-sunburst-kicker {
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
 }
 
-.ut-sunburst-brand {
-  gap: 7px;
-  margin-right: 32px;
-  color: var(--sun-word);
-  font-size: 15px;
-  letter-spacing: 0.01em;
-}
 
-/* Same lockup as the Sunburst page, one size down. The ring was a 1px CSS circle here, which is
-   not their mark -- theirs breaks on the diagonal. See SunburstMark. */
-.ut-sunburst-brand .ut-sb-mark { color: var(--sun-accent); flex: none; }
 
 .ut-sunburst-kicker {
   color: var(--faint);
@@ -2467,22 +2457,16 @@ span.ut-tick { cursor: default; }
 
 .ut-sb-copy { min-width: 0; }
 
-/* Their lockup: the magenta ring, then the wordmark in a light cool grey rather than white.
-   Weight 400 and a touch of tracking, which is how the real mark is set -- a bold white
-   "Sunburst" reads as our heading rather than their logo. */
-.ut-sb-brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
+/* Their logo, sized by height so the file's own proportions decide the width. Two sizes, one
+   asset. */
+.ut-sb-logo {
+  display: block;
+  height: 30px;
+  width: auto;
   margin-bottom: 20px;
-  font-size: 19px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
-  color: var(--sun-word);
 }
 
-/* currentColor on the <svg> is what makes the token the single source of the brand magenta. */
-.ut-sb-brand .ut-sb-mark { color: var(--sun-accent); flex: none; }
+.ut-sb-logo.small { height: 22px; margin: 0 32px 0 0; }
 
 .ut-sb-copy .ut-kicker { color: var(--sun-accent); }
 

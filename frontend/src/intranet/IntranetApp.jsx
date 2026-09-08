@@ -4,6 +4,7 @@ import { Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-
 import { API_BASE, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
 import { applyPortalPalette } from "./palette.js";
 import { search as search_ } from "./search.js";
+import sunburstLogo from "./assets/sunburst-ondark.png";
 import {
   NAV_GROUPS,
   ONBOARDING,
@@ -686,7 +687,7 @@ function SunburstBanner({ config }) {
   return (
     <section className="ut-sunburst">
       <div className="ut-sunburst-copy">
-        <div className="ut-sunburst-brand">Sunburst</div>
+        <img className="ut-sb-logo small" src={sunburstLogo} alt="Sunburst" />
         <div className="ut-sunburst-kicker">Your AI business partner, inside Sisu</div>
         <h2>Your weekly check-in is ready.</h2>
         <p>{line}</p>
@@ -1988,15 +1989,18 @@ const SUNBURST_PROMPTS = [
     prompt: "Where am I leaking deals?" },
 ];
 
-/* NO MARK HERE ON PURPOSE, until Sunburst's actual artwork is in the repo.
+/* THEIR ACTUAL LOGO, from the design pack -- assets/logos/sunburst-ondark.png, the variant drawn
+ * for a dark panel, which is the only kind of panel we put it on.
  *
- * This drew a broken ring with stroke-dasharray and called it their logo. It was not: the gaps
- * were on the wrong axis and the wordmark beside it was DM Sans, while theirs is custom
- * lettering. A traced approximation of somebody else's trademark is wrong even when it is close,
- * and worse when it is nearly right -- it ships as if it were the real thing.
+ * Two earlier versions of this were wrong in the same way: a CSS-bordered circle, then a ring
+ * traced with stroke-dasharray. The second was close enough to read as their mark and was not it
+ * -- the gaps sat on the wrong axis and the wordmark was DM Sans where theirs is custom lettering.
+ * A trademark is the one thing in a UI you never approximate, because "nearly right" ships
+ * looking legitimate.
  *
- * So the name renders as plain text, which is just naming a product, and the mark returns when
- * the file does. Drop `sunburst-mark.svg` into src/intranet/assets/ and this becomes an <img>.
+ * Imported rather than referenced by path so Vite fingerprints it and it cannot 404 after a
+ * deploy. Sized by HEIGHT with width auto: the file is 200x56 and hard-coding both would squash
+ * it the day they publish a logo with different proportions.
  */
 
 /* Sunburst.
@@ -2057,7 +2061,7 @@ function SunburstPage({ config, me }) {
                     + "every link on this page opens a conversation that already knows your week."}>
       <section className="ut-sb-hero">
         <div className="ut-sb-copy">
-          <div className="ut-sb-brand">Sunburst</div>
+          <img className="ut-sb-logo" src={sunburstLogo} alt="Sunburst" />
           <span className="ut-kicker">This week{"\u2019"}s check-in</span>
           <h2>Last week, then next week.</h2>
           <p>
