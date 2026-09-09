@@ -607,10 +607,19 @@ export default function Training() {
   }, [selectedId, courses, coursesQuery.isPending, coursesQuery.error]);
 
   useEffect(() => {
-    if (!selectedId || isNew || coursesQuery.isPending || coursesQuery.error) return;
+    // isFetching, not just isPending. This effect exists to recover from a course being archived
+    // out from under the selection, and it was also firing DURING the refetch that follows a
+    // create -- at which point `courses` is still the old list, the brand-new id is legitimately
+    // absent from it, and the effect helpfully threw the selection away. The course appeared in
+    // the rail a moment later with the editor still showing "choose a course", which reads
+    // exactly like the button not working. isPending is false on a refetch of an already-loaded
+    // query, so it never covered this.
+    if (!selectedId || isNew || coursesQuery.isPending || coursesQuery.isFetching
+        || coursesQuery.error) return;
     if (courses.some((c) => c.id === selectedId)) return;
     setSelectedId(courses.length ? courses[0].id : NEW_COURSE_ID);
-  }, [selectedId, isNew, courses, coursesQuery.isPending, coursesQuery.error]);
+  }, [selectedId, isNew, courses, coursesQuery.isPending, coursesQuery.isFetching,
+      coursesQuery.error]);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();

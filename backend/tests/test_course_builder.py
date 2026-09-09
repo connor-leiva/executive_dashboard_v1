@@ -162,6 +162,46 @@ async def test_saving_a_course_does_not_500_on_its_own_timestamp():
             assert r.json()["item"]["updated_at"]
 
 
+# ── the New course button ─────────────────────────────────────────────────────────────────
+
+async def test_the_new_course_button_can_actually_create_a_course():
+    """Reported: "When I try to create a new course, it says Required and won't let me do
+    anything." The button posts a placeholder title and an EMPTY category, and category was
+    required -- so the console's own primary action was impossible to complete, and the 422 landed
+    in the saved-status slot as the bare word "Required."."""
+    ws = await _workspace("cbnew")
+    async with _client() as c:
+        r = await c.post("/api/console/courses",
+                         json={"title": "Untitled course", "category": "", "state": "Draft"},
+                         headers=_H(ws["token"], ws["host"]))
+    assert r.status_code == 200, r.text
+    assert r.json()["item"]["title"] == "Untitled course"
+    assert r.json()["item"]["category"] == ""
+
+
+async def test_a_category_can_be_cleared_after_the_fact():
+    """The same rule on PATCH, plus `or row.category`, meant clearing the field silently restored
+    the old value -- and the autosave 422d on every keystroke while it was empty."""
+    ws = await _workspace("cbclear")
+    async with _client() as c:
+        r = await c.patch(f"/api/console/courses/{ws['course_id']}",
+                          json={"category": ""}, headers=_H(ws["token"], ws["host"]))
+        assert r.status_code == 200, r.text
+        got = await c.get(f"/api/console/courses/{ws['course_id']}",
+                          headers=_H(ws["token"], ws["host"]))
+    assert got.json()["category"] == "", "clearing the category put the old value back"
+
+
+async def test_a_course_still_needs_a_name():
+    """Category became optional; the title did not. A course with no name is not a thing, and the
+    builder posts a placeholder rather than nothing."""
+    ws = await _workspace("cbnoname")
+    async with _client() as c:
+        r = await c.post("/api/console/courses", json={"title": "", "category": "Sales"},
+                         headers=_H(ws["token"], ws["host"]))
+    assert r.status_code == 422
+
+
 # ── the console's chip maps cover the real vocabulary ─────────────────────────────────────
 
 def _map_keys(name: str) -> set[str]:

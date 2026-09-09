@@ -2434,7 +2434,12 @@ async def create_course(body: dict = Body(...), p: ConsolePrincipal = Depends(re
     row = IntranetCourse(
         tenant_id=p.user.tenant_id,
         title=_text(body, "title", required=True) or "",
-        category=_text(body, "category", required=True) or "",
+        # NOT REQUIRED. It was, and that made the console's own "New course" button impossible to
+        # use: it posts a placeholder title and an empty category, and got "Required." back every
+        # time. Naming a category before you can start a course is exactly the friction that
+        # button exists to remove -- and both the rail and the portal already render an empty one
+        # as "Uncategorised", so nothing downstream ever needed it.
+        category=_text(body, "category", nullable=True) or "",
         description=_text(body, "description", nullable=True),
         state=_enum(body, "state", COURSE_STATES, "Draft") or "Draft",
         track_progress=_bool(body, "track_progress", True),
@@ -2467,7 +2472,9 @@ async def patch_course(course_id: uuid.UUID, body: dict = Body(...),
     if "title" in body:
         row.title = _text(body, "title", required=True) or row.title
     if "category" in body:
-        row.category = _text(body, "category", required=True) or row.category
+        # `or row.category` would be a second way to refuse a blank: clearing the field would
+        # silently restore the old value. An empty category is a real answer, so it is stored.
+        row.category = _text(body, "category", nullable=True) or ""
     if "description" in body:
         row.description = _text(body, "description", nullable=True)
     if "state" in body:

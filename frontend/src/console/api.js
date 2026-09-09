@@ -70,11 +70,25 @@ export function authHeaders(extra) {
    went blank — on a validation error, which is the most ordinary thing a form can produce.
    Eight call sites carried the same line, so flattening it at the source fixes all of them and
    means a page added later cannot reintroduce it. */
+/* NAME THE FIELD. This dropped it and rendered the message alone, so a 422 surfaced as the bare
+   word "Required." with nothing saying required WHAT -- which is what a failed New course looked
+   like: one word, beside an unrelated button, apparently refusing to explain itself. The server
+   always sends the field; there was no reason not to use it. */
 function detailText(detail) {
   if (typeof detail === "string") return detail;
   const errors = detail && detail.errors;
   if (Array.isArray(errors) && errors.length) {
-    return errors.map((e) => e && e.message).filter(Boolean).join(" ");
+    return errors
+      .map((e) => {
+        if (!e || !e.message) return "";
+        // snake_case is the wire format, not something to show somebody: required_for_onboarding
+        // reads as "Required for onboarding".
+        const field = String(e.field || "").replace(/_/g, " ").trim();
+        if (!field) return e.message;
+        return `${field.charAt(0).toUpperCase()}${field.slice(1)}: ${e.message}`;
+      })
+      .filter(Boolean)
+      .join(" ");
   }
   return "";
 }
