@@ -304,7 +304,6 @@ export default function Console() {
     return (
       <Shell
         currentTitle={titleFor(location.pathname)}
-      workspaceName={workspaceQuery.data?.portal_name}
         workspaceName={workspaceQuery.data?.portal_name}
         overview={overviewQuery.data}
         pendingChanges={pendingQuery.data}

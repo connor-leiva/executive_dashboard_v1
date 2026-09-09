@@ -13,6 +13,7 @@ from app.models import (
     IntranetCapability,
     IntranetContentGap,
     IntranetCourse,
+    IntranetCourseSection,
     IntranetIntegration,
     IntranetLesson,
     IntranetMarketingRequest,
@@ -124,6 +125,27 @@ async def _wire_console_user(slug: str) -> dict:
 
         delete_category = IntranetSopCategory(
             tenant_id=tenant.id, name=f"Delete Category {slug}", sort=900)
+        # Two sections on the seeded course, so the authorisation sweep can exercise patch and
+        # delete against a real row rather than a 404 that would pass for the wrong reason.
+        section = IntranetCourseSection(
+            tenant_id=tenant.id, course_id=course.id, name=f"Section {slug}", sort=0)
+        delete_section = IntranetCourseSection(
+            tenant_id=tenant.id, course_id=course.id, name=f"Delete Section {slug}", sort=1)
+        # The order endpoint demands the COMPLETE set, so it gets a course of its own. Sharing
+        # one with section.post and section.delete would make it pass or fail on the order the
+        # sweep happened to run in.
+        # ARCHIVED, so the overview's "real seed counts" assertion stays about the seed. A course
+        # that exists only to have its sections reordered is not part of the library, and adding
+        # a live one here would silently redefine what that test is checking.
+        order_course = IntranetCourse(
+            tenant_id=tenant.id, title=f"Section Order {slug}", category="Scratch",
+            state="Draft", sort=900, archived_at=dt.datetime.now(dt.timezone.utc))
+        s.add(order_course)
+        await s.flush()
+        order_sections = [
+            IntranetCourseSection(tenant_id=tenant.id, course_id=order_course.id,
+                                  name=f"Order {i}", sort=i) for i in range(2)]
+        s.add_all([section, delete_section, *order_sections])
         gap = IntranetContentGap(
             tenant_id=tenant.id, question=f"What should {slug} document next?",
             ask_count=3, status="Open", first_asked_at=dt.datetime.now(dt.timezone.utc),
@@ -150,6 +172,10 @@ async def _wire_console_user(slug: str) -> dict:
             "archive_course": str(archive_course.id),
             "lesson": str(lesson.id),
             "lesson_ids": [str(row.id) for row in lessons],
+            "section": str(section.id),
+            "delete_section": str(delete_section.id),
+            "order_course": str(order_course.id),
+            "order_section_ids": [str(x.id) for x in order_sections],
             "delete_lesson": str(delete_lesson.id),
             "category": str(category.id),
             "delete_category": str(delete_category.id),
@@ -261,7 +287,12 @@ MUTATION_ROUTES = [
     "course.delete",
     "course.roles",
     "lesson.order",
+    "section.post",
+    "section.patch",
+    "section.delete",
+    "section.order",
     "lesson.post",
+    "lesson.image",
     "lesson.patch",
     "lesson.delete",
     "sop_category.post",
@@ -333,6 +364,26 @@ def _mutation_request(name: str, ids: dict):
     if name == "lesson.order":
         return "PUT", f"/api/console/courses/{ids['course']}/lessons/order", {
             "json": {"ids": ids["lesson_ids"]}
+        }
+    if name == "section.post":
+        return "POST", f"/api/console/courses/{ids['course']}/sections", {
+            "json": {"name": f"New Section {uniq}"}
+        }
+    if name == "section.patch":
+        return "PATCH", f"/api/console/courses/{ids['course']}/sections/{ids['section']}", {
+            "json": {"summary": f"Updated {uniq}"}
+        }
+    if name == "section.delete":
+        return "DELETE", f"/api/console/courses/{ids['course']}/sections/{ids['delete_section']}", {}
+    if name == "section.order":
+        return "PUT", f"/api/console/courses/{ids['order_course']}/sections/order", {
+            "json": {"ids": ids["order_section_ids"]}
+        }
+    if name == "lesson.image":
+        return "POST", f"/api/console/courses/{ids['course']}/lessons/{ids['lesson']}/images", {
+            "data": {"alt": "A chart of last month's calls"},
+            "files": {"file": ("chart.png", bytes.fromhex("89504e470d0a1a0a") + b"rest",
+                               "image/png")},
         }
     if name == "lesson.post":
         return "POST", f"/api/console/courses/{ids['course']}/lessons", {
@@ -1144,6 +1195,42 @@ def _request_for_name(name: str, ids: dict):
         if read_name == name:
             return method, path_fn(ids), kwargs
     return _mutation_request(name, ids)
+
+
+def test_every_console_route_is_behind_require_console_access():
+    """DERIVED FROM THE ROUTER, so it cannot fall behind the way a list does.
+
+    ALL_ROUTE_NAMES below is hand-kept, and a hand-kept list does not grow when somebody adds an
+    endpoint: at the time this test was written, nineteen console routes had no entry in it and
+    so had never been checked for 401 or 403 by anything. They all happened to be guarded --
+    which is luck, not a control, and luck is what this replaces.
+
+    The DEPENDENCY is the invariant. `require_console_access` is what makes a route
+    admin-only, every console route needs it, and asking the router directly means a route added
+    tomorrow is covered today. An endpoint that genuinely must be public belongs on a different
+    router, not on an exemption list here.
+    """
+    from app.routers.console import router as console_router
+
+    unguarded = []
+    for route in console_router.routes:
+        methods = (getattr(route, "methods", None) or set()) - {"HEAD", "OPTIONS"}
+        if not methods:
+            continue
+        names = {d.call.__name__ for d in route.dependant.dependencies if d.call}
+        if "require_console_access" not in names:
+            unguarded.append(f"{'/'.join(sorted(methods))} /api{route.path}")
+    assert not unguarded, (
+        "console routes not behind require_console_access:\n  " + "\n  ".join(sorted(unguarded)))
+
+
+def test_the_new_training_routes_are_in_the_authorisation_sweep():
+    """The 401/403 sweep is the end-to-end check and its list is hand-kept. Sections and lesson
+    images were added with the list, so this asserts they stayed in it -- a narrow guard on the
+    routes this change introduced, rather than a blanket one the rest of the file cannot pass."""
+    expected = {"section.post", "section.patch", "section.delete", "section.order",
+                "lesson.image"}
+    assert expected <= set(MUTATION_ROUTES), expected - set(MUTATION_ROUTES)
 
 
 @pytest.mark.parametrize("name", ALL_ROUTE_NAMES)

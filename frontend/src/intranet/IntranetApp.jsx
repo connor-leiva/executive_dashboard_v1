@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { API_BASE, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
 import { applyPortalPalette } from "./palette.js";
@@ -1083,6 +1083,275 @@ function deniedBy(config, capability) {
   return (config?.content?.capabilities || {})[capability] === "None";
 }
 
+/* How long a lesson takes, in the unit its kind measures -- computed once on the server, because
+   two frontends formatting three units is three chances to disagree.
+   NO FALLBACK TO `duration_minutes`. It was tempting and it was wrong: a lesson the migration
+   reclassified from video to document still carries the minutes it had as a video, so falling
+   back rendered "15 min" on a PDF whose length is measured in pages. `duration` is absent exactly
+   when this kind has no length recorded, and nothing is the honest answer for that. */
+function lessonLength(lesson, long) {
+  if (!lesson.duration) return "";
+  return long ? lesson.duration.long : lesson.duration.short;
+}
+
+/* "Day 3 of 5" -- the total is the number of sections, which is only a DAY count when the course
+   is grouped by day. Anything else and the phrase would be nonsense, so it returns nothing. */
+function dayTotal(sections) {
+  return sections.some((x) => (x.label || "").startsWith("Day ")) ? sections.length : 0;
+}
+
+const KIND_CHIP = {
+  video: ["#E7EFF6", "#2F5B84", "▶", "Video"],
+  reading: ["#EEE7F6", "#6B4E9E", "¶", "Reading"],
+  document: ["#F6E9E6", "#A44A33", "❐", "Document"],
+};
+
+function KindChip({ kind }) {
+  const [bg, fg, glyph, label] = KIND_CHIP[kind || "video"] || KIND_CHIP.video;
+  return (
+    <span className="ut-kind" style={{ background: bg, color: fg }}>
+      <span aria-hidden="true">{glyph}</span>{label}
+    </span>
+  );
+}
+
+/* The lesson rows, shared by the flat course and by each section.
+ *
+ * `sequentialFrom` is the list the ordering rule applies WITHIN. For a sectioned course that is
+ * the section's own lessons, which is what stops `sequential` reaching across a section boundary
+ * -- Day 2's first lesson should not be locked because Day 1's last one is unfinished when Day 2
+ * has already opened. */
+function LessonRows({ course, lessons, state, toggle, sequentialFrom, locked }) {
+  const scope = sequentialFrom || lessons;
+  const firstUndone = scope.findIndex((l) => !state.done?.[l.id]);
+  return (
+    <div className="ut-lesson-rows">
+      {lessons.map((lesson) => {
+        const at = scope.indexOf(lesson);
+        const shut = locked
+          || (course.sequential && firstUndone !== -1 && at > firstUndone);
+        const isDone = Boolean(state.done?.[lesson.id]);
+        return (
+          <div key={lesson.id} className={`ut-lesson-row${shut ? " locked" : ""}`}>
+            <button type="button" className={`ut-tick${isDone ? " on" : ""}`}
+                    aria-label={isDone ? "Mark not complete" : "Mark complete"}
+                    disabled={shut} onClick={() => toggle(lesson.id)}>
+              {isDone ? "✓" : ""}
+            </button>
+            {shut ? (
+              <span className="ut-lesson-link locked">
+                <strong>{lesson.title}</strong>
+                <em>{locked ? "This section has not opened yet"
+                            : "Finish the lesson before this one first"}</em>
+              </span>
+            ) : (
+              <NavLink className="ut-lesson-link" to={`/training/${course.id}/${lesson.id}`}>
+                <strong>{lesson.title}</strong>
+                {lesson.taught_by || lesson.description
+                  ? <em>{[lesson.taught_by, lesson.description].filter(Boolean).join(" · ")}</em>
+                  : null}
+              </NavLink>
+            )}
+            <span className="ut-lesson-meta">
+              <KindChip kind={lesson.kind} />
+              {lesson.required ? <span className="ut-req">Required</span> : null}
+              {lessonLength(lesson, true)}
+            </span>
+          </div>
+        );
+      })}
+      {lessons.length ? null : <p className="ut-empty">No lessons in this section yet.</p>}
+    </div>
+  );
+}
+
+/* A course in sections.
+ *
+ * ONE CARD PER SECTION, in three states the server decided: complete, current, locked. It decided
+ * because "is this open" depends on when THIS member started the course, and two frontends
+ * working that out from rules would eventually disagree with each other and with the API.
+ *
+ * A LOCKED SECTION STILL EXPANDS. Somebody needs to see what is coming, the same reasoning the
+ * lesson list already followed -- what a lock does is stop the lessons opening, not hide that
+ * they exist.
+ */
+function SectionedLessons({ course, sections, lessons, state, toggle }) {
+  const [open, setOpen] = useState(null);
+  const current = sections.find((x) => x.is_current) || sections[0];
+  const shown = open === null ? current?.id : open;
+  const loose = lessons.filter((l) => !l.section_id);
+
+  return (
+    <>
+      {loose.length ? (
+        <Panel title="Before you start">
+          <LessonRows course={course} lessons={loose} state={state} toggle={toggle} />
+        </Panel>
+      ) : null}
+
+      {sections.map((section) => {
+        const mine = lessons.filter((l) => l.section_id === section.id);
+        const expanded = shown === section.id;
+        return (
+          <section key={section.id} className={`ut-section ${section.state}`}>
+            <button type="button" className="ut-section-head"
+                    aria-expanded={expanded ? "true" : "false"}
+                    onClick={() => setOpen(expanded ? "" : section.id)}>
+              {section.label ? (
+                <span className="ut-section-chip">
+                  <em>{section.label.split(" ")[0]}</em>
+                  <strong>{section.label.split(" ").slice(1).join(" ")}</strong>
+                </span>
+              ) : null}
+              <span className="ut-section-title">
+                <strong>{section.name || section.label || "Section"}</strong>
+                {section.summary ? <em>{section.summary}</em> : null}
+              </span>
+              <span className="ut-section-right">
+                <span className={`ut-section-pill ${section.state}`}>
+                  {section.state === "complete" ? "Complete"
+                    : section.state === "locked" ? "Locked" : "In progress"}
+                </span>
+                <em>
+                  {section.done_count} of {section.lesson_count} done
+                  {sectionMinutes(mine) ? ` · ${sectionMinutes(mine)}m` : ""}
+                </em>
+                {section.note ? <em className={section.state}>{section.note}</em> : null}
+              </span>
+              <span className="ut-section-caret" aria-hidden="true">{expanded ? "▲" : "▼"}</span>
+            </button>
+            {expanded ? (
+              <div className="ut-section-body">
+                <LessonRows course={course} lessons={mine} state={state} toggle={toggle}
+                            sequentialFrom={mine} locked={!section.released} />
+              </div>
+            ) : null}
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
+/* An authored body, with its links behaving.
+ *
+ * WHY A CLICK HANDLER AND NOT `target` IN THE MARKUP. Whether a link leaves the portal is a
+ * RENDER decision made from the href, so storing `target`/`rel` on the anchor would put that
+ * decision in the database as well as here -- and only one of the two would ever be updated. The
+ * sanitizer keeps `href` and nothing else for exactly this reason.
+ *
+ * An internal `/…` link routes client-side, which is the whole point of it being internal: a full
+ * page load would drop the member out of the portal shell and back through the login check.
+ * Everything else opens in a new tab with `noopener`, so the article they were reading is still
+ * there when they come back.
+ */
+function LessonArticle({ html }) {
+  const navigate = useNavigate();
+
+  /* Heading anchors, and a contents list once there are enough of them to be worth one.
+   *
+   * DONE AT RENDER, not stored. An `id` is a link target, which is a property of the page rather
+   * than of the document -- and the sanitizer strips `id` precisely so an author cannot collide
+   * with the portal's own. Three is the threshold because one or two headings are already visible
+   * on screen, and a contents list of two entries is furniture. */
+  const { body, contents } = useMemo(() => {
+    const seen = new Map();
+    const found = [];
+    const withIds = (html || "").replace(/<h2>([\s\S]*?)<\/h2>/g, (whole, inner) => {
+      const text = inner.replace(/<[^>]*>/g, "").trim();
+      let slug = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+        || `section-${found.length + 1}`;
+      // Two headings with the same words would otherwise share an id, and the second link would
+      // scroll to the first.
+      const n = (seen.get(slug) || 0) + 1;
+      seen.set(slug, n);
+      if (n > 1) slug = `${slug}-${n}`;
+      found.push({ slug, text });
+      return `<h2 id="${slug}">${inner}</h2>`;
+    });
+    return { body: withIds, contents: found.length >= 3 ? found : [] };
+  }, [html]);
+
+  function onClick(event) {
+    const anchor = event.target.closest?.("a[href]");
+    if (!anchor || event.defaultPrevented) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    const href = anchor.getAttribute("href") || "";
+    if (href.startsWith("/")) {
+      event.preventDefault();
+      navigate(href);
+      return;
+    }
+    if (/^https?:/i.test(href)) {
+      event.preventDefault();
+      window.open(href, "_blank", "noopener,noreferrer");
+    }
+    // mailto: and anything else the sanitizer allowed is left to the browser.
+  }
+
+  return (
+    <>
+      {contents.length ? (
+        <nav className="ut-contents" aria-label="On this page">
+          <span>On this page</span>
+          <ol>
+            {contents.map((item) => (
+              <li key={item.slug}>
+                <a href={`#${item.slug}`} onClick={(e) => {
+                  // Not a route change: a hash link that went through the router would remount
+                  // the lesson and lose the scroll position it was trying to set.
+                  e.preventDefault();
+                  document.getElementById(item.slug)
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}>{item.text}</a>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      ) : null}
+      <article
+        className="ut-lesson-body-copy"
+        onClick={onClick}
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: body }}
+      />
+    </>
+  );
+}
+
+/* The rail, flattened: section headings interleaved with their lessons, in reading order.
+ *
+ * Built here rather than nested in the JSX because the LOCK is a per-section question -- a
+ * section that has not opened locks all of its lessons, and inside an open one `sequential` locks
+ * only what follows the first unfinished lesson OF THAT SECTION. Working that out inline meant
+ * three nested ternaries and got it wrong across the boundary. */
+function railRows(course, sections, lessons) {
+  const rows = [];
+  const loose = lessons.filter((l) => !l.section_id);
+  const push = (group, sectionLocked) => {
+    const firstUndone = group.findIndex((l) => !l.done);
+    group.forEach((l, i) => rows.push({
+      lesson: l.lesson,
+      locked: sectionLocked
+        || (Boolean(course.sequential) && firstUndone !== -1 && i > firstUndone),
+    }));
+  };
+  const mark = (list) => list.map((l) => ({ lesson: l, id: l.id, done: false }));
+
+  if (loose.length) push(mark(loose), false);
+  sections.forEach((section) => {
+    rows.push({ heading: true, id: section.id, label: section.label, name: section.name });
+    push(mark(lessons.filter((l) => l.section_id === section.id)), !section.released);
+  });
+  if (!sections.length && !loose.length) push(mark(lessons), false);
+  return rows;
+}
+
+function sectionMinutes(lessons) {
+  return lessons.reduce((total, l) => total + (l.duration?.value && l.kind !== "document"
+    ? l.duration.value : 0), 0);
+}
+
 /* One course, in order. The list page is a shelf; this is the thing you work through.
  *
  * SEQUENTIAL IS HONOURED HERE. The console has authored `sequential` per course since it shipped
@@ -1098,6 +1367,19 @@ function CourseDetail({ state, setState, config }) {
   const course = courses.find((c) => c.id === courseId);
   const toggle = (key) => setState((s) => ({ ...s, done: { ...(s.done || {}), [key]: !s.done?.[key] } }));
 
+  /* OPENING A COURSE IS STARTING IT. `release_rule = 'day_n'` counts from this date, and the
+     server owns it -- the progress blob beside it is client-written, and somebody who could
+     backdate their own enrolment would unlock every section at once.
+
+     Idempotent on the server, so a reopen returns the first answer rather than restarting the
+     clock. Fire-and-forget: a failed write means the member sees an unpaced course for one
+     session, which is a smaller problem than a page that will not open. */
+  const started = course?.enrolled_on;
+  useEffect(() => {
+    if (!courseId || !course || started) return;
+    postJSON(`/intranet/courses/${courseId}/start`, {}).catch(() => {});
+  }, [courseId, course, started]);
+
   if (!course) {
     return (
       <Page title="Training" subtitle="Courses this workspace has published.">
@@ -1112,59 +1394,39 @@ function CourseDetail({ state, setState, config }) {
   }
 
   const lessons = course.lessons || [];
+  const sections = course.sections || [];
   const done = lessons.filter((l) => state.done?.[l.id]).length;
-  const firstUndone = lessons.findIndex((l) => !state.done?.[l.id]);
 
   return (
     <Page title={course.title}
           subtitle={course.description || "Work through the lessons in order."}>
       <section className="ut-wtd-hero">
         <div>
-          <span>{course.category || "Course"}</span>
+          <span>
+            {course.category || "Course"}
+            {course.day_number && sections.length
+              ? ` · Day ${course.day_number}${dayTotal(sections) ? ` of ${dayTotal(sections)}` : ""}`
+              : ""}
+          </span>
           <strong>{done}/{lessons.length} complete</strong>
         </div>
         <Meter value={done} total={lessons.length} />
       </section>
-      <Panel title="Lessons"
-             kicker={course.sequential ? "In order — finish one to open the next" : null}>
-        {/* A lesson OPENS, it is not a checkbox with a link in it. The old row sent people to
-            loom.com in a new tab, which left the portal behind along with the description, the
-            handouts and the rest of the course. The tick is still here for marking something
-            done without watching it again, but the row itself goes to the player. */}
-        <div className="ut-lesson-rows">
-          {lessons.map((lesson, i) => {
-            // Everything up to the first unfinished lesson is open; beyond it is not yet.
-            const locked = course.sequential && firstUndone !== -1 && i > firstUndone;
-            const done = Boolean(state.done?.[lesson.id]);
-            return (
-              <div key={lesson.id} className={`ut-lesson-row${locked ? " locked" : ""}`}>
-                <button type="button" className={`ut-tick${done ? " on" : ""}`}
-                        aria-label={done ? "Mark not complete" : "Mark complete"}
-                        disabled={locked} onClick={() => toggle(lesson.id)}>
-                  {done ? "✓" : ""}
-                </button>
-                {locked ? (
-                  <span className="ut-lesson-link locked">
-                    <strong>{lesson.title}</strong>
-                    <em>Finish the lesson before this one first</em>
-                  </span>
-                ) : (
-                  <NavLink className="ut-lesson-link" to={`/training/${course.id}/${lesson.id}`}>
-                    <strong>{lesson.title}</strong>
-                    {lesson.taught_by || lesson.description
-                      ? <em>{[lesson.taught_by, lesson.description].filter(Boolean).join(" · ")}</em>
-                      : null}
-                  </NavLink>
-                )}
-                <span className="ut-lesson-meta">
-                  {lesson.required ? <span className="ut-req">Required</span> : null}
-                  {lesson.duration_minutes ? `${lesson.duration_minutes} min` : ""}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </Panel>
+
+      {sections.length ? (
+        <SectionedLessons course={course} sections={sections} lessons={lessons}
+                          state={state} toggle={toggle} />
+      ) : (
+        <Panel title="Lessons"
+               kicker={course.sequential ? "In order — finish one to open the next" : null}>
+          {/* A lesson OPENS, it is not a checkbox with a link in it. The old row sent people to
+              loom.com in a new tab, which left the portal behind along with the description, the
+              handouts and the rest of the course. The tick is still here for marking something
+              done without watching it again, but the row itself goes to the player. */}
+          <LessonRows course={course} lessons={lessons} state={state} toggle={toggle}
+                      sequentialFrom={lessons} />
+        </Panel>
+      )}
       {course.issues_certificate && done === lessons.length && lessons.length ? (
         <Panel title="Finished">
           <p className="ut-empty">
@@ -1201,8 +1463,18 @@ function LessonPlayer({ state, setState, config }) {
 
   const doneMap = state.done || {};
   const done = lessons.filter((l) => doneMap[l.id]).length;
-  const firstUndone = lessons.findIndex((l) => !doneMap[l.id]);
-  const locked = Boolean(course?.sequential) && firstUndone !== -1 && index > firstUndone;
+  const sections = course?.sections || [];
+  const section = sections.find((x) => x.id === lesson?.section_id) || null;
+
+  /* SECTIONS GATE FIRST, LESSONS SECOND, and `sequential` no longer reaches across a section
+     boundary. Day 2's first lesson must open the moment Day 2 does, whatever is left unfinished
+     in Day 1 -- otherwise a course that releases by date is really gated by completion and the
+     dates are decoration. */
+  const scope = section ? lessons.filter((l) => l.section_id === section.id) : lessons;
+  const scopeIndex = scope.indexOf(lesson);
+  const firstUndone = scope.findIndex((l) => !doneMap[l.id]);
+  const locked = Boolean(section && !section.released)
+    || (Boolean(course?.sequential) && firstUndone !== -1 && scopeIndex > firstUndone);
 
   if (!course || !lesson) {
     return (
@@ -1218,11 +1490,14 @@ function LessonPlayer({ state, setState, config }) {
   }
 
   if (locked) {
+    const why = section && !section.released
+      ? (section.note || `${section.label || "This section"} has not opened yet.`)
+      : "This course runs in order. Finish the lessons before this one first.";
     return (
       <Page title={lesson.title} subtitle={course.title}>
         <Panel title="Not yet">
           <p className="ut-empty">
-            This course runs in order. Finish the lessons before this one first.{" "}
+            {why}{" "}
             <NavLink to={`/training/${course.id}`}>Back to {course.title}</NavLink>
           </p>
         </Panel>
@@ -1234,6 +1509,14 @@ function LessonPlayer({ state, setState, config }) {
     ...s, done: { ...(s.done || {}), [lesson.id]: value },
   }));
   const next = lessons[index + 1];
+  /* NEXT IS ONLY OFFERED IF IT OPENS. The lesson after this one can sit in a section that has
+     not been released yet, and "Next: eXp Onboarding Checklist" leading to "Not yet" is the
+     product walking somebody into a wall it built. `sequential` is not checked here: clicking
+     Next marks this lesson complete, which is exactly what advances that frontier. */
+  const nextSection = next?.section_id
+    ? sections.find((x) => x.id === next.section_id)
+    : null;
+  const nextOpens = Boolean(next) && (!nextSection || nextSection.released);
   const player = lesson.player || { mode: "none" };
 
   return (
@@ -1243,38 +1526,81 @@ function LessonPlayer({ state, setState, config }) {
 
       <div className="ut-lesson-grid">
         <div className="ut-lesson-main">
-          <div className="ut-player">
-            {player.mode === "video" ? (
-              <video controls preload="metadata" src={player.url} />
-            ) : player.mode === "iframe" ? (
-              <iframe title={lesson.title} src={player.url} allowFullScreen
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture" />
-            ) : (
-              /* Said plainly rather than framed and hoped for. */
-              <div className="ut-player-link">
-                <p>{player.reason || "This lesson opens elsewhere."}</p>
-                {player.url ? (
-                  <a className="ut-button" href={player.url}
-                     target="_blank" rel="noreferrer noopener">
-                    {/* The server's display name, not the stored enum -- this read "Open SKOOL"
-                        until the payload carried one. */}
-                    Open {lesson.source_label || player.label || "the lesson"} ↗
-                  </a>
-                ) : null}
-              </div>
-            )}
-          </div>
+          {/* NO PLAYER AT ALL FOR A READING LESSON -- not an empty frame, not a placeholder, not
+              "no source attached yet". The server sends `player: null` for exactly this, because
+              an article has no source and rendering the none-state would apologise for a lesson
+              that is finished. */}
+          {lesson.kind === "reading" ? null : (
+            <div className="ut-player">
+              {player.mode === "video" ? (
+                <video controls preload="metadata" src={player.url} />
+              ) : player.mode === "iframe" ? (
+                <iframe title={lesson.title} src={player.url} allowFullScreen
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture" />
+              ) : (
+                /* Said plainly rather than framed and hoped for. */
+                <div className="ut-player-link">
+                  <p>{player.reason || "This lesson opens elsewhere."}</p>
+                  {player.url ? (
+                    <a className="ut-button" href={player.url}
+                       target="_blank" rel="noreferrer noopener">
+                      {/* The server's display name, not the stored enum -- this read "Open SKOOL"
+                          until the payload carried one. */}
+                      Open {lesson.source_label || player.label || "the lesson"} ↗
+                    </a>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="ut-lesson-body">
             <span className="ut-kicker">
-              {course.category || "Course"} · Lesson {index + 1} of {lessons.length}
-              {lesson.taught_by ? ` · ${lesson.taught_by}` : ""}
+              <KindChip kind={lesson.kind} />
+              {section?.label ? `${section.label} · ` : ""}
+              Lesson {index + 1} of {lessons.length}
             </span>
             <h2>{lesson.title}</h2>
+
+            {/* The byline row: who to ask about this, how long it takes, when it last changed. */}
+            <div className="ut-byline">
+              {lesson.taught_by ? (
+                <>
+                  <span className="ut-avatar" aria-hidden="true">{initials(lesson.taught_by)}</span>
+                  <span className="ut-byline-who">
+                    <strong>{lesson.taught_by}</strong>
+                    <em>{course.category || "Course"}</em>
+                  </span>
+                </>
+              ) : null}
+              <span className="ut-byline-meta">
+                {lessonLength(lesson, true)}
+                {lesson.word_count
+                  ? ` · ${lesson.word_count.toLocaleString()} words`
+                  : ""}
+              </span>
+              {section?.note ? (
+                <span className={`ut-section-pill ${section.state}`}>{section.note}</span>
+              ) : null}
+            </div>
+
             {lesson.description
               ? <p>{lesson.description}</p>
-              : <p className="ut-note">No description has been written for this lesson yet.</p>}
+              : lesson.kind === "reading" ? null
+                : <p className="ut-note">No description has been written for this lesson yet.</p>}
           </div>
+
+          {/* THE ARTICLE ITSELF. `body_html` was sanitized on write and again on read by
+              services/lesson_richtext -- nh3, a real HTML parser, against a fifteen-tag
+              allowlist -- which is what makes this safe to render. Styled by ELEMENT inside
+              `.ut-lesson-body-copy`: authored nodes carry no classes, and must not, or an author
+              would have to mark up for the console and the portal separately. */}
+          {lesson.kind === "reading" && lesson.body_html ? (
+            <LessonArticle html={lesson.body_html} />
+          ) : null}
+          {lesson.kind === "reading" && !lesson.body_html ? (
+            <p className="ut-note">This lesson has not been written yet.</p>
+          ) : null}
 
           {lesson.attachments?.length > 0 && (
             <Panel title="Attachments">
@@ -1287,17 +1613,22 @@ function LessonPlayer({ state, setState, config }) {
           )}
 
           <div className="ut-lesson-actions">
-            <button type="button" className="ut-button primary"
+            <button type="button"
+                    className={`ut-button primary${doneMap[lesson.id] ? " marked" : ""}`}
                     onClick={() => { mark(!doneMap[lesson.id]); }}>
-              {doneMap[lesson.id] ? "Mark not complete" : "Mark lesson complete"}
+              {/* An article is READ, not watched. The same button doing the same thing, named
+                  for what the person actually did. */}
+              {doneMap[lesson.id]
+                ? (lesson.kind === "reading" ? "✓ Marked as read" : "✓ Marked complete")
+                : (lesson.kind === "reading" ? "Mark as read" : "Mark complete")}
             </button>
-            {next ? (
+            {nextOpens ? (
               <NavLink className="ut-button outline-dark"
                        to={`/training/${course.id}/${next.id}`}
                        onClick={() => mark(true)}>
                 {/* Moving on IS finishing this one -- asking for two clicks to express one
                     intention is how progress bars end up wrong. */}
-                Next lesson →
+                Next: {next.title} →
               </NavLink>
             ) : (
               <NavLink className="ut-button outline-dark" to={`/training/${course.id}`}>
@@ -1307,19 +1638,30 @@ function LessonPlayer({ state, setState, config }) {
           </div>
         </div>
 
-        <Panel title={course.title} kicker={`${done} of ${lessons.length} lessons complete`}>
+        <Panel title={course.title}
+               kicker={`${done} of ${lessons.length} lessons`
+                 + (course.day_number && sections.length
+                   ? ` · Day ${course.day_number}${dayTotal(sections) ? ` of ${dayTotal(sections)}` : ""}`
+                   : " complete")}>
           <Meter value={done} total={lessons.length} />
           <div className="ut-lesson-side">
-            {lessons.map((l, i) => {
-              const isLocked = Boolean(course.sequential) && firstUndone !== -1 && i > firstUndone;
+            {railRows(course, sections, lessons).map((row) => {
+              if (row.heading) {
+                return (
+                  <span key={`h-${row.id}`} className="ut-side-head">
+                    {row.label || row.name}
+                  </span>
+                );
+              }
+              const l = row.lesson;
               const isDone = Boolean(doneMap[l.id]);
               const here = l.id === lesson.id;
-              if (isLocked) {
+              if (row.locked) {
                 return (
                   <span key={l.id} className="ut-side-row locked">
                     <span className={`ut-tick${isDone ? " on" : ""}`}>{isDone ? "✓" : ""}</span>
                     <span>{l.title}</span>
-                    <em>{l.duration_minutes ? `${l.duration_minutes} min` : ""}</em>
+                    <em>{lessonLength(l, false)}</em>
                   </span>
                 );
               }
@@ -1328,7 +1670,7 @@ function LessonPlayer({ state, setState, config }) {
                          to={`/training/${course.id}/${l.id}`}>
                   <span className={`ut-tick${isDone ? " on" : ""}`}>{isDone ? "✓" : ""}</span>
                   <span>{l.title}</span>
-                  <em>{l.duration_minutes ? `${l.duration_minutes} min` : ""}</em>
+                  <em>{lessonLength(l, false)}</em>
                 </NavLink>
               );
             })}

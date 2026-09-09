@@ -22,6 +22,7 @@ dependencies = [
     "jsonschema>=4.21",         # AI Employees — validate run output against a skill's output_contract
     "croniter>=2.0",            # AI Employees — evaluate skill cron schedules in the tenant timezone
     "pyotp>=2.9",               # TOTP second factor for the Binder step-up unlock
+    "nh3>=0.2",                 # HTML sanitizer (Rust ammonia) for lesson bodies
 ]
 
 [project.optional-dependencies]

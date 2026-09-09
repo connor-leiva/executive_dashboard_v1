@@ -2065,13 +2065,22 @@ input {
    list does not fit a laptop half-screen, let alone a phone. */
 .ut-lesson-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  /* A FIXED RAIL, not a fraction. The left column holds prose at a fixed 660px measure, so a
+     proportional rail grew with the window and left the article stranded in the middle of it. */
+  grid-template-columns: minmax(0, 1fr) 314px;
   gap: 18px;
   align-items: start;
 }
 
+/* Sticky at 78px -- clear of the portal's own top bar, so the course list stays in view while
+   somebody reads down a long article. `align-items: start` above is what lets it stick; a
+   stretched grid item is already as tall as the row and has nowhere to travel. */
+.ut-lesson-grid > :nth-child(2) { position: sticky; top: 78px; }
+
 @media (max-width: 1000px) {
   .ut-lesson-grid { grid-template-columns: minmax(0, 1fr); }
+  /* Stacked below the article, where sticking would pin it over what it follows. */
+  .ut-lesson-grid > :nth-child(2) { position: static; }
 }
 
 .ut-lesson-main {
@@ -2642,3 +2651,291 @@ span.ut-tick { cursor: default; }
   text-transform: uppercase;
   color: var(--primary);
 }
+
+/* ── sections ─────────────────────────────────────────────────────────────────────────────
+   One card per section, in the three states the SERVER decided: complete, current, locked. The
+   state is a fact about this member's own progress and start date, so the colour is driven by a
+   class the payload sets rather than by anything worked out here. */
+
+.ut-section {
+  background: #FFFFFF;
+  border: 1px solid #DED9D7;
+  border-radius: 14px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.ut-section.current { border-color: #395262; }
+.ut-section.locked { background: #F6F4F3; border-color: #E4DFDD; }
+
+.ut-section-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+
+/* A 46px square stacking the unit over the number: "DAY" above "2" reads at a glance in a way
+   that "Day 2" set on one line does not, at the size a card gives it. */
+.ut-section-chip {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: #EFEBEA;
+  color: #9AA1A5;
+}
+
+.ut-section-chip em {
+  font-style: normal;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ut-section-chip strong { font-size: 17px; font-weight: 500; line-height: 1.1; }
+
+.ut-section.complete .ut-section-chip { background: #E6F0E9; color: #2F6444; }
+.ut-section.current .ut-section-chip { background: #395262; color: #FFFFFF; }
+
+.ut-section-title { flex: 1 1 220px; min-width: 0; display: block; }
+.ut-section-title strong { display: block; font-size: 16px; font-weight: 500; color: var(--ink); }
+
+.ut-section-title em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: 13px;
+  color: #6E767B;
+}
+
+.ut-section-right {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.ut-section-right em { font-style: normal; font-size: 12.5px; color: #9AA1A5; }
+.ut-section-right em.current { color: #7A6215; }
+
+.ut-section-pill {
+  border-radius: 99px;
+  padding: 3px 11px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.ut-section-pill.complete { background: #E6F0E9; color: #2F6444; border-color: #CFE2D5; }
+.ut-section-pill.current { background: #F4F7F8; color: #395262; border-color: #C6D8DF; }
+.ut-section-pill.locked { background: transparent; color: #9AA1A5; border-color: #DED9D7; }
+
+.ut-section-caret { flex: 0 0 auto; font-size: 10px; color: #9AA1A5; }
+.ut-section-body { border-top: 1px solid #EFEBEA; padding: 4px 8px 8px; }
+
+/* ── the kind chip ────────────────────────────────────────────────────────────────────────
+   WHAT a lesson is. Distinct from the source chip, which is where it lives -- both can appear on
+   the same row and they answer different questions. */
+
+.ut-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 99px;
+  padding: 5px 11px;
+  font-family: Archivo, var(--sans, system-ui), sans-serif;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ── the byline row ───────────────────────────────────────────────────────────────────── */
+
+.ut-byline {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #EFEBEA;
+  flex-wrap: wrap;
+}
+
+.ut-avatar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 99px;
+  background: #395262;
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.ut-byline-who strong { display: block; font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.ut-byline-who em { display: block; font-style: normal; font-size: 12px; color: #9AA1A5; }
+.ut-byline-meta { font-size: 12.5px; color: #6E767B; }
+.ut-byline .ut-section-pill { margin-left: auto; }
+
+/* A section heading inside the rail. Sticky, so the section you are reading in stays named while
+   you scroll past its lessons. */
+.ut-side-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 8px 6px;
+  background: #FFFFFF;
+  font-family: Archivo, var(--sans, system-ui), sans-serif;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: #9AA1A5;
+}
+
+/* ── an authored lesson body ──────────────────────────────────────────────────────────────
+   Styled BY ELEMENT, because authored nodes carry no classes and must not: an author would
+   otherwise have to mark up for the console editor and the portal separately, and the sanitizer
+   strips `class` anyway. 660px is the measure -- roughly 65 characters at 17px, which is where
+   prose stops being tiring to read. */
+
+.ut-lesson-body-copy { max-width: 660px; }
+.ut-lesson-body-copy > :first-child { margin-top: 0; }
+
+.ut-lesson-body-copy p {
+  margin: 20px 0 0;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.7;
+  color: #2C3338;
+}
+
+/* The lead paragraph is automatic. Authors do not mark it, and would not think to. */
+.ut-lesson-body-copy p:first-child {
+  font-size: 18.5px;
+  font-weight: 300;
+  line-height: 1.5;
+  color: #171E22;
+}
+
+.ut-lesson-body-copy h2 {
+  margin: 38px 0 0;
+  font-size: 23px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.2px;
+}
+
+.ut-lesson-body-copy h3 { margin: 30px 0 0; font-size: 18.5px; font-weight: 500; line-height: 1.3; }
+.ut-lesson-body-copy strong { font-weight: 600; }
+
+.ut-lesson-body-copy a {
+  color: #395262;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.ut-lesson-body-copy a:hover { color: #171E22; }
+
+.ut-lesson-body-copy ul,
+.ut-lesson-body-copy ol {
+  margin: 14px 0 0;
+  padding-left: 22px;
+  font-size: 17px;
+  line-height: 1.7;
+  color: #2C3338;
+}
+
+.ut-lesson-body-copy li + li { margin-top: 7px; }
+
+.ut-lesson-body-copy blockquote {
+  margin: 30px 0 0;
+  padding: 20px 24px;
+  border-left: 3px solid #AECBD4;
+  background: #F4F7F8;
+  border-radius: 0 12px 12px 0;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #2C3338;
+}
+
+.ut-lesson-body-copy img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 30px 0 0;
+  border-radius: 12px;
+}
+
+.ut-lesson-body-copy figcaption { margin-top: 9px; font-size: 13.5px; color: #6E767B; }
+.ut-lesson-body-copy hr { margin: 30px 0 0; border: 0; border-top: 1px solid #EFEBEA; }
+
+/* An external link gets a marker; an internal one does not. Done in CSS off the href rather than
+   in the sanitizer, because whether a link leaves the portal is a render question -- storing the
+   answer would put it in two places and only one of them would be updated. */
+.ut-lesson-body-copy a[href^="http"]::after {
+  content: " \2197";
+  font-size: 12px;
+  color: #9AA1A5;
+  text-decoration: none;
+}
+
+.ut-button.primary.marked { background: #E6F0E9; color: #2F6444; border-color: #CFE2D5; }
+
+/* The kind chip inside a kicker. `.ut-kicker` is `display: inline`, so an inline-flex pill sits
+   flush against the words after it -- "READINGDay 1" with no gap. */
+.ut-kicker .ut-kind { margin-right: 8px; vertical-align: middle; }
+
+/* On-page contents, above an article with three or more headings. Rendered from the body at
+   render time -- see LessonArticle. */
+.ut-contents {
+  max-width: 660px;
+  margin: 0 0 4px;
+  padding: 16px 20px;
+  background: #F4F7F8;
+  border-radius: 12px;
+}
+
+.ut-contents > span {
+  display: block;
+  margin-bottom: 8px;
+  font-family: Archivo, var(--sans, system-ui), sans-serif;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: #6E767B;
+}
+
+.ut-contents ol { margin: 0; padding-left: 20px; font-size: 14.5px; line-height: 1.6; }
+.ut-contents li + li { margin-top: 5px; }
+.ut-contents a { color: #395262; text-decoration: none; }
+.ut-contents a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Anchored headings need somewhere to land: without this the sticky top bar covers the heading
+   the reader just jumped to. */
+.ut-lesson-body-copy h2[id] { scroll-margin-top: 90px; }

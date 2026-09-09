@@ -58,19 +58,29 @@ def source_name(source_type: str | None) -> str:
 # because "this one is in Skool" is exactly what a person wants to know before they start.
 BADGES = {"LOOM": "Video", "HERE": "Video", "PDF": "PDF", "SKOOL": "Skool",
           "PLACE": "PLACE", "EXP": "eXp"}
-_BADGE_ORDER = ["Video", "PDF", "Skool", "PLACE", "eXp"]
+_BADGE_ORDER = ["Video", "Reading", "PDF", "Skool", "PLACE", "eXp"]
 
 
-def course_media(source_types) -> str:
+def course_media(source_types, kinds=None) -> str:
     """One badge for a whole course: "Video", "PDF + Video", "Skool".
 
     Ordered by _BADGE_ORDER rather than by first appearance, so re-ordering the lessons does not
     silently re-order the badge. Capped at two -- a card reading "Video + PDF + Skool + eXp" has
     stopped telling anybody anything.
+
+    `kinds` overrides the source for a reading lesson, whose `source_type` is whatever the
+    dropdown defaulted to and means nothing. Without it a course of nothing but articles is
+    badged "Video".
     """
-    kinds = {BADGES.get((t or "").strip().upper()) for t in (source_types or [])}
-    kinds.discard(None)
-    ordered = [k for k in _BADGE_ORDER if k in kinds]
+    kinds = list(kinds or [])
+    badges = set()
+    for i, source in enumerate(source_types or []):
+        if i < len(kinds) and (kinds[i] or "").strip().lower() == "reading":
+            badges.add("Reading")
+            continue
+        badges.add(BADGES.get((source or "").strip().upper()))
+    badges.discard(None)
+    ordered = [k for k in _BADGE_ORDER if k in badges]
     if not ordered:
         return "Course"
     if len(ordered) > 2:
@@ -82,12 +92,22 @@ def _clean(url: str | None) -> str:
     return (url or "").strip()
 
 
-def resolve(source_type: str | None, source_ref: str | None) -> dict:
-    """{"mode": video|iframe|link|none, "url": ..., "reason": ...} for one lesson.
+def resolve(source_type: str | None, source_ref: str | None,
+            kind: str | None = None) -> dict | None:
+    """{"mode": video|iframe|link|none, "url": ..., "reason": ...} for one lesson, or None.
 
     `reason` is filled only for `link`, and says WHY it is a link, so the portal can put a useful
     sentence on the launch card instead of an unexplained button.
+
+    NONE FOR A READING LESSON, and the guard lives here rather than at the one call site the spec
+    names. An article has no source and never will; without this, `source_ref` is empty and the
+    "no source attached yet" branch below fires, so a finished reading lesson opens with a card
+    apologising that it is unfinished. Any future caller would hit the same thing, and putting the
+    check in the caller is how you get three callers and two checks.
     """
+    if (kind or "").strip().lower() == "reading":
+        return None
+
     url = _clean(source_ref)
     kind = (source_type or "").strip().upper()
 

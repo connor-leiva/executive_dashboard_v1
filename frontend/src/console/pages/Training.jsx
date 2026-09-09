@@ -2,8 +2,14 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import {
   COURSE_STATE_OPTIONS,
+  GROUPING_OPTIONS,
+  LESSON_KIND_CHIP,
+  LESSON_KIND_OPTIONS,
   LESSON_SOURCE_OPTIONS,
+  SECTION_DUE_OPTIONS,
+  SECTION_RELEASE_OPTIONS,
 } from "../constants.js";
+import LessonBody from "../LessonBody.jsx";
 import {
   useAddLessonAttachment,
   useArchiveCourse,
@@ -11,8 +17,12 @@ import {
   useCourses,
   useCreateCourse,
   useCreateLesson,
+  useCreateSection,
   useDeleteLessonAttachment,
+  useDeleteSection,
   useOrderLessons,
+  useOrderSections,
+  usePatchSection,
   usePatchCourse,
   usePatchLesson,
   useRemoveLesson,
@@ -64,6 +74,19 @@ function chip(map, key) {
 
 function sourceLabel(key) {
   return LESSON_SOURCE_OPTIONS.find((item) => item.key === key)?.label || key;
+}
+
+function kindLabel(key) {
+  return LESSON_KIND_OPTIONS.find((item) => item.key === key)?.label || "Video";
+}
+
+/* One length, in whichever unit the kind actually measures. The server sends `duration` on every
+   lesson for exactly this, but the collapsed row reads the live DRAFT so a number reflects the
+   keystroke rather than the last save. */
+function lessonLength(draft) {
+  if (draft.kind === "reading") return draft.read_minutes === "" ? "" : `${draft.read_minutes}m read`;
+  if (draft.kind === "document") return draft.page_count === "" ? "" : `${draft.page_count} pp`;
+  return draft.duration_minutes === "" ? "" : `${draft.duration_minutes}m`;
 }
 
 function runtime(minutes) {
@@ -174,27 +197,51 @@ function Toggle({ on, onClick, label }) {
 
 function LessonRow({ courseId, lesson, index, total, open, onToggle, onSave, onRemove,
                     onDragStart, onDragOver, onDrop, dragging }) {
+  /* EVERY KIND'S FIELDS ARE SENT EVERY TIME, not just the visible ones. An author who flips
+     Reading -> Video to check something and flips back must find their article still there, and
+     omitting the hidden fields here would clear them on the very next keystroke. `body_html` is
+     the exception: it saves on its own path -- see below. */
   const save = useCallback((values) => {
     onSave(lesson.id, {
       title: (values.title || "").trim() || lesson.title,
+      kind: values.kind,
       source_type: values.source_type,
       source_ref: (values.source_ref || "").trim() || null,
       taught_by: (values.taught_by || "").trim() || null,
       description: (values.description || "").trim() || null,
       duration_minutes: values.duration_minutes === "" ? null : Number(values.duration_minutes),
+      read_minutes: values.read_minutes === "" ? null : Number(values.read_minutes),
+      page_count: values.page_count === "" ? null : Number(values.page_count),
       required: Boolean(values.required),
     });
   }, [lesson.id, lesson.title, onSave]);
 
   const [draft, update, flush] = useAutosave({
     title: lesson.title || "",
+    kind: lesson.kind || "video",
     source_type: lesson.source_type || "HERE",
     source_ref: lesson.source_ref || "",
     taught_by: lesson.taught_by || "",
     description: lesson.description || "",
     duration_minutes: lesson.duration_minutes ?? "",
+    read_minutes: lesson.read_minutes ?? "",
+    page_count: lesson.page_count ?? "",
     required: Boolean(lesson.required),
   }, lesson.id, save);
+
+  /* The body has its OWN save, at its own debounce. In the same payload as the title, every
+     keystroke would ship the whole document -- and a slow save of a long article would hold up
+     a one-character rename. */
+  const saveBody = useCallback((html) => {
+    onSave(lesson.id, { body_html: html || "" });
+  }, [lesson.id, onSave]);
+
+  // Live from the editor, so the Read field can show what the body currently works out to
+  // without waiting for a save to come back.
+  const [counts, setCounts] = useState({ words: 0, minutes: 0 });
+  const kind = draft.kind || "video";
+  const reading = kind === "reading";
+  const document_ = kind === "document";
 
   const attachments = lesson.attachments || [];
   const attachLabel = attachments.length === 1
@@ -215,10 +262,17 @@ function LessonRow({ courseId, lesson, index, total, open, onToggle, onSave, onR
           <strong>{draft.title || "Untitled lesson"}</strong>
           <em>{subtitle}</em>
         </span>
-        <span className="cb-tag" style={chip(SOURCE_CHIP, draft.source_type)}>
-          {sourceLabel(draft.source_type)}
+        <span className="cb-tag" style={chip(LESSON_KIND_CHIP, kind)}>
+          {kindLabel(kind)}
         </span>
-        <span className="cb-dur">{draft.duration_minutes === "" ? "" : `${draft.duration_minutes}m`}</span>
+        {/* The source chip is dropped for a reading lesson: it has no host, and "Hosted" beside
+            an article is a statement about nothing. */}
+        {reading ? null : (
+          <span className="cb-tag" style={chip(SOURCE_CHIP, draft.source_type)}>
+            {sourceLabel(draft.source_type)}
+          </span>
+        )}
+        <span className="cb-dur">{lessonLength(draft)}</span>
         <span className={`cb-pill${draft.required ? " req" : ""}`}>
           {draft.required ? "Required" : "Optional"}
         </span>
@@ -229,32 +283,86 @@ function LessonRow({ courseId, lesson, index, total, open, onToggle, onSave, onR
       {open ? (
         <div className="cb-open">
           <div className="cb-card">
+            <div className="cb-kindpick">
+              {LESSON_KIND_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`cb-kindbtn${kind === option.key ? " on" : ""}`}
+                  aria-pressed={kind === option.key ? "true" : "false"}
+                  onClick={() => update({ kind: option.key })}
+                >
+                  <span aria-hidden="true">{option.glyph}</span>{option.label}
+                </button>
+              ))}
+              <span className="cb-kindnote">
+                {reading
+                  ? "An article members read in the portal. No video, no player."
+                  : document_
+                    ? "A file members open or download."
+                    : "A video members watch in the portal."}
+              </span>
+            </div>
+
             <div className="cb-grid">
               <Field span={7} label="Lesson title">
                 <input value={draft.title} onBlur={flush}
                        onChange={(e) => update({ title: e.target.value })} />
               </Field>
-              <Field span={3} label="Source">
-                <Select value={draft.source_type} options={LESSON_SOURCE_OPTIONS}
-                        onChange={(e) => update({ source_type: e.target.value })} />
-              </Field>
-              <Field span={2} label="Minutes">
-                <input value={draft.duration_minutes} inputMode="numeric" onBlur={flush}
-                       onChange={(e) => update({ duration_minutes: e.target.value })} />
-              </Field>
-
-              <Field span={7} label="Video URL or storage key"
-                     hint="Paste a link or a storage key. Loom, YouTube, Vimeo and PDFs play inside the portal; Skool, PLACE and eXp open in a new tab.">
-                <input value={draft.source_ref} onBlur={flush}
-                       onChange={(e) => update({ source_ref: e.target.value })} />
-              </Field>
-              <Field span={5} label="Taught by" hint="Shown as the byline on the lesson.">
+              <Field span={3} label="Taught by" hint="Shown as the byline on the lesson.">
                 <input value={draft.taught_by} onBlur={flush}
                        onChange={(e) => update({ taught_by: e.target.value })} />
               </Field>
+              {reading ? (
+                <Field span={2} label="Read">
+                  {/* Derived from the body as you type, and overridable: the estimate is a
+                      reading pace, and an author who knows their audience beats a constant. */}
+                  <input value={draft.read_minutes} inputMode="numeric" onBlur={flush}
+                         placeholder={counts.minutes ? String(counts.minutes) : ""}
+                         onChange={(e) => update({ read_minutes: e.target.value })} />
+                </Field>
+              ) : document_ ? (
+                <Field span={2} label="Pages">
+                  <input value={draft.page_count} inputMode="numeric" onBlur={flush}
+                         onChange={(e) => update({ page_count: e.target.value })} />
+                </Field>
+              ) : (
+                <Field span={2} label="Minutes">
+                  <input value={draft.duration_minutes} inputMode="numeric" onBlur={flush}
+                         onChange={(e) => update({ duration_minutes: e.target.value })} />
+                </Field>
+              )}
 
-              <Field span={12} label="Description"
-                     hint="What the lesson is for and when to watch it. Appears under the title in the portal and feeds the AI assistant.">
+              {reading ? (
+                <Field span={12} label="Lesson body"
+                       hint="This is the lesson. Bold, headings, lists, callouts, links and images.">
+                  <LessonBody
+                    courseId={courseId}
+                    lessonId={lesson.id}
+                    value={lesson.body_html || ""}
+                    onChange={saveBody}
+                    onCounts={setCounts}
+                  />
+                </Field>
+              ) : (
+                <>
+                  <Field span={8}
+                         label={document_ ? "Document URL or storage key" : "Video URL or storage key"}
+                         hint="Paste a link or a storage key. Loom, YouTube, Vimeo and PDFs play inside the portal; Skool, PLACE and eXp open in a new tab.">
+                    <input value={draft.source_ref} onBlur={flush}
+                           onChange={(e) => update({ source_ref: e.target.value })} />
+                  </Field>
+                  <Field span={4} label="Source">
+                    <Select value={draft.source_type} options={LESSON_SOURCE_OPTIONS}
+                            onChange={(e) => update({ source_type: e.target.value })} />
+                  </Field>
+                </>
+              )}
+
+              <Field span={12} label={reading ? "Summary" : "Description"}
+                     hint={reading
+                       ? "One or two sentences for the course list. The body above is the lesson itself."
+                       : "What the lesson is for and when to watch it. Appears under the title in the portal and feeds the AI assistant."}>
                 <textarea rows="3" value={draft.description} onBlur={flush}
                           onChange={(e) => update({ description: e.target.value })} />
               </Field>
@@ -373,15 +481,169 @@ function LessonAttachments({ courseId, lesson }) {
 
 /* ── the three tabs ────────────────────────────────────────────────────────────────────── */
 
-function LessonsTab({ detail, onSaveLesson, onAddLesson, onRemoveLesson, onReorder }) {
+/* ── one section ───────────────────────────────────────────────────────────────────────── */
+
+function SectionHeader({ detail, section, lessons, onSave, onDelete, dragProps, dragging }) {
+  const [editing, setEditing] = useState(false);
+  const save = useCallback((values) => {
+    onSave(section.id, {
+      name: (values.name || "").trim(),
+      summary: (values.summary || "").trim() || null,
+      release_rule: values.release_rule,
+      release_day: values.release_day === "" ? null : Number(values.release_day),
+      due_rule: values.due_rule,
+      due_day: values.due_day === "" ? null : Number(values.due_day),
+    });
+  }, [section.id, onSave]);
+
+  const [draft, update, flush] = useAutosave({
+    name: section.name || "",
+    summary: section.summary || "",
+    release_rule: section.release_rule || "immediate",
+    release_day: section.release_day ?? "",
+    due_rule: section.due_rule || "none",
+    due_day: section.due_day ?? "",
+  }, section.id, save);
+
+  const minutes = lessons.reduce((total, l) => total + lessonMinutes(l), 0);
+  const dueLabel = dueText(draft);
+  const needsDay = draft.release_rule === "day_n";
+  const needsDueDay = draft.due_rule === "end_of_day_n" || draft.due_rule === "end_of_week_n";
+
+  return (
+    <div className={`cb-section${dragging ? " dragging" : ""}`} draggable {...dragProps}>
+      <div className="cb-section-row">
+        <span className="cb-grip" aria-hidden="true">⠿</span>
+        {section.label ? <span className="cb-section-chip">{section.label}</span> : null}
+        <span className="cb-section-name">{draft.name || "Untitled section"}</span>
+        {dueLabel ? <span className="cb-section-due">{dueLabel}</span> : null}
+        <span className="cb-section-meta">
+          {lessons.length} {lessons.length === 1 ? "lesson" : "lessons"} · {runtime(minutes)}
+        </span>
+        <button type="button" className="cb-section-edit"
+                onClick={() => setEditing((v) => !v)}>
+          {editing ? "Close" : "Edit"}
+        </button>
+      </div>
+
+      {editing ? (
+        <div className="cb-section-panel">
+          <div className="cb-grid">
+            <Field span={2} label="Label">
+              {/* Generated, not typed: it comes from the course's scheme and this section's
+                  position, so switching the scheme renames every section at once. */}
+              <input value={section.label || "—"} readOnly className="cb-derived" />
+            </Field>
+            <Field span={6} label="Section name">
+              <input value={draft.name} onBlur={flush} placeholder="Systems and access"
+                     onChange={(e) => update({ name: e.target.value })} />
+            </Field>
+            <Field span={needsDay ? 2 : 4} label="Opens">
+              <Select value={draft.release_rule} options={SECTION_RELEASE_OPTIONS}
+                      onChange={(e) => update({ release_rule: e.target.value })} />
+            </Field>
+            {needsDay ? (
+              <Field span={2} label="Day" hint="Day 1 is the day they start.">
+                <input value={draft.release_day} inputMode="numeric" onBlur={flush}
+                       onChange={(e) => update({ release_day: e.target.value })} />
+              </Field>
+            ) : null}
+
+            <Field span={8} label="Summary" hint="One line under the section name in the portal.">
+              <input value={draft.summary} onBlur={flush}
+                     onChange={(e) => update({ summary: e.target.value })} />
+            </Field>
+            <Field span={needsDueDay ? 2 : 4} label="Due">
+              <Select value={draft.due_rule} options={SECTION_DUE_OPTIONS}
+                      onChange={(e) => update({ due_rule: e.target.value })} />
+            </Field>
+            {needsDueDay ? (
+              <Field span={2} label={draft.due_rule === "end_of_week_n" ? "Week" : "Day"}>
+                <input value={draft.due_day} inputMode="numeric" onBlur={flush}
+                       onChange={(e) => update({ due_day: e.target.value })} />
+              </Field>
+            ) : null}
+          </div>
+
+          <div className="cb-foot">
+            <span>Saved automatically · draft until you publish</span>
+            <Button tone="danger" onClick={() => { flush(); onDelete(section.id); }}>
+              Delete section
+            </Button>
+            <Button tone="primary" onClick={() => { flush(); setEditing(false); }}>Done</Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* Minutes this lesson costs, in the unit its kind measures. Pages are deliberately not minutes --
+   there is no honest conversion. Mirrors services/course_sections.lesson_minutes. */
+function lessonMinutes(lesson) {
+  if ((lesson.kind || "video") === "reading") {
+    return Number(lesson.read_minutes || lesson.duration_minutes || 0);
+  }
+  return Number(lesson.duration_minutes || lesson.read_minutes || 0);
+}
+
+function dueText(draft) {
+  if (draft.due_rule === "end_of_day_n" && draft.due_day) return `Due end of day ${draft.due_day}`;
+  if (draft.due_rule === "end_of_week_n" && draft.due_day) return `Due end of week ${draft.due_day}`;
+  if (draft.due_rule === "before_next_section") return "Due before the next section";
+  return "";
+}
+
+function LessonsTab({ detail, onSaveLesson, onAddLesson, onRemoveLesson, onReorder,
+                     onAddSection, onSaveSection, onRemoveSection, onReorderSections }) {
   const lessons = detail.lessons || [];
+  const sections = detail.sections || [];
   const [open, setOpen] = useState(null);
   // THE GRABBED INDEX LIVES IN A REF, and the state beside it exists only to grey the row out.
   // Reading it from state made `drop` depend on a re-render happening between dragstart and drop
   // to refresh its closure -- which a real drag usually gives you and nothing guarantees, so the
   // drop silently did nothing whenever it did not. A ref is current the moment it is set.
   const from = useRef(null);
+  const sectionFrom = useRef(null);
   const [dragIndex, setDragIndex] = useState(null);
+
+  /* The screen order, and the groups drawn from it.
+   *
+   * The SERVER already ordered `detail.lessons` -- ungrouped first, then section by section, by
+   * each section's position. Grouping here just walks that order and cuts it, so the console and
+   * the portal cannot disagree about where a lesson sits. An empty section still gets a group,
+   * because otherwise there is nothing on screen to drag a lesson into. */
+  const ordered = lessons;
+  const groups = useMemo(() => {
+    const bySection = new Map();
+    const loose = [];
+    ordered.forEach((lesson) => {
+      if (!lesson.section_id) return loose.push(lesson);
+      if (!bySection.has(lesson.section_id)) bySection.set(lesson.section_id, []);
+      bySection.get(lesson.section_id).push(lesson);
+    });
+    const out = [];
+    if (loose.length || !sections.length) {
+      out.push({ key: "loose", section: null, index: -1, lessons: loose });
+    }
+    sections.forEach((section, index) => {
+      out.push({ key: section.id, section, index,
+                 lessons: bySection.get(section.id) || [] });
+    });
+    return out;
+  }, [ordered, sections]);
+
+  /* lessonId -> the section it starts. Used to work out which section a dragged row landed in:
+     the nearest boundary at or above it. */
+  const boundaries = useMemo(() => {
+    const map = new Map();
+    groups.forEach((group) => {
+      group.lessons.forEach((lesson, i) => {
+        if (i === 0) map.set(lesson.id, group.section ? group.section.id : null);
+      });
+    });
+    return map;
+  }, [groups]);
 
   function dragStart(event, index) {
     from.current = index;
@@ -396,41 +658,138 @@ function LessonsTab({ detail, onSaveLesson, onAddLesson, onRemoveLesson, onReord
     event.dataTransfer.dropEffect = "move";
   }
 
+  /* THE MOVE CARRIES A SECTION AS WELL AS A POSITION, and goes in ONE request. Splitting it into
+     a reorder plus a reassignment leaves a window where the lesson sits in the new section at the
+     old position, and whichever request lost the race decides where it ends up. */
   function drop(event, to) {
     event.preventDefault();
     const start = from.current;
     from.current = null;
     setDragIndex(null);
     if (start === null || start === to) return;
-    const ids = lessons.map((l) => l.id);
+    const moved = ordered.slice();
+    const [taken] = moved.splice(start, 1);
+    moved.splice(to, 0, taken);
+    onReorder(payloadFor(moved));
+  }
+
+  /* Dropping onto a section HEADER means "put it at the top of this section" -- the only way to
+     reach an empty one, which otherwise has no row to aim at. */
+  function dropIntoSection(event, sectionId) {
+    event.preventDefault();
+    const start = from.current;
+    from.current = null;
+    setDragIndex(null);
+    if (start === null) return;
+    const moved = ordered.slice();
+    const [taken] = moved.splice(start, 1);
+    const at = moved.findIndex((l) => (l.section_id || null) === sectionId);
+    moved.splice(at < 0 ? moved.length : at, 0, { ...taken, section_id: sectionId });
+    onReorder(payloadFor(moved, taken.id, sectionId));
+  }
+
+  /* The order of `list` is the order on screen; a lesson's section is whichever group it now
+     sits in. `sort` restarts per section so it means "position within this section". */
+  function payloadFor(list, forcedId, forcedSection) {
+    const counters = new Map();
+    return list.map((lesson) => {
+      const sectionId = lesson.id === forcedId
+        ? forcedSection
+        : sectionOf(list, lesson);
+      const key = sectionId || "";
+      const next = (counters.get(key) || 0);
+      counters.set(key, next + 1);
+      return { id: lesson.id, section_id: sectionId, sort: next };
+    });
+  }
+
+  /* Which section a lesson has landed in: the one belonging to the nearest lesson above it that
+     has one. Dragging past a section header is how somebody expects to change section, and the
+     row itself carries no boundary information. */
+  function sectionOf(list, lesson) {
+    const at = list.indexOf(lesson);
+    for (let i = at; i >= 0; i -= 1) {
+      const found = boundaries.get(list[i].id);
+      if (found !== undefined) return found;
+    }
+    return lesson.section_id || null;
+  }
+
+  function sectionDragStart(event, index) {
+    sectionFrom.current = index;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", `section:${index}`);
+  }
+
+  function sectionDrop(event, to) {
+    const start = sectionFrom.current;
+    sectionFrom.current = null;
+    if (start === null || start === to) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const ids = sections.map((x) => x.id);
     const [moved] = ids.splice(start, 1);
     ids.splice(to, 0, moved);
-    onReorder(ids);
+    onReorderSections(ids);
   }
 
   return (
     <div>
       <div className="cb-toolbar">
-        <span className="cb-label">Lessons · drag to reorder</span>
+        <span className="cb-label">
+          {sections.length ? "Sections and lessons · drag to reorder" : "Lessons · drag to reorder"}
+        </span>
+        <Button onClick={() => onAddSection()}>Add section</Button>
         <Button onClick={() => onAddLesson()}>Add lesson</Button>
       </div>
 
-      {lessons.map((lesson, index) => (
-        <LessonRow
-          key={lesson.id}
-          courseId={detail.id}
-          lesson={lesson}
-          index={index}
-          total={lessons.length}
-          open={open === lesson.id}
-          dragging={dragIndex === index}
-          onToggle={() => setOpen((cur) => (cur === lesson.id ? null : lesson.id))}
-          onSave={onSaveLesson}
-          onRemove={(id) => { setOpen(null); onRemoveLesson(id); }}
-          onDragStart={dragStart}
-          onDragOver={dragOver}
-          onDrop={drop}
-        />
+      {groups.map((group) => (
+        <Fragment key={group.key}>
+          {group.section ? (
+            <SectionHeader
+              detail={detail}
+              section={group.section}
+              lessons={group.lessons}
+              onSave={onSaveSection}
+              onDelete={onRemoveSection}
+              dragging={false}
+              dragProps={{
+                onDragStart: (e) => sectionDragStart(e, group.index),
+                onDragOver: dragOver,
+                onDrop: (e) => {
+                  if (sectionFrom.current !== null) return sectionDrop(e, group.index);
+                  return dropIntoSection(e, group.section.id);
+                },
+              }}
+            />
+          ) : null}
+
+          <div className={group.section ? "cb-section-lessons" : ""}>
+            {group.lessons.map((lesson) => {
+              const index = ordered.indexOf(lesson);
+              return (
+                <LessonRow
+                  key={lesson.id}
+                  courseId={detail.id}
+                  lesson={lesson}
+                  index={index}
+                  total={ordered.length}
+                  open={open === lesson.id}
+                  dragging={dragIndex === index}
+                  onToggle={() => setOpen((cur) => (cur === lesson.id ? null : lesson.id))}
+                  onSave={onSaveLesson}
+                  onRemove={(id) => { setOpen(null); onRemoveLesson(id); }}
+                  onDragStart={dragStart}
+                  onDragOver={dragOver}
+                  onDrop={drop}
+                />
+              );
+            })}
+            {group.section && !group.lessons.length ? (
+              <div className="cb-section-empty">Drag a lesson here, or add one.</div>
+            ) : null}
+          </div>
+        </Fragment>
       ))}
 
       <div className="cb-listfoot">
@@ -455,6 +814,8 @@ function SettingsTab({ detail, onSave, onArchive }) {
       required_for_onboarding: Boolean(values.required_for_onboarding),
       issues_certificate: Boolean(values.issues_certificate),
       sequential: Boolean(values.sequential),
+      grouping_scheme: values.grouping_scheme,
+      lock_sections: Boolean(values.lock_sections),
     });
   }, [detail.title, onSave]);
 
@@ -467,6 +828,8 @@ function SettingsTab({ detail, onSave, onArchive }) {
     required_for_onboarding: detail.required_for_onboarding ?? false,
     issues_certificate: detail.issues_certificate ?? false,
     sequential: detail.sequential ?? false,
+    grouping_scheme: detail.grouping_scheme || "none",
+    lock_sections: detail.lock_sections ?? false,
   }, detail.id, save);
 
   const flags = [
@@ -478,6 +841,8 @@ function SettingsTab({ detail, onSave, onArchive }) {
      "Logs completion on the member's record when every lesson is done."],
     ["sequential", "Lock lessons in order",
      "Each lesson unlocks only after the one before it is finished."],
+    ["lock_sections", "Lock sections in order",
+     "A section opens only once the one before it is complete. Separate from the rule above — a course can lock sections, lessons, both or neither."],
   ];
 
   return (
@@ -500,6 +865,28 @@ function SettingsTab({ detail, onSave, onArchive }) {
           <textarea rows="3" value={draft.description} onBlur={flush}
                     onChange={(e) => update({ description: e.target.value })} />
         </Field>
+      </div>
+
+      <div className="cb-grouping">
+        <div className="cb-label">How this course is grouped</div>
+        <p className="cb-hint">
+          The label is generated from the scheme and the section’s position, so switching
+          scheme renames every section at once and moves no lessons.
+        </p>
+        <div className="cb-schemes">
+          {GROUPING_OPTIONS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={`cb-scheme${draft.grouping_scheme === option.key ? " on" : ""}`}
+              aria-pressed={draft.grouping_scheme === option.key ? "true" : "false"}
+              onClick={() => update({ grouping_scheme: option.key })}
+            >
+              <strong>{option.label}</strong>
+              <em>{option.example}</em>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="cb-flags">
@@ -591,6 +978,10 @@ export default function Training() {
   const patchLesson = usePatchLesson();
   const removeLesson = useRemoveLesson();
   const orderLessons = useOrderLessons();
+  const createSection = useCreateSection();
+  const patchSection = usePatchSection();
+  const removeSection = useDeleteSection();
+  const orderSections = useOrderSections();
 
   const courses = coursesQuery.data?.items || [];
   const roles = rolesQuery.data?.items || [];
@@ -599,7 +990,9 @@ export default function Training() {
   const detail = courseQuery.data || null;
 
   const saving = patchCourse.isPending || patchLesson.isPending || saveRoles.isPending
-    || createLesson.isPending || removeLesson.isPending || orderLessons.isPending;
+    || createLesson.isPending || removeLesson.isPending || orderLessons.isPending
+    || createSection.isPending || patchSection.isPending || removeSection.isPending
+    || orderSections.isPending;
 
   useEffect(() => {
     if (selectedId || coursesQuery.isPending || coursesQuery.error) return;
@@ -819,8 +1212,20 @@ export default function Training() {
                   onAddLesson={addLesson}
                   onRemoveLesson={(lessonId) => run(
                     () => removeLesson.mutateAsync({ courseId: detail.id, lessonId }))}
-                  onReorder={(ids) => run(
-                    () => orderLessons.mutateAsync({ courseId: detail.id, body: { ids } }))}
+                  /* `lessons`, not `ids`: a drag can change a lesson's section as well as its
+                     position, and both belong in the same request. */
+                  onReorder={(moves) => run(
+                    () => orderLessons.mutateAsync({
+                      courseId: detail.id, body: { lessons: moves } }))}
+                  onAddSection={() => run(
+                    () => createSection.mutateAsync({ courseId: detail.id, body: {} }))}
+                  onSaveSection={(sectionId, body) => run(
+                    () => patchSection.mutateAsync({ courseId: detail.id, sectionId, body }))}
+                  onRemoveSection={(sectionId) => run(
+                    () => removeSection.mutateAsync({ courseId: detail.id, sectionId }))}
+                  onReorderSections={(ids) => run(
+                    () => orderSections.mutateAsync({
+                      courseId: detail.id, body: { ids } }))}
                 />
               ) : null}
 

@@ -191,6 +191,14 @@ export const addLessonAttachment = (courseId, lessonId, fields) =>
 export const deleteLessonAttachment = (courseId, lessonId, attachmentId) =>
   consoleSend("DELETE", `/courses/${courseId}/lessons/${lessonId}/attachments/${attachmentId}`);
 export const deleteLesson = (courseId, lessonId) => consoleSend("DELETE", `/courses/${courseId}/lessons/${lessonId}`);
+export const createSection = (courseId, body) => consoleSend("POST", `/courses/${courseId}/sections`, body);
+export const patchSection = (courseId, sectionId, body) => consoleSend("PATCH", `/courses/${courseId}/sections/${sectionId}`, body);
+export const deleteSection = (courseId, sectionId) => consoleSend("DELETE", `/courses/${courseId}/sections/${sectionId}`);
+export const putSectionOrder = (courseId, body) => consoleSend("PUT", `/courses/${courseId}/sections/order`, body);
+/* Multipart, like every other upload here: the image is bytes, and `alt` travels with them so
+   the server can refuse an unlabelled one in the same request rather than after the fact. */
+export const postLessonImage = (courseId, lessonId, fields) =>
+  consoleUpload(`/courses/${courseId}/lessons/${lessonId}/images`, fields);
 export const getSopCategories = () => consoleGet("/sop-categories");
 export const createSopCategory = (body) => consoleSend("POST", "/sop-categories", body);
 export const patchSopCategory = (categoryId, body) => consoleSend("PATCH", `/sop-categories/${categoryId}`, body);

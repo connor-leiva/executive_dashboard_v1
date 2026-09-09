@@ -27,6 +27,13 @@ function matches(haystack, needle) {
   return (haystack || "").toLowerCase().includes(needle);
 }
 
+/* Tags out of an authored body so a search for a phrase inside an article finds it.
+   The server already sanitized this down to a small allowlist, so a regex is enough here --
+   this is index text nobody renders, not a security boundary. */
+function stripTags(html) {
+  return (html || "").replace(/<[^>]*>/g, " ");
+}
+
 /** Everything in the payload, flattened into one shape the results list can render. */
 function corpus(content) {
   const out = [];
@@ -41,8 +48,12 @@ function corpus(content) {
     (course.lessons || []).forEach((lesson) => {
       out.push({
         type: "Training", title: lesson.title,
-        detail: `Lesson · ${course.title}`, to: `/training/${course.id}`,
-        text: [lesson.title, lesson.source_label, course.title].join(" "),
+        detail: `Lesson · ${course.title}`, to: `/training/${course.id}/${lesson.id}`,
+        // A READING LESSON'S WORDS ARE ITS CONTENT. Indexing the title alone would make an
+        // article the one thing in the portal you cannot find by searching for what it says --
+        // the body is stripped to text on the server, so this is a plain string, not markup.
+        text: [lesson.title, lesson.source_label, course.title,
+               lesson.description, stripTags(lesson.body_html)].join(" "),
       });
     });
   });

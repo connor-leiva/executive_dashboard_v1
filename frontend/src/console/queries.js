@@ -76,6 +76,11 @@ import {
   publishChanges,
   putCourseRoles,
   putLessonOrder,
+  createSection,
+  patchSection,
+  deleteSection,
+  putSectionOrder,
+  postLessonImage,
   putPermissions,
   putTileOrder,
   putTileRoles,
@@ -778,6 +783,47 @@ export function useRemoveLesson() {
   return useMutation({
     mutationFn: ({ courseId, lessonId }) => deleteLesson(courseId, lessonId),
     onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function useCreateSection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, body }) => createSection(courseId, body || {}),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function usePatchSection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, sectionId, body }) => patchSection(courseId, sectionId, body),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function useDeleteSection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, sectionId }) => deleteSection(courseId, sectionId),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+export function useOrderSections() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, body }) => putSectionOrder(courseId, body),
+    onSuccess: (_data, vars) => invalidateTraining(queryClient, vars.courseId),
+  });
+}
+
+/* NOT invalidating the course. An image upload happens mid-sentence inside the editor, and a
+   refetch would resync the lesson row underneath the cursor -- the body being typed is newer than
+   anything the server can send back. The caller inserts the returned key itself. */
+export function usePostLessonImage() {
+  return useMutation({
+    mutationFn: ({ courseId, lessonId, fields }) => postLessonImage(courseId, lessonId, fields),
   });
 }
 

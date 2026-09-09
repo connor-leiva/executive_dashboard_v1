@@ -93,6 +93,47 @@ export const LESSON_SOURCE_OPTIONS = [
   { key: "PDF", label: "PDF" },
 ];
 
+/* How a course names its sections. The label is GENERATED from this plus the section's position,
+   so switching schemes renames every section at once and moves nothing. `example` is what the
+   picker shows, because "Part" means nothing until you have seen "Part III". */
+export const GROUPING_OPTIONS = [
+  { key: "none", label: "No sections", example: "One flat list of lessons" },
+  { key: "day", label: "Days", example: "Day 1, Day 2, Day 3" },
+  { key: "module", label: "Modules", example: "Module 1, Module 2" },
+  { key: "week", label: "Weeks", example: "Week 1, Week 2" },
+  { key: "phase", label: "Phases", example: "Phase 1, Phase 2" },
+  { key: "part", label: "Parts", example: "Part I, Part II, Part III" },
+  { key: "custom", label: "Custom names", example: "Whatever you type" },
+];
+
+/* WHAT a lesson is. Deliberately not LESSON_SOURCE_OPTIONS, which is WHERE it lives: a reading
+   lesson has no host at all, and both chips can appear on the same lesson. */
+export const LESSON_KIND_OPTIONS = [
+  { key: "video", label: "Video", glyph: "▶" },
+  { key: "reading", label: "Reading", glyph: "¶" },
+  { key: "document", label: "Document", glyph: "❐" },
+];
+
+export const LESSON_KIND_CHIP = {
+  video: ["#E7EFF6", "#2F5B84"],
+  reading: ["#EEE7F6", "#6B4E9E"],
+  document: ["#F6E9E6", "#A44A33"],
+};
+
+export const SECTION_RELEASE_OPTIONS = [
+  { key: "immediate", label: "Available straight away" },
+  { key: "after_previous", label: "After the previous section" },
+  { key: "day_n", label: "On day…" },
+  { key: "fixed_date", label: "On a fixed date" },
+];
+
+export const SECTION_DUE_OPTIONS = [
+  { key: "none", label: "No due date" },
+  { key: "end_of_day_n", label: "End of day…" },
+  { key: "end_of_week_n", label: "End of week…" },
+  { key: "before_next_section", label: "Before the next section opens" },
+];
+
 export const LESSON_SOURCE_COLORS = {
   HERE: "#395262",
   LOOM: "#8E4EA8",

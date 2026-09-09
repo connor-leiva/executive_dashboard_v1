@@ -3538,3 +3538,227 @@ textarea {
 }
 
 .cb-see.on > span { background: #171E22; border-color: #171E22; color: #FFFFFF; }
+
+/* ── sections ─────────────────────────────────────────────────────────────────────────────
+   A section is a HEADING over lessons, not a box around them. It gets a rule and a label chip;
+   the lessons under it keep the row treatment they already had, indented just enough to read as
+   belonging to it. Boxing each group would put a second border beside the card's own and make a
+   five-day course look like five courses. */
+
+.cb-section { border-bottom: 1px solid #F4F1F0; background: #FBFAFA; }
+.cb-section.dragging { opacity: 0.45; }
+
+.cb-section-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 26px;
+  flex-wrap: wrap;
+}
+
+.cb-section-chip {
+  flex: 0 0 auto;
+  background: #171E22;
+  color: #FFFFFF;
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.cb-section-name { flex: 1 1 200px; min-width: 0; font-size: 15.5px; font-weight: 500; }
+
+.cb-section-due {
+  flex: 0 0 auto;
+  background: #F6F1DC;
+  border: 1px solid #D6CFA8;
+  color: #7A6215;
+  border-radius: 99px;
+  padding: 3px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.cb-section-meta { flex: 0 0 auto; font-size: 12.5px; color: var(--console-faint); }
+
+.cb-section-edit {
+  flex: 0 0 auto;
+  border: 1px solid #E4DFDD;
+  background: #FFFFFF;
+  border-radius: 7px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--console-ink);
+  cursor: pointer;
+}
+
+.cb-section-edit:hover { border-color: #CFC9C7; }
+
+.cb-section-panel { padding: 4px 26px 20px; border-top: 1px solid #F4F1F0; background: #FFFFFF; }
+
+/* The one thing that has to read as "inside this section". A left rule rather than a box: it
+   marks the boundary without competing with the lesson rows' own separators. */
+.cb-section-lessons { border-left: 2px solid #EFEBEA; margin-left: 26px; }
+.cb-section-lessons .cb-lesson-row { padding-left: 20px; }
+
+.cb-section-empty {
+  padding: 16px 26px;
+  font-size: 13px;
+  color: var(--console-faint);
+  border-bottom: 1px solid #F4F1F0;
+}
+
+/* An input whose value the SERVER decides. Greyed so it reads as derived rather than as a field
+   somebody forgot to fill in. */
+.cb-derived { background: #F4F1F0 !important; color: #6E767B !important; }
+
+/* ── the grouping picker ──────────────────────────────────────────────────────────────── */
+
+.cb-grouping { padding: 22px 0 4px; }
+.cb-grouping .cb-hint { margin: 4px 0 12px; max-width: 62ch; }
+
+.cb-schemes { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 10px; }
+
+.cb-scheme {
+  display: block;
+  text-align: left;
+  border: 1px solid #E4DFDD;
+  background: #FFFFFF;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cb-scheme:hover { border-color: #CFC9C7; }
+.cb-scheme strong { display: block; font-size: 14px; font-weight: 500; color: var(--console-ink); }
+.cb-scheme em { display: block; margin-top: 3px; font-style: normal; font-size: 12px; color: var(--console-faint); }
+.cb-scheme.on { border-color: #171E22; box-shadow: inset 0 0 0 1px #171E22; }
+
+/* ── the lesson kind picker ───────────────────────────────────────────────────────────── */
+
+.cb-kindpick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 0 18px; }
+
+.cb-kindbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #E4DFDD;
+  background: #FFFFFF;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--console-ink);
+  cursor: pointer;
+}
+
+.cb-kindbtn:hover { border-color: #CFC9C7; }
+.cb-kindbtn.on { background: #171E22; border-color: #171E22; color: #FFFFFF; }
+.cb-kindnote { font-size: 12.5px; color: var(--console-faint); }
+
+/* ── the rich-text editor ─────────────────────────────────────────────────────────────── */
+
+.cb-rte-shell { border: 1px solid #E4DFDD; border-radius: 10px; background: #FFFFFF; overflow: hidden; }
+
+.cb-rte-bar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  padding: 7px 9px;
+  border-bottom: 1px solid #EFEBEA;
+  background: #FBFAFA;
+}
+
+.cb-rte-btn {
+  min-width: 30px;
+  height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--console-ink);
+  cursor: pointer;
+}
+
+.cb-rte-btn.wide { padding: 0 11px; }
+.cb-rte-btn:hover { background: #F4F1F0; }
+.cb-rte-btn.on { background: #EFEBEA; color: #171E22; }
+.cb-rte-div { width: 1px; height: 18px; margin: 0 5px; background: #E4DFDD; }
+
+/* Pushed right, so the count sits over the text it counts rather than in the button run. */
+.cb-rte-count { margin-left: auto; font-size: 12px; color: var(--console-faint); white-space: nowrap; }
+
+.cb-rte-sub {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 9px;
+  background: #F4F7F8;
+  border-bottom: 1px solid #E1E8EB;
+  flex-wrap: wrap;
+}
+
+.cb-rte-sub input[type="text"], .cb-rte-sub input:not([type]) {
+  flex: 1 1 220px;
+  min-width: 0;
+  border: 1px solid #D5DEE2;
+  border-radius: 7px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  background: #FFFFFF;
+}
+
+.cb-rte-sub button {
+  border: 1px solid #D5DEE2;
+  background: #FFFFFF;
+  border-radius: 7px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.cb-rte-sub button:hover { border-color: #AECBD4; }
+.cb-rte-sub .cb-rte-apply { background: #171E22; border-color: #171E22; color: #FFFFFF; }
+.cb-rte-sub .cb-rte-apply:disabled { opacity: 0.55; cursor: default; }
+
+.cb-rte-error { padding: 8px 12px; background: #FBF0EE; color: #A44A33; font-size: 12.5px; }
+
+/* The document itself. Styled BY ELEMENT inside this container -- authored nodes carry no classes
+   and must not, or the portal and the console would need the author to mark up for both. */
+.cb-rte .ProseMirror { min-height: 230px; padding: 16px 18px; outline: none; }
+.cb-rte .ProseMirror > :first-child { margin-top: 0; }
+.cb-rte p { margin: 13px 0 0; font-size: 14.5px; line-height: 1.65; }
+.cb-rte h2 { margin: 24px 0 0; font-size: 19px; font-weight: 500; line-height: 1.3; letter-spacing: -0.2px; }
+.cb-rte h3 { margin: 20px 0 0; font-size: 16px; font-weight: 500; line-height: 1.35; }
+.cb-rte ul, .cb-rte ol { margin: 13px 0 0; padding-left: 21px; font-size: 14.5px; line-height: 1.7; }
+.cb-rte li + li { margin-top: 5px; }
+
+.cb-rte blockquote {
+  margin: 18px 0 0;
+  padding: 13px 17px;
+  border-left: 3px solid #AECBD4;
+  background: #F4F7F8;
+  border-radius: 0 9px 9px 0;
+}
+
+.cb-rte img { display: block; max-width: 100%; height: auto; margin: 16px 0 0; border-radius: 8px; }
+.cb-rte a { color: #395262; text-decoration: underline; text-underline-offset: 2px; }
+.cb-rte hr { margin: 18px 0 0; border: 0; border-top: 1px solid #EFEBEA; }
+
+/* The empty state. Without it a blank body is an unlabelled white rectangle. */
+.cb-rte .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--console-faint);
+  pointer-events: none;
+}

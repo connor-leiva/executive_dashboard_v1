@@ -32,6 +32,7 @@ from ..models import (
     IntranetLaunchpadTile,
     IntranetLaunchpadTileRole,
     IntranetLesson,
+    IntranetCourseSection,
     IntranetLessonAttachment,
     IntranetMember,
     IntranetPendingChange,
@@ -55,7 +56,8 @@ from ..config import settings
 from ..security import enc
 from .. import plans
 from ..security import new_action_token
-from ..services import (binder_storage, google_auth, lesson_media, mail_templates,
+from ..services import (binder_storage, course_sections, google_auth, lesson_media,
+                        lesson_richtext, mail_templates,
                         mailer, uploads,
                         marketing_delivery)
 from ..services.users import INVITE_DAYS, link_base, primary_host
@@ -70,6 +72,14 @@ MEMBER_STATUSES = {"Active", "Invited", "Removed"}
 MEMBER_FILTERS = {"active", "pending", "guests", "leadership", "everyone"}
 AUTH_SOURCES = {"SSO", "Guest", "Manual"}
 LESSON_SOURCE_TYPES = {"LOOM", "SKOOL", "HERE", "PDF", "EXP", "PLACE"}
+# WHAT a lesson is, as against LESSON_SOURCE_TYPES, which is WHERE it lives. Kept apart on
+# purpose: a reading lesson has no host, and a PDF-hosted video is not a document.
+LESSON_KINDS = {"video", "reading", "document"}
+GROUPING_SCHEMES = set(course_sections.SCHEMES)
+SECTION_RELEASE_RULES = set(course_sections.RELEASE_RULES)
+SECTION_DUE_RULES = set(course_sections.DUE_RULES)
+MAX_LESSON_IMAGE_BYTES = 5 * 1024 * 1024
+LESSON_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 TILE_AUTH_TYPES = {"SSO", "Deeplink", "Invite", "Link"}
 INTEGRATION_STATUSES = {"Connected", "Action Needed", "Not Connected"}
 GAP_STATUSES = {"Open", "Assigned", "Resolved", "No Action"}
@@ -572,8 +582,12 @@ async def _course_roles(s: AsyncSession, tenant_id, course_ids: list[uuid.UUID])
 async def _lesson_counts(s: AsyncSession, tenant_id, course_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict]:
     if not course_ids:
         return {}
+    # COALESCE, not a second SUM: a lesson has one length. Summing duration_minutes alone is what
+    # made a course of articles advertise itself as taking no time at all, and summing both would
+    # double-count any lesson whose kind an author had switched.
+    minutes = func.coalesce(IntranetLesson.duration_minutes, IntranetLesson.read_minutes, 0)
     rows = (await s.execute(
-        select(IntranetLesson.course_id, func.count(), func.coalesce(func.sum(IntranetLesson.duration_minutes), 0))
+        select(IntranetLesson.course_id, func.count(), func.coalesce(func.sum(minutes), 0))
         .where(IntranetLesson.tenant_id == tenant_id, IntranetLesson.course_id.in_(course_ids))
         .group_by(IntranetLesson.course_id)
     )).all()
@@ -604,7 +618,7 @@ async def _last_editor(s: AsyncSession, tenant_id, course_id) -> str | None:
 
 def _course(row: IntranetCourse, roles: dict[uuid.UUID, list[str]] | None = None,
             counts: dict[uuid.UUID, dict] | None = None, lessons: list[dict] | None = None,
-            last_editor: str | None = None) -> dict:
+            last_editor: str | None = None, sections: list[dict] | None = None) -> dict:
     derived = (counts or {}).get(row.id, {})
     return {
         "id": _id(row.id), "title": row.title, "category": row.category,
@@ -612,6 +626,14 @@ def _course(row: IntranetCourse, roles: dict[uuid.UUID, list[str]] | None = None
         "track_progress": bool(row.track_progress),
         "required_for_onboarding": bool(row.required_for_onboarding),
         "issues_certificate": bool(row.issues_certificate), "sequential": bool(row.sequential),
+        # The scheme lives on the COURSE so switching Day -> Module is one write that renames
+        # every section. The labels themselves are generated in `sections` below.
+        "grouping_scheme": row.grouping_scheme or "none",
+        "lock_sections": bool(row.lock_sections),
+        # Always a list, never null. The course LIST does not load sections (it does not need
+        # them), and a payload where one endpoint says `null` and another says `[]` is a
+        # `.length` crash waiting for whichever frontend forgets the guard.
+        "sections": sections or [],
         "sort": row.sort, "archived_at": _iso(row.archived_at),
         "updated_at": _iso(row.updated_at),
         # Read off the audit trail rather than stored on the course. Adding an `updated_by` column
@@ -635,16 +657,53 @@ def _lesson_attachment(row: IntranetLessonAttachment) -> dict:
     }
 
 
+def _section(row: IntranetCourseSection, scheme: str | None, index: int,
+             counts: dict | None = None) -> dict:
+    """One section for the BUILDER, which is a different view from the portal's.
+
+    No release/due dates and no lock state here: those resolve against a member's enrolment, and
+    an author has none. What the builder needs is the rule the author chose, so the form can show
+    it back to them.
+    """
+    return {
+        "id": _id(row.id), "course_id": _id(row.course_id), "name": row.name,
+        "summary": row.summary, "sort": row.sort,
+        # Generated, never stored -- see services/course_sections.
+        "label": course_sections.label_for(scheme, index),
+        "release_rule": row.release_rule or "immediate", "release_day": row.release_day,
+        "release_date": _iso(row.release_date),
+        "due_rule": row.due_rule or "none", "due_day": row.due_day,
+        "lesson_count": (counts or {}).get(str(row.id), {}).get("count", 0),
+        "total_minutes": (counts or {}).get(str(row.id), {}).get("minutes", 0),
+        "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
+    }
+
+
 def _lesson(row: IntranetLesson, attachments: list | None = None) -> dict:
+    kind = row.kind or "video"
     return {
         "id": _id(row.id), "course_id": _id(row.course_id), "title": row.title,
+        "section_id": _id(row.section_id), "kind": kind,
         "source_type": row.source_type, "source_ref": row.source_ref,
         "source_label": row.source_label, "description": row.description,
         "taught_by": row.taught_by, "duration_minutes": row.duration_minutes,
+        # Sanitized again on the way out. The write-side allowlist can change, and a body stored
+        # under yesterday's rules should not keep whatever yesterday allowed. Then image keys are
+        # rewritten to the console's own image route -- an owner who administers the workspace
+        # without being in its member directory cannot fetch through the portal's.
+        "body_html": lesson_richtext.image_urls(
+            lesson_richtext.sanitize(row.body_html, tenant_id=row.tenant_id),
+            lesson_richtext.CONSOLE_IMAGE_ROUTE) or None,
+        "word_count": row.word_count, "read_minutes": row.read_minutes,
+        "page_count": row.page_count,
+        "duration": course_sections.duration_of(
+            kind, duration_minutes=row.duration_minutes, read_minutes=row.read_minutes,
+            page_count=row.page_count),
         "required": bool(row.required), "sort": row.sort,
         # Resolved with the SAME function the portal payload uses, so the console can warn about
-        # a source that will not play BEFORE a member finds out by opening it.
-        "player": lesson_media.resolve(row.source_type, row.source_ref),
+        # a source that will not play BEFORE a member finds out by opening it. None for a reading
+        # lesson, which has no source and never will.
+        "player": lesson_media.resolve(row.source_type, row.source_ref, kind=kind),
         "attachments": [_lesson_attachment(a) for a in (attachments or [])],
         "published_at": _iso(row.published_at), "draft_dirty": bool(row.draft_dirty),
     }
@@ -2405,10 +2464,13 @@ async def get_course(course_id: uuid.UUID, p: ConsolePrincipal = Depends(require
                      s: AsyncSession = Depends(get_session)):
     row = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
     roles = await _course_roles(s, p.user.tenant_id, [row.id])
+    sections = await _sections_of(s, p.user.tenant_id, row.id)
     lessons = (await s.execute(select(IntranetLesson).where(
         IntranetLesson.tenant_id == p.user.tenant_id,
         IntranetLesson.course_id == row.id,
-    ).order_by(IntranetLesson.sort, IntranetLesson.title))).scalars().all()
+    ))).scalars().all()
+    # Sorted by the SECTION's position, not by section_id -- see course_sections.order_lessons.
+    lessons = course_sections.order_lessons(lessons, sections)
     # Handouts for the whole course in one query rather than per lesson. This is the read the
     # lesson editor loads, so without it every lesson shows "No attachments" whatever it has.
     handouts: dict = {}
@@ -2416,13 +2478,22 @@ async def get_course(course_id: uuid.UUID, p: ConsolePrincipal = Depends(require
         for att in (await s.execute(
             select(IntranetLessonAttachment)
             .where(IntranetLessonAttachment.tenant_id == p.user.tenant_id,
-                   IntranetLessonAttachment.lesson_id.in_([l.id for l in lessons]))
+                   IntranetLessonAttachment.lesson_id.in_([le.id for le in lessons]))
             .order_by(IntranetLessonAttachment.sort))).scalars().all():
             handouts.setdefault(att.lesson_id, []).append(att)
-    return _course(row, roles, {row.id: {"lesson_count": len(lessons),
-                                         "total_duration_minutes": sum(l.duration_minutes or 0 for l in lessons)}},
-                   [_lesson(l, handouts.get(l.id)) for l in lessons],
-                   await _last_editor(s, p.user.tenant_id, row.id))
+    per_section: dict = {}
+    for le in lessons:
+        bucket = per_section.setdefault(_id(le.section_id) or "", {"count": 0, "minutes": 0})
+        bucket["count"] += 1
+        bucket["minutes"] += course_sections.lesson_minutes(
+            le.kind, le.duration_minutes, le.read_minutes)
+    scheme = row.grouping_scheme or "none"
+    return _course(row, roles,
+                   {row.id: {"lesson_count": len(lessons),
+                             "total_duration_minutes": course_sections.total_minutes(lessons)}},
+                   [_lesson(le, handouts.get(le.id)) for le in lessons],
+                   await _last_editor(s, p.user.tenant_id, row.id),
+                   [_section(sec, scheme, i, per_section) for i, sec in enumerate(sections)])
 
 
 @router.post("/courses")
@@ -2430,7 +2501,8 @@ async def create_course(body: dict = Body(...), p: ConsolePrincipal = Depends(re
                         s: AsyncSession = Depends(get_session)):
     body = _body(body)
     _unknown(body, {"title", "category", "description", "state", "track_progress",
-                    "required_for_onboarding", "issues_certificate", "sequential", "sort"})
+                    "required_for_onboarding", "issues_certificate", "sequential", "sort",
+                    "grouping_scheme", "lock_sections"})
     row = IntranetCourse(
         tenant_id=p.user.tenant_id,
         title=_text(body, "title", required=True) or "",
@@ -2446,6 +2518,8 @@ async def create_course(body: dict = Body(...), p: ConsolePrincipal = Depends(re
         required_for_onboarding=_bool(body, "required_for_onboarding", False),
         issues_certificate=_bool(body, "issues_certificate", False),
         sequential=_bool(body, "sequential", False),
+        grouping_scheme=_enum(body, "grouping_scheme", GROUPING_SCHEMES, "none") or "none",
+        lock_sections=_bool(body, "lock_sections", False),
         sort=_int(body, "sort", default=await _count(s, IntranetCourse, p.user.tenant_id), min_value=0) or 0,
     )
     s.add(row)
@@ -2467,7 +2541,8 @@ async def patch_course(course_id: uuid.UUID, body: dict = Body(...),
                        s: AsyncSession = Depends(get_session)):
     body = _body(body)
     _unknown(body, {"title", "category", "description", "state", "track_progress",
-                    "required_for_onboarding", "issues_certificate", "sequential", "sort"})
+                    "required_for_onboarding", "issues_certificate", "sequential", "sort",
+                    "grouping_scheme", "lock_sections"})
     row = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
     if "title" in body:
         row.title = _text(body, "title", required=True) or row.title
@@ -2479,7 +2554,12 @@ async def patch_course(course_id: uuid.UUID, body: dict = Body(...),
         row.description = _text(body, "description", nullable=True)
     if "state" in body:
         row.state = _enum(body, "state", COURSE_STATES) or row.state
-    for field in ("track_progress", "required_for_onboarding", "issues_certificate", "sequential"):
+    if "grouping_scheme" in body:
+        # Renames every section at once and moves nothing -- the labels are generated from this
+        # plus each section's position, so there is nothing else to update.
+        row.grouping_scheme = _enum(body, "grouping_scheme", GROUPING_SCHEMES) or "none"
+    for field in ("track_progress", "required_for_onboarding", "issues_certificate", "sequential",
+                  "lock_sections"):
         if field in body:
             setattr(row, field, bool(_bool(body, field)))
     if "sort" in body:
@@ -2547,24 +2627,241 @@ async def put_course_roles(course_id: uuid.UUID, body: dict = Body(...),
     return _with_pending(await get_course(course_id, p, s), pending)
 
 
+# ── sections ──────────────────────────────────────────────────────────────────────────────
+# A course is a list of lessons until an author says otherwise. Sections are opt-in per course:
+# every course starts with none, and the portal renders a flat list for those exactly as before.
+
+
+async def _sections_of(s: AsyncSession, tenant_id, course_id) -> list[IntranetCourseSection]:
+    return list((await s.execute(select(IntranetCourseSection).where(
+        IntranetCourseSection.tenant_id == tenant_id,
+        IntranetCourseSection.course_id == course_id,
+    ).order_by(IntranetCourseSection.sort, IntranetCourseSection.name))).scalars().all())
+
+
+def _section_rules(body: dict, row: IntranetCourseSection) -> None:
+    """Apply the release and due rules, clearing the fields the chosen rule does not use.
+
+    Clearing matters: an author who sets "Day 3", changes their mind and picks "Immediate" leaves
+    `release_day = 3` behind, and the next author to pick "Day N" finds a 3 they never typed.
+    """
+    if "release_rule" in body:
+        row.release_rule = _enum(body, "release_rule", SECTION_RELEASE_RULES) or "immediate"
+    if "release_day" in body:
+        row.release_day = _int(body, "release_day", min_value=1, max_value=365)
+    if "release_date" in body:
+        row.release_date = _date_value(body, "release_date")
+    if "due_rule" in body:
+        row.due_rule = _enum(body, "due_rule", SECTION_DUE_RULES) or "none"
+    if "due_day" in body:
+        row.due_day = _int(body, "due_day", min_value=1, max_value=365)
+
+    if row.release_rule != "day_n":
+        row.release_day = None
+    if row.release_rule != "fixed_date":
+        row.release_date = None
+    if row.due_rule not in ("end_of_day_n", "end_of_week_n"):
+        row.due_day = None
+    # A rule that needs a number and has none is not a rule. Falling back to 'immediate' is the
+    # honest reading of "Day <blank>", and the alternative is a section that never opens.
+    if row.release_rule == "day_n" and not row.release_day:
+        row.release_rule = "immediate"
+    if row.release_rule == "fixed_date" and not row.release_date:
+        row.release_rule = "immediate"
+    if row.due_rule in ("end_of_day_n", "end_of_week_n") and not row.due_day:
+        row.due_rule = "none"
+
+
+@router.post("/courses/{course_id}/sections")
+async def create_section(course_id: uuid.UUID, body: dict = Body(...),
+                         p: ConsolePrincipal = Depends(require_console_access),
+                         s: AsyncSession = Depends(get_session)):
+    course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
+    body = _body(body)
+    _unknown(body, {"name", "summary", "release_rule", "release_day", "release_date",
+                    "due_rule", "due_day", "sort", "adopt_lessons"})
+    existing = await _sections_of(s, p.user.tenant_id, course_id)
+    row = IntranetCourseSection(
+        tenant_id=p.user.tenant_id,
+        course_id=course.id,
+        # Not required. The label carries the identity for every scheme but 'custom', and making
+        # an author name "Day 1" before they can create it is the friction the New-course button
+        # already had removed once.
+        name=_text(body, "name", nullable=True, max_len=200) or "",
+        summary=_text(body, "summary", nullable=True, max_len=2000),
+        sort=_int(body, "sort", default=len(existing), min_value=0) or 0,
+    )
+    _section_rules(body, row)
+    s.add(row)
+    await s.flush()
+
+    # THE FIRST SECTION ADOPTS THE COURSE'S EXISTING LESSONS (spec 6.4). Otherwise adding one to a
+    # course that already has lessons produces an empty section above an unlabelled pile, and the
+    # author has to drag every lesson into the thing they just made.
+    if not existing and _bool(body, "adopt_lessons", True):
+        for lesson in (await s.execute(select(IntranetLesson).where(
+                IntranetLesson.tenant_id == p.user.tenant_id,
+                IntranetLesson.course_id == course.id))).scalars().all():
+            lesson.section_id = row.id
+            lesson.draft_dirty = True
+
+    course.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.section.created", category="Training",
+        summary=f"Added a section to {course.title}", target_type="course",
+        target_id=course.id, entity_type="course_section", entity_id=row.id,
+        change_kind="created")
+    # REFRESHED BEFORE SERIALISING, for the same reason every other Training handler does it:
+    # _record_mutation commits, `updated_at` carries an onupdate so the ORM expires it, and the
+    # next attribute read would lazy-load outside the async greenlet -- a 500, not a warning.
+    await s.refresh(row)
+    return _with_pending(_section(row, course.grouping_scheme, len(existing)), pending)
+
+
+@router.patch("/courses/{course_id}/sections/{section_id}")
+async def patch_section(course_id: uuid.UUID, section_id: uuid.UUID, body: dict = Body(...),
+                        p: ConsolePrincipal = Depends(require_console_access),
+                        s: AsyncSession = Depends(get_session)):
+    course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
+    row = await _one(s, IntranetCourseSection, p.user.tenant_id, section_id)
+    if row.course_id != course_id:
+        raise HTTPException(404, "Not found.")
+    body = _body(body)
+    _unknown(body, {"name", "summary", "release_rule", "release_day", "release_date",
+                    "due_rule", "due_day", "sort"})
+    if "name" in body:
+        row.name = _text(body, "name", nullable=True, max_len=200) or ""
+    if "summary" in body:
+        row.summary = _text(body, "summary", nullable=True, max_len=2000)
+    if "sort" in body:
+        row.sort = _int(body, "sort", min_value=0) or 0
+    _section_rules(body, row)
+    row.draft_dirty = True
+    course.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.section.updated", category="Training",
+        summary=f"Updated a section of {course.title}", target_type="course",
+        target_id=course.id, entity_type="course_section", entity_id=row.id)
+    await s.refresh(row)
+    siblings = await _sections_of(s, p.user.tenant_id, course_id)
+    index = next((i for i, x in enumerate(siblings) if x.id == row.id), 0)
+    return _with_pending(_section(row, course.grouping_scheme, index), pending)
+
+
+@router.delete("/courses/{course_id}/sections/{section_id}")
+async def delete_section(course_id: uuid.UUID, section_id: uuid.UUID,
+                         p: ConsolePrincipal = Depends(require_console_access),
+                         s: AsyncSession = Depends(get_session)):
+    """Remove a section and keep every lesson that was in it.
+
+    The lessons are REASSIGNED here, before the delete, to the preceding section -- or the
+    following one if this was the first. `ON DELETE SET NULL` is the backstop, not the mechanism:
+    relying on it would drop the lessons out of every section into the unlabelled group at the
+    top of the course, which reads as data loss to the person who pressed the button.
+    """
+    course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
+    row = await _one(s, IntranetCourseSection, p.user.tenant_id, section_id)
+    if row.course_id != course_id:
+        raise HTTPException(404, "Not found.")
+
+    # POSITION READ OFF THE ORDERED LIST ITSELF, not recomputed from `sort`. Two sections can
+    # share a sort value -- nothing stops it, and a reorder that half-applied would leave one --
+    # and `_sections_of` breaks that tie on `name`. Recomputing with a different tie-break picked
+    # a different neighbour, so the lessons went to the wrong section on exactly the rows where
+    # it is hardest to notice.
+    ordered = await _sections_of(s, p.user.tenant_id, course_id)
+    index = next((i for i, x in enumerate(ordered) if x.id == row.id), 0)
+    siblings = [x for x in ordered if x.id != row.id]
+    out = _section(row, course.grouping_scheme, index)
+    # The one before it, or the one after if this was the first. Never None while a sibling
+    # exists: a lesson dropped to no section reappears above the first card, which reads as loss.
+    target = siblings[index - 1] if index else (siblings[0] if siblings else None)
+    for lesson in (await s.execute(select(IntranetLesson).where(
+            IntranetLesson.tenant_id == p.user.tenant_id,
+            IntranetLesson.section_id == row.id))).scalars().all():
+        lesson.section_id = target.id if target else None
+        lesson.draft_dirty = True
+
+    await s.delete(row)
+    for order, sibling in enumerate(siblings):
+        sibling.sort = order
+        sibling.draft_dirty = True
+    course.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.section.deleted", category="Training",
+        summary=f"Removed a section from {course.title}", target_type="course",
+        target_id=course.id, entity_type="course_section", entity_id=section_id,
+        change_kind="deleted")
+    return _with_pending(out, pending)
+
+
+@router.put("/courses/{course_id}/sections/order")
+async def put_section_order(course_id: uuid.UUID, body: dict = Body(...),
+                            p: ConsolePrincipal = Depends(require_console_access),
+                            s: AsyncSession = Depends(get_session)):
+    course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
+    ids = _body(body).get("ids")
+    if not isinstance(ids, list):
+        _unprocessable("ids", "Expected a full ordered id list.")
+    by_id = {str(x.id): x for x in await _sections_of(s, p.user.tenant_id, course_id)}
+    if set(map(str, ids)) != set(by_id):
+        _unprocessable("ids", "Must include every section exactly once.")
+    for sort, section_id in enumerate(ids):
+        by_id[str(section_id)].sort = sort
+        by_id[str(section_id)].draft_dirty = True
+    course.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.section.reordered", category="Training",
+        summary=f"Reordered the sections of {course.title}", target_type="course",
+        target_id=course.id, entity_type="course_section", entity_id=course.id)
+    return _with_pending(await get_course(course_id, p, s), pending)
+
+
 @router.put("/courses/{course_id}/lessons/order")
 async def put_lesson_order(course_id: uuid.UUID, body: dict = Body(...),
                            p: ConsolePrincipal = Depends(require_console_access),
                            s: AsyncSession = Depends(get_session)):
+    """Reorder lessons, and move them between sections, in one request.
+
+    TWO ACCEPTED SHAPES. `ids` is the original flat list and still means what it meant. `lessons`
+    is `[{id, section_id, sort}]` and is what a drag between two sections sends -- one request,
+    because a move is a single act and splitting it into a reorder plus a reassignment leaves a
+    window where the lesson is in the new section at the old position.
+    """
     course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
-    ids = _body(body).get("ids")
-    if not isinstance(ids, list):
+    body = _body(body)
+    ids, moves = body.get("ids"), body.get("lessons")
+    if not isinstance(ids, list) and not isinstance(moves, list):
         _unprocessable("ids", "Expected a full ordered id list.")
     lessons = (await s.execute(select(IntranetLesson).where(
         IntranetLesson.tenant_id == p.user.tenant_id,
         IntranetLesson.course_id == course_id,
     ))).scalars().all()
-    by_id = {str(l.id): l for l in lessons}
-    if set(map(str, ids)) != set(by_id):
-        _unprocessable("ids", "Must include every lesson exactly once.")
-    for sort, lesson_id in enumerate(ids):
-        by_id[str(lesson_id)].sort = sort
-        by_id[str(lesson_id)].draft_dirty = True
+    by_id = {str(le.id): le for le in lessons}
+    section_ids = {str(x.id) for x in await _sections_of(s, p.user.tenant_id, course_id)}
+
+    if isinstance(moves, list):
+        if not all(isinstance(m, dict) for m in moves):
+            _unprocessable("lessons", "Expected objects of {id, section_id, sort}.")
+        if {str(m.get("id")) for m in moves} != set(by_id):
+            _unprocessable("lessons", "Must include every lesson exactly once.")
+        for move in moves:
+            lesson = by_id[str(move.get("id"))]
+            target = move.get("section_id")
+            target = str(target) if target else None
+            if target and target not in section_ids:
+                # A section from another course would take the lesson out of this one entirely.
+                _unprocessable("section_id", "That section is not part of this course.")
+            lesson.section_id = uuid.UUID(target) if target else None
+            lesson.sort = _int(move, "sort", default=lesson.sort, min_value=0) or 0
+            lesson.draft_dirty = True
+    else:
+        if set(map(str, ids)) != set(by_id):
+            _unprocessable("ids", "Must include every lesson exactly once.")
+        for sort, lesson_id in enumerate(ids):
+            by_id[str(lesson_id)].sort = sort
+            by_id[str(lesson_id)].draft_dirty = True
+
     course.draft_dirty = True
     pending = await _record_mutation(
         s, p, action="content.lesson.reordered", category="Training",
@@ -2637,7 +2934,8 @@ async def add_lesson_attachment(course_id: uuid.UUID, lesson_id: uuid.UUID,
         if not data:
             _unprocessable("file", "That file is empty.")
         if len(data) > uploads.MAX_ATTACHMENT_BYTES:
-            _unprocessable("file", f"Larger than {MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB.")
+            _unprocessable(
+                "file", f"Larger than {uploads.MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB.")
         sniffed = uploads.sniff_attachment(data)
         if sniffed is None:
             _unprocessable("file", "Handouts must be a PDF, PNG, JPEG or WebP.")
@@ -2658,6 +2956,96 @@ async def add_lesson_attachment(course_id: uuid.UUID, lesson_id: uuid.UUID,
         target_id=row.id, entity_type="lesson_attachment", entity_id=row.id,
         change_kind="created")
     return _with_pending(_lesson_attachment(row), pending)
+
+
+@router.get("/lessons/{lesson_id}/images/{name}")
+async def read_lesson_image(lesson_id: uuid.UUID, name: str,
+                            p: ConsolePrincipal = Depends(require_console_access),
+                            s: AsyncSession = Depends(get_session)):
+    """The same image, for the person editing the lesson.
+
+    A SECOND ROUTE RATHER THAN REUSING THE PORTAL'S, because the two authenticate differently: the
+    portal route requires a member row with training_library access, and an owner who administers
+    the workspace without being in its directory has neither. They would edit an article whose
+    images were all broken.
+
+    No course lookup: the lesson is enough to establish the tenant, and `require_console_access`
+    has already established that this caller administers it.
+    """
+    row = (await s.execute(select(IntranetLesson).where(
+        IntranetLesson.tenant_id == p.user.tenant_id,
+        IntranetLesson.id == lesson_id))).scalars().first()
+    if row is None:
+        raise HTTPException(404, "Not found.")
+    safe = binder_storage.safe_filename(name or "")
+    if not safe or safe != (name or "").strip():
+        raise HTTPException(404, "Not found.")
+    key = f"intranet/{p.user.tenant_id}/lessons/{lesson_id}/{safe}"
+    if not binder_storage.exists(key):
+        raise HTTPException(404, "Not found.")
+    data = binder_storage.read(key)
+    return Response(
+        content=data,
+        media_type=uploads.sniff_image(data) or "application/octet-stream",
+        headers={"Content-Disposition": 'inline; filename="' + safe + '"',
+                 "X-Content-Type-Options": "nosniff",
+                 "Cache-Control": "private, max-age=300"},
+    )
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_id}/images")
+async def add_lesson_image(course_id: uuid.UUID, lesson_id: uuid.UUID,
+                           alt: str = Form(...),
+                           file: UploadFile = File(...),
+                           p: ConsolePrincipal = Depends(require_console_access),
+                           s: AsyncSession = Depends(get_session)):
+    """Upload one image for a lesson body.
+
+    THE STORAGE KEY GOES IN `src`, NOT A SIGNED URL. A body is stored and served for years; a
+    signed URL expires, and the article would fill with broken images at whatever hour the
+    signature ran out. Keys resolve to URLs at render, the same way attachments do -- and the
+    sanitizer's tenant check is written against key shape, so a signed URL would not survive it.
+
+    `alt` IS REQUIRED HERE AS WELL AS IN THE EDITOR. The editor blocks the insert, which is the
+    courtesy; this is the rule. An image with no alt text is invisible to anybody using a screen
+    reader, and the person who cannot see it is the person who cannot report it missing.
+    """
+    course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
+    lesson = await _lesson_of(s, p.user.tenant_id, course_id, lesson_id)
+    alt = (alt or "").strip()[:300]
+    if not alt:
+        _unprocessable("alt", "Describe the image for anyone who cannot see it.")
+
+    data = await file.read()
+    if not data:
+        _unprocessable("file", "That file is empty.")
+    if len(data) > uploads.MAX_IMAGE_BYTES:
+        _unprocessable("file", f"Larger than {uploads.MAX_IMAGE_BYTES // (1024 * 1024)} MB.")
+    sniffed = uploads.sniff_image(data)
+    if sniffed is None:
+        _unprocessable("file", "Images must be a PNG, JPEG, WebP or GIF.")
+
+    stem = binder_storage.safe_filename(file.filename or "image").rsplit(".", 1)[0]
+    name = f"{uuid.uuid4()}-{stem}{uploads.IMAGE_TYPES[sniffed][1]}"
+    key = f"intranet/{p.user.tenant_id}/lessons/{lesson.id}/{name}"
+    binder_storage.put(key, data, sniffed)
+    size = uploads.image_size(data)
+
+    lesson.draft_dirty = True
+    course.draft_dirty = True
+    await _record_mutation(
+        s, p, action="content.lesson.image_added", category="Training",
+        summary=f"Added an image to {lesson.title}", target_type="lesson",
+        target_id=lesson.id, entity_type="lesson", entity_id=lesson.id)
+    return {
+        "storage_key": key,
+        # What goes in the editor's <img src>. The sanitizer accepts this shape and refuses any
+        # other tenant's, so the two ends agree on one spelling.
+        "url": key,
+        "alt": alt,
+        "content_type": sniffed, "byte_size": len(data),
+        "width": size[0] if size else None, "height": size[1] if size else None,
+    }
 
 
 @router.delete("/courses/{course_id}/lessons/{lesson_id}/attachments/{attachment_id}",
@@ -2687,6 +3075,46 @@ async def delete_lesson_attachment(course_id: uuid.UUID, lesson_id: uuid.UUID,
     return Response(status_code=204)
 
 
+async def _apply_lesson_section(s: AsyncSession, tenant_id, course_id, body: dict,
+                                row: IntranetLesson) -> None:
+    """Put the lesson in a section, having checked the section is one of this course's.
+
+    Unchecked, a section id from another course would move the lesson out of the course it is
+    filed under -- it would vanish from the builder and reappear in somebody else's.
+    """
+    if "section_id" not in body:
+        return
+    raw = body.get("section_id")
+    if raw in (None, ""):
+        row.section_id = None
+        return
+    target = _uuid_value(body, "section_id", nullable=True)
+    owned = {x.id for x in await _sections_of(s, tenant_id, course_id)}
+    if target not in owned:
+        _unprocessable("section_id", "That section is not part of this course.")
+    row.section_id = target
+
+
+def _apply_lesson_body(body: dict, row: IntranetLesson, tenant_id) -> None:
+    """Sanitize an authored body and derive its numbers.
+
+    SANITIZED HERE, not in the router body, so the tests can reach the rule directly and so the
+    create and patch paths cannot drift into two different allowlists.
+
+    `read_minutes` is derived from the body but stays author-overridable: the estimate is a
+    reading pace, and an author who knows their audience beats a constant. The override only
+    sticks because it is applied after -- an explicit value in the same request wins.
+    """
+    if "body_html" in body:
+        raw = body.get("body_html")
+        clean = lesson_richtext.sanitize(raw if isinstance(raw, str) else "", tenant_id=tenant_id)
+        row.body_html = clean or None
+        row.word_count = lesson_richtext.word_count(clean) or None
+        row.read_minutes = lesson_richtext.read_minutes(clean)
+    if "read_minutes" in body:
+        row.read_minutes = _int(body, "read_minutes", min_value=0)
+
+
 @router.post("/courses/{course_id}/lessons")
 async def create_lesson(course_id: uuid.UUID, body: dict = Body(...),
                         p: ConsolePrincipal = Depends(require_console_access),
@@ -2694,7 +3122,8 @@ async def create_lesson(course_id: uuid.UUID, body: dict = Body(...),
     course = await _one(s, IntranetCourse, p.user.tenant_id, course_id)
     body = _body(body)
     _unknown(body, {"title", "source_type", "source_ref", "source_label", "description",
-                    "taught_by", "duration_minutes", "required", "sort"})
+                    "taught_by", "duration_minutes", "required", "sort",
+                    "section_id", "kind", "body_html", "read_minutes", "page_count"})
     row = IntranetLesson(
         tenant_id=p.user.tenant_id,
         course_id=course.id,
@@ -2705,10 +3134,21 @@ async def create_lesson(course_id: uuid.UUID, body: dict = Body(...),
         description=_text(body, "description", nullable=True, max_len=4000),
         taught_by=_text(body, "taught_by", nullable=True, max_len=200),
         duration_minutes=_int(body, "duration_minutes", min_value=0),
+        kind=_enum(body, "kind", LESSON_KINDS, "video") or "video",
+        page_count=_int(body, "page_count", min_value=0),
         required=_bool(body, "required", False),
         sort=_int(body, "sort", default=await _count(s, IntranetLesson, p.user.tenant_id,
                                                      IntranetLesson.course_id == course_id), min_value=0) or 0,
     )
+    await _apply_lesson_section(s, p.user.tenant_id, course_id, body, row)
+    # A NEW LESSON IN A SECTIONED COURSE LANDS IN THE LAST SECTION, not in the unlabelled group
+    # above every card. "Add lesson" on a Day 5 course means Day 5; anything else makes the author
+    # drag it there every time.
+    if row.section_id is None and "section_id" not in body:
+        sections = await _sections_of(s, p.user.tenant_id, course_id)
+        if sections:
+            row.section_id = sections[-1].id
+    _apply_lesson_body(body, row, p.user.tenant_id)
     s.add(row)
     course.draft_dirty = True
     pending = await _record_mutation(
@@ -2726,7 +3166,8 @@ async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = 
     row = await _lesson_of(s, p.user.tenant_id, course_id, lesson_id)
     body = _body(body)
     _unknown(body, {"title", "source_type", "source_ref", "source_label", "description",
-                    "taught_by", "duration_minutes", "required", "sort"})
+                    "taught_by", "duration_minutes", "required", "sort",
+                    "section_id", "kind", "body_html", "read_minutes", "page_count"})
     if "title" in body:
         row.title = _text(body, "title", required=True) or row.title
     if "source_type" in body:
@@ -2741,10 +3182,19 @@ async def patch_lesson(course_id: uuid.UUID, lesson_id: uuid.UUID, body: dict = 
         row.taught_by = _text(body, "taught_by", nullable=True, max_len=200)
     if "duration_minutes" in body:
         row.duration_minutes = _int(body, "duration_minutes", min_value=0)
+    if "kind" in body:
+        # SWITCHING KIND CLEARS NOTHING. An author who flips Reading -> Video to check something
+        # and flips back must find their article still there; purging on switch would destroy a
+        # document to answer a question. Only a hard delete removes a body.
+        row.kind = _enum(body, "kind", LESSON_KINDS) or row.kind
+    if "page_count" in body:
+        row.page_count = _int(body, "page_count", min_value=0)
     if "required" in body:
         row.required = bool(_bool(body, "required"))
     if "sort" in body:
         row.sort = _int(body, "sort", min_value=0) or 0
+    await _apply_lesson_section(s, p.user.tenant_id, course_id, body, row)
+    _apply_lesson_body(body, row, p.user.tenant_id)
     row.draft_dirty = True
     course.draft_dirty = True
     pending = await _record_mutation(

@@ -33,10 +33,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import IntranetAiSetting
+from . import lesson_richtext
 
 log = logging.getLogger("app")
 
 MAX_QUESTION = 500
+# One article, capped. A long lesson would otherwise crowd out every other entry in the corpus,
+# and a question about the phone script would go unanswered because somebody wrote a thorough
+# onboarding piece.
+MAX_LESSON_BODY = 4000
 # Enough for a real answer with citations, small enough that a runaway reply cannot cost a fortune.
 MAX_TOKENS = 900
 
@@ -81,6 +86,26 @@ def corpus(content: dict) -> list[dict]:
                 "sequential": course.get("sequential"),
             },
         })
+
+        # A READING LESSON IS THE FIRST REAL PROSE THIS PRODUCT HAS. Everything else the assistant
+        # sees is metadata -- titles, owners, categories -- which is why the system prompt says so
+        # plainly. An article's body is content it can genuinely answer from, so each one becomes
+        # its own citable entry rather than being flattened into the course's list of lesson
+        # titles, where its words would be invisible.
+        for lesson in course.get("lessons") or []:
+            body = lesson_richtext.to_text(lesson.get("body_html"))
+            if not body:
+                continue
+            out.append({
+                "kind": "Training",
+                "title": f"{course.get('title')}: {lesson.get('title')}",
+                "ref": f"/training/{course.get('id')}/{lesson.get('id')}",
+                "facts": {
+                    "taught_by": lesson.get("taught_by"),
+                    "summary": lesson.get("description"),
+                    "body": body[:MAX_LESSON_BODY],
+                },
+            })
 
     for sop in c.get("sops") or []:
         out.append({
@@ -152,8 +177,9 @@ this workspace or not theirs to read. Either way you do not have it.
 WHAT THE CORPUS ACTUALLY CONTAINS. For most entries it holds titles, owners, versions, categories \
 and descriptions -- not the body of the document. Where an SOP says its contents are not available \
 to you, you have NOT read that document and must not summarise, paraphrase or quote it. Say where \
-it is, who owns it and which version is current, and point them at it. Only authored Pages carry \
-real prose you can answer from directly.
+it is, who owns it and which version is current, and point them at it. Authored Pages and reading \
+lessons DO carry real prose: an entry with a `body` is one you have actually read and may answer \
+from directly.
 
 {grounding}
 

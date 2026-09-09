@@ -292,6 +292,15 @@ class IntranetCourse(Base):
     required_for_onboarding: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     issues_certificate: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     sequential: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # How this course names its sections -- Day 1, Module 1, Part I. The label is generated from
+    # this plus the section's sort, never stored, so switching schemes renames every section at
+    # once. 'none' is the default and the state every existing course is in: no sections, flat
+    # lesson list, exactly what the portal renders today.
+    grouping_scheme: Mapped[str] = mapped_column(Text, default="none", server_default="none")
+    # Gate a section on the one before it. Distinct from `sequential`, which gates a LESSON on the
+    # lesson before it; a course can want either, both or neither.
+    lock_sections: Mapped[bool] = mapped_column(Boolean, default=False,
+                                                server_default=text("false"))
     sort: Mapped[int] = mapped_column(SmallInteger)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -301,6 +310,79 @@ class IntranetCourse(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     __table_args__ = (
         CheckConstraint("state IN ('Draft','Live','Needs Review')", name="ck_intranet_course_state"),
+        CheckConstraint(
+            "grouping_scheme IN ('day','module','week','phase','part','custom','none')",
+            name="ck_intranet_course_grouping_scheme"),
+    )
+
+
+class IntranetCourseSection(Base):
+    """A chunk of a course: Day 2, Module 3, Part II.
+
+    THE LABEL IS NOT STORED. `IntranetCourse.grouping_scheme` plus this row's `sort` generate it,
+    so a course that switches from Day to Module renames every section at once and moves nothing.
+    That is the whole reason the scheme lives on the course rather than here.
+
+    RELEASE AND DUE ARE RULES, NOT DATES. `day_n` means "N days after this member enrolled", which
+    is a different wall-clock date for every member, so a stored date would be one person's answer
+    written down as everybody's. `fixed_date` is the one rule that really is a date and has its own
+    column.
+    """
+
+    __tablename__ = "intranet_course_section"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_course.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    release_rule: Mapped[str] = mapped_column(Text, default="immediate",
+                                              server_default="immediate")
+    release_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    release_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    due_rule: Mapped[str] = mapped_column(Text, default="none", server_default="none")
+    due_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sort: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    # tenant_id + published_at + draft_dirty is what _publishable_models() looks for, so a section
+    # joins the draft/publish cycle by having these three columns and nothing else.
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("release_rule IN ('immediate','day_n','after_previous','fixed_date')",
+                        name="ck_intranet_course_section_release_rule"),
+        CheckConstraint("due_rule IN ('none','end_of_day_n','end_of_week_n','before_next_section')",
+                        name="ck_intranet_course_section_due_rule"),
+        Index("ix_intranet_course_section_course", "course_id", "sort"),
+    )
+
+
+class IntranetCourseEnrolment(Base):
+    """When a member started a course. The clock `day_n` counts from.
+
+    SERVER-OWNED, DELIBERATELY. Completion lives in `intranet_user_state`, which the browser
+    writes -- fine for a checklist, because a training list is a prompt rather than a permission.
+    An enrolment date is different: it decides what is LOCKED, so a member who could backdate
+    their own would unlock the whole course at once.
+
+    Written once, on first open, and never updated. A second row would restart the clock and put
+    Day 1 after Day 4, which is what the unique constraint is for.
+    """
+
+    __tablename__ = "intranet_course_enrolment"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_course.id", ondelete="CASCADE"), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("user_id", "course_id", name="uq_course_enrolment_user_course"),
     )
 
 
@@ -326,6 +408,15 @@ class IntranetLesson(Base):
         GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     course_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("intranet_course.id", ondelete="CASCADE"), nullable=False)
+    # NULL means "not in a section" -- every lesson that existed before sections did, and every
+    # lesson of a course that never adopts them. SET NULL on delete, so removing a section can
+    # never take a lesson's content with it.
+    section_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_course_section.id", ondelete="SET NULL"), nullable=True)
+    # WHAT this lesson is, as against `source_type`, which is WHERE it lives. A reading lesson has
+    # no host at all, and a PDF-hosted video and a downloadable document would be
+    # indistinguishable if these were one column.
+    kind: Mapped[str] = mapped_column(Text, default="video", server_default="video")
     title: Mapped[str] = mapped_column(Text)
     source_type: Mapped[str] = mapped_column(Text)
     source_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -337,6 +428,14 @@ class IntranetLesson(Base):
     # "Sharida Hansen" answers who to ask about the content, and only one of those is a person.
     taught_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # kind='reading' only. Sanitized HTML: services/lesson_richtext is the only thing allowed to
+    # produce a value for this column, on write and again on read.
+    body_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    word_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Derived from the body on write, then author-overridable: the estimate is a reading pace, and
+    # an author who knows their own audience beats a constant.
+    read_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     sort: Mapped[int] = mapped_column(SmallInteger)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -347,6 +446,8 @@ class IntranetLesson(Base):
     __table_args__ = (
         CheckConstraint("source_type IN ('LOOM','SKOOL','HERE','PDF','EXP','PLACE')",
                         name="ck_intranet_lesson_source_type"),
+        CheckConstraint("kind IN ('video','reading','document')", name="ck_intranet_lesson_kind"),
+        Index("ix_intranet_lesson_section", "section_id", "sort"),
     )
 
 

@@ -20,14 +20,15 @@ from ..deps import current_user, require_role
 from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTileRole,
                       IntranetLesson, IntranetMarketingAttachment, IntranetMarketingRequest,
                       IntranetMarketingSetting, IntranetMember, IntranetRole, IntranetSop,
-                      IntranetCourseRole, IntranetSopAcknowledgement, IntranetSopVersion,
+                      IntranetCourseRole, IntranetCourseSection, IntranetCourseEnrolment,
+                      IntranetSopAcknowledgement, IntranetSopVersion,
                       IntranetPage, IntranetPageRole, IntranetPageSection,
                       IntranetIntegration, IntranetLessonAttachment,
                       IntranetSopCategory, IntranetUserState,
                       IntranetAiQuestion, IntranetContentGap, IntranetWorkspace,
                       IntranetWtdList, Tenant, User)
-from ..services import (binder_storage, intranet_assistant, lesson_media,
-                        member_numbers, sunburst, uploads)
+from ..services import (binder_storage, course_sections, intranet_assistant, lesson_media,
+                        lesson_richtext, member_numbers, sunburst, uploads)
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import allows, capability_levels
 from ..services.audit import audit
@@ -186,6 +187,29 @@ async def _course_audience(s: AsyncSession, tenant_id, course_ids: list) -> dict
     return out
 
 
+def _resolved_sections(course, sections_by_course: dict, lessons_by_course: dict,
+                       done_lessons: set, started: dict, today) -> list[dict]:
+    """This course's sections as THIS member sees them: labels, dates, and what is open.
+
+    Counted from the lessons the portal is actually being shown, not from a stored total: a lesson
+    still in draft is not in the payload, and a section reading "2 of 5 done" against three
+    lessons nobody can see would be a course that could never be finished.
+    """
+    sections = sections_by_course.get(course.id) or []
+    if not sections:
+        return []
+    counts: dict = {}
+    for lesson in lessons_by_course.get(course.id, []):
+        if lesson.section_id is None:
+            continue
+        done, total = counts.get(str(lesson.section_id), (0, 0))
+        counts[str(lesson.section_id)] = (done + (1 if str(lesson.id) in done_lessons else 0),
+                                          total + 1)
+    return course_sections.resolve(
+        sections, scheme=course.grouping_scheme, lock_sections=bool(course.lock_sections),
+        started_on=started.get(course.id), today=today, done_counts=counts)
+
+
 def _audience_allows(audience: dict, course_id, role_id) -> bool:
     """Absence means "not restricted" -- what an admin who never opened the role picker intends.
 
@@ -196,7 +220,8 @@ def _audience_allows(audience: dict, course_id, role_id) -> bool:
     return course_id not in audience or role_id in audience[course_id]
 
 
-async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember | None) -> dict:
+async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember | None,
+                             user: User | None = None) -> dict:
     """The workspace's OWN configured content, as the intranet should render it.
 
     THIS IS THE MULTI-TENANCY FIX AND IT IS NOT COSMETIC. The console has always written roles,
@@ -273,6 +298,54 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     # written these rows since it shipped and nothing had ever read them.
     course_audience = await _course_audience(s, tenant_id, [c.id for c in courses])
     courses = [c for c in courses if _audience_allows(course_audience, c.id, my_role)]
+
+    # ── sections, and where this member stands in them ───────────────────────────────────
+    # Published like every other content type: a section drafted in the console is not a section
+    # in the portal until somebody presses Publish.
+    sections_by_course: dict = {}
+    if courses:
+        for section in (await s.execute(select(IntranetCourseSection).where(
+            IntranetCourseSection.tenant_id == tenant_id,
+            IntranetCourseSection.course_id.in_([c.id for c in courses]),
+            published(IntranetCourseSection),
+        ).order_by(IntranetCourseSection.sort))).scalars().all():
+            sections_by_course.setdefault(section.course_id, []).append(section)
+
+    # WHEN each course started, for this member. Nothing is created here -- this is a GET, and a
+    # course a member has never opened has no enrolment. `POST /courses/{id}/start` writes one.
+    started: dict = {}
+    if courses and user is not None:
+        for row in (await s.execute(select(IntranetCourseEnrolment).where(
+            IntranetCourseEnrolment.tenant_id == tenant_id,
+            IntranetCourseEnrolment.user_id == user.id,
+        ))).scalars().all():
+            started[row.course_id] = row.started_at.date() if row.started_at else None
+
+    # Completion, from the member's own training state -- the same blob the portal writes when
+    # somebody ticks a lesson. Read here so section state is decided ONCE, on the server, rather
+    # than by two frontends each reimplementing "is this section done".
+    done_lessons: set = set()
+    if user is not None:
+        state_row = (await s.execute(select(IntranetUserState).where(
+            IntranetUserState.tenant_id == tenant_id,
+            IntranetUserState.user_id == user.id,
+            IntranetUserState.scope == "training",
+        ))).scalars().first()
+        marked = ((state_row.value if state_row else None) or {}).get("done") or {}
+        done_lessons = {str(k) for k, v in marked.items() if v}
+
+    # The workspace's own day. A due date is a promise made in the office's calendar: at 6pm
+    # Mountain the UTC date has already turned over, and a member would be told they were overdue
+    # during the afternoon they were given.
+    ws_row = (await s.execute(select(IntranetWorkspace).where(
+        IntranetWorkspace.tenant_id == tenant_id))).scalars().first()
+    today = course_sections.workspace_today(ws_row.timezone if ws_row else None)
+
+    # Ungrouped lessons first, then section by section -- by each section's POSITION, never by
+    # section_id, which is a UUID and would order the sections by random hex.
+    for course_id, group in lessons_by_course.items():
+        lessons_by_course[course_id] = course_sections.order_lessons(
+            group, sections_by_course.get(course_id, []))
 
     # ── who's who ────────────────────────────────────────────────────────────────────────
     # ACTIVE MEMBERS ONLY. An invited colleague has not arrived and a removed one has left, and
@@ -461,26 +534,58 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         "courses": [{"id": str(c.id), "title": c.title, "category": c.category,
                      "description": c.description,
                      "media": lesson_media.course_media(
-                         [le.source_type for le in lessons_by_course.get(c.id, [])]),
-                     "total_duration_minutes": sum(
-                         le.duration_minutes or 0 for le in lessons_by_course.get(c.id, [])),
+                         [le.source_type for le in lessons_by_course.get(c.id, [])],
+                         [le.kind for le in lessons_by_course.get(c.id, [])]),
+                     "total_duration_minutes": course_sections.total_minutes(
+                         lessons_by_course.get(c.id, [])),
                      "required_for_onboarding": bool(c.required_for_onboarding),
                      "sequential": bool(c.sequential),
                      "track_progress": bool(c.track_progress),
                      "issues_certificate": bool(c.issues_certificate),
+                     # SECTIONS ARE RESOLVED PER MEMBER. The same section is open for one agent
+                     # and locked for another, because "Day 3" is counted from the day each of
+                     # them started -- so this cannot be a property of the course row and cannot
+                     # be worked out in the browser.
+                     "grouping_scheme": c.grouping_scheme or "none",
+                     "lock_sections": bool(c.lock_sections),
+                     "sections": _resolved_sections(c, sections_by_course, lessons_by_course,
+                                                    done_lessons, started, today),
+                     "enrolled_on": started.get(c.id).isoformat()
+                                    if started.get(c.id) else None,
+                     "day_number": course_sections.day_number(started.get(c.id), today),
                      "lessons": [{"id": str(le.id), "title": le.title,
+                                  "section_id": str(le.section_id) if le.section_id else None,
+                                  "kind": le.kind or "video",
                                   "source_type": le.source_type, "source_ref": le.source_ref,
                                   "source_label": le.source_label,
                                   "description": le.description,
                                   # The byline the player shows under the title.
                                   "taught_by": le.taught_by,
                                   "duration_minutes": le.duration_minutes,
+                                  # Sanitized on the way out as well as on the way in: the
+                                  # allowlist can change, and a body stored under yesterday's
+                                  # rules must not keep whatever yesterday allowed.
+                                  "body_html": (lesson_richtext.image_urls(
+                                      lesson_richtext.sanitize(
+                                          le.body_html, tenant_id=tenant_id),
+                                      lesson_richtext.PORTAL_IMAGE_ROUTE) or None
+                                      if (le.kind or "video") == "reading" else None),
+                                  "word_count": le.word_count,
+                                  "read_minutes": le.read_minutes,
+                                  "page_count": le.page_count,
+                                  "duration": course_sections.duration_of(
+                                      le.kind, duration_minutes=le.duration_minutes,
+                                      read_minutes=le.read_minutes, page_count=le.page_count),
                                   "required": bool(le.required),
                                   # Resolved server-side: whether this source can be played in
                                   # the page is a fact about the URL, not a rendering choice, and
                                   # framing a logged-in platform produces a refusal rather than a
-                                  # video. See services/lesson_media.
-                                  "player": lesson_media.resolve(le.source_type, le.source_ref),
+                                  # video. See services/lesson_media. None for a reading lesson,
+                                  # which has no source -- without that guard the empty
+                                  # `source_ref` resolves to a "no source attached yet" card on
+                                  # a finished article.
+                                  "player": lesson_media.resolve(le.source_type, le.source_ref,
+                                                                 kind=le.kind),
                                   "attachments": [
                                       {"id": str(a.id), "title": a.title, "kind": a.kind,
                                        "note": a.note,
@@ -631,7 +736,7 @@ async def get_config(user: User = Depends(current_user), s: AsyncSession = Depen
         role = await s.get(IntranetRole, marketing.default_role_id)
         role_name = role.name if role is not None and role.tenant_id == user.tenant_id else None
     member = await _member_for(s, user)
-    content = await _published_content(s, user.tenant_id, member)
+    content = await _published_content(s, user.tenant_id, member, user)
     workspace = (await s.execute(select(IntranetWorkspace).where(
         IntranetWorkspace.tenant_id == user.tenant_id))).scalars().first()
     # Per request rather than cached: it is four indexed counts, and a stale copy of somebody's
@@ -1039,6 +1144,68 @@ async def directory_photo(member_id: uuid.UUID, user: User = Depends(current_use
                     headers={"Cache-Control": "private, max-age=300"})
 
 
+@router.get("/lessons/{lesson_id}/images/{name}")
+async def read_lesson_image(lesson_id: uuid.UUID, name: str,
+                            user: User = Depends(current_user),
+                            s: AsyncSession = Depends(get_session)):
+    """An image embedded in a reading lesson's body.
+
+    GATED EXACTLY LIKE A HANDOUT, and for the same reason: the key is in the payload of anybody
+    who was ever allowed the course, so filtering the listing alone would be cosmetic. A course
+    restricted to Team Leaders has body images restricted to Team Leaders.
+
+    Served INLINE rather than as an attachment, which a handout is not -- an `<img>` that
+    downloads is not an image. That is only safe because the upload sniffed the bytes and the
+    allowlist is four raster formats: no SVG, so nothing served here is a script host. `nosniff`
+    keeps the browser from second-guessing the type we settled at upload.
+    """
+    await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    if member is None:
+        raise HTTPException(404, "Not found")
+    if not allows(await capability_levels(s, user.tenant_id, member.role_id), "training_library"):
+        raise HTTPException(404, "Not found")
+
+    lesson = (await s.execute(select(IntranetLesson).where(
+        IntranetLesson.tenant_id == user.tenant_id, IntranetLesson.id == lesson_id,
+        published(IntranetLesson)))).scalars().first()
+    if lesson is None:
+        raise HTTPException(404, "Not found")
+    course = (await s.execute(select(IntranetCourse).where(
+        IntranetCourse.tenant_id == user.tenant_id, IntranetCourse.id == lesson.course_id,
+        published(IntranetCourse)))).scalars().first()
+    if course is None or course.state == "Archived":
+        raise HTTPException(404, "Not found")
+    audience = await _course_audience(s, user.tenant_id, [course.id])
+    if not _audience_allows(audience, course.id, member.role_id):
+        raise HTTPException(404, "Not found")
+    return _lesson_image_response(user.tenant_id, lesson_id, name)
+
+
+def _lesson_image_response(tenant_id, lesson_id, name: str) -> Response:
+    """Read one body image off storage, having already decided the caller may have it.
+
+    THE FILENAME IS REBUILT, never joined from what arrived. `safe_filename` strips the traversal,
+    and the key is assembled from the tenant and lesson the caller was authorised against -- so a
+    name of `../../another-tenant/secret.png` addresses a file that does not exist rather than one
+    that does.
+    """
+    safe = binder_storage.safe_filename(name or "")
+    if not safe or safe != (name or "").strip():
+        raise HTTPException(404, "Not found")
+    key = f"intranet/{tenant_id}/lessons/{lesson_id}/{safe}"
+    if not binder_storage.exists(key):
+        raise HTTPException(404, "Not found")
+    data = binder_storage.read(key)
+    return Response(
+        content=data,
+        media_type=uploads.sniff_image(data) or "application/octet-stream",
+        headers={"Content-Disposition": 'inline; filename="' + safe + '"',
+                 "X-Content-Type-Options": "nosniff",
+                 "Cache-Control": "private, max-age=300"},
+    )
+
+
 @router.get("/lessons/{lesson_id}/attachments/{attachment_id}")
 async def download_lesson_attachment(lesson_id: uuid.UUID, attachment_id: uuid.UUID,
                                      user: User = Depends(current_user),
@@ -1258,6 +1425,43 @@ async def _record_gap(s: AsyncSession, tenant_id, question: str) -> None:
     row.last_asked_at = now
     if row.status == "Resolved":
         row.status = "Open"
+
+
+@router.post("/courses/{course_id}/start")
+async def start_course(course_id: uuid.UUID, user: User = Depends(current_user),
+                       s: AsyncSession = Depends(get_session)):
+    """Record the day this member started this course. Idempotent, and never rewinds the clock.
+
+    THE SERVER OWNS THIS DATE. Completion lives in the client-written state blob, which is fine
+    for a checklist -- a training list is a prompt, not a permission. An enrolment date is
+    different: `release_rule='day_n'` counts from it, so a member who could set their own would
+    unlock every section of the course at once by backdating it.
+
+    A second call returns the first answer. Re-enrolling would put Day 1 after Day 4 for somebody
+    who simply reopened the page.
+    """
+    course = (await s.execute(select(IntranetCourse).where(
+        IntranetCourse.tenant_id == user.tenant_id,
+        IntranetCourse.id == course_id,
+        IntranetCourse.state == "Live",
+        published(IntranetCourse),
+    ))).scalars().first()
+    if course is None:
+        raise HTTPException(404, "Not found.")
+
+    row = (await s.execute(select(IntranetCourseEnrolment).where(
+        IntranetCourseEnrolment.tenant_id == user.tenant_id,
+        IntranetCourseEnrolment.user_id == user.id,
+        IntranetCourseEnrolment.course_id == course_id,
+    ))).scalars().first()
+    if row is None:
+        row = IntranetCourseEnrolment(tenant_id=user.tenant_id, user_id=user.id,
+                                      course_id=course_id,
+                                      started_at=dt.datetime.now(dt.timezone.utc))
+        s.add(row)
+        await s.commit()
+        await s.refresh(row)
+    return {"course_id": str(course_id), "started_at": _iso(row.started_at)}
 
 
 @router.get("/state/{scope}")
