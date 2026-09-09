@@ -24,36 +24,41 @@ import slack from "./assets/logos/slack.png";
 import sunburst from "./assets/logos/sunburst.png";
 import sympliMortgage from "./assets/logos/sympli-mortgage.png";
 
-/* Keys are the squashed name. Order matters for the prefix pass below: the longer eXp key has to
-   be tried before the shorter one, or "exp world campus" matches "expenterprise" first. */
-const LOGOS = {
-  brivity,
-  canva,
-  expworldcampus: expWorldCampus,
-  expenterprise: expEnterprise,
-  followupboss: followUpBoss,
-  sisu,
-  skool,
-  skyslope,
-  slack,
-  sunburst,
-  symplimortgage: sympliMortgage,
-  sympli: sympliMortgage,
-};
+/* Keyed by the product's words, because SUBSTRINGS ARE NOT NAMES. The first version matched
+   `squash(name).includes(key)`, which handed Canva's logo to a tool called "Canvas" -- an LMS a
+   training-heavy team plausibly links to, wearing a design tool's mark.
 
-function squash(name) {
-  return String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-}
+   A logo matches when its words are a PREFIX of the tool's words, so "Sisu Dashboard" is Sisu and
+   "Canvas" is not Canva. The squashed whole name is tried first, which catches "SkySlope" written
+   as "Sky Slope" and vice versa. */
+const LOGOS = [
+  { words: ["brivity"], src: brivity },
+  { words: ["canva"], src: canva },
+  { words: ["exp", "world", "campus"], src: expWorldCampus },
+  { words: ["exp", "enterprise"], src: expEnterprise },
+  { words: ["follow", "up", "boss"], src: followUpBoss },
+  { words: ["sisu"], src: sisu },
+  { words: ["skool"], src: skool },
+  { words: ["skyslope"], src: skyslope },
+  { words: ["slack"], src: slack },
+  { words: ["sunburst"], src: sunburst },
+  { words: ["sympli", "mortgage"], src: sympliMortgage },
+  { words: ["sympli"], src: sympliMortgage },
+]
+  // Longest first, so "eXp World Campus" is never claimed by the shorter "eXp Enterprise" key and
+  // "Sympli Mortgage" beats the bare "Sympli".
+  .sort((a, b) => b.words.length - a.words.length);
+
+const squash = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const words = (value) => String(value || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
 /** The logo for a tool name, or null to keep its initials. */
 export function logoFor(name) {
-  const key = squash(name);
-  if (!key) return null;
-  if (LOGOS[key]) return LOGOS[key];
-  // A workspace names a tile "Sisu Dashboard" or "Slack — #help" far more often than it names it
-  // exactly. Longest key first so "eXp World Campus" cannot be claimed by a shorter match.
-  const hit = Object.keys(LOGOS)
-    .sort((a, b) => b.length - a.length)
-    .find((k) => key.startsWith(k) || key.includes(k));
-  return hit ? LOGOS[hit] : null;
+  const flat = squash(name);
+  if (!flat) return null;
+  const exact = LOGOS.find((l) => squash(l.words.join("")) === flat);
+  if (exact) return exact.src;
+  const parts = words(name);
+  const hit = LOGOS.find((l) => l.words.every((w, i) => parts[i] === w));
+  return hit ? hit.src : null;
 }
