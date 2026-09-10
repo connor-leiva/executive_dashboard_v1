@@ -271,13 +271,18 @@ function LessonRow({ courseId, lesson, index, total, open, onToggle, onSave, onR
   const subtitle = [draft.taught_by, draft.source_ref].filter(Boolean).join(" · ");
 
   return (
+    /* DRAGGABLE IS ON THE GRIP, NOT THE ROW. With it on the row, every drag anywhere inside --
+       including selecting a sentence in the rich-text editor, which lives in this same box --
+       started a lesson reorder: the browser lifted the whole card like an image, and dropping it
+       back into the editor inserted the dataTransfer payload as text. The grip has had
+       `cursor: grab` since it was drawn; this makes it mean something.
+       dragstart bubbles, so the handler stays here and only the source moves. */
     <div className={`cb-lesson${dragging ? " dragging" : ""}`}
-         draggable
          onDragStart={(e) => onDragStart(e, index)}
          onDragOver={(e) => onDragOver(e, index)}
          onDrop={(e) => onDrop(e, index)}>
       <div className="cb-lesson-row" onClick={onToggle}>
-        <span className="cb-grip" aria-hidden="true">⠿</span>
+        <span className="cb-grip" draggable title="Drag to reorder" aria-hidden="true">⠿</span>
         <span className="cb-num">{index + 1}</span>
         <span className="cb-lesson-title">
           <strong>{draft.title || "Untitled lesson"}</strong>
@@ -532,9 +537,12 @@ function SectionHeader({ detail, section, lessons, onSave, onDelete, dragProps, 
   const needsDueDay = draft.due_rule === "end_of_day_n" || draft.due_rule === "end_of_week_n";
 
   return (
-    <div className={`cb-section${dragging ? " dragging" : ""}`} draggable {...dragProps}>
+    /* On the grip, for the same reason as the lesson row above: this box holds the section's
+       own name and summary fields, and a draggable ancestor turns selecting text in them into a
+       section reorder. */
+    <div className={`cb-section${dragging ? " dragging" : ""}`} {...dragProps}>
       <div className="cb-section-row">
-        <span className="cb-grip" aria-hidden="true">⠿</span>
+        <span className="cb-grip" draggable title="Drag to reorder" aria-hidden="true">⠿</span>
         {section.label ? <span className="cb-section-chip">{section.label}</span> : null}
         <span className="cb-section-name">{draft.name || "Untitled section"}</span>
         {dueLabel ? <span className="cb-section-due">{dueLabel}</span> : null}
@@ -671,7 +679,15 @@ function LessonsTab({ detail, onSaveLesson, onAddLesson, onRemoveLesson, onReord
     setDragIndex(index);
     event.dataTransfer.effectAllowed = "move";
     // Firefox refuses to start a drag unless something is on the transfer.
-    event.dataTransfer.setData("text/plain", String(index));
+    // Firefox refuses to start a drag unless something is on the transfer. The TITLE rather
+    // than the index: a drop the browser handles itself inserts text/plain wherever it landed,
+    // and `String(index)` meant dragging the first lesson typed a bare "0" into whatever was
+    // under the cursor.
+    event.dataTransfer.setData("text/plain", lessons[index]?.title || "Lesson");
+    // The ROW is what the cursor should carry, even though the grip is what started the drag --
+    // otherwise you drag a lone six-dot glyph and cannot see what is being moved.
+    const row = event.target.closest?.(".cb-lesson-row");
+    if (row) event.dataTransfer.setDragImage(row, 24, row.offsetHeight / 2);
   }
 
   function dragOver(event) {
@@ -739,7 +755,11 @@ function LessonsTab({ detail, onSaveLesson, onAddLesson, onRemoveLesson, onReord
   function sectionDragStart(event, index) {
     sectionFrom.current = index;
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", `section:${index}`);
+    // See dragStart: a readable payload, because the browser will paste it somewhere if a drop
+    // ever escapes our own handler, and the row as the thing the cursor carries.
+    event.dataTransfer.setData("text/plain", sections[index]?.name || "Section");
+    const row = event.target.closest?.(".cb-section-row");
+    if (row) event.dataTransfer.setDragImage(row, 24, row.offsetHeight / 2);
   }
 
   function sectionDrop(event, to) {
