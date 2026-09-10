@@ -502,3 +502,32 @@ async def test_deleting_a_section_uses_the_order_the_list_is_actually_in(ctx):
         body = await _detail(c, ctx, course_id)
     assert next(le for le in body["lessons"]
                 if le["id"] == lesson_id)["section_id"] == a["id"]
+
+
+async def test_renaming_a_reading_lesson_does_not_wipe_its_read_time(ctx):
+    """TWO SAVE PATHS, ONE COLUMN. The body saves on its own debounce and the server derives
+    `read_minutes` from it; the field set saves separately and carries `read_minutes` too, from a
+    box the author left empty because the derived value is only a placeholder in it. So editing
+    the TITLE sent read_minutes=null and silently erased the reading time the article had just
+    earned."""
+    async with _client() as c:
+        course_id = await _course(c, ctx)
+        lesson_id = await _lesson(c, ctx, course_id, title="Long read", kind="reading",
+                                  body_html="<p>" + " ".join(["word"] * 660) + "</p>")
+        first = await _detail(c, ctx, course_id)
+        assert next(le for le in first["lessons"]
+                    if le["id"] == lesson_id)["read_minutes"] == 3
+
+        # What the console sends when somebody edits the title: every field, with the empty
+        # Read box as null.
+        r = await c.patch(f"/api/console/courses/{course_id}/lessons/{lesson_id}",
+                          headers=_H(ctx["admin"], ctx["host"]),
+                          json={"title": "Long read, renamed", "kind": "reading",
+                                "duration_minutes": None, "page_count": None,
+                                # The empty Read box, exactly as Training.jsx serialises it.
+                                "read_minutes": None})
+        assert r.status_code == 200, r.text
+        body = await _detail(c, ctx, course_id)
+    lesson = next(le for le in body["lessons"] if le["id"] == lesson_id)
+    assert lesson["title"] == "Long read, renamed"
+    assert lesson["read_minutes"] == 3, "the derived reading time was erased by a rename"

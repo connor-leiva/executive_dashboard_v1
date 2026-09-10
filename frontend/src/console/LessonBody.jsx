@@ -3,7 +3,7 @@ import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 import { usePostLessonImage } from "./queries.js";
 
@@ -53,7 +53,9 @@ function ToolbarButton({ on, onClick, title, children, wide }) {
   );
 }
 
-export default function LessonBody({ courseId, lessonId, value, onChange, onCounts }) {
+const LessonBody = forwardRef(function LessonBody(
+  { courseId, lessonId, value, onChange, onCounts }, ref,
+) {
   const upload = usePostLessonImage();
   const fileInput = useRef(null);
   const timer = useRef(null);
@@ -64,6 +66,17 @@ export default function LessonBody({ courseId, lessonId, value, onChange, onCoun
   const [alt, setAlt] = useState("");
   const [error, setError] = useState(null);
   const [counts, setCounts] = useState({ words: 0, minutes: 0 });
+  /* The parent uses only the MINUTES, as the placeholder in its Read box. Telling it on every
+     keystroke re-rendered the whole lesson card -- every field, the attachment list, all of it --
+     once per character typed. It hears about a change of minute instead, roughly every 220
+     words; the live word count in the toolbar below is local state and costs nothing. */
+  const toldMinutes = useRef(-1);
+  const report = useCallback((next) => {
+    setCounts(next);
+    if (next.minutes === toldMinutes.current) return;
+    toldMinutes.current = next.minutes;
+    onCounts?.(next);
+  }, [onCounts]);
 
   const editor = useEditor({
     extensions: [
@@ -91,9 +104,7 @@ export default function LessonBody({ courseId, lessonId, value, onChange, onCoun
     onUpdate: ({ editor: ed }) => {
       const html = ed.isEmpty ? "" : ed.getHTML();
       latest.current = html;
-      const next = countWords(ed);
-      setCounts(next);
-      onCounts?.(next);
+      report(countWords(ed));
       clearTimeout(timer.current);
       timer.current = setTimeout(() => onChange(latest.current), BODY_SAVE_MS);
     },
@@ -106,22 +117,41 @@ export default function LessonBody({ courseId, lessonId, value, onChange, onCoun
     if (!editor) return;
     editor.commands.setContent(value || "", false);
     latest.current = value || "";
-    const next = countWords(editor);
-    setCounts(next);
-    onCounts?.(next);
+    toldMinutes.current = -1;          // a different lesson: the parent must hear this one
+    report(countWords(editor));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, lessonId]);
 
-  useEffect(() => () => clearTimeout(timer.current), []);
+  /* Read through a ref, because `flush` runs from an unmount cleanup where a captured prop
+     would be the one from first render. */
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
-  /* Commit anything pending. The parent calls this on blur and on Done, so closing the lesson
-     inside the debounce window does not throw the last paragraph away. */
+  /* Commit anything still pending. */
   const flush = useCallback(() => {
     if (!timer.current) return;
     clearTimeout(timer.current);
     timer.current = null;
-    onChange(latest.current);
-  }, [onChange]);
+    onChangeRef.current(latest.current);
+  }, []);
+
+  /* Throw the pending save away. Only the delete path wants this: without it, unmounting a
+     lesson somebody just deleted would PATCH the row on its way out and the DELETE would race
+     it, leaving a "Could not save" banner over a lesson that is already gone. */
+  const discard = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = null;
+  }, []);
+
+  useImperativeHandle(ref, () => ({ flush, discard }), [flush, discard]);
+
+  /* FLUSH ON UNMOUNT, not on blur alone.
+   *
+   * Blur is the ordinary path and it is wired below, but it is not a guarantee: opening a
+   * different lesson unmounts this editor, and whether a focusout was dispatched first depends
+   * on the browser and on what was clicked. Anything left in the debounce window at unmount is
+   * a paragraph somebody typed, so it goes out rather than being cleared. */
+  useEffect(() => () => flush(), [flush]);
 
   function openLinkBar() {
     if (!editor) return;
@@ -288,4 +318,6 @@ export default function LessonBody({ courseId, lessonId, value, onChange, onCoun
       <EditorContent className="cb-rte" editor={editor} />
     </div>
   );
-}
+});
+
+export default LessonBody;

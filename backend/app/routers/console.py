@@ -3115,7 +3115,13 @@ def _apply_lesson_body(body: dict, row: IntranetLesson, tenant_id) -> None:
         row.word_count = lesson_richtext.word_count(clean) or None
         row.read_minutes = lesson_richtext.read_minutes(clean)
     if "read_minutes" in body:
-        row.read_minutes = _int(body, "read_minutes", min_value=0)
+        # A CLEARED BOX MEANS "USE THE DERIVED VALUE", NOT "ERASE IT". The console posts every
+        # field whenever any one of them changes, and the Read box shows the derived number only
+        # as a placeholder -- so renaming a reading lesson sent read_minutes=null and silently
+        # wiped the reading time the article had just earned. Recomputed from the body rather
+        # than merely left alone, so clearing an override genuinely returns to derived.
+        override = _int(body, "read_minutes", min_value=0)
+        row.read_minutes = override or lesson_richtext.read_minutes(row.body_html)
 
 
 @router.post("/courses/{course_id}/lessons")

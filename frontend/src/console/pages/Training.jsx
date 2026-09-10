@@ -260,6 +260,9 @@ function LessonRow({ courseId, lesson, index, total, open, onToggle, onSave, onR
   // Live from the editor, so the Read field can show what the body currently works out to
   // without waiting for a save to come back.
   const [counts, setCounts] = useState({ words: 0, minutes: 0 });
+  // Only the delete path reaches into the editor: it has to throw the pending body save away
+  // before the row goes, or the PATCH races the DELETE.
+  const bodyRef = useRef(null);
   const kind = draft.kind || "video";
   const reading = kind === "reading";
   const document_ = kind === "document";
@@ -363,6 +366,7 @@ function LessonRow({ courseId, lesson, index, total, open, onToggle, onSave, onR
                 <FieldBlock span={12} label="Lesson body"
                             hint="This is the lesson. Bold, headings, lists, callouts, links and images.">
                   <LessonBody
+                    ref={bodyRef}
                     courseId={courseId}
                     lessonId={lesson.id}
                     value={lesson.body_html || ""}
@@ -410,7 +414,10 @@ function LessonRow({ courseId, lesson, index, total, open, onToggle, onSave, onR
 
             <div className="cb-foot">
               <span>Saved automatically · draft until you publish</span>
-              <Button tone="danger" onClick={() => onRemove(lesson.id)}>Delete lesson</Button>
+              <Button tone="danger"
+                      onClick={() => { bodyRef.current?.discard(); onRemove(lesson.id); }}>
+                Delete lesson
+              </Button>
               <Button tone="primary" onClick={() => { flush(); onToggle(); }}>Done</Button>
             </div>
           </div>
@@ -690,7 +697,18 @@ function LessonsTab({ detail, onSaveLesson, onAddLesson, onRemoveLesson, onReord
     if (row) event.dataTransfer.setDragImage(row, 24, row.offsetHeight / 2);
   }
 
+  /* ONLY CLAIM OUR OWN DRAG. `preventDefault` on dragover is what says "you may drop here", and
+     doing it unconditionally made the whole card -- editor included -- a drop target for
+     anything: text dragged from another tab, a file from the desktop. The card would show a
+     "move" cursor it could not honour and then swallow the drop, because `drop` cancelled the
+     browser's default before checking whose drag it was. Now a drag we did not start passes
+     straight through to whatever is under it, which for the editor means ProseMirror. */
+  function ours() {
+    return from.current !== null || sectionFrom.current !== null;
+  }
+
   function dragOver(event) {
+    if (!ours()) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
   }
@@ -699,6 +717,7 @@ function LessonsTab({ detail, onSaveLesson, onAddLesson, onRemoveLesson, onReord
      a reorder plus a reassignment leaves a window where the lesson sits in the new section at the
      old position, and whichever request lost the race decides where it ends up. */
   function drop(event, to) {
+    if (from.current === null) return;      // not ours: let it fall through
     event.preventDefault();
     const start = from.current;
     from.current = null;
@@ -713,6 +732,7 @@ function LessonsTab({ detail, onSaveLesson, onAddLesson, onRemoveLesson, onReord
   /* Dropping onto a section HEADER means "put it at the top of this section" -- the only way to
      reach an empty one, which otherwise has no row to aim at. */
   function dropIntoSection(event, sectionId) {
+    if (from.current === null) return;
     event.preventDefault();
     const start = from.current;
     from.current = null;
