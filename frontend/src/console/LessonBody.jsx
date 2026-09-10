@@ -1,5 +1,6 @@
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,13 +33,6 @@ function countWords(editor) {
   const text = editor?.getText({ blockSeparator: " " }) || "";
   const words = text.split(/\s+/).filter(Boolean).length;
   return { words, minutes: words ? Math.max(1, Math.round(words / WORDS_PER_MINUTE)) : 0 };
-}
-
-/* An `<img src>` the server will accept. The upload returns a storage KEY, not a signed URL --
-   signed URLs expire and a body is stored for years -- so the editor shows the key through the
-   same authenticated route the portal renders it through. */
-function imageSrc(key) {
-  return key?.startsWith("http") ? key : `/api/v1/intranet/media/${encodeURIComponent(key || "")}`;
 }
 
 function ToolbarButton({ on, onClick, title, children, wide }) {
@@ -89,6 +83,9 @@ export default function LessonBody({ courseId, lessonId, value, onChange, onCoun
         protocols: ["http", "https", "mailto"],
       }),
       Image.configure({ inline: false, allowBase64: false }),
+      // Without this an unwritten lesson is a blank white rectangle with no sign it is an
+      // editor at all. The CSS for it was already there; the extension was not.
+      Placeholder.configure({ placeholder: "Write the lesson…" }),
     ],
     content: value || "",
     onUpdate: ({ editor: ed }) => {
@@ -158,8 +155,11 @@ export default function LessonBody({ courseId, lessonId, value, onChange, onCoun
       const out = await upload.mutateAsync({
         courseId, lessonId, fields: { alt: alt.trim(), file },
       });
-      editor.chain().focus()
-        .setImage({ src: imageSrc(out.storage_key), alt: alt.trim() }).run();
+      // The URL THE SERVER RETURNED, never one assembled here. What is stored is the storage
+      // key -- a signed URL would expire and a body is kept for years -- and only the server
+      // knows which route serves it back. Building one in the browser is how this shipped
+      // pointing at a route that does not exist, so the image 404'd and then vanished on save.
+      editor.chain().focus().setImage({ src: out.url, alt: alt.trim() }).run();
       setImageOpen(false);
       setAlt("");
     } catch (err) {

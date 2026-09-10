@@ -173,6 +173,27 @@ function Field({ span, label, hint, children }) {
   );
 }
 
+/* The same caption and spacing, WITHOUT the <label>.
+ *
+ * A <label> with no `for` forwards every click inside it to its first labelable descendant. That
+ * is what makes `Field` right for an input -- clicking the caption focuses it -- and actively
+ * hostile around anything else. Wrapping the rich-text editor in one made the first TOOLBAR
+ * BUTTON its control, so double-clicking a word to select it bolded the word, and any click in
+ * the body bounced focus to the toolbar and scrolled the page back up to it. Two symptoms, one
+ * element.
+ *
+ * Use this for any field whose content is not a single control.
+ */
+function FieldBlock({ span, label, hint, children }) {
+  return (
+    <div className="cb-field" style={{ gridColumn: `span ${span}` }}>
+      <span className="cb-label">{label}</span>
+      {children}
+      {hint ? <span className="cb-hint">{hint}</span> : null}
+    </div>
+  );
+}
+
 function Select({ value, onChange, options }) {
   return (
     <span className="cb-select">
@@ -334,8 +355,8 @@ function LessonRow({ courseId, lesson, index, total, open, onToggle, onSave, onR
               )}
 
               {reading ? (
-                <Field span={12} label="Lesson body"
-                       hint="This is the lesson. Bold, headings, lists, callouts, links and images.">
+                <FieldBlock span={12} label="Lesson body"
+                            hint="This is the lesson. Bold, headings, lists, callouts, links and images.">
                   <LessonBody
                     courseId={courseId}
                     lessonId={lesson.id}
@@ -343,7 +364,7 @@ function LessonRow({ courseId, lesson, index, total, open, onToggle, onSave, onR
                     onChange={saveBody}
                     onCounts={setCounts}
                   />
-                </Field>
+                </FieldBlock>
               ) : (
                 <>
                   <Field span={8}

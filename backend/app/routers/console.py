@@ -3039,9 +3039,12 @@ async def add_lesson_image(course_id: uuid.UUID, lesson_id: uuid.UUID,
         target_id=lesson.id, entity_type="lesson", entity_id=lesson.id)
     return {
         "storage_key": key,
-        # What goes in the editor's <img src>. The sanitizer accepts this shape and refuses any
-        # other tenant's, so the two ends agree on one spelling.
-        "url": key,
+        # WHAT GOES IN THE EDITOR'S <img src>, built here rather than in the browser. The client
+        # used to assemble a URL of its own from the key and got a route that does not exist --
+        # so the image 404'd in the editor and was then stripped on save, because that shape is
+        # neither an owned key nor a URL the sanitizer recognises. One spelling, and the server
+        # owns it; `lesson_richtext` folds it back to the key on the way in.
+        "url": lesson_richtext.CONSOLE_IMAGE_ROUTE.format(lesson=lesson.id, name=name),
         "alt": alt,
         "content_type": sniffed, "byte_size": len(data),
         "width": size[0] if size else None, "height": size[1] if size else None,

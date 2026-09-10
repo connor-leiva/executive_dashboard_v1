@@ -426,8 +426,12 @@ async def test_an_uploaded_image_survives_a_save_and_comes_back_fetchable(ctx):
         key = up.json()["storage_key"]
         assert up.json()["width"] == 800 and up.json()["height"] == 600
 
-        # What the editor would send: the SERVED url, not the key.
-        served = f"/api/console/lessons/{lesson_id}/images/{key.rsplit('/', 1)[1]}"
+        # THE EDITOR USES `url` VERBATIM. It shipped once building its own from the key and got a
+        # route that does not exist, so the image 404'd in the editor and was then stripped on
+        # save. This asserts the server hands back something that both fetches AND survives the
+        # sanitizer -- the two properties the client cannot check for itself.
+        served = up.json()["url"]
+        assert served == f"/api/console/lessons/{lesson_id}/images/{key.rsplit('/', 1)[1]}"
         body = f'<p>Look:</p><figure><img src="{served}" alt="Last month\'s calls"></figure>'
         for _ in range(3):                     # every save re-sends what the last one returned
             r = await c.patch(f"/api/console/courses/{course_id}/lessons/{lesson_id}",
