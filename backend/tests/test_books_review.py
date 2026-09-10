@@ -150,6 +150,94 @@ async def test_the_approved_chip_is_never_a_count_above_an_empty_list():
     assert all(r["signed_off"] for r in q["rows"])
 
 
+async def test_a_chip_count_predicts_what_clicking_it_returns():
+    """The whole point of faceting. A count computed over the window regardless of the other
+    active filters reads 30 above a list showing 4, which is how you stop trusting the screen."""
+    tid, _, _ = await _reset_and_seed_rows()
+    async with SessionLocal() as s:
+        base = await books.build_books_queue(s, tid, period="ytd", state="all",
+                                             basis=BASIS_HISTORY)
+        for stage, promised in base["stages"].items():
+            if stage in ("all", "auto", "auto_categorized"):
+                continue
+            got = await books.build_books_queue(s, tid, period="ytd", state=stage,
+                                                basis=BASIS_HISTORY)
+            assert len(got["rows"]) == promised, f"{stage}: chip said {promised}"
+
+
+async def test_the_two_axes_are_independent():
+    """Stage is where a transaction sits; basis is what decided it. Something can be cleared BY
+    history or cleared BY Claude, and the second question was previously unaskable."""
+    tid, _, _ = await _reset_and_seed_rows()
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, period="ytd", state="cleared",
+                                          basis=BASIS_HISTORY)
+    assert q["rows"]
+    assert all(r["scan_state"] == "cleared" for r in q["rows"])
+    assert all(r["basis"] == BASIS_HISTORY for r in q["rows"])
+
+
+async def test_strength_is_decided_once_on_the_server():
+    """The filter, the row badge and the drawer must not each decide what "weak" means."""
+    tid, _, _ = await _reset_and_seed_rows()
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, period="ytd", state="all", weak_only=True)
+    assert all(r["strength"] == "weak" for r in q["rows"])
+    assert len(q["rows"]) == q["lenses"]["weak"]
+    # 3 priors is below the strong threshold; 195 is far above it.
+    assert books.strength_of({"basis": BASIS_HISTORY, "priors": 3}) == "weak"
+    assert books.strength_of({"basis": BASIS_HISTORY, "priors": 195}) == "strong"
+    # A known vendor behaving unusually is never a strong call, however many priors it has.
+    assert books.strength_of({"basis": "over_band", "priors": 400}) == "thin"
+    # Splits and unreached rows have nothing to be confident about.
+    assert books.strength_of({"basis": BASIS_SPLIT}) == "na"
+    assert books.strength_of(None) == "na"
+
+
+async def test_entities_travel_with_the_payload_not_a_frontend_constant():
+    """A hardcoded entity map is per-customer code: wrong labels and no colours for tenant two."""
+    tid, _, _ = await _reset_and_seed_rows()
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, period="ytd", state="all")
+    assert q["entities"]
+    for e in q["entities"]:
+        assert e["key"] and e["name"]
+        assert e["accent"] and e["accent"].startswith("#")
+    assert q["thresholds"]["history_strong"] > q["thresholds"]["history_thin"]
+
+
+async def test_an_approved_row_names_who_signed_it_off():
+    """Acuity reads this stage. "Approved" with nobody's name against it is an assertion
+    rather than a record, and an outside reviewer cannot do anything with an assertion."""
+    tid, _, u = await _reset_and_seed_rows()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(BookTxn).where(
+            BookTxn.realm_id == "r-rev", BookTxn.qbo_id == "N1"))).scalar_one()
+        await books.approve_txn(s, tid, u, t.id)
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, period="ytd", state="approved")
+    row = next(r for r in q["rows"] if r["vendor"] == "vendor-N1")
+    assert row["decided_by"] == (u.name or u.email)
+    assert row["decision"] == "approve"
+    assert row["signed_off_at"]
+
+
+async def test_a_recategorized_row_carries_the_category_a_human_chose():
+    """recategorize_txn records the new category but never touches QuickBooks, so the decision
+    and what the books actually say are two different values. Both have to be visible."""
+    tid, _, u = await _reset_and_seed_rows()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(BookTxn).where(
+            BookTxn.realm_id == "r-rev", BookTxn.qbo_id == "N1"))).scalar_one()
+        await books.recategorize_txn(s, tid, u, t.id, "Office Supplies")
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, period="ytd", state="approved")
+    row = next(r for r in q["rows"] if r["vendor"] == "vendor-N1")
+    assert row["decision"] == "recategorize"
+    assert row["decided_category"] == "Office Supplies"
+    assert row["decided_category"] != row["current_category"]     # QBO still has the old one
+
+
 async def test_other_stages_still_hide_signed_off_work():
     """The exemption is scoped to the Approved stage only; everywhere else the whole point is
     that what you signed off last Friday does not come back."""

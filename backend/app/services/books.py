@@ -79,6 +79,60 @@ RAIL_STATES = ("pending", "cleared", "needs_approval", "escalated", "approved", 
 # came_categorized lens, which cross-cuts the rail rather than sitting inside it.
 QUEUE_FILTERS = RAIL_STATES + ("all", "auto")
 
+# The second axis: what DECIDED the category, as opposed to where the transaction sits.
+# Independent of scan_state — something can be cleared by history or cleared by Claude.
+BASIS_FILTERS = (BASIS_HISTORY, BASIS_CLAUDE, BASIS_OVER_BAND, BASIS_SPLIT, BASIS_NONE, "any")
+
+# How much to trust a call. This is policy, not presentation: the filter, the row badge and
+# the drawer's explanation all read it here, so "weak" cannot come to mean three things.
+# A history match earns strength from repetition; Claude earns it from confidence.
+STRENGTH = {"history_strong": 25, "history_thin": 5,
+            "claude_strong": 0.80, "claude_thin": 0.50}
+
+
+def basis_of(suggestion: dict | None) -> str:
+    """The basis a row filters and renders under, in ONE place. If the facet count derived this
+    differently from the row, a chip would promise rows the list then refuses to show."""
+    sug = suggestion or {}
+    # A suggestion with no tag predates migration 0059; only Pass 3 wrote those, which is the
+    # same conclusion the backfill reached from the prose.
+    return sug.get("basis") or (BASIS_NONE if not sug else BASIS_CLAUDE)
+
+
+def strength_rule(suggestion: dict | None) -> str:
+    """The threshold sentence, generated FROM the thresholds. A hand-written copy in the UI
+    would still read '25 priors' the day somebody tuned it to 40."""
+    basis = (suggestion or {}).get("basis")
+    if not basis or basis in (BASIS_SPLIT, BASIS_NONE):
+        return ""
+    if basis == BASIS_CLAUDE:
+        return ("Strong at %d%% confidence or more, thin from %d%%."
+                % (STRENGTH["claude_strong"] * 100, STRENGTH["claude_thin"] * 100))
+    if basis == BASIS_OVER_BAND:
+        return "Capped at thin: a known vendor behaving unusually is never a strong call."
+    return ("Strong at %d prior charges or more, thin from %d."
+            % (STRENGTH["history_strong"], STRENGTH["history_thin"]))
+
+
+def strength_of(suggestion: dict | None) -> str:
+    """strong | thin | weak | na — how much evidence stands behind this category."""
+    sug = suggestion or {}
+    basis = sug.get("basis")
+    if not basis or basis in (BASIS_SPLIT, BASIS_NONE):
+        return "na"                       # nothing was decided, so there is nothing to trust
+    if basis == BASIS_HISTORY:
+        p = sug.get("priors") or 0
+        return ("strong" if p >= STRENGTH["history_strong"]
+                else "thin" if p >= STRENGTH["history_thin"] else "weak")
+    if basis == BASIS_CLAUDE:
+        c = sug.get("confidence") or 0
+        return ("strong" if c >= STRENGTH["claude_strong"]
+                else "thin" if c >= STRENGTH["claude_thin"] else "weak")
+    # over_band is capped at thin on purpose: a known vendor behaving unusually is never a
+    # strong call, however many priors it has. The priors are why we noticed, not reassurance.
+    p = sug.get("priors") or 0
+    return "thin" if p >= STRENGTH["history_thin"] else "weak"
+
 
 async def _rail(s, tenant_id, mstart, mend) -> dict:
     """Scan-pipeline counts for a window. `captured` partitions exactly into the scan states —
@@ -332,35 +386,80 @@ def _source_label(bank: str | None) -> str:
 
 
 async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "needs_approval",
+                            basis: str = "any", auto_only: bool = False,
+                            weak_only: bool = False,
                             include_signed_off: bool = False) -> dict:
     """The review list.
 
-    Was hardcoded to needs_approval, which is why the only transactions Connor could see were
-    the ones the pipeline got stuck on. The Friday review goes line by line through everything,
-    so `state` selects any rail bucket (or "all") and the window comes from the global ?period=
-    string rather than a Books-only picker.
+    Two independent axes. `state` is where a transaction sits in the pipeline; `basis` is what
+    decided its category. They cross: something can be cleared BY history or cleared BY Claude,
+    and "show me everything Claude decided" is a different question from "show me what cleared".
+    Filtering only by stage — which is all this did — cannot ask the second one.
 
     Signed-off rows are hidden by default. A cleared transaction someone eyeballed and accepted
     should not reappear next Friday; it keeps its scan_state (so the rail still balances) and
     carries a reviewer instead. See acknowledge_txn.
     """
     start, end = _period_range(period)
-    bmap = {b.id: b.key for b in (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id))).scalars().all()}
+    businesses = (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id).order_by(Business.sort_order))).scalars().all()
+    bmap = {b.id: b.key for b in businesses}
+    # Entity identity ships WITH the payload instead of living in a frontend constant. A
+    # hardcoded map is per-customer code: the labels are one workspace's companies and the dot
+    # colours are chosen by hand, so a second tenant gets wrong names and no colours at all.
+    # Business.accent/ink already exist and are already editable — this just carries them.
+    entities = [{"key": b.key, "name": b.name, "accent": b.accent, "ink": b.ink}
+                for b in businesses]
+    # Who signed a transaction off. The Approved stage is what an outside accountant reads, and
+    # "approved" without a name attached is not a reviewable record — it is an assertion.
+    umap = {u.id: (u.name or u.email) for u in (await s.execute(select(User).where(
+        User.tenant_id == tenant_id))).scalars().all()}
 
     window = [BookTxn.tenant_id == tenant_id,
               BookTxn.txn_date >= start, BookTxn.txn_date <= end]
-    # Stage counts describe the whole window, never the active filter — otherwise the tab you
-    # are standing on is the only one whose number you can trust.
-    stages = {st: (await s.execute(select(func.count(BookTxn.id)).where(
-        *window, BookTxn.scan_state == st))).scalar_one() for st in RAIL_STATES}
-    stages["all"] = (await s.execute(select(func.count(BookTxn.id))
-                                     .where(*window))).scalar_one()
-    stages["auto"] = stages["auto_categorized"] = (await s.execute(
-        select(func.count(BookTxn.id)).where(
-            *window, BookTxn.came_categorized.is_(True)))).scalar_one()
-    stages["signed_off"] = (await s.execute(select(func.count(BookTxn.id)).where(
-        *window, BookTxn.reviewed_at.is_not(None)))).scalar_one()
+
+    # Facet the window from one lightweight read rather than a COUNT per chip. Sixteen round
+    # trips would be the least of it: a plain COUNT cannot express "how many WOULD there be if
+    # this facet were cleared", and without that a chip reads 30 above a list showing 4.
+    facet_rows = (await s.execute(select(
+        BookTxn.scan_state, BookTxn.came_categorized, BookTxn.reviewed_at,
+        BookTxn.suggestion).where(*window))).all()
+
+    def _passes(f, skip=None):
+        """Every active filter except `skip` — so a facet never constrains its own count."""
+        st, came, rev, sug = f
+        if skip != "stage" and state and state != "all":
+            if state == "auto":
+                if not came:
+                    return False
+            elif st != state:
+                return False
+        if skip != "basis" and basis and basis != "any" and basis_of(sug) != basis:
+            return False
+        if skip != "auto_only" and auto_only and not came:
+            return False
+        if skip != "weak_only" and weak_only and strength_of(sug) != "weak":
+            return False
+        # Approved is the one stage where hiding signed-off work would hide the stage itself.
+        if skip != "signed_off" and not include_signed_off and rev is not None and st != "approved":
+            return False
+        return True
+
+    def _count(skip, pred):
+        return sum(1 for f in facet_rows if _passes(f, skip) and pred(f))
+
+    stages = {st: _count("stage", lambda f, st=st: f[0] == st) for st in RAIL_STATES}
+    stages["all"] = _count("stage", lambda f: True)
+    stages["auto"] = stages["auto_categorized"] = _count("stage", lambda f: bool(f[1]))
+    # "signed off" is a lens, not a stage. It lived in `stages` and so applied the stage filter
+    # while every real stage entry skips it — which made one key in the dict move between tabs
+    # while the rest held still. It belongs in `lenses`, where it is faceted like its siblings.
+    bases = {b: _count("basis", lambda f, b=b: basis_of(f[3]) == b) for b in BASIS_FILTERS
+             if b != "any"}
+    bases["any"] = _count("basis", lambda f: True)
+    lenses = {"auto": _count("auto_only", lambda f: bool(f[1])),
+              "weak": _count("weak_only", lambda f: strength_of(f[3]) == "weak"),
+              "reviewed": _count("signed_off", lambda f: f[2] is not None)}
 
     conds = list(window)
     if state == "auto":
@@ -369,6 +468,8 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
         conds.append(BookTxn.came_categorized.is_(True))
     elif state and state != "all":
         conds.append(BookTxn.scan_state == state)
+    if auto_only:
+        conds.append(BookTxn.came_categorized.is_(True))
     # Asking for the Approved stage IS asking to see signed-off work — approving stamps
     # reviewed_at, so hiding signed-off rows there leaves the chip reading 9 above an empty
     # list. Every other stage still hides what has been signed off, which is the point.
@@ -376,6 +477,13 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
         conds.append(BookTxn.reviewed_at.is_(None))
     rows = (await s.execute(select(BookTxn).where(*conds)
                             .order_by(BookTxn.txn_date.asc()))).scalars().all()
+    # basis and strength live inside the suggestion JSON, whose operators differ between
+    # Postgres and SQLite. Filtering them here keeps one behaviour on both, and the SQL above
+    # has already cut the set to something small.
+    if basis and basis != "any":
+        rows = [t for t in rows if basis_of(t.suggestion) == basis]
+    if weak_only:
+        rows = [t for t in rows if strength_of(t.suggestion) == "weak"]
 
     # The approval tab keeps its historical meaning (everything outstanding, not just this
     # window) so the backlog stays visible rather than vanishing behind a date filter.
@@ -411,7 +519,7 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
     def _appr(t):
         sug = t.suggestion or {}
         conf = sug.get("confidence")
-        basis = sug.get("basis") or (BASIS_NONE if not sug else BASIS_CLAUDE)
+        b = basis_of(sug)
         return {"id": str(t.id), "entity": bmap.get(t.business_id, "-"), "date": _fmt_date(t.txn_date),
                 "vendor": t.payee, "amount": -abs(float(t.amount)) if t.qbo_type != "Deposit" else float(t.amount),
                 "qbo_type": t.qbo_type, "memo": t.memo, "current_category": t.account_label,
@@ -420,16 +528,24 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
                 "reason": sug.get("reason"), "source": _source_label(t.bank_account_label),
                 "flags": t.flags or {}, "qbo_url": qbo.app_txn_url(t.qbo_type, t.qbo_id),
                 # Why this transaction is where it is — the Friday review reads these.
-                "basis": basis, "basis_label": BASIS_LABELS.get(basis, basis),
+                "basis": b, "basis_label": BASIS_LABELS.get(b, b),
                 "priors": sug.get("priors"),
+                # How much evidence stands behind it. Computed here so the filter, the badge and
+                # the drawer cannot drift into meaning three different things by "weak".
+                "strength": strength_of(sug), "strength_rule": strength_rule(sug),
                 "scan_state": t.scan_state,
                 "came_categorized": bool(t.came_categorized),
                 # A split's "category" is where it already sits, not a proposal. Saying so stops
                 # the UI rendering it as a 0%-confidence suggestion, which reads as a bad guess.
-                "is_proposal": basis not in (BASIS_SPLIT, BASIS_NONE),
+                "is_proposal": b not in (BASIS_SPLIT, BASIS_NONE),
                 "signed_off": t.reviewed_at is not None,
                 "signed_off_at": t.reviewed_at.isoformat() if t.reviewed_at else None,
-                "decision": (t.decision or {}).get("action")}
+                "decision": (t.decision or {}).get("action"),
+                # The audit trail an accountant needs: who, and what they called it. A
+                # recategorize records the NEW category here while account_label still shows
+                # what QuickBooks has, which is exactly the gap someone has to go close.
+                "decided_by": umap.get(t.reviewed_by),
+                "decided_category": (t.decision or {}).get("category")}
 
     def _esc(l):
         sides = [_detail(txmap[tid]) for tid in (l.from_txn_id, l.to_txn_id) if tid in txmap]
@@ -457,8 +573,16 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
         # The line-by-line review: every transaction in the window, whatever happened to it.
         "period": {"key": canonical_period(period), "label": period_label(period),
                    "start": start.isoformat(), "end": end.isoformat()},
-        "filter": {"state": state, "include_signed_off": include_signed_off},
+        "filter": {"state": state, "basis": basis, "auto_only": auto_only,
+                   "weak_only": weak_only, "include_signed_off": include_signed_off},
         "stages": stages,
+        "bases": bases,
+        "basis_labels": BASIS_LABELS,
+        "lenses": lenses,
+        # Entity identity and the evidence thresholds both travel with the payload so the
+        # client renders what the server decided instead of keeping a second copy of either.
+        "entities": entities,
+        "thresholds": STRENGTH,
         "rows": [_appr(t) for t in rows],
     }
 

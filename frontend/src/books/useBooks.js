@@ -50,11 +50,18 @@ export function useBooksPL(business = "all", period = "mtd") {
 }
 /* The review list. `period` is the GLOBAL period string — the Friday expense review reads the
    same selector as every other tab rather than owning a private one. */
-export function useBooksQueue({ period = "mtd", state = "needs_approval",
+/* Two axes, not one. `state` is where a transaction sits in the pipeline; `basis` is what
+   decided its category. They cross — cleared BY history is a different question from cleared
+   BY Claude — so both ride the query string and the server facets on both. */
+export function useBooksQueue({ period = "mtd", state = "needs_approval", basis = "any",
+                                autoOnly = false, weakOnly = false,
                                 includeSignedOff = false } = {}) {
-  const q = new URLSearchParams({ period, state });
+  const q = new URLSearchParams({ period, state, basis });
+  if (autoOnly) q.set("auto_only", "true");
+  if (weakOnly) q.set("weak_only", "true");
   if (includeSignedOff) q.set("include_signed_off", "true");
-  return useEndpoint(`/books/queue?${q}`, sampleQueue, [period, state, includeSignedOff]);
+  return useEndpoint(`/books/queue?${q}`, sampleQueue,
+                     [period, state, basis, autoOnly, weakOnly, includeSignedOff]);
 }
 export function useBooksIC() {
   return useEndpoint(`/books/ic`, sampleIC, []);

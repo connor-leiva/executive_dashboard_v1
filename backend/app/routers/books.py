@@ -71,12 +71,16 @@ async def get_pl(business: str = "all", period: str = "mtd", user: User = Depend
 
 
 @router.get("/queue")
-async def get_queue(period: str = "mtd", state: str = "needs_approval",
+async def get_queue(period: str = "mtd", state: str = "needs_approval", basis: str = "any",
+                    auto_only: bool = False, weak_only: bool = False,
                     include_signed_off: bool = False,
                     user: User = Depends(books_user), s: AsyncSession = Depends(get_session)):
     if state not in books.QUEUE_FILTERS:
         raise HTTPException(400, f"unknown state: {state}")
+    if basis not in books.BASIS_FILTERS:
+        raise HTTPException(400, f"unknown basis: {basis}")
     return await books.build_books_queue(s, user.tenant_id, period=period, state=state,
+                                         basis=basis, auto_only=auto_only, weak_only=weak_only,
                                          include_signed_off=include_signed_off)
 
 
