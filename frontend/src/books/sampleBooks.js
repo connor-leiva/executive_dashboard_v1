@@ -93,14 +93,17 @@ export const sampleQueue = {
   period: { key: "last_7", label: "Last 7 days", start: "2026-08-14", end: "2026-08-20" },
   filter: { state: "needs_approval", basis: "any", auto_only: false, weak_only: false,
             include_signed_off: false },
-  stages: { all: 6, auto: 4, cleared: 2, needs_approval: 3, escalated: 1, pending: 0,
+  stages: { all: 7, auto: 4, cleared: 2, needs_approval: 4, escalated: 1, pending: 0,
             approved: 0, posted: 0, auto_categorized: 4 },
   // The second axis and the lenses, faceted the way the server sends them.
-  bases: { any: 6, history_match: 3, claude: 1, over_band: 1, split: 1, none: 0 },
+  bases: { any: 4, history_match: 1, claude: 2, over_band: 1, split: 0, none: 0 },
   basis_labels: { history_match: "Matched from history", over_band: "Known vendor, unusual amount",
                   split: "Split — never auto-categorized", claude: "Claude read it",
                   none: "Not yet reached" },
-  lenses: { auto: 4, weak: 1, reviewed: 1 },
+  lenses: { auto: 2, weak: 2, reviewed: 0 },
+  // The third facet. Faceted like the others: each is what clicking it returns under the
+  // current stage and basis, which is the invariant the live payload now keeps.
+  entity_counts: { all: 4, ulrg: 2, sympli: 1, springb: 1 },
   // Entity identity travels with the payload, so the offline view proves the screen no longer
   // depends on a hardcoded map of one customer's companies.
   entities: [
@@ -109,10 +112,9 @@ export const sampleQueue = {
     { key: "springb", name: "Spring B", accent: "#FA8069", ink: "#B2523F" },
   ],
   thresholds: { history_strong: 25, history_thin: 5, claude_strong: 0.8, claude_thin: 0.5 },
-  // What the screen actually renders is data.rows — it was missing, so the offline queue
-  // showed nothing at all.
-  get rows() { return [...this.approvals, _WORST_CASE_ROW]; },
-  approvals: [
+  // The list the screen renders. There is no `approvals` array any more — the live payload
+  // dropped it (1,900 rows nobody read), so the sample does not pretend it exists.
+  rows: [
     _q({ id: "s1", entity: "ulrg", date: "Jul 11", vendor: "Canva Teams", amount: -389,
       qbo_type: "Purchase", memo: "Canva Teams annual - design subscription", current_category: "Marketing - Software",
       bank_account: "Delta SkyMiles (AMEX)", suggest: "Marketing - Software", conf: "92%", strength: "weak",
@@ -129,6 +131,7 @@ export const sampleQueue = {
       basis: "claude", basis_label: "Claude read it", priors: null, came_categorized: false,
       strength: "thin", strength_rule: "Strong at 80% confidence or more, thin from 50%.",
       reason: "First time seeing this vendor.", source: "Bank feed", flags: { first_vendor: true }, qbo_url: QBO("bill", "1043") }),
+    _WORST_CASE_ROW,
   ],
   escalations: [
     { id: "e1", kind: "ic", date: "Jun 2", amount: 42712,

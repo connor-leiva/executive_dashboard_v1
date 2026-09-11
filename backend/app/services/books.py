@@ -385,10 +385,16 @@ def _source_label(bank: str | None) -> str:
     return bank
 
 
+class UnknownBusiness(ValueError):
+    """An entity filter naming a business this workspace does not have. Its own type so the
+    route can refuse exactly this, rather than turning every ValueError into a 400."""
+
+
 async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "needs_approval",
                             basis: str = "any", auto_only: bool = False,
                             weak_only: bool = False,
-                            include_signed_off: bool = False) -> dict:
+                            include_signed_off: bool = False,
+                            business: str = "all") -> dict:
     """The review list.
 
     Two independent axes. `state` is where a transaction sits in the pipeline; `basis` is what
@@ -399,6 +405,12 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
     Signed-off rows are hidden by default. A cleared transaction someone eyeballed and accepted
     should not reappear next Friday; it keeps its scan_state (so the rail still balances) and
     carries a reviewer instead. See acknowledge_txn.
+
+    The entity is a THIRD facet, counted exactly like the other two. It used to be applied in the
+    browser after this function had already counted everything, so with one business selected
+    every chip still counted all of them: on the live books "Claude 20" sat above four rows,
+    because twenty was the workspace and four was beCollective's share. A filter the counts
+    cannot see makes every number beside it wrong, and nothing on the screen says which.
     """
     start, end = _period_range(period)
     businesses = (await s.execute(select(Business).where(
@@ -410,6 +422,11 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
     # Business.accent/ink already exist and are already editable — this just carries them.
     entities = [{"key": b.key, "name": b.name, "accent": b.accent, "ink": b.ink}
                 for b in businesses]
+    # Refused rather than ignored: an unknown key silently returning the whole workspace would
+    # show everything under a filter that claims otherwise.
+    if business and business != "all" and business not in {b.key for b in businesses}:
+        raise UnknownBusiness(f"unknown business: {business}")
+    bid_of = {b.key: b.id for b in businesses}
     # Who signed a transaction off. The Approved stage is what an outside accountant reads, and
     # "approved" without a name attached is not a reviewable record — it is an assertion.
     umap = {u.id: (u.name or u.email) for u in (await s.execute(select(User).where(
@@ -423,11 +440,18 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
     # this facet were cleared", and without that a chip reads 30 above a list showing 4.
     facet_rows = (await s.execute(select(
         BookTxn.scan_state, BookTxn.came_categorized, BookTxn.reviewed_at,
-        BookTxn.suggestion).where(*window))).all()
+        BookTxn.suggestion, BookTxn.business_id).where(*window))).all()
 
-    def _passes(f, skip=None):
-        """Every active filter except `skip` — so a facet never constrains its own count."""
-        st, came, rev, sug = f
+    def _passes(f, skip=None, stage=None):
+        """Every active filter except `skip` — so a facet never constrains its own count.
+
+        `stage` is the stage IN EFFECT: the chip being counted while the stage facet is counted,
+        the active filter otherwise. It decides whether signed-off work is visible, exactly as the
+        row query below decides it."""
+        st, came, rev, sug, bid = f
+        in_effect = state if stage is None else stage
+        if skip != "entity" and business and business != "all" and bmap.get(bid) != business:
+            return False
         if skip != "stage" and state and state != "all":
             if state == "auto":
                 if not came:
@@ -440,17 +464,23 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
             return False
         if skip != "weak_only" and weak_only and strength_of(sug) != "weak":
             return False
-        # Approved is the one stage where hiding signed-off work would hide the stage itself.
-        if skip != "signed_off" and not include_signed_off and rev is not None and st != "approved":
+        # Signed-off work is hidden everywhere except the Approved stage, where hiding it would
+        # hide the stage itself — keyed on the stage IN EFFECT, as the row query is. It was keyed
+        # on the ROW's own stage, which counted every approved row into "All" while the list for
+        # All hid them: after a Friday's approvals the All chip read that many rows higher than
+        # the list under it. The same failure as the entity one, on a different axis.
+        if (skip != "signed_off" and not include_signed_off and rev is not None
+                and in_effect != "approved"):
             return False
         return True
 
-    def _count(skip, pred):
-        return sum(1 for f in facet_rows if _passes(f, skip) and pred(f))
+    def _count(skip, pred, stage=None):
+        return sum(1 for f in facet_rows if _passes(f, skip, stage) and pred(f))
 
-    stages = {st: _count("stage", lambda f, st=st: f[0] == st) for st in RAIL_STATES}
-    stages["all"] = _count("stage", lambda f: True)
-    stages["auto"] = stages["auto_categorized"] = _count("stage", lambda f: bool(f[1]))
+    stages = {st: _count("stage", lambda f, st=st: f[0] == st, stage=st) for st in RAIL_STATES}
+    stages["all"] = _count("stage", lambda f: True, stage="all")
+    stages["auto"] = stages["auto_categorized"] = _count("stage", lambda f: bool(f[1]),
+                                                         stage="auto")
     # "signed off" is a lens, not a stage. It lived in `stages` and so applied the stage filter
     # while every real stage entry skips it — which made one key in the dict move between tabs
     # while the rest held still. It belongs in `lenses`, where it is faceted like its siblings.
@@ -460,6 +490,11 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
     lenses = {"auto": _count("auto_only", lambda f: bool(f[1])),
               "weak": _count("weak_only", lambda f: strength_of(f[3]) == "weak"),
               "reviewed": _count("signed_off", lambda f: f[2] is not None)}
+    # Each business's chip with every OTHER filter applied, so "beCollective 4" is what clicking
+    # it returns under the current stage and basis — not that business's total for the window.
+    entity_counts = {b.key: _count("entity", lambda f, k=b.key: bmap.get(f[4]) == k)
+                     for b in businesses}
+    entity_counts["all"] = _count("entity", lambda f: True)
 
     conds = list(window)
     if state == "auto":
@@ -470,6 +505,8 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
         conds.append(BookTxn.scan_state == state)
     if auto_only:
         conds.append(BookTxn.came_categorized.is_(True))
+    if business and business != "all":
+        conds.append(BookTxn.business_id == bid_of[business])
     # Asking for the Approved stage IS asking to see signed-off work — approving stamps
     # reviewed_at, so hiding signed-off rows there leaves the chip reading 9 above an empty
     # list. Every other stage still hides what has been signed off, which is the point.
@@ -485,11 +522,15 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
     if weak_only:
         rows = [t for t in rows if strength_of(t.suggestion) == "weak"]
 
-    # The approval tab keeps its historical meaning (everything outstanding, not just this
-    # window) so the backlog stays visible rather than vanishing behind a date filter.
-    approvals = (await s.execute(select(BookTxn).where(
-        BookTxn.tenant_id == tenant_id, BookTxn.scan_state == "needs_approval")
-        .order_by(BookTxn.txn_date.asc()))).scalars().all()
+    # The backlog tile keeps its historical meaning — everything outstanding, not just this
+    # window — so it stays visible rather than vanishing behind a date filter.
+    #
+    # A COUNT, not the rows. This used to load and serialize every outstanding transaction so
+    # the tile could take len() of them: on the live books that was 1,900 rows and 1.81 MB of a
+    # 1.86 MB payload, re-sent on every chip click, and nothing on screen read a single one. The
+    # list a reviewer works from is `rows`, which is windowed and faceted.
+    awaiting = (await s.execute(select(func.count(BookTxn.id)).where(
+        BookTxn.tenant_id == tenant_id, BookTxn.scan_state == "needs_approval"))).scalar_one()
     # IC escalations (link-level, the CFO seat)
     esc_links = (await s.execute(select(ICLink).where(
         ICLink.tenant_id == tenant_id, ICLink.status.in_(("escalated", "unmatched")))
@@ -567,18 +608,19 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
                 "tax_note": "Characterization affects basis and taxes; the CFO decides."}
 
     return {
-        "stats": {"awaiting": len(approvals), "escalated": len(esc_links), "approved_7d": approved_7d},
-        "approvals": [_appr(t) for t in approvals],
+        "stats": {"awaiting": awaiting, "escalated": len(esc_links), "approved_7d": approved_7d},
         "escalations": [_esc(l) for l in esc_links],
         # The line-by-line review: every transaction in the window, whatever happened to it.
         "period": {"key": canonical_period(period), "label": period_label(period),
                    "start": start.isoformat(), "end": end.isoformat()},
         "filter": {"state": state, "basis": basis, "auto_only": auto_only,
-                   "weak_only": weak_only, "include_signed_off": include_signed_off},
+                   "weak_only": weak_only, "include_signed_off": include_signed_off,
+                   "business": business or "all"},
         "stages": stages,
         "bases": bases,
         "basis_labels": BASIS_LABELS,
         "lenses": lenses,
+        "entity_counts": entity_counts,
         # Entity identity and the evidence thresholds both travel with the payload so the
         # client renders what the server decided instead of keeping a second copy of either.
         "entities": entities,

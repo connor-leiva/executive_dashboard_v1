@@ -201,7 +201,9 @@ async def test_queue_detail_and_qbo_links():
     async with _client() as c:
         q = (await c.get("/api/v1/books/queue", headers=_H(tok))).json()
 
-    appr = next(a for a in q["approvals"] if a.get("qbo_url") and "qd_appr" in a["qbo_url"])
+    # `rows`, not `approvals`: the payload no longer ships the whole backlog (1,900 rows nobody
+    # read). The default filter is Needs approval over the current month, which holds this one.
+    appr = next(a for a in q["rows"] if a.get("qbo_url") and "qd_appr" in a["qbo_url"])
     assert appr["qbo_type"] == "Purchase" and appr["memo"] == "annual subscription"
     assert appr["current_category"] == "Marketing - Software"
     assert appr["qbo_url"].endswith("/expense?txnId=qd_appr")     # QuickBooks deep link
@@ -211,6 +213,27 @@ async def test_queue_detail_and_qbo_links():
     assert esc["txns"][0]["bank_account"] == "Zions Operating *3251"
     assert esc["txns"][0]["qbo_url"].endswith("/transfer?txnId=qd_tr")
     assert "->" not in esc["label"] and "Zions" in esc["label"]    # one-sided: no "springb -> springb"
+
+
+async def test_queue_entity_is_filtered_by_the_server_and_validated():
+    """The entity pills filtered in the browser, after the server had counted every business, so
+    each chip described the workspace rather than the list under it. It is a query parameter now,
+    checked against this workspace's businesses."""
+    tid, biz = await _ids()
+    async with SessionLocal() as s:
+        s.add_all([_txn(tid, biz["ulrg"], "qe_u", "needs_approval", payee="U-vendor"),
+                   _txn(tid, biz["springb"], "qe_s", "needs_approval", payee="S-vendor")])
+        await s.commit()
+    tok = await _owner_token()
+    async with _client() as c:
+        mine = (await c.get("/api/v1/books/queue?state=all&business=ulrg",
+                            headers=_H(tok))).json()
+        bad = await c.get("/api/v1/books/queue?business=nope", headers=_H(tok))
+    assert mine["rows"] and {r["entity"] for r in mine["rows"]} == {"ulrg"}
+    assert mine["filter"]["business"] == "ulrg"
+    assert mine["entity_counts"]["ulrg"] == len(mine["rows"])
+    assert "approvals" not in mine
+    assert bad.status_code == 400 and "nope" in bad.text
 
 
 async def _txn_id(qid):

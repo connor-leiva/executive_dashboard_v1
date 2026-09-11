@@ -55,13 +55,20 @@ export function useBooksPL(business = "all", period = "mtd") {
    BY Claude — so both ride the query string and the server facets on both. */
 export function useBooksQueue({ period = "mtd", state = "needs_approval", basis = "any",
                                 autoOnly = false, weakOnly = false,
-                                includeSignedOff = false } = {}) {
+                                includeSignedOff = false, business = "all" } = {}) {
   const q = new URLSearchParams({ period, state, basis });
+  if (business && business !== "all") q.set("business", business);
   if (autoOnly) q.set("auto_only", "true");
   if (weakOnly) q.set("weak_only", "true");
   if (includeSignedOff) q.set("include_signed_off", "true");
-  return useEndpoint(`/books/queue?${q}`, sampleQueue,
-                     [period, state, basis, autoOnly, weakOnly, includeSignedOff]);
+  // Offline there is no server to facet, so the sample narrows its own rows — otherwise the
+  // entity chips would do nothing in the demo. Never runs against a real API: there the entity
+  // is the server's job, and doing it here as well is exactly what hid it not being done.
+  const sample = business && business !== "all"
+    ? { ...sampleQueue, rows: sampleQueue.rows.filter((r) => r.entity === business) }
+    : sampleQueue;
+  return useEndpoint(`/books/queue?${q}`, sample,
+                     [period, state, basis, autoOnly, weakOnly, includeSignedOff, business]);
 }
 export function useBooksIC() {
   return useEndpoint(`/books/ic`, sampleIC, []);

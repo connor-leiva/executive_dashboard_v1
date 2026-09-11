@@ -27,6 +27,38 @@ function actionBtn(kind) {
   return { ...base, color: T.slate, background: T.white, border: `1px solid ${T.line}` };
 }
 
+/* ONE COLUMN TEMPLATE for the header and every row, so a column is a column.
+
+   The row used to be a flex strip where each cell took the width of its content. The category
+   chip ran anywhere from 90px to 340px, so Evidence started at a different x on every row; and
+   Approve only exists on some rows, so the action area changed width and dragged the AMOUNTS
+   with it — $30,000 sat 116px to the left of $1,000 in the same column. A figure column that
+   does not line up is not a column.
+
+   Sized from measurement rather than taste. Books is capped at 1100px, so the table has about
+   1,050px on any large screen, and that budget is fixed. The fixed tracks are cut to what their
+   longest real content needs ("Sympli Mortgage" is 108px; a five-figure amount is 56px), and the
+   room goes to category — the thing being approved — which takes the largest share. Evidence's
+   floor fits its longest label, "Over range · 9 priors", beside the strength word.
+
+   The header renders this same template, which is what puts every label over its data; below
+   TABLE_MIN the table scrolls inside the card instead of crushing a column. */
+const COLS = "42px 112px minmax(84px, 1fr) minmax(110px, 1.4fr) minmax(190px, 1fr) 84px 12px";
+const COL_GAP = 12;
+const CHECK = 15;
+const ACTIONS_W = 160;          // Approve + Reviewed measured 150; room for another platform's font
+const PAD_X = 8;
+const ROW = { display: "flex", alignItems: "center", gap: 12 };
+const GRID = { flex: 1, minWidth: 0, display: "grid", gridTemplateColumns: COLS,
+               columnGap: COL_GAP, alignItems: "center" };
+const ACTIONS = { width: ACTIONS_W, flexShrink: 0, display: "flex", justifyContent: "flex-end",
+                  alignItems: "center", gap: 6 };
+const CHECKBOX = { width: CHECK, height: CHECK, margin: 0, flexShrink: 0, cursor: "pointer",
+                   accentColor: T.meadow };
+// The fixed tracks (42+112+84+12) and the three floors (84+110+190), six gaps, the checkbox,
+// its two gaps, the actions and the side padding: 921px, which a 1280px laptop just clears.
+const TABLE_MIN = 634 + 6 * COL_GAP + CHECK + 2 * 12 + ACTIONS_W + 2 * PAD_X;
+
 /* `scope` is not decoration. These three tiles count the whole backlog while the stage chips
    below count the selected window, so without it the screen shows 1129 next to 1127 next to 9
    next to 11 and every one of them looks like a bug. */
@@ -54,16 +86,21 @@ const leafOf = (s) => {
 };
 
 function CategoryChip({ tx }) {
-  const base = { fontFamily: font.body, fontSize: 11.5, borderRadius: 6, padding: "3px 9px",
-    maxWidth: 210, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-    flexShrink: 1, minWidth: 0 };
+  /* Fills its column and truncates inside it; the full path is in the tooltip. The confidence is
+     NOT repeated here: Evidence states it, and "· 90%" twice on one row was the single biggest
+     thing crowding the category name out of its own chip. */
+  const base = { display: "inline-block", maxWidth: "100%", boxSizing: "border-box",
+    verticalAlign: "middle", fontFamily: font.body, fontSize: 11.5, borderRadius: 6,
+    padding: "3px 9px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   if (tx.is_proposal && tx.suggest) {
     return (
       <span title={tx.suggest} style={{ ...base, fontWeight: 600, color: T.teal, background: T.mist }}>
-        {leafOf(tx.suggest)}{tx.conf ? ` · ${tx.conf}` : ""}</span>
+        {leafOf(tx.suggest)}</span>
     );
   }
-  if (!tx.current_category) return null;
+  if (!tx.current_category) {
+    return <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>—</span>;
+  }
   return (
     <span title={tx.current_category}
       style={{ ...base, color: T.muted, border: `1px solid ${T.line}` }}>
@@ -83,11 +120,21 @@ function Evidence({ tx, compact = false }) {
     : tx.basis === "split" && compact ? "no guess" : "";
   // The row says "History · 38 priors"; the drawer, which has room, says "Matched from history".
   const label = compact ? (BASIS_SHORT[tx.basis] || tx.basis) : (tx.basis_label || tx.basis);
-  /* display:flex, not inline-flex. An inline-flex box is sized by its CONTENT, so on a narrow row
-     it grew past its column and painted over the amount — the WEAK badge landed on "$30,000".
-     A block-level flex box fills the column it is given, and overflow:hidden is the guarantee. */
+  const text = `${BASIS_GLYPH[tx.basis] || ""} ${label}${detail ? ` · ${detail}` : ""}`.trim();
+  const word = tx.strength === "weak" ? "WEAK" : tx.strength === "thin" ? "THIN" : null;
+  const badge = word && (
+    <span style={{ fontFamily: font.head, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.07em",
+      borderRadius: 4, padding: "1px 4px", background: T.white, whiteSpace: "nowrap",
+      color: word === "WEAK" ? T.ink : T.secondary,
+      border: `1px solid ${word === "WEAK" ? T.ink : T.muted}` }}>{word}</span>
+  );
+  /* STRENGTH FIRST, IN FIXED POSITIONS. The notches and the WEAK/THIN word sit in a slot of their
+     own ahead of the text, so every row's source text starts at the same x and every WEAK lines
+     up under the one above it. Placed after the text, the word drifted with the text's length —
+     and on a narrow row it was the word that got pushed out, the one part that matters most. */
   return (
-    <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, overflow: "hidden" }}>
+    <span title={compact ? text : undefined}
+      style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, overflow: "hidden" }}>
       <span aria-hidden="true" style={{ display: "inline-flex", gap: 2, flexShrink: 0 }}>
         {[1, 2, 3].map((n) => (
           <span key={n} style={{ width: 7, height: 13, borderRadius: 2, boxSizing: "border-box",
@@ -96,19 +143,17 @@ function Evidence({ tx, compact = false }) {
               : fill >= n ? "none" : `1px solid ${T.muted}` }} />
         ))}
       </span>
-      {/* min-width:0 is what lets the ellipsis ever happen. A flex item's minimum defaults to its
-          full text width, so without it the text refused to shrink and shoved the badge outward. */}
+      {compact
+        // WEAK measured 40px at 5px padding — exactly the slot, with nothing spare for another
+        // platform's font. At 4px it is 38, and the slot keeps its 40.
+        ? <span style={{ width: 40, flexShrink: 0, display: "inline-flex" }}>{badge}</span>
+        : badge}
+      {/* min-width:0 is what lets the ellipsis ever happen: a flex item's minimum is otherwise
+          its full text width, and the text refused to shrink. */}
       <span style={{ fontFamily: font.body, fontSize: 11, color: T.secondary, overflow: "hidden",
-        textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: "0 1 auto" }}>
-        {BASIS_GLYPH[tx.basis] || ""} {label}{detail ? ` · ${detail}` : ""}
+        textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: "1 1 auto" }}>
+        {text}
       </span>
-      {(tx.strength === "weak" || tx.strength === "thin") && (
-        <span style={{ fontFamily: font.head, fontSize: 9.5, fontWeight: 700, flexShrink: 0,
-          letterSpacing: "0.07em", borderRadius: 4, padding: "1px 5px", background: T.white,
-          color: tx.strength === "weak" ? T.ink : T.secondary,
-          border: `1px solid ${tx.strength === "weak" ? T.ink : T.muted}` }}>
-          {tx.strength === "weak" ? "WEAK" : "THIN"}</span>
-      )}
     </span>
   );
 }
@@ -120,46 +165,58 @@ function QueueRow({ tx, open, onToggle, onDone, selected = false, onSelect, focu
   const run = async (fn) => { setBusy(true); try { await fn(); onDone(tx.id); } finally { setBusy(false); } };
   const quiet = { fontFamily: font.head, fontSize: 11.5, fontWeight: 600, borderRadius: 7,
                   padding: "5px 11px", cursor: "pointer", whiteSpace: "nowrap" };
+  const cell = { fontFamily: font.body, fontSize: 11.5, minWidth: 0, overflow: "hidden",
+                 textOverflow: "ellipsis", whiteSpace: "nowrap" };
+  const payee = tx.vendor || tx.memo || "—";
+  const entName = ent?.name || tx.entity || "—";
   return (
     <div style={{ borderTop: `1px solid ${T.line}`,
       background: focused ? T.parchment : selected ? T.mist : "transparent" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 4px" }}>
+      <div style={{ ...ROW, padding: `11px ${PAD_X}px` }}>
         <input type="checkbox" checked={selected} onChange={onSelect} disabled={busy}
-          aria-label={`Select ${tx.vendor || "transaction"}`}
-          style={{ width: 15, height: 15, flexShrink: 0, cursor: "pointer", accentColor: T.meadow }} />
-        <button onClick={onToggle} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
-          gap: 14, padding: 0, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
-          <span style={{ width: 44, fontFamily: font.body, fontSize: 11.5, color: T.muted, flexShrink: 0 }}>{tx.date}</span>
+          aria-label={`Select ${tx.vendor || "transaction"}`} style={CHECKBOX} />
+        <button onClick={onToggle} aria-expanded={open}
+          style={{ ...GRID, padding: 0, background: "transparent", border: "none",
+            cursor: "pointer", textAlign: "left", color: "inherit" }}>
+          <span style={{ ...cell, color: T.muted, fontVariantNumeric: "tabular-nums" }}>{tx.date}</span>
           {/* Entity name and colour come from the payload — each workspace's own businesses. */}
-          <span style={{ width: 124, flexShrink: 0, display: "inline-flex", alignItems: "center",
-            gap: 6, minWidth: 0 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
             <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0,
               background: ent?.accent || T.muted }} />
-            <span style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 600, color: T.secondary,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {ent?.name || tx.entity}</span>
+            <span title={entName} style={{ ...cell, fontWeight: 600, color: T.secondary }}>{entName}</span>
           </span>
-          <span style={{ width: 190, minWidth: 0, fontFamily: font.body, fontSize: 13, fontWeight: 600,
-            color: tx.vendor ? T.ink : T.secondary, overflow: "hidden", textOverflow: "ellipsis",
-            whiteSpace: "nowrap" }}>{tx.vendor || tx.memo}</span>
-          {tx.signed_off && <span style={{ fontFamily: font.body, fontSize: 11, fontWeight: 600,
-            color: T.meadowInk, flexShrink: 0 }}>✓ {tx.decided_by || "reviewed"}</span>}
-          <CategoryChip tx={tx} />
-          <span style={{ flex: 1, minWidth: 0, overflow: "hidden" }}><Evidence tx={tx} compact /></span>
-          <span style={{ width: 82, textAlign: "right", fontFamily: font.head, fontSize: 13.5, fontWeight: 600,
-            color: T.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{usd(tx.amount)}</span>
-          <span style={{ color: T.muted, fontSize: 12, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+          <span title={payee} style={{ ...cell, fontSize: 13, fontWeight: 600,
+            color: tx.vendor ? T.ink : T.secondary }}>{payee}</span>
+          <span style={{ minWidth: 0, overflow: "hidden" }}><CategoryChip tx={tx} /></span>
+          <Evidence tx={tx} compact />
+          {/* The data face, not the display face: it has tabular figures, which is the entire
+              reason a right-aligned money column lines up digit for digit. */}
+          <span style={{ textAlign: "right", fontFamily: "var(--font-data)", fontSize: 13.5,
+            fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap" }}>{usd(tx.amount)}</span>
+          <span aria-hidden="true" style={{ color: T.muted, fontSize: 12, textAlign: "center",
+            transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
         </button>
-        {/* Quick action without selecting first — most decisions are one row at a time. */}
-        <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          {tx.scan_state === "needs_approval" && (
-            <button disabled={busy} title="Approve" style={{ ...quiet, color: T.white, background: T.meadow, border: "none" }}
-              onClick={() => run(() => mutate(`/books/txn/${tx.id}/approve`))}>Approve</button>
-          )}
-          {!tx.signed_off && (
-            <button disabled={busy} title="Seen and fine — hide from next Friday"
-              style={{ ...quiet, color: T.slate, background: T.white, border: `1px solid ${T.line}` }}
-              onClick={() => run(() => mutate(`/books/txn/${tx.id}/acknowledge`))}>Reviewed</button>
+        {/* Reserved width on EVERY row, right-aligned, so Reviewed always sits in one place and
+            Approve takes the slot beside it only where there is something to approve. A row that
+            is already signed off says who did it here, instead of offering the action again. */}
+        <span style={ACTIONS}>
+          {tx.signed_off ? (
+            <span title={[tx.decided_by, tx.signed_off_at && fmtWhen(tx.signed_off_at)]
+                .filter(Boolean).join(" · ") || undefined}
+              style={{ ...cell, fontWeight: 600, color: T.meadowInk }}>
+              ✓ {tx.decided_by || "Reviewed"}</span>
+          ) : (
+            <>
+              {tx.scan_state === "needs_approval" && (
+                <button disabled={busy} title="Approve"
+                  style={{ ...quiet, color: T.white, background: T.meadow, border: "none" }}
+                  onClick={() => run(() => mutate(`/books/txn/${tx.id}/approve`))}>Approve</button>
+              )}
+              <button disabled={busy} title="Seen and fine — hide from next Friday"
+                style={{ ...quiet, color: T.slate, background: T.white, border: `1px solid ${T.line}` }}
+                onClick={() => run(() => mutate(`/books/txn/${tx.id}/acknowledge`))}>Reviewed</button>
+            </>
           )}
         </span>
       </div>
@@ -222,6 +279,31 @@ function QueueRow({ tx, open, onToggle, onDone, selected = false, onSelect, focu
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* The column labels: the same template as every row, so each label sits over its own data. The
+   select-all box lives here, at the same x as every row's box, instead of on a strip above where
+   it lined up with nothing. */
+function QueueHeader({ allShown, onToggleAll }) {
+  const h = { fontFamily: font.head, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
+    textTransform: "uppercase", color: T.secondary, whiteSpace: "nowrap", overflow: "hidden",
+    textOverflow: "ellipsis", minWidth: 0 };
+  return (
+    <div style={{ ...ROW, padding: `9px ${PAD_X}px`, borderTop: `1px solid ${T.line}` }}>
+      <input type="checkbox" checked={allShown} onChange={onToggleAll}
+        aria-label="Select every transaction shown" style={CHECKBOX} />
+      <div style={GRID}>
+        <span style={h}>Date</span>
+        <span style={h}>Entity</span>
+        <span style={h}>Payee</span>
+        <span style={h}>Category</span>
+        <span style={h}>Evidence</span>
+        <span style={{ ...h, textAlign: "right" }}>Amount</span>
+        <span />
+      </div>
+      <span aria-hidden="true" style={ACTIONS} />
     </div>
   );
 }
@@ -319,7 +401,7 @@ function AxisRow({ label, children }) {
   );
 }
 
-function Facet({ label, count, active, onClick, glyph, ink, title }) {
+function Facet({ label, count, active, onClick, glyph, ink, title, dot }) {
   const dead = !active && count === 0;      // nothing there — say so quietly rather than hide it
   return (
     <button onClick={onClick} title={title || undefined}
@@ -329,6 +411,9 @@ function Facet({ label, count, active, onClick, glyph, ink, title }) {
         color: active ? T.white : dead ? T.muted : T.secondary,
         background: active ? (ink ? T.evergreen : T.meadow) : T.white,
         border: `1px solid ${active ? (ink ? T.evergreen : T.meadow) : T.line}` }}>
+      {/* An entity chip carries the same dot as that entity's rows, so the two read as one. */}
+      {dot && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0,
+        background: dot, boxShadow: active ? `0 0 0 1.5px ${T.white}` : "none" }} />}
       {glyph && <span aria-hidden="true" style={{ fontSize: 11, lineHeight: 1 }}>{glyph}</span>}
       {label}
       {count != null && <span style={{ fontVariantNumeric: "tabular-nums",
@@ -363,11 +448,11 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
   const [autoOnly, setAutoOnly] = useState(false);
   const [weakOnly, setWeakOnly] = useState(false);
   const [showSignedOff, setShowSignedOff] = useState(false);
+  const [entity, setEntity] = useState("all");
   const { data, loading, error, retry, refresh } =
     useBooksQueue({ period, state: stage, basis, autoOnly, weakOnly,
-                    includeSignedOff: showSignedOff });
+                    includeSignedOff: showSignedOff, business: entity });
   const [tab, setTab] = useState("queue");
-  const [filter, setFilter] = useState("all");
   const [openId, setOpenId] = useState(null);
   const [done, setDone] = useState(() => new Set());
   const [sel, setSel] = useState(() => new Set());
@@ -389,9 +474,12 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
     return m;
   }, [data]);
   const entOf = (k) => entities[k] || { key: k, name: k || "—", accent: null };
-  const rows = useMemo(() => (data?.rows || [])
-    .filter((r) => !done.has(r.id) && (filter === "all" || r.entity === filter)),
-  [data, done, filter]);
+  /* The entity is filtered by the SERVER, like the other two axes. It used to be filtered here,
+     after every count had already been taken — so with beCollective selected the chips counted
+     the whole workspace, and "Claude 20" sat above four rows. A filter the counts cannot see
+     makes every number beside it wrong, and nothing on the screen says which. */
+  const rows = useMemo(() => (data?.rows || []).filter((r) => !done.has(r.id)), [data, done]);
+  const entityCounts = data?.entity_counts || {};
 
   // A selection may only ever contain rows that are actually on screen. Without this, changing
   // the stage or entity filter would silently widen what the next bulk action touches.
@@ -468,15 +556,6 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
                   borderBottom: tab === k ? `2px solid ${k === "esc" ? T.poppy : T.daffodilText}` : "2px solid transparent",
                   borderRadius: "8px 8px 0 0", padding: "8px 14px", cursor: "pointer" }}>{l}</button>
               ))}
-              <span style={{ flex: 1 }} />
-              {/* Every business this workspace has, from the payload. The hardcoded list here
-                  named three of Connor's five, so rows for The Forum and beCollective were
-                  visible but unfilterable — and a second tenant got somebody else's companies. */}
-              {tab === "queue" && [["all", "All"], ...(data?.entities || []).map((e) => [e.key, e.name])].map(([k, l]) => (
-                <button key={k} onClick={() => setFilter(k)} style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 600,
-                  color: filter === k ? T.ink : T.muted, background: filter === k ? T.parchment : "transparent",
-                  border: `1px solid ${filter === k ? T.line : "transparent"}`, borderRadius: 99, padding: "5px 12px", cursor: "pointer" }}>{l}</button>
-              ))}
             </div>
 
             {tab === "queue" && (
@@ -485,8 +564,18 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
                     category on it. Counts are faceted server-side: each chip's number already
                     has the OTHER filters applied, so it predicts what clicking it returns
                     rather than promising rows the list then refuses to show. */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 8,
-                  padding: "8px 0 10px", borderTop: `1px solid ${T.line}` }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10,
+                  padding: `14px ${PAD_X}px`, borderTop: `1px solid ${T.line}` }}>
+                  {/* Top to bottom in the order a reviewer narrows: whose books, where in the
+                      pipeline, what decided it. Every business this workspace has comes from the
+                      payload — a hardcoded list here once named three of five. */}
+                  <AxisRow label="Entity">
+                    {[["all", "All"], ...(data?.entities || []).map((e) => [e.key, e.name])].map(([k, l]) => (
+                      <Facet key={k} label={l} count={entityCounts[k]} active={entity === k}
+                        dot={k === "all" ? null : entOf(k).accent}
+                        onClick={() => { setEntity(k); setCursor(0); }} />
+                    ))}
+                  </AxisRow>
                   <AxisRow label="Stage">
                     {STAGES.map(([k, l]) => (
                       <Facet key={k} label={l} count={stages[k]} active={stage === k}
@@ -499,7 +588,11 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
                         glyph={BASIS_GLYPH[k]} title={basisLabels[k]}
                         onClick={() => { setBasis(k); setCursor(0); }} />
                     ))}
-                    <span style={{ flex: 1, minWidth: 12 }} />
+                  </AxisRow>
+                  {/* The lenses get a row of their own. Squeezed onto the end of Decided by, two
+                      of the three wrapped onto a new line and landed under the axis labels, out
+                      of line with every chip above them. */}
+                  <AxisRow label="Refine">
                     <Lens label="From QuickBooks" count={lenses.auto} on={autoOnly}
                       title="Arrived already sitting on a real account"
                       onClick={() => { setAutoOnly((v) => !v); setCursor(0); }} />
@@ -513,11 +606,8 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
                 </div>
 
                 {rows.length > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 4px",
-                    borderTop: `1px solid ${T.line}`, minHeight: 34 }}>
-                    <input type="checkbox" checked={allShown} onChange={toggleAll}
-                      aria-label="Select every transaction shown"
-                      style={{ width: 15, height: 15, cursor: "pointer", accentColor: T.meadow }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                    padding: `9px ${PAD_X}px`, borderTop: `1px solid ${T.line}`, minHeight: 34 }}>
                     {selRows.length === 0 ? (
                       <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>
                         {data?.period?.label} · j/k to move, x to select, a approve, r reviewed
@@ -547,13 +637,22 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
                   </div>
                 )}
 
-                {rows.length ? rows.map((tx, i) => (
-                  <QueueRow key={tx.id} tx={tx} open={openId === tx.id} ent={entOf(tx.entity)}
-                    selected={sel.has(tx.id)} onSelect={() => toggleSel(tx.id)}
-                    focused={i === Math.min(cursor, rows.length - 1)}
-                    onToggle={() => { setCursor(i); setOpenId(openId === tx.id ? null : tx.id); }}
-                    onDone={mark} />
-                )) : (
+                {rows.length ? (
+                  /* Below its minimum the table scrolls inside the card rather than crushing a
+                     column: a money column that wraps is worse than one you scroll to. */
+                  <div style={{ overflowX: "auto" }}>
+                    <div style={{ minWidth: TABLE_MIN }}>
+                      <QueueHeader allShown={allShown} onToggleAll={toggleAll} />
+                      {rows.map((tx, i) => (
+                        <QueueRow key={tx.id} tx={tx} open={openId === tx.id} ent={entOf(tx.entity)}
+                          selected={sel.has(tx.id)} onSelect={() => toggleSel(tx.id)}
+                          focused={i === Math.min(cursor, rows.length - 1)}
+                          onToggle={() => { setCursor(i); setOpenId(openId === tx.id ? null : tx.id); }}
+                          onDone={mark} />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
                   <div style={{ fontFamily: font.body, fontSize: 13, color: T.meadowInk, fontWeight: 600, padding: "26px 4px", borderTop: `1px solid ${T.line}` }}>
                     ✓ Nothing here for {data?.period?.label || "this window"}.</div>
                 )}

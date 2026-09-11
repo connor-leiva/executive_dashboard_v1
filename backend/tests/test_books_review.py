@@ -8,7 +8,7 @@ import datetime as dt
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.seed import seed
 from app.db import SessionLocal
@@ -158,7 +158,9 @@ async def test_a_chip_count_predicts_what_clicking_it_returns():
         base = await books.build_books_queue(s, tid, period="ytd", state="all",
                                              basis=BASIS_HISTORY)
         for stage, promised in base["stages"].items():
-            if stage in ("all", "auto", "auto_categorized"):
+            # Only the alias is skipped. "all" and "auto" were skipped too, and "all" is exactly
+            # where approved rows were counted but never listed — so this test could not see it.
+            if stage == "auto_categorized":
                 continue
             got = await books.build_books_queue(s, tid, period="ytd", state=stage,
                                                 basis=BASIS_HISTORY)
@@ -326,3 +328,117 @@ async def test_bulk_rejects_an_unknown_action_and_an_oversized_batch():
         with pytest.raises(ValueError):
             await books.bulk_review(s, tid, u, [_u.uuid4() for _ in range(books.BULK_MAX + 1)],
                                     "approve")
+
+
+# ── the entity is a facet, like the other two ────────────────────────────────────────────────
+async def _two_entity_window():
+    """_reset_and_seed_rows puts everything on one business, and on one business the entity bug
+    is invisible — there is nothing for the filter to exclude. So a second business with Claude
+    calls of its own, and one more on the first, so each side has rows the other must not count."""
+    tid, bid, _ = await _reset_and_seed_rows()
+    claude = {"category": "Software", "confidence": 0.9, "basis": "claude",
+              "reason": "Read the memo."}
+    now = dt.datetime.now(dt.timezone.utc)
+    async with SessionLocal() as s:
+        ulrg = (await s.execute(select(Business).where(
+            Business.tenant_id == tid, Business.key == "ulrg"))).scalar_one()
+        s.add_all([
+            _txn(tid, bid, "C2", "needs_approval", 1, dict(claude)),
+            _txn(tid, ulrg.id, "U1", "needs_approval", 1, dict(claude)),
+            _txn(tid, ulrg.id, "U2", "needs_approval", 2, dict(claude)),
+            _txn(tid, ulrg.id, "U3", "cleared", 3,
+                 {"category": "Rent", "confidence": 0.99, "basis": BASIS_HISTORY, "priors": 40,
+                  "reason": "Matches 40 prior charges categorized here."}),
+            # Approved and signed off, one per business: hidden from every stage but Approved.
+            # The API suite only failed on this because two earlier tests approved rows; the
+            # fixture now carries them so the rule is tested every run, not by accident.
+            _txn(tid, bid, "A1", "approved", 1, dict(claude), reviewed_at=now),
+            _txn(tid, ulrg.id, "A2", "approved", 2, dict(claude), reviewed_at=now),
+        ])
+        await s.commit()
+    return tid
+
+
+async def test_with_an_entity_selected_every_active_chip_agrees_with_the_list():
+    """The reported case, reproduced. beCollective and Claude selected; Stage "All" and Claude
+    both read 20 above a list of four. Twenty was the whole workspace and four was beCollective's
+    share, because the entity was filtered in the browser after every count had been taken."""
+    tid = await _two_entity_window()
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, period="ytd", state="all", basis="claude",
+                                          business="springb")
+    shown = len(q["rows"])
+    assert shown and {r["entity"] for r in q["rows"]} == {"springb"}
+    assert q["stages"]["all"] == shown, "the Stage chip counted other businesses"
+    assert q["bases"]["claude"] == shown, "the Decided-by chip counted other businesses"
+    assert q["entity_counts"]["springb"] == shown
+    # Every business the workspace has gets a count, and so does All.
+    assert set(q["entity_counts"]) == {e["key"] for e in q["entities"]} | {"all"}
+
+
+async def test_every_chip_on_every_axis_predicts_what_clicking_it_returns():
+    """The stage-only version of this passed while the bug shipped, because it never set an
+    entity. So: a filter on all three axes at once, and every chip on every axis clicked."""
+    tid = await _two_entity_window()
+    base = dict(period="ytd", state="all", basis="claude", business="ulrg")
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, **base)
+        for axis, counts, param in (("entity", q["entity_counts"], "business"),
+                                    ("basis", q["bases"], "basis"),
+                                    ("stage", q["stages"], "state")):
+            for key, promised in counts.items():
+                if axis == "stage" and key == "auto_categorized":
+                    continue                          # an alias of "auto", not a filter value
+                got = await books.build_books_queue(s, tid, **{**base, param: key})
+                assert len(got["rows"]) == promised, f"{axis} {key}: chip said {promised}"
+        # The two lenses that narrow. (Reviewed widens the list, so its count is not a length.)
+        for lens, flag in (("weak", "weak_only"), ("auto", "auto_only")):
+            got = await books.build_books_queue(s, tid, **{**base, flag: True})
+            assert len(got["rows"]) == q["lenses"][lens], f"lens {lens}"
+
+
+async def test_an_entity_chip_counts_that_business_not_the_workspace():
+    tid = await _two_entity_window()
+    async with SessionLocal() as s:
+        mine = await books.build_books_queue(s, tid, period="ytd", state="all", basis="claude",
+                                             business="springb")
+        everyone = await books.build_books_queue(s, tid, period="ytd", state="all",
+                                                 basis="claude")
+    assert len(everyone["rows"]) > len(mine["rows"])        # the fixture guarantees the gap
+    assert mine["entity_counts"]["all"] == len(everyone["rows"])
+    assert mine["stages"]["all"] < everyone["stages"]["all"]
+
+
+async def test_an_unknown_business_is_refused_not_ignored():
+    """Ignoring it would return the whole workspace under a filter that says otherwise."""
+    tid = await _two_entity_window()
+    async with SessionLocal() as s:
+        with pytest.raises(books.UnknownBusiness):
+            await books.build_books_queue(s, tid, period="ytd", state="all", business="nope")
+
+
+async def test_the_queue_does_not_ship_the_whole_backlog():
+    """It loaded and serialized every outstanding transaction so one tile could count them. On
+    the live books that was 1,900 rows, 1.81 MB of a 1.86 MB payload, on every chip click — and
+    nothing read it. The tile needs a number; the list is `rows`."""
+    tid = await _two_entity_window()
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, period="ytd", state="all")
+        outstanding = (await s.execute(select(func.count(BookTxn.id)).where(
+            BookTxn.tenant_id == tid, BookTxn.scan_state == "needs_approval"))).scalar_one()
+    assert "approvals" not in q
+    assert q["stats"]["awaiting"] == outstanding
+
+
+async def test_the_all_chip_does_not_count_approved_work_its_list_hides():
+    """Counted by the row's own stage and listed by the stage in effect, every approved row was
+    counted into All and shown nowhere under it — so after a Friday's approvals the All chip read
+    that many rows higher than its own list. Caught by the API suite reading 9 over a list of 7."""
+    tid = await _two_entity_window()
+    async with SessionLocal() as s:
+        q = await books.build_books_queue(s, tid, period="ytd", state="all")
+        approved = await books.build_books_queue(s, tid, period="ytd", state="approved")
+    assert q["stages"]["all"] == len(q["rows"])
+    assert not any(r["scan_state"] == "approved" for r in q["rows"])
+    # ...and approved work is still exactly where it belongs.
+    assert q["stages"]["approved"] == len(approved["rows"]) > 0
