@@ -75,13 +75,19 @@ function CategoryChip({ tx }) {
    carries it: a history match on 195 priors and one on 3 look identical without it, and those
    are the two cases a reviewer most needs to tell apart. `strength` is computed server-side so
    the filter, this badge and the drawer cannot each decide what "weak" means. */
-function Evidence({ tx }) {
+function Evidence({ tx, compact = false }) {
   const fill = { strong: 3, thin: 2, weak: 1, na: 0 }[tx.strength] ?? 0;
   const detail = tx.basis === "history_match" || tx.basis === "over_band"
     ? (tx.priors != null ? `${tx.priors} prior${tx.priors === 1 ? "" : "s"}` : "")
-    : tx.basis === "claude" ? (tx.conf || "") : "";
+    : tx.basis === "claude" ? (tx.conf || "")
+    : tx.basis === "split" && compact ? "no guess" : "";
+  // The row says "History · 38 priors"; the drawer, which has room, says "Matched from history".
+  const label = compact ? (BASIS_SHORT[tx.basis] || tx.basis) : (tx.basis_label || tx.basis);
+  /* display:flex, not inline-flex. An inline-flex box is sized by its CONTENT, so on a narrow row
+     it grew past its column and painted over the amount — the WEAK badge landed on "$30,000".
+     A block-level flex box fills the column it is given, and overflow:hidden is the guarantee. */
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+    <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, overflow: "hidden" }}>
       <span aria-hidden="true" style={{ display: "inline-flex", gap: 2, flexShrink: 0 }}>
         {[1, 2, 3].map((n) => (
           <span key={n} style={{ width: 7, height: 13, borderRadius: 2, boxSizing: "border-box",
@@ -90,9 +96,11 @@ function Evidence({ tx }) {
               : fill >= n ? "none" : `1px solid ${T.muted}` }} />
         ))}
       </span>
+      {/* min-width:0 is what lets the ellipsis ever happen. A flex item's minimum defaults to its
+          full text width, so without it the text refused to shrink and shoved the badge outward. */}
       <span style={{ fontFamily: font.body, fontSize: 11, color: T.secondary, overflow: "hidden",
-        textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {BASIS_GLYPH[tx.basis] || ""} {tx.basis_label || tx.basis}{detail ? ` · ${detail}` : ""}
+        textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: "0 1 auto" }}>
+        {BASIS_GLYPH[tx.basis] || ""} {label}{detail ? ` · ${detail}` : ""}
       </span>
       {(tx.strength === "weak" || tx.strength === "thin") && (
         <span style={{ fontFamily: font.head, fontSize: 9.5, fontWeight: 700, flexShrink: 0,
@@ -137,7 +145,7 @@ function QueueRow({ tx, open, onToggle, onDone, selected = false, onSelect, focu
           {tx.signed_off && <span style={{ fontFamily: font.body, fontSize: 11, fontWeight: 600,
             color: T.meadowInk, flexShrink: 0 }}>✓ {tx.decided_by || "reviewed"}</span>}
           <CategoryChip tx={tx} />
-          <span style={{ flex: 1, minWidth: 0 }}><Evidence tx={tx} /></span>
+          <span style={{ flex: 1, minWidth: 0, overflow: "hidden" }}><Evidence tx={tx} compact /></span>
           <span style={{ width: 82, textAlign: "right", fontFamily: font.head, fontSize: 13.5, fontWeight: 600,
             color: T.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{usd(tx.amount)}</span>
           <span style={{ color: T.muted, fontSize: 12, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
@@ -295,6 +303,7 @@ const BASES = [
   ["any", "Any"], ["history_match", "History"], ["claude", "Claude"],
   ["over_band", "Over range"], ["split", "Split"], ["none", "Not analyzed"],
 ];
+const BASIS_SHORT = Object.fromEntries(BASES);   // the row's short labels = the chip vocabulary
 /* Meaning never lives in colour alone — a hard rule here. Every facet carries its word, and
    the basis chips carry a glyph as well, so the axis survives a monochrome screenshot. */
 const BASIS_GLYPH = { history_match: "↻", claude: "◆", over_band: "↕", split: "÷", none: "○" };

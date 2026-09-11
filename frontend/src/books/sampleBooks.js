@@ -75,6 +75,19 @@ const _q = (o) => ({ basis: "history_match", basis_label: "Matched from history"
   signed_off: false, signed_off_at: null, decision: null, decided_by: null,
   decided_category: null, ...o });
 
+/* The worst case from the live books: a Claude call with WEAK evidence, a long raw-bank vendor,
+   a five-figure amount, and BOTH action buttons — the narrowest the Evidence column ever gets,
+   and the exact row that overlapped in production. Kept so the offline view reproduces it. */
+const _WORST_CASE_ROW = _q({ id: "s9", entity: "springb", date: "Sep 3",
+  vendor: "ONLINE XFER FROM DDA TO SAVINGS 0000009871 REF 88213", amount: -30000,
+  qbo_type: "Transfer", memo: "ONLINE XFER FROM DDA TO SAVINGS 0000009871",
+  current_category: "49900 Uncategorized Income", bank_account: "SB Coaching LLC - Zions *2082",
+  suggest: "49900 Uncategorized Income", conf: "40%", basis: "claude",
+  basis_label: "Claude read it", priors: null, came_categorized: false, strength: "weak",
+  strength_rule: "Strong at 80% confidence or more, thin from 50%.",
+  reason: "Transfer between the entity's own accounts; low confidence it is income at all.",
+  source: "Bank feed", flags: { anomaly: true }, qbo_url: QBO("transfer", "2099") });
+
 export const sampleQueue = {
   stats: { awaiting: 14, escalated: 2, approved_7d: 61 },
   period: { key: "last_7", label: "Last 7 days", start: "2026-08-14", end: "2026-08-20" },
@@ -96,6 +109,9 @@ export const sampleQueue = {
     { key: "springb", name: "Spring B", accent: "#FA8069", ink: "#B2523F" },
   ],
   thresholds: { history_strong: 25, history_thin: 5, claude_strong: 0.8, claude_thin: 0.5 },
+  // What the screen actually renders is data.rows — it was missing, so the offline queue
+  // showed nothing at all.
+  get rows() { return [...this.approvals, _WORST_CASE_ROW]; },
   approvals: [
     _q({ id: "s1", entity: "ulrg", date: "Jul 11", vendor: "Canva Teams", amount: -389,
       qbo_type: "Purchase", memo: "Canva Teams annual - design subscription", current_category: "Marketing - Software",
