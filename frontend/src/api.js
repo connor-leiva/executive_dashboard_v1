@@ -117,6 +117,15 @@ async function throwFor(res, path) {
       window.dispatchEvent(new CustomEvent("cc:step-up-required", { detail: { scope } }));
     }
   }
+  // A SESSION CAN EXPIRE MID-SESSION TOO. A page that already loaded keeps rendering its first
+  // payload, so the first sign is a new request failing -- and each screen used to explain that
+  // in its own words. The portal's Ask page told an owner with an expired 12-hour session "Your
+  // role does not have access to the assistant." Announced once, here, so one listener can send
+  // the person to sign in. /auth/* is excluded: a wrong password is a 401 too, and it is not an
+  // expired session.
+  if (res.status === 401 && !(path || "").startsWith("/auth/")) {
+    window.dispatchEvent(new CustomEvent("cc:session-expired", { detail: { path } }));
+  }
   throw err;
 }
 

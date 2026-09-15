@@ -212,6 +212,21 @@ function useBootstrap() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  /* AN EXPIRED SESSION ENDS THE PORTAL, NOT JUST THE REQUEST THAT NOTICED.
+     The bootstrap above sends a 401 to the sign-in screen, but only on load. A tab left open past
+     the 12-hour session kept rendering its first payload while every new request failed, and each
+     screen explained the failure its own way -- Ask told an owner their role had no access.
+     api.js announces any 401 once; this is the one place that acts on it. Both storages are
+     cleared, so the next load does not pick the dead token back up. */
+  useEffect(() => {
+    function onExpired() {
+      logout();
+      setStatus("login");
+    }
+    window.addEventListener("cc:session-expired", onExpired);
+    return () => window.removeEventListener("cc:session-expired", onExpired);
+  }, []);
+
   const saveConfig = useCallback(async (patch) => {
     if (!API_BASE) {
       setConfig((prev) => mergeDeep(prev, patch));
@@ -2237,10 +2252,18 @@ function Ask({ config, me }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!API_BASE) { setStatus({ available: false, configured: false }); return; }
+    // No API is sample mode: say there is no assistant, and nothing about anybody's role.
+    if (!API_BASE) {
+      setStatus({ available: false, configured: false, permitted: true, on_plan: true });
+      return;
+    }
     getJSON("/intranet/assistant")
       .then(setStatus)
-      .catch(() => setStatus({ available: false, configured: false }));
+      // A FAILED REQUEST IS NOT A DENIAL. This used to set an object with no `permitted` key, and
+      // the message below read that absence as "your role does not have access" -- which is what
+      // an owner with an expired session was told. A 401 now sends the whole portal to sign-in
+      // (see useBootstrap); anything else is reported as the outage it is.
+      .catch(() => setStatus({ available: false, failed: true }));
   }, []);
 
   async function submit(event) {
@@ -2268,11 +2291,13 @@ function Ask({ config, me }) {
   // upgrade to make, or "ask your admin" when the platform key is missing, both send people to
   // waste somebody's afternoon.
   const unavailable = status && !status.available && (
-    !status.permitted
-      ? "Your role does not have access to the assistant."
-      : !status.on_plan
-        ? "The assistant is not included in this workspace's plan."
-        : "The assistant is not available right now.");
+    status.failed
+      ? "Could not reach the assistant just now. Try again in a moment."
+      : !status.permitted
+        ? "Your role does not have access to the assistant."
+        : !status.on_plan
+          ? "The assistant is not included in this workspace's plan."
+          : "The assistant is not available right now.");
 
   return (
     <Page title={askLabel} subtitle="Answers drawn from this workspace’s own documents.">
