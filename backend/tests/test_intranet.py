@@ -685,6 +685,117 @@ async def test_an_archived_sop_cannot_be_acknowledged():
     assert r.status_code == 404
 
 
+# -- archived courses --------------------------------------------------------------------------
+# Archiving a course sets `archived_at` and leaves `state` alone -- courses have no Archived
+# state -- and the portal only ever checked state and published_at. So an archived course stayed
+# in the library, in search and in the assistant, and its files stayed downloadable. SOPs escaped
+# because their archive also flips `state`. Every test below archives EXACTLY as the console does.
+
+async def _archive_course(course_id: str):
+    """What console.delete_course does: stamp archived_at, leave state and published_at alone."""
+    from app.models import IntranetCourse
+
+    async with SessionLocal() as s:
+        course = await s.get(IntranetCourse, uuid.UUID(course_id))
+        course.archived_at = dt.datetime.now(dt.timezone.utc)
+        course.draft_dirty = True
+        await s.commit()
+
+
+async def _first_lesson_id(course_id: str) -> uuid.UUID:
+    from app.models import IntranetLesson
+
+    async with SessionLocal() as s:
+        return (await s.execute(select(IntranetLesson.id).where(
+            IntranetLesson.course_id == uuid.UUID(course_id)))).scalars().first()
+
+
+async def test_an_archived_course_leaves_the_library():
+    """The reported bug: six archived Base Camp courses still on the portal's shelf."""
+    host, tokens, ids = await _learning("intraarchlib")
+    before = await _content(host, tokens["member"])
+    assert "Listing Mastery" in [c["title"] for c in before["courses"]], "fixture is empty"
+
+    await _archive_course(ids["course_id"])
+
+    after = await _content(host, tokens["member"])
+    assert [c["title"] for c in after["courses"]] == []
+    # Lessons ride on their course, so they go with it -- and so does search, which indexes this
+    # same payload, and the assistant, whose corpus is built from it.
+    assert not [le for c in after["courses"] for le in c["lessons"]]
+
+
+async def test_an_archived_courses_handout_stops_downloading():
+    """The id outlives the listing. A member who copied the link must stop getting the file."""
+    from app.models import IntranetLessonAttachment
+    from app.services import binder_storage
+
+    host, tokens, ids = await _learning("intraarchfile")
+    lesson_id = await _first_lesson_id(ids["course_id"])
+    key = f"intranet/{ids['tenant_id']}/lessons/{lesson_id}/packet.png"
+    binder_storage.put(key, PNG_BYTES, "image/png")
+    async with SessionLocal() as s:
+        att = IntranetLessonAttachment(
+            tenant_id=ids["tenant_id"], lesson_id=lesson_id, title="Packet", kind="file",
+            storage_key=key, filename="packet.png", content_type="image/png",
+            byte_size=len(PNG_BYTES), sort=0, published_at=dt.datetime.now(dt.timezone.utc))
+        s.add(att)
+        await s.flush()
+        att_id = att.id
+        await s.commit()
+    url = f"/api/v1/intranet/lessons/{lesson_id}/attachments/{att_id}"
+    async with _client() as c:
+        assert (await c.get(url, headers=_H(tokens["member"], host))).status_code == 200
+
+    await _archive_course(ids["course_id"])
+
+    async with _client() as c:
+        assert (await c.get(url, headers=_H(tokens["member"], host))).status_code == 404
+
+
+async def test_an_archived_courses_body_image_stops_serving():
+    """Same route shape, and it carried the same dead `state == "Archived"` check."""
+    from app.services import binder_storage
+
+    host, tokens, ids = await _learning("intraarchimg")
+    lesson_id = await _first_lesson_id(ids["course_id"])
+    binder_storage.put(f"intranet/{ids['tenant_id']}/lessons/{lesson_id}/chart.png",
+                       PNG_BYTES, "image/png")
+    url = f"/api/v1/intranet/lessons/{lesson_id}/images/chart.png"
+    async with _client() as c:
+        assert (await c.get(url, headers=_H(tokens["member"], host))).status_code == 200
+
+    await _archive_course(ids["course_id"])
+
+    async with _client() as c:
+        assert (await c.get(url, headers=_H(tokens["member"], host))).status_code == 404
+
+
+async def test_an_archived_course_cannot_be_started():
+    host, tokens, ids = await _learning("intraarchstart")
+    url = f"/api/v1/intranet/courses/{ids['course_id']}/start"
+    async with _client() as c:
+        assert (await c.post(url, headers=_H(tokens["member"], host))).status_code == 200
+
+    await _archive_course(ids["course_id"])
+
+    async with _client() as c:
+        assert (await c.post(url, headers=_H(tokens["member"], host))).status_code == 404
+
+
+def test_every_archivable_model_is_hidden_from_members():
+    """DERIVED, NOT LISTED. The course leak happened because a read path checked `state` and the
+    rule never mentioned `archived_at`. Any model carrying both columns must be covered."""
+    from app.models import Base
+    from app.routers.intranet import published
+
+    archivable = [m.class_ for m in Base.registry.mappers
+                  if {"published_at", "archived_at"} <= set(m.columns.keys())]
+    assert archivable, "no archivable models found -- the column names must have changed"
+    for model in archivable:
+        assert "archived_at IS NULL" in str(published(model)), model.__name__
+
+
 # -- the permissions matrix ----------------------------------------------------------------
 # IntranetPermission.level spans every capability a workspace defines, the console edits it, the
 # publish cycle ships it -- and the only place it had ever been read was console_access, to decide

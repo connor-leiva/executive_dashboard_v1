@@ -9,7 +9,7 @@ import uuid
 from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query, Response,
                      UploadFile)
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -42,13 +42,25 @@ router = APIRouter(prefix="/intranet", tags=["intranet"])
 
 
 def published(model):
-    """The published filter, shared.
+    """Whether a row is visible to members: published at least once, and NOT ARCHIVED.
 
     Was a lambda local to _published_content, which meant the handout download route -- which has
     to apply exactly the same test, or unpublished means "unlisted" rather than "unavailable" --
     could not see it at all. One definition, so a second read path cannot quietly use a different
-    rule."""
-    return model.published_at.is_not(None)
+    rule.
+
+    ARCHIVED ROWS ARE EXCLUDED HERE, derived from the model rather than listed. Archiving a course
+    sets `archived_at` and leaves `state` alone -- courses have no Archived state -- and nothing on
+    this side ever read that column. So a course archived in the console stayed Live and
+    published: still in the library, in search and in the assistant's corpus, and its files still
+    downloadable. SOPs escaped only because their archive ALSO flips `state`. A model that grows an
+    `archived_at` is covered the day it does, without anybody remembering to come back here.
+    """
+    clause = model.published_at.is_not(None)
+    archived = getattr(model, "archived_at", None)
+    if archived is not None:
+        clause = and_(clause, archived.is_(None))
+    return clause
 
 STATE_SCOPES = {"wtd", "training", "onboarding", "sops"}
 MAX_STATE_BYTES = 50_000
@@ -1174,7 +1186,7 @@ async def read_lesson_image(lesson_id: uuid.UUID, name: str,
     course = (await s.execute(select(IntranetCourse).where(
         IntranetCourse.tenant_id == user.tenant_id, IntranetCourse.id == lesson.course_id,
         published(IntranetCourse)))).scalars().first()
-    if course is None or course.state == "Archived":
+    if course is None:          # published() excludes archived courses
         raise HTTPException(404, "Not found")
     audience = await _course_audience(s, user.tenant_id, [course.id])
     if not _audience_allows(audience, course.id, member.role_id):
@@ -1251,7 +1263,7 @@ async def download_lesson_attachment(lesson_id: uuid.UUID, attachment_id: uuid.U
                                      IntranetCourse.id == lesson.course_id,
                                      published(IntranetCourse))
     )).scalars().first()
-    if course is None or course.state == "Archived":
+    if course is None:          # published() excludes archived courses
         raise HTTPException(404, "Not found")
     audience = await _course_audience(s, user.tenant_id, [course.id])
     if not _audience_allows(audience, course.id, member.role_id):
