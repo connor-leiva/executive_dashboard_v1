@@ -84,3 +84,40 @@ def is_inherited(portal_provider_key: str) -> bool:
     reads.
     """
     return portal_provider_key in INHERITED_PROVIDERS
+
+
+# The portal's own row for each of these. It holds no credential -- the connection lives on the
+# dashboard -- but the console reads it to show the provider and its status, and a Win the Day
+# list links out through the base URL an admin keeps on it.
+_ROW_TEXT = {
+    "sisu": ("Sisu", "Production data", "Production numbers, goals and the Sunburst hand-off."),
+    "follow_up_boss": ("Follow Up Boss", "CRM + smart lists",
+                       "Smart lists for Win the Day, and lead activity."),
+}
+
+
+async def ensure_rows(s: AsyncSession, tenant_id: uuid.UUID) -> None:
+    """Give this workspace a portal row for every provider the dashboard owns. Idempotent.
+
+    These rows only ever came from the Utah Life seed script, so a workspace provisioned the
+    normal way -- every customer after the first, including the live Utah Life portal itself --
+    opened the console's Integrations page to nothing at all: no sign of a Sisu connection made
+    on the dashboard, and nowhere to put the Follow Up Boss base URL that Win the Day lists link
+    through. The console cannot create an integration, so there was no way out of it from the UI.
+
+    Keyed off INHERITED_PROVIDERS rather than a list of its own, so a provider added there gets a
+    row instead of being quietly missing from every console.
+    """
+    from ..models import IntranetIntegration
+
+    have = set((await s.execute(select(IntranetIntegration.provider_key).where(
+        IntranetIntegration.tenant_id == tenant_id))).scalars().all())
+    for portal_key in INHERITED_PROVIDERS:
+        if portal_key in have:
+            continue
+        name, role_label, description = _ROW_TEXT.get(
+            portal_key, (portal_key.replace("_", " ").title(), "Connection", None))
+        s.add(IntranetIntegration(
+            tenant_id=tenant_id, provider_key=portal_key, display_name=name,
+            role_label=role_label, description=description, status="Not Connected", config={}))
+    await s.flush()

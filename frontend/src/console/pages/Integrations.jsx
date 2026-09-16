@@ -180,7 +180,8 @@ function IntegrationDetail({ integration, onSave, onConnect, onTest, saving, con
             <input value={form.role_label} onChange={(event) => update("role_label", event.target.value)} required />
           </Field>
           <Field label={COPY.integrationsBaseUrl}>
-            <input value={form.base_url} onChange={(event) => update("base_url", event.target.value)} />
+            <input value={form.base_url} onChange={(event) => update("base_url", event.target.value)}
+                   placeholder="https://yourteam.followupboss.com/2/people/list/" />
           </Field>
           <Field label={COPY.integrationsDescription}>
             <textarea value={form.description} onChange={(event) => update("description", event.target.value)} />
@@ -219,7 +220,19 @@ function IntegrationDetail({ integration, onSave, onConnect, onTest, saving, con
           <Button type="button" busy={testing} disabled={!integration.test_available} onClick={test}>
             {COPY.integrationsTest}
           </Button>
-          {!integration.connect_available || !integration.test_available ? <span>{COPY.integrationsUnavailable}</span> : null}
+          {/* WHERE THE CONNECTION LIVES, not just a dead button. The server has sent `inherited`
+              and `inherited_from` for exactly this since the two surfaces were joined up, and this
+              page read neither -- so Sisu and Follow Up Boss showed a disabled Connect button
+              above the words "Not yet available", which says the opposite of the truth: they are
+              connected on the dashboard, and that is where to do it. */}
+          {integration.inherited ? (
+            <span>
+              {`Connected on the ${integration.inherited_from}, not here — connect it there and `
+                + "this workspace picks it up."}
+            </span>
+          ) : !integration.connect_available || !integration.test_available ? (
+            <span>{COPY.integrationsUnavailable}</span>
+          ) : null}
           {message ? <span>{message}</span> : null}
           {error ? <span className="brand-error">{error}</span> : null}
         </div>

@@ -61,7 +61,7 @@ from ..services import (binder_storage, course_sections, google_auth, lesson_med
                         mailer, uploads,
                         marketing_delivery)
 from ..services.users import INVITE_DAYS, link_base, primary_host
-from ..services.inheritance import dashboard_connections, is_inherited
+from ..services.inheritance import dashboard_connections, ensure_rows, is_inherited
 
 router = APIRouter(prefix="/console", tags=["console"])
 
@@ -3743,12 +3743,18 @@ async def delete_calendar_category(category_id: uuid.UUID,
 @router.get("/integrations")
 async def get_integrations(p: ConsolePrincipal = Depends(require_console_access),
                            s: AsyncSession = Depends(get_session)):
+    # Created on first read, the same way the Google sign-in and Slack panels create theirs. A
+    # workspace provisioned before this existed has no provider rows at all, and no other route
+    # can make one -- so without this its Integrations page stays empty forever.
+    await ensure_rows(s, p.user.tenant_id)
     rows = (await s.execute(select(IntranetIntegration).where(
         IntranetIntegration.tenant_id == p.user.tenant_id, _not_signin()).order_by(
             IntranetIntegration.display_name))).scalars().all()
     inherited = await dashboard_connections(s, p.user.tenant_id)
-    return _list([_integration(r, inherited) for r in rows],
-                 await _count(s, IntranetIntegration, p.user.tenant_id, _not_signin()))
+    payload = _list([_integration(r, inherited) for r in rows],
+                    await _count(s, IntranetIntegration, p.user.tenant_id, _not_signin()))
+    await s.commit()
+    return payload
 
 
 @router.patch("/integrations/{integration_id}")

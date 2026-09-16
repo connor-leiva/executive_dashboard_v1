@@ -1702,3 +1702,53 @@ async def test_a_provider_with_several_dashboard_rows_counts_as_connected_if_any
         await s.commit()
         conns = await dashboard_connections(s, tenant_id)
     assert conns["follow_up_boss"] == "Connected", conns
+
+
+async def test_a_workspace_nobody_seeded_still_lists_the_providers_the_dashboard_owns():
+    """Integrations opened EMPTY for every customer after the first.
+
+    The portal's provider rows existed only in the Utah Life seed script. A workspace provisioned
+    the normal way (intranet_bootstrap) got none, and the console has no route that creates one --
+    so there was no sign of a Sisu connection made on the dashboard, and nowhere to put the Follow
+    Up Boss base URL that every Win the Day list links through. The live Utah Life portal is in
+    exactly that state: one row, its own sign-in.
+    """
+    from app.services.inheritance import INHERITED_PROVIDERS
+    from app.services.intranet_bootstrap import bootstrap_intranet
+
+    async with SessionLocal() as s:
+        tenant = Tenant(slug="conboot", name="Con Boot", status="active", plan="portfolio",
+                        config={"features": {"intranet": True}})
+        s.add(tenant)
+        await s.flush()
+        s.add(Domain(tenant_id=tenant.id, hostname="conboot.localhost", is_primary=True))
+        user = User(tenant_id=tenant.id, email="owner@conboot.test", name="Owner",
+                    password_hash=hash_pw("pw"), role="owner", status="active", token_version=0)
+        s.add(user)
+        await s.flush()
+        await bootstrap_intranet(s, tenant.id, workspace_name="Con Boot",
+                                 subdomain="conboot", owner_email=user.email)
+        await s.commit()
+        token, host = make_token(user.id, tenant.id, 0), "conboot.localhost"
+
+    async with _client() as c:
+        h = _H(token, host)
+        first = (await c.get("/api/console/integrations", headers=h)).json()["items"]
+        again = (await c.get("/api/console/integrations", headers=h)).json()["items"]
+
+    by_key = {item["provider_key"]: item for item in first}
+    # Derived from the map the rest of the product reads, so a provider added there cannot go
+    # missing from every workspace's console.
+    assert set(by_key) >= set(INHERITED_PROVIDERS), sorted(by_key)
+    assert len(again) == len(first), "reading the page a second time created the rows again"
+
+    fub = by_key["follow_up_boss"]
+    assert fub["inherited"] is True and fub["inherited_from"] == "Acumyn dashboard"
+    assert fub["connect_available"] is False, "the console must not offer a credential form here"
+
+    # The row's one editable job: the base URL a Win the Day list links through.
+    async with _client() as c:
+        saved = await c.patch(f"/api/console/integrations/{fub['id']}", headers=_H(token, host),
+                              json={"base_url": "https://liveutah1.followupboss.com/2/people/list/"})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["item"]["base_url"].endswith("/2/people/list/")

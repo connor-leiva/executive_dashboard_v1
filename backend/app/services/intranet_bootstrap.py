@@ -120,6 +120,13 @@ async def bootstrap_intranet(s: AsyncSession, tenant_id: uuid.UUID, *, workspace
         s.add(IntranetSetupTask(tenant_id=tenant_id, key=key, label=label,
                                 destination=destination, sort=sort))
 
+    # The providers the dashboard owns (Sisu, Follow Up Boss). Their portal rows are where the
+    # console shows a connection made on the other surface, and where the base URL a Win the Day
+    # list links through is kept -- so a workspace has them from its first day rather than an
+    # empty Integrations page. See services/inheritance.
+    from . import inheritance
+    await inheritance.ensure_rows(s, tenant_id)
+
     # The owner becomes the first member, with the Owner role, so the person who just bought the
     # product can sign in and open the console. Without this the workspace exists and nobody can
     # administer it -- which was the actual state before this module.
