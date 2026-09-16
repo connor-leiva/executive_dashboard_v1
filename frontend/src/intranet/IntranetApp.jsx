@@ -27,18 +27,19 @@ const DEFAULT_CONFIG = {
     text_font: "DM Sans",
     utility_font: "Archivo",
   },
+  // The shape the API sends (services/member_numbers, then `_config_out`). NO ZEROES LIVE HERE.
+  // This was eleven of them, most under names the server never sends, and every production card
+  // read those names -- so every agent saw noughts whatever Sisu held. `own` and `team` stay null
+  // until the server supplies them, and a null renders as a reason rather than as somebody's year.
   numbers: {
-    calls_today: 0,
-    appointments_set: 0,
-    appointments_held: 0,
-    contracts_pending: 0,
-    closed_units: 0,
-    closed_volume: 0,
-    gci_ytd: 0,
-    annual_goal_units: 0,
-    team_units_ytd: 0,
-    team_volume_ytd: 0,
-    team_agents: 0,
+    connected: false,
+    synced_at: null,
+    on_roster: false,
+    matched: false,
+    annual_unit_goal: 0,
+    pace_percent: null,
+    own: null,
+    team: null,
   },
 };
 
@@ -560,7 +561,7 @@ function Meter({ value, total, className = "" }) {
   );
 }
 
-function Home({ config, wtd, training, onboarding, me }) {
+function Home({ config, wtd, training, onboarding, me, canConfigure }) {
   const now = useLocalNow();
   const numbers = config.numbers || DEFAULT_CONFIG.numbers;
   const totalTasks = WTD_BLOCKS.flatMap((b) => b.items).length;
@@ -587,38 +588,13 @@ function Home({ config, wtd, training, onboarding, me }) {
         </div>
       </section>
 
-      <section className="ut-stat-grid">
-        <StatCard
-          label="Units Closed YTD"
-          value={formatNumber(numbers.closed_units)}
-          sub={`${formatMoney(numbers.closed_volume)} in volume`}
-          note="API integrations pending"
-        />
-        <StatCard
-          label="Pending"
-          value={formatNumber(numbers.contracts_pending)}
-          sub={`${formatMoney(0)} in volume`}
-          note="Tenant source not connected"
-        />
-        <StatCard
-          label="Appointments Held"
-          value={formatNumber(numbers.appointments_held || numbers.appointments_set)}
-          sub="Month to date"
-          note="Goal source pending"
-        />
-        <StatCard
-          label="GCI YTD"
-          value={formatMoney(numbers.gci_ytd)}
-          sub="$0 net to you"
-          note="0% of your annual goal"
-        />
-      </section>
+      <ProductionCards numbers={numbers} me={me} canConfigure={canConfigure} />
 
       <GoalSnapshot numbers={numbers} />
 
       {/* Ungated: Sunburst ships with the platform. The panel still tells the truth about what it
           knows -- an agent we could not match to Sisu is told so rather than shown zeroes. */}
-      <SunburstBanner config={config} />
+      <SunburstBanner config={config} me={me} canConfigure={canConfigure} />
 
       <section className="ut-lower-grid">
         <NeedsYouToday config={config} />
@@ -633,43 +609,154 @@ function Home({ config, wtd, training, onboarding, me }) {
   );
 }
 
+/* WHY THERE ARE NO FIGURES OF YOUR OWN, in words somebody can act on. Four different empties, and
+   only the last is about the person reading: a workspace with no Sisu connection, a connection that
+   has not synced yet, an account with no roster entry, and a member who matched no agent. They were
+   one sentence -- "an admin can set your Sisu address on the roster" -- which sent an owner whose
+   workspace had no Sisu at all off to fix an email address. `short` finishes a sentence in the
+   Sunburst band, where there is room for one. */
+function numbersGap(numbers, me, canConfigure) {
+  if (!numbers.connected) {
+    return {
+      kind: "not_connected",
+      title: "Sisu is not connected",
+      body: canConfigure
+        ? "This workspace has no Sisu connection yet. Connect Sisu in the Acumyn dashboard under Settings, Integrations, and production appears here after its first sync."
+        : "This workspace has not connected Sisu yet. Your numbers appear here once an admin connects it.",
+      short: "this workspace has not connected Sisu yet.",
+    };
+  }
+  if (!numbers.synced_at) {
+    return {
+      kind: "not_synced",
+      title: "Waiting for the first sync",
+      body: "Sisu is connected, but no sync has finished yet. Production appears here after the first one does.",
+      short: "Sisu's first sync has not finished yet.",
+    };
+  }
+  if (!numbers.on_roster) {
+    return {
+      kind: "not_on_roster",
+      title: "You are not on the roster",
+      body: "Your own numbers come from the Sisu agent matched to your roster entry, and this account does not have one. Add yourself under People & Roster in the console.",
+      short: "this account is not on the workspace roster yet.",
+    };
+  }
+  return {
+    kind: "unmatched",
+    title: "No matching Sisu agent",
+    body: `We could not match ${me?.email || "your account"} to an agent in Sisu. An admin can set your Sisu address on the roster.`,
+    short: "we have not matched your account to a Sisu agent yet.",
+  };
+}
+
+/* The four production cards. The viewer's own figures when they have any; the team's for somebody
+   who may see the team but does not sell -- an owner, usually; otherwise one panel saying why,
+   rather than four cards of zeroes that read as somebody's year. */
+function ProductionCards({ numbers, me, canConfigure }) {
+  if (numbers.own) return <FigureCards figures={numbers.own} numbers={numbers} />;
+  if (numbers.team) return <FigureCards figures={numbers.team} numbers={numbers} team={numbers.team} />;
+  const gap = numbersGap(numbers, me, canConfigure);
+  return (
+    <Panel title={gap.title}>
+      <p className="ut-note">{gap.body}</p>
+    </Panel>
+  );
+}
+
+/* One set of figures as four cards, a member's or the team's. The same card reads the same field
+   either way, which is why `own` and `team` carry the same names. */
+function FigureCards({ figures, numbers, team = null }) {
+  const scope = team ? "Team " : "";
+  const pace = numbers.pace_percent;
+  const closedNote = team
+    ? `${formatNumber(team.producing_agents)} ${team.producing_agents === 1 ? "agent" : "agents"} producing`
+    : pace === null || pace === undefined
+      ? "No annual goal set"
+      : `${pace}% of pace to a ${formatNumber(numbers.annual_unit_goal)}-unit goal`;
+  return (
+    <section className="ut-stat-grid">
+      <StatCard
+        label={`${scope}Units Closed YTD`}
+        value={formatNumber(figures.closed_units_ytd)}
+        sub={`${formatMoney(figures.closed_volume_ytd)} in volume`}
+        note={closedNote}
+      />
+      <StatCard
+        label={`${scope}Pending`}
+        value={formatNumber(figures.pending_units)}
+        sub={`${formatMoney(figures.pending_volume)} in volume`}
+        note={`Contracts from the last ${numbers.pending_window_days} days`}
+      />
+      <StatCard
+        label={`${scope}Appointments Held`}
+        value={formatNumber(figures.appointments_held_mtd)}
+        sub="Month to date"
+        note={`${formatNumber(figures.appointments_held)} in the last ${numbers.window_days} days`}
+      />
+      <StatCard
+        label={`${scope}GCI YTD`}
+        value={formatMoney(figures.gci_ytd)}
+        sub="Gross commission income"
+        note="Closed sales, before splits"
+      />
+    </section>
+  );
+}
+
+/* The member's goal, with the team's year beside it for somebody allowed to see the team. Only for
+   a member with figures of their own -- a goal meter for somebody who does not sell is a bar that
+   never moves. The year is the server's `as_of`: this read "2026 goal" as a literal. */
 function GoalSnapshot({ numbers }) {
-  const closed = Number(numbers.closed_units || 0);
-  const pending = Number(numbers.contracts_pending || 0);
-  const goal = Number(numbers.annual_goal_units || 0);
+  const own = numbers.own;
+  if (!own) return null;
+  const team = numbers.team;
+  const goal = Number(numbers.annual_unit_goal || 0);
+  const closed = Number(own.closed_units_ytd || 0);
+  const pending = Number(own.pending_units || 0);
   const remaining = Math.max(0, goal - closed - pending);
+  const year = (numbers.as_of || "").slice(0, 4);
 
   return (
-    <section className="ut-goal-card">
+    <section className={`ut-goal-card${team ? "" : " single"}`}>
       <div className="ut-goal-main">
         <div className="ut-goal-head">
-          <strong>2026 goal &middot; {formatNumber(goal)} units</strong>
-          <span>{formatNumber(closed)} closed &middot; {formatNumber(pending)} pending &middot; {formatNumber(remaining)} to go</span>
+          <strong>{goal ? `${year} goal · ${formatNumber(goal)} units` : `${year} · no unit goal set`}</strong>
+          <span>
+            {formatNumber(closed)} closed &middot; {formatNumber(pending)} pending
+            {goal ? <> &middot; {formatNumber(remaining)} to go</> : null}
+          </span>
         </div>
-        <div className="ut-goal-meter" aria-label="Goal progress">
-          <span className="closed" style={{ width: goal ? `${Math.min(100, (closed / goal) * 100)}%` : "0%" }} />
-          <span className="pending" style={{ width: goal ? `${Math.min(100, (pending / goal) * 100)}%` : "0%" }} />
-        </div>
-        <div className="ut-goal-legend">
-          <span><i className="closed" />Closed</span>
-          <span><i className="pending" />Pending</span>
-        </div>
+        {goal ? (
+          <>
+            <div className="ut-goal-meter" aria-label="Goal progress">
+              <span className="closed" style={{ width: `${Math.min(100, (closed / goal) * 100)}%` }} />
+              <span className="pending" style={{ width: `${Math.min(100, (pending / goal) * 100)}%` }} />
+            </div>
+            <div className="ut-goal-legend">
+              <span><i className="closed" />Closed</span>
+              <span><i className="pending" />Pending</span>
+            </div>
+          </>
+        ) : null}
       </div>
-      <div className="ut-team-ytd">
-        <span>Team, Year To Date</span>
-        <div>
-          <strong>{formatNumber(numbers.team_units_ytd)}</strong>
-          <em>units</em>
+      {team ? (
+        <div className="ut-team-ytd">
+          <span>Team, Year To Date</span>
+          <div>
+            <strong>{formatNumber(team.closed_units_ytd)}</strong>
+            <em>units</em>
+          </div>
+          <div>
+            <strong>{formatMoney(team.closed_volume_ytd)}</strong>
+            <em>volume</em>
+          </div>
+          <div>
+            <strong>{formatNumber(team.producing_agents)}</strong>
+            <em>agents producing</em>
+          </div>
         </div>
-        <div>
-          <strong>{formatMoney(numbers.team_volume_ytd)}</strong>
-          <em>volume</em>
-        </div>
-        <div>
-          <strong>{formatNumber(numbers.team_agents)}</strong>
-          <em>agents</em>
-        </div>
-      </div>
+      ) : null}
     </section>
   );
 }
@@ -689,17 +776,17 @@ function connected(config, providerKey) {
   return (config?.content?.integrations || {})[providerKey] === "connected";
 }
 
-function SunburstBanner({ config }) {
-  const n = config?.numbers || {};
+function SunburstBanner({ config, me, canConfigure }) {
+  const numbers = config?.numbers || DEFAULT_CONFIG.numbers;
+  const own = numbers.own;
   // WAS "Last week: 0 appointments set, 0 held, 0 under contract" -- three literal zeroes and an
   // instruction to configure sources, shown to everybody forever. It is their actual week now,
-  // and an unmatched agent gets a sentence about that instead of a row of noughts.
-  const line = n.sisu_connected
-    ? `Last week: ${n.appointments_set ?? 0} appointments set, ${n.appointments_held ?? 0} held, `
-      + `${n.new_contracts ?? 0} under contract. Sunburst walks you through what worked, what `
+  // and somebody with no figures is told which reason it is instead of shown a row of noughts.
+  const line = own
+    ? `Last week: ${own.appointments_set} appointments set, ${own.appointments_held} held, `
+      + `${own.new_contracts} under contract. Sunburst walks you through what worked, what `
       + "slipped, and what this week needs to look like."
-    : "Sunburst reads your Sisu activity. We have not matched your account to an agent yet, so "
-      + "it will not know your week until an admin sets your Sisu address on the roster.";
+    : `Sunburst reads your Sisu activity, and ${numbersGap(numbers, me, canConfigure).short}`;
   return (
     <section className="ut-sunburst">
       <div className="ut-sunburst-copy">
@@ -1914,18 +2001,83 @@ function Sops({ config }) {
   );
 }
 
-function Numbers({ config }) {
-  const n = config.numbers || DEFAULT_CONFIG.numbers;
+/* Where the figures come from, and how fresh they are. */
+function numbersSubtitle(numbers) {
+  if (!numbers.synced_at) return "Production from Sisu.";
+  const at = new Date(numbers.synced_at).toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+  return `Production from Sisu, last synced ${at}.`;
+}
+
+/* MY NUMBERS, AND THE TEAM'S WHERE THE ROLE ALLOWS IT. `numbers.team` only arrives for somebody
+   whose role has Team Production -- the server decides, see `_may_see_team` -- so an owner who does
+   not sell gets the team rather than an empty page, and an agent gets exactly their own. */
+function Numbers({ config, me, canConfigure }) {
+  const numbers = config.numbers || DEFAULT_CONFIG.numbers;
+  const team = numbers.team;
+  const gap = numbers.own ? null : numbersGap(numbers, me, canConfigure);
   return (
-    <Page title="My Numbers" subtitle="Production numbers remain zero until tenant API integrations are configured.">
-      <section className="ut-stat-grid">
-        <StatCard label="Units Closed YTD" value={formatNumber(n.closed_units)} sub={`${formatMoney(n.closed_volume)} in volume`} note="Source pending" />
-        <StatCard label="Pending" value={formatNumber(n.contracts_pending)} sub="$0 in volume" note="Source pending" />
-        <StatCard label="Appointments Held" value={formatNumber(n.appointments_held || n.appointments_set)} sub="Month to date" note="Source pending" />
-        <StatCard label="GCI YTD" value={formatMoney(n.gci_ytd)} sub="$0 net to you" note="Source pending" />
-      </section>
-      <GoalSnapshot numbers={n} />
+    <Page title="My Numbers" subtitle={numbersSubtitle(numbers)}>
+      {numbers.own ? (
+        <>
+          <FigureCards figures={numbers.own} numbers={numbers} />
+          {/* The team has its own section below, so the goal card does not repeat it. */}
+          <GoalSnapshot numbers={{ ...numbers, team: null }} />
+        </>
+      ) : team ? (
+        // Sees the team, but has no agent row of their own -- the usual owner.
+        <p className="ut-note">{gap.body} The team{"’"}s figures are below.</p>
+      ) : (
+        <Panel title={gap.title}>
+          <p className="ut-note">{gap.body}</p>
+        </Panel>
+      )}
+      {team ? <TeamProduction team={team} numbers={numbers} /> : null}
     </Page>
+  );
+}
+
+/* Everyone else's numbers: the team's totals, then who they came from. */
+function TeamProduction({ team, numbers }) {
+  return (
+    <>
+      <FigureCards figures={team} numbers={numbers} team={team} />
+      <Panel title="By agent" kicker={`${formatNumber(team.by_agent.length)} with activity`}>
+        {team.by_agent.length ? (
+          <div className="ut-numbers-scroll">
+            <table className="ut-numbers-table">
+              <thead>
+                <tr>
+                  <th scope="col">Agent</th>
+                  <th scope="col">Closed YTD</th>
+                  <th scope="col">Volume YTD</th>
+                  <th scope="col">GCI YTD</th>
+                  <th scope="col">Pending</th>
+                  <th scope="col">Held, last {numbers.window_days} days</th>
+                </tr>
+              </thead>
+              <tbody>
+                {team.by_agent.map((producer) => (
+                  <tr key={producer.id}>
+                    <th scope="row">{producer.name}</th>
+                    <td>{formatNumber(producer.closed_units_ytd)}</td>
+                    <td>{formatMoney(producer.closed_volume_ytd)}</td>
+                    <td>{formatMoney(producer.gci_ytd)}</td>
+                    <td>{formatNumber(producer.pending_units)}</td>
+                    <td>{formatNumber(producer.appointments_held)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="ut-note">
+            No agent has a closing, a pending contract or an appointment in these windows yet.
+          </p>
+        )}
+      </Panel>
+    </>
   );
 }
 
@@ -2395,17 +2547,17 @@ const SUNBURST_PROMPTS = [
  * `carries_prompt` flips to true the day Sisu ships a link that takes the question, and every card
  * becomes one click with no change here.
  */
-function SunburstPage({ config, me }) {
-  const numbers = config?.numbers || {};
+function SunburstPage({ config, me, canConfigure }) {
+  const numbers = config?.numbers || DEFAULT_CONFIG.numbers;
+  const own = numbers.own;
   const url = (config?.sunburst?.url || "").trim();
   const carries = Boolean(config?.sunburst?.carries_prompt);
   const [copied, setCopied] = useState("");
   const [typed, setTyped] = useState("");
 
-  // Whether a figure is missing and whether it is zero are different facts. An unmatched agent
-  // gets an em dash and a line telling them why; a quiet week gets a nought.
-  const stat = (value) => (numbers.sisu_connected && value !== null && value !== undefined
-    ? String(value) : "—");
+  // Whether a figure is missing and whether it is zero are different facts. Somebody with no
+  // figures gets an em dash and a line saying why; a quiet week gets a nought.
+  const stat = (value) => (own && value !== null && value !== undefined ? String(value) : "—");
 
   function open(prompt) {
     if (!url) return;
@@ -2459,24 +2611,25 @@ function SunburstPage({ config, me }) {
         <div className="ut-sb-knows">
           <span className="ut-kicker">What it already knows</span>
           <dl>
-            <div><dt>Appointments set</dt><dd>{stat(numbers.appointments_set)}</dd></div>
-            <div><dt>Appointments held</dt><dd>{stat(numbers.appointments_held)}</dd></div>
-            <div><dt>New contracts</dt><dd>{stat(numbers.new_contracts)}</dd></div>
-            <div><dt>Conversations logged</dt><dd>{stat(numbers.conversations_logged)}</dd></div>
+            <div><dt>Appointments set</dt><dd>{stat(own?.appointments_set)}</dd></div>
+            <div><dt>Appointments held</dt><dd>{stat(own?.appointments_held)}</dd></div>
+            <div><dt>New contracts</dt><dd>{stat(own?.new_contracts)}</dd></div>
+            <div><dt>Conversations logged</dt><dd>{stat(own?.conversations_logged)}</dd></div>
             <div>
               <dt>Pace to annual goal</dt>
               <dd>{numbers.pace_percent === null || numbers.pace_percent === undefined
                 ? "—" : `${numbers.pace_percent}%`}</dd>
             </div>
           </dl>
-          {/* Said out loud rather than shown as zeroes. An agent whose CRM address differs cannot
-              work out why their own page is empty, and an admin cannot fix what nobody reports. */}
-          {!numbers.sisu_connected ? (
+          {/* Said out loud rather than shown as zeroes -- and the right reason out of four. This
+              told an owner whose workspace had no Sisu connection that their address could not
+              be matched. */}
+          {!own ? (
             <p className="ut-sb-note">
-              We could not match {me?.email || "your account"} to an agent in Sisu, so these are
-              blank rather than zero. An admin can set your Sisu address on the roster.
+              {numbersGap(numbers, me, canConfigure).body} Until then these are blank rather than
+              zero.
             </p>
-          ) : numbers.conversations_logged === null ? (
+          ) : own.conversations_logged === null ? (
             <p className="ut-sb-note">
               Conversations come from your CRM{"\u2019"}s call log, which is not connected yet.
             </p>
@@ -2567,7 +2720,7 @@ export default function IntranetApp() {
   return (
     <Shell me={boot.me} config={boot.config}>
       <Routes>
-        <Route path="/" element={<Home config={boot.config} wtd={wtd} training={training} onboarding={onboarding} me={boot.me} />} />
+        <Route path="/" element={<Home config={boot.config} wtd={wtd} training={training} onboarding={onboarding} me={boot.me} canConfigure={boot.canConfigure} />} />
         <Route path="/tools" element={<Tools config={boot.config} />} />
         <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} />} />
         <Route path="/training" element={<Training state={training} config={boot.config} />} />
@@ -2576,13 +2729,13 @@ export default function IntranetApp() {
         <Route path="/p/:pageKey" element={<AuthoredPage config={boot.config} />} />
         <Route path="/onboarding" element={<Onboarding state={onboarding} setState={setOnboarding} />} />
         <Route path="/sops" element={<Sops config={boot.config} />} />
-        <Route path="/numbers" element={<Numbers config={boot.config} />} />
+        <Route path="/numbers" element={<Numbers config={boot.config} me={boot.me} canConfigure={boot.canConfigure} />} />
         <Route path="/calendar" element={<Calendar config={boot.config} canConfigure={boot.canConfigure} saveConfig={boot.saveConfig} />} />
         <Route path="/marketing" element={<Marketing config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/directory" element={<Directory config={boot.config} />} />
         <Route path="/brand" element={<BrandKit config={boot.config} />} />
         <Route path="/ask" element={<Ask config={boot.config} me={boot.me} />} />
-        <Route path="/sunburst" element={<SunburstPage config={boot.config} me={boot.me} />} />
+        <Route path="/sunburst" element={<SunburstPage config={boot.config} me={boot.me} canConfigure={boot.canConfigure} />} />
         {/* On The Phone, Listing Marketing and JV Partners were empty PlaceholderPage shells --
             one customer's screen names with nothing behind them. They are what the page builder
             replaces: a workspace writes its own under /p/<key>, in whichever sidebar group it

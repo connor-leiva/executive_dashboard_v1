@@ -812,6 +812,63 @@ input {
   font-style: normal;
 }
 
+/* The goal card for somebody who is not shown the team: no second column to leave room for. */
+.ut-goal-card.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ut-goal-card.single .ut-goal-main {
+  padding-right: 0;
+}
+
+/* The team, agent by agent. A real table, because it is read along a row and down a column and a
+   screen reader should be able to do both. It scrolls sideways inside its panel on a phone rather
+   than squeezing six columns into the width of one. */
+.ut-numbers-scroll {
+  overflow-x: auto;
+}
+
+.ut-numbers-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.ut-numbers-table th,
+.ut-numbers-table td {
+  padding: 11px 12px;
+  border-top: 1px solid var(--soft-line);
+  color: var(--body);
+  font-size: 14px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ut-numbers-table thead th {
+  border-top: 0;
+  color: var(--faint);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ut-numbers-table th:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+
+.ut-numbers-table th:last-child,
+.ut-numbers-table td:last-child {
+  padding-right: 0;
+}
+
+.ut-numbers-table tbody th {
+  color: var(--ink);
+  font-weight: 500;
+}
+
 /* THE SUNBURST BAND, to the design spec. Flex with wrap rather than a fixed two-column grid:
    the reference lays it out that way and it means the prompt column drops under the copy on a
    narrow screen instead of being squeezed to 330px of nothing.

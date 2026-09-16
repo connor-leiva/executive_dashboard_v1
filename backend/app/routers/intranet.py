@@ -30,7 +30,7 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
 from ..services import (binder_storage, course_sections, intranet_assistant, lesson_media,
                         lesson_richtext, member_numbers, sunburst, uploads)
 from ..services.inheritance import dashboard_connections
-from ..services.intranet_permissions import allows, capability_levels
+from ..services.intranet_permissions import DENIED, allows, capability_levels
 from ..services.audit import audit
 
 def _iso(value) -> str | None:
@@ -658,21 +658,26 @@ def _config_out(tenant: Tenant, user: User,
                 marketing_role: str | None = None,
                 content: dict | None = None,
                 workspace: IntranetWorkspace | None = None,
-                week: dict | None = None,
+                numbers: dict | None = None,
                 member_id=None) -> dict:
     config = _stored_config(tenant)
     # The capabilities the content payload already resolved -- not looked up again, so the form
     # and the endpoint cannot disagree about the same role.
-    # The signed-in member's own week, computed by the caller (this is a serializer, and a
-    # serializer that opens queries is one nobody can call from a test).
+    # The member's own figures and, where their role allows, the team's -- computed by the caller
+    # (this is a serializer, and a serializer that opens queries is one nobody can call from a
+    # test). Pace stays the member's own: the stored goal is measured against one agent's
+    # closings, and nothing defines a team target yet.
     stored_numbers = config.get("numbers") or {}
     goal = stored_numbers.get("annual_unit_goal") or 0
+    own = (numbers or {}).get("own")
+    as_of = (numbers or {}).get("as_of")
     config["numbers"] = {
         **stored_numbers,
-        **(week or {}),
+        **(numbers or {}),
         "annual_unit_goal": goal,
-        "pace_percent": (member_numbers.pace((week or {}).get("closed_units_ytd", 0), goal)
-                         if week else None),
+        "pace_percent": (member_numbers.pace(own["closed_units_ytd"], goal,
+                                             dt.date.fromisoformat(as_of) if as_of else None)
+                         if own else None),
     }
     # Derived per member and handed over ready to use, so the portal never builds a URL and there
     # is nothing for an admin to configure. A member-less viewer (an owner not on the roster) gets
@@ -736,9 +741,31 @@ def _check_state_value(value: dict) -> dict:
     return value
 
 
-@router.get("/config")
-async def get_config(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
-    tenant = await _enabled_tenant(s, user)
+def _may_see_team(levels: dict, member: IntranetMember | None, user: User) -> bool:
+    """Whether this person is shown the TEAM's production as well as their own.
+
+    The workspace already decided this. `team_production` -- "Everyone else's numbers" -- has been
+    in the permissions matrix since the console shipped, Full for Owner and Manager and None for
+    Member, and nothing read it: an owner who does not sell opened My Numbers and saw nothing.
+
+    STRICTER THAN `allows()`, deliberately. Elsewhere a missing permission row means permitted,
+    because guessing wrong costs somebody a course list. Here it would show every agent everyone
+    else's production. Both bootstraps write a level for every role and the console cannot create
+    a role, so no real workspace loses anything by requiring one.
+
+    Somebody with no roster entry has no role to ask, so their account decides: the workspace's
+    owners and admins see the team and nobody else does. A removed member keeps a role but not
+    the view.
+    """
+    if member is None:
+        return user.role in ("owner", "admin")
+    if member.status == "Removed":
+        return False
+    return levels.get("team_production", DENIED) != DENIED
+
+
+async def _member_config(s: AsyncSession, tenant: Tenant, user: User) -> dict:
+    """The portal payload for this person. GET and PATCH both answer with it -- see patch_config."""
     # Read-only: the console owns this row and creates it. A tenant that has never opened the
     # Marketing Requests screen has no row, and None is the honest answer for that -- creating one
     # here would write to the database on a GET.
@@ -751,11 +778,21 @@ async def get_config(user: User = Depends(current_user), s: AsyncSession = Depen
     content = await _published_content(s, user.tenant_id, member, user)
     workspace = (await s.execute(select(IntranetWorkspace).where(
         IntranetWorkspace.tenant_id == user.tenant_id))).scalars().first()
-    # Per request rather than cached: it is four indexed counts, and a stale copy of somebody's
-    # own numbers is the kind of wrong that makes people stop trusting the page.
-    week = await member_numbers.week_for(s, user.tenant_id, member)
-    return _config_out(tenant, user, marketing, role_name, content, workspace, week,
+    # Per request rather than cached: a stale copy of somebody's own numbers is the kind of wrong
+    # that makes people stop trusting the page. Counted to the workspace's own day, as sections
+    # are -- at 6pm Mountain the UTC date has already turned over.
+    today = course_sections.workspace_today(workspace.timezone if workspace is not None else None)
+    numbers = await member_numbers.numbers_for(
+        s, user.tenant_id, member, today,
+        team=_may_see_team(content.get("capabilities") or {}, member, user))
+    return _config_out(tenant, user, marketing, role_name, content, workspace, numbers,
                        member.id if member is not None else None)
+
+
+@router.get("/config")
+async def get_config(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    tenant = await _enabled_tenant(s, user)
+    return await _member_config(s, tenant, user)
 
 
 @router.patch("/config")
@@ -816,7 +853,11 @@ async def patch_config(body: IntranetConfigPatch,
     audit(s, user.tenant_id, user.id, "intranet.config_changed", "tenant", tenant.id,
           {"fields": sorted(fields)})
     await s.commit()
-    return _config_out(tenant, user)
+    # The WHOLE payload, as GET sends it. This answered `_config_out(tenant, user)` -- no content,
+    # no numbers -- and the portal replaces its config with whatever comes back, so saving the
+    # calendar URL emptied every production figure and the permissions the rail filters on until
+    # the next reload.
+    return await _member_config(s, tenant, user)
 
 
 # The fields a workspace may demand, mirroring MARKETING_FIELDS in the console router. Kept as
