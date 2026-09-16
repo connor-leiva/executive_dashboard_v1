@@ -41,10 +41,8 @@ export function useDashboard(period = "mtd") {
         if (!alive) return;
         if (e && e.status === 401) {
           // Session invalid/expired (bad token, token_version bumped, re-seed) →
-          // clear it and reload to the login screen. A 403 is a real permission
+          // api.js has announced it and App shows sign-in. A 403 is a real permission
           // signal (a tab a member lacks), never a logout.
-          localStorage.removeItem("cc_token");
-          window.location.reload();
           return;
         }
         // A real API error (500, network) — surface it instead of silently

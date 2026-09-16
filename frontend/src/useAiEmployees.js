@@ -25,8 +25,6 @@ export function useAiEmployees(enabled = true) {
       .catch((e) => {
         if (!alive) return;
         if (e && e.status === 401) {
-          localStorage.removeItem("cc_token");
-          window.location.reload();
           return;
         }
         if (e && (e.status === 404 || e.status === 403)) {   // feature off / no grant → empty

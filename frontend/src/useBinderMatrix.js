@@ -23,8 +23,6 @@ export function useBinderMatrix() {
       .then((d) => { setData(d); setUsingSample(false); })
       .catch((e) => {
         if (e && e.status === 401) {
-          localStorage.removeItem("cc_token");
-          window.location.reload();
           return;
         }
         setError(e);

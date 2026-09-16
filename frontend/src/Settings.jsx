@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, NavLink, Link } from "react-router-dom";
 import { T, PROVIDER_NAME, relativeTime } from "./theme.js";
-import { getJSON, postJSON, putJSON, patchJSON, delJSON, tenantHeaders } from "./api.js";
+import { getJSON, postJSON, putJSON, patchJSON, delJSON, tenantHeaders, getToken, logout, getBlob } from "./api.js";
 import { Icon } from "./Brand.jsx";
 import AISettings from "./AISettings.jsx";
 import SecuritySettings from "./SecuritySettings.jsx";
@@ -620,11 +620,12 @@ function LegacyDeltaPanel({ live }) {
     if (!live) return;
     setBusy(true); setMsg(null);
     try {
-      const token = localStorage.getItem("cc_token");
-      const r = await fetch(`${API_BASE}/integrations/stripe_legacy/delta.csv`,
-        { headers: tenantHeaders({ Authorization: `Bearer ${token}` }) });
-      if (!r.ok) throw new Error();
-      const blob = new Blob([await r.text()], { type: "text/csv" });
+      // Through getBlob, not a hand-built fetch. That read the token from localStorage only, so a
+      // session without "remember me" sent `Bearer null` and every download "failed" with advice
+      // to re-sync. getBlob sends the same headers as every other call, and an expired session is
+      // announced like any other 401 instead of being blamed on the sync.
+      const blob = new Blob([await getBlob("/integrations/stripe_legacy/delta.csv")],
+                            { type: "text/csv" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = `forum_legacy_delta_${new Date().toISOString().slice(0, 10)}.csv`;
@@ -1256,11 +1257,19 @@ function IntegrationsPage() {
 
 /* ── account ───────────────────────────────────────────────── */
 
+/* SIGN OUT READ localStorage ONLY, which is where every token lived when this was written. A
+   session without "remember me" is kept in sessionStorage now, so for exactly those sessions this
+   found no token -- the server-side logout was never sent -- cleared nothing, and landed back on a
+   dashboard that was still signed in. getToken() reads both stores and logout() clears both.
+   NOTE: /auth/logout revokes nothing today. Sessions are stateless JWTs, so a signed-out token
+   stays valid until it expires; hard revocation is only a token_version bump. `keepalive` just
+   stops the navigation on the next line from cancelling the request mid-flight. */
 function doSignOut() {
-  const token = localStorage.getItem("cc_token");
+  const token = getToken();
   if (API_BASE && token) fetch(`${API_BASE}/auth/logout`,
-    { method: "POST", headers: tenantHeaders({ Authorization: `Bearer ${token}` }) }).catch(() => {});
-  localStorage.removeItem("cc_token");
+    { method: "POST", keepalive: true,
+      headers: tenantHeaders({ Authorization: `Bearer ${token}` }) }).catch(() => {});
+  logout();
   window.location.href = "/";
 }
 
@@ -1525,8 +1534,6 @@ function InviteModal({ tabs, me, onClose, onInvited }) {
       onInvited();
     } catch (x) {
       if (x.status === 401) {   // dead/stale session — bounce to login rather than showing a form error
-        localStorage.removeItem("cc_token");
-        window.location.reload();
         return;
       }
       // Surface the server's real reason (e.g. "A user with that email already
@@ -1602,7 +1609,7 @@ function UserRow({ u, me, tabs, onChanged }) {
     setBusy(true); setErr(null);
     try { await patchJSON(`/users/${u.id}`, { role, tab_access: role === "member" ? grants : null }); onChanged(); setOpen(false); }
     catch (x) {
-      if (x.status === 401) { localStorage.removeItem("cc_token"); window.location.reload(); return; }
+      if (x.status === 401) { return; }
       setErr(x.detail || "Couldn't save — please try again.");
     } finally { setBusy(false); }
   }

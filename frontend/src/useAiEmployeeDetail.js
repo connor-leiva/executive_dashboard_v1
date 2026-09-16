@@ -37,7 +37,7 @@ export function useAiEmployeeDetail(employeeId, enabled = true) {
       setRunId((prev) => prev || (r.runs && r.runs[0] && r.runs[0].id) || null);
     }).catch((e) => {
       if (!alive) return;
-      if (e && e.status === 401) { localStorage.removeItem("cc_token"); window.location.reload(); return; }
+      if (e && e.status === 401) { return; }
       setError(e);
     });
     return () => { alive = false; };

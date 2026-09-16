@@ -5,7 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-route
 // the screen that suspends customers, and a static import puts it in everybody's bundle.
 const PlatformConsole = lazy(() => import("./platform/PlatformConsole.jsx"));
 import { T } from "./theme.js";
-import { login, hasToken, getJSON, getPublic, setToken } from "./api.js";
+import { login, hasToken, getJSON, getPublic, logout, setToken } from "./api.js";
 import CommandCenter from "./CommandCenter.jsx";
 import Settings from "./Settings.jsx";
 import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
@@ -219,6 +219,23 @@ export function Login({ onLogin }) {
 export function App() {
   const [authed, setAuthed] = useState(hasToken());
   const needsLogin = Boolean(API_BASE) && !authed;
+
+  /* AN EXPIRED SESSION SIGNS YOU OUT, ONCE, IN PLACE.
+     api.js announces any 401 outside /auth/* as `cc:session-expired`. This used to be handled in
+     fourteen hooks, each clearing localStorage and reloading -- but a session without "remember
+     me" lives in sessionStorage, which the token reader checks FIRST. So the reload found the dead
+     token,
+     the dashboard fetched again, got another 401 and reloaded again: an endless loop, hammering the
+     API from every open tab. One listener now; logout() clears both stores, and the sign-in screen
+     renders without a reload. */
+  useEffect(() => {
+    function onExpired() {
+      logout();
+      setAuthed(false);
+    }
+    window.addEventListener("cc:session-expired", onExpired);
+    return () => window.removeEventListener("cc:session-expired", onExpired);
+  }, []);
 
   // The workspace's colours, type and marks, applied for EVERY authenticated route. This used to
   // live inside CommandCenter, which Settings never mounts — so Settings rendered in the

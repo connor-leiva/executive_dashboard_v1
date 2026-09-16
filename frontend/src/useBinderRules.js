@@ -16,7 +16,7 @@ export function useBinderRules() {
     getJSON("/binder/rules")
       .then((d) => { setData(d); setUsingSample(false); })
       .catch((e) => {
-        if (e && e.status === 401) { localStorage.removeItem("cc_token"); window.location.reload(); return; }
+        if (e && e.status === 401) { return; }
         setError(e);
       });
   }, []);

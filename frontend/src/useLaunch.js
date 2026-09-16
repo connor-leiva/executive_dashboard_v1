@@ -30,8 +30,6 @@ export function useLaunch(businessKey = "springb") {
       .catch((e) => {
         if (!alive) return;
         if (e && e.status === 401) {
-          localStorage.removeItem("cc_token");
-          window.location.reload();
           return;
         }
         if (e && (e.status === 404 || e.status === 403)) {  // no launch / no access → absent, not an error

@@ -25,7 +25,7 @@ export function useSalesDesk(businessKey = "springb") {
       .then((d) => { if (alive) { setData(d); setExists(true); setUsingSample(false); } })
       .catch((e) => {
         if (!alive) return;
-        if (e && e.status === 401) { localStorage.removeItem("cc_token"); window.location.reload(); return; }
+        if (e && e.status === 401) { return; }
         if (e && (e.status === 404 || e.status === 403)) { setExists(false); setData(null); return; }
         setError(e);
       });
