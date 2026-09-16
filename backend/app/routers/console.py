@@ -52,7 +52,6 @@ from ..models import (
     Tenant, User,
 )
 from ..services.audit import audit
-from ..config import settings
 from ..security import enc
 from .. import plans
 from ..security import new_action_token
@@ -1357,9 +1356,9 @@ def _marketing_request(row: IntranetMarketingRequest,
 
 
 # ── Google sign-in ────────────────────────────────────────────────────────────────────────
-# Each workspace registers its OWN Google OAuth client and pastes it here, so the consent screen
-# their staff see carries their name rather than Acumyn's -- see services/google_auth for why
-# this is not one shared app in env.
+# Every workspace signs in through ONE Google app, Acumyn's -- see services/google_auth for why
+# it is not a client each team registers. What is left for a workspace is two choices: whether
+# the button is offered, and which email domains may use it.
 
 
 async def _google_row(s: AsyncSession, tenant_id: uuid.UUID) -> IntranetIntegration:
@@ -1377,28 +1376,26 @@ async def _google_row(s: AsyncSession, tenant_id: uuid.UUID) -> IntranetIntegrat
     return row
 
 
-def _google_out(row: IntranetIntegration) -> dict:
-    cfg = row.config or {}
+def _google_out(row: IntranetIntegration | None) -> dict:
+    choices = google_auth.workspace_choices(row)
+    available = google_auth.platform_configured()
     return {
-        "client_id": cfg.get("client_id") or "",
-        # Never the secret itself, in either direction -- only whether one is stored. A form
-        # that round-trips a secret puts it in a response body, a browser cache and a screen.
-        "secret_set": bool(row.credential_ref),
-        "allowed_domains": list(cfg.get("allowed_domains") or []),
-        "enabled": bool(cfg.get("enabled", False)),
-        "status": row.status,
-        # The exact string Google Cloud demands under "Authorised redirect URIs". Handed over
-        # rather than described, because a character wrong here fails as redirect_uri_mismatch
-        # long after the admin has left the page.
-        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        **choices,
+        # Whether this deployment has Acumyn's Google app at all. A workspace can leave sign-in on
+        # while this is false; the button simply does not appear until it is true.
+        "available": available,
+        "status": "Connected" if available and choices["enabled"] else "Not Connected",
     }
 
 
 @router.get("/google-signin")
 async def get_google_signin(p: ConsolePrincipal = Depends(require_console_access),
                             s: AsyncSession = Depends(get_session)):
-    row = await _google_row(s, p.user.tenant_id)
-    await s.commit()
+    # Read without creating: a workspace that has chosen nothing has the defaults, and a GET that
+    # wrote a row to say so would be a write nobody asked for.
+    row = (await s.execute(select(IntranetIntegration).where(
+        IntranetIntegration.tenant_id == p.user.tenant_id,
+        IntranetIntegration.provider_key == google_auth.PROVIDER_KEY))).scalar_one_or_none()
     return {"item": _google_out(row)}
 
 
@@ -1406,26 +1403,25 @@ async def get_google_signin(p: ConsolePrincipal = Depends(require_console_access
 async def patch_google_signin(body: dict = Body(...),
                               p: ConsolePrincipal = Depends(require_console_access),
                               s: AsyncSession = Depends(get_session)):
-    """Configure this workspace's Google sign-in.
+    """Whether this workspace offers Google sign-in, and to which email domains.
 
     NOT publish-aware, and that is deliberate. Everything else in this console is content an
-    admin stages and publishes to their members; this is the door. Staging it would mean an
-    admin fills the form in, clicks Test, and is told Google sign-in is not set up -- because
-    the live row is still empty. Sign-in either works now or it does not.
+    admin stages and publishes to their members; this is the door, and it either works now or it
+    does not.
+
+    THERE ARE NO CREDENTIALS TO SET. The app is Acumyn's and every workspace uses it, so a body
+    that still carries a client id or secret is refused rather than quietly ignored -- an old form
+    must not look as though it saved one.
     """
     body = _body(body)
-    _unknown(body, {"client_id", "client_secret", "allowed_domains", "enabled"})
+    _unknown(body, {"allowed_domains", "enabled"})
     row = await _google_row(s, p.user.tenant_id)
     cfg = dict(row.config or {})
+    # What the per-workspace design stored, dropped on the first save: a client id nothing reads
+    # is noise, and a secret nothing reads should not be kept at all.
+    cfg.pop("client_id", None)
+    row.credential_ref = None
 
-    if "client_id" in body:
-        cfg["client_id"] = (_text(body, "client_id", nullable=True, max_len=255) or "").strip()
-    if "client_secret" in body:
-        raw = (_text(body, "client_secret", nullable=True, max_len=255) or "").strip()
-        # Blank means "leave what is stored alone", so an admin can edit the domain list without
-        # re-pasting a secret they no longer have. Clearing is an explicit action, below.
-        if raw:
-            row.credential_ref = enc(raw)
     if "allowed_domains" in body:
         raw = body.get("allowed_domains") or []
         if not isinstance(raw, list):
@@ -1442,28 +1438,25 @@ async def patch_google_signin(body: dict = Body(...),
                 domains.append(d)
         cfg["allowed_domains"] = domains
     if "enabled" in body:
-        enabled = _bool(body, "enabled")
-        # Refused rather than saved: a login page offering a Google button that cannot complete
-        # is worse than one that does not offer it.
-        if enabled and not ((cfg.get("client_id") or "").strip() and row.credential_ref):
-            _unprocessable("enabled",
-                           "Add the client ID and client secret before turning sign-in on.")
-        cfg["enabled"] = bool(enabled)
+        cfg["enabled"] = bool(_bool(body, "enabled"))
 
     row.config = cfg
-    row.status = "Connected" if cfg.get("enabled") else "Not Connected"
+    out = _google_out(row)
+    row.status = out["status"]
+    if "enabled" in body:
+        summary = "Google sign-in turned on" if out["enabled"] else "Google sign-in turned off"
+    else:
+        summary = "Google sign-in domains updated"
     await _record_mutation(
         s, p,
         action="config.google_signin.updated",
         category="Sign-in",
-        summary=("Google sign-in enabled" if cfg.get("enabled")
-                 else "Google sign-in configuration updated"),
+        summary=summary,
         target_type="integration", target_id=row.id,
-        detail={"allowed_domains": cfg.get("allowed_domains") or []},
+        detail={"allowed_domains": out["allowed_domains"], "enabled": out["enabled"]},
         pending=False)
     await s.commit()
-    await s.refresh(row)
-    return {"item": _google_out(row)}
+    return {"item": out}
 
 
 @router.get("/marketing/requests")

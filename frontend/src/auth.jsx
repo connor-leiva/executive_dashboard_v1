@@ -72,8 +72,8 @@ function GoogleMark() {
   );
 }
 
-/** Offered only where the workspace has set Google up — asked of the server rather than assumed,
- *  so a team on passwords never sees a button that cannot work. */
+/** Offered wherever Acumyn's Google app is configured and this workspace has not turned it off —
+ *  asked of the server rather than assumed, so nobody is shown a button that cannot work. */
 function GoogleSignIn({ onError }) {
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState(false);

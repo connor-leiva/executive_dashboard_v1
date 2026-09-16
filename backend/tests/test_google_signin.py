@@ -1,15 +1,16 @@
-"""Google sign-in: per-workspace credentials, and a door that only opens for invited people.
+"""Google sign-in: one Acumyn app for every workspace, and a door that only opens for invited people.
 
-The two properties worth guarding here are both about what this must NOT do.
+The properties worth guarding here are mostly about what this must NOT do.
 
 MATCHING, NEVER PROVISIONING. A verified Google address at an allowed domain is not an
 invitation. If a successful sign-in could create a user, then "who is in this workspace" would be
 controlled by whoever administers that email domain rather than by the workspace's own admin --
 and domain membership changes without us being told.
 
-CREDENTIALS ARE PER WORKSPACE. Not one Acumyn Google app in env: each team registers their own,
-so their staff see their own name on the consent screen and one revoked app cannot sign out
-every customer at once.
+ONE APP, NOTHING FOR A WORKSPACE TO SET UP. The client id and secret are Acumyn's and live in the
+deployment's settings, so a workspace is offered Google the moment the app exists. What a
+workspace still decides is whether to keep it on and which domains may use it -- and turning it
+off must close the door, not merely hide the button.
 """
 import datetime as dt
 import uuid
@@ -19,20 +20,29 @@ from httpx import AsyncClient, ASGITransport
 from jose import jwt
 from sqlalchemy import select
 
+from app.config import settings
 from app.db import SessionLocal
 from app.main import app
 from app.models import IntranetIntegration, Tenant, User
-from app.security import enc, make_capability, read_token
+from app.security import make_capability, read_token
 from app.seed import seed
 from app.services import google_auth
 
 TRANSPORT = ASGITransport(app=app)
 CLIENT_ID = "1234.apps.googleusercontent.com"
+CLIENT_SECRET = "acumyn-app-secret"
 
 
 @pytest.fixture(scope="module", autouse=True)
 async def _seeded():
     await seed()
+
+
+@pytest.fixture(autouse=True)
+def _platform_app(monkeypatch):
+    """Acumyn's Google app, configured on the deployment the way production has it."""
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", CLIENT_ID)
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", CLIENT_SECRET)
 
 
 def _client():
@@ -55,20 +65,29 @@ async def _tenant_id() -> uuid.UUID:
         return (await s.execute(select(Tenant.id).where(Tenant.slug == "springb"))).scalar_one()
 
 
-async def _configure(*, enabled=True, domains=None, secret="shh"):
+async def _choose(*, enabled=None, domains=None, nothing=False) -> uuid.UUID:
+    """Record a workspace's choices -- or, with `nothing`, remove its row so it has made none."""
     tid = await _tenant_id()
     async with SessionLocal() as s:
         row = (await s.execute(select(IntranetIntegration).where(
             IntranetIntegration.tenant_id == tid,
             IntranetIntegration.provider_key == google_auth.PROVIDER_KEY))).scalar_one_or_none()
+        if nothing:
+            if row is not None:
+                await s.delete(row)
+            await s.commit()
+            return tid
         if row is None:
             row = IntranetIntegration(tenant_id=tid, provider_key=google_auth.PROVIDER_KEY,
                                       display_name="Google Workspace", role_label="Sign-in",
                                       status="Not Connected", config={})
             s.add(row)
-        row.config = {"client_id": CLIENT_ID, "enabled": enabled,
-                      "allowed_domains": domains or []}
-        row.credential_ref = enc(secret) if secret else None
+        config = {}
+        if enabled is not None:
+            config["enabled"] = enabled
+        if domains is not None:
+            config["allowed_domains"] = domains
+        row.config = config
         await s.commit()
     return tid
 
@@ -122,9 +141,26 @@ async def test_the_oauth_state_is_not_usable_as_a_session_token():
     assert r.status_code == 401
 
 
-# -- the endpoints -------------------------------------------------------------------------
-async def test_a_workspace_that_has_not_configured_google_offers_no_button():
-    await _configure(enabled=False)
+# -- who is offered the button -------------------------------------------------------------
+async def test_a_workspace_that_chose_nothing_is_offered_google_once_the_app_exists():
+    """The point of one shared app: there is nothing for a workspace to set up first."""
+    await _choose(nothing=True)
+    async with _client() as c:
+        assert (await c.get("/api/v1/auth/google/config")).json() == {"enabled": True}
+
+
+async def test_without_acumyns_app_nobody_is_offered_the_button(monkeypatch):
+    """Half an app is no app: an id without its secret would get as far as Google's consent screen
+    and fail on the way back, so a workspace that wants Google still gets no button."""
+    await _choose(enabled=True)
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "")
+    async with _client() as c:
+        assert (await c.get("/api/v1/auth/google/config")).json() == {"enabled": False}
+        assert (await c.get("/api/v1/auth/google/start")).status_code == 404
+
+
+async def test_a_workspace_that_turned_google_off_offers_no_button():
+    await _choose(enabled=False)
     async with _client() as c:
         r = await c.get("/api/v1/auth/google/config")
         assert r.status_code == 200 and r.json() == {"enabled": False}
@@ -132,8 +168,8 @@ async def test_a_workspace_that_has_not_configured_google_offers_no_button():
         assert (await c.get("/api/v1/auth/google/start")).status_code == 404
 
 
-async def test_start_hands_back_googles_url_carrying_this_workspaces_client_id():
-    await _configure(domains=["utahlife.com"])
+async def test_start_hands_back_googles_url_carrying_acumyns_client_id():
+    await _choose(domains=["utahlife.com"])
     async with _client() as c:
         assert (await c.get("/api/v1/auth/google/config")).json() == {"enabled": True}
         r = await c.get("/api/v1/auth/google/start")
@@ -143,9 +179,11 @@ async def test_start_hands_back_googles_url_carrying_this_workspaces_client_id()
     assert CLIENT_ID in url and "prompt=select_account" in url
 
 
+# -- the callback --------------------------------------------------------------------------
 async def _callback(monkeypatch, *, email, tid):
     async def fake_exchange(client_id, client_secret, code, redirect_uri):
-        assert client_secret == "shh", "the workspace's own secret must reach Google"
+        assert (client_id, client_secret) == (CLIENT_ID, CLIENT_SECRET), \
+            "the code must be exchanged with Acumyn's own app"
         return {"id_token": _id_token(email=email)}
     monkeypatch.setattr(google_auth, "exchange_code", fake_exchange)
     state = make_capability("google_signin", minutes=15, tid=str(tid))
@@ -156,7 +194,7 @@ async def _callback(monkeypatch, *, email, tid):
 
 async def test_a_verified_google_account_with_no_invitation_is_refused(monkeypatch):
     """The property that matters most: sign-in matches, it never provisions."""
-    tid = await _configure(domains=["utahlife.com"])
+    tid = await _choose(domains=["utahlife.com"])
     r = await _callback(monkeypatch, email="stranger@utahlife.com", tid=tid)
     assert r.status_code in (302, 307)
     assert "google_error=no_account" in r.headers["location"]
@@ -168,7 +206,7 @@ async def test_a_verified_google_account_with_no_invitation_is_refused(monkeypat
 
 
 async def test_an_address_outside_the_allowed_domains_is_refused(monkeypatch):
-    tid = await _configure(domains=["utahlife.com"])
+    tid = await _choose(domains=["utahlife.com"])
     async with SessionLocal() as s:
         s.add(User(tenant_id=tid, email="outsider@elsewhere.com", name="O",
                    password_hash=None, role="member", status="active", token_version=0))
@@ -177,10 +215,21 @@ async def test_an_address_outside_the_allowed_domains_is_refused(monkeypatch):
     assert "google_error=domain" in r.headers["location"]
 
 
+async def test_turning_google_off_closes_the_callback_too(monkeypatch):
+    """A state minted while sign-in was on must not complete after an admin turned it off."""
+    tid = await _choose(enabled=False)
+    async with SessionLocal() as s:
+        s.add(User(tenant_id=tid, email="late@utahlife.com", name="L", password_hash=None,
+                   role="member", status="active", token_version=0))
+        await s.commit()
+    r = await _callback(monkeypatch, email="late@utahlife.com", tid=tid)
+    assert "google_error=unavailable" in r.headers["location"]
+
+
 async def test_an_invited_member_is_signed_in_and_their_invite_burned(monkeypatch):
     """Proving control of the invited address IS accepting the invite -- and the emailed link
     must not survive it, or it could be replayed later."""
-    tid = await _configure(domains=["utahlife.com"])
+    tid = await _choose(domains=["utahlife.com"])
     async with SessionLocal() as s:
         s.add(User(tenant_id=tid, email="invited@utahlife.com", name="", password_hash=None,
                    role="member", status="invited", token_version=0,
@@ -198,7 +247,7 @@ async def test_an_invited_member_is_signed_in_and_their_invite_burned(monkeypatc
 
 
 async def test_a_disabled_account_cannot_come_back_in_through_google(monkeypatch):
-    tid = await _configure(domains=["utahlife.com"])
+    tid = await _choose(domains=["utahlife.com"])
     async with SessionLocal() as s:
         s.add(User(tenant_id=tid, email="gone@utahlife.com", name="G", password_hash=None,
                    role="member", status="disabled", token_version=1))
@@ -210,7 +259,7 @@ async def test_a_disabled_account_cannot_come_back_in_through_google(monkeypatch
 async def test_the_session_comes_back_in_the_fragment_not_the_query(monkeypatch):
     """A query string lands in access logs and Referer headers; a fragment is never sent to a
     server at all."""
-    tid = await _configure(domains=["utahlife.com"])
+    tid = await _choose(domains=["utahlife.com"])
     async with SessionLocal() as s:
         s.add(User(tenant_id=tid, email="ok@utahlife.com", name="OK", password_hash=None,
                    role="member", status="active", token_version=0))

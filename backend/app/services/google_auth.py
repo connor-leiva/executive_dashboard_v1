@@ -1,16 +1,20 @@
-"""Google sign-in for a team portal, with each workspace using its OWN Google app.
+"""Google sign-in for every workspace, through ONE Google app that Acumyn owns.
 
-WHY THE CREDENTIALS ARE NOT IN ENV, unlike QuickBooks. QBO reads one client id and secret from
-settings, which is the single-tenant shape: every workspace would authenticate through Acumyn's
-Google project, Acumyn would appear on every team's consent screen, and one revoked app would
-sign out every customer at once. A team that buys this registers their own OAuth client in their
-own Google Cloud project and pastes it into their own console. The consent screen then says
-their name, because it is their app.
+WHY ONE APP (decided 2026-09-16, reversing the per-workspace design this file used to carry).
+The earlier shape had each team register an OAuth client in their own Google Cloud project and
+paste it into their console, so the consent screen carried their name. Nobody buying a team portal
+should have to open Google Cloud before their agents can sign in, so the product owns the app: its
+client id and secret are platform configuration, set on the API service like the Anthropic key,
+and every workspace signs in through it. What a workspace still decides is whether the button is
+offered at all, and which email domains may use it.
 
-WHAT IS STILL SHARED, deliberately: the redirect URI. The API runs on one host, so the callback
-is one URL that every workspace registers in their own Google project, and the tenant travels in
-the signed `state` exactly as it does for QuickBooks -- the callback arrives with no Host header
-that could identify the workspace.
+What that trades, stated once: the consent screen says Acumyn, and if Google ever suspended
+Acumyn's app, Google sign-in would stop for every workspace together. Password sign-in does not
+depend on it and keeps working.
+
+WHAT KEEPS WORKSPACES APART is not the app, and never was. The callback is one URL for everyone,
+so the tenant travels in the signed `state` -- the callback arrives from Google with no Host that
+could identify a workspace -- and the account is then looked up inside that tenant only.
 
 MATCHING, NEVER PROVISIONING. A successful Google sign-in does not create anybody. It finds a
 user somebody already invited to this workspace, or it fails. Auto-provisioning from a verified
@@ -25,6 +29,8 @@ from urllib.parse import urlencode
 
 import httpx
 from jose import jwt
+
+from ..config import settings
 
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -96,7 +102,7 @@ def read_id_token(id_token: str, client_id: str) -> dict:
     if claims.get("aud") != client_id:
         # Without this, a token minted for a DIFFERENT Google app would be accepted -- the
         # classic confused-deputy in OAuth sign-in.
-        raise GoogleAuthError("id_token audience is not this workspace's client id")
+        raise GoogleAuthError("id_token audience is not Acumyn's client id")
     if claims.get("iss") not in ISSUERS:
         raise GoogleAuthError(f"unexpected issuer {claims.get('iss')!r}")
     exp = claims.get("exp")
@@ -128,44 +134,52 @@ def domain_allowed(claims: dict, allowed_domains: list[str]) -> bool:
     return hd in wanted or email_domain in wanted
 
 
-# ── where a workspace's own Google app lives ──────────────────────────────────────────────
-# The portal's integration row for this provider. `config` holds the non-secret half; the
-# client secret is Fernet-encrypted into `credential_ref`, which is the column that has existed
-# for exactly this since the table was created and had never been written to.
+# ── what a workspace decides ──────────────────────────────────────────────────────────────
+# The portal's integration row for this provider holds a WORKSPACE's choices -- whether the button
+# is offered, and which domains may use it. The app's credentials are not on it: they belong to the
+# deployment, not to any one customer.
 PROVIDER_KEY = "google_workspace"
 
 
-async def workspace_config(s, tenant_id) -> dict | None:
-    """This workspace's Google sign-in settings, or None if it has not set one up.
+def platform_configured() -> bool:
+    """Whether this deployment has Acumyn's Google app configured at all. Both halves, or neither:
+    an id without its secret gets as far as Google's consent screen and fails on the way back."""
+    return bool((settings.GOOGLE_CLIENT_ID or "").strip()
+                and (settings.GOOGLE_CLIENT_SECRET or "").strip())
 
-    Returns the DECRYPTED secret, so callers must not hand the result to a serializer. The two
+
+def workspace_choices(row) -> dict:
+    """What a workspace has chosen, with the defaults for one that has chosen nothing.
+
+    ON UNLESS TURNED OFF. The point of one shared app is that a workspace has nothing to set up,
+    and the button only ever lets in somebody who was invited -- so offering it by default costs
+    nothing, and waiting for an admin to find a toggle would leave every team on passwords.
+    """
+    cfg = (row.config if row is not None else None) or {}
+    domains = cfg.get("allowed_domains") or []
+    return {
+        "enabled": bool(cfg.get("enabled", True)),
+        "allowed_domains": [str(d) for d in domains if str(d).strip()],
+    }
+
+
+async def workspace_config(s, tenant_id) -> dict | None:
+    """Everything sign-in needs for this workspace, or None when the deployment cannot offer it.
+
+    Carries the app's SECRET, so callers must not hand the result to a serializer. The two
     public-facing readers (`/auth/google/config` and the console) each pick their own fields.
     """
     from sqlalchemy import select
 
     from ..models import IntranetIntegration
-    from ..security import dec
 
+    if not platform_configured():
+        return None
     row = (await s.execute(select(IntranetIntegration).where(
         IntranetIntegration.tenant_id == tenant_id,
         IntranetIntegration.provider_key == PROVIDER_KEY))).scalar_one_or_none()
-    if row is None:
-        return None
-    cfg = row.config or {}
-    client_id = (cfg.get("client_id") or "").strip()
-    if not client_id or not row.credential_ref:
-        return None
-    try:
-        secret = dec(row.credential_ref)
-    except Exception:                                            # noqa: BLE001
-        # A secret encrypted under a FERNET_KEY that has since been rotated. Reported as
-        # "not configured" rather than crashing the sign-in page for everybody.
-        return None
-    domains = cfg.get("allowed_domains") or []
     return {
-        "row": row,
-        "client_id": client_id,
-        "client_secret": secret,
-        "allowed_domains": [str(d) for d in domains if str(d).strip()],
-        "enabled": bool(cfg.get("enabled", True)),
+        "client_id": settings.GOOGLE_CLIENT_ID.strip(),
+        "client_secret": settings.GOOGLE_CLIENT_SECRET.strip(),
+        **workspace_choices(row),
     }

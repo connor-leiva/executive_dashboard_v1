@@ -122,6 +122,22 @@ def validate_config() -> tuple[list[str], list[str]]:
             "attachments would be written to a container temp directory and lost on the next "
             "deploy, silently — the upload succeeds and the bytes disappear.")
 
+    # GOOGLE SIGN-IN. One app serves every workspace, so a mistake here is every workspace's at
+    # once -- and neither mistake below shows up anywhere else. Warnings rather than fatal: sign-in
+    # being unavailable is not a reason to take the whole product down, and passwords still work.
+    g_id = (settings.GOOGLE_CLIENT_ID or "").strip()
+    g_secret = (settings.GOOGLE_CLIENT_SECRET or "").strip()
+    if bool(g_id) != bool(g_secret):
+        warn.append("Google sign-in is half configured: set both GOOGLE_CLIENT_ID and "
+                    "GOOGLE_CLIENT_SECRET, or neither. Until both are set, no workspace is "
+                    "offered a Google button.")
+    elif g_id and is_deployed() and "localhost" in (settings.GOOGLE_REDIRECT_URI or ""):
+        # The default is a laptop's. On a deployment Google refuses every sign-in with
+        # redirect_uri_mismatch, which reads to the person clicking as Google being broken.
+        warn.append(f"GOOGLE_REDIRECT_URI is {settings.GOOGLE_REDIRECT_URI!r} on a deployment, so "
+                    f"Google will refuse every sign-in. Set it to this API's public "
+                    f"/api/v1/auth/google/callback and register the same URL in Google Cloud.")
+
     if not settings.is_sqlite and settings.ENV.strip().lower() not in DEPLOYED_ENVS:
         warn.append(f"ENV is {settings.ENV!r} while running on Postgres. Anything keyed to ENV "
                     f"- the single-tenant fallback exemption among them - will behave as if "

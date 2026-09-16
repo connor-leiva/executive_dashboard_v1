@@ -1752,3 +1752,31 @@ async def test_a_workspace_nobody_seeded_still_lists_the_providers_the_dashboard
                               json={"base_url": "https://liveutah1.followupboss.com/2/people/list/"})
     assert saved.status_code == 200, saved.text
     assert saved.json()["item"]["base_url"].endswith("/2/people/list/")
+
+
+async def test_the_console_asks_a_workspace_for_no_google_credentials(ctx, monkeypatch):
+    """Every workspace signs in through Acumyn's own Google app, so there is nothing to paste.
+
+    The panel used to demand a client id and secret from the workspace's own Google Cloud
+    project. A body still carrying them is REFUSED rather than quietly ignored, so an old form
+    cannot look as though it saved a credential -- and the settings that remain round-trip.
+    """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "acumyn.apps.googleusercontent.com")
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "platform-secret")
+    h = _H(ctx["a"]["admin"], ctx["a"]["host"])
+    async with _client() as c:
+        before = (await c.get("/api/console/google-signin", headers=h)).json()["item"]
+        refused = await c.patch("/api/console/google-signin", headers=h,
+                                json={"client_id": "x", "client_secret": "y"})
+        off = await c.patch("/api/console/google-signin", headers=h, json={"enabled": False})
+        on = await c.patch("/api/console/google-signin", headers=h,
+                           json={"enabled": True, "allowed_domains": ["Team.Example.com"]})
+
+    assert before["available"] is True and before["enabled"] is True, before
+    assert not {"client_id", "secret_set", "redirect_uri"} & set(before), before
+    assert refused.status_code == 422, refused.text
+    assert off.status_code == 200 and off.json()["item"]["enabled"] is False
+    assert on.json()["item"] == {"enabled": True, "allowed_domains": ["team.example.com"],
+                                 "available": True, "status": "Connected"}
