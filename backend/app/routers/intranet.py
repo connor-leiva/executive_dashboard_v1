@@ -684,6 +684,9 @@ def _config_out(tenant: Tenant, user: User,
     # no link rather than somebody else's conversation.
     config["sunburst"] = {
         "url": (sunburst.link_for(tenant.id, member_id) if member_id else ""),
+        # Where a question goes. The portal adds the question, because the Ask box sends whatever
+        # somebody typed; "" while Sisu's question link is not live on the configured host.
+        "ask_url": (sunburst.ask_url() if member_id else ""),
         "carries_prompt": sunburst.carries_prompt(),
     }
     config["marketing"] = _marketing_out(

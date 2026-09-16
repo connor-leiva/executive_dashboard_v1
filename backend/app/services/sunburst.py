@@ -1,17 +1,25 @@
-"""The link into Sunburst.
+"""The links into Sunburst.
 
 Sunburst ships with Sisu and Sisu ships with this product's customers, so it is part of the
 platform rather than a per-tenant integration -- there is nothing for an admin to configure, and
 the first version of this asked them to paste a URL that nobody should ever have to find.
 
-THE CODE IS OURS TO MINT. Sisu's link is `app.sisu.co/app/sb/<32 characters>` and the code
-identifies the conversation, not the customer, so any code opens a Sunburst session ready to type.
+TWO LINKS, because Sisu has two and they do different jobs.
 
-DERIVED, NOT RANDOM, and not stored either:
+  THE CONVERSATION, `/app/sb/<32 characters>`, reopens one person's ongoing check-in. The code is
+  ours to mint: Sisu opens a conversation for a code it has never seen and the same code reopens
+  it on the next visit (tested on next.sisu.co, 2026-09-16), so last week's thread is still there
+  as this week's context.
+
+  THE QUESTION, `/app/sb/ask?input=...&autosend=...&view=...`, starts a NEW chat with the question
+  already in it -- and with autosend, already asked. The portal adds the question itself rather
+  than this module, because the Ask box sends whatever somebody typed and Sisu decodes with the
+  counterpart of the browser's encodeURIComponent.
+
+THE CODE IS DERIVED, NOT RANDOM, and not stored either:
 
   Random per click would start a fresh conversation every time somebody opened the page, which is
-  the opposite of what a weekly check-in is for -- last week's thread is the context this week's
-  builds on.
+  the opposite of what a weekly check-in is for.
 
   Stored would be a column, a migration and a backfill for something that is a pure function of
   two ids we already have.
@@ -24,23 +32,23 @@ One consequence worth naming: rotating APP_SECRET changes everybody's code, and 
 start a new Sunburst conversation. That is a nuisance rather than a loss -- the old thread still
 exists at the old URL -- and it is the right trade against storing a column we would then have to
 keep in step with the roster.
+
+THE HOST IS A SETTING. Sisu ships to next.sisu.co first, on a different database, then to
+app.sisu.co. SUNBURST_HOST points at next to try something and back at app for everyone, and
+SUNBURST_ASK_LINKS stays off until the host has the question link at all.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
-from urllib.parse import quote
 
 from ..config import settings
 
-BASE = "https://app.sisu.co/app/sb/"
 CODE_LENGTH = 32
 
-# Sisu's link opens an empty box today. When they ship one that carries a question -- Connor has
-# asked; they already have three link types and this would be a fourth -- setting this to the
-# parameter they use turns every prompt card into one click. It is a constant rather than a tenant
-# setting because it is a fact about Sisu's product, the same for every workspace on the platform.
-PROMPT_PARAM = ""
+
+def _host() -> str:
+    return (settings.SUNBURST_HOST or "https://app.sisu.co").strip().rstrip("/")
 
 
 def code_for(tenant_id, member_id) -> str:
@@ -50,17 +58,21 @@ def code_for(tenant_id, member_id) -> str:
     return hmac.new(key, message, hashlib.sha256).hexdigest()[:CODE_LENGTH]
 
 
-def link_for(tenant_id, member_id, prompt: str = "") -> str:
-    """The URL to open. `prompt` is carried only once Sisu supports it -- until then it is dropped
-    here rather than appended and ignored, because a URL with a parameter the far end throws away
-    looks like it worked."""
-    url = BASE + code_for(tenant_id, member_id)
-    if prompt and PROMPT_PARAM:
-        return f"{url}?{PROMPT_PARAM}={quote(prompt)}"
-    return url
+def link_for(tenant_id, member_id) -> str:
+    """One person's ongoing Sunburst conversation."""
+    return f"{_host()}/app/sb/{code_for(tenant_id, member_id)}"
+
+
+def ask_url() -> str:
+    """Where a question goes, or "" while the host does not have Sisu's question link.
+
+    The portal appends `?input=...&autosend=true&view=fullscreen`. Empty rather than a URL that
+    would not work: without it the page copies the question and opens the conversation instead,
+    which works on every host.
+    """
+    return f"{_host()}/app/sb/ask" if settings.SUNBURST_ASK_LINKS else ""
 
 
 def carries_prompt() -> bool:
-    """Whether a link can bring the question with it. The portal copies to the clipboard when it
-    cannot, so this is what decides between one click and two."""
-    return bool(PROMPT_PARAM)
+    """Whether a click can bring the question with it: one click, rather than copy then paste."""
+    return bool(ask_url())

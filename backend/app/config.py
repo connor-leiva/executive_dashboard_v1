@@ -86,6 +86,14 @@ class Settings(BaseSettings):
     # on the integration row, for the same reason as Sisu above.
     FUB_API_BASE: str = "https://api.followupboss.com/v1"
 
+    # Sunburst, Sisu's coaching product. Facts about Sisu, the same for every workspace, so they are
+    # platform settings rather than anything a customer configures. The HOST is swappable because
+    # Sisu ships to next.sisu.co first -- on a different database -- and only then to app.sisu.co.
+    SUNBURST_HOST: str = "https://app.sisu.co"
+    # Sisu's link that carries a question (/app/sb/ask?input=...&autosend=...&view=...). Off until it
+    # is live on SUNBURST_HOST: working on next.sisu.co since 2026-09-16, awaiting app.sisu.co.
+    SUNBURST_ASK_LINKS: bool = False
+
     # worker
     SYNC_INTERVAL_MINUTES: int = 30
     # Run the background scheduler (syncs + the AI Employees dispatch/execute jobs) INSIDE the

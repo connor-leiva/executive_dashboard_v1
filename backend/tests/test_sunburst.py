@@ -1,11 +1,12 @@
-"""The Sunburst link.
+"""The Sunburst links.
 
 Sunburst ships with Sisu and Sisu ships with this product's customers, so it is part of the
-platform: every workspace gets it, nothing is configured, and the link is derived per member.
+platform: every workspace gets it, nothing is configured, and the links are derived per member.
 
-What is worth defending is the derivation. The code is the only thing between a URL and somebody's
-coaching conversation, so it has to be stable (or every visit starts a new thread), unique per
-person (or two agents share one), and unguessable (or knowing the scheme and an id is enough).
+Two things are worth defending. The conversation code has to be stable (or every visit starts a
+new thread), unique per person (or two agents share one) and unguessable (or knowing the scheme and
+an id is enough). And the question link must not be offered before Sisu's host has it: a card that
+opens a link the far end does not understand looks like it worked, which is worse than copying.
 """
 import datetime as dt
 import re
@@ -13,8 +14,8 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
 
+from app.config import settings
 from app.db import SessionLocal
 from app.main import app
 from app.models import Business, Domain, IntranetMember, IntranetRole, Tenant, User
@@ -26,6 +27,13 @@ from app.services import sunburst
 async def _schema():
     from app.seed import seed
     await seed()
+
+
+@pytest.fixture(autouse=True)
+def _production_defaults(monkeypatch):
+    """Every test starts from what production runs today, whatever the environment says."""
+    monkeypatch.setattr(settings, "SUNBURST_HOST", "https://app.sisu.co")
+    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", False)
 
 
 async def _workspace(slug: str, *, on_roster=True):
@@ -98,39 +106,53 @@ def test_the_code_is_the_shape_sisu_expects():
     assert re.fullmatch(r"[0-9a-f]{32}", code), "not the 32-character code the link takes"
 
 
-def test_the_link_is_sisus_sunburst_url():
-    link = sunburst.link_for(uuid.uuid4(), uuid.uuid4())
-    assert link.startswith("https://app.sisu.co/app/sb/")
-    assert len(link) == len(sunburst.BASE) + 32
+# ── the host, and the question link ───────────────────────────────────────────────────────
+
+def test_the_conversation_link_is_on_sisus_production_host_by_default():
+    t, m = uuid.uuid4(), uuid.uuid4()
+    assert sunburst.link_for(t, m) == f"https://app.sisu.co/app/sb/{sunburst.code_for(t, m)}"
 
 
-def test_a_prompt_is_dropped_rather_than_appended_while_sisu_ignores_it():
-    """A URL carrying a parameter the far end throws away looks like it worked. Until Sisu ships
-    a link that takes the question, the portal copies it to the clipboard instead -- and
-    `carries_prompt` is what tells it which."""
-    plain = sunburst.link_for(uuid.uuid4(), uuid.uuid4())
-    withq = sunburst.link_for(uuid.uuid4(), uuid.uuid4(), "Walk me through last week")
-    assert "?" not in withq
+def test_the_host_is_one_setting_for_trying_sisus_next_release(monkeypatch):
+    """Sisu ships to next.sisu.co first, on a different database. Pointing there must move every
+    link, or a test would open half of Sunburst on one database and half on the other."""
+    monkeypatch.setattr(settings, "SUNBURST_HOST", "https://next.sisu.co/")
+    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", True)
+    t, m = uuid.uuid4(), uuid.uuid4()
+    assert sunburst.link_for(t, m).startswith("https://next.sisu.co/app/sb/")
+    assert sunburst.ask_url() == "https://next.sisu.co/app/sb/ask", "a trailing slash doubled up"
+
+
+def test_the_question_link_is_not_offered_until_the_host_has_it():
+    """app.sisu.co does not have Sisu's question link yet. Offering it would send every prompt
+    card to a link the far end does not understand -- the page copies the question instead."""
+    assert sunburst.ask_url() == ""
     assert sunburst.carries_prompt() is False
-    assert len(plain) == len(withq)
 
 
-def test_turning_the_prompt_on_is_one_constant(monkeypatch):
-    """The forward path Connor asked Sisu for. When they answer, this is the change."""
-    monkeypatch.setattr(sunburst, "PROMPT_PARAM", "q")
-    link = sunburst.link_for(uuid.uuid4(), uuid.uuid4(), "Where am I leaking deals?")
-    assert link.endswith("?q=Where%20am%20I%20leaking%20deals%3F")
+def test_turning_the_question_link_on_is_one_setting(monkeypatch):
+    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", True)
+    assert sunburst.ask_url() == "https://app.sisu.co/app/sb/ask"
     assert sunburst.carries_prompt() is True
 
 
 # ── what the portal receives ──────────────────────────────────────────────────────────────
 
 async def test_every_workspace_gets_a_link_with_nothing_configured():
-    """The whole point of the change: no console setting, no integration to connect."""
+    """The whole point: no console setting, no integration to connect."""
     ws = await _workspace("sbevery")
     config = await _config(ws)
     assert config["sunburst"]["url"].startswith("https://app.sisu.co/app/sb/")
+    assert config["sunburst"]["ask_url"] == ""
     assert config["sunburst"]["carries_prompt"] is False
+
+
+async def test_the_portal_is_handed_the_question_link_once_it_is_on(monkeypatch):
+    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", True)
+    ws = await _workspace("sbask")
+    config = await _config(ws)
+    assert config["sunburst"]["ask_url"] == "https://app.sisu.co/app/sb/ask"
+    assert config["sunburst"]["carries_prompt"] is True
 
 
 async def test_the_link_a_member_gets_is_their_own():
@@ -144,11 +166,13 @@ async def test_the_same_member_gets_the_same_link_every_time():
     assert (await _config(ws))["sunburst"]["url"] == (await _config(ws))["sunburst"]["url"]
 
 
-async def test_somebody_not_on_the_roster_gets_no_link_rather_than_somebody_elses():
+async def test_somebody_not_on_the_roster_gets_no_link_rather_than_somebody_elses(monkeypatch):
     """An owner who never added themselves. There is no member to derive a code for, and the page
     says so instead of opening a conversation that belongs to nobody."""
+    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", True)
     ws = await _workspace("sbnoroster", on_roster=False)
-    assert (await _config(ws))["sunburst"]["url"] == ""
+    config = await _config(ws)
+    assert (config["sunburst"]["url"], config["sunburst"]["ask_url"]) == ("", "")
 
 
 async def test_sunburst_is_not_a_tenant_setting_any_more():
@@ -157,10 +181,10 @@ async def test_sunburst_is_not_a_tenant_setting_any_more():
     ws = await _workspace("sbnocfg")
     async with AsyncClient(transport=ASGITransport(app=app),
                            base_url="http://testserver") as c:
-        r = await c.patch("/api/v1/intranet/config",
-                          json={"sunburst": {"url": "https://evil.test/x"}},
-                          headers={"Authorization": f"Bearer {ws['token']}",
-                                   "x-tenant-host": ws["host"]})
+        await c.patch("/api/v1/intranet/config",
+                      json={"sunburst": {"url": "https://evil.test/x"}},
+                      headers={"Authorization": f"Bearer {ws['token']}",
+                               "x-tenant-host": ws["host"]})
     # Either refused outright or ignored -- what must NOT happen is the portal serving it back.
     assert (await _config(ws))["sunburst"]["url"].startswith("https://app.sisu.co/app/sb/"), \
         "a workspace overrode the platform link"

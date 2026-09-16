@@ -2542,15 +2542,17 @@ const SUNBURST_PROMPTS = [
  * member on the server (services/sunburst) and handed over ready to use -- this page never builds
  * a URL, which is why there is no template to interpolate here.
  *
- * Sisu's link opens Sunburst with an empty box today, so a prompt card copies its question to the
- * clipboard and opens Sunburst for you to paste -- honest, and one keystroke from the real thing.
- * `carries_prompt` flips to true the day Sisu ships a link that takes the question, and every card
- * becomes one click with no change here.
+ * TWO LINKS. "Open my check-in" reopens the person's own ongoing conversation. A prompt card or the
+ * Ask box uses Sisu's question link where the server hands one over (`ask_url`): the question
+ * travels in the link and is sent on arrival, one click. Where it does not -- the setting is off
+ * until Sisu's link is live on the host -- a card copies its question to the clipboard and opens
+ * the conversation for you to paste, which works everywhere.
  */
 function SunburstPage({ config, me, canConfigure }) {
   const numbers = config?.numbers || DEFAULT_CONFIG.numbers;
   const own = numbers.own;
   const url = (config?.sunburst?.url || "").trim();
+  const askUrl = (config?.sunburst?.ask_url || "").trim();
   const carries = Boolean(config?.sunburst?.carries_prompt);
   const [copied, setCopied] = useState("");
   const [typed, setTyped] = useState("");
@@ -2560,6 +2562,15 @@ function SunburstPage({ config, me, canConfigure }) {
   const stat = (value) => (own && value !== null && value !== undefined ? String(value) : "—");
 
   function open(prompt) {
+    const question = (prompt || "").trim();
+    // ONE CLICK where Sisu's question link exists: a new chat, asked on arrival. The question is
+    // encoded with encodeURIComponent because that is what Sisu decodes -- and the Ask box sends
+    // whatever somebody typed, apostrophes, ampersands and line breaks included.
+    if (question && askUrl) {
+      window.open(`${askUrl}?input=${encodeURIComponent(question)}&autosend=true&view=fullscreen`,
+                  "_blank", "noreferrer,noopener");
+      return;
+    }
     if (!url) return;
     if (!carries && prompt) {
       // Best effort: a blocked clipboard must not stop the link from opening.
