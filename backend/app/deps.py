@@ -1,7 +1,8 @@
+import datetime as dt
 import uuid
 from dataclasses import dataclass
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +24,12 @@ from .services.tabs import tenant_tabs, effective_tabs
 bearer = HTTPBearer(auto_error=False)
 
 
+# What a support account may do: read. Everything else changes something.
+READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
 async def current_user(
+    request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
     s: AsyncSession = Depends(get_session),
 ) -> User:
@@ -71,6 +77,15 @@ async def current_user(
     # every migrated user, so the deploy logs nobody out.
     if int(payload.get("ver", 0)) != int(user.token_version or 0):
         raise HTTPException(401, "Session expired")
+    # SUPPORT ACCESS. An account with expires_at is an Acumyn operator's time-boxed way into this
+    # workspace. Both of its limits are enforced here, on every request, rather than trusted to the
+    # expiry job: the session ends at the minute it was opened for, and it can read but never change.
+    if user.expires_at is not None:
+        ends = user.expires_at if user.expires_at.tzinfo else user.expires_at.replace(tzinfo=dt.timezone.utc)
+        if ends <= dt.datetime.now(dt.timezone.utc):
+            raise HTTPException(401, "Support access has ended")
+        if request.method not in READ_METHODS:
+            raise HTTPException(403, "Support access is read-only. Nothing can be changed from this session.")
     return user
 
 

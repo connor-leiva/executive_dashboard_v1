@@ -108,6 +108,25 @@ def payment_link(url: str, workspace: str, amount_cents: int | None, currency: s
             f"the payment method on Stripe's page:\n\n{url}\n\n{foot}")
 
 
+def support_access_opened(workspace: str, operator: str, reason: str, minutes: int, ends: str):
+    """To every owner, when an Acumyn operator opens support access. No link: there is nothing for
+    the owner to do, and a message that invites a click is the shape of a phishing email."""
+    ws, who, why = _esc(workspace), _esc(operator), _esc(reason)
+    html = ("<div style=\"font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
+            "font-size:15px;line-height:1.6;color:#333730;max-width:520px\">"
+            f"<p>{who} from Acumyn support has opened read-only access to the <strong>{ws}</strong> "
+            f"workspace for {minutes} minutes, until {_esc(ends)}.</p>"
+            f"<p><strong>Reason given:</strong> {why}</p>"
+            "<p>The session can read but not change anything, it ends on its own, and it appears in your "
+            "workspace's audit log and on your Team page while it is open.</p>"
+            "<p style=\"color:#868B82;font-size:12px;margin-top:24px\">If you did not expect this, reply "
+            "to this email and we will close it.</p></div>")
+    text = (f"{operator} from Acumyn support has opened read-only access to {workspace} for {minutes} "
+            f"minutes, until {ends}.\n\nReason given: {reason}\n\nThe session can read but not change "
+            "anything, ends on its own, and appears in your audit log and Team page while it is open.")
+    return f"Acumyn support opened access to {workspace}", html, text
+
+
 # The finder's footer. Nothing about the account in it: the reader may not be the person who
 # typed the address, and "you have an account" is exactly what the page refused to say.
 _FINDER_FOOT = ("Someone entered this address to find its Acumyn workspaces. If that wasn't you, "

@@ -202,7 +202,7 @@ export const inputStyle = {
 
 /* The second step of an action that cannot be undone: what it will do, in words and counts, then
    the button that does it. Cancel is first and quiet; the destructive button is last and solid. */
-export function Confirm({ children, label, onConfirm, onCancel, busy }) {
+export function Confirm({ children, label, onConfirm, onCancel, busy, disabled }) {
   return (
     <div role="group" aria-label={label} style={{
       display: "flex", gap: "8px 12px", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap",
@@ -211,7 +211,7 @@ export function Confirm({ children, label, onConfirm, onCancel, busy }) {
       <span style={{ fontFamily: TYPE.text, fontSize: 12, color: A.ink, lineHeight: 1.55, flex: "1 1 240px", textWrap: "pretty" }}>{children}</span>
       <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <Btn small kind="quiet" onClick={onCancel} disabled={busy}>Cancel</Btn>
-        <Btn small kind="dangerSolid" onClick={onConfirm} busy={busy}>{label}</Btn>
+        <Btn small kind="dangerSolid" onClick={onConfirm} busy={busy} disabled={disabled}>{label}</Btn>
       </span>
     </div>
   );

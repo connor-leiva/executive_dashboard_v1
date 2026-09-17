@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { ago, plural, titleCase } from "../format.js";
 import { Btn, Card, Chip, Confirm, Empty, Loading, LoadError, Mono, Notice, Row, useAction, useApi } from "../primitives.jsx";
 import { A, TYPE } from "../tokens.js";
+import SupportCard from "./SupportCard.jsx";
 
 const SCOPES = { ulrg_scorecard: "Scorecard", ulrg_team: "Team room", sd_rep: "Rep desk" };
 
@@ -90,10 +91,10 @@ export function SecurityCard({ w }) {
   );
 }
 
-export default function AccessPane({ w, reload, children }) {
+export default function AccessPane({ w, reload }) {
   return (
     <>
-      {children}
+      <SupportCard w={w} reload={reload} />
       <div className="ac-split">
         <ShareLinksCard w={w} reload={reload} />
         <SecurityCard w={w} />

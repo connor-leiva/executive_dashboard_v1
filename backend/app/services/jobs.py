@@ -38,6 +38,7 @@ def catalog() -> list[dict]:
         {"job": "ai_execute", "what": "Runs queued AI employee work", "every_minutes": 0.25, "enabled": ai},
         {"job": "platform_audit_prune", "what": "Deletes operator audit entries past retention", "every_minutes": 30 * DAY, "enabled": True},
         {"job": "platform_billing_reconcile", "what": "Corrects the Stripe mirror from Stripe", "every_minutes": 60, "enabled": True},
+        {"job": "expire_support_access", "what": "Disables support accounts past their end", "every_minutes": 5, "enabled": True},
     ]
 
 

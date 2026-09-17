@@ -241,6 +241,10 @@ class User(Base):
     totp_last_used: Mapped[str | None] = mapped_column(String(12), nullable=True)  # replay guard: last code
     totp_failed: Mapped[int] = mapped_column(Integer, default=0)
     totp_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set only on an Acumyn operator's support account (OPERATOR-CONSOLE.md, C8). Such an account is
+    # read-only and stops working at this moment: deps.current_user enforces both on every request,
+    # and worker.expire_support_access disables it afterwards. Null for every ordinary account.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint("tenant_id", "email", name="uq_user_tenant_email"),)
 

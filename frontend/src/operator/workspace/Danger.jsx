@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { api } from "../api.js";
 import { Btn, Card, inputStyle, Notice } from "../primitives.jsx";
 import { A, TYPE } from "../tokens.js";
+import Lifecycle from "./Lifecycle.jsx";
 
 /* One disruptive action: what it does to the workspace, then (when it needs one) the reason, then
    the button. The words come before the button on purpose. */
@@ -28,7 +29,7 @@ function DangerRow({ title, children, reasonLabel, reasonId, reason, setReason, 
   );
 }
 
-export default function DangerPane({ w, reload }) {
+export default function DangerPane({ w, reload, onBack }) {
   const [suspendReason, setSuspendReason] = useState("");
   const [freezeReason, setFreezeReason] = useState("");
   const [busy, setBusy] = useState(null);
@@ -53,7 +54,8 @@ export default function DangerPane({ w, reload }) {
   }
 
   return (
-    <Card title="Disruptive actions" sub="Each one names what it does to the workspace before it names its button.">
+    <>
+    <Card title="Disruptive actions" sub="Each one names what it does to the workspace before it names its button." style={{ marginBottom: 16 }}>
       {note ? <div style={{ marginBottom: 12 }}><Notice tone={note.tone}>{note.text}</Notice></div> : null}
 
       <DangerRow first title={suspended ? "Resume" : "Suspend"}
@@ -94,5 +96,7 @@ export default function DangerPane({ w, reload }) {
           : "Leaves people signed in but stops pulling from every source: the scheduled sync, the daily roster and ads jobs, and the Sync buttons inside the workspace and here. Use it when a credential may be compromised and the first job is to stop it being used."}
       </DangerRow>
     </Card>
+    <Lifecycle w={w} reload={reload} onDeleted={onBack} />
+    </>
   );
 }

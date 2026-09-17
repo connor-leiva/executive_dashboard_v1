@@ -87,7 +87,7 @@ export default function WorkspaceDetail({ slug, tab, onTab, onBack, onOpen }) {
       </div>
 
       <TabBar tabs={PANES} active={active} onPick={onTab} />
-      <Pane w={w} reference={reference.data} reload={row.reload} open={(pane) => onOpen(w.slug, pane)} />
+      <Pane w={w} reference={reference.data} reload={row.reload} open={(pane) => onOpen(w.slug, pane)} onBack={onBack} />
     </>
   );
 }

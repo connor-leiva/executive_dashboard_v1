@@ -25,7 +25,9 @@ const API_BASE = import.meta.env.VITE_API_BASE;
  * replaceState, not pushState: a token left in history would come back on the back button and
  * survive in a bookmark. */
 function consumeGoogleRedirect() {
-  const found = (window.location.hash || "").match(/[#&]google_token=([^&]+)/);
+  /* `session` is the same hand-off from the operator console's support access: a time-boxed,
+     read-only account the server made in this workspace, opened in a new tab. */
+  const found = (window.location.hash || "").match(/[#&](?:google_token|session)=([^&]+)/);
   if (!found) return;
   try {
     setToken(decodeURIComponent(found[1]));

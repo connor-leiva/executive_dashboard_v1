@@ -34,7 +34,7 @@ which is each workspace's own team-portal admin.
 | 3 | Write actions | shipped |
 | 4 | `platform_audit`, Audit view, System view | shipped |
 | 5 | Stripe platform billing | shipped, off until connected |
-| 6 | Support access, export, transfer ownership, delete | pending |
+| 6 | Support access, export, transfer ownership, delete | shipped |
 
 ## What each phase shipped
 
@@ -143,6 +143,27 @@ against a mocked Stripe, and switched off until an operator connects the account
 - An hourly `platform_billing_reconcile` job pulls every mirrored subscription from Stripe and logs
   each field it had to correct.
 
+**Phase 6.** The rest of a workspace's lifecycle.
+
+- Support access, C8 option (c) (migration `0071_support_access`, `user.expires_at`). Opening it
+  needs a reason and a length (15, 30 or 60 minutes). It makes or reuses one real account in the
+  workspace, named "<operator> (Acumyn support)" at the operator's address tagged
+  `+acumyn-support`, with every tab and an `expires_at`, emails the workspace's owners with the
+  reason, and records it in both trails. The console opens the workspace in a new tab signed in as
+  that account, through the same fragment hand-off Google sign-in uses. `deps.current_user`
+  refuses every request that is not a read from such an account and refuses it entirely once
+  `expires_at` passes; `expire_support_access` disables it within five minutes after. It can be
+  ended early. The Access pane lists past sessions from the operator trail.
+- Export: a JSON metadata archive (people, businesses, connections and their status, share links,
+  the audit log). No business data and no credentials: no password hash, token, TOTP secret, share
+  link token or integration configuration.
+- Transfer ownership to another active person; every current owner becomes an admin.
+- Delete, with `?confirm=` equal to the slug and the blast radius counted first
+  (`GET /tenants/{slug}/blast-radius`). The `tenant.deleted` row is written to the operator trail
+  first and survives; the tenant row goes, its cascade and a sweep of every table with a
+  `tenant_id` remove everything scoped to it, including its domain rows, and stored files are
+  removed afterwards, best effort, from every table that points at stored bytes.
+
 ## Decisions made during the build
 
 Choices the spec did not make, taken so the build could continue. Each is reversible.
@@ -216,6 +237,35 @@ to send yet; the button appears once Stripe raises one.
 **MRR counts active subscriptions only**, a yearly price spread over twelve months. Past due is
 excluded: it is money not being collected.
 
+**A support account is addressed as the operator, tagged.** `connor@acumyn.io` opens support access
+as `connor+acumyn-support@acumyn.io`, named "Connor Leiva (Acumyn support)". The workspace's Team
+page shows a real person at Acumyn; no email is sent to the tagged address; reopening reuses the
+same account and bumps its token version, so an earlier session never comes back.
+
+**The session reaches the workspace in the URL fragment,** the same hand-off Google sign-in already
+uses (`#session=` beside `#google_token=` in `auth.jsx`). A fragment never reaches a server log or a
+Referer header, and the console opens it in a new tab and never displays it. It replaces any
+session that browser already holds on that workspace, and the console says so.
+
+**An open support session counts as a seat for its length (an hour at most).** Both invite paths
+count every account that is not disabled, and one of them is `routers/console.py`, which the spec
+puts off limits. Exempting support accounts in only the other would make the two disagree, so
+neither does; an invite at the seat cap during that hour is refused until the session ends.
+
+**Transferring ownership makes every current owner an admin,** not only one, so the workspace ends
+with exactly one owner and nobody loses access.
+
+**Deletion does not rely on the cascade alone.** §5.5 deletes the tenant and lets ON DELETE CASCADE
+take the rest. That still happens first (it is also what removes `business` and `legal_entity`,
+which reference each other, in one statement), and then every table with a `tenant_id` is swept for
+anything left, so deletion is complete whatever a migration did to a constraint and on a database
+that does not enforce foreign keys. It is one transaction: if anything refuses, nothing is deleted
+and the console shows the database's reason. Stored files are then removed best effort from every
+table that points at stored bytes.
+
+**Not built:** "Export metadata" in the Workspaces bulk bar. Export is one workspace at a time, from
+its Danger pane.
+
 **Suspension and freezing stop every scheduled pull, not only the sync tick.** The daily Sisu
 roster job and the ads funnel job now skip a paused workspace too.
 
@@ -243,6 +293,18 @@ counts per workspace, from grouped counts.
 
 **C3, prices: shown on the operator billing surface only.** `plans.describe()` and every
 tenant-facing response stay price-free.
+
+## What needs you
+
+- **An operator account in production**, if you do not already have one. `DEPLOY.md` has the
+  `railway ssh` command; the password is read from the environment, never an argument.
+- **Platform billing**, before any workspace can be charged: three Stripe prices with the lookup
+  keys, a webhook endpoint, and the keys pasted on System. `DEPLOY.md`, "Platform billing".
+- **`SINGLE_TENANT_FALLBACK` is `true` in production.** The System view flags it. It closes itself
+  once a second workspace exists, and there are several, but it has to be `false` before any
+  workspace moves to a custom domain.
+- **Read the decisions above.** Each was made on the spec's recommendation or to follow an
+  instruction you had already given, and each can be reversed.
 
 ## Where the build departs from the spec, and why
 

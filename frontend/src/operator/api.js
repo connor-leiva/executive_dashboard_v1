@@ -153,6 +153,15 @@ export const api = {
   paymentLink: (slug) => post(`${slugPath(slug)}/billing/payment-link`),
   retryBilling: (slug) => post(`${slugPath(slug)}/billing/retry`),
   syncBilling: (slug) => post(`${slugPath(slug)}/billing/sync`),
+
+  /* Phase 6: support access and the workspace's lifecycle. */
+  supportSessions: (slug) => call(`${slugPath(slug)}/support-access`),
+  openSupport: (slug, body) => post(`${slugPath(slug)}/support-access`, body),
+  endSupport: (slug) => call(`${slugPath(slug)}/support-access`, { method: "DELETE" }),
+  exportMetadata: (slug) => call(`${slugPath(slug)}/export`, { method: "POST", body: {}, raw: true }),
+  transferOwnership: (slug, userId) => post(`${slugPath(slug)}/transfer-ownership`, { user_id: userId }),
+  blastRadius: (slug) => call(`${slugPath(slug)}/blast-radius`),
+  deleteTenant: (slug, confirm) => call(`${slugPath(slug)}?confirm=${encodeURIComponent(confirm)}`, { method: "DELETE" }),
 };
 
 export { call as rawCall, slugPath };

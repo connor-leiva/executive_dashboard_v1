@@ -1343,3 +1343,154 @@ async def test_mrr_counts_active_subscriptions_by_the_month(monkeypatch):
     assert rollup["mrr_cents"] == expected
     assert monthly_cents(next(r for r in rows if r.stripe_customer_id == "cus_mrryear")) == 100000
     assert monthly_cents(next(r for r in rows if r.stripe_customer_id == "cus_mrrpast")) == 0
+
+
+# ── phase 6: support access, export, transfer, delete ─────────────────────────────────────
+def _session_from(url: str) -> str:
+    return url.split("#session=", 1)[1]
+
+
+async def test_support_access_is_a_real_read_only_account_that_ends_on_time(monkeypatch):
+    import datetime as dt
+    from app.models import User
+
+    sent = _capture_mail(monkeypatch)
+    tid = await _tenant_with("supportco")
+    await _account(tid, "owner@support.test", role="owner")
+    tok = await _op_token()
+    async with _client() as c:
+        r = await c.post("/api/v1/platform/tenants/supportco/support-access", headers=_H(tok),
+                         json={"reason": "   ", "minutes": 30})
+        assert r.status_code == 400
+        r = await c.post("/api/v1/platform/tenants/supportco/support-access", headers=_H(tok),
+                         json={"reason": "the owner says the Forum tab is blank", "minutes": 45})
+        assert r.status_code == 400, "only the lengths the console offers"
+        r = await c.post("/api/v1/platform/tenants/supportco/support-access", headers=_H(tok),
+                         json={"reason": "the owner says the Forum tab is blank", "minutes": 15})
+        assert r.status_code == 201, r.text
+        opened = r.json()
+        session = _session_from(opened["url"])
+        host = {"x-tenant-host": "supportco.brokerage.test"}
+
+        me = await c.get("/api/v1/me", headers={**_H(session), **host})
+        assert me.status_code == 200, "a support session is an ordinary session for reads"
+        write = await c.post("/api/v1/users/invite", headers={**_H(session), **host},
+                             json={"email": "new@support.test", "role": "member"})
+        assert write.status_code == 403 and "read-only" in write.text, write.text
+
+        # the account is visible to the workspace, named, and marked as support
+        people = (await c.get("/api/v1/platform/tenants/supportco/people", headers=_H(tok))).json()["people"]
+        support = [p for p in people if p["expires_at"]]
+        assert len(support) == 1 and "(Acumyn support)" in support[0]["name"]
+
+    assert [p["to"][0] for p in sent] == ["owner@support.test"]
+    assert "the owner says the Forum tab is blank" in sent[0]["html"]
+    rows = await _trail(tid, "support.access_opened")
+    assert len(rows) == 1 and _by_acumyn(rows[0]) and rows[0].detail["reason"]
+    assert [r.reason for r in await _platform_rows("supportco")] == ["the owner says the Forum tab is blank"]
+
+    # expiry is enforced on the request itself, not only by the job
+    async with SessionLocal() as s:
+        u = (await s.execute(select(User).where(User.tenant_id == tid, User.expires_at.is_not(None)))).scalar_one()
+        u.expires_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1)
+        await s.commit()
+    async with _client() as c:
+        r = await c.get("/api/v1/me", headers={**_H(session), **host})
+    assert r.status_code == 401 and "ended" in r.text
+
+    # and the job disables what expired, killing the session for good
+    from app.worker import expire_support_access
+    await expire_support_access()
+    async with SessionLocal() as s:
+        u = (await s.execute(select(User).where(User.tenant_id == tid, User.expires_at.is_not(None)))).scalar_one()
+    assert u.status == "disabled"
+    assert [r.action for r in await _platform_rows("supportco")] == ["support.access_opened", "support.access_expired"]
+
+
+async def test_support_access_can_be_ended_early_and_reopened_without_a_second_account(monkeypatch):
+    from app.models import User
+
+    _capture_mail(monkeypatch)
+    tid = await _tenant_with("reopenco")
+    tok = await _op_token()
+    body = {"reason": "checking a sync", "minutes": 15}
+    async with _client() as c:
+        first = (await c.post("/api/v1/platform/tenants/reopenco/support-access", headers=_H(tok), json=body)).json()
+        assert (await c.delete("/api/v1/platform/tenants/reopenco/support-access", headers=_H(tok))).status_code == 200
+        host = {"x-tenant-host": "reopenco.brokerage.test"}
+        assert (await c.get("/api/v1/me", headers={**_H(_session_from(first["url"])), **host})).status_code == 401
+        assert (await c.delete("/api/v1/platform/tenants/reopenco/support-access", headers=_H(tok))).status_code == 409
+        second = (await c.post("/api/v1/platform/tenants/reopenco/support-access", headers=_H(tok), json=body)).json()
+        assert (await c.get("/api/v1/me", headers={**_H(_session_from(second["url"])), **host})).status_code == 200
+        assert (await c.get("/api/v1/me", headers={**_H(_session_from(first["url"])), **host})).status_code == 401, \
+            "reopening does not revive the earlier session"
+    async with SessionLocal() as s:
+        accounts = (await s.execute(select(User).where(User.tenant_id == tid))).scalars().all()
+    assert len(accounts) == 1
+
+
+async def test_the_export_is_metadata_and_carries_no_credential():
+    import json
+    from app.models import Integration
+    from app.security import enc
+
+    tid = await _tenant_with("exportco")
+    await _account(tid, "owner@export.test", role="owner", password_hash="$argon2id$not-a-real-hash",
+                   action_token_hash="deadbeef")
+    async with SessionLocal() as s:
+        s.add(Integration(tenant_id=tid, provider="fub", status="connected",
+                          access_token_enc=enc("fub-secret-token"), config={"api_key_enc": enc("fub-key")}))
+        await s.commit()
+    async with _client() as c:
+        r = await c.post("/api/v1/platform/tenants/exportco/export", headers=_H(await _op_token()))
+    assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
+    archive = json.loads(r.content)
+    assert archive["workspace"]["slug"] == "exportco" and archive["people"][0]["email"] == "owner@export.test"
+    for secret in ("argon2id", "deadbeef", "access_token", "api_key", "password", "fub-secret-token", "token_hash"):
+        assert secret not in r.text, secret
+    assert [row.action for row in await _platform_rows("exportco")] == ["tenant.exported"]
+
+
+async def test_transferring_ownership_leaves_exactly_one_owner_and_nobody_without_access():
+    from app.models import User
+
+    tid = await _tenant_with("transferco")
+    old = await _account(tid, "old@transfer.test", role="owner")
+    new = await _account(tid, "new@transfer.test", role="member")
+    pending = await _account(tid, "pending@transfer.test", role="member", status="invited")
+    tok = await _op_token()
+    async with _client() as c:
+        assert (await c.post("/api/v1/platform/tenants/transferco/transfer-ownership", headers=_H(tok),
+                             json={"user_id": str(pending)})).status_code == 409
+        r = await c.post("/api/v1/platform/tenants/transferco/transfer-ownership", headers=_H(tok),
+                         json={"user_id": str(new)})
+    assert r.status_code == 200, r.text
+    async with SessionLocal() as s:
+        roles = {u.email: u.role for u in (await s.execute(select(User).where(User.tenant_id == tid))).scalars().all()}
+    assert roles["new@transfer.test"] == "owner" and roles["old@transfer.test"] == "admin"
+    assert list(roles.values()).count("owner") == 1
+    assert old and [row.action for row in await _platform_rows("transferco")] == ["tenant.ownership_transferred"]
+
+
+async def test_deleting_a_workspace_needs_its_slug_and_leaves_the_record_of_it():
+    from app.models import Tenant
+
+    await _tenant_with("deleteco")
+    tok = await _op_token()
+    async with _client() as c:
+        assert (await c.delete("/api/v1/platform/tenants/deleteco", headers=_H(tok))).status_code == 400
+        assert (await c.delete("/api/v1/platform/tenants/deleteco?confirm=deletec", headers=_H(tok))).status_code == 400
+        radius = (await c.get("/api/v1/platform/tenants/deleteco/blast-radius", headers=_H(tok))).json()
+        assert radius["hosts"] == ["deleteco.brokerage.test"]
+        r = await c.delete("/api/v1/platform/tenants/deleteco?confirm=deleteco", headers=_H(tok))
+        assert r.status_code == 200 and r.json()["released_hosts"] == ["deleteco.brokerage.test"], r.text
+        assert (await c.get("/api/v1/platform/tenants/deleteco", headers=_H(tok))).status_code == 404
+    from app.models import Domain
+
+    async with SessionLocal() as s:
+        assert (await s.execute(select(Tenant).where(Tenant.slug == "deleteco"))).scalar_one_or_none() is None
+        assert (await s.execute(select(Domain).where(Domain.hostname == "deleteco.brokerage.test"))
+                ).scalar_one_or_none() is None, "the hostname is released, not left pointing at nothing"
+    rows = await _platform_rows("deleteco")
+    assert [row.action for row in rows] == ["tenant.deleted"]
+    assert rows[0].detail["hosts"] == ["deleteco.brokerage.test"] and rows[0].operator_email == OP_EMAIL

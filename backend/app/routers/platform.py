@@ -21,7 +21,8 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import plans
@@ -31,12 +32,12 @@ from ..deps import STEP_UP_SCOPES, current_platform_user
 from ..models import (AuditLog, Business, Domain, Integration, JobHeartbeat, PlatformAudit,
                       PlatformBillingConfig, PlatformInvoice, PlatformSubscription, PlatformUser,
                       ShareLink, SyncRun, Tenant, User)
-from ..security import dec, enc, hash_pw, make_platform_token, new_action_token, verify_pw
+from ..security import dec, enc, hash_pw, make_platform_token, make_token, new_action_token, verify_pw
 from ..services import (fleet_health, fleet_rollup, jobs, mail_templates, mailer, operator_audit,
                         platform_billing, sync_jobs)
 from ..throttle import client_ip
 from ..services.provisioning import INVITE_VALID_DAYS, invite_url, provision_tenant
-from ..services.tabs import PLATFORM_TABS, tenant_tab_descriptors
+from ..services.tabs import PLATFORM_TABS, tenant_tab_descriptors, tenant_tabs
 from ..services.users import RESET_HOURS, primary_host
 from ..tenancy import PLATFORM_HOSTS, WILDCARD_RESERVED, url_scheme
 
@@ -1531,3 +1532,265 @@ async def stripe_webhook(request: Request, s: AsyncSession = Depends(get_session
         raise HTTPException(400, "Invalid payload")
     outcome = await platform_billing.handle_event(s, event)
     return {"received": True, "outcome": outcome}
+
+
+# ── phase 6: support access, export, transfer ownership, delete ───────────────────────────
+SUPPORT_MINUTES = (15, 30, 60)
+
+
+class SupportBody(BaseModel):
+    reason: str
+    minutes: int = 30
+
+
+class TransferBody(BaseModel):
+    user_id: str
+
+
+def _support_email(op: PlatformUser) -> str:
+    """The support account's address: the operator's own, tagged, so the workspace's roster names a
+    real person at Acumyn and no email is ever sent to it."""
+    local, _, domain = op.email.partition("@")
+    return f"{local.split('+')[0]}+acumyn-support@{domain}"[:255]
+
+
+@router.post("/tenants/{slug}/support-access", status_code=201)
+async def open_support_access(slug: str, body: SupportBody, request: Request, bg: BackgroundTasks,
+                              op: PlatformUser = Depends(current_platform_user),
+                              s: AsyncSession = Depends(get_session)):
+    """Open time-boxed, read-only support access to the workspace (C8, option c).
+
+    No new path into tenant data. This makes a real `User` in the workspace, named for the
+    operator, with every tab and an `expires_at`, and signs the operator in as that user through
+    `deps.current_user`, which refuses anything but reads from it and ends it on time. The owners are
+    emailed, the workspace's own log records it with the reason, and the account disables itself.
+    """
+    reason = (body.reason or "").strip()[:500]
+    if not reason:
+        raise HTTPException(400, "Give a reason. It is emailed to the owners and kept in both audit trails.")
+    if body.minutes not in SUPPORT_MINUTES:
+        raise HTTPException(400, "Support access lasts 15, 30 or 60 minutes.")
+    t = await _get(s, slug)
+    if t.status == "suspended":
+        raise HTTPException(409, "This workspace is suspended, so nobody can sign in to it. Resume it first.")
+    now = _now()
+    email = _support_email(op)
+    u = (await s.execute(select(User).where(User.tenant_id == t.id, User.email == email))).scalar_one_or_none()
+    if u is not None and u.expires_at is None:
+        raise HTTPException(409, f"{email} is an ordinary account in this workspace, not a support account.")
+    if u is None:
+        u = User(tenant_id=t.id, email=email, role="member", status="active", token_version=0)
+        s.add(u)
+    u.name = f"{op.name or op.email} (Acumyn support)"[:200]
+    u.role, u.status = "member", "active"
+    u.tab_access = await tenant_tabs(s, t.id)
+    u.password_hash = None
+    u.action_token_hash = u.action_token_purpose = u.action_token_expires = None
+    u.token_version = (u.token_version or 0) + 1          # any earlier session of this account ends
+    u.expires_at = now + dt.timedelta(minutes=body.minutes)
+    await s.flush()
+    _record(s, op, request, t, "support.access_opened", "user", u.id, category="Access",
+            reason=reason, minutes=body.minutes, account=email, expires_at=u.expires_at.isoformat())
+    owners = (await s.execute(select(User).where(
+        User.tenant_id == t.id, User.role == "owner", User.status == "active"))).scalars().all()
+    await s.commit()
+    ends = u.expires_at.strftime("%H:%M UTC")
+    for owner in owners:
+        bg.add_task(mailer.send, owner.email,
+                    *mail_templates.support_access_opened(t.name, op.name or op.email, reason, body.minutes, ends),
+                    idempotency_key=f"support-{u.id}-{u.token_version}-{owner.id}")
+    token = make_token(u.id, t.id, u.token_version)
+    return {
+        # Opened by the console in a new tab and never displayed: the fragment signs the operator in
+        # as the support account, and a fragment never reaches a server log or a Referer header.
+        "url": f"{await _workspace_base(s, t)}/#session={token}",
+        "account": email, "expires_at": _iso(u.expires_at), "minutes": body.minutes,
+        "owners_emailed": [o.email for o in owners],
+    }
+
+
+@router.delete("/tenants/{slug}/support-access")
+async def end_support_access(slug: str, request: Request, op: PlatformUser = Depends(current_platform_user),
+                             s: AsyncSession = Depends(get_session)):
+    """End the calling operator's support access now, rather than at its expiry."""
+    t = await _get(s, slug)
+    u = (await s.execute(select(User).where(User.tenant_id == t.id, User.email == _support_email(op),
+                                            User.expires_at.is_not(None)))).scalar_one_or_none()
+    if u is None or u.status != "active" or fleet_health._aware(u.expires_at) <= _now():
+        raise HTTPException(409, "You have no open support access to this workspace.")
+    u.expires_at, u.status = _now(), "disabled"
+    u.token_version = (u.token_version or 0) + 1
+    _record(s, op, request, t, "support.access_ended", "user", u.id, category="Access", account=u.email)
+    await s.commit()
+    return {"ended": True}
+
+
+@router.get("/tenants/{slug}/support-access")
+async def support_sessions(slug: str, op: PlatformUser = Depends(current_platform_user),
+                           s: AsyncSession = Depends(get_session)):
+    """Every support session on this workspace, from the operator trail, and whichever is open now."""
+    t = await _get(s, slug)
+    now = _now()
+    rows = (await s.execute(select(PlatformAudit).where(
+        PlatformAudit.tenant_id == t.id, PlatformAudit.action.in_(
+            ("support.access_opened", "support.access_ended", "support.access_expired")))
+        .order_by(PlatformAudit.created_at.desc()).limit(50))).scalars().all()
+    open_rows = (await s.execute(select(User).where(
+        User.tenant_id == t.id, User.expires_at.is_not(None), User.status == "active"))).scalars().all()
+    return {
+        "open": [{"account": u.email, "name": u.name, "expires_at": _iso(u.expires_at),
+                  "mine": u.email == _support_email(op)}
+                 for u in open_rows if fleet_health._aware(u.expires_at) > now],
+        "history": [{"action": r.action, "who": r.operator_email, "at": _iso(r.created_at),
+                     "reason": r.reason, "minutes": (r.detail or {}).get("minutes"),
+                     "account": (r.detail or {}).get("account")} for r in rows],
+    }
+
+
+@router.post("/tenants/{slug}/export")
+async def export_metadata(slug: str, request: Request, op: PlatformUser = Depends(current_platform_user),
+                          s: AsyncSession = Depends(get_session)):
+    """A metadata archive of the workspace: its people, businesses, connections, share links and
+    audit log. Never its business data, never a credential: no password hash, token, secret, or an
+    integration's stored configuration. A workspace exports its own numbers from inside itself."""
+    from fastapi.responses import Response
+
+    t = await _get(s, slug)
+    hosts = (await s.execute(select(Domain.hostname).where(Domain.tenant_id == t.id))).scalars().all()
+    users = (await s.execute(select(User).where(User.tenant_id == t.id).order_by(User.created_at))).scalars().all()
+    businesses = (await s.execute(select(Business).where(Business.tenant_id == t.id)
+                                  .order_by(Business.sort_order))).scalars().all()
+    rows = (await s.execute(select(Integration, Business.name).outerjoin(
+        Business, Business.id == Integration.business_id).where(Integration.tenant_id == t.id))).all()
+    links = (await s.execute(select(ShareLink).where(ShareLink.tenant_id == t.id))).scalars().all()
+    trail = (await s.execute(select(AuditLog).where(AuditLog.tenant_id == t.id)
+                             .order_by(AuditLog.created_at))).scalars().all()
+    archive = {
+        "format": "acumyn-workspace-metadata/1", "exported_at": _now().isoformat(), "exported_by": op.email,
+        "workspace": {"slug": t.slug, "name": t.name, "status": t.status, "plan": t.plan,
+                      "created_at": _iso(t.created_at), "hosts": list(hosts)},
+        "people": [{"email": u.email, "name": u.name, "role": u.role, "status": u.status,
+                    "tab_access": u.tab_access, "created_at": _iso(u.created_at),
+                    "last_login_at": _iso(u.last_login_at), "two_factor": u.totp_confirmed_at is not None,
+                    "support_account": u.expires_at is not None} for u in users],
+        "businesses": [{"key": b.key, "name": b.name} for b in businesses],
+        "connections": [{"provider": i.provider, "business": biz, "status": i.status,
+                         "last_synced_at": _iso(i.last_synced_at), "last_error": i.last_error}
+                        for i, biz in rows],
+        "share_links": [{"scope": l.scope, "scope_ref": l.scope_ref, "created_at": _iso(l.created_at),
+                         "expires_at": _iso(l.expires_at), "revoked_at": _iso(l.revoked_at)} for l in links],
+        "audit_log": [{"at": _iso(r.created_at), "action": r.action, "actor": r.actor_label,
+                       "category": r.category, "target_type": r.target_type, "target_id": r.target_id,
+                       "detail": r.detail} for r in trail],
+    }
+    _record(s, op, request, t, "tenant.exported", "tenant", t.id, category="Workspace",
+            people=len(users), audit_entries=len(trail))
+    await s.commit()
+    filename = f"acumyn-{t.slug}-metadata-{_now().date().isoformat()}.json"
+    return Response(json.dumps(archive, indent=2, default=str), media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.post("/tenants/{slug}/transfer-ownership")
+async def transfer_ownership(slug: str, body: TransferBody, request: Request,
+                             op: PlatformUser = Depends(current_platform_user),
+                             s: AsyncSession = Depends(get_session)):
+    """Move the owner role to another active person. Every current owner drops to admin, so the
+    workspace keeps exactly one owner and nobody loses access."""
+    t = await _get(s, slug)
+    target = await _person(s, t, body.user_id)
+    if target.expires_at is not None:
+        raise HTTPException(409, "A support account cannot own a workspace.")
+    if target.status != "active":
+        raise HTTPException(409, "Only an active person can become the owner. They have to accept their invite first.")
+    if target.role == "owner":
+        raise HTTPException(409, f"{target.email} already owns this workspace.")
+    owners = (await s.execute(select(User).where(User.tenant_id == t.id, User.role == "owner"))).scalars().all()
+    for owner in owners:
+        owner.role, owner.tab_access = "admin", None
+    target.role, target.tab_access = "owner", None
+    _record(s, op, request, t, "tenant.ownership_transferred", "user", target.id, category="People",
+            **{"from": [o.email for o in owners], "to": target.email})
+    await s.commit()
+    return {"owner": target.email, "demoted": [o.email for o in owners]}
+
+
+@router.get("/tenants/{slug}/blast-radius")
+async def blast_radius(slug: str, op: PlatformUser = Depends(current_platform_user),
+                       s: AsyncSession = Depends(get_session)):
+    """What deleting the workspace removes, counted, so the confirmation can say it in numbers."""
+    return await _blast_radius(s, await _get(s, slug))
+
+
+async def _blast_radius(s: AsyncSession, t: Tenant) -> dict:
+    from ..models import BinderDocument, LegalEntity
+
+    async def count(model):
+        return (await s.execute(select(func.count()).select_from(model).where(model.tenant_id == t.id))).scalar_one()
+
+    hosts = (await s.execute(select(Domain.hostname).where(Domain.tenant_id == t.id))).scalars().all()
+    return {"slug": t.slug, "accounts": await count(User), "businesses": await count(Business),
+            "entities": await count(LegalEntity), "documents": await count(BinderDocument),
+            "connections": await count(Integration), "audit_entries": await count(AuditLog),
+            "hosts": list(hosts)}
+
+
+def _stored_files(t_id) -> list:
+    """Every table scoped to a tenant that points at stored bytes, as (table, column) pairs, found
+    from the metadata rather than listed by hand, so a new upload table is not silently left out."""
+    from ..models import Base
+
+    found = []
+    for table in Base.metadata.sorted_tables:
+        if "tenant_id" not in table.c:
+            continue
+        for column in ("storage_ref", "storage_key", "image_ref"):
+            if column in table.c:
+                found.append((table, table.c[column]))
+    return found
+
+
+@router.delete("/tenants/{slug}")
+async def delete_tenant(slug: str, request: Request, bg: BackgroundTasks, confirm: str | None = None,
+                        op: PlatformUser = Depends(current_platform_user),
+                        s: AsyncSession = Depends(get_session)):
+    """Delete a workspace, permanently. `?confirm=` must equal the slug, as the console's
+    type-to-confirm does. There is no soft delete.
+
+    The operator trail's row is written first and survives by design: platform_audit.tenant_id is not
+    a foreign key. Then the tenant row goes, and ON DELETE CASCADE takes what is scoped to it in one
+    statement, which is also what lets business and legal_entity, which reference each other, go
+    together. Then every table with a tenant_id is swept for anything left, so deletion is complete
+    whatever a migration did to a constraint, and on a database that does not enforce foreign keys
+    (SQLite, by default). The domain rows go with the rest, which releases the hostname. Stored files
+    are removed afterwards, best effort. It is one transaction: if anything refuses, nothing is
+    deleted.
+    """
+    if confirm is None or confirm.strip().lower() != slug.strip().lower():
+        raise HTTPException(400, "Type the workspace's slug to confirm. Deletion cannot be undone.")
+    t = await _get(s, slug)
+    radius = await _blast_radius(s, t)
+    refs = []
+    for table, column in _stored_files(t.id):
+        refs += [r for r in (await s.execute(select(column).where(table.c.tenant_id == t.id))).scalars().all() if r]
+    s.add(PlatformAudit(operator_id=op.id, operator_email=op.email, action="tenant.deleted",
+                        tenant_id=t.id, tenant_slug=t.slug, target_type="tenant", target_id=str(t.id),
+                        detail={**radius, "name": t.name, "plan": t.plan, "stored_files": len(refs)},
+                        ip=client_ip(request)[:45]))
+    await s.flush()
+    from ..models import Base
+
+    try:
+        await s.execute(delete(Tenant).where(Tenant.id == t.id))
+        for table in reversed(Base.metadata.sorted_tables):
+            if table.name != "platform_audit" and "tenant_id" in table.c:
+                await s.execute(table.delete().where(table.c.tenant_id == t.id))
+        await s.commit()
+    except IntegrityError as e:
+        await s.rollback()
+        raise HTTPException(409, f"The database refused to delete this workspace, and nothing was removed: "
+                                 f"{str(e.orig)[:300]}")
+    from ..services import binder_storage
+    for ref in refs:
+        bg.add_task(binder_storage.delete, ref)
+    return {"deleted": radius["slug"], "released_hosts": radius["hosts"], "stored_files": len(refs)}

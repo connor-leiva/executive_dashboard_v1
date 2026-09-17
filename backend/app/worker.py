@@ -314,6 +314,29 @@ async def platform_billing_reconcile():
             print(f"[billing_reconcile] tenant {tid}: {type(e).__name__}: {e}", flush=True)
 
 
+async def expire_support_access():
+    """Every five minutes: disable support accounts past their expires_at (C8). The session gate
+    already refuses them at that minute; this makes it permanent, bumps token_version so no token
+    can outlive a later reopening, and writes the expiry to both audit trails."""
+    from .models import PlatformAudit, User
+    from .services.audit import audit
+    now = dt.datetime.now(dt.timezone.utc)
+    async with SessionLocal() as s:
+        due = (await s.execute(select(User, Tenant.slug).join(Tenant, Tenant.id == User.tenant_id).where(
+            User.expires_at.is_not(None), User.expires_at <= now, User.status == "active"))).all()
+        for u, slug in due:
+            u.status = "disabled"
+            u.token_version = (u.token_version or 0) + 1
+            audit(s, u.tenant_id, None, "support.access_expired", "user", u.id,
+                  {"by": "Acumyn (expiry)", "account": u.email}, category="Access", actor_label="Acumyn")
+            s.add(PlatformAudit(operator_id=None, operator_email=None, action="support.access_expired",
+                                tenant_id=u.tenant_id, tenant_slug=slug, target_type="user", target_id=str(u.id),
+                                detail={"account": u.email, "source": "expiry job"}))
+        await s.commit()
+    if due:
+        print(f"[expire_support_access] disabled {len(due)} support account(s)", flush=True)
+
+
 def build_scheduler() -> AsyncIOScheduler:
     """Configure the scheduler with the sync tick, the daily agent-roster + scorecard-resolver ticks,
     and (when the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`)
@@ -340,6 +363,7 @@ def build_scheduler() -> AsyncIOScheduler:
     # Hourly and always registered: it returns at once until platform billing is switched on, which
     # is a setting in the operator console rather than a deploy.
     sched.add_job(beat(platform_billing_reconcile), "interval", hours=1)
+    sched.add_job(beat(expire_support_access), "interval", minutes=5, next_run_time=dt.datetime.now())
     if settings.RECALL_API_KEY:
         sched.add_job(beat(recall_tick), "interval", minutes=settings.RECALL_TICK_MINUTES,
                       next_run_time=dt.datetime.now())
