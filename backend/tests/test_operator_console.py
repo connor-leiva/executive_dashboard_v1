@@ -959,3 +959,194 @@ def test_every_action_the_server_attaches_to_a_signal_is_one_the_console_can_per
     # payment_link belongs to platform billing, which is not connected yet.
     missing = emitted - handled - {"open", "payment_link"}
     assert not missing, f"signal actions the console cannot perform: {sorted(missing)}"
+
+
+# ── phase 4: the operator trail and the platform's health ─────────────────────────────────
+async def _platform_rows(slug):
+    from app.models import PlatformAudit
+
+    async with SessionLocal() as s:
+        return (await s.execute(select(PlatformAudit).where(PlatformAudit.tenant_slug == slug)
+                                .order_by(PlatformAudit.created_at))).scalars().all()
+
+
+async def test_every_operator_change_is_written_to_both_trails():
+    """§9: the workspace's own log, so the customer sees it, and platform_audit, so the operator
+    trail does not have to scan every workspace."""
+    import datetime as dt
+    from app.models import ShareLink
+
+    now = dt.datetime.now(dt.timezone.utc)
+    tid = await _tenant_with("trailco")
+    locked = await _account(tid, "locked@trail.test", failed_logins=10,
+                            locked_until=now + dt.timedelta(minutes=5))
+    async with SessionLocal() as s:
+        s.add(ShareLink(tenant_id=tid, scope="sd_rep", token=f"trail-{uuid.uuid4().hex}"))
+        await s.commit()
+    tok = await _op_token()
+    base = "/api/v1/platform/tenants/trailco"
+    async with _client() as c:
+        for path, body in ((f"{base}/suspend", {"reason": "trail test"}), (f"{base}/resume", {}),
+                           (f"{base}/freeze-syncs", {"reason": "trail freeze"}),
+                           (f"{base}/unfreeze-syncs", {}), (f"{base}/people/{locked}/unlock", {}),
+                           (f"{base}/share-links/revoke-all", {})):
+            r = await c.post(path, headers={**_H(tok), "x-forwarded-for": "203.0.113.7"}, json=body)
+            assert r.status_code == 200, (path, r.text)
+
+    actions = ["tenant.suspended", "tenant.resumed", "tenant.syncs_frozen", "tenant.syncs_unfrozen",
+               "user.unlocked", "tenant.share_links_revoked"]
+    rows = await _platform_rows("trailco")
+    assert [r.action for r in rows] == actions, "one entry per change, in the order they were made"
+    for r in rows:
+        assert r.operator_email == OP_EMAIL and r.tenant_id == tid and r.ip == "203.0.113.7"
+        assert "by" not in r.detail, "the operator is a column here, not a detail"
+        tenant_row, = await _trail(tid, r.action)
+        assert _by_acumyn(tenant_row)
+    assert {r.action: r.reason for r in rows}["tenant.suspended"] == "trail test"
+    assert {r.action: r.reason for r in rows}["tenant.syncs_frozen"] == "trail freeze"
+
+
+async def test_the_operator_trail_outlives_the_workspace_it_describes():
+    """tenant_id is not a foreign key, on purpose: deleting a workspace must not delete the record
+    that it was deleted."""
+    from sqlalchemy import delete
+    from app.models import AuditLog, Base, Domain, Tenant
+
+    assert not Base.metadata.tables["platform_audit"].c.tenant_id.foreign_keys
+    tid = await _tenant_with("outliveco")
+    tok = await _op_token()
+    async with _client() as c:
+        assert (await c.post("/api/v1/platform/tenants/outliveco/freeze-syncs", headers=_H(tok),
+                             json={"reason": "before deletion"})).status_code == 200
+    async with SessionLocal() as s:
+        await s.execute(delete(AuditLog).where(AuditLog.tenant_id == tid))
+        await s.execute(delete(Domain).where(Domain.tenant_id == tid))
+        await s.execute(delete(Tenant).where(Tenant.id == tid))
+        await s.commit()
+    rows = await _platform_rows("outliveco")
+    assert [r.action for r in rows] == ["tenant.syncs_frozen"] and rows[0].tenant_id == tid
+
+
+async def test_the_audit_view_lists_each_change_once_and_only_changes():
+    import datetime as dt
+    from app.models import AuditLog
+
+    hour_ago = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)
+    tid = await _tenant_with("scopeco")
+    member = await _account(tid, "member@scope.test", role="admin")
+    async with SessionLocal() as s:
+        s.add(AuditLog(tenant_id=tid, actor_user_id=member, action="user.invited",
+                       target_type="user", detail={"role": "member"}, created_at=hour_ago))
+        s.add(AuditLog(tenant_id=tid, actor_user_id=member, action="auth.login", created_at=hour_ago))
+        await s.commit()
+    tok = await _op_token()
+    async with _client() as c:
+        assert (await c.post("/api/v1/platform/tenants/scopeco/freeze-syncs", headers=_H(tok),
+                             json={"reason": "scope test"})).status_code == 200
+        everything = (await c.get("/api/v1/platform/audit?scope=all&tenant=scopeco", headers=_H(tok))).json()
+        mine = (await c.get("/api/v1/platform/audit?scope=acumyn&operator=me", headers=_H(tok))).json()
+        teams = (await c.get("/api/v1/platform/audit?scope=tenants&tenant=scopeco", headers=_H(tok))).json()
+        paged = (await c.get("/api/v1/platform/audit?scope=all&tenant=scopeco&limit=1", headers=_H(tok))).json()
+        older = (await c.get("/api/v1/platform/audit", headers=_H(tok), params={
+            "scope": "all", "tenant": "scopeco", "limit": 1, "before": paged["next_before"]})).json()
+        assert (await c.get("/api/v1/platform/audit?scope=nonsense", headers=_H(tok))).status_code == 400
+        owner = (await c.post("/api/v1/auth/login",
+                              json={"email": "spring@springb.com", "password": "springtime"})).json()["token"]
+        assert (await c.get("/api/v1/platform/audit", headers=_H(owner))).status_code == 401
+
+    actions = [e["action"] for e in everything["events"]]
+    assert sorted(actions) == ["tenant.syncs_frozen", "user.invited"], \
+        "the operator's change once, the team's change once, and no sign-in"
+    assert {e["scope"] for e in mine["events"]} == {"acumyn"}
+    assert all(e["who"] == OP_EMAIL for e in mine["events"])
+    assert [e["action"] for e in teams["events"]] == ["user.invited"]
+    assert teams["events"][0]["who"] == "member@scope.test" and teams["events"][0]["ip"] is None
+    assert len(paged["events"]) == 1 and paged["next_before"]
+    assert len(older["events"]) == 1 and older["events"][0]["id"] != paged["events"][0]["id"]
+    assert everything["retention_days"] == 400
+
+
+async def test_operator_entries_past_retention_are_pruned_and_nothing_younger():
+    import datetime as dt
+    from app.models import PlatformAudit
+    from app.services.operator_audit import prune
+
+    now = dt.datetime.now(dt.timezone.utc)
+    async with SessionLocal() as s:
+        s.add(PlatformAudit(operator_email=OP_EMAIL, action="tenant.old", tenant_slug="pruneco",
+                            created_at=now - dt.timedelta(days=401)))
+        s.add(PlatformAudit(operator_email=OP_EMAIL, action="tenant.kept", tenant_slug="pruneco",
+                            created_at=now - dt.timedelta(days=399)))
+        await s.commit()
+    async with SessionLocal() as s:
+        assert await prune(s, now) >= 1
+    assert [r.action for r in await _platform_rows("pruneco")] == ["tenant.kept"]
+
+
+async def test_system_reports_the_migration_heads_and_whether_the_worker_reports():
+    import datetime as dt
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import delete
+    from app.models import JobHeartbeat
+
+    backend = Path(__file__).resolve().parents[1]
+    cfg = Config(str(backend / "alembic.ini"))
+    cfg.set_main_option("script_location", str(backend / "alembic"))
+    heads = ScriptDirectory.from_config(cfg).get_heads()
+    assert len(heads) == 1, f"migrations have forked: {heads}"
+
+    tok = await _op_token()
+    async with SessionLocal() as s:
+        await s.execute(delete(JobHeartbeat))
+        await s.commit()
+    async with _client() as c:
+        before = (await c.get("/api/v1/platform/system", headers=_H(tok))).json()
+    assert before["migrations"]["head_count"] == 1 and before["migrations"]["heads"] == list(heads)
+    assert before["database"]["state"] == "ok"
+    assert before["worker"]["state"] == "never", "no heartbeat means nothing is known to be running"
+
+    async with SessionLocal() as s:
+        s.add(JobHeartbeat(job="tick", last_started_at=dt.datetime.now(dt.timezone.utc),
+                           last_ok_at=dt.datetime.now(dt.timezone.utc), last_seconds=1.5))
+        await s.commit()
+    async with _client() as c:
+        after = (await c.get("/api/v1/platform/system", headers=_H(tok))).json()
+        flags = (await c.get("/api/v1/platform/system/flags", headers=_H(tok))).json()["flags"]
+    assert after["worker"]["state"] == "ok"
+    keys = {f["key"] for f in flags}
+    assert {"ENV", "SINGLE_TENANT_FALLBACK", "SYNC_INTERVAL_MINUTES"} <= keys
+    assert not [k for k in keys if re.search(r"SECRET|KEY|TOKEN|PASSWORD|DSN|DATABASE", k)], \
+        "the flags list never carries a secret setting"
+
+
+def test_the_scheduler_registers_every_job_through_a_heartbeat():
+    """services/jobs.catalog() is what the System view shows; build_scheduler is what runs. They
+    must name the same jobs, and every registered job must write its heartbeat."""
+    from app.services import jobs
+    from app.worker import build_scheduler
+
+    sched = build_scheduler()
+    registered = {j.func.__name__ for j in sched.get_jobs()}
+    assert all(hasattr(j.func, "__wrapped__") for j in sched.get_jobs()), "a job without a heartbeat"
+    assert registered == {e["job"] for e in jobs.catalog() if e["enabled"]}
+
+
+async def test_a_heartbeat_records_starts_clean_runs_and_failures():
+    from app.models import JobHeartbeat
+    from app.services.jobs import heartbeat
+
+    async def fine():
+        return 3
+
+    async def broken():
+        raise RuntimeError("the provider is down")
+
+    assert await heartbeat(fine, name="test_fine")() == 3
+    with pytest.raises(RuntimeError):
+        await heartbeat(broken, name="test_broken")()
+    async with SessionLocal() as s:
+        ok = await s.get(JobHeartbeat, "test_fine")
+        bad = await s.get(JobHeartbeat, "test_broken")
+    assert ok.last_started_at and ok.last_ok_at and ok.last_failed_at is None
+    assert bad.last_failed_at and bad.last_ok_at is None and "the provider is down" in bad.last_error

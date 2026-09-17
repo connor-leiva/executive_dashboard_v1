@@ -37,6 +37,26 @@ export const PHRASES = {
   "integration.connected": "Connected a source",
   "integration.disconnected": "Disconnected a source",
   "access.member.activated": "Became active on the roster",
+  "assistant.asked": "Asked the assistant a question",
+  "support.access_opened": "Opened support access",
+  "support.access_ended": "Ended support access",
+  "support.access_expired": "Support access expired",
+  "tenant.exported": "Exported the workspace's metadata",
+  "tenant.ownership_transferred": "Transferred ownership",
+  "tenant.deleted": "Deleted the workspace",
+  "billing.plan_changed": "Changed the plan",
+  "billing.budget_changed": "Changed the AI token budget",
+  "billing.contact_changed": "Changed the billing contact",
+  "billing.po_changed": "Changed the PO reference",
+  "billing.customer_created": "Created the Stripe customer",
+  "billing.payment_link_sent": "Sent a payment link",
+  "billing.retried": "Retried a charge",
+  "billing.retry_failed": "Retried a charge, which failed",
+  "billing.past_due": "Subscription went past due",
+  "billing.canceled": "Subscription was canceled",
+  "billing.incomplete": "Subscription is incomplete",
+  "billing.config_changed": "Changed the platform billing connection",
+  "billing.disconnected": "Disconnected platform billing",
 };
 
 export function describe(e) {
@@ -60,3 +80,17 @@ export function target(e, { withReason = true } = {}) {
   return bits.join(" · ");
 }
 
+/* Repeated events collapse. Consecutive entries that share a key become one line with a count, so a
+   run of identical rows (an autosave, a retried sync) can never bury the one action that mattered. */
+export function collapseBy(events, key) {
+  const out = [];
+  for (const e of events) {
+    const prev = out[out.length - 1];
+    if (prev && key(prev) === key(e)) {
+      prev.count += 1;
+      continue;
+    }
+    out.push({ ...e, count: 1 });
+  }
+  return out;
+}

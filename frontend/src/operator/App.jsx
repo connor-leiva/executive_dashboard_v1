@@ -20,6 +20,8 @@ import FleetView from "./views/Fleet.jsx";
 import WorkspacesView from "./views/Workspaces.jsx";
 import IncidentsView from "./views/Incidents.jsx";
 import ProvisionView from "./views/Provision.jsx";
+import AuditView from "./views/Audit.jsx";
+import SystemView from "./views/System.jsx";
 import WorkspaceDetail from "./workspace/Detail.jsx";
 
 /* Sections, in rail order. `path` is the first URL segment. */
@@ -28,6 +30,8 @@ const NAV = [
   { key: "workspaces", label: "Workspaces", title: "Workspaces", sub: "Every workspace, with the worst open signal on each and the reason for it." },
   { key: "new", label: "New workspace", title: "New workspace", sub: "Live at its own address the moment you press create." },
   { key: "incidents", label: "Incidents", title: "Incidents", sub: "Errors grouped by cause, with what clears each one." },
+  { key: "audit", label: "Audit", title: "Audit", sub: "Every change across the platform, by Acumyn staff and by each workspace's own team." },
+  { key: "system", label: "System", title: "System", sub: "What is deployed, whether the API, the worker and the database are well, and the flags that change every workspace at once." },
 ];
 
 function parse(pathname) {
@@ -195,7 +199,9 @@ export default function OperatorApp() {
           ) : route.section === "workspaces" ? <WorkspacesView onOpen={open} onNew={() => go("/new")} />
             : route.section === "new" ? <ProvisionView onOpen={open} />
               : route.section === "incidents" ? <IncidentsView onOpen={open} />
-                : <FleetView onOpen={open} />}
+                : route.section === "audit" ? <AuditView onOpen={open} />
+                  : route.section === "system" ? <SystemView />
+                    : <FleetView onOpen={open} onAudit={() => go("/audit")} />}
         </main>
       </div>
     </div>

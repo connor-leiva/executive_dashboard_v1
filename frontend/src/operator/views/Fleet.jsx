@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { api } from "../api.js";
 import { confirmFor, labelFor, perform } from "../actions.js";
 import { ago, compact, plural } from "../format.js";
+import { describe, target } from "../phrases.js";
 import { Bar, Btn, Card, Chip, Confirm, Empty, Eyebrow, Loading, LoadError, Mono, Notice, Seg, Stat, useApi } from "../primitives.jsx";
 import { A, STATE, TYPE } from "../tokens.js";
 
@@ -104,6 +105,37 @@ function Chip2({ state }) {
   );
 }
 
+/* The signed-in operator's own recent changes, from the operator trail. Tenant activity lives on
+   each workspace's Activity pane. */
+function YourActionsCard({ onOpen, onAudit }) {
+  const data = useApi(() => api.audit({ scope: "acumyn", operator: "me", limit: 6 }), []);
+  const rows = data.data ? data.data.events : [];
+  return (
+    <Card title="What you did" sub="Your own changes, newest first. Every workspace's own activity lives on its Activity pane.">
+      {data.loading && !data.data ? <Loading label="Reading your changes" />
+        : data.error ? <Empty title="Your changes could not be read">{data.error.message}</Empty>
+          : rows.length === 0 ? <Empty title="Nothing yet">Nothing you change from this console has been recorded yet.</Empty>
+            : rows.map((e) => (
+              <div key={e.id} style={{ padding: "9px 0", borderTop: `1px solid ${A.lineSoft}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+                  <span style={{ fontFamily: TYPE.text, fontSize: 12.5, color: A.ink, fontWeight: 500 }}>{describe(e)}</span>
+                  <Mono size={10.5} c={A.mute}>{ago(e.at)}</Mono>
+                </div>
+                <div style={{ fontFamily: TYPE.text, fontSize: 11.5, color: A.mute, marginTop: 2, overflowWrap: "anywhere" }}>
+                  {e.tenant_slug ? (
+                    <button type="button" className="ac-link" onClick={() => onOpen(e.tenant_slug, "activity")} style={{
+                      background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: TYPE.data, fontSize: 11, color: A.body,
+                    }}>{e.tenant_slug}</button>
+                  ) : null}
+                  {target(e) ? ` · ${target(e)}` : ""}
+                </div>
+              </div>
+            ))}
+      <div style={{ marginTop: 12 }}><Btn small onClick={onAudit}>Open the full audit</Btn></div>
+    </Card>
+  );
+}
+
 function ProvidersCard() {
   const data = useApi(() => api.providers(), []);
   const rows = data.data ? data.data.providers : [];
@@ -135,7 +167,7 @@ function ProvidersCard() {
   );
 }
 
-export default function FleetView({ onOpen }) {
+export default function FleetView({ onOpen, onAudit }) {
   const fleet = useApi(() => api.fleet(), []);
   const [filter, setFilter] = useState("all");
   const [done, setDone] = useState(null);
@@ -189,6 +221,7 @@ export default function FleetView({ onOpen }) {
 
       <div className="ac-split" style={{ marginTop: 16 }}>
         <ProvidersCard />
+        <YourActionsCard onOpen={onOpen} onAudit={onAudit} />
       </div>
 
       <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>

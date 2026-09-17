@@ -1,28 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { api } from "../api.js";
 import { ago } from "../format.js";
-import { describe, target } from "../phrases.js";
+import { collapseBy, describe, target } from "../phrases.js";
 import { Card, Chip, Empty, Loading, LoadError, Mono, Seg, useApi } from "../primitives.jsx";
 import { A, TYPE } from "../tokens.js";
 
 const KIND = { user: "Their team", acumyn: "Acumyn", system: "System" };
 
-/* Machine events collapse. Consecutive events of the same kind, by the same actor, doing the same
-   thing become one line with a count, so a run of identical rows can never bury the one human
-   action that mattered. */
-function collapse(events) {
-  const out = [];
-  for (const e of events) {
-    const prev = out[out.length - 1];
-    if (prev && prev.action === e.action && prev.actor === e.actor && prev.actor_label === e.actor_label
-        && describe(prev) === describe(e) && target(prev) === target(e)) {
-      prev.count += 1;
-      continue;
-    }
-    out.push({ ...e, count: 1 });
-  }
-  return out;
-}
+/* Machine events collapse: the same action, by the same actor, doing the same thing. */
+const collapse = (events) => collapseBy(events, (e) => [e.action, e.actor, e.actor_label, describe(e), target(e)].join("|"));
 
 export default function ActivityPane({ w }) {
   const events = useApi(() => api.tenantAudit(w.slug, 200), [w.slug]);

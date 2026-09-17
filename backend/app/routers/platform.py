@@ -13,22 +13,25 @@ user, which leaves an audit row in that tenant rather than a silent read.
 from __future__ import annotations
 
 import datetime as dt
+import functools
+import os
+import time
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import plans
 from ..config import settings
 from ..db import get_session
 from ..deps import STEP_UP_SCOPES, current_platform_user
-from ..models import (AuditLog, Business, Domain, Integration, PlatformUser, ShareLink, SyncRun,
-                      Tenant, User)
+from ..models import (AuditLog, Business, Domain, Integration, JobHeartbeat, PlatformAudit,
+                      PlatformUser, ShareLink, SyncRun, Tenant, User)
 from ..security import hash_pw, make_platform_token, new_action_token, verify_pw
-from ..services import fleet_health, fleet_rollup, mail_templates, mailer, sync_jobs
-from ..services.audit import audit
+from ..services import (fleet_health, fleet_rollup, jobs, mail_templates, mailer, operator_audit,
+                        sync_jobs)
 from ..services.provisioning import INVITE_VALID_DAYS, invite_url, provision_tenant
 from ..services.tabs import PLATFORM_TABS, tenant_tab_descriptors
 from ..services.users import RESET_HOURS, primary_host
@@ -80,17 +83,14 @@ class FreezeBody(BaseModel):
     reason: str
 
 
-def _record(s: AsyncSession, op: PlatformUser, t: Tenant, action: str,
+def _record(s: AsyncSession, op: PlatformUser, request: Request, t: Tenant, action: str,
             target_type: str | None = None, target_id=None, *, category: str = "Workspace",
             **detail) -> None:
-    """Record an operator's action in the workspace's own audit log.
-
-    A customer can see what Acumyn did to their workspace. actor_user_id stays null, because the
-    actor is not a user of this tenant; `by` names the operator, and the label reads as Acumyn
-    wherever the workspace lists its trail.
-    """
-    audit(s, t.id, None, action, target_type, target_id, {"by": op.email, **detail},
-          category=category, actor_label=f"{op.name or op.email} (Acumyn)"[:255])
+    """Record an operator's change twice: in the workspace's own audit log, where the customer can
+    see what Acumyn did, and in platform_audit, the operator's cross-tenant trail. Every mutation
+    in this router goes through here (services/operator_audit.py)."""
+    operator_audit.record(s, op, t, action, target_type, target_id, request=request,
+                          category=category, **detail)
 
 
 @router.post("/login")
@@ -246,7 +246,7 @@ async def get_tenant(slug: str, op: PlatformUser = Depends(current_platform_user
 
 
 @router.post("/tenants", status_code=201)
-async def create_tenant(body: NewTenant, bg: BackgroundTasks,
+async def create_tenant(request: Request, body: NewTenant, bg: BackgroundTasks,
                         op: PlatformUser = Depends(current_platform_user),
                         s: AsyncSession = Depends(get_session)):
     """Provision a tenant. Same path as the CLI — scripts.create_tenant and this route both
@@ -258,10 +258,10 @@ async def create_tenant(body: NewTenant, bg: BackgroundTasks,
     except ValueError as e:
         raise HTTPException(400, str(e))
     # Audited INSIDE the new tenant, so its own trail begins with its creation and names the
-    # operator who did it. actor_user_id stays null — the actor is not a user of this tenant.
-    audit(s, r.tenant_id, None, "tenant.created", "tenant", r.tenant_id,
-          {"by": op.email, "slug": r.slug, "hostname": r.hostname, "plan": body.plan},
-          category="Workspace", actor_label=f"{op.name or op.email} (Acumyn)"[:255])
+    # operator who did it, and in the operator trail.
+    created = await s.get(Tenant, r.tenant_id)
+    _record(s, op, request, created, "tenant.created", "tenant", r.tenant_id,
+            slug=r.slug, hostname=r.hostname, plan=body.plan)
     await s.commit()
     # Emailed AND returned. The operator keeps the link for the case the customer never sees
     # the mail, which on a brand-new sending domain is the case worth planning for.
@@ -272,7 +272,7 @@ async def create_tenant(body: NewTenant, bg: BackgroundTasks,
 
 
 @router.post("/tenants/{slug}/suspend")
-async def suspend_tenant(slug: str, body: SuspendBody,
+async def suspend_tenant(request: Request, slug: str, body: SuspendBody,
                          op: PlatformUser = Depends(current_platform_user),
                          s: AsyncSession = Depends(get_session)):
     """Suspend a workspace: no new logins, every live session in it stops working, and the
@@ -282,23 +282,23 @@ async def suspend_tenant(slug: str, body: SuspendBody,
         raise HTTPException(400, "Give a reason. It is recorded and shown with the suspension.")
     t = await _get(s, slug)
     t.status = "suspended"
-    _record(s, op, t, "tenant.suspended", "tenant", t.id, reason=reason)
+    _record(s, op, request, t, "tenant.suspended", "tenant", t.id, reason=reason)
     await s.commit()
     return {"slug": t.slug, "status": t.status}
 
 
 @router.post("/tenants/{slug}/resume")
-async def resume_tenant(slug: str, op: PlatformUser = Depends(current_platform_user),
+async def resume_tenant(request: Request, slug: str, op: PlatformUser = Depends(current_platform_user),
                         s: AsyncSession = Depends(get_session)):
     t = await _get(s, slug)
     t.status = "active"
-    _record(s, op, t, "tenant.resumed", "tenant", t.id)
+    _record(s, op, request, t, "tenant.resumed", "tenant", t.id)
     await s.commit()
     return {"slug": t.slug, "status": t.status}
 
 
 @router.post("/tenants/{slug}/resend-invite")
-async def resend_owner_invite(slug: str, bg: BackgroundTasks,
+async def resend_owner_invite(request: Request, slug: str, bg: BackgroundTasks,
                               op: PlatformUser = Depends(current_platform_user),
                               s: AsyncSession = Depends(get_session)):
     """Mint a fresh owner invite. The commonest real failure of onboarding is a link that
@@ -314,7 +314,7 @@ async def resend_owner_invite(slug: str, bg: BackgroundTasks,
     owner.action_token_hash = token_hash
     owner.action_token_purpose = "invite"
     owner.action_token_expires = _now() + dt.timedelta(days=INVITE_VALID_DAYS)
-    _record(s, op, t, "tenant.invite_resent", "user", owner.id, category="People",
+    _record(s, op, request, t, "tenant.invite_resent", "user", owner.id, category="People",
             email=owner.email)
     await s.commit()
     url = invite_url(await primary_host(s, t.id), raw)
@@ -341,7 +341,8 @@ async def tenant_audit(slug: str, limit: int = 50,
             User.id.in_(actor_ids)))).all())
     return {"slug": t.slug, "events": [
         {"action": r.action, "target_type": r.target_type, "target_id": r.target_id,
-         "detail": r.detail, "category": r.category, "summary": r.summary,
+         "detail": r.detail, "category": r.category,
+         "summary": operator_audit.operator_summary(r.action, r.summary),
          # Who did it: a named person in the workspace, Acumyn (no actor, and the operator's
          # address in detail.by), or the system.
          "actor": ("acumyn" if not r.actor_user_id and (r.detail or {}).get("by")
@@ -676,7 +677,7 @@ def _ten_minutes() -> int:
 
 
 @router.post("/tenants/{slug}/sync", status_code=202)
-async def sync_tenant(slug: str, bg: BackgroundTasks,
+async def sync_tenant(request: Request, slug: str, bg: BackgroundTasks,
                       op: PlatformUser = Depends(current_platform_user),
                       s: AsyncSession = Depends(get_session)):
     """Pull every connected source now, on the same job the workspace's own Sync button runs."""
@@ -696,7 +697,7 @@ async def sync_tenant(slug: str, bg: BackgroundTasks,
         raise HTTPException(409, f"A full sync is already running. It started {started} ago.")
     run = SyncRun(tenant_id=t.id, provider="all", status="running")
     s.add(run)
-    _record(s, op, t, "tenant.sync_requested", "tenant", t.id, category="Integrations",
+    _record(s, op, request, t, "tenant.sync_requested", "tenant", t.id, category="Integrations",
             sources=configured)
     await s.commit()
     bg.add_task(sync_jobs.run_all_job, t.id, run.id)
@@ -704,7 +705,7 @@ async def sync_tenant(slug: str, bg: BackgroundTasks,
 
 
 @router.post("/tenants/{slug}/sources/{source_id}/sync", status_code=202)
-async def sync_source(slug: str, source_id: str, bg: BackgroundTasks,
+async def sync_source(request: Request, slug: str, source_id: str, bg: BackgroundTasks,
                       op: PlatformUser = Depends(current_platform_user),
                       s: AsyncSession = Depends(get_session)):
     t = await _get(s, slug)
@@ -715,7 +716,7 @@ async def sync_source(slug: str, source_id: str, bg: BackgroundTasks,
     if integ.status not in ("connected", "error"):
         raise HTTPException(409, f"{name} has no credentials to sync with. Send a reconnect link "
                                  "instead.")
-    _record(s, op, t, "tenant.sync_requested", "integration", integ.id, category="Integrations",
+    _record(s, op, request, t, "tenant.sync_requested", "integration", integ.id, category="Integrations",
             provider=integ.provider)
     await s.commit()
     bg.add_task(sync_jobs.run_one_job, t.id, integ.id)
@@ -723,7 +724,7 @@ async def sync_source(slug: str, source_id: str, bg: BackgroundTasks,
 
 
 @router.post("/tenants/{slug}/sources/{source_id}/reconnect-link")
-async def send_reconnect_link(slug: str, source_id: str, bg: BackgroundTasks,
+async def send_reconnect_link(request: Request, slug: str, source_id: str, bg: BackgroundTasks,
                               op: PlatformUser = Depends(current_platform_user),
                               s: AsyncSession = Depends(get_session)):
     """Email the workspace's owners and admins a link to reconnect a source.
@@ -743,7 +744,7 @@ async def send_reconnect_link(slug: str, source_id: str, bg: BackgroundTasks,
     name = fleet_health.provider_name(integ.provider)
     url = f"{await _workspace_base(s, t)}/settings/integrations"
     sent_to = [u.email for u in admins]
-    _record(s, op, t, "tenant.reconnect_link_sent", "integration", integ.id,
+    _record(s, op, request, t, "tenant.reconnect_link_sent", "integration", integ.id,
             category="Integrations", provider=integ.provider, sent_to=sent_to)
     await s.commit()
     window = _ten_minutes()
@@ -754,7 +755,7 @@ async def send_reconnect_link(slug: str, source_id: str, bg: BackgroundTasks,
 
 
 @router.post("/tenants/{slug}/sources/setup-link")
-async def send_setup_link(slug: str, bg: BackgroundTasks,
+async def send_setup_link(request: Request, slug: str, bg: BackgroundTasks,
                           op: PlatformUser = Depends(current_platform_user),
                           s: AsyncSession = Depends(get_session)):
     """Email the owners and admins of a workspace with nothing connected a link to connect their
@@ -766,7 +767,7 @@ async def send_setup_link(slug: str, bg: BackgroundTasks,
                                  "owner or admin. Reissue the owner's invite first.")
     url = f"{await _workspace_base(s, t)}/settings/integrations"
     sent_to = [u.email for u in admins]
-    _record(s, op, t, "tenant.setup_link_sent", "tenant", t.id, category="Integrations",
+    _record(s, op, request, t, "tenant.setup_link_sent", "tenant", t.id, category="Integrations",
             sent_to=sent_to)
     await s.commit()
     window = _ten_minutes()
@@ -777,7 +778,7 @@ async def send_setup_link(slug: str, bg: BackgroundTasks,
 
 
 @router.post("/tenants/{slug}/freeze-syncs")
-async def freeze_syncs(slug: str, body: FreezeBody,
+async def freeze_syncs(request: Request, slug: str, body: FreezeBody,
                        op: PlatformUser = Depends(current_platform_user),
                        s: AsyncSession = Depends(get_session)):
     """Stop pulling from every source while people stay signed in.
@@ -794,13 +795,13 @@ async def freeze_syncs(slug: str, body: FreezeBody,
     if sync_jobs.syncs_frozen(t.config):
         raise HTTPException(409, "Syncs are already frozen for this workspace.")
     t.config = {**(t.config or {}), "syncs_frozen": True}
-    _record(s, op, t, "tenant.syncs_frozen", "tenant", t.id, category="Integrations", reason=reason)
+    _record(s, op, request, t, "tenant.syncs_frozen", "tenant", t.id, category="Integrations", reason=reason)
     await s.commit()
     return {"slug": t.slug, "syncs_frozen": True}
 
 
 @router.post("/tenants/{slug}/unfreeze-syncs")
-async def unfreeze_syncs(slug: str, op: PlatformUser = Depends(current_platform_user),
+async def unfreeze_syncs(request: Request, slug: str, op: PlatformUser = Depends(current_platform_user),
                          s: AsyncSession = Depends(get_session)):
     t = await _get(s, slug)
     if not sync_jobs.syncs_frozen(t.config):
@@ -808,7 +809,7 @@ async def unfreeze_syncs(slug: str, op: PlatformUser = Depends(current_platform_
     cfg = dict(t.config or {})
     cfg.pop("syncs_frozen", None)
     t.config = cfg
-    _record(s, op, t, "tenant.syncs_unfrozen", "tenant", t.id, category="Integrations")
+    _record(s, op, request, t, "tenant.syncs_unfrozen", "tenant", t.id, category="Integrations")
     await s.commit()
     return {"slug": t.slug, "syncs_frozen": False}
 
@@ -829,7 +830,7 @@ def _invite_mail(t: Tenant, u: User, base: str, raw: str):
 
 
 @router.post("/tenants/{slug}/people/resend-idle")
-async def resend_idle_invites(slug: str, bg: BackgroundTasks,
+async def resend_idle_invites(request: Request, slug: str, bg: BackgroundTasks,
                               op: PlatformUser = Depends(current_platform_user),
                               s: AsyncSession = Depends(get_session)):
     """Reissue every invite that has sat unaccepted past the idle threshold: the accounts the
@@ -847,7 +848,7 @@ async def resend_idle_invites(slug: str, bg: BackgroundTasks,
     mails = []
     for u in users:
         raw = _mint_invite(u)
-        _record(s, op, t, "user.reinvited", "user", u.id, category="People", email=u.email)
+        _record(s, op, request, t, "user.reinvited", "user", u.id, category="People", email=u.email)
         mails.append((u, _invite_mail(t, u, base, raw)))
     await s.commit()
     for u, mail in mails:
@@ -857,7 +858,7 @@ async def resend_idle_invites(slug: str, bg: BackgroundTasks,
 
 
 @router.post("/tenants/{slug}/people/{person_id}/resend")
-async def resend_person_invite(slug: str, person_id: str, bg: BackgroundTasks,
+async def resend_person_invite(request: Request, slug: str, person_id: str, bg: BackgroundTasks,
                                op: PlatformUser = Depends(current_platform_user),
                                s: AsyncSession = Depends(get_session)):
     t = await _get(s, slug)
@@ -869,7 +870,7 @@ async def resend_person_invite(slug: str, person_id: str, bg: BackgroundTasks,
         raise HTTPException(409, "That account is disabled. Only the workspace can re-enable it.")
     raw = _mint_invite(u)
     mail = _invite_mail(t, u, await _workspace_base(s, t), raw)
-    _record(s, op, t, "user.reinvited", "user", u.id, category="People", email=u.email)
+    _record(s, op, request, t, "user.reinvited", "user", u.id, category="People", email=u.email)
     await s.commit()
     bg.add_task(mailer.send, u.email, *mail,
                 idempotency_key=f"invite-{u.id}-{u.action_token_expires.isoformat()}")
@@ -877,7 +878,7 @@ async def resend_person_invite(slug: str, person_id: str, bg: BackgroundTasks,
 
 
 @router.post("/tenants/{slug}/people/{person_id}/unlock")
-async def unlock_person(slug: str, person_id: str,
+async def unlock_person(request: Request, slug: str, person_id: str,
                         op: PlatformUser = Depends(current_platform_user),
                         s: AsyncSession = Depends(get_session)):
     """Clear a password lockout, and only that.
@@ -891,13 +892,13 @@ async def unlock_person(slug: str, person_id: str,
     if not (u.locked_until and _aware(u.locked_until) > _now()):
         raise HTTPException(409, "That account is not locked out.")
     u.locked_until, u.failed_logins = None, 0
-    _record(s, op, t, "user.unlocked", "user", u.id, category="People", email=u.email)
+    _record(s, op, request, t, "user.unlocked", "user", u.id, category="People", email=u.email)
     await s.commit()
     return {"email": u.email}
 
 
 @router.post("/tenants/{slug}/people/{person_id}/reset-link")
-async def send_reset_link(slug: str, person_id: str, bg: BackgroundTasks,
+async def send_reset_link(request: Request, slug: str, person_id: str, bg: BackgroundTasks,
                           op: PlatformUser = Depends(current_platform_user),
                           s: AsyncSession = Depends(get_session)):
     """Email somebody a password reset link. It goes to them, never to the operator."""
@@ -912,14 +913,14 @@ async def send_reset_link(slug: str, person_id: str, bg: BackgroundTasks,
     u.action_token_hash, u.action_token_purpose = token_hash, "reset"
     u.action_token_expires = _now() + dt.timedelta(hours=RESET_HOURS)
     url = f"{await _workspace_base(s, t)}/reset-password?token={raw}"
-    _record(s, op, t, "user.reset_link", "user", u.id, category="People", email=u.email)
+    _record(s, op, request, t, "user.reset_link", "user", u.id, category="People", email=u.email)
     await s.commit()
     bg.add_task(mailer.send, u.email, *mail_templates.reset(url, t.name, RESET_HOURS))
     return {"email": u.email, "expires_at": _iso(u.action_token_expires)}
 
 
 @router.post("/tenants/{slug}/share-links/revoke-all")
-async def revoke_share_links(slug: str, op: PlatformUser = Depends(current_platform_user),
+async def revoke_share_links(request: Request, slug: str, op: PlatformUser = Depends(current_platform_user),
                              s: AsyncSession = Depends(get_session)):
     """Revoke every live public share link in the workspace.
 
@@ -935,7 +936,220 @@ async def revoke_share_links(slug: str, op: PlatformUser = Depends(current_platf
         raise HTTPException(409, "No share link is live.")
     for r in live:
         r.revoked_at = now
-    _record(s, op, t, "tenant.share_links_revoked", "tenant", t.id, category="Access",
+    _record(s, op, request, t, "tenant.share_links_revoked", "tenant", t.id, category="Access",
             count=len(live), scopes=sorted({r.scope for r in live}))
     await s.commit()
     return {"revoked": len(live)}
+
+
+# ── phase 4: the platform's own trail and health ──────────────────────────────────────────
+PROCESS_STARTED = _now()
+
+
+def _parse_before(before: str | None) -> dt.datetime | None:
+    if not before:
+        return None
+    # A `+00:00` offset pasted into a URL unencoded arrives as a space; read it as the plus it was.
+    try:
+        return fleet_health._aware(dt.datetime.fromisoformat(before.strip().replace(" ", "+").replace("Z", "+00:00")))
+    except ValueError:
+        raise HTTPException(400, "`before` must be an ISO 8601 timestamp, as returned in next_before.")
+
+
+@router.get("/audit")
+async def audit_trail(scope: str = "all", operator: str | None = None, tenant: str | None = None,
+                      before: str | None = None, limit: int = 100,
+                      op: PlatformUser = Depends(current_platform_user),
+                      s: AsyncSession = Depends(get_session)):
+    """Every change across the platform, newest first.
+
+    `acumyn` is the operator trail, platform_audit. `tenants` is what each workspace's own team
+    changed, read from the workspaces' audit logs: entries with a person as the actor, leaving out
+    sign-ins and second-factor checks because they are not changes. An operator's change also appears
+    in the workspace's log with no actor, and is only ever read from platform_audit, so nothing is
+    listed twice. `operator=me` narrows the operator trail to the caller.
+    """
+    if scope not in ("all", "acumyn", "tenants"):
+        raise HTTPException(400, "scope must be all, acumyn or tenants")
+    limit = max(1, min(200, limit))
+    cutoff = _parse_before(before)
+    slug = tenant.strip().lower() if tenant else None
+    events: list[dict] = []
+
+    if scope in ("all", "acumyn"):
+        q = select(PlatformAudit).order_by(PlatformAudit.created_at.desc()).limit(limit + 1)
+        if cutoff is not None:
+            q = q.where(PlatformAudit.created_at < cutoff)
+        if operator == "me":
+            q = q.where(PlatformAudit.operator_id == op.id)
+        if slug:
+            q = q.where(PlatformAudit.tenant_slug == slug)
+        for r in (await s.execute(q)).scalars().all():
+            events.append({
+                "id": f"p:{r.id}", "at": _iso(r.created_at), "scope": "acumyn",
+                "who": r.operator_email, "action": r.action, "summary": "",
+                "tenant_slug": r.tenant_slug, "target_type": r.target_type, "target_id": r.target_id,
+                "detail": r.detail or {}, "reason": r.reason, "ip": r.ip})
+
+    if scope in ("all", "tenants") and operator != "me":
+        q = (select(AuditLog, Tenant.slug, User.email)
+             .join(Tenant, Tenant.id == AuditLog.tenant_id)
+             .outerjoin(User, User.id == AuditLog.actor_user_id)
+             .where(or_(AuditLog.actor_user_id.is_not(None), AuditLog.actor_member_id.is_not(None)),
+                    AuditLog.action.not_in(operator_audit.NOT_CHANGES))
+             .order_by(AuditLog.created_at.desc()).limit(limit + 1))
+        if cutoff is not None:
+            q = q.where(AuditLog.created_at < cutoff)
+        if slug:
+            q = q.where(Tenant.slug == slug)
+        for r, tenant_slug, email in (await s.execute(q)).all():
+            events.append({
+                "id": f"t:{r.id}", "at": _iso(r.created_at), "scope": "tenant",
+                "who": email or r.actor_label, "action": r.action,
+                "summary": operator_audit.operator_summary(r.action, r.summary),
+                "tenant_slug": tenant_slug, "target_type": r.target_type, "target_id": r.target_id,
+                "detail": r.detail or {}, "reason": (r.detail or {}).get("reason"), "ip": None})
+
+    events.sort(key=lambda e: e["at"] or "", reverse=True)
+    page = events[:limit]
+    more = len(events) > limit
+    return {"events": page, "next_before": page[-1]["at"] if more and page else None,
+            "retention_days": operator_audit.RETENTION_DAYS}
+
+
+@functools.lru_cache(maxsize=1)
+def _code_heads() -> tuple[str, ...]:
+    """The migration heads in the deployed code. Read once per process: the files on disk cannot
+    change without a new deploy, and a new deploy is a new process."""
+    from pathlib import Path
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    root = Path(__file__).resolve().parents[2]
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "alembic"))
+    return tuple(sorted(ScriptDirectory.from_config(cfg).get_heads()))
+
+
+def _deployed_env_risk() -> bool:
+    """ENV left at its development default on a real database: the combination a deployment where
+    nobody set ENV produces, which is indistinguishable from a laptop."""
+    return (not settings.is_sqlite) and settings.ENV.strip().lower() == "development"
+
+
+@router.get("/system")
+async def system_health(op: PlatformUser = Depends(current_platform_user),
+                        s: AsyncSession = Depends(get_session)):
+    """What is deployed, and whether the API, the worker, the database and the migrations are well.
+
+    Each figure says where it came from. What the platform does not measure (request latency, error
+    rates) is left out rather than estimated.
+    """
+    now = _now()
+
+    started = time.monotonic()
+    await s.execute(text("SELECT 1"))
+    database = {"state": "ok", "dialect": "sqlite" if settings.is_sqlite else "postgresql",
+                "latency_ms": round((time.monotonic() - started) * 1000, 1),
+                "size_bytes": None, "connections": None}
+    if not settings.is_sqlite:
+        database["size_bytes"] = (await s.execute(
+            text("SELECT pg_database_size(current_database())"))).scalar()
+        database["connections"] = (await s.execute(text(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"))).scalar()
+
+    heads = list(_code_heads())
+    try:
+        applied = sorted((await s.execute(text("SELECT version_num FROM alembic_version"))).scalars().all())
+    except Exception:  # noqa: BLE001 — no alembic_version table: a database built without migrations
+        await s.rollback()
+        applied = []
+    if len(heads) > 1:
+        mstate, mwhy = "forked", (f"{len(heads)} heads in the code. Two migrations branched from the same "
+                                  "parent, and the next deploy will not apply cleanly.")
+    elif not applied:
+        mstate, mwhy = "unknown", ("The database records no migration version, which is normal for a local "
+                                   "database built from the models.")
+    elif set(applied) == set(heads):
+        mstate, mwhy = "ok", f"One head, and the database is at it ({heads[0]})."
+    else:
+        mstate, mwhy = "behind", (f"The code's head is {', '.join(heads)} and the database is at "
+                                  f"{', '.join(applied)}. Deploys run `alembic upgrade head` first, so "
+                                  "this usually means that step failed.")
+
+    beats = {r.job: r for r in (await s.execute(select(JobHeartbeat))).scalars().all()}
+    job_rows = []
+    for entry in jobs.catalog():
+        row = beats.get(entry["job"])
+        job_rows.append({**entry, "state": jobs.state_of(entry, row, now),
+                         "last_started_at": _iso(row.last_started_at) if row else None,
+                         "last_ok_at": _iso(row.last_ok_at) if row else None,
+                         "last_failed_at": _iso(row.last_failed_at) if row else None,
+                         "last_error": row.last_error if row else None,
+                         "last_seconds": row.last_seconds if row else None})
+    tick = next(j for j in job_rows if j["job"] == "tick")
+    every = settings.SYNC_INTERVAL_MINUTES
+    if tick["state"] == "never":
+        wstate, wwhy = "never", ("No scheduled job has reported. Either nothing runs the scheduler "
+                                 "(RUN_WORKER_IN_API is off and no worker service is deployed) or it "
+                                 "has not started since heartbeats were added.")
+    elif tick["state"] == "late":
+        wstate, wwhy = "late", (f"The sync tick last started {ago_words(now, tick['last_started_at'])} ago "
+                                f"and runs every {every} minutes.")
+    elif tick["state"] == "check":
+        wstate, wwhy = "check", f"The sync tick's latest run failed: {tick['last_error']}"
+    else:
+        wstate, wwhy = "ok", (f"The sync tick last started {ago_words(now, tick['last_started_at'])} ago, "
+                              f"on its {every}-minute schedule.")
+
+    return {
+        "read_at": now.isoformat(),
+        "release": {
+            "commit": (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "")[:7] or None,
+            "branch": os.environ.get("RAILWAY_GIT_BRANCH") or None,
+            "message": (os.environ.get("RAILWAY_GIT_COMMIT_MESSAGE") or "").split("\n")[0][:200] or None,
+            "service": os.environ.get("RAILWAY_SERVICE_NAME") or None,
+            "environment": os.environ.get("RAILWAY_ENVIRONMENT_NAME") or None,
+            "started_at": PROCESS_STARTED.isoformat(),
+            "env": settings.ENV, "env_risk": _deployed_env_risk(),
+        },
+        "api": {"state": "ok", "started_at": PROCESS_STARTED.isoformat()},
+        "database": database,
+        "migrations": {"state": mstate, "why": mwhy, "heads": heads, "head_count": len(heads),
+                       "database": applied},
+        "worker": {"state": wstate, "why": wwhy, "runs_in_api": settings.RUN_WORKER_IN_API,
+                   "jobs": job_rows},
+    }
+
+
+def ago_words(now: dt.datetime, iso: str | None) -> str:
+    return fleet_health._span(now - dt.datetime.fromisoformat(iso)) if iso else "never"
+
+
+@router.get("/system/flags")
+async def system_flags(op: PlatformUser = Depends(current_platform_user)):
+    """The settings that change behaviour for every workspace at once, with why each is shown.
+    Values only: nothing here is a secret, and no secret setting is ever listed."""
+    fallback = settings.SINGLE_TENANT_FALLBACK
+    return {"flags": [
+        {"key": "ENV", "value": settings.ENV, "risk": _deployed_env_risk(),
+         "note": ("Defaults to development. A deployment where nobody set it looks exactly like a "
+                  "laptop, and production-only safety checks key on it.")},
+        {"key": "SINGLE_TENANT_FALLBACK", "value": fallback, "risk": fallback,
+         "note": ("When true, a host that matches no workspace resolves to the default workspace, but "
+                  "only while a single workspace exists; the second one closes it. Set it false before "
+                  "any workspace goes on a custom domain.")},
+        {"key": "RUN_WORKER_IN_API", "value": settings.RUN_WORKER_IN_API, "risk": False,
+         "note": ("True runs the scheduler inside the API process. False needs a separate worker "
+                  "service, or nothing syncs on schedule.")},
+        {"key": "SYNC_INTERVAL_MINUTES", "value": settings.SYNC_INTERVAL_MINUTES, "risk": False,
+         "note": ("Applies to every workspace; there is no per-workspace cadence. A source reads as "
+                  "stale after twice this.")},
+        {"key": "ADS_SYNC_INTERVAL_MINUTES", "value": settings.ADS_SYNC_INTERVAL_MINUTES, "risk": False,
+         "note": "Deliberately slower than the main sync, because ad-level insights are expensive to pull."},
+        {"key": "AI_EMPLOYEES_ENABLED", "value": settings.AI_EMPLOYEES_ENABLED, "risk": False,
+         "note": "Gates the AI Employees routers, their two worker jobs and the rail item."},
+        {"key": "AI_EMPLOYEES_WRITEBACK_ENABLED", "value": settings.AI_EMPLOYEES_WRITEBACK_ENABLED, "risk": False,
+         "note": "Off means approve and export only: nothing an AI employee drafts is written back to Go High Level."},
+    ]}

@@ -132,6 +132,17 @@ export const api = {
   unlockPerson: (slug, id) => post(`${slugPath(slug)}/people/${encodeURIComponent(id)}/unlock`),
   sendResetLink: (slug, id) => post(`${slugPath(slug)}/people/${encodeURIComponent(id)}/reset-link`),
   revokeShareLinks: (slug) => post(`${slugPath(slug)}/share-links/revoke-all`),
+
+  /* Phase 4: the cross-workspace trail and the platform's own health. */
+  audit: ({ scope = "all", operator, tenant, before, limit = 100 } = {}) => {
+    const q = new URLSearchParams({ scope, limit: String(limit) });
+    if (operator) q.set("operator", operator);
+    if (tenant) q.set("tenant", tenant);
+    if (before) q.set("before", before);
+    return call(`/audit?${q}`);
+  },
+  system: () => call("/system"),
+  flags: () => call("/system/flags"),
 };
 
 export { call as rawCall, slugPath };

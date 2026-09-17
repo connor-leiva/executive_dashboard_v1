@@ -19,6 +19,8 @@ which is each workspace's own team-portal admin.
 | Fleet health derivation | `backend/app/services/fleet_health.py` |
 | Provider rollup and incidents | `backend/app/services/fleet_rollup.py` |
 | Sync jobs shared with the workspace's own buttons | `backend/app/services/sync_jobs.py` |
+| The operator trail | `backend/app/services/operator_audit.py`, table `platform_audit` |
+| Scheduled jobs and their heartbeats | `backend/app/services/jobs.py`, table `job_heartbeat` |
 | Tests | `backend/tests/test_operator_console.py`, `test_platform_operators.py`, `test_brand_rules.py` |
 | Hosting | the existing `web` service; Caddy routes `OPERATOR_HOST` (default `admin.acumyn.io`) |
 
@@ -29,7 +31,7 @@ which is each workspace's own team-portal admin.
 | 1 | Operator frontend shell, Fleet and Workspaces, provisioning, suspend and resume | shipped |
 | 2 | People counts, per-workspace panes, derived triage | shipped |
 | 3 | Write actions | shipped |
-| 4 | `platform_audit`, Audit view, System view | pending |
+| 4 | `platform_audit`, Audit view, System view | shipped |
 | 5 | Stripe platform billing | pending |
 | 6 | Support access, export, transfer ownership, delete | pending |
 
@@ -97,6 +99,27 @@ Acumyn did.
   Danger carry their actions, and Workspaces gains row selection with bulk sync and bulk suspend
   (one reason, recorded on each workspace, with each refusal reported in the server's words).
 
+**Phase 4.** The operator's own trail and the platform's health.
+
+- `platform_audit` (migration `0069_platform_audit`). Every operator change now writes two rows
+  through one function, `services/operator_audit.record`: the workspace's own audit log, as before,
+  and `platform_audit`, with the operator, the workspace's id and slug, the reason and the address
+  the change came from. `tenant_id` is not a foreign key, so the row outlives the workspace. Entries
+  older than 400 days are deleted by a monthly job.
+- `GET /audit` lists every change across the platform, newest first, in three scopes: Acumyn staff
+  (from `platform_audit`), workspace teams (from each workspace's audit log, sign-ins and
+  second-factor checks left out because they are not changes), or both. An operator's change also
+  sits in the workspace's log with no actor and is only read from `platform_audit`, so it is listed
+  once. The Audit view pages through it, filters by scope and exports the rows on screen as CSV.
+- `GET /system` reports the release (Railway's commit, branch and message), the migration heads in
+  the deployed code against the version the database is at, the database's latency, size and
+  connections, and whether each scheduled job is reporting. `GET /system/flags` lists the settings
+  that change every workspace at once, each with why it is shown and whether its value is a risk.
+- `job_heartbeat` (same migration). Every scheduled job is registered through
+  `services/jobs.heartbeat`, which records when it last started, finished cleanly and failed. The
+  System view says a worker is healthy only from those rows.
+- Fleet gains "What you did", the signed-in operator's own recent changes.
+
 ## Decisions made during the build
 
 Choices the spec did not make, taken so the build could continue. Each is reversible.
@@ -128,6 +151,20 @@ a workspace and re-enabling their accounts are the workspace's decisions, and §
 
 **Confirmation before revoking.** Revoke all asks once, naming the count and kinds of link.
 Type-to-confirm is kept for deleting a workspace (Phase 6), as the design file does.
+
+**`platform_audit.operator_id` and `operator_email` are nullable (§4.2 has them required).**
+Stripe's webhooks write rows with no operator (§6.3), and the foreign key is `SET NULL` so removing
+an operator keeps the record of what they did.
+
+**A heartbeat table the spec does not list.** §5.4 asks the System view for worker health, and the
+only other evidence is the newest sync run, which cannot tell a stopped scheduler from a fleet with
+nothing connected. `job_heartbeat` holds one row per job, overwritten on each run.
+
+**One migration per phase, not the spec's single `0069_operator_console`.** Each phase ships its own
+schema: `0069_platform_audit` here, with platform billing and support access following in theirs.
+
+**The Audit view's "workspace teams" scope leaves out sign-ins and second-factor checks.** The view
+lists changes; those are reads and attempts, and they stay on each workspace's Activity pane.
 
 **Suspension and freezing stop every scheduled pull, not only the sync tick.** The daily Sisu
 roster job and the ads funnel job now skip a paused workspace too.

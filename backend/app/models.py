@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -74,6 +74,58 @@ class PlatformUser(Base):
     failed_logins: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PlatformAudit(Base):
+    """The operator's own trail: every change an Acumyn operator makes, across every workspace.
+
+    Written IN ADDITION to the workspace's own audit_log row, never instead of it, so a customer
+    still sees what Acumyn did to their workspace (services/operator_audit.record writes both).
+    Append-only, and kept 400 days.
+
+    It has to outlive what it describes. `tenant_id` is deliberately not a foreign key, so deleting
+    a workspace cannot delete the record that it was deleted, and the slug is copied in for the same
+    reason. `operator_id` is nullable and SET NULL, with the address copied in, so removing an
+    operator keeps their history; the rows Stripe's webhooks write have no operator at all.
+    """
+    __tablename__ = "platform_audit"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    operator_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("platform_user.id", ondelete="SET NULL"), nullable=True)
+    operator_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    action: Mapped[str] = mapped_column(String(64))
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)   # NOT a foreign key
+    tenant_slug: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    detail: Mapped[dict] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    # Stamped by Python as well as by the database: the Audit view pages on this column, and SQLite's
+    # CURRENT_TIMESTAMP has one-second resolution, which ties every change made in the same second.
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 default=lambda: datetime.now(timezone.utc),
+                                                 server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_platform_audit_created", "created_at"),
+        Index("ix_platform_audit_tenant", "tenant_id", "created_at"),
+    )
+
+
+class JobHeartbeat(Base):
+    """When each scheduled job last started, last finished cleanly and last failed.
+
+    The operator console's evidence that the worker is alive (services/jobs.py). One row per job,
+    overwritten on every run; a job's history lives in its own output, not here.
+    """
+    __tablename__ = "job_heartbeat"
+    job: Mapped[str] = mapped_column(String(48), primary_key=True)
+    last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class Domain(Base):

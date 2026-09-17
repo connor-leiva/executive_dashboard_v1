@@ -9,6 +9,7 @@ from .db import SessionLocal
 from .config import settings
 from .startup_checks import enforce_config
 from .models import Tenant
+from .services.jobs import heartbeat
 from .services.sync import run_all
 
 
@@ -279,33 +280,48 @@ async def marketing_delivery_tick():
         print(f"[marketing_delivery] sent={sent} failed={failed}", flush=True)
 
 
+async def platform_audit_prune():
+    """Monthly: delete operator audit entries past retention (OPERATOR-CONSOLE-SPEC §4.2). The
+    console tells an operator the trail is kept 400 days; this is what makes that true."""
+    from .services.operator_audit import prune
+    async with SessionLocal() as s:
+        gone = await prune(s)
+    if gone:
+        print(f"[platform_audit_prune] deleted {gone} entries past retention", flush=True)
+
+
 def build_scheduler() -> AsyncIOScheduler:
     """Configure the scheduler with the sync tick, the daily agent-roster + scorecard-resolver ticks,
     and (when the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`)
     and the in-API scheduler (RUN_WORKER_IN_API) so both run exactly the same jobs."""
     sched = AsyncIOScheduler()
-    sched.add_job(tick, "interval", minutes=settings.SYNC_INTERVAL_MINUTES,
+    # Every job is registered through heartbeat(), which records when it last started, finished
+    # and failed for the operator console's System view. services/jobs.catalog() lists the same
+    # jobs; a test holds the two together.
+    beat = heartbeat
+    sched.add_job(beat(tick), "interval", minutes=settings.SYNC_INTERVAL_MINUTES,
                   next_run_time=dt.datetime.now())
     _tz = ZoneInfo(settings.BILLING_TIMEZONE)
-    sched.add_job(roster_tick, "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
-    sched.add_job(scorecard_tick, "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
+    sched.add_job(beat(roster_tick), "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
+    sched.add_job(beat(scorecard_tick), "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
     # After the syncs have had the night to land: attribution reads registrations the GHL sync
     # wrote, so running it earlier would freeze cohort days against yesterday's data.
-    sched.add_job(ads_funnel_tick, "cron", hour=5, minute=45, timezone=_tz)
+    sched.add_job(beat(ads_funnel_tick), "cron", hour=5, minute=45, timezone=_tz)
     # Every minute, because this is the path a person is waiting on: an agent files a request and
     # somebody in marketing should see it while they still remember filing it. It is also cheap --
     # one indexed query that usually returns nothing.
-    sched.add_job(marketing_delivery_tick, "interval", minutes=1,
+    sched.add_job(beat(marketing_delivery_tick), "interval", minutes=1,
                   next_run_time=dt.datetime.now())
+    sched.add_job(beat(platform_audit_prune), "cron", day=1, hour=3, minute=30, timezone=_tz)
     if settings.RECALL_API_KEY:
-        sched.add_job(recall_tick, "interval", minutes=settings.RECALL_TICK_MINUTES,
+        sched.add_job(beat(recall_tick), "interval", minutes=settings.RECALL_TICK_MINUTES,
                       next_run_time=dt.datetime.now())
         # Transcripts land minutes after a call ends, so this need not be as eager as the
         # bot scheduler - and it carries the retention purge with it.
-        sched.add_job(transcript_tick, "interval", minutes=15, next_run_time=dt.datetime.now())
+        sched.add_job(beat(transcript_tick), "interval", minutes=15, next_run_time=dt.datetime.now())
     if settings.AI_EMPLOYEES_ENABLED:
-        sched.add_job(ai_dispatch, "interval", minutes=1, next_run_time=dt.datetime.now())
-        sched.add_job(ai_execute, "interval", seconds=15, next_run_time=dt.datetime.now())
+        sched.add_job(beat(ai_dispatch), "interval", minutes=1, next_run_time=dt.datetime.now())
+        sched.add_job(beat(ai_execute), "interval", seconds=15, next_run_time=dt.datetime.now())
     return sched
 
 
