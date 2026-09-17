@@ -19,7 +19,7 @@ from ..security import (verify_pw, make_token, hash_pw, hash_action_token, new_a
                         MIN_PASSWORD_LEN)
 from .. import plans
 from ..services.audit import audit
-from ..services import binder_storage, google_auth, mail_templates, mailer, roles
+from ..services import binder_storage, google_auth, mail_templates, mailer, roles, roster
 from ..services.tabs import tenant_tabs, tenant_tab_descriptors, effective_tabs
 from ..services.users import INVITE_DAYS, RESET_HOURS, link_base
 from ..tenancy import current_tenant_id, tenant_app_url
@@ -195,6 +195,8 @@ async def login(body: LoginRequest, s: AsyncSession = Depends(get_session)):
     user.locked_until = None
     user.last_login_at = _now()
     audit(s, tid, user.id, "auth.login", "user", user.id)
+    # The first sign-in is what makes an invited roster entry a member -- see services/roster.
+    await roster.activate_on_sign_in(s, user, via="password")
     await s.commit()
     return LoginResponse(token=make_token(user.id, user.tenant_id, user.token_version or 0,
                                           remember=body.remember))
@@ -356,6 +358,7 @@ async def google_callback(code: str = Query(None), state: str = Query(None),
     user.locked_until = None
     user.last_login_at = _now()
     audit(s, tid, user.id, "auth.login", "user", user.id, {"via": "google"})
+    await roster.activate_on_sign_in(s, user, via="google")
     await s.commit()
     token = make_token(user.id, user.tenant_id, user.token_version or 0, remember=True)
     # The session travels in the fragment, not the query string: a fragment is never sent to a
@@ -407,6 +410,7 @@ async def accept_invite(body: AcceptInviteRequest, s: AsyncSession = Depends(get
     u.action_token_hash = u.action_token_purpose = u.action_token_expires = None
     u.token_version = (u.token_version or 0)
     audit(s, tid, u.id, "user.accepted_invite", "user", u.id)
+    await roster.activate_on_sign_in(s, u, via="invite")
     await s.commit()
     # Remembered, with no checkbox to ask: somebody who has just chosen a password on this
     # machine has said as plainly as they can that it is theirs, and signing them out twelve
@@ -436,6 +440,7 @@ async def reset_password(body: ResetPasswordRequest, s: AsyncSession = Depends(g
     u.failed_logins = 0
     u.locked_until = None
     audit(s, tid, u.id, "auth.password_reset", "user", u.id)
+    await roster.activate_on_sign_in(s, u, via="reset")
     await s.commit()
     return LoginResponse(token=make_token(u.id, u.tenant_id, u.token_version, remember=True))
 
