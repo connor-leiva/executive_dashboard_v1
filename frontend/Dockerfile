@@ -18,4 +18,5 @@ COPY --from=build /app/dist/dashboard /srv/dashboard
 COPY --from=build /app/dist/intranet /srv/intranet
 COPY --from=build /app/dist/console /srv/console
 COPY --from=build /app/dist/marketing /srv/marketing
+COPY --from=build /app/dist/operator /srv/operator
 EXPOSE 3000

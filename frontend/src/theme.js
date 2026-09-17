@@ -125,7 +125,7 @@ export const STATUS = {
 export const alpha = (value, a) => {
   // A token is now `var(--t-poppy)`. JavaScript cannot read what that resolves to — only the
   // browser can — so rewrite it to the rgb triple palette.js emits alongside every token.
-  // Everything else (OPS's greyscale, any literal) still takes the hex path unchanged.
+  // Everything else (any literal) still takes the hex path unchanged.
   const v = String(value);
   const m = v.match(/^var\((--[\w-]+)\)$/);
   if (m) return `rgba(var(${m[1]}-rgb), ${a})`;
@@ -163,41 +163,3 @@ export const PROVIDER_NAME = {
   meta_ads: "Meta Ads",
 };
 
-/* ── OPS: the operator console's palette ─────────────────────────────────────────
- *
- * Greyscale, deliberately, and it is not a styling preference — it is the only thing on screen
- * that tells an operator which building they are standing in. The console and a customer's
- * dashboard show similar-looking tables of similar-looking numbers, and the operator surface is
- * the one where "suspend" switches off a paying customer. Sharing Spring's evergreen and
- * parchment would make the two read as the same product with different data in it.
- *
- * So: no hue anywhere. If a future brand refresh adds colour here, that is a regression, not a
- * polish pass — the absence IS the signal.
- *
- * The keys mirror T's so the console reads the same as the rest of the app; only the values
- * differ. Status cannot lean on hue, so it leans on WEIGHT: the more urgent a state, the darker
- * and heavier it renders. Healthy is quiet and pale, attention sits mid-grey, and anything
- * destructive is near-black and filled. That ordering survives greyscale printing, most colour
- * blindness, and a bad monitor, which hue does not.
- */
-export const OPS = {
-  evergreen: "#1F1F1F",    // primary surface / primary button — the darkest structural tone
-  ink: "#1A1A1A",          // text 1
-  slate: "#3D3D3D",        // text 2
-  tertiary: "#5C5C5C",     // text 3
-  muted: "#8A8A8A",        // text 4 / uppercase labels
-  line: "#E2E2E2",         // hairline
-  parchment: "#F4F4F4",    // page surface
-  white: "#FFFFFF",
-  onDark: "#F5F5F5",       // text on the dark surface
-  onDarkMute: "#A6A6A6",
-
-  // Status, ordered by weight rather than hue — pale = fine, dark = deal with it.
-  meadowBg: "#F0F0F0",     // healthy chip fill
-  meadowInk: "#5C5C5C",    // healthy chip text
-  meadow: "#7A7A7A",       // healthy accent
-  sprout: "#D4D4D4",       // inert / disabled
-  daffodil: "#4A4A4A",     // attention dot — mid grey, reads as "look at this"
-  poppy: "#1F1F1F",        // destructive border
-  poppyText: "#1A1A1A",    // destructive text — carried by weight and wording, not colour
-};

@@ -34,6 +34,16 @@
   redir /privacy.html https://{$MARKETING_HOST:www.acumyn.io}/privacy 308
   redir /eula.html https://{$MARKETING_HOST:www.acumyn.io}/terms 308
 
+  # The operator console: Acumyn staff administering workspaces. `admin` is in the API's
+  # PLATFORM_HOSTS, so it can never resolve to a workspace, and the console's own bundle means a
+  # customer's browser never downloads the screen that suspends customers.
+  @operator host {$OPERATOR_HOST:admin.acumyn.io}
+  handle @operator {
+    root * /srv/operator
+    try_files {path} /index.html
+    file_server
+  }
+
   @marketing host {$MARKETING_HOST:www.acumyn.io} {$FRONTDOOR_HOST:app.acumyn.io}
   handle @marketing {
     root * /srv/marketing

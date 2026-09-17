@@ -45,7 +45,7 @@ async def _acme():
     async with SessionLocal() as s:
         r = await provision_tenant(
             s, slug="acmeco", name="Acme Holdings", owner_email="owner@acme.test",
-            hostname="acmeco.localhost", seed_catalogs=False,
+            hostname="acmeco.localhost", seed_catalogs=False, plan="portfolio",
             businesses=[
                 {"key": "coastal", "name": "Coastal Realty", "tag": "Brokerage",
                  "kind": roles.REAL_ESTATE},

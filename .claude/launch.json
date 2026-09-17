@@ -29,7 +29,7 @@
         "--host"
       ],
       "port": 4173,
-      "url": "http://admin.localhost:4173"
+      "url": "http://localhost:4173"
     },
     {
       "name": "web-preview-tenant",
@@ -118,6 +118,22 @@
       ],
       "port": 4176,
       "url": "http://localhost:4176"
+    },
+    {
+      "name": "operator-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "preview:operator",
+        "--",
+        "--port",
+        "4177",
+        "--host"
+      ],
+      "port": 4177,
+      "url": "http://localhost:4177"
     }
   ]
 }

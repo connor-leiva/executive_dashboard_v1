@@ -221,6 +221,11 @@ async def current_platform_user(
         payload = read_token(creds.credentials)
     except Exception:
         raise HTTPException(401, "Invalid token")
+    # A capability is not a session here either. current_user has refused `cap` tokens since the
+    # QBO state token was found to authenticate as an owner; make_capability accepts arbitrary
+    # claims, so without this a one-shot token minted with a `pu` claim would be an operator login.
+    if payload.get("cap"):
+        raise HTTPException(401, "Invalid token")
     pu_id = payload.get("pu")
     if not pu_id:
         raise HTTPException(401, "Not a platform session")

@@ -21,6 +21,7 @@ for every tenant would ship one customer's intercompany policy to the next.
 from __future__ import annotations
 
 import datetime as dt
+import re
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
@@ -101,12 +102,23 @@ def invite_url(hostname: str, raw_token: str) -> str:
     return f"{url_scheme(hostname)}://{hostname}/accept-invite?token={raw_token}"
 
 
+# A slug becomes the first label of a hostname, so it has to be one: letters, digits and inner
+# hyphens. Three characters minimum, the floor the operator console enforces as you type.
+_SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$")
+
+
 def normalize_slug(slug: str) -> str:
     slug = (slug or "").strip().lower()
     if not slug:
         raise ValueError("Slug is required")
     if slug in RESERVED_SLUGS:
         raise ValueError(f"'{slug}' is a reserved slug")
+    # Before this, a slug was only checked for being non-empty and unreserved, so "Acme Realty!"
+    # provisioned a workspace at a hostname no DNS name can be.
+    if not _SLUG.fullmatch(slug):
+        raise ValueError(
+            f"'{slug}' cannot be a web address. Use 3 to 63 lowercase letters, digits or hyphens, "
+            "starting and ending with a letter or digit.")
     return slug
 
 
@@ -143,6 +155,18 @@ async def provision_tenant(
             raise ValueError(
                 f"Unknown plan {plan!r}. Expected one of: {', '.join(sorted(plans.PLANS))}.")
     host = (hostname or tenant_hostname(slug)).lower()
+
+    # THE BUSINESS CAP APPLIES AT CREATION, not only when a business is added later. Businesses are
+    # the meter plans price on, so a workspace created over its tier's cap is billed for one tier
+    # and delivered another from its first request. The tier checked is the one the workspace will
+    # actually get: an omitted plan is the column default, `team`, which allows one.
+    wanted = businesses if businesses is not None else DEFAULT_BUSINESSES
+    tier = plans.PLANS[plan or plans.TEAM]
+    if tier["max_businesses"] is not None and len(wanted) > tier["max_businesses"]:
+        raise ValueError(
+            f"The {tier['name']} plan allows {tier['max_businesses']} "
+            f"business{'es' if tier['max_businesses'] != 1 else ''}, and {len(wanted)} were given. "
+            "Remove some, or choose a larger plan.")
 
     if (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none():
         raise ValueError(f"Tenant '{slug}' already exists")

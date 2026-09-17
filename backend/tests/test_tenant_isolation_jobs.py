@@ -358,8 +358,11 @@ async def test_one_tenants_sync_failure_does_not_starve_the_rest(monkeypatch):
             raise RuntimeError("this tenant's source is down")
 
     monkeypatch.setattr(worker, "run_all", fake_run_all)
+    # Every tenant the tick is meant to sync, which is not every tenant: a suspended workspace, or
+    # one whose syncs an operator froze, is left out on purpose (test_operator_console covers that).
     async with SessionLocal() as s:
-        total = len((await s.execute(select(Tenant.id))).scalars().all())
+        total = len(await worker.syncable_tenant_ids(s))
+    assert total >= 2
 
     await worker.tick()
     assert len(seen) == total, \

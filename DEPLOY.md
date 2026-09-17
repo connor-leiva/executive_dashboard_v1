@@ -280,8 +280,9 @@ decides what each host gets (`frontend/Caddyfile`):
 | `MARKETING_HOST` (default `www.acumyn.io`) | the marketing site: `/`, `/features`, `/about`, `/pricing`, `/privacy`, `/terms` |
 | `MARKETING_ALT_HOST` (default `acumyn.io`) | a 308 to `MARKETING_HOST` |
 | `FRONTDOOR_HOST` (default `app.acumyn.io`) | the workspace finder, which emails someone the address of every workspace they belong to |
+| `OPERATOR_HOST` (default `admin.acumyn.io`) | the operator console, for Acumyn staff (see `OPERATOR-CONSOLE.md`) |
 
-The three are env variables on the **`web`** service, and they are the only place those hostnames
+These are env variables on the **`web`** service, and they are the only place those hostnames
 are written down. The marketing site and the finder are one Vite entry (`npm run build:marketing`,
 `frontend/marketing/`) that renders the finder when the host starts with `app.`.
 
@@ -310,4 +311,14 @@ workspace's own domain row. Set it once the finder is deployed.
 **The finder's email goes to whatever address is typed**, including one on no workspace (it says
 so). It is limited to 5 lookups per IP address in 5 minutes (`throttle.py`, `find_workspace`), and
 every match writes an `auth.find_workspace` audit row in the workspace it matched.
+
+**Operator accounts are created from the deployment, never from the console.** The operator
+console at `admin.acumyn.io` needs a `platform_user`. Create one with a password read from the
+environment rather than an argument, so it stays out of shell history:
+
+```
+railway ssh --service executive_dashboard_v1 "PLATFORM_OPERATOR_PASSWORD='<12+ chars>' python -m scripts.create_operator --email you@example.com --name 'Your Name'"
+```
+
+Omit the variable and the script generates a password and prints it once.
 

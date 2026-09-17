@@ -51,8 +51,9 @@ RULES: dict[str, tuple[int, int]] = {
 # Rules budgeted per ADDRESS alone. Everything else also keys on the tenant host, so one realm
 # cannot spend another's allowance — but that host is whatever the caller writes in
 # X-Tenant-Host, and for a route that serves no realm it partitions nothing. It would only be a
-# reset: a made-up host per request, a fresh budget per request.
-HOST_BLIND = frozenset({"find_workspace"})
+# reset: a made-up host per request, a fresh budget per request. The operator login is the
+# sharpest case: it is the most valuable credential on the platform, and it serves no tenant.
+HOST_BLIND = frozenset({"find_workspace", "platform_login"})
 
 # path prefix -> rule name. Checked longest-first so a more specific prefix wins.
 PATHS: dict[str, str] = {

@@ -32,13 +32,27 @@ async def tick():
     """
     start, end = _mtd_range()
     async with SessionLocal() as s:
-        tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
+        tenant_ids = await syncable_tenant_ids(s)
     for tid in tenant_ids:
         try:
             async with SessionLocal() as s2:
                 await run_all(s2, tid, start, end)
         except Exception as e:  # noqa: BLE001 — one tenant's failure must not stop the rest
             print(f"[tick] tenant {tid}: {type(e).__name__}: {e}", flush=True)
+
+
+async def syncable_tenant_ids(s) -> list:
+    """Every workspace the scheduled sync should pull for.
+
+    Not a suspended one: the operator console tells an operator that suspending "stops all
+    scheduled syncs", and until this existed the tick iterated every tenant regardless, so a
+    suspended workspace kept calling its customers' QuickBooks and CRM every thirty minutes. Not
+    one whose syncs an operator froze either (config.syncs_frozen): freezing is how a compromised
+    credential stops being used while its people stay signed in.
+    """
+    rows = (await s.execute(select(Tenant.id, Tenant.status, Tenant.config))).all()
+    return [tid for tid, status, cfg in rows
+            if status != "suspended" and not (cfg or {}).get("syncs_frozen")]
 
 
 async def roster_tick():

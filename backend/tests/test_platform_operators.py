@@ -120,7 +120,7 @@ async def test_provisioning_through_the_api_takes_the_same_path_as_the_cli():
     async with _client() as c:
         r = await c.post("/api/v1/platform/tenants", headers=_H(tok), json={
             "slug": "opco", "name": "Op Co", "owner_email": "owner@opco.test",
-            "hostname": "opco.localhost"})
+            "hostname": "opco.localhost", "plan": "team"})
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["invite_url"].startswith("http://opco.localhost/accept-invite?token=")
@@ -128,7 +128,7 @@ async def test_provisioning_through_the_api_takes_the_same_path_as_the_cli():
     assert body["catalogs"]["standard_chart"]["total"] > 100
     async with _client() as c:                         # duplicate slug is a clean 400
         r = await c.post("/api/v1/platform/tenants", headers=_H(tok), json={
-            "slug": "opco", "name": "Again", "owner_email": "x@y.z"})
+            "slug": "opco", "name": "Again", "owner_email": "x@y.z", "plan": "team"})
     assert r.status_code == 400
 
 
@@ -141,7 +141,8 @@ async def test_suspending_a_tenant_stops_new_logins_and_live_sessions():
     async with _client() as c:
         assert (await c.get("/api/v1/me", headers=_H(live))).status_code == 200
 
-        r = await c.post("/api/v1/platform/tenants/springb/suspend", headers=_H(tok))
+        r = await c.post("/api/v1/platform/tenants/springb/suspend", headers=_H(tok),
+                         json={"reason": "test suspension"})
         assert r.status_code == 200 and r.json()["status"] == "suspended"
 
         # the live session stops working — 403, not 401: this is deliberate state, not a
@@ -170,7 +171,7 @@ async def test_an_expired_owner_invite_can_be_reissued():
     async with _client() as c:
         await c.post("/api/v1/platform/tenants", headers=_H(tok), json={
             "slug": "reinvite", "name": "Reinvite Co", "owner_email": "owner@reinvite.test",
-            "hostname": "reinvite.localhost"})
+            "hostname": "reinvite.localhost", "plan": "team"})
         r = await c.post("/api/v1/platform/tenants/reinvite/resend-invite", headers=_H(tok))
     assert r.status_code == 200, r.text
     raw = r.json()["invite_url"].split("token=")[1]
@@ -190,7 +191,8 @@ async def test_operator_actions_land_in_the_tenants_own_audit_trail():
     in a log the customer cannot see."""
     tok = await _op_token()
     async with _client() as c:
-        await c.post("/api/v1/platform/tenants/springb/suspend", headers=_H(tok))
+        await c.post("/api/v1/platform/tenants/springb/suspend", headers=_H(tok),
+                         json={"reason": "test suspension"})
         await c.post("/api/v1/platform/tenants/springb/resume", headers=_H(tok))
         r = await c.get("/api/v1/platform/tenants/springb/audit", headers=_H(tok))
     actions = [e["action"] for e in r.json()["events"]]

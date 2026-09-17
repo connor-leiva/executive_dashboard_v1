@@ -101,6 +101,17 @@ _FEATURE_TABS = {"books": "books", "flywheel": "flywheel", "binder": "binder",
 _PLAN_FLAGS = {"intranet", "ai_assistant"}
 
 
+def lowest_tier_with(tab: str) -> str | None:
+    """The cheapest plan whose extra_tabs include `tab`, or None if no plan does."""
+    return next((key for key in ORDER if tab in PLANS[key]["extra_tabs"]), None)
+
+
+def gated_tabs() -> list[str]:
+    """Every platform module a plan gates, cheapest tier first, then by name. The operator console
+    lists them in this order; the set itself is _PORTFOLIO_TABS, because Portfolio includes all."""
+    return sorted(_PORTFOLIO_TABS, key=lambda t: (ORDER.index(lowest_tier_with(t)), t))
+
+
 def plan_of(tenant) -> str:
     """A workspace's plan, defaulting to the most generous one.
 
