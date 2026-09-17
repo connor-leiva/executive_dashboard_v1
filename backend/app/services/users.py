@@ -6,6 +6,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 from sqlalchemy import select, func
 
+from ..config import settings
 from ..models import Domain, Tenant, User
 
 RANK = {"member": 0, "admin": 1, "owner": 2}
@@ -27,7 +28,7 @@ async def primary_host(s, tenant_id) -> str:
     if d:
         return d.hostname
     t = (await s.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one()
-    return f"{t.slug}.acumyn.io"
+    return f"{t.slug}.{settings.PLATFORM_DOMAIN}"
 
 
 async def link_base(request: Request, s, tenant_id) -> str:

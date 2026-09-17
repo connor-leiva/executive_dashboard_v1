@@ -71,7 +71,7 @@ def request_tenant_host(request: Request) -> str:
     pointing at someone else's realm.
     """
     host = request.headers.get("x-tenant-host") or request.headers.get("host", "")
-    return host.split(":")[0].strip().lower()
+    return host.split(":")[0].strip().rstrip(".").lower()
 
 
 async def _dev_tenant(s) -> uuid.UUID | None:
@@ -138,6 +138,17 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
     # surface, and a tenant login answering there is exactly the confusion reserving them was
     # supposed to prevent. Ahead of the domain lookup too, so a hand-added row cannot claim one.
     if host.endswith(suffix) and host[: -len(suffix)] in PLATFORM_HOSTS:
+        raise HTTPException(404, "Not found")
+
+    # THE BARE APEX IS THE MARKETING SITE AND RESOLVES TO NO TENANT.
+    # This needs its own check rather than an entry in PLATFORM_HOSTS, because that set is only
+    # ever consulted as `{label}.PLATFORM_DOMAIN` — and the apex has no label. "acumyn.io" does
+    # not end with ".acumyn.io", so it reaches neither the branch above nor the wildcard below,
+    # and falls through to the single-tenant fallback. With one tenant that means the marketing
+    # host serves a customer's realm to the open internet; with two it starts 404-ing on its
+    # own, silently, on the day the second customer is provisioned. Neither is a decision
+    # anybody made.
+    if host == settings.PLATFORM_DOMAIN.lower():
         raise HTTPException(404, "Not found")
 
     async with SessionLocal() as s:

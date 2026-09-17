@@ -271,6 +271,129 @@ async def test_wildcard_reserved_hosts_are_claimable_by_an_operator_but_not_by_a
     assert await tenancy.resolve_tenant(_Req(host)) == other
 
 
+async def test_the_bare_apex_is_the_marketing_site_and_resolves_to_no_tenant():
+    """The apex serves the marketing site, so it resolves to NO workspace — and nothing made
+    that true before. PLATFORM_HOSTS is only ever consulted as `{label}.PLATFORM_DOMAIN`, and the
+    apex has no label: `acumyn.io` does not end with `.acumyn.io`, so it reached neither that
+    guard nor the wildcard and fell through to the single-tenant fallback. With one tenant the
+    marketing host answered as that customer; with two it began 404-ing by itself, on the day
+    the second was provisioned.
+
+    Every spelling below is the same name to DNS and to a browser, which keeps a trailing dot in
+    `location.hostname`. They are different STRINGS, and the trailing dot used to walk past every
+    guard — api. and admin. included.
+
+    ENV is development here, so the fallback is open and catches any host that gets past the
+    guards: a spelling that slipped through would RETURN a tenant instead of raising. That is
+    what makes pytest.raises observe the guard rather than an unknown host.
+    """
+    from fastapi import HTTPException
+
+    from app import tenancy
+
+    class _Req:
+        def __init__(self, host): self.headers = {"x-tenant-host": host}
+
+    apex = settings.PLATFORM_DOMAIN
+    for host in (apex, apex.upper(), f"{apex}:443", f"{apex}.", f"{apex.upper()}.:443",
+                 f"  {apex}  ", f"api.{apex}."):
+        tenancy.set_tenant(None)
+        with pytest.raises(HTTPException) as ei:
+            await tenancy.resolve_tenant(_Req(host))
+        assert ei.value.status_code == 404, repr(host)
+
+    # End to end through LOGIN, for the reason test_a_reserved_host_resolves_to_no_tenant_at_all
+    # gives: login has to find a user inside a tenant, so it fails differently without one.
+    async with _client() as c:
+        for host in (apex, f"{apex}."):
+            r = await c.post("/api/v1/auth/login", headers=_H(host=host),
+                             json={"email": "nobody@example.invalid", "password": "x"})
+            assert r.status_code in (400, 404), f"{host!r} -> {r.status_code} {r.text[:80]}"
+        # The control: a workspace's host reaches credential checking and is refused THERE.
+        r = await c.post("/api/v1/auth/login", headers=_H(host=SEED_HOST),
+                         json={"email": "nobody@example.invalid", "password": "x"})
+        assert r.status_code == 401, f"{SEED_HOST} -> {r.status_code} {r.text[:80]}"
+
+
+async def test_the_apex_being_dead_does_not_take_the_wildcard_with_it():
+    """The apex check is an EXACT match. Written as a suffix match it would refuse every
+    workspace at <slug>.PLATFORM_DOMAIN, which is all of them — so a tenant one label deeper
+    still resolves by slug, in the spellings the apex was refused in."""
+    from app import tenancy
+
+    class _Req:
+        def __init__(self, host): self.headers = {"x-tenant-host": host}
+
+    # The domain row is on another host, so the wildcard name can only resolve by SLUG. Nor can
+    # it be the fallback: that returns DEV_TENANT_SLUG, a different tenant, and the equality
+    # below tells the two apart.
+    tid = await _provision("apexkin", hostname="apexkin.internal")
+    host = f"apexkin.{settings.PLATFORM_DOMAIN}"
+    for spelling in (host, host.upper(), f"{host}:443", f"{host}.", f"  {host}.  "):
+        tenancy.set_tenant(None)
+        assert await tenancy.resolve_tenant(_Req(spelling)) == tid, repr(spelling)
+
+
+async def test_invite_links_use_the_configured_platform_domain(monkeypatch):
+    """primary_host is the base for invite and reset links when a tenant has no domain row, and
+    it spelled the production domain out literally — so under any other PLATFORM_DOMAIN (staging,
+    a renamed platform) those links pointed at production. It follows the setting now, as
+    provisioning's tenant_hostname already did."""
+    from starlette.requests import Request
+
+    from app.services import users
+
+    async with SessionLocal() as s:
+        bare = Tenant(slug="nodomainco", name="No Domain Co", status="active")
+        s.add(bare)
+        await s.commit()
+        tid = bare.id
+
+    monkeypatch.setattr(settings, "PLATFORM_DOMAIN", "acumyn-staging.test")
+    async with SessionLocal() as s:
+        assert await users.primary_host(s, tid) == "nodomainco.acumyn-staging.test"
+        # ...and through link_base, which the invite and reset routes actually call. With no
+        # Origin to prefer (a script, a server-side call) the fallback is the whole answer.
+        no_origin = Request({"type": "http", "headers": []})
+        assert await users.link_base(no_origin, s, tid) == "https://nodomainco.acumyn-staging.test"
+
+
+async def test_the_domains_script_refuses_the_apex():
+    """`tenant_domains.py --add acumyn.io --primary` is how the apex became a tenant's primary
+    domain in production once, which sent every reset link to a parked page. As the marketing
+    site it would be worse: resolve_tenant refuses the host, so the row looks added and never
+    works, while tenant_app_url hands it out as the workspace's own origin — every invite,
+    reset, share link and QuickBooks return landing on the marketing page."""
+    import argparse
+
+    from scripts.tenant_domains import _normalize_host, _run
+
+    apex = settings.PLATFORM_DOMAIN
+    for raw in (apex, apex.upper(), f"{apex}.", f"https://{apex}/", f"{apex}:443", f" {apex} "):
+        with pytest.raises(SystemExit) as ei:
+            _normalize_host(raw)
+        assert "platform's own domain" in str(ei.value), repr(raw)
+
+    # Through the command itself, so the refusal is proven wired in and not only written: it
+    # has to fire before anything is added.
+    args = argparse.Namespace(tenant="springb", add=f"{apex}.", primary=True, force=True,
+                              remove=None)
+    with pytest.raises(SystemExit):
+        await _run(args)
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(Domain).where(
+            Domain.hostname.in_((apex, f"{apex}."))))).scalars().all()
+    assert rows == [], "the apex was written as a domain row"
+
+    # A trailing dot no longer walks past the platform-host refusal either...
+    with pytest.raises(SystemExit):
+        _normalize_host(f"api.{apex}.")
+    # ...and the hosts workspaces really are served from still go through, stored the way
+    # request_tenant_host will compare them.
+    assert _normalize_host(f"https://App.{apex}./") == f"app.{apex}"
+    assert _normalize_host("portal.example.com:443") == "portal.example.com"
+
+
 async def test_the_tenant_context_never_survives_into_the_next_request():
     """resolve_tenant only SETS the context on success, so a request whose host does not
     resolve must not inherit the previous request's tenant. Per-request tasks make that

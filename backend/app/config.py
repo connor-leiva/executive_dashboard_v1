@@ -45,14 +45,18 @@ class Settings(BaseSettings):
                             "http://localhost:4173,http://127.0.0.1:4173,"
                             "http://localhost:4174,http://127.0.0.1:4174,"
                             "http://localhost:4175,http://127.0.0.1:4175")
-    PUBLIC_API_BASE: str = "http://localhost:8000"
 
     # QuickBooks
     QBO_CLIENT_ID: str = ""
     QBO_CLIENT_SECRET: str = ""
     QBO_ENV: str = "production"
     QBO_REDIRECT_URI: str = "http://localhost:8000/api/v1/integrations/qbo/callback"
-    APP_PUBLIC_URL: str = "http://localhost:5173"  # where the QBO callback redirects back to
+    # Where a human lands when NO WORKSPACE is known -- not where workspaces live. Exactly two
+    # readers: a Google sign-in that fails before its state names a tenant (auth.google_callback)
+    # and tenant_app_url's last resort for a tenant with no domain row. Every link that belongs
+    # to a workspace, the QuickBooks return included, is built from that workspace's own domain.
+    # In production it belongs on the app.PLATFORM_DOMAIN workspace finder.
+    APP_PUBLIC_URL: str = "http://localhost:5173"
     # Base for QuickBooks Online transaction deep links (Books "open in QuickBooks").
     # Opens in the user's active QBO company; the route is derived from the txn type.
     QBO_APP_BASE: str = "https://app.qbo.intuit.com/app"

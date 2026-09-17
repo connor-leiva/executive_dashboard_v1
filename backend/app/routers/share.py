@@ -7,7 +7,8 @@ DATA and keeps old backend /share/{token} URLs alive by redirecting them to the 
 
   GET /api/v1/share/{token}/scorecard  → the same payload as /ulrg/scorecard, no auth
   GET /api/v1/share/{token}/room       → a team room (pending Step 6)
-  GET /share/{token}                    → 307 redirect to APP_PUBLIC_URL/share/{token}
+  GET /share/{token}                    → 307 redirect to the LINK'S OWN workspace origin
+                                          (tenant_app_url), never a platform-wide URL
 
 Tenant is resolved from the token, never the Host header. A revoked/expired/unknown token returns
 404, not 403, so a dead link leaks nothing. The payload is Cache-Control: no-store — the token is

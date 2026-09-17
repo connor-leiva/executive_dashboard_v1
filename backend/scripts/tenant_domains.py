@@ -72,8 +72,22 @@ def _normalize_host(raw: str) -> str:
     Argument validation before the session, deliberately: needing a reachable database to
     be told an argument is invalid is how a typo turns into a connection-string hunt.
     """
-    host = raw.strip().lower().split("//")[-1].split("/")[0]
-    suffix = "." + settings.PLATFORM_DOMAIN.lower()
+    # Port and trailing dot go too, because tenancy.request_tenant_host drops both before it
+    # compares: a row stored as `acme.com.` could never match a request, and would slip past
+    # both refusals below.
+    host = raw.strip().lower().split("//")[-1].split("/")[0].split(":")[0].rstrip(".")
+    apex = settings.PLATFORM_DOMAIN.lower()
+    # The apex is Acumyn's own site, and resolve_tenant refuses it ahead of the domain lookup.
+    # A row for it is worse than inert: tenant_app_url hands out the primary row as the
+    # workspace's own origin, so every invite, reset, share link and QuickBooks return would
+    # land on the marketing page. The apex was made a tenant's primary in production once.
+    if host == apex:
+        raise SystemExit(
+            f"[error] '{host}' is the platform's own domain: it belongs to Acumyn's own site and "
+            f"never resolves to a workspace, and as a primary it would send every invite, reset "
+            f"and share link there.\n"
+            f"        A workspace lives at <slug>.{apex} or on its own custom domain.")
+    suffix = "." + apex
     # tenancy.resolve_tenant rejects these ahead of its domain lookup, so a row for one is
     # inert. Refuse at add time; otherwise it looks added and 404s at request time.
     if host.endswith(suffix) and host[: -len(suffix)] in PLATFORM_HOSTS:
