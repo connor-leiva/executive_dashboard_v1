@@ -94,9 +94,11 @@ class Settings(BaseSettings):
     # platform settings rather than anything a customer configures. The HOST is swappable because
     # Sisu ships to next.sisu.co first -- on a different database -- and only then to app.sisu.co.
     SUNBURST_HOST: str = "https://app.sisu.co"
-    # Sisu's link that carries a question (/app/sb/ask?input=...&autosend=...&view=...). Off until it
-    # is live on SUNBURST_HOST: working on next.sisu.co since 2026-09-16, awaiting app.sisu.co.
-    SUNBURST_ASK_LINKS: bool = False
+    # Sisu's link that carries a question (/app/sb/ask?input=...&autosend=...&view=...). Live on
+    # app.sisu.co since 2026-09-17, so it is on by default. The switch stays because a host without
+    # it must not be sent prompts it cannot read: turn it off if SUNBURST_HOST points somewhere that
+    # does not have the link, or if Sisu ever takes it back.
+    SUNBURST_ASK_LINKS: bool = True
 
     # worker
     SYNC_INTERVAL_MINUTES: int = 30

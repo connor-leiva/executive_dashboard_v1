@@ -33,7 +33,7 @@ async def _schema():
 def _production_defaults(monkeypatch):
     """Every test starts from what production runs today, whatever the environment says."""
     monkeypatch.setattr(settings, "SUNBURST_HOST", "https://app.sisu.co")
-    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", False)
+    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", True)
 
 
 async def _workspace(slug: str, *, on_roster=True):
@@ -123,17 +123,19 @@ def test_the_host_is_one_setting_for_trying_sisus_next_release(monkeypatch):
     assert sunburst.ask_url() == "https://next.sisu.co/app/sb/ask", "a trailing slash doubled up"
 
 
-def test_the_question_link_is_not_offered_until_the_host_has_it():
-    """app.sisu.co does not have Sisu's question link yet. Offering it would send every prompt
-    card to a link the far end does not understand -- the page copies the question instead."""
-    assert sunburst.ask_url() == ""
-    assert sunburst.carries_prompt() is False
-
-
-def test_turning_the_question_link_on_is_one_setting(monkeypatch):
-    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", True)
+def test_the_question_link_is_offered_by_default():
+    """Sisu shipped /app/sb/ask to app.sisu.co on 2026-09-17, so a prompt card asks its question in
+    one click rather than copying it to the clipboard."""
     assert sunburst.ask_url() == "https://app.sisu.co/app/sb/ask"
     assert sunburst.carries_prompt() is True
+
+
+def test_turning_the_question_link_off_is_one_setting(monkeypatch):
+    """A host that does not have the link must not be sent prompts it cannot read: the page copies
+    the question and opens the conversation instead, which works everywhere."""
+    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", False)
+    assert sunburst.ask_url() == ""
+    assert sunburst.carries_prompt() is False
 
 
 # ── what the portal receives ──────────────────────────────────────────────────────────────
@@ -143,16 +145,16 @@ async def test_every_workspace_gets_a_link_with_nothing_configured():
     ws = await _workspace("sbevery")
     config = await _config(ws)
     assert config["sunburst"]["url"].startswith("https://app.sisu.co/app/sb/")
-    assert config["sunburst"]["ask_url"] == ""
-    assert config["sunburst"]["carries_prompt"] is False
-
-
-async def test_the_portal_is_handed_the_question_link_once_it_is_on(monkeypatch):
-    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", True)
-    ws = await _workspace("sbask")
-    config = await _config(ws)
     assert config["sunburst"]["ask_url"] == "https://app.sisu.co/app/sb/ask"
     assert config["sunburst"]["carries_prompt"] is True
+
+
+async def test_the_portal_falls_back_to_copying_where_the_link_is_off(monkeypatch):
+    monkeypatch.setattr(settings, "SUNBURST_ASK_LINKS", False)
+    ws = await _workspace("sbask")
+    config = await _config(ws)
+    assert config["sunburst"]["ask_url"] == ""
+    assert config["sunburst"]["carries_prompt"] is False
 
 
 async def test_the_link_a_member_gets_is_their_own():

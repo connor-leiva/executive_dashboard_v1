@@ -34,8 +34,9 @@ exists at the old URL -- and it is the right trade against storing a column we w
 keep in step with the roster.
 
 THE HOST IS A SETTING. Sisu ships to next.sisu.co first, on a different database, then to
-app.sisu.co. SUNBURST_HOST points at next to try something and back at app for everyone, and
-SUNBURST_ASK_LINKS stays off until the host has the question link at all.
+app.sisu.co. SUNBURST_HOST points at next to try something and back at app for everyone.
+SUNBURST_ASK_LINKS says whether that host has the question link: both have it now, and it exists so
+a host that does not is never sent a prompt it cannot read.
 """
 from __future__ import annotations
 
