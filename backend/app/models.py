@@ -128,6 +128,83 @@ class JobHeartbeat(Base):
     last_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class PlatformBillingConfig(Base):
+    """Acumyn's own Stripe account: the one that charges workspaces, never a workspace's.
+
+    One row, id 1. The keys are pasted into the operator console and stored encrypted with
+    FERNET_KEY, like every workspace integration credential, rather than read from environment
+    variables. Nothing returns them.
+    """
+    __tablename__ = "platform_billing_config"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    secret_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    webhook_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    account_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    livemode: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PlatformSubscription(Base):
+    """A workspace's subscription to Acumyn, MIRRORED from Stripe (OPERATOR-CONSOLE-SPEC §4.3).
+
+    Stripe is the source of truth for every Stripe field here; this row is corrected from Stripe by
+    webhooks and the hourly reconciliation, and never edited by hand. `status` is Stripe's own
+    vocabulary, verbatim, and money is cents. Only billing_contact_email and po_reference are
+    Acumyn's. A workspace with no row has no Stripe customer: it is not billed (C13).
+    """
+    __tablename__ = "platform_subscription"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    stripe_customer_id: Mapped[str] = mapped_column(String(64), unique=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    stripe_price_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32))
+    amount_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="usd", server_default="usd")
+    interval: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    trial_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    default_payment_method: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payment_method_exp: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    collected_cents: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    billing_contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    po_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the newest state applied to this row was true in Stripe: an event created before it
+    # arrived late and describes older state, so it is ignored instead of written over newer.
+    stripe_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PlatformInvoice(Base):
+    """One of a workspace's invoices from Acumyn, mirrored from Stripe. Cents."""
+    __tablename__ = "platform_invoice"
+    stripe_invoice_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32))
+    amount_due_cents: Mapped[int] = mapped_column(Integer)
+    amount_paid_cents: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    hosted_invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("ix_platform_invoice_created", "tenant_id", "created_at"),)
+
+
+class PlatformStripeEvent(Base):
+    """Every Stripe webhook event applied, by its id. Stripe retries deliveries, and a retried
+    event must change nothing the first delivery did not."""
+    __tablename__ = "platform_stripe_event"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    type: Mapped[str] = mapped_column(String(64))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Domain(Base):
     __tablename__ = "domain"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)

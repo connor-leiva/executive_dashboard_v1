@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { api } from "../api.js";
 import { confirmFor, labelFor, perform } from "../actions.js";
-import { ago, compact, plural } from "../format.js";
+import { ago, compact, dollars, plural } from "../format.js";
 import { describe, target } from "../phrases.js";
 import { Bar, Btn, Card, Chip, Confirm, Empty, Eyebrow, Loading, LoadError, Mono, Notice, Seg, Stat, useApi } from "../primitives.jsx";
 import { A, STATE, TYPE } from "../tokens.js";
@@ -198,7 +198,9 @@ export default function FleetView({ onOpen, onAudit }) {
           note={r.tokens.capped_workspaces
             ? `this month · ${compact(r.tokens.capped_budget)} capped across ${r.tokens.capped_workspaces} of ${rows.length} workspaces`
             : "this month · no workspace has a cap"} />
-        <Stat label="MRR" unsourced note="Platform billing is not connected. Acumyn charges nobody through this console yet." />
+        {r.mrr_cents == null
+          ? <Stat label="MRR" unsourced note="Platform billing is not connected, so there is no charge to total." />
+          : <Stat label="MRR" value={dollars(r.mrr_cents)} note={`from Stripe · active subscriptions · ${r.billed_workspaces} billed ${r.billed_workspaces === 1 ? "workspace" : "workspaces"}`} />}
       </div>
 
       {done ? <div style={{ marginBottom: 10 }}><Notice>{done}</Notice></div> : null}

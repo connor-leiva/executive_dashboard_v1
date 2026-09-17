@@ -6,6 +6,7 @@ import { loadReference, planName } from "../reference.js";
 import { A, TYPE } from "../tokens.js";
 import AccessPane from "./Access.jsx";
 import ActivityPane from "./Activity.jsx";
+import BillingPane from "./Billing.jsx";
 import DangerPane from "./Danger.jsx";
 import ModulesPane from "./Modules.jsx";
 import OverviewPane from "./Overview.jsx";
@@ -21,6 +22,7 @@ const PANES = [
   { key: "sources", label: "Sources", Pane: SourcesPane },
   { key: "modules", label: "Modules", Pane: ModulesPane },
   { key: "usage", label: "Usage", Pane: UsagePane },
+  { key: "billing", label: "Billing", Pane: BillingPane },
   { key: "activity", label: "Activity", Pane: ActivityPane },
   { key: "access", label: "Access", Pane: AccessPane },
   { key: "danger", label: "Danger", Pane: DangerPane },

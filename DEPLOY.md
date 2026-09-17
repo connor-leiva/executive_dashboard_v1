@@ -322,3 +322,29 @@ railway ssh --service executive_dashboard_v1 "PLATFORM_OPERATOR_PASSWORD='<12+ c
 
 Omit the variable and the script generates a password and prints it once.
 
+### Platform billing: Acumyn's own Stripe account
+
+The operator console charges workspaces through **Acumyn's** Stripe account. That is not any
+workspace's Stripe: those are revenue sources connected inside each workspace. Nothing is charged,
+and every billing route refuses, until all of this is done. There are no environment variables for
+it: the keys are entered in the console and stored encrypted.
+
+1. In Acumyn's Stripe account, create three products with monthly USD prices, and give each price
+   the lookup key the console looks it up by. The console never holds a price id.
+
+   | Plan | Lookup key | Amount |
+   | --- | --- | --- |
+   | Team | `price_team_monthly` | $399 |
+   | Business | `price_business_monthly` | $799 |
+   | Portfolio | `price_portfolio_monthly` | $1,199 |
+
+2. Stripe → Developers → Webhooks → add an endpoint at
+   `https://api.acumyn.io/api/v1/platform/webhooks/stripe`, listening for
+   `customer.subscription.created`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`, `invoice.finalized`,
+   `payment_method.attached` and `payment_method.detached`.
+3. `admin.acumyn.io` → System → Platform billing: paste the secret key (verified with Stripe before
+   it is saved) and the endpoint's signing secret, then switch charging on.
+
+Test mode first is the safer order: an `sk_test_` key and a test-mode endpoint behave identically,
+and the console marks the account as test mode wherever it shows it.

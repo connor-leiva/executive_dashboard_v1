@@ -290,6 +290,30 @@ async def platform_audit_prune():
         print(f"[platform_audit_prune] deleted {gone} entries past retention", flush=True)
 
 
+async def platform_billing_reconcile():
+    """Hourly: correct the Stripe mirror from Stripe (OPERATOR-CONSOLE-SPEC §6.4). Webhooks get
+    missed; this is what makes a missed one temporary. A no-op until platform billing is connected
+    and switched on. Every field it has to correct is logged, because a divergence means a webhook
+    did not arrive."""
+    from .models import PlatformSubscription
+    from .services import platform_billing
+    async with SessionLocal() as s:
+        try:
+            key = await platform_billing.active_key(s)
+        except platform_billing.BillingUnavailable:
+            return
+        tenant_ids = (await s.execute(select(PlatformSubscription.tenant_id))).scalars().all()
+    for tid in tenant_ids:
+        try:
+            async with SessionLocal() as s2:
+                tenant = await s2.get(Tenant, tid)
+                changed = await platform_billing.sync_tenant(s2, tenant, key)
+            if changed:
+                print(f"[billing_reconcile] {tenant.slug}: corrected {', '.join(changed)}", flush=True)
+        except Exception as e:  # noqa: BLE001 — one workspace's failure must not stop the rest
+            print(f"[billing_reconcile] tenant {tid}: {type(e).__name__}: {e}", flush=True)
+
+
 def build_scheduler() -> AsyncIOScheduler:
     """Configure the scheduler with the sync tick, the daily agent-roster + scorecard-resolver ticks,
     and (when the flag is on) the two AI jobs. Shared by the standalone worker (`python -m app.worker`)
@@ -313,6 +337,9 @@ def build_scheduler() -> AsyncIOScheduler:
     sched.add_job(beat(marketing_delivery_tick), "interval", minutes=1,
                   next_run_time=dt.datetime.now())
     sched.add_job(beat(platform_audit_prune), "cron", day=1, hour=3, minute=30, timezone=_tz)
+    # Hourly and always registered: it returns at once until platform billing is switched on, which
+    # is a setting in the operator console rather than a deploy.
+    sched.add_job(beat(platform_billing_reconcile), "interval", hours=1)
     if settings.RECALL_API_KEY:
         sched.add_job(beat(recall_tick), "interval", minutes=settings.RECALL_TICK_MINUTES,
                       next_run_time=dt.datetime.now())

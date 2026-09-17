@@ -37,6 +37,7 @@ def catalog() -> list[dict]:
         {"job": "ai_dispatch", "what": "Queues AI employee runs", "every_minutes": 1, "enabled": ai},
         {"job": "ai_execute", "what": "Runs queued AI employee work", "every_minutes": 0.25, "enabled": ai},
         {"job": "platform_audit_prune", "what": "Deletes operator audit entries past retention", "every_minutes": 30 * DAY, "enabled": True},
+        {"job": "platform_billing_reconcile", "what": "Corrects the Stripe mirror from Stripe", "every_minutes": 60, "enabled": True},
     ]
 
 

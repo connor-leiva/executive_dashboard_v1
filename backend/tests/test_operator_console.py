@@ -956,8 +956,7 @@ def test_every_action_the_server_attaches_to_a_signal_is_one_the_console_can_per
     emitted = set(re.findall(r'_action\("[^"]+", "(\w+)"', src))
     actions = _code(OPERATOR_SRC / "actions.js")
     handled = set(re.findall(r"^\s{2}(\w+): (?:\{|async)", actions, re.M))
-    # payment_link belongs to platform billing, which is not connected yet.
-    missing = emitted - handled - {"open", "payment_link"}
+    missing = emitted - handled - {"open"}
     assert not missing, f"signal actions the console cannot perform: {sorted(missing)}"
 
 
@@ -1150,3 +1149,197 @@ async def test_a_heartbeat_records_starts_clean_runs_and_failures():
         bad = await s.get(JobHeartbeat, "test_broken")
     assert ok.last_started_at and ok.last_ok_at and ok.last_failed_at is None
     assert bad.last_failed_at and bad.last_ok_at is None and "the provider is down" in bad.last_error
+
+
+# ── phase 5: platform billing ─────────────────────────────────────────────────────────────
+WEBHOOK_SECRET = "whsec_test_operator_console"
+
+
+async def _connect_billing(enabled=True):
+    """Platform billing as a connected account would leave it, written directly: the connect route
+    verifies a key against Stripe, which a test must never reach."""
+    from app.models import PlatformBillingConfig
+    from app.security import enc
+
+    async with SessionLocal() as s:
+        cfg = await s.get(PlatformBillingConfig, 1) or PlatformBillingConfig(id=1)
+        cfg.secret_key_enc = enc("sk_test_not_a_real_key")
+        cfg.webhook_secret_enc = enc(WEBHOOK_SECRET)
+        cfg.enabled = enabled
+        cfg.livemode = False
+        s.add(cfg)
+        await s.commit()
+
+
+def _signed(event: dict, secret=WEBHOOK_SECRET, at=None):
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    body = json.dumps(event).encode()
+    t = int(at if at is not None else time.time())
+    sig = hmac.new(secret.encode(), f"{t}.".encode() + body, hashlib.sha256).hexdigest()
+    return body, {"stripe-signature": f"t={t},v1={sig}", "content-type": "application/json"}
+
+
+def _no_stripe(monkeypatch):
+    from app.services import platform_billing
+
+    async def refuse(*a, **k):
+        raise AssertionError("Stripe was called")
+    monkeypatch.setattr(platform_billing, "stripe", refuse)
+
+
+async def _billed(slug, customer, **kw):
+    from app.models import PlatformSubscription
+
+    tid = await _tenant_with(slug, plan=kw.pop("plan", "business"))
+    async with SessionLocal() as s:
+        if await s.get(PlatformSubscription, tid) is None:
+            s.add(PlatformSubscription(tenant_id=tid, stripe_customer_id=customer,
+                                       status=kw.pop("status", "active"), **kw))
+            await s.commit()
+    return tid
+
+
+def _sub_event(event_id, tid, customer, status, created, amount=79900):
+    return {"id": event_id, "type": "customer.subscription.updated", "created": created,
+            "data": {"object": {"id": f"sub_{customer}", "customer": customer, "status": status,
+                                "metadata": {"acumyn_tenant_id": str(tid)},
+                                "items": {"data": [{"price": {"id": "price_x", "unit_amount": amount,
+                                                              "currency": "usd",
+                                                              "recurring": {"interval": "month"}},
+                                                    "current_period_end": created + 86400 * 30}]}}}}
+
+
+async def test_a_webhook_without_a_valid_signature_is_refused_before_anything_is_applied(monkeypatch):
+    from app.models import PlatformStripeEvent
+
+    _no_stripe(monkeypatch)
+    await _connect_billing()
+    tid = await _billed("sigco", "cus_sigco")
+    event = _sub_event("evt_sig_1", tid, "cus_sigco", "past_due", 1_800_000_000)
+    body, headers = _signed(event)
+    async with _client() as c:
+        r = await c.post("/api/v1/platform/webhooks/stripe", content=body,
+                         headers={"content-type": "application/json"})
+        assert r.status_code == 400, "unsigned"
+        _, wrong = _signed(event, secret="whsec_somebody_else")
+        assert (await c.post("/api/v1/platform/webhooks/stripe", content=body, headers=wrong)).status_code == 400
+        _, stale = _signed(event, at=1_000_000_000)
+        assert (await c.post("/api/v1/platform/webhooks/stripe", content=body, headers=stale)).status_code == 400, \
+            "a captured delivery replayed later"
+        async with SessionLocal() as s:
+            assert await s.get(PlatformStripeEvent, "evt_sig_1") is None
+        r = await c.post("/api/v1/platform/webhooks/stripe", content=body, headers=headers)
+        assert r.status_code == 200 and r.json()["outcome"] == "applied", r.text
+
+
+async def test_a_replayed_invoice_paid_does_not_count_the_money_twice(monkeypatch):
+    from app.models import PlatformSubscription
+
+    _no_stripe(monkeypatch)
+    await _connect_billing()
+    tid = await _billed("replayco", "cus_replayco")
+    invoice = {"id": "in_replay_1", "customer": "cus_replayco", "status": "paid", "number": "RPL-0001",
+               "amount_due": 79900, "amount_paid": 79900, "created": 1_800_000_000,
+               "status_transitions": {"paid_at": 1_800_000_100}, "metadata": {}}
+    async with _client() as c:
+        for event_id in ("evt_paid_1", "evt_paid_1", "evt_paid_2"):
+            body, headers = _signed({"id": event_id, "type": "invoice.paid", "created": 1_800_000_100,
+                                     "data": {"object": invoice}})
+            r = await c.post("/api/v1/platform/webhooks/stripe", content=body, headers=headers)
+            assert r.status_code == 200, r.text
+    async with SessionLocal() as s:
+        sub = await s.get(PlatformSubscription, tid)
+    assert sub.collected_cents == 79900, \
+        "the same delivery twice, and a second event for the same invoice, are still one payment"
+
+
+async def test_an_out_of_order_subscription_update_leaves_the_latest_state(monkeypatch):
+    from app.models import PlatformAudit, PlatformSubscription
+
+    _no_stripe(monkeypatch)
+    await _connect_billing()
+    tid = await _billed("orderco", "cus_orderco", status="active")
+    newer = _sub_event("evt_order_new", tid, "cus_orderco", "past_due", 1_800_000_500)
+    older = _sub_event("evt_order_old", tid, "cus_orderco", "active", 1_800_000_100)
+    async with _client() as c:
+        for event in (newer, older):
+            body, headers = _signed(event)
+            assert (await c.post("/api/v1/platform/webhooks/stripe", content=body, headers=headers)).status_code == 200
+    async with SessionLocal() as s:
+        sub = await s.get(PlatformSubscription, tid)
+        audits = (await s.execute(select(PlatformAudit).where(
+            PlatformAudit.tenant_slug == "orderco"))).scalars().all()
+    assert sub.status == "past_due", "an older event arriving late must not overwrite newer state"
+    assert [a.action for a in audits] == ["billing.past_due"] and audits[0].operator_id is None
+
+    async with _client() as c:
+        row = {t["slug"]: t for t in (await c.get("/api/v1/platform/tenants",
+                                                   headers=_H(await _op_token()))).json()["tenants"]}["orderco"]
+    assert row["health"]["state"] == "broken", "past due is broken on the fleet list, from the mirror"
+
+
+async def test_changing_the_plan_never_calls_stripe(monkeypatch):
+    _no_stripe(monkeypatch)
+    await _connect_billing()
+    tid = await _billed("planco", "cus_planco", plan="team", amount_cents=39900, interval="month")
+    tok = await _op_token()
+    async with _client() as c:
+        r = await c.patch("/api/v1/platform/tenants/planco/billing", headers=_H(tok),
+                          json={"plan": "business", "token_budget": 0})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["enforced"]["plan"] == "business"
+    assert body["enforced"]["price_differs"] is True, "Stripe still charges Team's price, and the pane says so"
+    assert body["enforced"]["token_budget"] is None, "zero is unlimited"
+    assert (await _trail(tid, "billing.plan_changed"))
+    assert [r.action for r in await _platform_rows("planco")] == ["billing.plan_changed", "billing.budget_changed"]
+
+
+async def test_billing_routes_that_call_stripe_refuse_until_it_is_connected_and_never_return_a_key(monkeypatch):
+    from app.models import PlatformBillingConfig
+
+    _no_stripe(monkeypatch)
+    async with SessionLocal() as s:
+        cfg = await s.get(PlatformBillingConfig, 1)
+        if cfg is not None:
+            await s.delete(cfg)
+            await s.commit()
+    await _tenant_with("unbilledco")
+    tok = await _op_token()
+    async with _client() as c:
+        for path in ("/billing/customer", "/billing/sync", "/billing/retry", "/billing/payment-link"):
+            r = await c.post(f"/api/v1/platform/tenants/unbilledco{path}", headers=_H(tok), json={})
+            assert r.status_code == 409 and "not connected" in r.json()["detail"], (path, r.text)
+        r = await c.put("/api/v1/platform/billing/config", headers=_H(tok), json={"secret_key": "pk_live_nope"})
+        assert r.status_code == 400, "a publishable key is not a secret key"
+    await _connect_billing()
+    async with _client() as c:
+        config = await c.get("/api/v1/platform/billing/config", headers=_H(tok))
+        billing = await c.get("/api/v1/platform/tenants/unbilledco/billing", headers=_H(tok))
+    assert config.json()["connected"] and config.json()["webhook_configured"]
+    for r in (config, billing):
+        assert "sk_test_not_a_real_key" not in r.text and WEBHOOK_SECRET not in r.text
+    assert billing.json()["billed"] is False and billing.json()["subscription"] is None
+
+
+async def test_mrr_counts_active_subscriptions_by_the_month(monkeypatch):
+    from app.models import PlatformSubscription
+
+    _no_stripe(monkeypatch)
+    await _connect_billing()
+    await _billed("mrrmonthco", "cus_mrrmonth", status="active", amount_cents=119900, interval="month")
+    await _billed("mrryearco", "cus_mrryear", status="active", amount_cents=1200000, interval="year")
+    await _billed("mrrpastco", "cus_mrrpast", status="past_due", amount_cents=39900, interval="month")
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(PlatformSubscription))).scalars().all()
+    from app.services.platform_billing import monthly_cents
+    expected = sum(monthly_cents(r) for r in rows)
+    async with _client() as c:
+        rollup = (await c.get("/api/v1/platform/fleet", headers=_H(await _op_token()))).json()["rollup"]
+    assert rollup["mrr_cents"] == expected
+    assert monthly_cents(next(r for r in rows if r.stripe_customer_id == "cus_mrryear")) == 100000
+    assert monthly_cents(next(r for r in rows if r.stripe_customer_id == "cus_mrrpast")) == 0

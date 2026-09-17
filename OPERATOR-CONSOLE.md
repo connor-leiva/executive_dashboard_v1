@@ -21,6 +21,7 @@ which is each workspace's own team-portal admin.
 | Sync jobs shared with the workspace's own buttons | `backend/app/services/sync_jobs.py` |
 | The operator trail | `backend/app/services/operator_audit.py`, table `platform_audit` |
 | Scheduled jobs and their heartbeats | `backend/app/services/jobs.py`, table `job_heartbeat` |
+| Platform billing (Acumyn's own Stripe) | `backend/app/services/platform_billing.py`; setup in `DEPLOY.md` |
 | Tests | `backend/tests/test_operator_console.py`, `test_platform_operators.py`, `test_brand_rules.py` |
 | Hosting | the existing `web` service; Caddy routes `OPERATOR_HOST` (default `admin.acumyn.io`) |
 
@@ -32,7 +33,7 @@ which is each workspace's own team-portal admin.
 | 2 | People counts, per-workspace panes, derived triage | shipped |
 | 3 | Write actions | shipped |
 | 4 | `platform_audit`, Audit view, System view | shipped |
-| 5 | Stripe platform billing | pending |
+| 5 | Stripe platform billing | shipped, off until connected |
 | 6 | Support access, export, transfer ownership, delete | pending |
 
 ## What each phase shipped
@@ -120,6 +121,28 @@ Acumyn did.
   System view says a worker is healthy only from those rows.
 - Fleet gains "What you did", the signed-in operator's own recent changes.
 
+**Phase 5.** Acumyn charging workspaces, through Acumyn's own Stripe account (§6). Built, tested
+against a mocked Stripe, and switched off until an operator connects the account.
+
+- The mirror (migration `0070_platform_billing`): `platform_subscription` and `platform_invoice`,
+  in cents and Stripe's own status words, corrected from Stripe and never edited by hand.
+- `POST /webhooks/stripe`, not operator-gated: the `Stripe-Signature` header is verified against
+  the raw body with a five-minute tolerance before anything is parsed. Each event is applied once
+  (`platform_stripe_event`), an event older than the state already applied is ignored, and the
+  lifetime collected total is recomputed from the invoices, so a replayed `invoice.paid` cannot
+  count twice. Transitions into `past_due`, `canceled` and `incomplete` are written to the operator
+  trail.
+- A workspace's Billing pane: the Stripe mirror (read-only) and its invoices, what Acumyn enforces
+  (plan, token budget, billing contact, PO), and the actions: create the Stripe customer and a
+  subscription on the plan's price (found by `lookup_key`), send Stripe's own payment page for the
+  open invoice to the billing contact, retry the charge, and sync from Stripe now. Changing the plan
+  never calls Stripe, and the pane says when Stripe charges a different amount from the tier's list
+  price.
+- Fleet health reads the mirror: past due is broken, a trial ending within 7 days is watch (C11).
+  The fleet's MRR tile totals active subscriptions, a yearly price spread over twelve months.
+- An hourly `platform_billing_reconcile` job pulls every mirrored subscription from Stripe and logs
+  each field it had to correct.
+
 ## Decisions made during the build
 
 Choices the spec did not make, taken so the build could continue. Each is reversible.
@@ -165,6 +188,33 @@ schema: `0069_platform_audit` here, with platform billing and support access fol
 
 **The Audit view's "workspace teams" scope leaves out sign-ins and second-factor checks.** The view
 lists changes; those are reads and attempts, and they stay on each workspace's Activity pane.
+
+**Stripe keys are entered in the console, not set as environment variables (§6.1 names
+`STRIPE_PLATFORM_SECRET_KEY`, `STRIPE_PLATFORM_WEBHOOK_SECRET` and `STRIPE_PLATFORM_ENABLED`).** Your
+standing instruction is that credentials are configured in the product rather than stored in
+Railway. An operator pastes the secret key and the webhook signing secret on System, the key is
+verified with Stripe before it is saved, both are stored encrypted with `FERNET_KEY` like every
+workspace credential, and neither is ever returned. "Charging on" is a switch on the same card. The
+startup secret guard §6.1 asks for has nothing to guard as a result; `FERNET_KEY`, which it already
+guards, protects the stored keys.
+
+**Two tables and a column the spec does not list.** `platform_stripe_event` records each webhook
+event applied, so a retried delivery changes nothing. `platform_subscription.stripe_event_at` records
+when the state last applied was true in Stripe, so an event arriving out of order is ignored rather
+than written over newer state. `platform_billing_config` holds the keys.
+
+**The lifetime collected total is derived, not incremented.** It is recomputed from the mirrored
+invoices on every invoice event, so no replay or duplicate event can count a payment twice.
+
+**A new subscription starts incomplete, or trialing, with Stripe's own invoice page as the way to
+pay.** Creating a customer creates the subscription on the plan's price with
+`payment_behavior=default_incomplete`; "Send payment link" emails the billing contact the open
+invoice's hosted page. No card detail passes through Acumyn, and no Checkout or Billing Portal
+configuration is needed in Stripe. A trialing subscription with no open invoice has no payment link
+to send yet; the button appears once Stripe raises one.
+
+**MRR counts active subscriptions only**, a yearly price spread over twelve months. Past due is
+excluded: it is money not being collected.
 
 **Suspension and freezing stop every scheduled pull, not only the sync tick.** The daily Sisu
 roster job and the ads funnel job now skip a paused workspace too.

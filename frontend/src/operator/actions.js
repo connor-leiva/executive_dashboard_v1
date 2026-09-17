@@ -42,6 +42,12 @@ const CALLS = {
       return `Fresh invites went to ${joinAnd(r.sent_to)}.`;
     },
   },
+  payment_link: {
+    run: async (slug) => {
+      const r = await api.paymentLink(slug);
+      return `Stripe's payment page for ${r.invoice} went to ${r.sent_to}.`;
+    },
+  },
   revoke_share_links: {
     confirm: "Every live share link in this workspace stops working at once, and a revoked link cannot be restored. The workspace can make new ones.",
     run: async (slug) => {

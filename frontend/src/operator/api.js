@@ -143,6 +143,16 @@ export const api = {
   },
   system: () => call("/system"),
   flags: () => call("/system/flags"),
+
+  /* Phase 5: Acumyn's own Stripe account. Keys go in, never come back out. */
+  billingConfig: () => call("/billing/config"),
+  setBillingConfig: (body) => call("/billing/config", { method: "PUT", body }),
+  billing: (slug) => call(`${slugPath(slug)}/billing`),
+  patchBilling: (slug, body) => call(`${slugPath(slug)}/billing`, { method: "PATCH", body }),
+  createCustomer: (slug, body) => post(`${slugPath(slug)}/billing/customer`, body),
+  paymentLink: (slug) => post(`${slugPath(slug)}/billing/payment-link`),
+  retryBilling: (slug) => post(`${slugPath(slug)}/billing/retry`),
+  syncBilling: (slug) => post(`${slugPath(slug)}/billing/sync`),
 };
 
 export { call as rawCall, slugPath };

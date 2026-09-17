@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import functools
+import json
 import os
 import time
 import uuid
@@ -28,10 +29,12 @@ from ..config import settings
 from ..db import get_session
 from ..deps import STEP_UP_SCOPES, current_platform_user
 from ..models import (AuditLog, Business, Domain, Integration, JobHeartbeat, PlatformAudit,
-                      PlatformUser, ShareLink, SyncRun, Tenant, User)
-from ..security import hash_pw, make_platform_token, new_action_token, verify_pw
+                      PlatformBillingConfig, PlatformInvoice, PlatformSubscription, PlatformUser,
+                      ShareLink, SyncRun, Tenant, User)
+from ..security import dec, enc, hash_pw, make_platform_token, new_action_token, verify_pw
 from ..services import (fleet_health, fleet_rollup, jobs, mail_templates, mailer, operator_audit,
-                        sync_jobs)
+                        platform_billing, sync_jobs)
+from ..throttle import client_ip
 from ..services.provisioning import INVITE_VALID_DAYS, invite_url, provision_tenant
 from ..services.tabs import PLATFORM_TABS, tenant_tab_descriptors
 from ..services.users import RESET_HOURS, primary_host
@@ -212,6 +215,8 @@ async def _tenant_row(s: AsyncSession, t: Tenant, now: dt.datetime | None = None
         "syncs_frozen": facts.syncs_frozen,
         "share_links_live": facts.share_links_live,
         "tokens": {"used": facts.tokens_used, "budget": facts.token_budget},
+        "billing": {"billed": facts.subscription is not None,
+                    "status": (facts.subscription or {}).get("status")},
         "health": {k: health[k] for k in ("state", "rank", "why", "derivation")},
         "signals": health["signals"],
     }
@@ -397,7 +402,15 @@ async def fleet(op: PlatformUser = Depends(current_platform_user),
     so the two can never disagree."""
     now = _now()
     rows = await _fleet_rows(s, now)
-    return {"rollup": _rollup(rows), "triage": _triage(rows), "read_at": now.isoformat()}
+    rollup = _rollup(rows)
+    # MRR is Acumyn's own revenue from its mirror of Stripe, never a workspace's figures: active
+    # subscriptions only, a yearly price spread over twelve. Null until platform billing is connected.
+    cfg = await platform_billing.config(s)
+    if cfg is not None and cfg.secret_key_enc:
+        subs = (await s.execute(select(PlatformSubscription))).scalars().all()
+        rollup["mrr_cents"] = sum(platform_billing.monthly_cents(r) for r in subs)
+        rollup["billed_workspaces"] = sum(1 for r in subs if r.status not in ("canceled", "incomplete_expired"))
+    return {"rollup": rollup, "triage": _triage(rows), "read_at": now.isoformat()}
 
 
 @router.get("/fleet/triage")
@@ -1153,3 +1166,368 @@ async def system_flags(op: PlatformUser = Depends(current_platform_user)):
         {"key": "AI_EMPLOYEES_WRITEBACK_ENABLED", "value": settings.AI_EMPLOYEES_WRITEBACK_ENABLED, "risk": False,
          "note": "Off means approve and export only: nothing an AI employee drafts is written back to Go High Level."},
     ]}
+
+
+# ── phase 5: Acumyn charging workspaces, through Acumyn's own Stripe account ──────────────
+class BillingConfigBody(BaseModel):
+    # Each optional so the webhook secret can be added after the key, and billing switched off
+    # without re-pasting either. Never returned, by any route.
+    secret_key: str | None = None
+    webhook_secret: str | None = None
+    enabled: bool | None = None
+
+
+class BillingPatch(BaseModel):
+    plan: str | None = None
+    # None leaves the budget alone. `token_budget_default: true` removes the workspace's own
+    # budget so it follows the platform default again. Zero is a real value: unlimited.
+    token_budget: int | None = None
+    token_budget_default: bool = False
+    billing_contact_email: str | None = None
+    po_reference: str | None = None
+
+
+class CustomerBody(BaseModel):
+    email: str | None = None
+    trial_days: int | None = None
+
+
+def _config_out(cfg) -> dict:
+    return {"connected": bool(cfg and cfg.secret_key_enc), "enabled": bool(cfg and cfg.enabled),
+            "webhook_configured": bool(cfg and cfg.webhook_secret_enc),
+            "account_id": cfg.account_id if cfg else None, "account_name": cfg.account_name if cfg else None,
+            "livemode": cfg.livemode if cfg else None,
+            "updated_by": cfg.updated_by if cfg else None, "updated_at": _iso(cfg.updated_at) if cfg else None,
+            "webhook_path": "/api/v1/platform/webhooks/stripe",
+            "events": sorted(platform_billing.HANDLED_EVENTS)}
+
+
+def _record_platform(s: AsyncSession, op: PlatformUser, request: Request, action: str, **detail) -> None:
+    """An operator change that belongs to no workspace: written to the operator trail only."""
+    s.add(PlatformAudit(operator_id=op.id, operator_email=op.email, action=action, detail=detail,
+                        ip=client_ip(request)[:45]))
+
+
+@router.get("/billing/config")
+async def billing_config(op: PlatformUser = Depends(current_platform_user),
+                         s: AsyncSession = Depends(get_session)):
+    return _config_out(await platform_billing.config(s))
+
+
+@router.put("/billing/config")
+async def set_billing_config(body: BillingConfigBody, request: Request,
+                             op: PlatformUser = Depends(current_platform_user),
+                             s: AsyncSession = Depends(get_session)):
+    """Connect Acumyn's Stripe account, or change or switch off the connection.
+
+    A new secret key is verified against Stripe before it is stored: an account that cannot be read
+    is refused rather than saved and discovered broken at the first charge. Keys are stored
+    encrypted and never returned.
+    """
+    cfg = await platform_billing.config(s)
+    if cfg is None:
+        cfg = PlatformBillingConfig(id=1, enabled=False)
+        s.add(cfg)
+    changed = []
+    if body.secret_key is not None:
+        key = body.secret_key.strip()
+        mode = platform_billing.mode_of(key)
+        if mode is None:
+            raise HTTPException(400, "That is not a Stripe secret key. It starts sk_live_ or sk_test_ "
+                                     "(or rk_ for a restricted key).")
+        try:
+            account = await platform_billing.stripe(key, "GET", "/account")
+        except platform_billing.StripeError as e:
+            raise HTTPException(400, f"Stripe refused that key: {e}")
+        cfg.secret_key_enc = enc(key)
+        cfg.account_id = (account.get("id") or "")[:64] or None
+        profile = account.get("business_profile") or {}
+        cfg.account_name = (profile.get("name") or (account.get("settings") or {}).get("dashboard", {}).get("display_name")
+                            or account.get("email") or cfg.account_id)
+        cfg.account_name = (cfg.account_name or "")[:255] or None
+        cfg.livemode = mode == "live"
+        cfg.verified_at = _now()
+        changed.append("secret_key")
+    if body.webhook_secret is not None:
+        secret = body.webhook_secret.strip()
+        if not secret.startswith("whsec_"):
+            raise HTTPException(400, "That is not a webhook signing secret. It starts whsec_.")
+        cfg.webhook_secret_enc = enc(secret)
+        changed.append("webhook_secret")
+    if body.enabled is not None:
+        if body.enabled and not cfg.secret_key_enc:
+            raise HTTPException(409, "Connect a secret key before switching platform billing on.")
+        cfg.enabled = body.enabled
+        changed.append("enabled" if body.enabled else "disabled")
+    if not changed:
+        raise HTTPException(400, "Nothing to change.")
+    cfg.updated_by, cfg.updated_at = op.email, _now()
+    _record_platform(s, op, request, "billing.config_changed", changed=changed,
+                     account_id=cfg.account_id, livemode=cfg.livemode)
+    await s.commit()
+    return _config_out(cfg)
+
+
+@router.delete("/billing/config")
+async def disconnect_billing(request: Request, op: PlatformUser = Depends(current_platform_user),
+                             s: AsyncSession = Depends(get_session)):
+    """Forget the account's keys. Mirrored subscriptions and invoices stay, as the last known state."""
+    cfg = await platform_billing.config(s)
+    if cfg is None or not cfg.secret_key_enc:
+        raise HTTPException(409, "Platform billing is not connected.")
+    account = cfg.account_id
+    cfg.secret_key_enc = cfg.webhook_secret_enc = None
+    cfg.enabled = False
+    cfg.updated_by, cfg.updated_at = op.email, _now()
+    _record_platform(s, op, request, "billing.disconnected", account_id=account)
+    await s.commit()
+    return _config_out(cfg)
+
+
+def _subscription_out(row, cfg) -> dict | None:
+    if row is None:
+        return None
+    live = cfg.livemode if cfg else None
+    return {
+        "status": row.status, "customer_id": row.stripe_customer_id,
+        "subscription_id": row.stripe_subscription_id, "price_id": row.stripe_price_id,
+        "amount_cents": row.amount_cents, "currency": row.currency, "interval": row.interval,
+        "current_period_end": _iso(row.current_period_end), "trial_end": _iso(row.trial_end),
+        "cancel_at": _iso(row.cancel_at), "payment_method": row.default_payment_method,
+        "payment_method_exp": row.payment_method_exp, "collected_cents": row.collected_cents,
+        "billing_contact_email": row.billing_contact_email, "po_reference": row.po_reference,
+        "synced_at": _iso(row.synced_at), "monthly_cents": platform_billing.monthly_cents(row),
+        "customer_url": platform_billing.dashboard_url(f"customers/{row.stripe_customer_id}", live),
+        "subscription_url": (platform_billing.dashboard_url(f"subscriptions/{row.stripe_subscription_id}", live)
+                             if row.stripe_subscription_id else None),
+    }
+
+
+@router.get("/tenants/{slug}/billing")
+async def tenant_billing(slug: str, op: PlatformUser = Depends(current_platform_user),
+                         s: AsyncSession = Depends(get_session)):
+    """The Stripe mirror, read-only, beside the four fields Acumyn enforces. Prices appear here
+    because this is the operator's billing surface (C3); no tenant-facing response carries one."""
+    t = await _get(s, slug)
+    cfg = await platform_billing.config(s)
+    row = await s.get(PlatformSubscription, t.id)
+    invoices = (await s.execute(select(PlatformInvoice).where(PlatformInvoice.tenant_id == t.id)
+                                .order_by(PlatformInvoice.created_at.desc()).limit(24))).scalars().all()
+    tier = plans.plan_of(t)
+    list_cents = plans.PLANS[tier]["price_monthly"] * 100 if plans.PLANS[tier].get("price_monthly") is not None else None
+    sub = _subscription_out(row, cfg)
+    cfg_budget = (t.config or {}).get("ai_token_budget")
+    return {
+        "slug": t.slug, "billing": _config_out(cfg) | {"events": None},
+        "subscription": sub,
+        # C13: a workspace with no Stripe customer is not billed. Internal and not-yet-billed are the
+        # same fact until someone decides otherwise.
+        "billed": row is not None,
+        "invoices": [{"id": i.stripe_invoice_id, "number": i.number, "status": i.status,
+                      "amount_due_cents": i.amount_due_cents, "amount_paid_cents": i.amount_paid_cents,
+                      "attempt_count": i.attempt_count, "hosted_invoice_url": i.hosted_invoice_url,
+                      "created_at": _iso(i.created_at), "paid_at": _iso(i.paid_at)} for i in invoices],
+        "enforced": {
+            "plan": tier, "plan_set": (t.plan or "").strip().lower() in plans.PLANS,
+            "list_price_cents": list_cents,
+            "price_differs": bool(sub and sub["amount_cents"] is not None and list_cents is not None
+                                  and sub["interval"] == "month" and sub["amount_cents"] != list_cents),
+            "token_budget": fleet_health.token_budget_for(t),
+            "token_budget_own": cfg_budget is not None,
+            "token_budget_platform": settings.AI_EMPLOYEES_TOKEN_BUDGET or None,
+            "billing_contact_email": row.billing_contact_email if row else None,
+            "po_reference": row.po_reference if row else None,
+        },
+    }
+
+
+@router.patch("/tenants/{slug}/billing")
+async def patch_tenant_billing(slug: str, body: BillingPatch, request: Request,
+                               op: PlatformUser = Depends(current_platform_user),
+                               s: AsyncSession = Depends(get_session)):
+    """The four fields Acumyn owns. None of them calls Stripe: changing the plan changes what the
+    workspace can do on its next request, and does not change what Stripe charges."""
+    t = await _get(s, slug)
+    row = await s.get(PlatformSubscription, t.id)
+    if body.plan is not None:
+        plan = body.plan.strip().lower()
+        if plan not in plans.PLANS:
+            raise HTTPException(400, f"Unknown plan. Choose one of {', '.join(plans.ORDER)}.")
+        if plan != (t.plan or "").strip().lower():
+            _record(s, op, request, t, "billing.plan_changed", "tenant", t.id, category="Workspace",
+                    **{"from": t.plan, "to": plan})
+            t.plan = plan
+    if body.token_budget_default or body.token_budget is not None:
+        cfg = dict(t.config or {})
+        before = cfg.get("ai_token_budget")
+        if body.token_budget_default:
+            cfg.pop("ai_token_budget", None)
+        else:
+            if body.token_budget < 0:
+                raise HTTPException(400, "A token budget cannot be negative. Zero means unlimited.")
+            cfg["ai_token_budget"] = body.token_budget
+        if cfg.get("ai_token_budget") != before:
+            t.config = cfg
+            _record(s, op, request, t, "billing.budget_changed", "tenant", t.id, category="AI",
+                    **{"from": before, "to": cfg.get("ai_token_budget")})
+    for field in ("billing_contact_email", "po_reference"):
+        value = getattr(body, field)
+        if value is None:
+            continue
+        if row is None:
+            raise HTTPException(409, "This workspace has no Stripe customer, so there is nowhere to keep "
+                                     "a billing contact or PO. Create the customer first.")
+        value = value.strip()[:255 if field == "billing_contact_email" else 128] or None
+        if value != getattr(row, field):
+            setattr(row, field, value)
+            _record(s, op, request, t, f"billing.{'contact' if field.startswith('billing') else 'po'}_changed",
+                    "tenant", t.id, category="Workspace", to=value)
+    await s.commit()
+    return await tenant_billing(slug, op, s)
+
+
+async def _billing_key(s: AsyncSession) -> str:
+    try:
+        return await platform_billing.active_key(s)
+    except platform_billing.BillingUnavailable as e:
+        raise HTTPException(409, str(e))
+
+
+@router.post("/tenants/{slug}/billing/customer", status_code=201)
+async def create_billing_customer(slug: str, body: CustomerBody, request: Request,
+                                  op: PlatformUser = Depends(current_platform_user),
+                                  s: AsyncSession = Depends(get_session)):
+    """Create the Stripe customer and a subscription on the workspace's plan's price, found by its
+    lookup key. The subscription starts incomplete (or trialing), with an open invoice the customer
+    pays from Stripe's own page; no card is ever entered here."""
+    t = await _get(s, slug)
+    key = await _billing_key(s)
+    if await s.get(PlatformSubscription, t.id) is not None:
+        raise HTTPException(409, "This workspace already has a Stripe customer.")
+    owner = (await s.execute(select(User).where(User.tenant_id == t.id, User.role == "owner")
+                             .order_by(User.created_at))).scalars().first()
+    email = (body.email or (owner.email if owner else "")).strip().lower()
+    if "@" not in email:
+        raise HTTPException(400, "Give a billing email. The workspace has no owner to default to.")
+    tier = plans.plan_of(t)
+    lookup = platform_billing.LOOKUP_KEYS[tier]
+    try:
+        prices = await platform_billing.stripe(key, "GET", "/prices",
+                                               params=[("lookup_keys[]", lookup), ("active", "true")])
+        if not prices.get("data"):
+            raise HTTPException(409, f"Stripe has no active price with the lookup key {lookup}. Create it in "
+                                     "Stripe (see OPERATOR-CONSOLE.md) and try again.")
+        price = prices["data"][0]
+        meta = [("metadata[acumyn_tenant_id]", str(t.id)), ("metadata[acumyn_slug]", t.slug)]
+        customer = await platform_billing.stripe(key, "POST", "/customers",
+                                                 data=[("email", email), ("name", t.name), *meta])
+        sub_data = [("customer", customer["id"]), ("items[0][price]", price["id"]),
+                    ("payment_behavior", "default_incomplete"), ("collection_method", "charge_automatically"),
+                    ("expand[]", "latest_invoice"), *meta]
+        if body.trial_days:
+            sub_data.append(("trial_period_days", str(max(1, min(90, body.trial_days)))))
+        subscription = await platform_billing.stripe(key, "POST", "/subscriptions", data=sub_data)
+    except platform_billing.StripeError as e:
+        raise HTTPException(502, f"Stripe refused: {e}")
+    s.add(PlatformSubscription(tenant_id=t.id, stripe_customer_id=customer["id"],
+                               status=subscription.get("status") or "incomplete",
+                               billing_contact_email=email))
+    await s.flush()
+    await platform_billing.apply_subscription(s, subscription, _now())
+    latest = subscription.get("latest_invoice")
+    if isinstance(latest, dict):
+        latest.setdefault("metadata", {})["acumyn_tenant_id"] = str(t.id)
+        await platform_billing.apply_invoice(s, latest)
+    _record(s, op, request, t, "billing.customer_created", "subscription", subscription.get("id"),
+            category="Workspace", plan=tier, price=lookup)
+    await s.commit()
+    return await tenant_billing(slug, op, s)
+
+
+async def _open_invoice(s: AsyncSession, t: Tenant) -> PlatformInvoice | None:
+    return (await s.execute(select(PlatformInvoice).where(
+        PlatformInvoice.tenant_id == t.id, PlatformInvoice.status == "open")
+        .order_by(PlatformInvoice.created_at.desc()).limit(1))).scalar_one_or_none()
+
+
+@router.post("/tenants/{slug}/billing/payment-link")
+async def send_payment_link(slug: str, request: Request, bg: BackgroundTasks,
+                            op: PlatformUser = Depends(current_platform_user),
+                            s: AsyncSession = Depends(get_session)):
+    """Email the billing contact Stripe's own page for the open invoice, where they pay it or add a
+    payment method. The link is Stripe's, so no card detail ever passes through Acumyn."""
+    t = await _get(s, slug)
+    await _billing_key(s)
+    row = await s.get(PlatformSubscription, t.id)
+    if row is None:
+        raise HTTPException(409, "This workspace has no Stripe customer.")
+    invoice = await _open_invoice(s, t)
+    if invoice is None or not invoice.hosted_invoice_url:
+        raise HTTPException(409, "There is no open invoice to pay. Stripe raises one when a trial "
+                                 "converts or a period renews; sync from Stripe if you expected one.")
+    to = row.billing_contact_email
+    if not to:
+        raise HTTPException(409, "There is no billing contact to send it to. Set one first.")
+    _record(s, op, request, t, "billing.payment_link_sent", "invoice", invoice.stripe_invoice_id,
+            category="Workspace", to=to)
+    await s.commit()
+    bg.add_task(mailer.send, to, *mail_templates.payment_link(invoice.hosted_invoice_url, t.name,
+                                                               invoice.amount_due_cents, row.currency),
+                idempotency_key=f"paylink-{invoice.stripe_invoice_id}-{_ten_minutes()}")
+    return {"sent_to": to, "invoice": invoice.number or invoice.stripe_invoice_id}
+
+
+@router.post("/tenants/{slug}/billing/retry")
+async def retry_billing(slug: str, request: Request, op: PlatformUser = Depends(current_platform_user),
+                        s: AsyncSession = Depends(get_session)):
+    """Ask Stripe to try the open invoice again, against the payment method on file."""
+    t = await _get(s, slug)
+    key = await _billing_key(s)
+    invoice = await _open_invoice(s, t)
+    if invoice is None:
+        raise HTTPException(409, "There is no open invoice to retry.")
+    try:
+        paid = await platform_billing.stripe(key, "POST", f"/invoices/{invoice.stripe_invoice_id}/pay")
+    except platform_billing.StripeError as e:
+        _record(s, op, request, t, "billing.retry_failed", "invoice", invoice.stripe_invoice_id,
+                category="Workspace", error=str(e)[:300])
+        await s.commit()
+        raise HTTPException(402, f"Stripe could not collect it: {e}")
+    paid.setdefault("metadata", {})["acumyn_tenant_id"] = str(t.id)
+    await platform_billing.apply_invoice(s, paid)
+    _record(s, op, request, t, "billing.retried", "invoice", invoice.stripe_invoice_id,
+            category="Workspace", status=paid.get("status"))
+    await s.commit()
+    return {"status": paid.get("status")}
+
+
+@router.post("/tenants/{slug}/billing/sync")
+async def sync_billing(slug: str, op: PlatformUser = Depends(current_platform_user),
+                       s: AsyncSession = Depends(get_session)):
+    """Pull this workspace's subscription and invoices from Stripe now."""
+    t = await _get(s, slug)
+    key = await _billing_key(s)
+    try:
+        changed = await platform_billing.sync_tenant(s, t, key)
+    except platform_billing.StripeError as e:
+        raise HTTPException(502, f"Stripe refused: {e}")
+    body = await tenant_billing(slug, op, s)
+    return body | {"corrected": changed}
+
+
+@router.post("/webhooks/stripe")
+async def stripe_webhook(request: Request, s: AsyncSession = Depends(get_session)):
+    """Stripe's deliveries for Acumyn's own account. NOT operator-gated: Stripe is the caller, and
+    the signature is the authentication. Verified against the raw body before anything is parsed;
+    an unsigned or wrongly signed request is refused with nothing applied."""
+    cfg = await platform_billing.config(s)
+    payload = await request.body()
+    secret = dec(cfg.webhook_secret_enc) if cfg and cfg.webhook_secret_enc else ""
+    if not platform_billing.verify_signature(payload, request.headers.get("stripe-signature"), secret):
+        raise HTTPException(400, "Invalid signature")
+    try:
+        event = json.loads(payload)
+    except ValueError:
+        raise HTTPException(400, "Invalid payload")
+    outcome = await platform_billing.handle_event(s, event)
+    return {"received": True, "outcome": outcome}

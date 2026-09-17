@@ -93,6 +93,21 @@ def connect_first_source(url: str, workspace: str):
             f"system from Settings, Integrations:\n\n{url}\n\n{_SUPPORT_FOOT}")
 
 
+def payment_link(url: str, workspace: str, amount_cents: int | None, currency: str | None = "usd"):
+    """Stripe's own hosted page for an open invoice. The link is Stripe's, so paying never passes a
+    card detail through Acumyn."""
+    ws = _esc(workspace)
+    amount = (f"${amount_cents / 100:,.2f}" if (currency or "usd").lower() == "usd" and amount_cents is not None
+              else "the amount due")
+    body = (f"<p>There is an unpaid invoice for {amount} for the <strong>{ws}</strong> workspace on "
+            "Acumyn.</p><p>Stripe's page below lets you pay it or update the payment method on file.</p>")
+    foot = "Payments are handled by Stripe. Acumyn never sees your card details."
+    return (f"Your Acumyn invoice for {workspace}",
+            _WRAP.format(body=body, url=url, cta="Pay the invoice", footer=foot),
+            f"There is an unpaid invoice for {amount} for {workspace} on Acumyn. Pay it or update "
+            f"the payment method on Stripe's page:\n\n{url}\n\n{foot}")
+
+
 # The finder's footer. Nothing about the account in it: the reader may not be the person who
 # typed the address, and "you have an account" is exactly what the page refused to say.
 _FINDER_FOOT = ("Someone entered this address to find its Acumyn workspaces. If that wasn't you, "

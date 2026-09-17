@@ -31,7 +31,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import AuditLog, Business, Integration, ShareLink, SyncRun, Tenant, User
+from ..models import (AuditLog, Business, Integration, PlatformSubscription, ShareLink, SyncRun,
+                      Tenant, User)
 
 RANK = {"broken": 0, "stalled": 1, "watch": 2, "trial": 3, "healthy": 4, "suspended": 5}
 
@@ -424,6 +425,11 @@ async def gather(s: AsyncSession, tenant: Tenant, now: dt.datetime | None = None
         sources=sources, people=people, share_links_live=int(live_links) - int(expired_links),
         tokens_used=int(tokens or 0), token_budget=token_budget_for(tenant),
         syncs_frozen=bool((tenant.config or {}).get("syncs_frozen")))
+
+    # C11: a trial is Stripe's `trialing`, read from the mirror; no column on the tenant says so.
+    sub = await s.get(PlatformSubscription, tenant.id)
+    if sub is not None:
+        facts.subscription = {"status": sub.status, "trial_end": sub.trial_end}
 
     # Who suspended or froze it, when and why, from the audit row the action wrote. The state lives
     # on the tenant; the reason for it lives in the trail, where it cannot drift from what happened.

@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { ago, plural } from "../format.js";
 import { Btn, Card, Chip, Empty, Loading, LoadError, Mono, Row, Stat, useApi } from "../primitives.jsx";
 import { A, TYPE } from "../tokens.js";
+import BillingSetupCard from "./BillingSetupCard.jsx";
 
 /* Service states map onto the console's severity vocabulary, so a check reads the same here as a
    broken source does on the fleet list. */
@@ -85,6 +86,8 @@ export default function SystemView() {
         </Card>
         <FlagsCard />
       </div>
+
+      <div style={{ marginBottom: 16 }}><BillingSetupCard /></div>
 
       <Card title="Scheduled jobs" pad={0}
         sub={worker.runs_in_api ? "The API process runs the scheduler (RUN_WORKER_IN_API)." : "The scheduler runs in a separate worker process, not in the API."}>
