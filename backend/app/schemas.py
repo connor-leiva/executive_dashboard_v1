@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 # ── auth ──────────────────────────────────────────────────────────
@@ -68,6 +68,28 @@ class ForgotPasswordRequest(BaseModel):
     """Self-service reset. Only an address — the response never varies on what is behind
     it, so there is nothing else the caller could usefully send."""
     email: str
+
+
+class FindWorkspaceRequest(BaseModel):
+    """The workspace finder (auth.find_workspace). Normalised HERE, so the lookup and the email
+    it triggers use exactly one spelling of the address.
+
+    A shape check rather than pydantic's EmailStr, which needs the email-validator package this
+    project does not install. Refusing an address with no domain costs nothing in secrecy — the
+    422 depends on how it is typed, never on whether anybody has it — and it keeps a typo from
+    being sent an email Resend will only bounce.
+    """
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def _an_address(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        local, _, domain = v.rpartition("@")
+        if (not local or "." not in domain.strip(".") or len(v) > 320
+                or any(ch.isspace() for ch in v)):
+            raise ValueError("Enter a complete email address.")
+        return v
 
 
 class InviteRequest(BaseModel):

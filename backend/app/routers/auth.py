@@ -11,8 +11,8 @@ from ..db import get_session
 from ..deps import current_user
 from ..models import IntranetWorkspace, Tenant, User
 from ..schemas import (LoginRequest, LoginResponse, MeResponse, ChangePasswordRequest,
-                       AcceptInviteRequest, ForgotPasswordRequest, ResetPasswordRequest,
-                       ActionLinkRequest, ActionLinkInfo)
+                       AcceptInviteRequest, FindWorkspaceRequest, ForgotPasswordRequest,
+                       ResetPasswordRequest, ActionLinkRequest, ActionLinkInfo)
 from ..config import settings
 from ..security import (verify_pw, make_token, hash_pw, hash_action_token, new_action_token,
                         make_capability, read_capability,
@@ -21,8 +21,8 @@ from .. import plans
 from ..services.audit import audit
 from ..services import binder_storage, google_auth, mail_templates, mailer, roles, roster
 from ..services.tabs import tenant_tabs, tenant_tab_descriptors, effective_tabs
-from ..services.users import INVITE_DAYS, RESET_HOURS, link_base
-from ..tenancy import current_tenant_id, tenant_app_url
+from ..services.users import INVITE_DAYS, RESET_HOURS, link_base, primary_host
+from ..tenancy import current_tenant_id, tenant_app_url, url_scheme
 
 router = APIRouter(tags=["auth"])
 
@@ -523,3 +523,57 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request, bg: Bac
     # is already saved, so an outage that propagated would report failure for a link that works.
     bg.add_task(mailer.send, user.email, *template)
     return ok
+
+
+async def _workspace_origin(s, tenant_id) -> str:
+    """Where a workspace is signed in to: its primary domain row, any row, or else its platform
+    subdomain, which the wildcard resolves by slug.
+
+    Deliberately not tenant_app_url, whose last resort is APP_PUBLIC_URL — and in production that
+    is the finder itself, so a workspace with no row would be answered with a link back to the
+    form that asked. For every workspace that HAS a row the two agree; they read the same order.
+    """
+    host = await primary_host(s, tenant_id)
+    return f"{url_scheme(host)}://{host}"
+
+
+@router.post("/auth/find-workspace")
+async def find_workspace(body: FindWorkspaceRequest, bg: BackgroundTasks,
+                         s: AsyncSession = Depends(get_session)):
+    """Email someone the list of workspaces their address can sign in to.
+
+    NO TENANT. This is reached at app.PLATFORM_DOMAIN, which resolves to no tenant by design
+    (tenancy.WILDCARD_RESERVED), so current_tenant_id() would 400 the whole request.
+
+    THE RESPONSE NEVER VARIES — same shape, same status, whether the address is in six
+    workspaces or none, and the send happens in a BackgroundTask so it does not vary in TIME
+    either. The answer goes to the mailbox, which is the only place it is safe: a page that
+    rendered the workspace list would be a customer-list enumeration form on the open internet.
+    Same reasoning as forgot_password, one level up.
+
+    An address with no workspaces still gets an email saying so. It costs nothing, it goes only
+    to somebody who already controls that mailbox, and the alternative is a person staring at a
+    page wondering whether the mail is slow.
+
+    Listed: any account that is not disabled, in any workspace that is not suspended — the two
+    refusals login makes. `invited` is listed on purpose: an invited person can sign in with
+    Google, or finish the invite, from that workspace's own page.
+    """
+    email = body.email                      # normalised by FindWorkspaceRequest
+    rows = (await s.execute(
+        select(User, Tenant).join(Tenant, Tenant.id == User.tenant_id)
+        .where(User.email == email, User.status != "disabled", Tenant.status != "suspended")
+    )).all()
+
+    workspaces = []
+    for user, tenant in rows:
+        workspaces.append((tenant.name, await _workspace_origin(s, tenant.id)))
+        # One row per workspace touched, so a lookup is visible from inside each of them.
+        audit(s, tenant.id, user.id, "auth.find_workspace", "user", user.id, {"result": "sent"})
+    await s.commit()
+
+    workspaces.sort(key=lambda w: (w[0].lower(), w[1]))
+    template = (mail_templates.workspace_list(workspaces) if workspaces
+                else mail_templates.no_workspace(email))
+    bg.add_task(mailer.send, email, *template)
+    return {"ok": True}

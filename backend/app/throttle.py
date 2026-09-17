@@ -43,7 +43,16 @@ RULES: dict[str, tuple[int, int]] = {
     "link_info": (40, 300),
     "ingest": (60, 60),        # the email provider's webhook — legitimate bursts are possible
     "platform_login": (10, 300),
+    # Tighter than login on purpose: a person looks up their own workspace once, and every
+    # lookup sends an email to whatever address was typed.
+    "find_workspace": (5, 300),
 }
+
+# Rules budgeted per ADDRESS alone. Everything else also keys on the tenant host, so one realm
+# cannot spend another's allowance — but that host is whatever the caller writes in
+# X-Tenant-Host, and for a route that serves no realm it partitions nothing. It would only be a
+# reset: a made-up host per request, a fresh budget per request.
+HOST_BLIND = frozenset({"find_workspace"})
 
 # path prefix -> rule name. Checked longest-first so a more specific prefix wins.
 PATHS: dict[str, str] = {
@@ -55,6 +64,7 @@ PATHS: dict[str, str] = {
     # The operator login is the most valuable credential on the platform, so it gets the
     # tightest budget of the three — there is exactly one legitimate user of it.
     "/api/v1/platform/login": "platform_login",
+    "/api/v1/auth/find-workspace": "find_workspace",
 }
 
 _hits: dict[tuple[str, str, str], deque] = {}
@@ -119,7 +129,8 @@ async def enforce(request: Request) -> None:
         return
     from .tenancy import request_tenant_host
 
-    retry = check(rule, client_ip(request), request_tenant_host(request))
+    host = "" if rule in HOST_BLIND else request_tenant_host(request)
+    retry = check(rule, client_ip(request), host)
     if retry is None:
         return
     # 429 with Retry-After, and a message that says what happened without confirming anything
