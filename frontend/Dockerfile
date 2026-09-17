@@ -17,4 +17,5 @@ COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/dist/dashboard /srv/dashboard
 COPY --from=build /app/dist/intranet /srv/intranet
 COPY --from=build /app/dist/console /srv/console
+COPY --from=build /app/dist/marketing /srv/marketing
 EXPOSE 3000

@@ -7,14 +7,17 @@
     "dev": "vite",
     "dev:intranet": "vite --config vite.intranet.config.js",
     "dev:console": "vite --config vite.console.config.js",
+    "dev:marketing": "vite --config vite.marketing.config.js",
     "build": "npm run build:dashboard && npm run build:intranet",
     "build:dashboard": "vite build --outDir dist/dashboard",
     "build:intranet": "vite build --config vite.intranet.config.js",
     "build:console": "vite build --config vite.console.config.js",
-    "build:all": "npm run build:dashboard && npm run build:intranet && npm run build:console",
+    "build:marketing": "vite build --config vite.marketing.config.js",
+    "build:all": "npm run build:dashboard && npm run build:intranet && npm run build:console && npm run build:marketing",
     "preview": "vite preview --outDir dist/dashboard",
     "preview:intranet": "vite preview --config vite.intranet.config.js",
-    "preview:console": "vite preview --config vite.console.config.js"
+    "preview:console": "vite preview --config vite.console.config.js",
+    "preview:marketing": "vite preview --config vite.marketing.config.js"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.102.8",

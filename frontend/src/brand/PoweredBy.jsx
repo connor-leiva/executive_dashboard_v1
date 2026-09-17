@@ -37,7 +37,10 @@ export function PoweredByAcumyn({ tone = "dark", align = "center", style }) {
         fontFamily: TYPE.text, fontSize: 11, fontWeight: 500, letterSpacing: ".04em",
         color: labelColor,
       }}>Powered by</span>
-      <a href="https://acumyn.io" target="_blank" rel="noopener noreferrer"
+      {/* www, not the apex: www is the host that serves the marketing site today, and after the
+          apex goes live it 308s there — so this link works on both sides of that cutover, where
+          the bare apex (still parked at the registrar) works on only one. See frontend/Caddyfile. */}
+      <a href="https://www.acumyn.io" target="_blank" rel="noopener noreferrer"
          aria-label="Powered by Acumyn"
          style={{ display: "inline-flex", alignItems: "center", gap: 5, textDecoration: "none" }}>
         {/* No `color` override: the guide's primary treatment is two-tone (Cadet blades, Ink

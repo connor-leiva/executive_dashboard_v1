@@ -1,6 +1,40 @@
 :{$PORT:3000} {
   encode zstd gzip
 
+  # ACUMYN'S OWN HOSTS FIRST. Every other host that reaches this service is a workspace
+  # ({slug}.acumyn.io, or a customer's own domain), and the catch-all `handle` at the bottom
+  # serves it the dashboard. These are pulled out ahead of it.
+  #
+  #   MARKETING_HOST      serves the marketing site
+  #   MARKETING_ALT_HOST  308s to MARKETING_HOST — one canonical host, not two copies
+  #   FRONTDOOR_HOST      serves the same bundle, which renders the workspace finder there
+  #
+  # WHY www IS THE DEFAULT, NOT THE APEX. acumyn.io's DNS is at GoDaddy, and GoDaddy cannot point
+  # a root domain at Railway (no ALIAS, ANAME or CNAME flattening; Railway's own domain docs list
+  # it as unsupported). So today only www can reach this service, and an apex-first default would
+  # redirect www to a host that does not serve the site. Once the apex is live here (nameservers
+  # moved to Cloudflare, `acumyn.io` added on this service), swap the two on the web service:
+  #   MARKETING_HOST=acumyn.io  MARKETING_ALT_HOST=www.acumyn.io
+  # No rebuild needed beyond the redeploy Railway does for a variable change.
+  #
+  # These are env placeholders rather than PLATFORM_DOMAIN because Caddy cannot read a Vite build
+  # arg, and a wrong value must never be able to serve the dashboard's sign-in at a platform host.
+  #
+  # ORDER, checked with `caddy adapt` (2.8.4) rather than assumed: this host handle stays ahead of
+  # the /intranet/* and /console/* handles below, so these hosts serve only this bundle, and the
+  # dashboard's catch-all still sorts last. Verified by request, not just by parse: www and app
+  # serve this site, the alt host 308s with path and query intact, and a workspace host still
+  # gets its dashboard, /intranet/ and /console/ — with both the default and the swapped hosts.
+  @marketing_alt host {$MARKETING_ALT_HOST:acumyn.io}
+  redir @marketing_alt https://{$MARKETING_HOST:www.acumyn.io}{uri} 308
+
+  @marketing host {$MARKETING_HOST:www.acumyn.io} {$FRONTDOOR_HOST:app.acumyn.io}
+  handle @marketing {
+    root * /srv/marketing
+    try_files {path} /index.html
+    file_server
+  }
+
   redir /intranet /intranet/ 308
 
   handle_path /intranet/* {

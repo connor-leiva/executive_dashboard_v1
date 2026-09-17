@@ -252,15 +252,62 @@ by itself the moment a second tenant exists — so a missing row is not cosmetic
 lockout waiting for the next customer. `SINGLE_TENANT_FALLBACK=false` turns it off earlier.
 
 `admin.`, `api.`, `auth.`, `static.` and `assets.` under `PLATFORM_DOMAIN` belong to the
-platform and never resolve to a tenant; `--add` refuses them.
+platform and never resolve to a tenant; `--add` refuses them. So does the bare apex
+(`acumyn.io`): it is the marketing site, and as a primary row it would send every invite, reset
+and share link there.
 
-`www.`, `app.` and `staging.` are different: no tenant can claim one by its SLUG, but you can
-point one at a tenant deliberately with `--add`, and you should. `www` was briefly in the list
-above, which took production down — www.acumyn.io is the host the dashboard is actually served
-from, so every API call failed tenant resolution before it reached authentication.
+`www.`, `app.` and `staging.` are different: no tenant can claim one by its SLUG, but an operator
+can point one at a tenant with `--add`, so the resolver cannot hard-refuse them. (`www` was once
+in the hard-refused list above, and that took production down while the dashboard was served
+from www.acumyn.io.) **Do not add rows for `www.acumyn.io` or `app.acumyn.io` any more** — they
+are Acumyn's own hosts now, and Caddy serves the marketing site and the workspace finder there
+whatever the API resolves.
 
 **A tenant needs a row for the host it is really served from, even while the fallback is open.**
 The fallback makes a missing row invisible: everything works, right up until you provision a
 second tenant, at which point it closes and the incumbent's front door stops resolving. So the
 row is not optional bookkeeping — it is what stops onboarding your next customer from taking
 your current one offline.
+
+## Acumyn's own hosts (marketing site and workspace finder)
+
+Everything under `*.acumyn.io` reaches the `web` service through one wildcard record, and Caddy
+decides what each host gets (`frontend/Caddyfile`):
+
+| Host | Serves |
+|---|---|
+| `{slug}.acumyn.io`, a customer's own domain | the dashboard (the catch-all) |
+| `MARKETING_HOST` (default `www.acumyn.io`) | the marketing site: `/`, `/features`, `/about`, `/pricing`, `/privacy`, `/terms` |
+| `MARKETING_ALT_HOST` (default `acumyn.io`) | a 308 to `MARKETING_HOST` |
+| `FRONTDOOR_HOST` (default `app.acumyn.io`) | the workspace finder, which emails someone the address of every workspace they belong to |
+
+The three are env variables on the **`web`** service, and they are the only place those hostnames
+are written down. The marketing site and the finder are one Vite entry (`npm run build:marketing`,
+`frontend/marketing/`) that renders the finder when the host starts with `app.`.
+
+**Why www is the default and not the apex.** The apex cannot reach Railway while `acumyn.io`'s DNS
+is at GoDaddy: a root domain needs CNAME flattening or an ALIAS/ANAME record, GoDaddy offers
+neither, and Railway's domain docs list GoDaddy as unsupported. The apex's two A records are
+GoDaddy forwarding. To make the apex canonical:
+
+1. Move the domain's nameservers to Cloudflare (free). Recreate every existing record first,
+   exactly: the `*` CNAME and `_acme-challenge` CNAME (proxy **off** on both, or the wildcard
+   certificate cannot renew), `www`, `api`, `_railway-verify` TXT, Resend's records under
+   `mail.acumyn.io`, and `_dmarc`.
+2. Railway → `web` → add `acumyn.io` as a custom domain, and point the apex at the target it gives
+   (a flattened CNAME in Cloudflare). Delete the two GoDaddy forwarding A records.
+3. On `web`, swap the hosts: `MARKETING_HOST=acumyn.io`, `MARKETING_ALT_HOST=www.acumyn.io`.
+   www then 308s to the apex. Nothing in the frontend links to the bare apex, so nothing breaks
+   before this step.
+
+**Never add a `domain` row for the apex, www or app.** See above.
+
+**`APP_PUBLIC_URL` on `api` belongs on the finder:** `https://app.acumyn.io`. It is where a Google
+sign-in lands when it fails before its workspace is known (cancelled, or an expired attempt), and
+the finder reads `?google_error=`. Nothing else uses it: workspace links are built from that
+workspace's own domain row. Set it once the finder is deployed.
+
+**The finder's email goes to whatever address is typed**, including one on no workspace (it says
+so). It is limited to 5 lookups per IP address in 5 minutes (`throttle.py`, `find_workspace`), and
+every match writes an `auth.find_workspace` audit row in the workspace it matched.
+

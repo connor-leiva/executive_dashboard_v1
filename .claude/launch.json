@@ -102,6 +102,22 @@
       ],
       "port": 4182,
       "url": "http://localhost:4182"
+    },
+    {
+      "name": "marketing-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "preview:marketing",
+        "--",
+        "--port",
+        "4176",
+        "--host"
+      ],
+      "port": 4176,
+      "url": "http://localhost:4176"
     }
   ]
 }
