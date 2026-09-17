@@ -17,6 +17,13 @@
  * non-negotiable, and deriving them means they cannot drift.
  */
 
+/* Acumyn's own site, for any link from inside a workspace to Acumyn itself: "Powered by", the
+   Privacy Policy and Terms. A constant rather than derived from the page's host, because a
+   workspace may be served from its own domain, which says nothing about Acumyn's. www rather than
+   the apex: www serves the site today and redirects to the apex once that is live
+   (frontend/Caddyfile), so a link built from this is right on both sides of that cutover. */
+export const ACUMYN_SITE = "https://www.acumyn.io";
+
 const ART = 64;
 const C = ART / 2;
 const BLADE_RADIUS = 22;

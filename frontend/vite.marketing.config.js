@@ -9,9 +9,9 @@ import react from "@vitejs/plugin-react";
 // "/marketing/" would break every internal link.
 //
 // publicDir FALSE, like the intranet and console. frontend/public is the DASHBOARD's: it holds
-// Spring's privacy policy, EULA and brand photographs, and copying it here would publish another
-// company's documents on Acumyn's own domain. What this site needs — its plates, its one photo,
-// the favicons — is imported or referenced from index.html, so Vite bundles exactly that.
+// Spring's brand photographs among the dashboard's assets, and copying it here would publish
+// another company's images on Acumyn's own domain. What this site needs — its plates, its one
+// photo, the favicons — is imported or referenced from index.html, so Vite bundles exactly that.
 export default defineConfig({
   root: "marketing",
   base: "/",

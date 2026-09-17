@@ -17,7 +17,7 @@
  * most: those are opened by a customer's own clients, who have no other reason to encounter the
  * platform, and they are the widest audience the product has.
  */
-import { AcumynMark, TYPE } from "./acumyn.jsx";
+import { ACUMYN_SITE, AcumynMark, TYPE } from "./acumyn.jsx";
 
 /**
  * tone "dark"  — for light grounds: the primary two-tone mark, Ink wordmark.
@@ -37,10 +37,7 @@ export function PoweredByAcumyn({ tone = "dark", align = "center", style }) {
         fontFamily: TYPE.text, fontSize: 11, fontWeight: 500, letterSpacing: ".04em",
         color: labelColor,
       }}>Powered by</span>
-      {/* www, not the apex: www is the host that serves the marketing site today, and after the
-          apex goes live it 308s there — so this link works on both sides of that cutover, where
-          the bare apex (still parked at the registrar) works on only one. See frontend/Caddyfile. */}
-      <a href="https://www.acumyn.io" target="_blank" rel="noopener noreferrer"
+      <a href={ACUMYN_SITE} target="_blank" rel="noopener noreferrer"
          aria-label="Powered by Acumyn"
          style={{ display: "inline-flex", alignItems: "center", gap: 5, textDecoration: "none" }}>
         {/* No `color` override: the guide's primary treatment is two-tone (Cadet blades, Ink

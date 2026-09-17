@@ -5,8 +5,8 @@ import { body, h1Type, label, Section, displayType } from "../ui.jsx";
 
 /* /privacy and /terms — Acumyn's own documents.
  *
- * frontend/public/privacy.html and eula.html are SPRING COMMAND CENTER's, with Spring's palette
- * and unfilled blanks. These replace them on Acumyn's hosts, and they are what Google's OAuth
+ * These replaced Spring Command Center's privacy.html and eula.html, which every host used to
+ * serve with Spring's name and unfilled blanks. They are what Google's OAuth
  * verification and a customer's security review will read — so the text lives in legal.js, is
  * written only from what the code does, and every fact that only the company can supply renders
  * as a visible blank until it is filled in, with a draft notice above it. A policy that looks

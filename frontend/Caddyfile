@@ -28,6 +28,12 @@
   @marketing_alt host {$MARKETING_ALT_HOST:acumyn.io}
   redir @marketing_alt https://{$MARKETING_HOST:www.acumyn.io}{uri} 308
 
+  # Every host used to serve Spring Command Center's privacy.html and eula.html. They are gone,
+  # and anything outside this repo that still links them (an app listing, a bookmark) lands on
+  # Acumyn's own documents instead of on a sign-in page.
+  redir /privacy.html https://{$MARKETING_HOST:www.acumyn.io}/privacy 308
+  redir /eula.html https://{$MARKETING_HOST:www.acumyn.io}/terms 308
+
   @marketing host {$MARKETING_HOST:www.acumyn.io} {$FRONTDOOR_HOST:app.acumyn.io}
   handle @marketing {
     root * /srv/marketing

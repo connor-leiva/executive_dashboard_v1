@@ -70,7 +70,7 @@ export const alpha = (hex, a) => {
  * They are IMPORTED from ./assets rather than served from frontend/public, for two reasons.
  * Only what a page imports is bundled, so none of it rides along in the dashboard's build. And
  * this entry needs no public directory at all — which matters, because frontend/public holds
- * Spring's privacy policy, EULA and /brand/photos (a different company, a different product,
+ * Spring's /brand/photos and other dashboard assets (a different company, a different product,
  * and one identifiable person). Nothing in it may appear on an Acumyn surface.
  *
  * PHOTO is the slot for real photography when it exists. It fixes the aspect ratio, applies

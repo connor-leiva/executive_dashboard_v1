@@ -24,6 +24,7 @@ import { getJSON, API_BASE } from "../api.js";
 import { applyBrand } from "../palette.js";
 import { BrandSignature, setBrand, ribbedHero } from "../Brand.jsx";
 import { PoweredByAcumyn } from "../brand/PoweredBy.jsx";
+import { ACUMYN_SITE } from "../brand/acumyn.jsx";
 
 const FONT = "var(--font-text)";
 const HEAD = "var(--font-display)";
@@ -151,9 +152,15 @@ export function AuthShell({ chrome, title, sub, back, above, children, overlay }
           position: "absolute", left: 0, right: 0, bottom: 34, display: "flex",
           justifyContent: "center", gap: 16, fontFamily: FONT, fontSize: 12.5, color: T.muted,
         }}>
-          <a href="/privacy.html" style={{ color: T.muted, textDecoration: "none" }}>Privacy Policy</a>
+          {/* Acumyn's documents, which cover every workspace it hosts. These pointed at
+              /privacy.html and /eula.html, which were Spring Command Center's, with its name and
+              unfilled blanks, on every workspace's sign-in page. A new tab, so opening one never
+              costs somebody the password they were typing. */}
+          <a href={`${ACUMYN_SITE}/privacy`} target="_blank" rel="noopener noreferrer"
+             style={{ color: T.muted, textDecoration: "none" }}>Privacy Policy</a>
           <span aria-hidden>·</span>
-          <a href="/eula.html" style={{ color: T.muted, textDecoration: "none" }}>Terms</a>
+          <a href={`${ACUMYN_SITE}/terms`} target="_blank" rel="noopener noreferrer"
+             style={{ color: T.muted, textDecoration: "none" }}>Terms</a>
         </div>
         {overlay}
       </div>
