@@ -1,57 +1,11 @@
 import React, { useMemo, useState } from "react";
 import { api } from "../api.js";
-import { ago, titleCase } from "../format.js";
+import { ago } from "../format.js";
+import { describe, target } from "../phrases.js";
 import { Card, Chip, Empty, Loading, LoadError, Mono, Seg, useApi } from "../primitives.jsx";
 import { A, TYPE } from "../tokens.js";
 
 const KIND = { user: "Their team", acumyn: "Acumyn", system: "System" };
-
-/* The actions worth a sentence. Anything else falls back to the entry's own summary, then to its
-   action name made readable, so an action added later still shows up as something. */
-const PHRASES = {
-  "tenant.created": "Created the workspace",
-  "tenant.suspended": "Suspended the workspace",
-  "tenant.resumed": "Resumed the workspace",
-  "tenant.invite_resent": "Reissued the owner's invite",
-  "auth.login": "Signed in",
-  "auth.login_failed": "Failed sign-in",
-  "auth.login_blocked": "Sign-in refused",
-  "auth.google_denied": "Google sign-in refused",
-  "auth.forgot_password": "Asked for a password reset",
-  "auth.password_reset": "Reset a password",
-  "auth.find_workspace": "Looked up their workspaces",
-  "user.invited": "Invited a person",
-  "user.reinvited": "Resent an invite",
-  "user.accepted_invite": "Accepted an invite",
-  "user.role_changed": "Changed a role",
-  "user.disabled": "Disabled a person",
-  "user.enabled": "Re-enabled a person",
-  "user.reset_link": "Sent a password reset link",
-  "totp.enabled": "Turned on two-factor",
-  "totp.disabled": "Turned off two-factor",
-  "step_up.granted": "Unlocked a protected section",
-  "step_up.failed": "Failed a second-factor check",
-  "integration.connected": "Connected a source",
-  "integration.disconnected": "Disconnected a source",
-  "access.member.activated": "Became active on the roster",
-};
-
-function describe(e) {
-  if (PHRASES[e.action]) return PHRASES[e.action];
-  if (e.summary) return e.summary;
-  return titleCase(e.action);
-}
-
-function target(e) {
-  const d = e.detail || {};
-  const bits = [];
-  if (d.reason) bits.push(`Reason: ${d.reason}`);
-  if (d.plan) bits.push(`plan ${d.plan}`);
-  if (d.email) bits.push(d.email);
-  if (d.provider) bits.push(d.provider);
-  if (!bits.length && e.target_type) bits.push(e.target_type);
-  return bits.join(" · ");
-}
 
 /* Machine events collapse. Consecutive events of the same kind, by the same actor, doing the same
    thing become one line with a count, so a run of identical rows can never bury the one human

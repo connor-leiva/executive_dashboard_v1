@@ -44,6 +44,13 @@ export function compact(n) {
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** "a", "a and b", "a, b and c": the people an email went to, in a sentence. */
+export function joinAnd(items) {
+  const list = (items || []).filter(Boolean);
+  if (list.length <= 1) return list[0] || "";
+  return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+}
+
 export function titleCase(s) {
   return String(s || "")
     .replace(/[._-]+/g, " ")

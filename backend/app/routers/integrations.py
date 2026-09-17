@@ -10,7 +10,7 @@ from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db import get_session, SessionLocal
+from ..db import get_session
 from .. import plans
 from ..deps import current_user, require_role
 from ..models import (User, Integration, Business, SyncRun, MetricRecord, Tenant,
@@ -19,9 +19,7 @@ from ..services.audit import audit
 from ..security import enc, dec, make_capability, read_capability
 from ..tenancy import tenant_app_url
 from ..integrations import qbo, stripe_legacy
-from ..services import legacy_export, roles
-from ..services.sync import run_all, run_one
-from ..services.metrics import _period_range
+from ..services import legacy_export, roles, sync_jobs
 from ..services.integrations_view import build_integrations_view
 from ..schemas import IntegrationsOut
 
@@ -92,32 +90,28 @@ async def qbo_callback(
 
 
 # ── manual refresh (async via BackgroundTasks) ────────────────────
-async def _run_all_job(tenant_id, run_id, period):
-    async with SessionLocal() as s:
-        start, end = _period_range(period)
-        run = (await s.execute(select(SyncRun).where(SyncRun.id == run_id))).scalar_one()
-        try:
-            await run_all(s, tenant_id, start.isoformat(), end.isoformat())
-            run.status, run.finished_at = "ok", dt.datetime.utcnow()
-        except Exception as e:  # noqa: BLE001
-            run.status, run.detail, run.finished_at = "error", str(e), dt.datetime.utcnow()
-        await s.commit()
+# The jobs live in services/sync_jobs.py, because the operator console's Sync buttons run them too.
+FROZEN = ("Syncing is paused for this workspace by Acumyn support, so nothing can be pulled right "
+          "now. Contact Acumyn support to resume it.")
 
 
-async def _run_one_job(tenant_id, integ_id, period):
-    async with SessionLocal() as s:
-        start, end = _period_range(period)
-        await run_one(s, tenant_id, integ_id, start.isoformat(), end.isoformat())
+async def _refuse_if_frozen(s: AsyncSession, tenant_id) -> None:
+    """An operator froze this workspace's syncs, usually because a credential may be compromised.
+    The Sync buttons here would otherwise use that credential anyway."""
+    tenant = await s.get(Tenant, tenant_id)
+    if tenant is not None and sync_jobs.syncs_frozen(tenant.config):
+        raise HTTPException(409, FROZEN)
 
 
 @router.post("/sync/all")
 async def sync_all(bg: BackgroundTasks, period: str = Query("mtd"),
                    user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):
     """Refresh every source. Returns immediately; poll GET /sync/status/{job_id}."""
+    await _refuse_if_frozen(s, user.tenant_id)
     run = SyncRun(tenant_id=user.tenant_id, provider="all", status="running")
     s.add(run)
     await s.commit()
-    bg.add_task(_run_all_job, user.tenant_id, run.id, period)
+    bg.add_task(sync_jobs.run_all_job, user.tenant_id, run.id, period)
     return {"job_id": str(run.id)}
 
 
@@ -140,7 +134,8 @@ async def sync_one(integ_id: uuid.UUID, bg: BackgroundTasks, period: str = Query
         Integration.id == integ_id, Integration.tenant_id == user.tenant_id))).scalar_one_or_none()
     if not integ:
         raise HTTPException(404, "Unknown integration")
-    bg.add_task(_run_one_job, user.tenant_id, integ_id, period)
+    await _refuse_if_frozen(s, user.tenant_id)
+    bg.add_task(sync_jobs.run_one_job, user.tenant_id, integ_id, period)
     return {"ok": True}
 
 

@@ -42,7 +42,8 @@ async def tick():
 
 
 async def syncable_tenant_ids(s) -> list:
-    """Every workspace the scheduled sync should pull for.
+    """Every workspace the scheduled jobs should pull for, or send to a provider for: the sync tick,
+    the daily Sisu roster and the ads funnel.
 
     Not a suspended one: the operator console tells an operator that suspending "stops all
     scheduled syncs", and until this existed the tick iterated every tenant regardless, so a
@@ -61,7 +62,7 @@ async def roster_tick():
     A no-op when Sisu isn't configured (fetches just fail and leave the roster as-is)."""
     from .services.sync import sync_agent_offices
     async with SessionLocal() as s:
-        tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
+        tenant_ids = await syncable_tenant_ids(s)            # a Sisu pull, so not while paused
     for tid in tenant_ids:
         try:
             async with SessionLocal() as s2:
@@ -205,7 +206,7 @@ async def ads_funnel_tick():
     """
     from .services.ads_funnel import sync_ad_attribution, sync_ad_conversions
     async with SessionLocal() as s:
-        tenant_ids = (await s.execute(select(Tenant.id))).scalars().all()
+        tenant_ids = await syncable_tenant_ids(s)            # sends conversions, so not while paused
     for tid in tenant_ids:
         try:
             async with SessionLocal() as s:

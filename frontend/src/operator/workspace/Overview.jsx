@@ -1,31 +1,49 @@
 import React, { useState } from "react";
-import { labelFor, perform } from "../actions.js";
+import { api } from "../api.js";
+import { confirmFor, labelFor, perform } from "../actions.js";
 import { ago, compact, daysSince, pct, plural } from "../format.js";
 import { healthOf } from "../health.js";
-import { Btn, Card, Chip, Eyebrow, Mono, Notice, Row, Stat } from "../primitives.jsx";
+import { Btn, Card, Chip, Confirm, Eyebrow, Mono, Notice, Row, Stat } from "../primitives.jsx";
 import { planName } from "../reference.js";
 import { A, STATE, TYPE } from "../tokens.js";
+
+/* Why "Run sync now" cannot run, in the words the server would use, or null when it can. */
+export function syncBlocker(w) {
+  if (w.status === "suspended") return "This workspace is suspended, so nothing syncs for it.";
+  if (w.syncs_frozen) return "Syncs are frozen for this workspace.";
+  if (!w.sources) return "Nothing is connected, so there is nothing to sync.";
+  return null;
+}
 
 export default function OverviewPane({ w, reference, reload, open }) {
   const h = healthOf(w);
   const s = STATE[h.state];
   const first = (w.signals || [])[0];
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const [arming, setArming] = useState(false);
   const [note, setNote] = useState(null);
   const ok = w.sources - w.sources_in_error - w.sources_stale;
+  const blocked = syncBlocker(w);
 
-  async function fix() {
-    setBusy(true);
+  async function act(key, fn) {
+    setBusy(key);
     setNote(null);
+    setArming(false);
     try {
-      const said = await perform(first.primary_action, w.slug, (slug, pane) => open(pane));
+      const said = await fn();
       if (said) { setNote({ tone: "info", text: said }); reload(); }
     } catch (e) {
       setNote({ tone: "error", text: e.message });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
+
+  const fix = () => act("fix", () => perform(first.primary_action, w.slug, (slug, pane) => open(pane)));
+  const sync = () => act("sync", async () => {
+    const r = await api.syncTenant(w.slug);
+    return `Syncing ${plural(r.sources, "source")} now, on the same job the workspace's own Sync button runs. Refresh in a minute to see how it went.`;
+  });
 
   return (
     <>
@@ -47,13 +65,26 @@ export default function OverviewPane({ w, reference, reload, open }) {
             <div style={{ fontFamily: TYPE.text, fontSize: 11, color: A.mute, marginTop: 9, lineHeight: 1.55, textWrap: "pretty" }}>
               {h.derivation} Computed on read: there is no stored status, so a workspace cannot keep a label whose cause was fixed.
             </div>
+            {arming && first ? (
+              <div style={{ marginTop: 10 }}>
+                <Confirm label={labelFor(first.primary_action)} busy={busy === "fix"} onConfirm={fix} onCancel={() => setArming(false)}>
+                  {first.title}. {confirmFor(first.primary_action)}
+                </Confirm>
+              </div>
+            ) : null}
             {note ? <div style={{ marginTop: 10 }}><Notice tone={note.tone}>{note.text}</Notice></div> : null}
           </div>
-          {first && first.primary_action ? (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
-              <Btn small kind="primary" busy={busy} onClick={fix}>{labelFor(first.primary_action)}</Btn>
-            </div>
-          ) : null}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
+            <Btn small busy={busy === "sync"} disabled={Boolean(blocked)} title={blocked || "Pull every connected source now"} onClick={sync}>
+              Run sync now
+            </Btn>
+            {first && first.primary_action ? (
+              <Btn small kind="primary" busy={busy === "fix"} disabled={arming}
+                onClick={() => (confirmFor(first.primary_action) ? setArming(true) : fix())}>
+                {labelFor(first.primary_action)}
+              </Btn>
+            ) : null}
+          </div>
         </div>
       </div>
 

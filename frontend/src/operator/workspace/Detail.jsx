@@ -75,7 +75,7 @@ export default function WorkspaceDetail({ slug, tab, onTab, onBack, onOpen }) {
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {w.hosts[0] ? (
-            <a href={`https://${w.hosts[0]}`} target="_blank" rel="noopener noreferrer" className="ac-btn ac-b-onGhost" style={{
+            <a href={`${/(^|\.)localhost$/.test(w.hosts[0]) ? "http" : "https"}://${w.hosts[0]}`} target="_blank" rel="noopener noreferrer" className="ac-btn ac-b-onGhost" style={{
               fontFamily: TYPE.text, fontSize: 11, fontWeight: 600, lineHeight: 1.35, borderRadius: 7, padding: "5px 9px",
               color: A.onInk, border: "1px solid rgba(239,245,243,.3)", textDecoration: "none", whiteSpace: "nowrap",
             }}>Open their sign-in page ↗</a>

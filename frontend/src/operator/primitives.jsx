@@ -200,6 +200,23 @@ export const inputStyle = {
   transition: "border-color .12s ease",
 };
 
+/* The second step of an action that cannot be undone: what it will do, in words and counts, then
+   the button that does it. Cancel is first and quiet; the destructive button is last and solid. */
+export function Confirm({ children, label, onConfirm, onCancel, busy }) {
+  return (
+    <div role="group" aria-label={label} style={{
+      display: "flex", gap: "8px 12px", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap",
+      background: A.stopBg, border: `1px solid ${A.stopLine}`, borderRadius: 8, padding: "9px 11px",
+    }}>
+      <span style={{ fontFamily: TYPE.text, fontSize: 12, color: A.ink, lineHeight: 1.55, flex: "1 1 240px", textWrap: "pretty" }}>{children}</span>
+      <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        <Btn small kind="quiet" onClick={onCancel} disabled={busy}>Cancel</Btn>
+        <Btn small kind="dangerSolid" onClick={onConfirm} busy={busy}>{label}</Btn>
+      </span>
+    </div>
+  );
+}
+
 /* An inline result line: what an action did, or why it did not. */
 export function Notice({ tone = "info", children }) {
   if (!children) return null;

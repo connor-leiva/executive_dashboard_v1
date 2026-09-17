@@ -23,16 +23,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import plans
 from ..config import settings
 from ..db import get_session
-from ..deps import current_platform_user
-from ..models import (AuditLog, Business, Domain, Integration, PlatformUser, SyncRun,
+from ..deps import STEP_UP_SCOPES, current_platform_user
+from ..models import (AuditLog, Business, Domain, Integration, PlatformUser, ShareLink, SyncRun,
                       Tenant, User)
 from ..security import hash_pw, make_platform_token, new_action_token, verify_pw
-from ..deps import STEP_UP_SCOPES
-from ..services import fleet_health, fleet_rollup, mail_templates, mailer
-from ..services.tabs import PLATFORM_TABS, tenant_tab_descriptors
+from ..services import fleet_health, fleet_rollup, mail_templates, mailer, sync_jobs
 from ..services.audit import audit
 from ..services.provisioning import INVITE_VALID_DAYS, invite_url, provision_tenant
-from ..tenancy import PLATFORM_HOSTS, WILDCARD_RESERVED
+from ..services.tabs import PLATFORM_TABS, tenant_tab_descriptors
+from ..services.users import RESET_HOURS, primary_host
+from ..tenancy import PLATFORM_HOSTS, WILDCARD_RESERVED, url_scheme
 
 router = APIRouter(prefix="/platform", tags=["platform"])
 
@@ -72,6 +72,25 @@ class SuspendBody(BaseModel):
     # Required and non-empty: the reason is written to both audit trails and shown on the fleet
     # list for as long as the workspace stays suspended.
     reason: str
+
+
+class FreezeBody(BaseModel):
+    # Required for the same reason as a suspension: the next operator to see a frozen workspace
+    # needs to know what it is waiting on before they unfreeze it.
+    reason: str
+
+
+def _record(s: AsyncSession, op: PlatformUser, t: Tenant, action: str,
+            target_type: str | None = None, target_id=None, *, category: str = "Workspace",
+            **detail) -> None:
+    """Record an operator's action in the workspace's own audit log.
+
+    A customer can see what Acumyn did to their workspace. actor_user_id stays null, because the
+    actor is not a user of this tenant; `by` names the operator, and the label reads as Acumyn
+    wherever the workspace lists its trail.
+    """
+    audit(s, t.id, None, action, target_type, target_id, {"by": op.email, **detail},
+          category=category, actor_label=f"{op.name or op.email} (Acumyn)"[:255])
 
 
 @router.post("/login")
@@ -241,7 +260,8 @@ async def create_tenant(body: NewTenant, bg: BackgroundTasks,
     # Audited INSIDE the new tenant, so its own trail begins with its creation and names the
     # operator who did it. actor_user_id stays null — the actor is not a user of this tenant.
     audit(s, r.tenant_id, None, "tenant.created", "tenant", r.tenant_id,
-          {"by": op.email, "slug": r.slug, "hostname": r.hostname, "plan": body.plan})
+          {"by": op.email, "slug": r.slug, "hostname": r.hostname, "plan": body.plan},
+          category="Workspace", actor_label=f"{op.name or op.email} (Acumyn)"[:255])
     await s.commit()
     # Emailed AND returned. The operator keeps the link for the case the customer never sees
     # the mail, which on a brand-new sending domain is the case worth planning for.
@@ -262,7 +282,7 @@ async def suspend_tenant(slug: str, body: SuspendBody,
         raise HTTPException(400, "Give a reason. It is recorded and shown with the suspension.")
     t = await _get(s, slug)
     t.status = "suspended"
-    audit(s, t.id, None, "tenant.suspended", "tenant", t.id, {"by": op.email, "reason": reason})
+    _record(s, op, t, "tenant.suspended", "tenant", t.id, reason=reason)
     await s.commit()
     return {"slug": t.slug, "status": t.status}
 
@@ -272,7 +292,7 @@ async def resume_tenant(slug: str, op: PlatformUser = Depends(current_platform_u
                         s: AsyncSession = Depends(get_session)):
     t = await _get(s, slug)
     t.status = "active"
-    audit(s, t.id, None, "tenant.resumed", "tenant", t.id, {"by": op.email})
+    _record(s, op, t, "tenant.resumed", "tenant", t.id)
     await s.commit()
     return {"slug": t.slug, "status": t.status}
 
@@ -294,11 +314,10 @@ async def resend_owner_invite(slug: str, bg: BackgroundTasks,
     owner.action_token_hash = token_hash
     owner.action_token_purpose = "invite"
     owner.action_token_expires = _now() + dt.timedelta(days=INVITE_VALID_DAYS)
-    host = (await s.execute(select(Domain.hostname).where(
-        Domain.tenant_id == t.id).order_by(Domain.is_primary.desc()))).scalars().first()
-    audit(s, t.id, None, "tenant.invite_resent", "user", owner.id, {"by": op.email})
+    _record(s, op, t, "tenant.invite_resent", "user", owner.id, category="People",
+            email=owner.email)
     await s.commit()
-    url = invite_url(host or t.slug, raw)
+    url = invite_url(await primary_host(s, t.id), raw)
     bg.add_task(mailer.send, owner.email,
                 *mail_templates.owner_invite(url, t.name, INVITE_VALID_DAYS),
                 idempotency_key=f"owner-invite-{owner.id}-{owner.action_token_expires.isoformat()}")
@@ -553,8 +572,6 @@ async def tenant_share_links(slug: str, op: PlatformUser = Depends(current_platf
                              s: AsyncSession = Depends(get_session)):
     """Public share links serve without a login, and suspension does not stop them. The token
     itself is never returned: whoever holds it can open the link."""
-    from ..models import ShareLink
-
     t = await _get(s, slug)
     now = _now()
     rows = (await s.execute(select(ShareLink).where(ShareLink.tenant_id == t.id)
@@ -591,3 +608,334 @@ async def tenant_security(slug: str, op: PlatformUser = Depends(current_platform
         "step_up_sections": [scope for scope in STEP_UP_SCOPES if plans.allows(t, scope)],
         "two_factor_required": False,
     }
+
+
+# ── phase 3: write actions ────────────────────────────────────────────────────────────────
+# Every one is recorded through _record, in the workspace's own audit log.
+#
+# LINKS GO BY EMAIL, NEVER BACK TO THE OPERATOR. An invite or a password reset for somebody in a
+# workspace is a way to sign in as that person, so returning one here would be a path from the
+# operator realm into the tenant's data: the one thing the two realms exist to prevent. The owner
+# invite above is the exception, and it predates the console: it is how a workspace nobody has
+# entered yet gets its first person.
+FULL_SYNC_GUARD_MINUTES = 15
+
+
+def _paused(t: Tenant) -> str | None:
+    """Why nothing may be pulled for this workspace right now, or None."""
+    if t.status == "suspended":
+        return "This workspace is suspended, so nothing syncs for it. Resume it first."
+    if sync_jobs.syncs_frozen(t.config):
+        return "Syncs are frozen for this workspace. Unfreeze them first."
+    return None
+
+
+async def _workspace_base(s: AsyncSession, t: Tenant) -> str:
+    """The workspace's own web origin: its primary domain, else {slug}.{PLATFORM_DOMAIN}. Never the
+    origin of the request, which here is the operator console's."""
+    host = await primary_host(s, t.id)
+    return f"{url_scheme(host)}://{host}"
+
+
+async def _source(s: AsyncSession, t: Tenant, source_id: str) -> Integration:
+    try:
+        sid = uuid.UUID(source_id)
+    except ValueError:
+        raise HTTPException(404, "No such source in this workspace")
+    integ = (await s.execute(select(Integration).where(
+        Integration.id == sid, Integration.tenant_id == t.id))).scalar_one_or_none()
+    if integ is None:
+        raise HTTPException(404, "No such source in this workspace")
+    return integ
+
+
+async def _person(s: AsyncSession, t: Tenant, person_id: str) -> User:
+    try:
+        pid = uuid.UUID(person_id)
+    except ValueError:
+        raise HTTPException(404, "No such person in this workspace")
+    u = (await s.execute(select(User).where(User.id == pid, User.tenant_id == t.id))
+         ).scalar_one_or_none()
+    if u is None:
+        raise HTTPException(404, "No such person in this workspace")
+    return u
+
+
+async def _administrators(s: AsyncSession, t: Tenant) -> list[User]:
+    """The people who can connect a source: active owners, then active admins."""
+    rows = (await s.execute(select(User).where(
+        User.tenant_id == t.id, User.status == "active", User.role.in_(("owner", "admin")))
+        .order_by(User.created_at))).scalars().all()
+    return sorted(rows, key=lambda u: u.role != "owner")
+
+
+def _ten_minutes() -> int:
+    """A send's idempotency window. A double-pressed button sends one email; pressing again a
+    quarter of an hour later sends another, because by then it is a second request."""
+    return int(_now().timestamp() // 600)
+
+
+@router.post("/tenants/{slug}/sync", status_code=202)
+async def sync_tenant(slug: str, bg: BackgroundTasks,
+                      op: PlatformUser = Depends(current_platform_user),
+                      s: AsyncSession = Depends(get_session)):
+    """Pull every connected source now, on the same job the workspace's own Sync button runs."""
+    t = await _get(s, slug)
+    if why := _paused(t):
+        raise HTTPException(409, why)
+    configured = (await s.execute(select(func.count()).select_from(Integration).where(
+        Integration.tenant_id == t.id, Integration.status.in_(("connected", "error"))))).scalar_one()
+    if not configured:
+        raise HTTPException(409, "Nothing is connected, so there is nothing to sync.")
+    running = (await s.execute(select(SyncRun).where(
+        SyncRun.tenant_id == t.id, SyncRun.provider == "all", SyncRun.status == "running",
+        SyncRun.started_at >= _now() - dt.timedelta(minutes=FULL_SYNC_GUARD_MINUTES))
+        .order_by(SyncRun.started_at.desc()).limit(1))).scalar_one_or_none()
+    if running is not None:
+        started = fleet_health._span(_now() - fleet_health._aware(running.started_at))
+        raise HTTPException(409, f"A full sync is already running. It started {started} ago.")
+    run = SyncRun(tenant_id=t.id, provider="all", status="running")
+    s.add(run)
+    _record(s, op, t, "tenant.sync_requested", "tenant", t.id, category="Integrations",
+            sources=configured)
+    await s.commit()
+    bg.add_task(sync_jobs.run_all_job, t.id, run.id)
+    return {"job_id": str(run.id), "sources": configured}
+
+
+@router.post("/tenants/{slug}/sources/{source_id}/sync", status_code=202)
+async def sync_source(slug: str, source_id: str, bg: BackgroundTasks,
+                      op: PlatformUser = Depends(current_platform_user),
+                      s: AsyncSession = Depends(get_session)):
+    t = await _get(s, slug)
+    integ = await _source(s, t, source_id)
+    if why := _paused(t):
+        raise HTTPException(409, why)
+    name = fleet_health.provider_name(integ.provider)
+    if integ.status not in ("connected", "error"):
+        raise HTTPException(409, f"{name} has no credentials to sync with. Send a reconnect link "
+                                 "instead.")
+    _record(s, op, t, "tenant.sync_requested", "integration", integ.id, category="Integrations",
+            provider=integ.provider)
+    await s.commit()
+    bg.add_task(sync_jobs.run_one_job, t.id, integ.id)
+    return {"provider": integ.provider, "provider_name": name}
+
+
+@router.post("/tenants/{slug}/sources/{source_id}/reconnect-link")
+async def send_reconnect_link(slug: str, source_id: str, bg: BackgroundTasks,
+                              op: PlatformUser = Depends(current_platform_user),
+                              s: AsyncSession = Depends(get_session)):
+    """Email the workspace's owners and admins a link to reconnect a source.
+
+    Operators cannot re-authorise on a tenant's behalf: a connection has to be granted by somebody
+    who can sign in to the provider. No token is minted either. The link is the workspace's own
+    Settings page and whoever follows it signs in as themselves; a link that skipped sign-in would
+    let anyone holding the email connect a data source to the workspace.
+    """
+    t = await _get(s, slug)
+    integ = await _source(s, t, source_id)
+    admins = await _administrators(s, t)
+    if not admins:
+        raise HTTPException(409, "Nobody can reconnect it: the workspace has no active owner or "
+                                 "admin. Reissue the owner's invite first.")
+    business = (await s.get(Business, integ.business_id)).name if integ.business_id else None
+    name = fleet_health.provider_name(integ.provider)
+    url = f"{await _workspace_base(s, t)}/settings/integrations"
+    sent_to = [u.email for u in admins]
+    _record(s, op, t, "tenant.reconnect_link_sent", "integration", integ.id,
+            category="Integrations", provider=integ.provider, sent_to=sent_to)
+    await s.commit()
+    window = _ten_minutes()
+    for u in admins:
+        bg.add_task(mailer.send, u.email, *mail_templates.reconnect_source(url, t.name, name, business),
+                    idempotency_key=f"reconnect-{integ.id}-{u.id}-{window}")
+    return {"sent_to": sent_to, "url": url, "provider_name": name}
+
+
+@router.post("/tenants/{slug}/sources/setup-link")
+async def send_setup_link(slug: str, bg: BackgroundTasks,
+                          op: PlatformUser = Depends(current_platform_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Email the owners and admins of a workspace with nothing connected a link to connect their
+    first system. The same kind of link as a reconnect: their Settings page, no token."""
+    t = await _get(s, slug)
+    admins = await _administrators(s, t)
+    if not admins:
+        raise HTTPException(409, "Nobody can connect anything yet: the workspace has no active "
+                                 "owner or admin. Reissue the owner's invite first.")
+    url = f"{await _workspace_base(s, t)}/settings/integrations"
+    sent_to = [u.email for u in admins]
+    _record(s, op, t, "tenant.setup_link_sent", "tenant", t.id, category="Integrations",
+            sent_to=sent_to)
+    await s.commit()
+    window = _ten_minutes()
+    for u in admins:
+        bg.add_task(mailer.send, u.email, *mail_templates.connect_first_source(url, t.name),
+                    idempotency_key=f"setup-{t.id}-{u.id}-{window}")
+    return {"sent_to": sent_to, "url": url}
+
+
+@router.post("/tenants/{slug}/freeze-syncs")
+async def freeze_syncs(slug: str, body: FreezeBody,
+                       op: PlatformUser = Depends(current_platform_user),
+                       s: AsyncSession = Depends(get_session)):
+    """Stop pulling from every source while people stay signed in.
+
+    For a credential that may be compromised, where the first job is to stop it being used. The
+    scheduled sync, the daily roster and ads jobs, the workspace's own Sync buttons and this
+    console's all refuse a frozen workspace until it is unfrozen.
+    """
+    reason = (body.reason or "").strip()[:500]
+    if not reason:
+        raise HTTPException(400, "Give a reason. It is recorded and shown for as long as syncs stay "
+                                 "frozen.")
+    t = await _get(s, slug)
+    if sync_jobs.syncs_frozen(t.config):
+        raise HTTPException(409, "Syncs are already frozen for this workspace.")
+    t.config = {**(t.config or {}), "syncs_frozen": True}
+    _record(s, op, t, "tenant.syncs_frozen", "tenant", t.id, category="Integrations", reason=reason)
+    await s.commit()
+    return {"slug": t.slug, "syncs_frozen": True}
+
+
+@router.post("/tenants/{slug}/unfreeze-syncs")
+async def unfreeze_syncs(slug: str, op: PlatformUser = Depends(current_platform_user),
+                         s: AsyncSession = Depends(get_session)):
+    t = await _get(s, slug)
+    if not sync_jobs.syncs_frozen(t.config):
+        raise HTTPException(409, "Syncs are not frozen for this workspace.")
+    cfg = dict(t.config or {})
+    cfg.pop("syncs_frozen", None)
+    t.config = cfg
+    _record(s, op, t, "tenant.syncs_unfrozen", "tenant", t.id, category="Integrations")
+    await s.commit()
+    return {"slug": t.slug, "syncs_frozen": False}
+
+
+def _mint_invite(u: User) -> str:
+    raw, token_hash = new_action_token()
+    u.action_token_hash, u.action_token_purpose = token_hash, "invite"
+    u.action_token_expires = _now() + dt.timedelta(days=INVITE_VALID_DAYS)
+    return raw
+
+
+def _invite_mail(t: Tenant, u: User, base: str, raw: str):
+    url = f"{base}/accept-invite?token={raw}"
+    if u.role == "owner":
+        return mail_templates.owner_invite(url, t.name, INVITE_VALID_DAYS)
+    # No inviter named: the person who first invited them did not send this one.
+    return mail_templates.invite(url, None, t.name, INVITE_VALID_DAYS)
+
+
+@router.post("/tenants/{slug}/people/resend-idle")
+async def resend_idle_invites(slug: str, bg: BackgroundTasks,
+                              op: PlatformUser = Depends(current_platform_user),
+                              s: AsyncSession = Depends(get_session)):
+    """Reissue every invite that has sat unaccepted past the idle threshold: the accounts the
+    fleet's idle-invites row counts, read from the same rule, so pressing it clears that row."""
+    t = await _get(s, slug)
+    now = _now()
+    facts = await fleet_health.gather(s, t, now)
+    idle = {uuid.UUID(p.id) for p in fleet_health.idle_invites(facts.people, now)}
+    if not idle:
+        raise HTTPException(409, f"No invite has been waiting more than "
+                                 f"{fleet_health.IDLE_INVITE_DAYS} days.")
+    users = (await s.execute(select(User).where(User.tenant_id == t.id, User.id.in_(idle))
+                             .order_by(User.created_at))).scalars().all()
+    base = await _workspace_base(s, t)
+    mails = []
+    for u in users:
+        raw = _mint_invite(u)
+        _record(s, op, t, "user.reinvited", "user", u.id, category="People", email=u.email)
+        mails.append((u, _invite_mail(t, u, base, raw)))
+    await s.commit()
+    for u, mail in mails:
+        bg.add_task(mailer.send, u.email, *mail,
+                    idempotency_key=f"invite-{u.id}-{u.action_token_expires.isoformat()}")
+    return {"sent_to": [u.email for u in users]}
+
+
+@router.post("/tenants/{slug}/people/{person_id}/resend")
+async def resend_person_invite(slug: str, person_id: str, bg: BackgroundTasks,
+                               op: PlatformUser = Depends(current_platform_user),
+                               s: AsyncSession = Depends(get_session)):
+    t = await _get(s, slug)
+    u = await _person(s, t, person_id)
+    if u.status == "active":
+        raise HTTPException(409, "They have already accepted their invite. Send a password reset "
+                                 "instead.")
+    if u.status != "invited":
+        raise HTTPException(409, "That account is disabled. Only the workspace can re-enable it.")
+    raw = _mint_invite(u)
+    mail = _invite_mail(t, u, await _workspace_base(s, t), raw)
+    _record(s, op, t, "user.reinvited", "user", u.id, category="People", email=u.email)
+    await s.commit()
+    bg.add_task(mailer.send, u.email, *mail,
+                idempotency_key=f"invite-{u.id}-{u.action_token_expires.isoformat()}")
+    return {"email": u.email, "invite_expires": _iso(u.action_token_expires)}
+
+
+@router.post("/tenants/{slug}/people/{person_id}/unlock")
+async def unlock_person(slug: str, person_id: str,
+                        op: PlatformUser = Depends(current_platform_user),
+                        s: AsyncSession = Depends(get_session)):
+    """Clear a password lockout, and only that.
+
+    A second-factor lockout is left in place: clearing it would hand whoever tripped it a fresh set
+    of guesses at somebody's second factor, and nothing about a person's second factor is an
+    operator's to change.
+    """
+    t = await _get(s, slug)
+    u = await _person(s, t, person_id)
+    if not (u.locked_until and _aware(u.locked_until) > _now()):
+        raise HTTPException(409, "That account is not locked out.")
+    u.locked_until, u.failed_logins = None, 0
+    _record(s, op, t, "user.unlocked", "user", u.id, category="People", email=u.email)
+    await s.commit()
+    return {"email": u.email}
+
+
+@router.post("/tenants/{slug}/people/{person_id}/reset-link")
+async def send_reset_link(slug: str, person_id: str, bg: BackgroundTasks,
+                          op: PlatformUser = Depends(current_platform_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Email somebody a password reset link. It goes to them, never to the operator."""
+    t = await _get(s, slug)
+    u = await _person(s, t, person_id)
+    if u.status == "invited":
+        raise HTTPException(409, "They have not accepted their invite yet. Resend the invite "
+                                 "instead.")
+    if u.status != "active":
+        raise HTTPException(409, "That account is disabled. Only the workspace can re-enable it.")
+    raw, token_hash = new_action_token()
+    u.action_token_hash, u.action_token_purpose = token_hash, "reset"
+    u.action_token_expires = _now() + dt.timedelta(hours=RESET_HOURS)
+    url = f"{await _workspace_base(s, t)}/reset-password?token={raw}"
+    _record(s, op, t, "user.reset_link", "user", u.id, category="People", email=u.email)
+    await s.commit()
+    bg.add_task(mailer.send, u.email, *mail_templates.reset(url, t.name, RESET_HOURS))
+    return {"email": u.email, "expires_at": _iso(u.action_token_expires)}
+
+
+@router.post("/tenants/{slug}/share-links/revoke-all")
+async def revoke_share_links(slug: str, op: PlatformUser = Depends(current_platform_user),
+                             s: AsyncSession = Depends(get_session)):
+    """Revoke every live public share link in the workspace.
+
+    Suspension does not stop share links, so this is how an operator does. A revoked link reads as
+    not found everywhere and cannot be restored; the workspace can make new ones.
+    """
+    t = await _get(s, slug)
+    now = _now()
+    rows = (await s.execute(select(ShareLink).where(
+        ShareLink.tenant_id == t.id, ShareLink.revoked_at.is_(None)))).scalars().all()
+    live = [r for r in rows if r.expires_at is None or fleet_health._aware(r.expires_at) > now]
+    if not live:
+        raise HTTPException(409, "No share link is live.")
+    for r in live:
+        r.revoked_at = now
+    _record(s, op, t, "tenant.share_links_revoked", "tenant", t.id, category="Access",
+            count=len(live), scopes=sorted({r.scope for r in live}))
+    await s.commit()
+    return {"revoked": len(live)}

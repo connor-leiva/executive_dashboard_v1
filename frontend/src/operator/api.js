@@ -98,6 +98,7 @@ export async function signIn(email, password) {
 }
 
 const slugPath = (slug) => `/tenants/${encodeURIComponent(slug)}`;
+const post = (path, body = {}) => call(path, { method: "POST", body });
 
 export const api = {
   me: () => call("/me"),
@@ -118,6 +119,19 @@ export const api = {
   suspend: (slug, reason) => call(`${slugPath(slug)}/suspend`, { method: "POST", body: { reason } }),
   resume: (slug) => call(`${slugPath(slug)}/resume`, { method: "POST", body: {} }),
   resendOwnerInvite: (slug) => call(`${slugPath(slug)}/resend-invite`, { method: "POST", body: {} }),
+
+  /* Phase 3: the write actions. Every one is recorded in the workspace's own audit log. */
+  syncTenant: (slug) => post(`${slugPath(slug)}/sync`),
+  syncSource: (slug, id) => post(`${slugPath(slug)}/sources/${encodeURIComponent(id)}/sync`),
+  reconnectLink: (slug, id) => post(`${slugPath(slug)}/sources/${encodeURIComponent(id)}/reconnect-link`),
+  setupLink: (slug) => post(`${slugPath(slug)}/sources/setup-link`),
+  freezeSyncs: (slug, reason) => post(`${slugPath(slug)}/freeze-syncs`, { reason }),
+  unfreezeSyncs: (slug) => post(`${slugPath(slug)}/unfreeze-syncs`),
+  resendIdleInvites: (slug) => post(`${slugPath(slug)}/people/resend-idle`),
+  resendInvite: (slug, id) => post(`${slugPath(slug)}/people/${encodeURIComponent(id)}/resend`),
+  unlockPerson: (slug, id) => post(`${slugPath(slug)}/people/${encodeURIComponent(id)}/unlock`),
+  sendResetLink: (slug, id) => post(`${slugPath(slug)}/people/${encodeURIComponent(id)}/reset-link`),
+  revokeShareLinks: (slug) => post(`${slugPath(slug)}/share-links/revoke-all`),
 };
 
 export { call as rawCall, slugPath };

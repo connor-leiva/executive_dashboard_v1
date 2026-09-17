@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { api } from "../api.js";
-import { ago, daysSince } from "../format.js";
+import { ago, daysSince, plural } from "../format.js";
 import { byTrouble, healthOf } from "../health.js";
-import { Btn, Card, Chip, Empty, Eyebrow, inputStyle, Loading, LoadError, Mono, useApi } from "../primitives.jsx";
+import { Btn, Card, Chip, Empty, Eyebrow, inputStyle, Loading, LoadError, Mono, Notice, useApi } from "../primitives.jsx";
 import { loadReference, planName } from "../reference.js";
 import { A, STATE, TYPE } from "../tokens.js";
 
@@ -14,16 +14,20 @@ const SORTS = {
   people: { label: "Most people", fn: (a, b) => b.people.active - a.people.active },
 };
 
-function WorkspaceRow({ w, onOpen, reference }) {
+function WorkspaceRow({ w, onOpen, reference, checked, onCheck }) {
   const h = healthOf(w);
   const s = STATE[h.state];
   const ok = w.sources - w.sources_in_error - w.sources_stale;
   return (
     <div className="ac-wsrow" style={{ display: "flex", borderTop: `1px solid ${A.lineSoft}`, transition: "background .12s ease" }}>
       <span style={{ width: 3, background: s.c, flexShrink: 0 }} aria-hidden />
+      <label style={{ display: "flex", alignItems: "center", padding: "0 10px 0 12px", cursor: "pointer" }}>
+        <input type="checkbox" checked={checked} onChange={onCheck} aria-label={`Select ${w.name}`}
+          style={{ width: 14, height: 14, accentColor: A.ink, cursor: "pointer" }} />
+      </label>
       <button type="button" onClick={() => onOpen(w.slug)} className="ac-wsbtn" style={{
         flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 14, textAlign: "left",
-        background: "none", border: "none", padding: "12px 14px", cursor: "pointer",
+        background: "none", border: "none", padding: "12px 14px 12px 2px", cursor: "pointer",
       }}>
         <div style={{ minWidth: 0, flex: "2 1 220px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -80,6 +84,39 @@ export default function WorkspacesView({ onOpen, onNew }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("trouble");
   const [only, setOnly] = useState("all");
+  const [sel, setSel] = useState([]);
+  const [bulk, setBulk] = useState(null);          // null | "suspend": the step that needs a reason
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(null);
+  const [report, setReport] = useState(null);
+  const toggle = (slug) => setSel((s) => (s.includes(slug) ? s.filter((x) => x !== slug) : [...s, slug]));
+
+  /* One call per workspace, in order, reporting each refusal in the server's own words: a bulk action
+     that fails silently for two of five workspaces is worse than no bulk action. */
+  async function each(key, fn, verb) {
+    setBusy(key);
+    setReport(null);
+    const done = [];
+    const refused = [];
+    for (const slug of sel) {
+      try {
+        await fn(slug);
+        done.push(slug);
+      } catch (e) {
+        refused.push(`${slug}: ${e.message}`);
+      }
+    }
+    setBusy(null);
+    setBulk(null);
+    setReason("");
+    setSel((s) => s.filter((slug) => !done.includes(slug)));
+    setReport({
+      tone: refused.length ? (done.length ? "warn" : "error") : "info",
+      text: [done.length ? `${verb} ${plural(done.length, "workspace")}: ${done.join(", ")}.` : "",
+        refused.length ? `Not done for ${refused.join(" · ")}` : ""].filter(Boolean).join(" "),
+    });
+    tenants.reload();
+  }
 
   const all = tenants.data ? tenants.data.tenants : [];
   const rows = useMemo(() => {
@@ -118,6 +155,38 @@ export default function WorkspacesView({ onOpen, onNew }) {
         <Btn kind="primary" onClick={onNew}>New workspace</Btn>
       </div>
 
+      {sel.length > 0 ? (
+        <div className="ac-bulk" style={{
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12,
+          padding: "9px 14px", background: A.ink, borderRadius: 9,
+        }}>
+          <span style={{ fontFamily: TYPE.text, fontSize: 12, fontWeight: 600, color: A.onInk }}>{sel.length} selected</span>
+          {bulk === "suspend" ? (
+            <>
+              <label htmlFor="ac-bulk-reason" style={{ fontFamily: TYPE.text, fontSize: 11.5, color: A.onInkMute }}>Reason</label>
+              <input id="ac-bulk-reason" value={reason} onChange={(e) => setReason(e.target.value)} autoFocus
+                placeholder="Recorded on each workspace"
+                style={{ ...inputStyle, flex: "1 1 220px", width: "auto", padding: "5px 9px" }} />
+              <Btn small kind="onGhost" onClick={() => { setBulk(null); setReason(""); }} disabled={busy === "suspend"}>Cancel</Btn>
+              <Btn small kind="dangerSolid" disabled={!reason.trim()} busy={busy === "suspend"}
+                onClick={() => each("suspend", (slug) => api.suspend(slug, reason.trim()), "Suspended")}>
+                Suspend {plural(sel.length, "workspace")}
+              </Btn>
+            </>
+          ) : (
+            <>
+              <div style={{ flex: 1 }} />
+              <Btn small kind="onGhost" busy={busy === "sync"} onClick={() => each("sync", (slug) => api.syncTenant(slug), "Started a sync for")}>Run sync</Btn>
+              <Btn small kind="onDanger" disabled={Boolean(busy)} onClick={() => setBulk("suspend")}>Suspend</Btn>
+              <button type="button" onClick={() => setSel([])} className="ac-link" style={{
+                background: "none", border: "none", color: A.onInkMute, fontFamily: TYPE.text, fontSize: 11.5, cursor: "pointer",
+              }}>Clear</button>
+            </>
+          )}
+        </div>
+      ) : null}
+      {report ? <div style={{ marginBottom: 12 }}><Notice tone={report.tone}>{report.text}</Notice></div> : null}
+
       <Card pad={0}>
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px 14px", flexWrap: "wrap",
@@ -132,7 +201,10 @@ export default function WorkspacesView({ onOpen, onNew }) {
               : <Btn small kind="primary" onClick={onNew}>Create the first</Btn>}>
             {all.length ? "Nothing matches that search. Clear the filters to see the whole fleet." : "Nothing has been provisioned."}
           </Empty>
-        ) : rows.map((w) => <WorkspaceRow key={w.slug} w={w} onOpen={onOpen} reference={reference.data} />)}
+        ) : rows.map((w) => (
+          <WorkspaceRow key={w.slug} w={w} onOpen={onOpen} reference={reference.data}
+            checked={sel.includes(w.slug)} onCheck={() => toggle(w.slug)} />
+        ))}
       </Card>
     </>
   );

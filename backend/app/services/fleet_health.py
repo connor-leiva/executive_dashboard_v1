@@ -140,6 +140,9 @@ class WorkspaceFacts:
     suspended_by: str | None = None
     suspended_reason: str | None = None
     syncs_frozen: bool = False
+    frozen_at: dt.datetime | None = None
+    frozen_by: str | None = None
+    frozen_reason: str | None = None
 
 
 @dataclass
@@ -162,6 +165,14 @@ class Signal:
 
 def _action(label: str, action: str, **params) -> dict:
     return {"label": label, "action": action, **params}
+
+
+def idle_invites(people: list[PersonFact], now: dt.datetime) -> list[PersonFact]:
+    """Invites nobody has accepted in more than IDLE_INVITE_DAYS, the owner's excepted: the owner's
+    invite has signals of its own. The triage row and the action that clears it both read this."""
+    return [p for p in people if p.role != "owner" and p.status == "invited"
+            and p.invited_at() is not None
+            and now - _aware(p.invited_at()) > dt.timedelta(days=IDLE_INVITE_DAYS)]
 
 
 # ── rules ─────────────────────────────────────────────────────────────────────────────────
@@ -233,7 +244,8 @@ def signals(f: WorkspaceFacts, now: dt.datetime) -> list[Signal]:
             "is empty.",
             f"0 sources · {len(f.people)} account{'s' if len(f.people) != 1 else ''}",
             "Derived on read from the workspace's integration rows and its creation date.",
-            _action("Open sources", "open", pane="sources"), None))
+            _action("Send setup link", "send_setup_link"),
+            _action("Open sources", "open", pane="sources")))
 
     # WATCH: things going wrong slowly.
     if not f.syncs_frozen and f.status != "suspended":
@@ -264,9 +276,7 @@ def signals(f: WorkspaceFacts, now: dt.datetime) -> list[Signal]:
             "Derived on read from the mirrored Stripe subscription's trial_end.",
             _action("Open billing", "open", pane="billing"), None))
 
-    idle = [p for p in f.people if p.role != "owner" and p.status == "invited"
-            and p.invited_at() is not None
-            and now - _aware(p.invited_at()) > dt.timedelta(days=IDLE_INVITE_DAYS)]
+    idle = idle_invites(f.people, now)
     if idle:
         out.append(Signal(
             "watch", "people:idle_invites",
@@ -340,7 +350,13 @@ def evaluate(f: WorkspaceFacts, now: dt.datetime | None = None) -> dict:
         derivation = ("Derived on read: no source is erroring or stale, onboarding is not stuck, "
                       "and nothing else in the ladder applies.")
     if f.syncs_frozen and state != "suspended":
-        why.insert(0, "Syncs are frozen")
+        frozen = ["Syncs are frozen"]
+        if f.frozen_at:
+            who = f" by {f.frozen_by}" if f.frozen_by else ""
+            frozen = [f"Syncs frozen {_span(now - _aware(f.frozen_at))} ago{who}"]
+        if f.frozen_reason:
+            frozen.append(f"Freeze reason: {f.frozen_reason}")
+        why = frozen + why
     return {"state": state, "rank": RANK[state], "why": why, "derivation": derivation,
             "signals": [sig.out(f.slug, f.name) for sig in sigs]}
 
@@ -409,12 +425,24 @@ async def gather(s: AsyncSession, tenant: Tenant, now: dt.datetime | None = None
         tokens_used=int(tokens or 0), token_budget=token_budget_for(tenant),
         syncs_frozen=bool((tenant.config or {}).get("syncs_frozen")))
 
+    # Who suspended or froze it, when and why, from the audit row the action wrote. The state lives
+    # on the tenant; the reason for it lives in the trail, where it cannot drift from what happened.
     if tenant.status == "suspended":
-        last = (await s.execute(select(AuditLog).where(
-            AuditLog.tenant_id == tenant.id, AuditLog.action == "tenant.suspended")
-            .order_by(AuditLog.created_at.desc()).limit(1))).scalar_one_or_none()
+        last = await _last_audit(s, tenant, "tenant.suspended")
         if last is not None:
             facts.suspended_at = last.created_at
             facts.suspended_by = (last.detail or {}).get("by")
             facts.suspended_reason = (last.detail or {}).get("reason")
+    if facts.syncs_frozen:
+        last = await _last_audit(s, tenant, "tenant.syncs_frozen")
+        if last is not None:
+            facts.frozen_at = last.created_at
+            facts.frozen_by = (last.detail or {}).get("by")
+            facts.frozen_reason = (last.detail or {}).get("reason")
     return facts
+
+
+async def _last_audit(s: AsyncSession, tenant: Tenant, action: str) -> AuditLog | None:
+    return (await s.execute(select(AuditLog).where(
+        AuditLog.tenant_id == tenant.id, AuditLog.action == action)
+        .order_by(AuditLog.created_at.desc()).limit(1))).scalar_one_or_none()

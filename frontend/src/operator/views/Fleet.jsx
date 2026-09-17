@@ -1,25 +1,37 @@
 import React, { useState } from "react";
 import { api } from "../api.js";
-import { labelFor, perform } from "../actions.js";
+import { confirmFor, labelFor, perform } from "../actions.js";
 import { ago, compact, plural } from "../format.js";
-import { Bar, Btn, Card, Chip, Empty, Eyebrow, Loading, LoadError, Mono, Notice, Seg, Stat, useApi } from "../primitives.jsx";
+import { Bar, Btn, Card, Chip, Confirm, Empty, Eyebrow, Loading, LoadError, Mono, Notice, Seg, Stat, useApi } from "../primitives.jsx";
 import { A, STATE, TYPE } from "../tokens.js";
 
 export function TriageRow({ signal, onOpen, onChanged }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(null);
   const [note, setNote] = useState(null);
+  const [arming, setArming] = useState(null);
   const s = STATE[signal.severity];
+  const armed = arming === "primary" ? signal.primary_action : arming === "secondary" ? signal.secondary_action : null;
+
+  /* An irreversible action asks first; everything else runs on the first press. */
+  function pressOrArm(action, which) {
+    if (confirmFor(action)) {
+      setNote(null);
+      setArming(which);
+      return;
+    }
+    press(action, which);
+  }
 
   async function press(action, which) {
     setBusy(which);
     setNote(null);
+    setArming(null);
     try {
       const said = await perform(action, signal.tenant_slug, onOpen);
-      if (said) {
-        setNote({ tone: "info", text: said });
-        onChanged && onChanged();
-      }
+      /* Reported above the queue, not in the row: clearing a cause clears its row on the reload,
+         and a message inside it would vanish with it. */
+      if (said) onChanged && onChanged(`${signal.tenant_slug}: ${said}`);
     } catch (e) {
       setNote({ tone: "error", text: e.message });
     } finally {
@@ -54,16 +66,24 @@ export function TriageRow({ signal, onOpen, onChanged }) {
                 </div>
               </div>
             ) : null}
+            {armed ? (
+              <div style={{ marginTop: 8 }}>
+                <Confirm label={labelFor(armed)} busy={busy === arming}
+                  onConfirm={() => press(armed, arming)} onCancel={() => setArming(null)}>
+                  {signal.title}. {confirmFor(armed)}
+                </Confirm>
+              </div>
+            ) : null}
             {note ? <div style={{ marginTop: 8 }}><Notice tone={note.tone}>{note.text}</Notice></div> : null}
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {signal.secondary_action ? (
-              <Btn kind="quiet" small busy={busy === "secondary"} onClick={() => press(signal.secondary_action, "secondary")}>
+              <Btn kind="quiet" small busy={busy === "secondary"} onClick={() => pressOrArm(signal.secondary_action, "secondary")}>
                 {labelFor(signal.secondary_action)}
               </Btn>
             ) : null}
             {signal.primary_action ? (
-              <Btn kind="solid" small busy={busy === "primary"} onClick={() => press(signal.primary_action, "primary")}>
+              <Btn kind="solid" small busy={busy === "primary"} disabled={Boolean(armed)} onClick={() => pressOrArm(signal.primary_action, "primary")}>
                 {labelFor(signal.primary_action)}
               </Btn>
             ) : null}
@@ -118,6 +138,7 @@ function ProvidersCard() {
 export default function FleetView({ onOpen }) {
   const fleet = useApi(() => api.fleet(), []);
   const [filter, setFilter] = useState("all");
+  const [done, setDone] = useState(null);
 
   const triage = fleet.data ? fleet.data.triage : [];
 
@@ -148,6 +169,7 @@ export default function FleetView({ onOpen }) {
         <Stat label="MRR" unsourced note="Platform billing is not connected. Acumyn charges nobody through this console yet." />
       </div>
 
+      {done ? <div style={{ marginBottom: 10 }}><Notice>{done}</Notice></div> : null}
       <Card title="Needs you now" pad={0}
         sub="Ranked by severity. Every row carries the reason it appeared and the action that clears it."
         right={<Seg label="Filter by severity" value={filter} onChange={setFilter} options={[
@@ -160,7 +182,9 @@ export default function FleetView({ onOpen }) {
               ? "The fleet is clear at this severity. Choose another filter."
               : "No workspace has a broken source, a stuck onboarding or anything going wrong slowly."}
           </Empty>
-        ) : shown.map((t) => <TriageRow key={t.key} signal={t} onOpen={onOpen} onChanged={fleet.reload} />)}
+        ) : shown.map((t) => (
+          <TriageRow key={t.key} signal={t} onOpen={onOpen} onChanged={(said) => { setDone(said); fleet.reload(); }} />
+        ))}
       </Card>
 
       <div className="ac-split" style={{ marginTop: 16 }}>

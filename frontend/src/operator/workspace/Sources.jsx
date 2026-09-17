@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { api } from "../api.js";
-import { ago, plural } from "../format.js";
-import { Card, Chip, Empty, Eyebrow, Loading, LoadError, Mono, useApi } from "../primitives.jsx";
+import { ago, joinAnd, plural } from "../format.js";
+import { Btn, Card, Chip, Empty, Eyebrow, Loading, LoadError, Mono, Notice, useAction, useApi } from "../primitives.jsx";
 import { A, STATE, TYPE } from "../tokens.js";
 
 const LABEL = { healthy: "Syncing", stale: "Stale", broken: "Broken", paused: "Paused", off: "Disconnected" };
@@ -63,26 +63,73 @@ function SourceRow({ src, runs, actions }) {
   );
 }
 
-export default function SourcesPane({ w, actions, headerActions }) {
+export default function SourcesPane({ w, reload }) {
   const data = useApi(() => api.sources(w.slug), [w.slug]);
+  const action = useAction();
   if (data.loading && !data.data) return <Loading label="Reading connections" />;
   if (data.error) return <LoadError error={data.error} onRetry={data.reload} />;
 
   const { sources, runs, available, paused, syncs_frozen: frozen } = data.data;
+  const configured = sources.filter((src) => src.state !== "off").length;
+
+  async function run(key, fn, said) {
+    const out = await action.run(key, fn, said);
+    if (out) { data.reload(); reload(); }
+  }
+  const sentTo = (what) => (r) => `A link to ${what} went to ${joinAnd(r.sent_to)}. The link is their Settings page; they sign in as themselves.`;
+
+  /* A broken or disconnected source needs its owner to reauthorise, which an operator cannot do, so
+     its action is the link. Anything else can simply be synced, unless the workspace is paused. */
+  const rowActions = (src) => {
+    const key = `src:${src.id}`;
+    const busyHere = action.busy === key;
+    const elsewhere = Boolean(action.busy) && !busyHere;
+    if (src.state === "broken" || src.state === "off") {
+      return (
+        <Btn small kind="solid" busy={busyHere} disabled={elsewhere}
+          onClick={() => run(key, () => api.reconnectLink(w.slug, src.id), sentTo(`reconnect ${src.provider_name}`))}>
+          Send reconnect link
+        </Btn>
+      );
+    }
+    if (paused) return null;
+    return (
+      <Btn small busy={busyHere} disabled={elsewhere}
+        onClick={() => run(key, () => api.syncSource(w.slug, src.id), (r) => `${r.provider_name} is syncing now. Refresh in a minute to see how it went.`)}>
+        Sync now
+      </Btn>
+    );
+  };
+
   return (
     <Card title="Data sources" pad={0}
       sub={frozen ? "Syncs are frozen for this workspace. Nothing is pulled until they are unfrozen."
-        : paused ? "This workspace is suspended, so the scheduled sync skips it."
+        : paused ? "This workspace is suspended, so nothing syncs for it."
           : "Each connection with its actual error, not a red dot."}
-      right={headerActions ? headerActions({ sources, reload: data.reload }) : null}>
+      right={
+        <Btn small kind="primary" busy={action.busy === "all"} disabled={paused || !configured}
+          title={paused ? "Nothing syncs while the workspace is suspended or frozen" : !configured ? "Nothing is connected" : "Pull every connected source now"}
+          onClick={() => run("all", () => api.syncTenant(w.slug), (r) => `Syncing ${plural(r.sources, "source")} now. Refresh in a minute to see how it went.`)}>
+          Sync all
+        </Btn>
+      }>
+      {action.result ? (
+        <div style={{ padding: "12px 16px" }}><Notice tone={action.result.tone}>{action.result.text}</Notice></div>
+      ) : null}
       {sources.length === 0 ? (
-        <Empty title="Nothing is connected yet">
+        <Empty title="Nothing is connected yet"
+          action={available.length ? (
+            <Btn small busy={action.busy === "setup"}
+              onClick={() => run("setup", () => api.setupLink(w.slug), sentTo("connect a first source"))}>
+              Send setup link
+            </Btn>
+          ) : null}>
           {available.length
             ? `${plural(available.length, "provider")} ${available.length === 1 ? "is" : "are"} available on this plan (${available.map((a) => a.name).join(", ")}) and none has been connected. Until one is, every panel in the workspace is empty.`
             : "The plan offers no providers, which should not happen. Check the workspace's plan."}
         </Empty>
       ) : sources.map((src) => (
-        <SourceRow key={src.id} src={src} runs={runs[src.provider]} actions={actions ? (s) => actions(s, data.reload) : null} />
+        <SourceRow key={src.id} src={src} runs={runs[src.provider]} actions={rowActions} />
       ))}
       {sources.length && available.length ? (
         <div style={{ padding: "12px 16px", borderTop: `1px solid ${A.lineSoft}`, fontFamily: TYPE.text, fontSize: 11.5, color: A.mute, lineHeight: 1.6 }}>

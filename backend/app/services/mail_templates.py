@@ -60,6 +60,39 @@ def owner_invite(url: str, workspace: str, days: int = 7):
             f"Your Acumyn workspace {workspace} is ready.\n\n{url}\n\n{foot}")
 
 
+# Sent by Acumyn support from the operator console, to a workspace's owners and admins. Neither
+# carries a token: the link is the workspace's own Settings page and the reader signs in as
+# themselves, so forwarding the email hands nobody a way in.
+_SUPPORT_FOOT = ("Sent by Acumyn support. You are receiving this because you are an owner or "
+                 "admin of this workspace.")
+
+
+def reconnect_source(url: str, workspace: str, provider: str, business: str | None = None):
+    ws, name = _esc(workspace), _esc(provider)
+    which = f"{name} for {_esc(business)}" if business else name
+    body = (f"<p>{which} has stopped syncing to the <strong>{ws}</strong> workspace on Acumyn, so "
+            "the figures it feeds are no longer updating.</p>"
+            f"<p>Sign in, open Settings, then Integrations, and connect {name} again. It has to be "
+            f"someone who can sign in to {name}: Acumyn cannot authorise it for you.</p>")
+    plain_which = f"{provider} for {business}" if business else provider
+    return (f"Reconnect {provider} to {workspace}",
+            _WRAP.format(body=body, url=url, cta="Open integrations", footer=_SUPPORT_FOOT),
+            f"{plain_which} has stopped syncing to {workspace} on Acumyn. Sign in and connect it "
+            f"again from Settings, Integrations:\n\n{url}\n\n{_SUPPORT_FOOT}")
+
+
+def connect_first_source(url: str, workspace: str):
+    ws = _esc(workspace)
+    body = (f"<p>Nothing is connected to the <strong>{ws}</strong> workspace on Acumyn yet, so "
+            "every panel in it is empty.</p>"
+            "<p>Sign in, open Settings, then Integrations, and connect the first system your team "
+            "works in.</p>")
+    return (f"Connect your first system to {workspace}",
+            _WRAP.format(body=body, url=url, cta="Open integrations", footer=_SUPPORT_FOOT),
+            f"Nothing is connected to {workspace} on Acumyn yet. Sign in and connect your first "
+            f"system from Settings, Integrations:\n\n{url}\n\n{_SUPPORT_FOOT}")
+
+
 # The finder's footer. Nothing about the account in it: the reader may not be the person who
 # typed the address, and "you have an account" is exactly what the page refused to say.
 _FINDER_FOOT = ("Someone entered this address to find its Acumyn workspaces. If that wasn't you, "

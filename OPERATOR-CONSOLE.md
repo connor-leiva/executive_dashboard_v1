@@ -18,6 +18,7 @@ which is each workspace's own team-portal admin.
 | API | `backend/app/routers/platform.py`, mounted at `/api/v1/platform` |
 | Fleet health derivation | `backend/app/services/fleet_health.py` |
 | Provider rollup and incidents | `backend/app/services/fleet_rollup.py` |
+| Sync jobs shared with the workspace's own buttons | `backend/app/services/sync_jobs.py` |
 | Tests | `backend/tests/test_operator_console.py`, `test_platform_operators.py`, `test_brand_rules.py` |
 | Hosting | the existing `web` service; Caddy routes `OPERATOR_HOST` (default `admin.acumyn.io`) |
 
@@ -27,7 +28,7 @@ which is each workspace's own team-portal admin.
 | --- | --- | --- |
 | 1 | Operator frontend shell, Fleet and Workspaces, provisioning, suspend and resume | shipped |
 | 2 | People counts, per-workspace panes, derived triage | shipped |
-| 3 | Write actions | pending |
+| 3 | Write actions | shipped |
 | 4 | `platform_audit`, Audit view, System view | pending |
 | 5 | Stripe platform billing | pending |
 | 6 | Support access, export, transfer ownership, delete | pending |
@@ -72,6 +73,64 @@ the console gains the Incidents view.
   and Overview tiles use the unsourced treatment rather than a guessed figure.
 - Usage reads every cap from `plans.PLANS`. A zero token budget is unlimited everywhere, and the
   fleet's token tile totals only the capped workspaces and says how many of the fleet that is.
+
+**Phase 3.** The write actions. Every one is recorded in the workspace's own audit log, naming
+the operator in `detail.by`, with an actor label ending "(Acumyn)", so the customer can see what
+Acumyn did.
+
+- Sync now, for a workspace (`POST /tenants/{slug}/sync`) or one source
+  (`/sources/{id}/sync`), on the same jobs the workspace's own Sync buttons run. Those jobs moved
+  from the integrations router into `services/sync_jobs.py` so both surfaces call one path. A full
+  sync is refused while another started in the last 15 minutes is still running, and both refuse
+  a suspended or frozen workspace.
+- Reconnect links (`/sources/{id}/reconnect-link`) and setup links (`/sources/setup-link`),
+  emailed to the workspace's active owners and admins.
+- Freeze and unfreeze syncs (`/freeze-syncs`, `/unfreeze-syncs`). A frozen workspace is skipped by
+  the scheduled sync, the daily Sisu roster job and the ads funnel job, and the workspace's own
+  Sync buttons answer 409. Who froze it, when and why appear wherever its state does.
+- Per person: resend an invite, unlock a password lockout, send a password reset link. Resending
+  every idle invite at once (`/people/resend-idle`) reads the same rule as the fleet's idle-invites
+  row, so pressing it clears that row.
+- Revoke every live share link (`/share-links/revoke-all`), after a confirmation that names how
+  many links and which kinds.
+- In the console, every triage button now does what its label says. People, Sources, Access and
+  Danger carry their actions, and Workspaces gains row selection with bulk sync and bulk suspend
+  (one reason, recorded on each workspace, with each refusal reported in the server's words).
+
+## Decisions made during the build
+
+Choices the spec did not make, taken so the build could continue. Each is reversible.
+
+**Links that sign somebody in go to that person, never to the operator.** The invite, reset and
+idle-invite endpoints return the address and the expiry, not the URL. Handing an operator a link
+that signs in as a workspace's user would be a path from the operator realm into tenant data,
+which is what the two realms exist to prevent. The owner invite made at provisioning, and its
+resend, still return their URL as they did before the console: nobody has entered that workspace
+yet, and the operator needs the link when the first email does not arrive.
+
+**Reconnect and setup links carry no token.** They point at the workspace's Settings,
+Integrations page and the reader signs in as themselves, so a forwarded email opens nothing.
+Operators cannot reauthorise a provider on a tenant's behalf (§5.3).
+
+**Unlock clears the password lockout only.** A second-factor lockout stays, because clearing it
+would give whoever tripped it fresh guesses at somebody's second factor.
+
+**Freezing needs a reason, like suspension.** The spec requires a reason only for suspension and
+support access. A frozen workspace with no recorded reason is one nobody can safely unfreeze.
+
+**Three endpoints the spec's list does not name.** `unfreeze-syncs`, because a freeze needs an
+undo; `people/resend-idle`, because the idle-invites triage row had an action and no endpoint;
+`sources/setup-link`, because the "Nothing is connected" row had nothing to perform.
+
+**Not built from the design file.** "Invite someone" and "Enable" on People: inviting people into
+a workspace and re-enabling their accounts are the workspace's decisions, and §5 lists neither.
+"Export metadata" in the bulk bar waits for Phase 6's export.
+
+**Confirmation before revoking.** Revoke all asks once, naming the count and kinds of link.
+Type-to-confirm is kept for deleting a workspace (Phase 6), as the design file does.
+
+**Suspension and freezing stop every scheduled pull, not only the sync tick.** The daily Sisu
+roster job and the ads funnel job now skip a paused workspace too.
 
 ## Decisions the spec left to Connor
 

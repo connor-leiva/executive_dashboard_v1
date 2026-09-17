@@ -1,24 +1,46 @@
 import React, { useState } from "react";
 import { api } from "../api.js";
-import { ago, titleCase } from "../format.js";
-import { Card, Chip, Empty, Loading, LoadError, Mono, Row, useApi } from "../primitives.jsx";
+import { ago, plural, titleCase } from "../format.js";
+import { Btn, Card, Chip, Confirm, Empty, Loading, LoadError, Mono, Notice, Row, useAction, useApi } from "../primitives.jsx";
 import { A, TYPE } from "../tokens.js";
 
 const SCOPES = { ulrg_scorecard: "Scorecard", ulrg_team: "Team room", sd_rep: "Rep desk" };
 
-export function ShareLinksCard({ w, right }) {
+export function ShareLinksCard({ w, reload }) {
   const data = useApi(() => api.shareLinks(w.slug), [w.slug]);
   const [all, setAll] = useState(false);
+  const [arming, setArming] = useState(false);
+  const action = useAction();
   if (data.loading && !data.data) return <Loading label="Reading share links" />;
   if (data.error) return <LoadError error={data.error} onRetry={data.reload} />;
 
   const links = data.data.links;
   const live = links.filter((l) => l.live);
   const shown = all ? links : live;
+  const scopes = [...new Set(live.map((l) => SCOPES[l.scope] || titleCase(l.scope)))];
+
+  async function revoke() {
+    const out = await action.run("revoke", () => api.revokeShareLinks(w.slug),
+      (r) => `Revoked ${plural(r.revoked, "share link")}. They now read as not found everywhere.`);
+    setArming(false);
+    if (out) { data.reload(); reload && reload(); }
+  }
+
   return (
     <Card title="Public share links" pad={0}
       sub="Links that serve without a login. Suspending the workspace does not stop them, which is why they are listed here."
-      right={right ? right({ live, reload: data.reload }) : null}>
+      right={live.length ? (
+        <Btn small kind="danger" disabled={arming} onClick={() => { action.clear(); setArming(true); }}>Revoke all</Btn>
+      ) : null}>
+      {arming ? (
+        <div style={{ padding: "12px 16px" }}>
+          <Confirm label={`Revoke ${plural(live.length, "link")}`} busy={action.busy === "revoke"}
+            onConfirm={revoke} onCancel={() => setArming(false)}>
+            {plural(live.length, "live link")} ({scopes.join(", ")}) stop working at once, for whoever holds them. A revoked link cannot be restored; the workspace can make new ones.
+          </Confirm>
+        </div>
+      ) : null}
+      {action.result ? <div style={{ padding: "12px 16px" }}><Notice tone={action.result.tone}>{action.result.text}</Notice></div> : null}
       {shown.length === 0 ? (
         <Empty title={links.length ? "No live links" : "No links have been made"}>
           {links.length ? `${links.length} ${links.length === 1 ? "link was" : "links were"} revoked or expired.` : "Nothing in this workspace is shared publicly."}
@@ -68,12 +90,12 @@ export function SecurityCard({ w }) {
   );
 }
 
-export default function AccessPane({ w, children }) {
+export default function AccessPane({ w, reload, children }) {
   return (
     <>
       {children}
       <div className="ac-split">
-        <ShareLinksCard w={w} />
+        <ShareLinksCard w={w} reload={reload} />
         <SecurityCard w={w} />
       </div>
     </>

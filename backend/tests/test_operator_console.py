@@ -592,3 +592,370 @@ async def test_the_fleet_rollup_and_triage_come_from_one_read_and_agree():
     from app.services.fleet_health import RANK
     assert [RANK[x] for x in ranks] == sorted(RANK[x] for x in ranks), "triage is ranked by severity"
     assert body["rollup"]["mrr_cents"] is None
+
+
+# ── phase 3: write actions ────────────────────────────────────────────────────────────────
+PHASE3_ROUTES = (
+    "/tenants/{slug}/sync", "/tenants/{slug}/sources/{id}/sync",
+    "/tenants/{slug}/sources/{id}/reconnect-link", "/tenants/{slug}/sources/setup-link",
+    "/tenants/{slug}/freeze-syncs", "/tenants/{slug}/unfreeze-syncs",
+    "/tenants/{slug}/people/resend-idle", "/tenants/{slug}/people/{id}/resend",
+    "/tenants/{slug}/people/{id}/unlock", "/tenants/{slug}/people/{id}/reset-link",
+    "/tenants/{slug}/share-links/revoke-all",
+)
+
+
+def _capture_mail(monkeypatch):
+    from app.config import settings
+    from app.services import mailer
+
+    sent = []
+
+    async def fake_post(payload, headers):
+        sent.append(payload)
+        return 200, "{}"
+    monkeypatch.setattr(mailer, "_post", fake_post)
+    monkeypatch.setattr(settings, "RESEND_API_KEY", "re_test")
+    monkeypatch.setattr(settings, "MAIL_FROM", "Acumyn <hello@mail.acumyn.io>")
+    monkeypatch.setattr(settings, "MAIL_REPLY_TO", "")
+    return sent
+
+
+async def _account(tid, email, *, role="member", status="active", **kw):
+    from app.models import User
+
+    async with SessionLocal() as s:
+        u = User(tenant_id=tid, email=email, name=email.split("@")[0], role=role, status=status,
+                 tab_access=[], token_version=0, **kw)
+        s.add(u)
+        await s.commit()
+        return u.id
+
+
+async def _trail(tid, action):
+    from app.models import AuditLog
+
+    async with SessionLocal() as s:
+        return (await s.execute(select(AuditLog).where(
+            AuditLog.tenant_id == tid, AuditLog.action == action)
+            .order_by(AuditLog.created_at))).scalars().all()
+
+
+def _by_acumyn(row):
+    """Written into the workspace's own log, naming the operator, with no tenant user as actor."""
+    return (row.actor_user_id is None and (row.detail or {}).get("by") == OP_EMAIL
+            and row.actor_label.endswith("(Acumyn)"))
+
+
+async def test_a_tenant_session_cannot_reach_any_write_action():
+    async with _client() as c:
+        r = await c.post("/api/v1/auth/login",
+                         json={"email": "spring@springb.com", "password": "springtime"})
+        owner = r.json()["token"]
+        for route in PHASE3_ROUTES:
+            path = "/api/v1/platform" + route.format(slug="springb", id=uuid.uuid4())
+            r = await c.post(path, headers=_H(owner), json={"reason": "x"})
+            assert r.status_code == 401, f"{path} -> {r.status_code}"
+
+
+async def test_sync_now_runs_the_workspaces_own_job_and_not_twice_at_once(monkeypatch):
+    from app.models import Integration
+    from app.services import sync_jobs
+
+    tid = await _tenant_with("syncnowco")
+    async with SessionLocal() as s:
+        integ = Integration(tenant_id=tid, provider="sisu", status="connected")
+        s.add(integ)
+        await s.commit()
+        integ_id = integ.id
+    ran = []
+
+    async def fake_all(tenant_id, run_id, period="mtd"):
+        ran.append(("all", tenant_id))
+
+    async def fake_one(tenant_id, integ_id, period="mtd"):
+        ran.append(("one", integ_id))
+
+    monkeypatch.setattr(sync_jobs, "run_all_job", fake_all)
+    monkeypatch.setattr(sync_jobs, "run_one_job", fake_one)
+    tok = await _op_token()
+    async with _client() as c:
+        r = await c.post("/api/v1/platform/tenants/syncnowco/sync", headers=_H(tok))
+        assert r.status_code == 202 and r.json()["sources"] == 1, r.text
+        # the fake job never finishes its run row, which is exactly a sync still in progress
+        r = await c.post("/api/v1/platform/tenants/syncnowco/sync", headers=_H(tok))
+        assert r.status_code == 409 and "already running" in r.json()["detail"]
+        r = await c.post(f"/api/v1/platform/tenants/syncnowco/sources/{integ_id}/sync", headers=_H(tok))
+        assert r.status_code == 202, r.text
+        r = await c.post(f"/api/v1/platform/tenants/springb/sources/{integ_id}/sync", headers=_H(tok))
+        assert r.status_code == 404, "a source is only reachable through its own workspace"
+    assert ran == [("all", tid), ("one", integ_id)]
+    rows = await _trail(tid, "tenant.sync_requested")
+    assert len(rows) == 2 and all(_by_acumyn(r) for r in rows)
+
+
+async def test_a_frozen_workspace_pulls_nothing_and_says_who_froze_it_and_why(monkeypatch):
+    from app.models import Integration
+    from app.services import sync_jobs
+
+    tid = await _tenant_with("freezeco")
+    async with SessionLocal() as s:
+        integ = Integration(tenant_id=tid, provider="fub", status="connected")
+        s.add(integ)
+        await s.commit()
+        integ_id = integ.id
+
+    async def never(*a, **k):
+        raise AssertionError("a frozen workspace was synced")
+
+    monkeypatch.setattr(sync_jobs, "run_all_job", never)
+    monkeypatch.setattr(sync_jobs, "run_one_job", never)
+    tok = await _op_token()
+    async with _client() as c:
+        r = await c.post("/api/v1/platform/tenants/freezeco/freeze-syncs", headers=_H(tok),
+                         json={"reason": " "})
+        assert r.status_code == 400
+        r = await c.post("/api/v1/platform/tenants/freezeco/freeze-syncs", headers=_H(tok),
+                         json={"reason": "FUB key may have leaked"})
+        assert r.status_code == 200, r.text
+        assert (await c.post("/api/v1/platform/tenants/freezeco/freeze-syncs", headers=_H(tok),
+                             json={"reason": "again"})).status_code == 409
+        for path in ("/sync", f"/sources/{integ_id}/sync"):
+            r = await c.post(f"/api/v1/platform/tenants/freezeco{path}", headers=_H(tok))
+            assert r.status_code == 409 and "frozen" in r.json()["detail"], path
+
+        row = (await c.get("/api/v1/platform/tenants/freezeco", headers=_H(tok))).json()
+        assert row["syncs_frozen"] is True
+        assert any("Syncs frozen" in line and OP_EMAIL in line for line in row["health"]["why"])
+        assert "Freeze reason: FUB key may have leaked" in row["health"]["why"]
+        assert not any(sig["key"].split(":")[1] == "stale" for sig in row["signals"]), \
+            "a frozen source is paused on purpose, not stale"
+
+        assert (await c.post("/api/v1/platform/tenants/freezeco/unfreeze-syncs",
+                             headers=_H(tok))).status_code == 200
+        assert (await c.post("/api/v1/platform/tenants/freezeco/unfreeze-syncs",
+                             headers=_H(tok))).status_code == 409
+    assert [_by_acumyn(r) for r in await _trail(tid, "tenant.syncs_frozen")] == [True]
+    assert [_by_acumyn(r) for r in await _trail(tid, "tenant.syncs_unfrozen")] == [True]
+
+
+async def test_the_workspaces_own_sync_buttons_refuse_while_frozen(monkeypatch):
+    """Freezing is for a credential that may be compromised. A Sync button inside the workspace
+    that still used it would leave the freeze a label."""
+    from app.models import Integration, Tenant
+    from app.services import sync_jobs
+
+    async def never(*a, **k):
+        raise AssertionError("a frozen workspace was synced")
+
+    monkeypatch.setattr(sync_jobs, "run_all_job", never)
+    monkeypatch.setattr(sync_jobs, "run_one_job", never)
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        integ = (await s.execute(select(Integration).where(Integration.tenant_id == t.id))).scalars().first()
+    tok = await _op_token()
+    async with _client() as c:
+        owner = (await c.post("/api/v1/auth/login",
+                              json={"email": "spring@springb.com", "password": "springtime"})).json()["token"]
+        assert (await c.post("/api/v1/platform/tenants/springb/freeze-syncs", headers=_H(tok),
+                             json={"reason": "test freeze"})).status_code == 200
+        try:
+            r = await c.post("/api/v1/sync/all", headers=_H(owner))
+            assert r.status_code == 409 and "Acumyn support" in r.json()["detail"], r.text
+            if integ is not None:
+                r = await c.post(f"/api/v1/integrations/{integ.id}/sync", headers=_H(owner))
+                assert r.status_code == 409, r.text
+        finally:
+            await c.post("/api/v1/platform/tenants/springb/unfreeze-syncs", headers=_H(tok))
+
+
+async def test_the_scheduled_provider_jobs_skip_a_paused_workspace(monkeypatch):
+    from app import worker
+    from app.services import ads_funnel, sync as sync_mod
+
+    tid = await _tenant_with("pausedjobsco")
+    seen = []
+
+    async def record(s, tenant_id, *a, **k):
+        seen.append(tenant_id)
+        return 0
+
+    monkeypatch.setattr(sync_mod, "sync_agent_offices", record)
+    monkeypatch.setattr(ads_funnel, "sync_ad_attribution", record)
+    monkeypatch.setattr(ads_funnel, "sync_ad_conversions", record)
+    tok = await _op_token()
+    async with _client() as c:
+        assert (await c.post("/api/v1/platform/tenants/pausedjobsco/freeze-syncs", headers=_H(tok),
+                             json={"reason": "test"})).status_code == 200
+    try:
+        await worker.roster_tick()
+        await worker.ads_funnel_tick()
+        assert tid not in seen and seen, "a frozen workspace was pulled for"
+    finally:
+        async with _client() as c:
+            await c.post("/api/v1/platform/tenants/pausedjobsco/unfreeze-syncs", headers=_H(tok))
+
+
+async def test_a_reconnect_link_goes_to_whoever_can_reconnect_and_carries_no_token(monkeypatch):
+    from app.models import Integration
+
+    sent = _capture_mail(monkeypatch)
+    tid = await _tenant_with("reconnectco", name="Reconnect & Co")
+    await _account(tid, "owner@reconnect.test", role="owner")
+    await _account(tid, "admin@reconnect.test", role="admin")
+    await _account(tid, "member@reconnect.test", role="member")
+    await _account(tid, "gone@reconnect.test", role="admin", status="disabled")
+    async with SessionLocal() as s:
+        integ = Integration(tenant_id=tid, provider="qbo", status="error", last_error="invalid_grant")
+        s.add(integ)
+        await s.commit()
+        integ_id = integ.id
+
+    tok = await _op_token()
+    async with _client() as c:
+        r = await c.post(f"/api/v1/platform/tenants/reconnectco/sources/{integ_id}/reconnect-link",
+                         headers=_H(tok))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["sent_to"] == ["owner@reconnect.test", "admin@reconnect.test"]
+    assert body["url"].endswith("reconnectco.brokerage.test/settings/integrations")
+    assert sorted(p["to"][0] for p in sent) == ["admin@reconnect.test", "owner@reconnect.test"]
+    for p in sent:
+        assert "token" not in p["html"].lower() and body["url"] in p["html"]
+        assert "Reconnect &amp; Co" in p["html"], "a workspace name is escaped into the HTML"
+    row, = await _trail(tid, "tenant.reconnect_link_sent")
+    assert _by_acumyn(row) and row.detail["sent_to"] == body["sent_to"]
+
+    nobody = await _tenant_with("nobodyco")
+    async with SessionLocal() as s:
+        lone = Integration(tenant_id=nobody, provider="qbo", status="error")
+        s.add(lone)
+        await s.commit()
+        lone_id = lone.id
+    async with _client() as c:
+        r = await c.post(f"/api/v1/platform/tenants/nobodyco/sources/{lone_id}/reconnect-link",
+                         headers=_H(tok))
+        assert r.status_code == 409 and "no active owner or admin" in r.json()["detail"]
+        r = await c.post("/api/v1/platform/tenants/reconnectco/sources/setup-link", headers=_H(tok))
+        assert r.status_code == 200 and r.json()["url"] == body["url"]
+
+
+async def test_people_actions_email_the_person_and_never_hand_the_operator_a_way_in(monkeypatch):
+    import datetime as dt
+    from app.models import User
+
+    sent = _capture_mail(monkeypatch)
+    now = dt.datetime.now(dt.timezone.utc)
+    tid = await _tenant_with("peopleco")
+    await _account(tid, "owner@people.test", role="owner")
+    invited = await _account(tid, "invited@people.test", status="invited",
+                             action_token_purpose="invite", action_token_hash="x",
+                             action_token_expires=now - dt.timedelta(days=1))
+    locked = await _account(tid, "locked@people.test", failed_logins=10,
+                            locked_until=now + dt.timedelta(minutes=10))
+    elsewhere = await _account(await _tenant_with("otherpeopleco"), "other@people.test")
+
+    tok = await _op_token()
+    base = "/api/v1/platform/tenants/peopleco/people"
+    async with _client() as c:
+        r = await c.post(f"{base}/{invited}/resend", headers=_H(tok))
+        assert r.status_code == 200, r.text
+        assert set(r.json()) == {"email", "invite_expires"}, "no link comes back to the operator"
+        assert (await c.post(f"{base}/{locked}/resend", headers=_H(tok))).status_code == 409
+
+        r = await c.post(f"{base}/{locked}/unlock", headers=_H(tok))
+        assert r.status_code == 200, r.text
+        assert (await c.post(f"{base}/{locked}/unlock", headers=_H(tok))).status_code == 409
+
+        r = await c.post(f"{base}/{locked}/reset-link", headers=_H(tok))
+        assert r.status_code == 200 and set(r.json()) == {"email", "expires_at"}, r.text
+        assert (await c.post(f"{base}/{invited}/reset-link", headers=_H(tok))).status_code == 409
+
+        assert (await c.post(f"{base}/{elsewhere}/unlock", headers=_H(tok))).status_code == 404
+        assert (await c.post(f"{base}/not-a-uuid/unlock", headers=_H(tok))).status_code == 404
+
+    to = {p["to"][0]: p["html"] for p in sent}
+    assert "accept-invite?token=" in to["invited@people.test"]
+    assert "reset-password?token=" in to["locked@people.test"]
+    async with SessionLocal() as s:
+        inv = await s.get(User, invited)
+        lck = await s.get(User, locked)
+    assert inv.action_token_purpose == "invite" and fleet_aware(inv.action_token_expires) > now
+    assert lck.locked_until is None and lck.failed_logins == 0 and lck.action_token_purpose == "reset"
+    for action in ("user.reinvited", "user.unlocked", "user.reset_link"):
+        rows = await _trail(tid, action)
+        assert len(rows) == 1 and _by_acumyn(rows[0]), action
+
+
+def fleet_aware(d):
+    from app.services.fleet_health import _aware
+    return _aware(d)
+
+
+async def test_resending_idle_invites_clears_the_row_that_asked_for_it(monkeypatch):
+    import datetime as dt
+
+    _capture_mail(monkeypatch)
+    now = dt.datetime.now(dt.timezone.utc)
+    tid = await _tenant_with("idleco")
+    await _account(tid, "owner@idle.test", role="owner", last_login_at=now)
+    await _account(tid, "idle@idle.test", status="invited", action_token_purpose="invite",
+                   action_token_hash="x", action_token_expires=now - dt.timedelta(days=13))
+    await _account(tid, "fresh@idle.test", status="invited", action_token_purpose="invite",
+                   action_token_hash="y", action_token_expires=now + dt.timedelta(days=6))
+    tok = await _op_token()
+
+    def idle_rows(row):
+        return [sig for sig in row["signals"] if sig["key"].endswith(":people:idle_invites")]
+
+    async with _client() as c:
+        assert idle_rows((await c.get("/api/v1/platform/tenants/idleco", headers=_H(tok))).json())
+        r = await c.post("/api/v1/platform/tenants/idleco/people/resend-idle", headers=_H(tok))
+        assert r.status_code == 200 and r.json()["sent_to"] == ["idle@idle.test"], r.text
+        assert not idle_rows((await c.get("/api/v1/platform/tenants/idleco", headers=_H(tok))).json())
+        r = await c.post("/api/v1/platform/tenants/idleco/people/resend-idle", headers=_H(tok))
+        assert r.status_code == 409
+
+
+async def test_revoking_share_links_revokes_the_live_ones_and_clears_the_suspended_row():
+    import datetime as dt
+    from app.models import ShareLink, Tenant
+
+    now = dt.datetime.now(dt.timezone.utc)
+    tid = await _tenant_with("revokeco")
+    async with SessionLocal() as s:
+        for i in range(2):
+            s.add(ShareLink(tenant_id=tid, scope="sd_rep", token=f"live-{uuid.uuid4().hex}"))
+        s.add(ShareLink(tenant_id=tid, scope="ulrg_scorecard", token=f"old-{uuid.uuid4().hex}",
+                        expires_at=now - dt.timedelta(days=1)))
+        (await s.get(Tenant, tid)).status = "suspended"
+        await s.commit()
+    tok = await _op_token()
+    async with _client() as c:
+        row = (await c.get("/api/v1/platform/tenants/revokeco", headers=_H(tok))).json()
+        assert any(sig["key"].endswith(":share:live_while_suspended") for sig in row["signals"])
+        r = await c.post("/api/v1/platform/tenants/revokeco/share-links/revoke-all", headers=_H(tok))
+        assert r.status_code == 200 and r.json() == {"revoked": 2}, r.text
+        assert (await c.post("/api/v1/platform/tenants/revokeco/share-links/revoke-all",
+                             headers=_H(tok))).status_code == 409
+        row = (await c.get("/api/v1/platform/tenants/revokeco", headers=_H(tok))).json()
+        assert not any(sig["key"].endswith(":share:live_while_suspended") for sig in row["signals"])
+    async with SessionLocal() as s:
+        links = (await s.execute(select(ShareLink).where(ShareLink.tenant_id == tid))).scalars().all()
+    assert sorted(link.revoked_at is not None for link in links) == [False, True, True], \
+        "an already-expired link is left as it was"
+    row, = await _trail(tid, "tenant.share_links_revoked")
+    assert _by_acumyn(row) and row.detail["count"] == 2
+
+
+@pytest.mark.skipif(not OPERATOR_SRC.exists(), reason="frontend not present")
+def test_every_action_the_server_attaches_to_a_signal_is_one_the_console_can_perform():
+    """A triage button that navigates instead of doing what it says is a button that lies. Every
+    action key fleet_health can emit either has a call in actions.js or is `open`."""
+    src = (Path(__file__).resolve().parents[1] / "app" / "services" / "fleet_health.py").read_text(encoding="utf-8")
+    emitted = set(re.findall(r'_action\("[^"]+", "(\w+)"', src))
+    actions = _code(OPERATOR_SRC / "actions.js")
+    handled = set(re.findall(r"^\s{2}(\w+): (?:\{|async)", actions, re.M))
+    # payment_link belongs to platform billing, which is not connected yet.
+    missing = emitted - handled - {"open", "payment_link"}
+    assert not missing, f"signal actions the console cannot perform: {sorted(missing)}"
