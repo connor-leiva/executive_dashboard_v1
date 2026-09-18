@@ -1238,3 +1238,38 @@ async def test_a_photo_needs_a_session_and_belongs_to_one_workspace():
     people = {p["name"]: p for p in (await _content(host_a, tokens_a["member"]))["directory"]}
     assert people["Zoe Agent"]["photo_url"] == f"/intranet/directory/{member_id}/photo"
     assert people["Alice Leader"]["photo_url"] is None
+
+
+async def test_the_payload_says_whether_the_reader_is_on_the_roster():
+    """A course or a tile with an audience is hidden from somebody with no role, which is correct
+    and invisible: an account invited from the dashboard's Team screen rather than from People &
+    Roster has no roster entry, and saw a populated portal as bare shelves. The portal reads this
+    flag to say which kind of empty it is looking at."""
+    from app.models import IntranetMember, IntranetRole
+    from app.services.intranet_bootstrap import bootstrap_intranet
+
+    host, tenant, tokens = await _tenant("intraroster", intranet=True)
+    async with SessionLocal() as s:
+        await bootstrap_intranet(s, tenant.id, workspace_name=tenant.name,
+                                 subdomain="intraroster")
+        await s.commit()
+
+    async with _client() as c:
+        off = (await c.get("/api/v1/intranet/config", headers=_H(tokens["owner"], host))).json()
+    assert off["config"]["content"]["on_roster"] is False, "no roster entry for this account"
+    assert off["config"]["sunburst"]["url"] == "", "no member, so no conversation to open"
+
+    async with SessionLocal() as s:
+        role = (await s.execute(select(IntranetRole).where(
+            IntranetRole.tenant_id == tenant.id))).scalars().first()
+        owner = (await s.execute(select(User).where(
+            User.tenant_id == tenant.id, User.role == "owner"))).scalar_one()
+        s.add(IntranetMember(tenant_id=tenant.id, full_name="Owner", email=owner.email,
+                             role_id=role.id if role else None, status="Active",
+                             auth_source="Manual", user_id=owner.id))
+        await s.commit()
+
+    async with _client() as c:
+        on = (await c.get("/api/v1/intranet/config", headers=_H(tokens["owner"], host))).json()
+    assert on["config"]["content"]["on_roster"] is True
+    assert on["config"]["sunburst"]["url"].startswith("https://app.sisu.co/app/sb/")

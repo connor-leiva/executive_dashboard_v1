@@ -530,6 +530,11 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
                   for r in roles],
         "my_role": next((r.key for r in roles if member is not None and r.id == member.role_id),
                         None),
+        # Whether this person has a roster entry at all, and so whether the emptiness they may be
+        # looking at is a restriction or an absence. A course or a tile with an audience is hidden
+        # from somebody with no role, which is correct and invisible: the portal says which it is
+        # rather than showing empty shelves to somebody who was never added.
+        "on_roster": member is not None,
         "tool_groups": [{"id": name.lower().replace(" ", "_"), "label": name, "tools": items}
                         for name, items in groups.items()],
         "wtd_lists": [{"id": str(w.id), "name": w.name, "script_name": w.script_name,

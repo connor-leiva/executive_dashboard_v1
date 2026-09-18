@@ -524,6 +524,43 @@ function Panel({ title, kicker, action, children, className = "" }) {
   );
 }
 
+/* WHY THIS PORTAL LOOKS EMPTY, when the reason is the reader rather than the workspace.
+ *
+ * A course or a launchpad tile with an audience is hidden from somebody with no role, and that is
+ * correct -- but it is also invisible, so a person with an account and no roster entry sees a
+ * published, populated portal as bare shelves and reasonably concludes the product is broken. It
+ * happened the first day somebody was invited from the dashboard's Team screen rather than from
+ * People & Roster: the two invites create different things, and only one of them creates the
+ * roster entry the portal reads.
+ *
+ * Says nothing when the reader is on the roster with a role, which is almost everybody.
+ */
+function rosterGap(config) {
+  const content = config?.content;
+  if (!content || content.on_roster === undefined) return null;      // an older payload: say nothing
+  if (!content.on_roster) return "absent";
+  return content.my_role ? null : "roleless";
+}
+
+function RosterNotice({ config, canConfigure }) {
+  const gap = rosterGap(config);
+  if (!gap) return null;
+  const hidden = "Courses and tools that are limited to a role are hidden from you, and Sunburst "
+    + "has no conversation to open.";
+  return (
+    <Panel title={gap === "absent" ? "You are not on the workspace roster" : "You have no role yet"}>
+      <p className="ut-empty">
+        {gap === "absent"
+          ? `Your account can sign in, but it is not on the roster this portal reads. ${hidden} `
+          : `You are on the roster, but no role has been set. ${hidden} `}
+        {canConfigure
+          ? "Fix it under People & Roster in the console -- the same place an admin adds anybody else who needs the portal."
+          : "Ask an admin to add you under People & Roster."}
+      </p>
+    </Panel>
+  );
+}
+
 function Empty({ title, children }) {
   return (
     <div className="ut-empty">
@@ -587,6 +624,8 @@ function Home({ config, wtd, training, onboarding, me, canConfigure }) {
           <NavLink className="ut-button primary" to="/numbers">My Numbers</NavLink>
         </div>
       </section>
+
+      <RosterNotice config={config} canConfigure={canConfigure} />
 
       <ProductionCards numbers={numbers} me={me} canConfigure={canConfigure} />
 
@@ -779,6 +818,7 @@ function connected(config, providerKey) {
 function SunburstBanner({ config, me, canConfigure }) {
   const numbers = config?.numbers || DEFAULT_CONFIG.numbers;
   const own = numbers.own;
+  const { url, copied, open } = useSunburst(config);
   // WAS "Last week: 0 appointments set, 0 held, 0 under contract" -- three literal zeroes and an
   // instruction to configure sources, shown to everybody forever. It is their actual week now,
   // and somebody with no figures is told which reason it is instead of shown a row of noughts.
@@ -798,18 +838,28 @@ function SunburstBanner({ config, me, canConfigure }) {
         <h2>Your Weekly Check-in is Ready.</h2>
         <p>{line}</p>
         <div className="ut-sunburst-actions">
-          <NavLink className="sun-solid" to="/sunburst">Start My Check-in</NavLink>
+          {/* Opens the conversation, not the tab that has a button that opens it. Where there is
+              no conversation -- somebody who is not on the roster -- the tab is where the reason
+              is written, so it stays a link to there. */}
+          {url
+            ? <button type="button" className="sun-solid" onClick={() => open("")}>Start My Check-in</button>
+            : <NavLink className="sun-solid" to="/sunburst">Start My Check-in</NavLink>}
           <NavLink className="sun-outline" to="/sunburst">All Prompts</NavLink>
         </div>
       </div>
       <div className="ut-sunburst-prompts">
-        {SUNBURST_PROMPTS.map((p) => (
-          <NavLink className="sun-prompt" key={p.kind} to="/sunburst">
+        {SUNBURST_PROMPTS.map((p) => (url ? (
+          <button type="button" className="sun-prompt" key={p.kind} onClick={() => open(p.prompt)}>
             {p.title}
             {/* The one place the magenta appears on this band, besides a hover border. */}
+            <span>{copied === p.prompt ? "Copied" : "\u2192"}</span>
+          </button>
+        ) : (
+          <NavLink className="sun-prompt" key={p.kind} to="/sunburst">
+            {p.title}
             <span>{"\u2192"}</span>
           </NavLink>
-        ))}
+        )))}
       </div>
     </section>
   );
@@ -902,17 +952,22 @@ function ProgressPanel({ label, done, total, secondary }) {
   );
 }
 
-function Tools({ config }) {
+function Tools({ config, canConfigure }) {
   const groups = tilesFrom(config);
+  const gap = rosterGap(config);
   return (
     <Page title="Tool Launchpad" subtitle="The tools this workspace runs on.">
       {groups.length === 0 ? (
-        <Panel title="Tools">
-          <Empty title="No tools configured">
-            An admin can add tools in the console under Tool Launchpad. They appear here once
-            published.
-          </Empty>
-        </Panel>
+        <>
+          <RosterNotice config={config} canConfigure={canConfigure} />
+          <Panel title="Tools">
+            <Empty title={gap ? "No tools you can open" : "No tools configured"}>
+              {gap
+                ? "A tile limited to a role is hidden until you have one, so this workspace may have tools you cannot see yet."
+                : "An admin can add tools in the console under Tool Launchpad. They appear here once published."}
+            </Empty>
+          </Panel>
+        </>
       ) : groups.map((group) => (
         <Panel key={group.id} title={group.label}>
           <div className="ut-tool-grid">
@@ -1049,7 +1104,7 @@ function progressOf(course, done) {
  * "percent complete" column would be a second copy of a fact that is already true elsewhere, and
  * the day it disagreed the card would be the thing people believed.
  */
-function Training({ state, config }) {
+function Training({ state, config, canConfigure }) {
   const courses = (config?.content?.courses) || [];
   const [filter, setFilter] = useState("All");
   const done = state.done || {};
@@ -1081,13 +1136,18 @@ function Training({ state, config }) {
 
   if (!courses.length) {
     const denied = deniedBy(config, "training_library");
+    const gap = rosterGap(config);
     return (
       <Page title="Training Library" subtitle={TRAINING_BLURB}>
-        <Panel title={denied ? "Not available to your role" : "Nothing published yet"}>
+        {gap ? <RosterNotice config={config} canConfigure={canConfigure} /> : null}
+        <Panel title={denied ? "Not available to your role"
+                             : gap ? "Nothing you can see yet" : "Nothing published yet"}>
           <p className="ut-empty">
             {denied
               ? "Your role does not have access to the training library. Ask an admin if that looks wrong."
-              : "Courses appear here once an admin publishes them in the console."}
+              : gap
+                ? "This workspace may well have published courses; the ones limited to a role are hidden until you have one."
+                : "Courses appear here once an admin publishes them in the console."}
           </p>
         </Panel>
       </Page>
@@ -2548,18 +2608,18 @@ const SUNBURST_PROMPTS = [
  * until Sisu's link is live on the host -- a card copies its question to the clipboard and opens
  * the conversation for you to paste, which works everywhere.
  */
-function SunburstPage({ config, me, canConfigure }) {
-  const numbers = config?.numbers || DEFAULT_CONFIG.numbers;
-  const own = numbers.own;
+/* Opening Sunburst, for the two screens that do it: the home band and this page.
+ *
+ * ONE IMPLEMENTATION. The band used to be four NavLinks to /sunburst, so a prompt on the home page
+ * opened the tab, where the same prompt had to be clicked again to reach Sunburst. A prompt that
+ * deep-links on one screen and navigates on the other is the kind of difference nobody notices
+ * until somebody asks why their check-in takes three clicks.
+ */
+function useSunburst(config) {
   const url = (config?.sunburst?.url || "").trim();
   const askUrl = (config?.sunburst?.ask_url || "").trim();
   const carries = Boolean(config?.sunburst?.carries_prompt);
   const [copied, setCopied] = useState("");
-  const [typed, setTyped] = useState("");
-
-  // Whether a figure is missing and whether it is zero are different facts. Somebody with no
-  // figures gets an em dash and a line saying why; a quiet week gets a nought.
-  const stat = (value) => (own && value !== null && value !== undefined ? String(value) : "—");
 
   function open(prompt) {
     const question = (prompt || "").trim();
@@ -2583,15 +2643,30 @@ function SunburstPage({ config, me, canConfigure }) {
     window.open(url, "_blank", "noreferrer,noopener");
   }
 
+  return { url, carries, copied, open };
+}
+
+function SunburstPage({ config, me, canConfigure }) {
+  const numbers = config?.numbers || DEFAULT_CONFIG.numbers;
+  const own = numbers.own;
+  const { url, carries, copied, open } = useSunburst(config);
+  const [typed, setTyped] = useState("");
+
+  // Whether a figure is missing and whether it is zero are different facts. Somebody with no
+  // figures gets an em dash and a line saying why; a quiet week gets a nought.
+  const stat = (value) => (own && value !== null && value !== undefined ? String(value) : "—");
+
+
   // The only way there is no link: the viewer is not on the roster at all, so there is no member
   // to derive one for. An owner who never added themselves is the real case.
   if (!url) {
     return (
       <Page title="Sunburst" subtitle="Your AI business partner, built into Sisu.">
-        <Panel title="You are not on the roster">
+        <RosterNotice config={config} canConfigure={canConfigure} />
+        <Panel title="No conversation to open">
           <p className="ut-empty">
-            Sunburst opens a conversation for a person, and this account is not on the workspace
-            roster yet. Add yourself under People &amp; Roster in the console and it will be here.
+            Sunburst opens a conversation for a person on the roster, and this account is not one
+            yet. It appears here as soon as it is.
           </p>
         </Panel>
       </Page>
@@ -2732,9 +2807,9 @@ export default function IntranetApp() {
     <Shell me={boot.me} config={boot.config}>
       <Routes>
         <Route path="/" element={<Home config={boot.config} wtd={wtd} training={training} onboarding={onboarding} me={boot.me} canConfigure={boot.canConfigure} />} />
-        <Route path="/tools" element={<Tools config={boot.config} />} />
+        <Route path="/tools" element={<Tools config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} />} />
-        <Route path="/training" element={<Training state={training} config={boot.config} />} />
+        <Route path="/training" element={<Training state={training} config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/training/:courseId" element={<CourseDetail state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/training/:courseId/:lessonId" element={<LessonPlayer state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/p/:pageKey" element={<AuthoredPage config={boot.config} />} />

@@ -949,6 +949,16 @@ input {
   cursor: pointer;
 }
 
+/* Both come in two elements now: a link where there is nothing to open (the tab explains why) and
+   a button where there is, because opening Sunburst is an action rather than a destination. A
+   button inherits neither the page's typeface nor its text alignment. */
+button.sun-solid,
+button.sun-outline,
+button.sun-prompt { font-family: inherit; }
+
+/* The prompts are a column of full-width cards; the two band buttons size to their label. */
+button.sun-prompt { text-align: left; width: 100%; }
+
 .sun-solid { border: 0; background: #ffffff; color: var(--ink); }
 .sun-solid:hover { background: var(--accent); }
 .sun-outline { border: 1px solid var(--sun-outline); background: transparent; color: #ffffff; }

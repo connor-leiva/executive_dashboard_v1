@@ -203,3 +203,55 @@ async def test_a_member_who_is_already_active_is_left_alone():
     assert (await _login(p)).status_code == 200
     assert (await _login(p)).status_code == 200
     assert await _activations(p) == [], "an already-active member was re-activated"
+
+
+# ── a session handed back IS a sign-in ────────────────────────────────────────────────────
+
+async def test_accepting_an_invite_records_the_sign_in():
+    """It hands back a session, so the account HAS signed in. It did not record it: somebody who
+    accepted their invite and never met the login form again read as "never signed in" on their own
+    workspace's Team page and in the operator console, where it makes a live workspace look like
+    onboarding that stalled. Found on a real account the day it was invited."""
+    p = await _person(account="invited", member="Invited", token_purpose="invite")
+    async with _client() as c:
+        r = await c.post("/api/v1/auth/accept-invite", headers={"x-tenant-host": p["host"]},
+                         json={"token": p["raw"], "name": "Agent", "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    async with SessionLocal() as s:
+        u = await s.get(User, p["uid"])
+    assert u.last_login_at is not None
+
+
+async def test_a_password_reset_records_the_sign_in():
+    p = await _person(account="invited", member="Invited", token_purpose="reset")
+    async with _client() as c:
+        r = await c.post("/api/v1/auth/reset-password", headers={"x-tenant-host": p["host"]},
+                         json={"token": p["raw"], "new_password": PASSWORD})
+    assert r.status_code == 200, r.text
+    async with SessionLocal() as s:
+        u = await s.get(User, p["uid"])
+    assert u.last_login_at is not None
+
+
+def test_every_route_that_signs_somebody_in_records_it():
+    """Same derivation as the activation scan above, and for the same reason: a route added later
+    that mints a session must stamp last_login_at, or it reports an account nobody ever used."""
+    tree = ast.parse(AUTH_ROUTER.read_text(encoding="utf-8"))
+
+    def mints(fn):
+        return any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                   and n.func.id == "make_token" for n in ast.walk(fn))
+
+    def stamps(fn):
+        return any(isinstance(n, ast.Attribute) and n.attr == "last_login_at" for n in ast.walk(fn))
+
+    # Changing a password re-issues a session to somebody already signed in, so it is not a
+    # sign-in -- the same exemption, for the same reason, as the activation scan above.
+    exempt = {"change_password"}
+    minting = [fn for fn in ast.walk(tree)
+               if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and mints(fn)]
+    assert {fn.name for fn in minting} >= {"login", "google_callback", "accept_invite",
+                                           "reset_password"}, \
+        "the scan no longer sees the sign-in routes -- fix the scan rather than let it pass empty"
+    missing = sorted(fn.name for fn in minting if fn.name not in exempt and not stamps(fn))
+    assert not missing, f"these routes hand back a session without recording it: {missing}"

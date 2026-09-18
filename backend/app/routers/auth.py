@@ -409,6 +409,10 @@ async def accept_invite(body: AcceptInviteRequest, s: AsyncSession = Depends(get
     u.status = "active"
     u.action_token_hash = u.action_token_purpose = u.action_token_expires = None
     u.token_version = (u.token_version or 0)
+    # ACCEPTING IS SIGNING IN. This route hands back a session, so an account that never touches
+    # the login form again would otherwise read as "never signed in" for good -- on the workspace's
+    # own Team page, and in the operator console, where it makes a live workspace look stalled.
+    u.last_login_at = _now()
     audit(s, tid, u.id, "user.accepted_invite", "user", u.id)
     await roster.activate_on_sign_in(s, u, via="invite")
     await s.commit()
@@ -439,6 +443,7 @@ async def reset_password(body: ResetPasswordRequest, s: AsyncSession = Depends(g
     u.token_version = (u.token_version or 0) + 1            # kill old sessions
     u.failed_logins = 0
     u.locked_until = None
+    u.last_login_at = _now()                                # this route hands back a session too
     audit(s, tid, u.id, "auth.password_reset", "user", u.id)
     await roster.activate_on_sign_in(s, u, via="reset")
     await s.commit()
