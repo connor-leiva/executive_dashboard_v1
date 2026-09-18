@@ -48,6 +48,28 @@ def make_token(user_id: uuid.UUID, tenant_id: uuid.UUID, ver: int = 0,
     return jwt.encode(payload, settings.APP_SECRET, algorithm=ALGO)
 
 
+def make_view_token(user_id: uuid.UUID, tenant_id: uuid.UUID, ver: int, member_id: uuid.UUID,
+                    expires: dt.datetime) -> str:
+    """An Acumyn support session, narrowed to reading the workspace's portal AS one roster member.
+
+    Minted only by the operator console, inside an open support session (routers/platform
+    support_view_as): `sub` is the support account and `ver` is its version, so ending support
+    access ends this too, and it expires with it. `vam` names the member. deps.current_user turns it
+    into that member for the portal's reads and refuses everything else -- any write, any path
+    outside the portal, and any token whose account is not a support account.
+    """
+    # A stored timestamp can come back naive (SQLite does); it was written in UTC.
+    ends = expires if expires.tzinfo else expires.replace(tzinfo=dt.timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "tid": str(tenant_id),
+        "ver": ver,
+        "vam": str(member_id),
+        "exp": ends,
+    }
+    return jwt.encode(payload, settings.APP_SECRET, algorithm=ALGO)
+
+
 def make_platform_token(platform_user_id: uuid.UUID, ver: int = 0) -> str:
     """A PLATFORM operator's session. Deliberately a different shape from a tenant session.
 

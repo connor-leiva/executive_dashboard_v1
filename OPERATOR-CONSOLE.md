@@ -35,6 +35,7 @@ which is each workspace's own team-portal admin.
 | 4 | `platform_audit`, Audit view, System view | shipped |
 | 5 | Stripe platform billing | shipped, off until connected |
 | 6 | Support access, export, transfer ownership, delete | shipped |
+| 6+ | Support access extended into the portal: view it as one of the workspace's people | shipped 2026-09-18 |
 
 ## What each phase shipped
 
@@ -154,6 +155,20 @@ against a mocked Stripe, and switched off until an operator connects the account
   refuses every request that is not a read from such an account and refuses it entirely once
   `expires_at` passes; `expire_support_access` disables it within five minutes after. It can be
   ended early. The Access pane lists past sessions from the operator trail.
+- **Viewing the portal as one of its people** (added 2026-09-18, at Connor's direction: "extend
+  the masquerade precedent to the intranet"). Inside an open support session only, the Access pane
+  offers the workspace's portal roster (`GET …/support-access/roster`: name, address, role,
+  status) and **Open portal** (`POST …/support-access/view-as`). That mints a token for the same
+  support account carrying `vam` (the member), expiring with the session, and opens
+  `/intranet/#view-as=…`. `deps._viewing_as` then answers portal reads *as that member*. It uses
+  their own account where they have one (their real progress shows), and otherwise a stand-in
+  built from the roster entry. It refuses every write, every path outside `/api/v1/intranet/` and
+  `/me`, and any `vam` token whose account is not a support account. Sunburst's links are withheld
+  in a view, because they open the member's own coaching conversation in Sisu. The member is not
+  emailed, and nothing about them changes. The view is recorded as `support.viewed_as` in both
+  trails and listed in the pane's history. The portal keeps the view token in that tab's own
+  storage, so it never replaces or clears anybody's real session on the machine: ending the view,
+  or the session behind it, leaves a "This view has ended" screen and nothing else.
 - Export: a JSON metadata archive (people, businesses, connections and their status, share links,
   the audit log). No business data and no credentials: no password hash, token, TOTP secret, share
   link token or integration configuration.

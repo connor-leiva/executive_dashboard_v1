@@ -158,6 +158,9 @@ export const api = {
   supportSessions: (slug) => call(`${slugPath(slug)}/support-access`),
   openSupport: (slug, body) => post(`${slugPath(slug)}/support-access`, body),
   endSupport: (slug) => call(`${slugPath(slug)}/support-access`, { method: "DELETE" }),
+  /* Inside an open support session: the portal as one of the workspace's people. */
+  supportRoster: (slug) => call(`${slugPath(slug)}/support-access/roster`),
+  viewPortalAs: (slug, memberId) => post(`${slugPath(slug)}/support-access/view-as`, { member_id: memberId }),
   exportMetadata: (slug) => call(`${slugPath(slug)}/export`, { method: "POST", body: {}, raw: true }),
   transferOwnership: (slug, userId) => post(`${slugPath(slug)}/transfer-ownership`, { user_id: userId }),
   blastRadius: (slug) => call(`${slugPath(slug)}/blast-radius`),

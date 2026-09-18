@@ -221,7 +221,8 @@ async def me(user: User = Depends(current_user), s: AsyncSession = Depends(get_s
                       apps=await _tenant_apps(s, tenant, user, tabs),
                       # Filtered to what this user may see, so the rail cannot render a tab
                       # the API would refuse — the nav and the grant come from one source.
-                      nav=[d for d in descriptors if d["key"] in granted])
+                      nav=[d for d in descriptors if d["key"] in granted],
+                      view_as=getattr(user, "view_as", None))
 
 
 @router.post("/auth/change-password", response_model=LoginResponse)
@@ -338,9 +339,13 @@ async def google_callback(code: str = Query(None), state: str = Query(None),
         User.tenant_id == tid, User.email == email))).scalar_one_or_none()
     # MATCHED, NEVER CREATED. No row means nobody invited this person to this workspace, and a
     # verified address at an allowed domain is not an invitation -- see services/google_auth.
-    if user is None or user.status == "disabled":
+    # An account whose invite is still HELD counts as no account: the admin added them to the
+    # roster and has not invited them yet, and signing in would be how they found out.
+    if user is None or user.status == "disabled" or user.invite_held:
+        reason = ("no_account" if user is None else
+                  "disabled" if user.status == "disabled" else "invite_not_sent")
         audit(s, tid, None, "auth.google_denied", "tenant", tid,
-              {"reason": "no_account" if user is None else "disabled", "email": email[:160]})
+              {"reason": reason, "email": email[:160]})
         await s.commit()
         return await fail("no_account", tid)
 
@@ -407,6 +412,7 @@ async def accept_invite(body: AcceptInviteRequest, s: AsyncSession = Depends(get
     u.name = body.name.strip()[:200] or u.name
     u.password_hash = hash_pw(body.password)
     u.status = "active"
+    u.invite_held = False
     u.action_token_hash = u.action_token_purpose = u.action_token_expires = None
     u.token_version = (u.token_version or 0)
     # ACCEPTING IS SIGNING IN. This route hands back a session, so an account that never touches
@@ -495,6 +501,13 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request, bg: Bac
               {"email": email[:160], "result": "no_such_login"})
         await s.commit()
         return ok
+    # A held invite sends nothing: for an invited account this route emails the INVITE, and the
+    # admin who added them has not chosen to invite them yet. Same answer as an unknown address.
+    if user.invite_held:
+        audit(s, tid, user.id, "auth.forgot_password", "user", user.id,
+              {"result": "invite_not_sent"})
+        await s.commit()
+        return ok
 
     # Throttle on the account, not the caller: the address is what gets flooded, and it is the
     # one thing an attacker cannot vary. Issue time is the expiry minus the lifetime, so this
@@ -562,12 +575,14 @@ async def find_workspace(body: FindWorkspaceRequest, bg: BackgroundTasks,
 
     Listed: any account that is not disabled, in any workspace that is not suspended — the two
     refusals login makes. `invited` is listed on purpose: an invited person can sign in with
-    Google, or finish the invite, from that workspace's own page.
+    Google, or finish the invite, from that workspace's own page. An invite still HELD is not: it
+    has not been sent, and this email would be the first they heard of the workspace.
     """
     email = body.email                      # normalised by FindWorkspaceRequest
     rows = (await s.execute(
         select(User, Tenant).join(Tenant, Tenant.id == User.tenant_id)
-        .where(User.email == email, User.status != "disabled", Tenant.status != "suspended")
+        .where(User.email == email, User.status != "disabled", User.invite_held.is_(False),
+               Tenant.status != "suspended")
     )).all()
 
     workspaces = []

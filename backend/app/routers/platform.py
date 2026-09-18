@@ -29,10 +29,12 @@ from .. import plans
 from ..config import settings
 from ..db import get_session
 from ..deps import STEP_UP_SCOPES, current_platform_user
-from ..models import (AuditLog, Business, Domain, Integration, JobHeartbeat, PlatformAudit,
+from ..models import (AuditLog, Business, Domain, Integration, IntranetMember, IntranetRole,
+                      IntranetWorkspace, JobHeartbeat, PlatformAudit,
                       PlatformBillingConfig, PlatformInvoice, PlatformSubscription, PlatformUser,
                       ShareLink, SyncRun, Tenant, User)
-from ..security import dec, enc, hash_pw, make_platform_token, make_token, new_action_token, verify_pw
+from ..security import (dec, enc, hash_pw, make_platform_token, make_token, make_view_token,
+                        new_action_token, verify_pw)
 from ..services import (fleet_health, fleet_rollup, jobs, mail_templates, mailer, operator_audit,
                         platform_billing, sync_jobs)
 from ..throttle import client_ip
@@ -832,6 +834,9 @@ def _mint_invite(u: User) -> str:
     raw, token_hash = new_action_token()
     u.action_token_hash, u.action_token_purpose = token_hash, "invite"
     u.action_token_expires = _now() + dt.timedelta(days=INVITE_VALID_DAYS)
+    # Minting an invite is sending one: an account a workspace added without inviting is invited
+    # the moment anybody sends it a link.
+    u.invite_held = False
     return raw
 
 
@@ -1625,6 +1630,81 @@ async def end_support_access(slug: str, request: Request, op: PlatformUser = Dep
     return {"ended": True}
 
 
+class ViewAsBody(BaseModel):
+    member_id: str
+
+
+async def _open_support_account(s: AsyncSession, t: Tenant, op: PlatformUser) -> User | None:
+    """The calling operator's support account in this workspace, if its session is open now."""
+    u = (await s.execute(select(User).where(
+        User.tenant_id == t.id, User.email == _support_email(op),
+        User.expires_at.is_not(None)))).scalar_one_or_none()
+    if u is None or u.status != "active" or fleet_health._aware(u.expires_at) <= _now():
+        return None
+    return u
+
+
+@router.get("/tenants/{slug}/support-access/roster")
+async def support_roster(slug: str, op: PlatformUser = Depends(current_platform_user),
+                         s: AsyncSession = Depends(get_session)):
+    """The workspace's portal roster, to choose whom a support session views the portal as.
+
+    People metadata only -- name, address, role and roster status, the same kind of fact the
+    People list here already shows. Nothing they have done, and none of their numbers.
+    """
+    t = await _get(s, slug)
+    portal = (await s.execute(select(IntranetWorkspace.tenant_id).where(
+        IntranetWorkspace.tenant_id == t.id).limit(1))).first() is not None
+    roles = dict((await s.execute(select(IntranetRole.id, IntranetRole.name).where(
+        IntranetRole.tenant_id == t.id))).all())
+    rows = (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == t.id, IntranetMember.status != "Removed")
+        .order_by(IntranetMember.full_name))).scalars().all()
+    return {"portal": portal,
+            "members": [{"id": str(m.id), "name": m.full_name, "email": m.email,
+                         "role": roles.get(m.role_id), "status": m.status} for m in rows]}
+
+
+@router.post("/tenants/{slug}/support-access/view-as")
+async def support_view_as(slug: str, body: ViewAsBody, request: Request,
+                          op: PlatformUser = Depends(current_platform_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Open the workspace's portal as one roster member, inside the operator's support session.
+
+    AN EXTENSION OF SUPPORT ACCESS, and only usable inside one: the session must already be open
+    (its reason given, its owners emailed, its clock running). The view is that support account,
+    narrowed -- read-only, portal-only, and over when the session is -- and stands in for the
+    member on every portal read, so the operator sees what that person would. Recorded in both
+    trails like every other operator action here. The member is not told: nothing about them
+    changes, and nothing is sent to them.
+    """
+    t = await _get(s, slug)
+    u = await _open_support_account(s, t, op)
+    if u is None:
+        raise HTTPException(409, "Open support access to this workspace first: a portal view is "
+                                 "part of a support session and ends with it.")
+    try:
+        member_id = uuid.UUID(body.member_id)
+    except ValueError:
+        raise HTTPException(404, "No such person on this workspace's roster")
+    member = (await s.execute(select(IntranetMember).where(
+        IntranetMember.id == member_id, IntranetMember.tenant_id == t.id))).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(404, "No such person on this workspace's roster")
+    if member.status == "Removed":
+        raise HTTPException(409, f"{member.full_name} was removed from the roster.")
+    token = make_view_token(u.id, t.id, u.token_version or 0, member.id, u.expires_at)
+    _record(s, op, request, t, "support.viewed_as", "member", member.id, category="Access",
+            member=member.full_name, account=u.email, expires_at=_iso(u.expires_at))
+    await s.commit()
+    return {
+        # Opened in a new tab and never displayed, like the support session's own link: the
+        # fragment never reaches a server log or a Referer header.
+        "url": f"{await _workspace_base(s, t)}/intranet/#view-as={token}",
+        "member": member.full_name, "expires_at": _iso(u.expires_at),
+    }
+
+
 @router.get("/tenants/{slug}/support-access")
 async def support_sessions(slug: str, op: PlatformUser = Depends(current_platform_user),
                            s: AsyncSession = Depends(get_session)):
@@ -1633,7 +1713,8 @@ async def support_sessions(slug: str, op: PlatformUser = Depends(current_platfor
     now = _now()
     rows = (await s.execute(select(PlatformAudit).where(
         PlatformAudit.tenant_id == t.id, PlatformAudit.action.in_(
-            ("support.access_opened", "support.access_ended", "support.access_expired")))
+            ("support.access_opened", "support.access_ended", "support.access_expired",
+             "support.viewed_as")))
         .order_by(PlatformAudit.created_at.desc()).limit(50))).scalars().all()
     open_rows = (await s.execute(select(User).where(
         User.tenant_id == t.id, User.expires_at.is_not(None), User.status == "active"))).scalars().all()
@@ -1643,7 +1724,8 @@ async def support_sessions(slug: str, op: PlatformUser = Depends(current_platfor
                  for u in open_rows if fleet_health._aware(u.expires_at) > now],
         "history": [{"action": r.action, "who": r.operator_email, "at": _iso(r.created_at),
                      "reason": r.reason, "minutes": (r.detail or {}).get("minutes"),
-                     "account": (r.detail or {}).get("account")} for r in rows],
+                     "account": (r.detail or {}).get("account"),
+                     "member": (r.detail or {}).get("member")} for r in rows],
     }
 
 

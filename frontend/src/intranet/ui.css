@@ -3309,3 +3309,45 @@ a.ut-fu-row:focus-visible {
     grid-area: main;
   }
 }
+
+/* ── an Acumyn support view of somebody's portal ───────────────────────────────────────────
+   Sticky, so it is on screen whichever page is open, and in the warning tone: everything under
+   it is another person's page. */
+.ut-viewas {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 1px solid #dbaca0;
+  background: #fcf4f2;
+  color: var(--body);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ut-viewas strong {
+  color: var(--ink);
+}
+
+.ut-viewas button {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: 1px solid var(--ink);
+  border-radius: 7px;
+  background: var(--ink);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ut-viewas button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

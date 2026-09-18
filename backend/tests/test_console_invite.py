@@ -107,13 +107,50 @@ async def _invite(ws, email, name="New Agent"):
                             json={"full_name": name, "email": email, "role_id": role_id})
 
 
+async def _send(ws, member_id):
+    async with _client() as c:
+        return await c.post(f"/api/console/members/{member_id}/send-invite", headers=_H(ws))
+
+
+async def test_adding_somebody_makes_their_account_and_sends_nothing(ws, monkeypatch):
+    """Add, then Send invite. The account exists from the moment they are added -- the roster,
+    the seats and CRM matching all see a real person -- and nothing reaches them until an admin
+    chooses: the account is HELD, with no invite link issued at all."""
+    calls = _capture(monkeypatch)
+    r = await _invite(ws, "held@inviteco.test", name="Held Agent")
+    assert r.status_code == 200, r.text
+    assert r.json()["invite_url"] is None
+    assert r.json()["item"]["invite"] == "not_sent"
+    assert not calls, "adding somebody emailed them"
+    async with SessionLocal() as s:
+        account = (await s.execute(select(User).where(
+            User.tenant_id == ws["tid"], User.email == "held@inviteco.test"))).scalar_one()
+        member = (await s.execute(select(IntranetMember).where(
+            IntranetMember.tenant_id == ws["tid"],
+            IntranetMember.email == "held@inviteco.test"))).scalar_one()
+    assert account.status == "invited" and account.invite_held is True
+    assert account.action_token_hash is None, "a link exists before anybody sent one"
+    assert account.role == "member" and account.tab_access == []
+    assert member.user_id == account.id and member.invited_at is None
+
+    listed = None
+    async with _client() as c:
+        items = (await c.get("/api/console/members?filter=everyone", headers=_H(ws))).json()["items"]
+        listed = next(i for i in items if i["email"] == "held@inviteco.test")
+    assert listed["invite"] == "not_sent"
+
+
 async def test_an_invited_member_gets_an_account_and_a_working_link(ws, monkeypatch):
     calls = _capture(monkeypatch)
     r = await _invite(ws, "agent@inviteco.test")
     assert r.status_code == 200, r.text
-    body = r.json()
+    assert not calls
+    sent = await _send(ws, r.json()["item"]["id"])
+    assert sent.status_code == 200, sent.text
+    body = sent.json()
     url = body["invite_url"]
     assert url and "/accept-invite?token=" in url
+    assert body["item"]["invite"] == "sent"
 
     async with SessionLocal() as s:
         account = (await s.execute(select(User).where(
@@ -121,13 +158,14 @@ async def test_an_invited_member_gets_an_account_and_a_working_link(ws, monkeypa
         member = (await s.execute(select(IntranetMember).where(
             IntranetMember.tenant_id == ws["tid"],
             IntranetMember.email == "agent@inviteco.test"))).scalar_one()
-    assert account.status == "invited"
+    assert account.status == "invited" and account.invite_held is False
     assert account.password_hash is None
     assert account.action_token_hash, "no invite token was issued"
     assert account.role == "member"
     # Empty, not null: null would mean an owner with everything.
     assert account.tab_access == [], account.tab_access
     assert member.user_id == account.id, "the roster entry is not linked to the account"
+    assert member.invited_at is not None
 
     # The email actually went, and carries the same link.
     assert calls, "no invite email was sent"
@@ -146,7 +184,8 @@ async def test_an_invited_member_gets_an_account_and_a_working_link(ws, monkeypa
 
 async def test_a_portal_member_sees_the_portal_and_not_the_dashboard(ws, monkeypatch):
     _capture(monkeypatch)
-    await _invite(ws, "noexec@inviteco.test", name="No Exec")
+    added = await _invite(ws, "noexec@inviteco.test", name="No Exec")
+    await _send(ws, added.json()["item"]["id"])
     async with SessionLocal() as s:
         account = (await s.execute(select(User).where(
             User.tenant_id == ws["tid"], User.email == "noexec@inviteco.test"))).scalar_one()
@@ -214,3 +253,65 @@ async def test_inviting_the_same_person_twice_is_refused(ws, monkeypatch):
     assert (await _invite(ws, "twice@inviteco.test")).status_code == 200
     again = await _invite(ws, "twice@inviteco.test")
     assert again.status_code == 422
+
+
+# ── the held invite, and sending it ────────────────────────────────────────────────────────
+
+async def test_a_held_invite_does_not_answer_forgot_password(ws, monkeypatch):
+    """For an invited account, "forgot password" emails the INVITE. Held, it sends nothing --
+    that email would be how they found out -- and answers exactly as for an unknown address."""
+    calls = _capture(monkeypatch)
+    await _invite(ws, "quiet@inviteco.test", name="Quiet Agent")
+    async with _client() as c:
+        r = await c.post("/api/v1/auth/forgot-password", headers={"x-tenant-host": ws["host"]},
+                         json={"email": "quiet@inviteco.test"})
+        control = await c.post("/api/v1/auth/forgot-password",
+                               headers={"x-tenant-host": ws["host"]},
+                               json={"email": "nobody-at-all@inviteco.test"})
+    assert r.status_code == control.status_code == 200 and r.json() == control.json()
+    assert not calls, "a held account was emailed"
+
+
+async def test_sending_again_issues_a_new_link_and_retires_the_old_one(ws, monkeypatch):
+    calls = _capture(monkeypatch)
+    member_id = (await _invite(ws, "again@inviteco.test", name="Again")).json()["item"]["id"]
+    first = (await _send(ws, member_id)).json()["invite_url"]
+    second = (await _send(ws, member_id)).json()["invite_url"]
+    assert first != second and len(calls) == 2
+    async with _client() as c:
+        stale = await c.post("/api/v1/auth/accept-invite", headers={"x-tenant-host": ws["host"]},
+                             json={"token": first.split("token=", 1)[1], "name": "Again",
+                                   "password": "password12345"})
+        fresh = await c.post("/api/v1/auth/accept-invite", headers={"x-tenant-host": ws["host"]},
+                             json={"token": second.split("token=", 1)[1], "name": "Again",
+                                   "password": "password12345"})
+    assert stale.status_code == 400 and fresh.status_code == 200, (stale.text, fresh.text)
+    # Accepted: there is nothing left to send.
+    again = await _send(ws, member_id)
+    assert again.status_code == 422 and "already has an account" in again.text
+
+
+async def test_a_removed_member_is_not_sent_an_invite(ws, monkeypatch):
+    calls = _capture(monkeypatch)
+    member_id = (await _invite(ws, "gone@inviteco.test", name="Gone")).json()["item"]["id"]
+    async with _client() as c:
+        assert (await c.delete(f"/api/console/members/{member_id}", headers=_H(ws))).status_code == 200
+    r = await _send(ws, member_id)
+    assert r.status_code == 422 and "removed" in r.text
+    assert not calls
+
+
+async def test_the_dashboard_resend_releases_a_held_invite(ws, monkeypatch):
+    """Any path that sends the invite releases the hold -- or Google sign-in and "forgot password"
+    would go on refusing somebody who has been told to use them."""
+    _capture(monkeypatch)
+    await _invite(ws, "viadash@inviteco.test", name="Via Dash")
+    async with SessionLocal() as s:
+        account = (await s.execute(select(User).where(
+            User.tenant_id == ws["tid"], User.email == "viadash@inviteco.test"))).scalar_one()
+    async with _client() as c:
+        r = await c.post(f"/api/v1/users/{account.id}/resend-invite", headers=_H(ws))
+    assert r.status_code == 200, r.text
+    async with SessionLocal() as s:
+        account = await s.get(User, account.id)
+    assert account.invite_held is False and account.action_token_hash

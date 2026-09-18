@@ -33,6 +33,10 @@ class MeResponse(BaseModel):
     # Chrome identity — product name, wordmark text, logo URLs. The SPA had these compiled
     # in, so every tenant's tab title and sidebar showed the first customer's brand.
     brand: dict = {}
+    # Set only on a console admin's read-only look at the portal as a roster member: whom it is
+    # (`member_id`, `name`), who opened it (`by`) and when it ends (`expires_at`). The fields
+    # above then describe the member, which is the point of the view.
+    view_as: dict | None = None
 
 
 # ── multi-user platform (accounts, roles, tab grants) ──────────────

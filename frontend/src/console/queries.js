@@ -69,6 +69,7 @@ import {
   patchMarketing,
   patchMarketingRequest,
   patchMember,
+  sendMemberInvite,
   patchPage,
   patchPageSection,
   patchSetupTask,
@@ -537,6 +538,16 @@ export function usePatchMember() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ memberId, body }) => patchMember(memberId, body),
+    onSuccess: () => invalidateRoster(queryClient),
+  });
+}
+
+/* Add and invite are two steps now: adding makes the account and holds the invite, and this sends
+   it -- or sends a fresh one, which retires the last link. */
+export function useSendMemberInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: sendMemberInvite,
     onSuccess: () => invalidateRoster(queryClient),
   });
 }

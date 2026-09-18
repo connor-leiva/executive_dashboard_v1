@@ -15,6 +15,7 @@ import {
   useMembers,
   usePatchMember,
   useRemoveMember,
+  useSendMemberInvite,
   useSyncMembers,
 } from "../queries.js";
 import { Button, EmptyState, ErrorState, Field, LoadingState, Panel } from "../ui.jsx";
@@ -55,10 +56,6 @@ function InviteForm({ roles, inviteMutation }) {
   const [authSource, setAuthSource] = useState(GUEST_AUTH_SOURCE);
   const [roleId, setRoleId] = useState("");
   const [message, setMessage] = useState("");
-  // The invite link, kept after a successful invite. An admin needs a way to hand it over
-  // directly: the most common reason an invite "never arrived" is a spam folder, and the answer
-  // to that should not be to send the same email again.
-  const [inviteUrl, setInviteUrl] = useState("");
 
   useEffect(() => {
     if (roleId || !roles.length) return;
@@ -76,7 +73,6 @@ function InviteForm({ roles, inviteMutation }) {
   async function submit(event) {
     event.preventDefault();
     setMessage("");
-    setInviteUrl("");
     const body = {
       full_name: fullName,
       email,
@@ -90,13 +86,11 @@ function InviteForm({ roles, inviteMutation }) {
       setEmail("");
       setMarket("");
       setAuthSource(GUEST_AUTH_SOURCE);
-      // No link means this address already had an account, so nothing was emailed and there is
-      // nothing to hand over -- they can already sign in. Saying so is more use than a bare
-      // "Invited", which would leave an admin waiting for an email that is not coming.
-      setInviteUrl(result?.invite_url || "");
-      setMessage(result?.invite_url
-        ? COPY.rosterInvited
-        : "Added. They already had an account, so no invite was needed.");
+      // ADDED, NOT INVITED: the account exists and nothing has been sent. Somebody who already
+      // had an account can sign in as they are, so there is nothing to send them at all.
+      setMessage(result?.item?.invite === "accepted"
+        ? "Added. They already have an account, so there is no invite to send."
+        : COPY.rosterInvited);
     } catch (err) {
       setMessage(err.detail || err.message);
     }
@@ -132,17 +126,11 @@ function InviteForm({ roles, inviteMutation }) {
             ))}
           </select>
         </Field>
+        <p className="console-help">
+          They get an account now and are not emailed. Send the invite from their row when you are
+          ready; until then they cannot sign in and the workspace finder does not list them.
+        </p>
         {message ? <p className="roster-form-message">{message}</p> : null}
-        {inviteUrl ? (
-          <>
-            <p className="console-help" style={{ marginBottom: 6 }}>
-              Their invite has been emailed. If it does not arrive, send them this link — it
-              works once and expires in a week.
-            </p>
-            <input className="console-invite-link" readOnly value={inviteUrl}
-                   onFocus={(event) => event.target.select()} />
-          </>
-        ) : null}
         <Button type="submit" tone="primary" busy={inviteMutation.isPending}>{COPY.rosterInvite}</Button>
       </form>
     </Panel>
@@ -251,9 +239,36 @@ function CrmEditor({ member, busy, onSave, onClose }) {
   );
 }
 
+const INVITE_LABEL = { not_sent: "Not invited", sent: "Invite sent" };
+
+function InviteChip({ member }) {
+  const label = INVITE_LABEL[member.invite];
+  if (!label || member.status === REMOVED_MEMBER_STATUS) return <StatusChip status={member.status} />;
+  return <span className={`status-chip ${member.invite === "not_sent" ? "status-held" : "status-invited"}`}>{label}</span>;
+}
+
 function RosterTable({ members, roles, patchMutation, removeMutation }) {
   const [savingMember, setSavingMember] = useState("");
   const [linking, setLinking] = useState("");
+  const sendMutation = useSendMemberInvite();
+  // The last invite sent from this table, with its link. An admin needs a way to hand it over
+  // directly: the most common reason an invite "never arrived" is a spam folder, and the answer
+  // to that should not be to send the same email again.
+  const [sent, setSent] = useState(null);
+  const [sendError, setSendError] = useState("");
+
+  async function sendInvite(member) {
+    setSavingMember(member.id);
+    setSendError("");
+    try {
+      const result = await sendMutation.mutateAsync(member.id);
+      setSent({ name: member.full_name, email: member.email, url: result?.invite_url || "" });
+    } catch (err) {
+      setSendError(err.detail || err.message);
+    } finally {
+      setSavingMember("");
+    }
+  }
 
   async function saveLinks(memberId, links) {
     setSavingMember(memberId);
@@ -285,6 +300,21 @@ function RosterTable({ members, roles, patchMutation, removeMutation }) {
   const editing = members.find((m) => m.id === linking) || null;
   return (
     <>
+      {sent ? (
+        <div className="roster-sent">
+          <p className="roster-form-message">{`Invite emailed to ${sent.name} (${sent.email}).`}</p>
+          {sent.url ? (
+            <>
+              <p className="console-help" style={{ marginBottom: 6 }}>
+                If it does not arrive, send them this link. It works once and expires in a week.
+              </p>
+              <input className="console-invite-link" readOnly value={sent.url}
+                     onFocus={(event) => event.target.select()} />
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {sendError ? <p className="console-form-error">{sendError}</p> : null}
       <div className="roster-table-wrap">
       <table className="roster-table">
         <thead>
@@ -317,19 +347,30 @@ function RosterTable({ members, roles, patchMutation, removeMutation }) {
               </td>
               <td>{member.market || ""}</td>
               <td>{member.auth_source}</td>
-              <td><StatusChip status={member.status} /></td>
+              <td><InviteChip member={member} /></td>
               <td>
                 <CrmCell member={member} open={linking === member.id}
                          onToggle={() => setLinking(linking === member.id ? "" : member.id)} />
               </td>
               <td>
-                <Button
-                  type="button"
-                  disabled={member.status === REMOVED_MEMBER_STATUS || savingMember === member.id}
-                  onClick={() => removeMember(member.id)}
-                >
-                  {COPY.rosterRemove}
-                </Button>
+                <div className="roster-row-actions">
+                  {member.status !== REMOVED_MEMBER_STATUS
+                    && ["not_sent", "sent", "no_account"].includes(member.invite) ? (
+                    <Button type="button" tone={member.invite === "sent" ? undefined : "primary"}
+                            busy={savingMember === member.id && sendMutation.isPending}
+                            disabled={savingMember === member.id}
+                            onClick={() => sendInvite(member)}>
+                      {member.invite === "sent" ? "Resend invite" : "Send invite"}
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    disabled={member.status === REMOVED_MEMBER_STATUS || savingMember === member.id}
+                    onClick={() => removeMember(member.id)}
+                  >
+                    {COPY.rosterRemove}
+                  </Button>
+                </div>
               </td>
             </tr>
           ))}

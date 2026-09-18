@@ -232,6 +232,12 @@ class User(Base):
     action_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)     # sha256 of invite/reset token
     action_token_purpose: Mapped[str | None] = mapped_column(String(16), nullable=True)  # invite | reset
     action_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # An account added to the portal roster whose invite has NOT been sent yet (console People &
+    # Roster: Add, then Send invite). Until then it is as if the account did not exist to its
+    # owner: Google sign-in refuses it, "forgot password" sends nothing, and the workspace finder
+    # does not list it -- any of those would tell them before an admin chose to. Every other
+    # account is False, which is exactly how it behaved before this existed.
+    invite_held: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     # ── TOTP second factor (step-up for the Binder section) ──
     # The secret is Fernet-encrypted at rest, never stored or logged in plaintext. Enrollment is
     # only live once totp_confirmed_at is set (a started-but-unconfirmed secret can't unlock).

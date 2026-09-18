@@ -697,12 +697,17 @@ def _config_out(tenant: Tenant, user: User,
     # Derived per member and handed over ready to use, so the portal never builds a URL and there
     # is nothing for an admin to configure. A member-less viewer (an owner not on the roster) gets
     # no link rather than somebody else's conversation.
+    # NOT DURING AN ACUMYN SUPPORT VIEW of somebody's portal. Their link opens their own coaching
+    # conversation inside Sisu, which is theirs -- a view of their portal must not be a way into
+    # it -- so the links are withheld and the portal says why instead of offering a dead button.
+    viewing = bool(getattr(user, "view_as", None))
     config["sunburst"] = {
-        "url": (sunburst.link_for(tenant.id, member_id) if member_id else ""),
+        "url": (sunburst.link_for(tenant.id, member_id) if member_id and not viewing else ""),
         # Where a question goes. The portal adds the question, because the Ask box sends whatever
         # somebody typed; "" while Sisu's question link is not live on the configured host.
-        "ask_url": (sunburst.ask_url() if member_id else ""),
+        "ask_url": (sunburst.ask_url() if member_id and not viewing else ""),
         "carries_prompt": sunburst.carries_prompt(),
+        "view_as": viewing,
     }
     config["marketing"] = _marketing_out(
         marketing, marketing_role,
@@ -905,6 +910,13 @@ MARKETING_PRIORITIES = {"Low", "Normal", "High"}
 
 
 async def _member_for(s: AsyncSession, user: User) -> IntranetMember | None:
+    # An Acumyn support view of the portal names the roster entry exactly (deps._viewing_as); an
+    # address match could find a different row for a re-used address.
+    viewing = getattr(user, "view_as_member_id", None)
+    if viewing is not None:
+        return (await s.execute(select(IntranetMember).where(
+            IntranetMember.tenant_id == user.tenant_id,
+            IntranetMember.id == viewing))).scalars().first()
     email = (user.email or "").strip().lower()
     return (await s.execute(select(IntranetMember).where(
         IntranetMember.tenant_id == user.tenant_id,

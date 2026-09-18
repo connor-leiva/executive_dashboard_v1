@@ -86,7 +86,72 @@ async def current_user(
             raise HTTPException(401, "Support access has ended")
         if request.method not in READ_METHODS:
             raise HTTPException(403, "Support access is read-only. Nothing can be changed from this session.")
+    if payload.get("vam"):
+        return await _viewing_as(request, s, user, payload)
     return user
+
+
+# VIEW AS. What an Acumyn operator's look at a workspace's portal, as one roster member, may
+# reach: the portal's reads and the identity it asks for first. Nothing else -- not the
+# dashboard, not the console, not the Binder -- because it exists to see one person's portal.
+VIEW_AS_PATHS = ("/api/v1/intranet/",)
+VIEW_AS_EXACT = ("/api/v1/me",)
+# Stand-in ids for people with no account, stable per roster entry so a page read twice is the
+# same person. Never written anywhere: a view-as request cannot write.
+_VIEW_AS_NAMESPACE = uuid.UUID("6f1d1c3e-3b0a-4c55-9a8b-5c0b5a1e7f21")
+
+
+async def _viewing_as(request: Request, s: AsyncSession, viewer: User, payload: dict) -> User:
+    """The member an operator's view-as session is looking as, standing in for the support
+    account that opened it (routers/platform support_view_as).
+
+    AN EXTENSION OF SUPPORT ACCESS, NOT A NEW DOOR. Only a support account -- the time-boxed,
+    read-only, owner-notified account the operator console opens -- can carry `vam`; everything
+    about it (the reason, the email to the owners, the expiry, both audit trails) has already
+    happened by the time a view is minted, and the checks above have just enforced its expiry.
+
+    Returned in place of the support account so every portal read that keys on "who is this" --
+    the roster entry, their numbers, their follow-ups, their training progress and enrolments,
+    their requests -- answers for the member without any of those endpoints knowing a view is
+    under way. The member's own account where they have one (so their real progress shows);
+    otherwise a stand-in built from the roster entry.
+
+    READ-ONLY AND PORTAL-ONLY, on the server. The portal also refuses its own writes while
+    viewing, but a check in the browser is a convenience, not a control.
+    """
+    if viewer.expires_at is None:
+        raise HTTPException(401, "Invalid token")
+    if request.method not in READ_METHODS:
+        raise HTTPException(403, "Viewing the portal as someone else is read-only. Nothing is "
+                                 "saved from this view.")
+    path = request.url.path
+    if path not in VIEW_AS_EXACT and not path.startswith(VIEW_AS_PATHS):
+        raise HTTPException(403, "A view-as session only opens the portal.")
+    try:
+        member_id = uuid.UUID(str(payload["vam"]))
+    except (TypeError, ValueError):
+        raise HTTPException(401, "Invalid token")
+    member = (await s.execute(select(IntranetMember).where(
+        IntranetMember.id == member_id,
+        IntranetMember.tenant_id == viewer.tenant_id))).scalar_one_or_none()
+    if member is None or member.status == "Removed":
+        raise HTTPException(401, "This view has ended: that person is no longer on the roster.")
+    person = None
+    if member.user_id is not None:
+        person = (await s.execute(select(User).where(
+            User.id == member.user_id, User.tenant_id == viewer.tenant_id))).scalar_one_or_none()
+    if person is None:
+        person = User(id=uuid.uuid5(_VIEW_AS_NAMESPACE, str(member.id)), tenant_id=viewer.tenant_id,
+                      email=member.email, name=member.full_name, role="member", status="active",
+                      tab_access=[], token_version=0)
+    person.view_as_member_id = member.id
+    person.view_as = {
+        "member_id": str(member.id),
+        "name": member.full_name,
+        "by": viewer.name or viewer.email,          # "<operator> (Acumyn support)"
+        "expires_at": dt.datetime.fromtimestamp(int(payload["exp"]), dt.timezone.utc).isoformat(),
+    }
+    return person
 
 
 def require_role(*roles: str):

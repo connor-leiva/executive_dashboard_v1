@@ -16,11 +16,69 @@ const TOKEN_KEY = "cc_token";
  * directly, which would have worked for exactly as long as there was only one place to look.
  */
 export function getToken() {
+  if (viewAsToken) return viewAsToken;
   try {
     return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
   } catch {
     return null;                     // private window, or storage blocked entirely
   }
+}
+
+/* AN ACUMYN SUPPORT VIEW OF THE PORTAL, as one of the workspace's people.
+ *
+ * The operator console opens `/intranet/#view-as=<token>` inside a support session. That token is
+ * kept APART from the session above -- this tab only, under its own key -- so opening a view never
+ * replaces anybody's real sign-in on this machine, and ending it cannot sign anybody out. Only the
+ * portal adopts it (adoptViewAs, from its entry point): the dashboard and the console never read it.
+ *
+ * READ-ONLY here as well as on the server. The server refuses every write from a view; refusing
+ * them before they are sent means a click is told why instead of failing on the network. */
+const VIEW_AS_KEY = "cc_view_as";
+let viewAsToken = null;
+// Whether this page load was a view at all, and it stays true after the view ends. The portal asks
+// for its identity and its config at once; when a view ends both come back 401, and the second
+// arrives after the first has ended the view -- so "is this a view" is the wrong question by then.
+// "was this a view" is the right one, and it is what keeps a view from ever signing anybody out.
+let viewedInThisTab = false;
+
+export function adoptViewAs() {
+  try {
+    const match = window.location.hash.match(/view-as=([^&]+)/);
+    if (match) {
+      sessionStorage.setItem(VIEW_AS_KEY, decodeURIComponent(match[1]));
+      // Out of the address bar and the history at once: a fragment never reaches a server, but it
+      // does sit in a URL somebody might copy.
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+    viewAsToken = sessionStorage.getItem(VIEW_AS_KEY) || null;
+  } catch {
+    viewAsToken = null;
+  }
+  viewedInThisTab = Boolean(viewAsToken);
+  return Boolean(viewAsToken);
+}
+
+export function wasViewingAs() {
+  return viewedInThisTab;
+}
+
+export function viewingAs() {
+  return Boolean(viewAsToken);
+}
+
+export function endViewAs() {
+  try { sessionStorage.removeItem(VIEW_AS_KEY); } catch { /* nothing to clear */ }
+  viewAsToken = null;
+}
+
+const VIEW_AS_READ_ONLY = "This is a read-only support view of somebody's portal, so nothing is saved from it.";
+
+function refuseWhileViewing() {
+  if (!viewAsToken) return;
+  const err = new Error(VIEW_AS_READ_ONLY);
+  err.status = 403;
+  err.detail = VIEW_AS_READ_ONLY;
+  throw err;
 }
 
 function storeToken(token, remember) {
@@ -89,6 +147,7 @@ export function fileUrl(relPath) {
 
 // Multipart upload (media library). No Content-Type header — the browser sets the boundary.
 export async function uploadFile(path, formData) {
+  refuseWhileViewing();
   const res = await fetch(`${API}${path}`, {
     method: "POST",
     headers: authHeaders(path),
@@ -148,6 +207,7 @@ export async function getBlob(path) {
 }
 
 export async function postJSON(path, body) {
+  refuseWhileViewing();
   const res = await fetch(`${API}${path}`, {
     method: "POST",
     headers: authHeaders(path, { "Content-Type": "application/json" }),
@@ -158,6 +218,7 @@ export async function postJSON(path, body) {
 }
 
 export async function putJSON(path, body) {
+  refuseWhileViewing();
   const res = await fetch(`${API}${path}`, {
     method: "PUT",
     headers: authHeaders(path, { "Content-Type": "application/json" }),
@@ -189,6 +250,7 @@ export async function login(email, password, remember = false) {
 }
 
 export async function patchJSON(path, body) {
+  refuseWhileViewing();
   const res = await fetch(`${API}${path}`, {
     method: "PATCH",
     headers: authHeaders(path, { "Content-Type": "application/json" }),
@@ -245,6 +307,12 @@ export function setToken(token, remember = true) {
 }
 
 export function logout() {
+  if (viewedInThisTab) {
+    // A view is not the person at this machine's session: ending it -- or anything that follows
+    // it in this tab -- must leave theirs alone.
+    endViewAs();
+    return;
+  }
   try { localStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
   try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
   // Never leave a section unlocked for whoever logs in next on this machine.

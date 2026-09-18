@@ -268,3 +268,20 @@ async def test_the_session_comes_back_in_the_fragment_not_the_query(monkeypatch)
     location = r.headers["location"]
     assert "#google_token=" in location
     assert "?google_token=" not in location and "&google_token=" not in location
+
+
+async def test_an_account_whose_invite_is_held_is_refused(monkeypatch):
+    """Added to the roster, not invited yet (console People & Roster). Signing in with Google
+    would be how they found out, so until an admin sends the invite it is as if there were no
+    account -- the same refusal, and nothing created or activated."""
+    tid = await _choose(domains=["utahlife.com"])
+    async with SessionLocal() as s:
+        s.add(User(tenant_id=tid, email="held@utahlife.com", name="Held", password_hash=None,
+                   role="member", status="invited", token_version=0, invite_held=True))
+        await s.commit()
+    r = await _callback(monkeypatch, email="held@utahlife.com", tid=tid)
+    assert "google_error=no_account" in r.headers["location"], r.headers["location"]
+    async with SessionLocal() as s:
+        u = (await s.execute(select(User).where(
+            User.tenant_id == tid, User.email == "held@utahlife.com"))).scalar_one()
+    assert u.status == "invited" and u.invite_held is True

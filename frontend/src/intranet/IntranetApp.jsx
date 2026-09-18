@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { API_BASE, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile } from "../api.js";
+import { API_BASE, endViewAs, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile, viewingAs, wasViewingAs } from "../api.js";
 import { applyPortalPalette } from "./palette.js";
 import { search as search_ } from "./search.js";
 import { logoFor } from "./vendor-logos.js";
@@ -202,7 +202,8 @@ function useBootstrap() {
       document.title = `${user.tenant_name || user.tenant || "Intranet"} Intranet`;
       setStatus("ready");
     } catch (err) {
-      if (err.status === 401) setStatus("login");
+      // A view that has ended (or was opened after its session closed) is not a sign-in problem.
+      if (err.status === 401) setStatus(wasViewingAs() ? "view-ended" : "login");
       else if (err.status === 403) setStatus("disabled");
       else {
         setStatus("error");
@@ -221,6 +222,13 @@ function useBootstrap() {
      cleared, so the next load does not pick the dead token back up. */
   useEffect(() => {
     function onExpired() {
+      // A support view ends with its session. It is not this browser's own sign-in, so ending
+      // it must not clear that one -- and "sign in" is not what the operator needs to hear.
+      if (wasViewingAs()) {
+        endViewAs();
+        setStatus("view-ended");
+        return;
+      }
       logout();
       setStatus("login");
     }
@@ -295,6 +303,34 @@ function useScopedState(scope, stateKey, initial, ready) {
   return [value, setValue, loaded];
 }
 
+/* WHOSE PORTAL THIS IS, when it is not the reader's own: an Acumyn support view, opened from the
+   operator console inside a support session. Always on screen, because everything below it is
+   somebody else's page -- and it says the view is read-only before a click has to. */
+function ViewAsBanner({ me }) {
+  const view = me?.view_as;
+  if (!view) return null;
+  const ends = view.expires_at
+    ? new Date(view.expires_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : "";
+  return (
+    <div className="ut-viewas" role="status">
+      <span>
+        <strong>{`Viewing ${view.name}'s portal`}</strong>
+        {` \u00b7 read-only support view by ${view.by}${ends ? ` \u00b7 ends ${ends}` : ""}. They are not told, and nothing here is saved.`}
+      </span>
+      <button type="button" onClick={leaveView}>End view</button>
+    </div>
+  );
+}
+
+function leaveView() {
+  endViewAs();
+  // Opened by the operator console, so the tab it came from can close it. If it cannot, the
+  // portal reloads as whoever is signed in on this machine -- which is not the person viewed.
+  window.close();
+  window.location.replace("/intranet/");
+}
+
 function Shell({ me, config, children }) {
   // The workspace's own name, from its console configuration. Never a constant: this string
   // appears in the rail, the tab title and the assistant button, and it belongs to whoever
@@ -342,12 +378,16 @@ function Shell({ me, config, children }) {
   // The workspace's own roles. ROLE_OPTIONS was four real-estate titles compiled in, so a
   // salon or a law firm buying this product got "Buyer Agent" in their role switcher.
   const roleOptions = (config?.content?.roles || []).map((r) => r.name);
+  // THEIR OWN ROLE first. This settled on the first role in the list for everybody, so the label
+  // under an agent's name read "Owner" -- and in a support view of an agent's portal it named a
+  // role they do not have. Their own role when they have one, the list's first otherwise.
+  const myRoleName = (config?.content?.roles || []).find((r) => r.key === config?.content?.my_role)?.name || null;
   const [roleView, setRoleView] = useState(null);
-  // Settle on the first role once the workspace's own roles arrive. Not a default in useState:
-  // the config is fetched, so at first render there are no roles to choose from yet.
+  // Settle once the workspace's own roles arrive. Not a default in useState: the config is
+  // fetched, so at first render there are no roles to choose from yet.
   useEffect(() => {
-    setRoleView((prev) => (prev && roleOptions.includes(prev) ? prev : roleOptions[0] || null));
-  }, [roleOptions.join("|")]);
+    setRoleView((prev) => (prev && roleOptions.includes(prev) ? prev : myRoleName || roleOptions[0] || null));
+  }, [roleOptions.join("|"), myRoleName]);
   // Empty, not "buyer consultation". That was the mockup's sample query sitting in the box as a
   // real value, so every user opened the intranet with somebody else's search already typed in --
   // and pressing enter would have run it. The mockup's text belongs in the placeholder.
@@ -362,6 +402,10 @@ function Shell({ me, config, children }) {
   const name = displayName(me);
 
   const signOut = () => {
+    if (viewingAs()) {
+      leaveView();
+      return;
+    }
     logout();
     window.location.href = "/";
   };
@@ -422,6 +466,7 @@ function Shell({ me, config, children }) {
         </div>
       </aside>
       <main className="ut-main">
+        <ViewAsBanner me={me} />
         <header className="ut-topbar">
           <button className="ut-menu" type="button" onClick={() => setNavOpen(true)} aria-label="Open navigation">
             <span /><span /><span />
@@ -3050,6 +3095,21 @@ function SunburstPage({ config, me, canConfigure }) {
   const stat = (value) => (own && value !== null && value !== undefined ? String(value) : "—");
 
 
+  // A support view of somebody's portal: their Sunburst link opens their own coaching
+  // conversation inside Sisu, so the server withholds it rather than hand it to a viewer.
+  if (!url && config?.sunburst?.view_as) {
+    return (
+      <Page title="Sunburst" subtitle="Your AI business partner, built into Sisu.">
+        <Panel title="Not opened from a support view">
+          <p className="ut-empty">
+            Sunburst opens this person{"\u2019"}s own coaching conversation inside Sisu, so only
+            they can open it, from their own sign-in.
+          </p>
+        </Panel>
+      </Page>
+    );
+  }
+
   // The only way there is no link: the viewer is not on the roster at all, so there is no member
   // to derive one for. An owner who never added themselves is the real case.
   if (!url) {
@@ -3191,6 +3251,9 @@ export default function IntranetApp() {
   }
   if (boot.status === "disabled") {
     return <AccessState title="Intranet unavailable" message="This workspace does not have the intranet module enabled." />;
+  }
+  if (boot.status === "view-ended") {
+    return <AccessState title="This view has ended" message="A support view of somebody's portal lasts as long as the support session that opened it. Open another from the operator console if you need one." />;
   }
   if (boot.status === "error") {
     return <AccessState title="Could not load intranet" message={boot.error || "Try again shortly."} action={<button className="ut-button primary" onClick={boot.refresh}>Retry</button>} />;

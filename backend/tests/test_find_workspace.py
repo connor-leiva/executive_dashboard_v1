@@ -274,3 +274,23 @@ async def test_repeated_lookups_are_throttled(monkeypatch):
         assert (await _find(c, "spray5@targets.test")).status_code == 429
         rotated = await _find(c, "spray6@targets.test", host=f"made-up-{6}.{settings.PLATFORM_DOMAIN}")
         assert rotated.status_code == 429, "a new X-Tenant-Host bought a new budget"
+
+
+async def test_an_account_whose_invite_is_held_is_not_listed(monkeypatch):
+    """The finder's email would be the first they heard of a workspace that has not invited them
+    yet. Added-but-not-invited accounts are left out, like disabled ones."""
+    calls = _capture(monkeypatch)
+    sent = await _workspace("findsent", "Sent Team", host="sent.brokerage.test")
+    held = await _workspace("findheld", "Held Team", host="held.brokerage.test")
+    await _member(sent, "mixed@held.test")
+    async with SessionLocal() as s:
+        s.add(User(tenant_id=held, email="mixed@held.test", name="mixed", role="member",
+                   status="invited", tab_access=[], token_version=0, invite_held=True))
+        await s.commit()
+
+    async with _client() as c:
+        await _find(c, "mixed@held.test")
+
+    text = calls[0]["text"]
+    assert "sent.brokerage.test" in text
+    assert "held.brokerage.test" not in text and "Held Team" not in text

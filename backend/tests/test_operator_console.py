@@ -601,7 +601,7 @@ PHASE3_ROUTES = (
     "/tenants/{slug}/freeze-syncs", "/tenants/{slug}/unfreeze-syncs",
     "/tenants/{slug}/people/resend-idle", "/tenants/{slug}/people/{id}/resend",
     "/tenants/{slug}/people/{id}/unlock", "/tenants/{slug}/people/{id}/reset-link",
-    "/tenants/{slug}/share-links/revoke-all",
+    "/tenants/{slug}/share-links/revoke-all", "/tenants/{slug}/support-access/view-as",
 )
 
 

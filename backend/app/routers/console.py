@@ -533,7 +533,27 @@ def _permission(row: IntranetPermission) -> dict:
     }
 
 
-def _member(row: IntranetMember, roles: dict[uuid.UUID, IntranetRole] | None = None) -> dict:
+def _invite_state(account: User | None) -> str:
+    """Where somebody's way in stands: no account yet, added but not invited (the invite is held
+    until Send invite), invited, accepted, or an account the dashboard has disabled."""
+    if account is None:
+        return "no_account"
+    if account.status == "active":
+        return "accepted"
+    if account.status == "invited":
+        return "not_sent" if account.invite_held else "sent"
+    return "disabled"
+
+
+async def _account_of(s: AsyncSession, row: IntranetMember) -> User | None:
+    if row.user_id is None:
+        return None
+    account = await s.get(User, row.user_id)
+    return account if account is not None and account.tenant_id == row.tenant_id else None
+
+
+def _member(row: IntranetMember, roles: dict[uuid.UUID, IntranetRole] | None = None,
+            account: User | None = None) -> dict:
     role = roles.get(row.role_id) if roles else None
     return {
         "id": _id(row.id), "user_id": _id(row.user_id), "full_name": row.full_name,
@@ -546,6 +566,7 @@ def _member(row: IntranetMember, roles: dict[uuid.UUID, IntranetRole] | None = N
         # a colleague's title should see the one already set rather than a blank box.
         "title": row.title, "bio": row.bio, "phone": row.phone, "owns": row.owns,
         "has_photo": bool(row.photo_key),
+        "invite": _invite_state(account),
     }
 
 
@@ -2041,33 +2062,39 @@ async def get_members(status: str | None = Query(None), q: str | None = Query(No
         IntranetMember.status, IntranetMember.full_name))).scalars().all()
     total = int((await s.execute(select(func.count()).select_from(IntranetMember).where(*where))).scalar_one())
     crm = await _crm_matches(s, p.user.tenant_id, rows)
+    user_ids = [r.user_id for r in rows if r.user_id is not None]
+    accounts = {u.id: u for u in (await s.execute(select(User).where(
+        User.tenant_id == p.user.tenant_id, User.id.in_(user_ids)))).scalars()} if user_ids else {}
     return {
-        **_list([{**_member(r, roles), "crm": crm.get(r.id)} for r in rows], total),
+        **_list([{**_member(r, roles, accounts.get(r.user_id)), "crm": crm.get(r.id)}
+                 for r in rows], total),
         "roles": [_role_out(r) for r in sorted(roles.values(), key=lambda item: item.sort)],
         "stats": await _member_stats(s, p.user.tenant_id, roles),
     }
 
 
 @router.post("/members/invite")
-async def invite_member(request: Request, bg: BackgroundTasks, body: dict = Body(...),
+async def invite_member(body: dict = Body(...),
                         p: ConsolePrincipal = Depends(require_console_access),
                         s: AsyncSession = Depends(get_session)):
-    """Invite somebody to the portal, and give them a way in.
+    """Add somebody to the portal: a roster entry and an account -- and send nothing yet.
 
-    THIS USED TO CREATE A ROSTER ENTRY AND NOTHING ELSE. The invited person appeared in the
-    directory, was counted on the overview, could be assigned work -- and had no account, no
-    invite link and no email, so they could never sign in. The roster was decorative, and the
-    workspace had exactly one usable login: whoever provisioned it.
+    ADDED, NOT YET INVITED. The invite goes out when an admin presses Send invite on their row
+    (send_member_invite, below), so a team can set people up -- roles, CRM links, a look at what
+    they will see -- before telling them. Until then the account is HELD (`user.invite_held`):
+    Google sign-in, "forgot password" and the workspace finder all behave as though it did not
+    exist, because each of them would reach the person before the admin chose to.
+
+    THIS ONCE CREATED A ROSTER ENTRY AND NOTHING ELSE -- no account, no link, no email, so the
+    person could never sign in. The account is still made here, up front: the plan's seats count
+    it, and everything that looks a person up finds a real one.
 
     A portal member gets `role="member"` with NO dashboard tabs. They are a buyer agent, not an
     executive: the dashboard's numbers are not theirs to see, and `_tenant_apps` leaves the
-    Dashboard out for anyone whose tab list is empty so they are not dropped into a shell where
-    every screen is blank.
+    Dashboard out for anyone whose tab list is empty.
 
-    Somebody who already has a dashboard account is LINKED rather than refused. The two records
-    are different things -- an account and a roster entry -- and an owner being told "user
-    already exists" when they add themselves to their own roster is the system's problem
-    leaking out.
+    Somebody who already has a dashboard account is LINKED rather than refused -- and nothing is
+    held or sent, because they can already sign in.
     """
     body = _body(body)
     _unknown(body, {"full_name", "email", "role_id", "market", "auth_source"})
@@ -2094,62 +2121,103 @@ async def invite_member(request: Request, bg: BackgroundTasks, body: dict = Body
         market=_text(body, "market", nullable=True),
         auth_source=auth_source,
         status="Invited",
-        invited_at=_now(),
+        invited_at=None,
     )
     s.add(row)
 
     account = (await s.execute(select(User).where(
         User.tenant_id == p.user.tenant_id, User.email == email))).scalar_one_or_none()
-    invite_url = None
     if account is None:
-        tenant = await s.get(Tenant, p.user.tenant_id)
-        # An invitation is a seat somebody is expected to take, so it counts against the plan
-        # exactly as the dashboard's own invite does. Counting only accepted users would make
-        # the limit something you get around by never accepting.
-        have = (await s.execute(select(func.count()).select_from(User).where(
-            User.tenant_id == p.user.tenant_id, User.status != "disabled"))).scalar_one()
-        if plans.over_limit(tenant, "max_users", have):
-            lim = plans.limits(tenant)
-            _unprocessable("email", f"The {lim['name']} plan includes {lim['max_users']} people "
-                                    f"and this workspace has {have}. Upgrade to invite another.")
-        raw, th = new_action_token()
-        account = User(
-            tenant_id=p.user.tenant_id, email=email, name=full_name[:200],
-            password_hash=None, role="member", status="invited",
-            # Empty, not null: null means "an owner, everything". This person's app is the
-            # portal, and their portal permissions come from their intranet role.
-            tab_access=[], token_version=0, invited_by=p.user.id,
-            action_token_hash=th, action_token_purpose="invite",
-            action_token_expires=_now() + dt.timedelta(days=INVITE_DAYS))
-        s.add(account)
-        await s.flush()
-        base = await link_base(request, s, p.user.tenant_id)
-        invite_url = f"{base}/accept-invite?token={raw}"
-
+        account = await _new_member_account(s, p, email, full_name)
     row.user_id = account.id
+    summary = (f"Added {row.full_name} to the roster; their invite is not sent yet"
+               if account.invite_held else f"Added {row.full_name} to the roster")
+    pending = await _record_mutation(
+        s, p, action="access.member.added", category="People",
+        summary=summary, target_type="member", target_id=row.id, pending=False)
+    out = _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id), account), pending)
+    out["invite_url"] = None
+    return out
+
+
+async def _new_member_account(s: AsyncSession, p: ConsolePrincipal, email: str,
+                              full_name: str) -> User:
+    """A portal member's account, invite held. It counts against the plan exactly as the
+    dashboard's own invite does: an account somebody is expected to take up is a seat."""
+    tenant = await s.get(Tenant, p.user.tenant_id)
+    have = (await s.execute(select(func.count()).select_from(User).where(
+        User.tenant_id == p.user.tenant_id, User.status != "disabled"))).scalar_one()
+    if plans.over_limit(tenant, "max_users", have):
+        lim = plans.limits(tenant)
+        _unprocessable("email", f"The {lim['name']} plan includes {lim['max_users']} people "
+                                f"and this workspace has {have}. Upgrade to add another.")
+    account = User(
+        tenant_id=p.user.tenant_id, email=email, name=full_name[:200],
+        password_hash=None, role="member", status="invited",
+        # Empty, not null: null means "an owner, everything". This person's app is the
+        # portal, and their portal permissions come from their intranet role.
+        tab_access=[], token_version=0, invited_by=p.user.id, invite_held=True)
+    s.add(account)
+    await s.flush()
+    return account
+
+
+@router.post("/members/{member_id}/send-invite")
+async def send_member_invite(member_id: uuid.UUID, request: Request, bg: BackgroundTasks,
+                             p: ConsolePrincipal = Depends(require_console_access),
+                             s: AsyncSession = Depends(get_session)):
+    """Send somebody on the roster their invite -- the first time, or again.
+
+    Releases the hold (`user.invite_held`), issues a fresh link that works for INVITE_DAYS (an
+    earlier one stops working), and emails it. The link comes back too, so an admin can hand it
+    over directly: the most common reason an invite "never arrived" is a spam folder, and the
+    answer to that should not be to send the same email again.
+    """
+    row = await _one(s, IntranetMember, p.user.tenant_id, member_id)
+    if row.status == "Removed":
+        _unprocessable("member", f"{row.full_name} was removed from the roster. Restore them "
+                                 f"before inviting them.")
+    account = await _account_of(s, row)
+    if account is None:
+        account = (await s.execute(select(User).where(
+            User.tenant_id == p.user.tenant_id, User.email == row.email))).scalar_one_or_none()
+    if account is None:
+        # A roster entry from before accounts were made up front.
+        account = await _new_member_account(s, p, row.email, row.full_name)
+    if account.status == "active":
+        _unprocessable("member", f"{row.full_name} already has an account and signs in "
+                                 f"normally, so there is no invite to send.")
+    if account.status != "invited":
+        _unprocessable("member", f"{row.full_name}'s account is disabled. Re-enable it on the "
+                                 f"dashboard's Team page before inviting them.")
+    first = account.invite_held or row.invited_at is None
+    raw, token_hash = new_action_token()
+    account.action_token_hash, account.action_token_purpose = token_hash, "invite"
+    account.action_token_expires = _now() + dt.timedelta(days=INVITE_DAYS)
+    account.invite_held = False
+    row.user_id = account.id
+    row.invited_at = _now()
+    base = await link_base(request, s, p.user.tenant_id)
+    invite_url = f"{base}/accept-invite?token={raw}"
     pending = await _record_mutation(
         s, p, action="access.member.invited", category="People",
-        summary=f"Invited {row.full_name} to the intranet", target_type="member",
-        target_id=row.id, pending=False)
+        summary=(f"Invited {row.full_name} to the intranet" if first
+                 else f"Sent {row.full_name} a new invite"),
+        target_type="member", target_id=row.id, pending=False)
 
-    if invite_url:
-        workspace = await _workspace_row(s, p.user.tenant_id)
-        # The PORTAL's name, not the company's: this invite is to the team portal, and that is
-        # the thing the recipient will recognise in a subject line. Falls back to the tenant name
-        # for a workspace that has not renamed its portal yet.
-        tenant = await s.get(Tenant, p.user.tenant_id)
-        name = ((workspace.portal_name if workspace is not None else None)
-                or (tenant.name if tenant is not None else None) or "your workspace")
-        # In the background, and the link is returned either way. The rows are committed by the
-        # time this runs, so a mail outage that propagated would 500 on a member who exists and
-        # the retry would hit "Member already exists".
-        bg.add_task(mailer.send, email,
-                    *mail_templates.invite(invite_url, p.user.name, name, INVITE_DAYS),
-                    reply_to=p.user.email)
-
-    out = _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id)), pending)
-    # Returned so an admin can hand the link over directly -- the most common reason an invite
-    # "never arrived" is a spam folder, and the answer should not be to send it again.
+    workspace = await _workspace_row(s, p.user.tenant_id)
+    tenant = await s.get(Tenant, p.user.tenant_id)
+    # The PORTAL's name, not the company's: this invite is to the team portal, and that is the
+    # thing the recipient will recognise in a subject line.
+    name = ((workspace.portal_name if workspace is not None else None)
+            or (tenant.name if tenant is not None else None) or "your workspace")
+    # In the background, after the commit above. Keyed on the link's expiry, so a double-click
+    # sends once and a genuinely new link sends again.
+    bg.add_task(mailer.send, account.email,
+                *mail_templates.invite(invite_url, p.user.name, name, INVITE_DAYS),
+                reply_to=p.user.email,
+                idempotency_key=f"invite-{account.id}-{account.action_token_expires.isoformat()}")
+    out = _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id), account), pending)
     out["invite_url"] = invite_url
     return out
 
@@ -2212,7 +2280,8 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
         summary=summary, target_type="member",
         target_id=row.id, pending=False)
     crm = await _crm_matches(s, p.user.tenant_id, [row])
-    return _with_pending({**_member(row, await _roles_by_id(s, p.user.tenant_id)),
+    return _with_pending({**_member(row, await _roles_by_id(s, p.user.tenant_id),
+                                    await _account_of(s, row)),
                           "crm": crm.get(row.id)}, pending)
 
 
@@ -2226,7 +2295,8 @@ async def remove_member(member_id: uuid.UUID, p: ConsolePrincipal = Depends(requ
         s, p, action="access.member.removed", category="People",
         summary=f"Removed {row.full_name} from the intranet roster", target_type="member",
         target_id=row.id, pending=False)
-    return _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id)), pending)
+    return _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id),
+                                 await _account_of(s, row)), pending)
 
 
 @router.post("/members/sync")

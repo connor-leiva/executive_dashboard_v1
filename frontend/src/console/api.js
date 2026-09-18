@@ -175,6 +175,7 @@ export const putPermissions = (body) => consoleSend("PUT", "/permissions", body)
 export const getMembers = (params) => consoleGet(query("/members", params));
 export const inviteMember = (body) => consoleSend("POST", "/members/invite", body);
 export const patchMember = (memberId, body) => consoleSend("PATCH", `/members/${memberId}`, body);
+export const sendMemberInvite = (memberId) => consoleSend("POST", `/members/${memberId}/send-invite`, {});
 export const deleteMember = (memberId) => consoleSend("DELETE", `/members/${memberId}`);
 export const syncMembers = () => consoleSend("POST", "/members/sync");
 export const getCourses = () => consoleGet("/courses");

@@ -350,6 +350,8 @@ async def resend_invite(user_id: uuid.UUID, request: Request, bg: BackgroundTask
     u.action_token_hash = th
     u.action_token_purpose = "invite"
     u.action_token_expires = _now() + dt.timedelta(days=INVITE_DAYS)
+    # Sending is releasing: an account the console added without inviting is invited now.
+    u.invite_held = False
     audit(s, user.tenant_id, user.id, "user.reinvited", "user", u.id)
     await s.commit()
     base = await link_base(request, s, user.tenant_id)

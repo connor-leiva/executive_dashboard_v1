@@ -3942,3 +3942,22 @@ textarea {
   font-size: 12.5px;
   line-height: 1.45;
 }
+
+/* ── added, not yet invited ─────────────────────────────────────────────────────────────── */
+.status-held {
+  background: rgba(89, 108, 122, 0.14);
+  color: var(--console-muted);
+}
+
+.roster-row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.roster-sent {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}

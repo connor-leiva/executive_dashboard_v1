@@ -4,7 +4,62 @@ import { ago } from "../format.js";
 import { Btn, Card, Chip, Eyebrow, Field, inputStyle, Loading, LoadError, Mono, Notice, useAction, useApi } from "../primitives.jsx";
 import { A, TYPE } from "../tokens.js";
 
-const PHRASE = { "support.access_opened": "Opened", "support.access_ended": "Ended early", "support.access_expired": "Expired" };
+const PHRASE = {
+  "support.access_opened": "Opened", "support.access_ended": "Ended early", "support.access_expired": "Expired",
+  "support.viewed_as": "Viewed the portal as",
+};
+
+/* THE PORTAL AS ONE OF ITS PEOPLE, inside the session above and nowhere else: the same account,
+   narrowed by the server to reading the portal as that member, over when the session is. They
+   are not told -- nothing about them changes -- and the view is written to both audit trails. */
+function PortalViewAs({ w, onViewed }) {
+  const roster = useApi(() => api.supportRoster(w.slug), [w.slug]);
+  const [memberId, setMemberId] = useState("");
+  const action = useAction();
+  if (roster.loading && !roster.data) return <Loading label="Reading the roster" />;
+  if (roster.error) return <LoadError error={roster.error} onRetry={roster.reload} />;
+  if (!roster.data.portal) {
+    return <div style={{ fontFamily: TYPE.text, fontSize: 12, color: A.mute }}>This workspace has no portal.</div>;
+  }
+  const members = roster.data.members;
+
+  async function view() {
+    const tab = window.open("about:blank", "_blank");
+    const out = await action.run("view", () => api.viewPortalAs(w.slug, memberId),
+      (r) => `Opened ${r.member}'s portal, read-only, until ${new Date(r.expires_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`);
+    if (out && tab) {
+      tab.opener = null;
+      tab.location.href = out.url;
+    } else if (tab) {
+      tab.close();
+    }
+    if (out) onViewed();
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 8, marginBottom: 14, paddingTop: 12, borderTop: `1px solid ${A.lineSoft}` }}>
+      <Eyebrow>View the portal as</Eyebrow>
+      {members.length === 0 ? (
+        <div style={{ fontFamily: TYPE.text, fontSize: 12, color: A.mute }}>Nobody is on this workspace's portal roster yet.</div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select aria-label="Person to view as" value={memberId} onChange={(e) => setMemberId(e.target.value)}
+            style={{ ...inputStyle, width: "auto", minWidth: 240, cursor: "pointer" }}>
+            <option value="">Choose a person</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>{`${m.name}${m.role ? ` · ${m.role}` : ""}${m.status === "Active" ? "" : ` · ${m.status}`}`}</option>
+            ))}
+          </select>
+          <Btn small kind="primary" disabled={!memberId} busy={action.busy === "view"} onClick={view}>Open portal</Btn>
+          <span style={{ fontFamily: TYPE.text, fontSize: 11.5, color: A.mute, flex: "1 1 220px" }}>
+            Read-only, their portal exactly as they would see it. They are not told.
+          </span>
+        </div>
+      )}
+      {action.result ? <Notice tone={action.result.tone}>{action.result.text}</Notice> : null}
+    </div>
+  );
+}
 
 /* The only door from this console into a workspace's dashboard, and a narrow one. It signs the
    operator in as a real, named, read-only account in the workspace that ends on its own; the owners
@@ -37,8 +92,9 @@ export default function SupportCard({ w, reload }) {
 
   return (
     <Card title="Support access" style={{ marginBottom: 16 }}
-      sub="The only door from this console into a workspace's dashboard. Time-boxed, read-only, needs a reason, and the owners are emailed when it opens.">
+      sub="The only door from this console into a workspace: its dashboard, or its portal as one of its people. Time-boxed, read-only, needs a reason, and the owners are emailed when it opens.">
       {mine ? (
+        <>
         <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", marginBottom: 14 }}>
           <div style={{ fontFamily: TYPE.text, fontSize: 12.5, color: A.ink }}>
             <Chip state="trial">Open</Chip> as <Mono c={A.ink}>{mine.account}</Mono> until {new Date(mine.expires_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
@@ -48,6 +104,8 @@ export default function SupportCard({ w, reload }) {
             End now
           </Btn>
         </div>
+        <PortalViewAs w={w} onViewed={data.reload} />
+        </>
       ) : (
         <div style={{ display: "grid", gap: 12, maxWidth: 560 }}>
           <Field label="Why you need in" htmlFor="sa-reason"
@@ -78,7 +136,7 @@ export default function SupportCard({ w, reload }) {
         ) : data.data.history.map((h, i) => (
           <div key={`${h.at}-${i}`} style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 8, fontFamily: TYPE.text, fontSize: 12, color: A.body, flexWrap: "wrap" }}>
             <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-              {PHRASE[h.action] || h.action}{h.who ? ` by ${h.who}` : ""}{h.minutes ? ` · ${h.minutes} min` : ""}{h.reason ? ` · "${h.reason}"` : ""}
+              {PHRASE[h.action] || h.action}{h.member ? ` ${h.member}` : ""}{h.who ? ` by ${h.who}` : ""}{h.minutes ? ` · ${h.minutes} min` : ""}{h.reason ? ` · "${h.reason}"` : ""}
             </span>
             <Mono size={10.5} c={A.mute}>{ago(h.at)}</Mono>
           </div>
