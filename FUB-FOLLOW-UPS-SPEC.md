@@ -357,7 +357,29 @@ today, every one assigned), **135 FUB users** (the old code stopped at 100), int
 With users paged, **Spring's roster entry now matches a FUB user**. Connor's doesn't: he isn't a FUB
 user, so his portal shows the team view.
 
-**Phases 1–3: built and tested together.** Once Phase 0 gave real numbers, the quick passes were
+**Phases 1–3: shipped `72aee64`, verified in production 2026-09-18.** Migration 0073 ran. Both
+bundles serve the new screens. `GET /intranet/follow-ups` and the console routes answer 401 without a
+session, so they exist. The first full sync on the new code, 17:15 UTC, finished **`ok` in 75.5 s**:
+- 135 users;
+- 300 newest people, 6,327 with activity in the last 8 days, 147 uncontacted new leads re-read by id;
+- 233 tasks due today and 1,125 overdue within 30 days;
+- the first 30,000-person backfill slice (of about 132,000).
+
+**Both open questions settled on the real account:** `dueStart` was accepted (`tasks_window:
+dueStart`), and `sort=-created` came back newest first (no `newest_order` flag). The 5-minute refresh
+ran on its own at 17:17 and took about 4 seconds. What the queues would show, computed read-only from
+the synced rows:
+- **Spring:** 7 new leads, 14 people due today, **353 people with overdue tasks** in the last 30
+  days.
+- **Connor:** team view (he isn't a FUB user).
+- **The account:** 120 uncontacted new leads this week, and 8,813 older overdue tasks the window
+  leaves out.
+
+Spring's overdue count is worth a look. As the team owner she likely holds many action-plan tasks.
+If the list is too long to be useful, the overdue window can come down in Console → Win the Day →
+Needs You Today.
+
+**Phases 1–3, how they were built and tested.** Once Phase 0 gave real numbers, the quick passes were
 changed before shipping (the newest-first walk and the by-id uncontacted refresh in §5; backfill
 slices of 300 pages). Tests: `tests/test_fub_sync.py` and `tests/test_fub_follow_ups.py` run the
 real sync against a fake FUB served over httpx (`tests/fub_fake.py`), plus the rules at their edges,
