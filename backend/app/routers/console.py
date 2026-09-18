@@ -270,8 +270,19 @@ def _palette(body: dict) -> dict:
 
 
 def _secret_config_key(key: str) -> bool:
-    lowered = key.lower()
-    return any(part in lowered for part in SECRET_CONFIG_PARTS)
+    """Whether a config key names a credential, however it is spelt.
+
+    Compared with the separators removed. It matched the raw lowercase key, so `api_key` was
+    caught and "API Key" -- the way a person types it into the config editor -- was not: a live
+    Follow Up Boss key sat in plaintext in a workspace's portal row and came back in this API's
+    responses. `secret_config_key` in migration 0072 is the same rule, for the rows already stored.
+    """
+    folded = _fold(key)
+    return any(_fold(part) in folded for part in SECRET_CONFIG_PARTS)
+
+
+def _fold(text: str) -> str:
+    return "".join(ch for ch in str(text).lower() if ch.isalnum())
 
 
 def _integration_config(body: dict) -> dict:

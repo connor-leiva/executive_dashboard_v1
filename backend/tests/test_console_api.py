@@ -1780,3 +1780,68 @@ async def test_the_console_asks_a_workspace_for_no_google_credentials(ctx, monke
     assert off.status_code == 200 and off.json()["item"]["enabled"] is False
     assert on.json()["item"] == {"enabled": True, "allowed_domains": ["team.example.com"],
                                  "available": True, "status": "Connected"}
+
+
+
+# ── a credential typed into the config editor ────────────────────────────────────────────
+
+async def test_a_credential_typed_into_the_config_editor_is_never_stored_or_returned(ctx):
+    """The filter matched `api_key` and missed "API Key" -- the way a person types it -- so a
+    live Follow Up Boss key sat in plaintext in a workspace's portal row and came back in this
+    API's responses. However it is spelt, a credential is dropped on the way in and hidden on the
+    way out."""
+    inherited_id = ctx["b"]["ids"]["inherited_integration"]
+    h = _H(ctx["b"]["admin"], ctx["b"]["host"])
+    async with _client() as c:
+        r = await c.patch(f"/api/console/integrations/{inherited_id}", headers=h,
+                          json={"config": {"API Key": "fka_live", "Api-Token": "t",
+                                           "client secret": "s", "Region": "west"}})
+    assert r.status_code == 200, r.text
+    assert r.json()["item"]["config"] == {"Region": "west"}
+    async with SessionLocal() as s:
+        row = await s.get(IntranetIntegration, uuid.UUID(inherited_id))
+        assert set(row.config or {}) == {"Region"}
+        # One already stored before the fix is not sent back either.
+        row.config = {"API Key": "fka_old", "Region": "west"}
+        await s.commit()
+    async with _client() as c:
+        listed = (await c.get("/api/console/integrations", headers=h)).json()["items"]
+    item = next(i for i in listed if i["id"] == inherited_id)
+    assert "API Key" not in item["config"], item["config"]
+
+
+def test_the_migration_that_strips_stored_credentials_uses_the_same_rule():
+    """0072 carries its own copy of the rule (a migration must mean the same thing when replayed),
+    so the two are held together here rather than trusted to stay alike."""
+    import importlib.util
+    from pathlib import Path as _Path
+
+    from app.routers.console import _secret_config_key
+
+    path = _Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0072_strip_config_secrets.py"
+    spec = importlib.util.spec_from_file_location("m0072", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    samples = ["API Key", "api_key", "apiKey", "Api-Key", "token", "Access Token", "Secret",
+               "client_secret", "Password", "credential_ref", "access key", "Private-Key",
+               "Region", "base_url", "Team", "list_id", "Smart list", "Account"]
+    for key in samples:
+        assert mod.secret_config_key(key) == _secret_config_key(key), key
+    assert mod.secret_config_key("API Key") and not mod.secret_config_key("Region")
+
+
+async def test_a_failing_dashboard_sync_reads_as_action_needed_in_the_portal(ctx):
+    """"Error" is not a portal status -- the console's own table refuses it -- so a workspace whose
+    Follow Up Boss sync was failing got a label nothing downstream recognised."""
+    from app.models import Integration
+    from app.services.inheritance import dashboard_connections
+
+    async with SessionLocal() as s:
+        t = Tenant(slug="erroring", name="Erroring", status="active", plan="portfolio",
+                   config={"features": {"intranet": True}})
+        s.add(t)
+        await s.flush()
+        s.add(Integration(tenant_id=t.id, provider="fub", status="error"))
+        await s.commit()
+        conns = await dashboard_connections(s, t.id)
+    assert conns["follow_up_boss"] == "Action Needed"

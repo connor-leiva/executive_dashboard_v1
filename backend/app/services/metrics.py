@@ -708,16 +708,23 @@ async def _producing_agents(s, tenant_id, business_id, start, end) -> tuple[int,
 async def _funnel(s, tenant_id, business_id, start, end) -> list[FunnelRow]:
     # Top of funnel: prefer FUB leads when synced (Phase 1b); otherwise fall back
     # to Sisu deal dates (lead_date / appt_set_date).
-    lead_ct = (await s.execute(
-        select(func.count()).select_from(Lead).where(
-            Lead.tenant_id == tenant_id, Lead.business_id == business_id)
-    )).scalar() or 0
-    if lead_ct:
-        leads = lead_ct
+    has_fub = (await s.execute(
+        select(Lead.id).where(Lead.tenant_id == tenant_id, Lead.business_id == business_id)
+        .limit(1))).first() is not None
+    if has_fub:
+        # THE LEADS THAT CAME IN THIS PERIOD, and of those, how many reached an appointment. This
+        # counted every person the CRM has ever held, with no window at all, beside a Sisu
+        # fallback that IS windowed -- invisible only because the FUB sync had never succeeded.
+        # The moment it did, "Leads" would have read as the account's lifetime total. Trash is
+        # FUB's bin for junk and duplicates, not leads.
+        cohort = (Lead.tenant_id == tenant_id, Lead.business_id == business_id,
+                  Lead.created_at_src >= start, Lead.created_at_src <= end,
+                  func.coalesce(Lead.stage, "") != "Trash")
+        leads = (await s.execute(
+            select(func.count()).select_from(Lead).where(*cohort))).scalar() or 0
         appts = (await s.execute(
             select(func.count()).select_from(Lead).where(
-                Lead.tenant_id == tenant_id, Lead.business_id == business_id,
-                Lead.stage.in_(_APPOINTMENT_STAGES))
+                *cohort, Lead.stage.in_(_APPOINTMENT_STAGES))
         )).scalar() or 0
     else:
         leads = (await s.execute(

@@ -43,12 +43,15 @@ INHERITED_PROVIDERS: dict[str, str] = {
 }
 
 # The dashboard says `connected` / `disconnected` / `error`; the portal's console says
-# `Connected` / `Not Connected`. Translated in one place so neither side has to know the other's
-# vocabulary, and so a new dashboard state cannot silently read as connected.
+# `Connected` / `Action Needed` / `Not Connected`. Translated in one place so neither side has to
+# know the other's vocabulary, and so a new dashboard state cannot silently read as connected.
+# A failing sync is ACTION NEEDED: this read "Error", which is not a portal status at all -- the
+# console's own table refuses it -- so a workspace whose sync was failing got a label nothing
+# downstream recognised.
 _DASHBOARD_TO_PORTAL = {
     "connected": "Connected",
     "disconnected": "Not Connected",
-    "error": "Error",
+    "error": "Action Needed",
 }
 
 

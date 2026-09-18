@@ -16,6 +16,7 @@ from ..config import settings
 from ..models import Integration, Transaction, Agent, Lead, PLSnapshot, SyncRun, MetricRecord, Business
 from ..security import enc, dec
 from ..integrations import fub, sisu, qbo, ghl, arive, stripe_legacy
+from .upsert import upsert
 
 
 def _tz(name: str) -> dt.tzinfo:
@@ -399,44 +400,57 @@ async def sync_agent_offices(s: AsyncSession, tenant_id: uuid.UUID) -> int:
     return updated
 
 
+async def _workspace_tz(s: AsyncSession, tenant_id) -> dt.tzinfo:
+    """The workspace's own timezone (the portal's setting), else the business default."""
+    from ..models import IntranetWorkspace
+    name = (await s.execute(select(IntranetWorkspace.timezone).where(
+        IntranetWorkspace.tenant_id == tenant_id))).scalars().first()
+    return _tz(name) if name else _biz_tz()
+
+
+async def _fub_agents(s: AsyncSession, tenant_id, business_id, users: list[dict]) -> dict:
+    """Upsert FUB users as agents; return {FUB user id: agent row id} for every FUB agent."""
+    await upsert(s, Agent, [
+        {"id": uuid.uuid4(), "tenant_id": tenant_id, "business_id": business_id, "source": "fub",
+         "external_id": u["external_id"], "name": u["name"], "email": u["email"],
+         "is_active": u["is_active"]}
+        for u in map(fub.map_user, users)],
+        keys=["tenant_id", "source", "external_id"], update=["name", "email", "is_active"])
+    await s.commit()
+    return dict((await s.execute(select(Agent.external_id, Agent.id).where(
+        Agent.tenant_id == tenant_id, Agent.source == "fub"))).all())
+
+
 async def sync_fub(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    """Agents (FUB users), then leads (FUB people), written a page at a time.
+
+    WHY IT IS SHAPED THIS WAY. It used to read every person into memory, then insert them one
+    statement at a time with a Postgres-only upsert -- which the SQLite test suite could not run,
+    so nothing noticed that `created_at_src` went in as a string. asyncpg refused it on every
+    production run: 26 runs, 26 errors, 0 leads, each after eight minutes of paging. Pages are
+    now written as they arrive, through the dialect-aware upsert the tests exercise too.
+    """
     business_id = integ.business_id
     creds = _fub_creds(integ)
-    n = 0
-    # Agents (FUB users) first.
-    for raw in await fub.fub_users(creds):
-        n += 1
-        u = fub.map_user(raw)
-        await s.execute(pg_insert(Agent).values(
-            tenant_id=tenant_id, business_id=business_id, source="fub",
-            external_id=u["external_id"], name=u["name"], email=u.get("email"),
-            is_active=u.get("is_active", True),
-        ).on_conflict_do_update(
-            index_elements=["tenant_id", "source", "external_id"],
-            set_={"name": u["name"], "email": u.get("email"), "is_active": u.get("is_active", True)},
-        ))
-    await s.commit()
+    tz = await _workspace_tz(s, tenant_id)
 
-    agent_map = {
-        a.external_id: a.id
-        for a in (await s.execute(
-            select(Agent).where(Agent.tenant_id == tenant_id, Agent.source == "fub"))
-        ).scalars().all()
-    }
-    # Leads (FUB people).
-    for raw in await fub.fub_people(creds):
-        n += 1
-        p = fub.map_person(raw)
-        await s.execute(pg_insert(Lead).values(
-            tenant_id=tenant_id, business_id=business_id, source="fub",
-            external_id=p["external_id"], stage=p.get("stage"),
-            agent_id=agent_map.get(p.get("agent_external_id")),
-            created_at_src=p.get("created_at_src"),
-        ).on_conflict_do_update(
-            index_elements=["tenant_id", "source", "external_id"],
-            set_={"stage": p.get("stage"), "agent_id": agent_map.get(p.get("agent_external_id"))},
-        ))
-    await s.commit()
+    users = await fub.fub_users(creds)
+    agent_map = await _fub_agents(s, tenant_id, business_id, users)
+
+    n = len(users)
+    async with fub.client(creds) as c:
+        async for rows, _ in fub.pages(c, "/people", "people", {"fields": fub.PERSON_FIELDS}):
+            mapped = [fub.map_person(p, tz) for p in rows]
+            await upsert(s, Lead, [
+                {"id": uuid.uuid4(), "tenant_id": tenant_id, "business_id": business_id,
+                 "source": "fub", "external_id": p["external_id"], "stage": p["stage"],
+                 "agent_id": agent_map.get(p["agent_external_id"]),
+                 "created_at_src": p["created_at_src"]}
+                for p in mapped],
+                keys=["tenant_id", "source", "external_id"],
+                update=["stage", "agent_id", "created_at_src"])
+            await s.commit()
+            n += len(rows)
     return n
 
 
