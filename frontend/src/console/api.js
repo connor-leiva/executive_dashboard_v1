@@ -242,6 +242,11 @@ export const deletePageSection = (pageId, sectionId) =>
 export const getWtdLists = () => consoleGet("/wtd-lists");
 export const patchWtdList = (listId, body) => consoleSend("PATCH", `/wtd-lists/${listId}`, body);
 export const putWtdOrder = (body) => consoleSend("PUT", "/wtd-lists/order", body);
+export const createWtdList = (body) => consoleSend("POST", "/wtd-lists", body);
+export const getFubSmartLists = () => consoleGet("/fub-smart-lists");
+export const getFollowUpSettings = () => consoleGet("/follow-ups");
+export const patchFollowUpSettings = (body) => consoleSend("PATCH", "/follow-ups", body);
+export const getCrmAgents = (source) => consoleGet(query("/crm-agents", { source }));
 export const getTiles = () => consoleGet("/tiles");
 export const createTile = (body) => consoleSend("POST", "/tiles", body);
 export const patchTile = (tileId, body) => consoleSend("PATCH", `/tiles/${tileId}`, body);

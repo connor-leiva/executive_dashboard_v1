@@ -23,6 +23,7 @@ from app.security import make_token
 from app.services.provisioning import provision_tenant
 from app.services.sync import _fub_creds, _sisu_creds
 from app.tenancy import tenant_app_url
+from tests.fub_fake import fake  # noqa: F401 -- a fixture: FUB is asked before a key is stored
 
 TRANSPORT = ASGITransport(app=app)
 # The host app.seed gives tenant #1 — derived, not a literal, so this
@@ -490,7 +491,7 @@ def test_missing_credentials_raise_instead_of_falling_back():
     assert _fub_creds(Integration(provider="fub", access_token_enc=enc("k"))).auth == ("k", "")
 
 
-async def test_sisu_and_fub_are_connectable_through_the_api():
+async def test_sisu_and_fub_are_connectable_through_the_api(fake):
     """They were absent from the connect whitelist, so the only way to configure them was a
     server environment variable — which is the single-tenant path by construction."""
     async with _client() as c:

@@ -26,9 +26,9 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetIntegration, IntranetLessonAttachment,
                       IntranetSopCategory, IntranetUserState,
                       IntranetAiQuestion, IntranetContentGap, IntranetWorkspace,
-                      IntranetWtdList, Tenant, User)
-from ..services import (binder_storage, course_sections, intranet_assistant, lesson_media,
-                        lesson_richtext, member_numbers, sunburst, uploads)
+                      IntranetWtdList, Tenant, User, Agent)
+from ..services import (binder_storage, course_sections, follow_ups, intranet_assistant,
+                        lesson_media, lesson_richtext, member_numbers, sunburst, uploads)
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import DENIED, allows, capability_levels
 from ..services.audit import audit
@@ -495,6 +495,16 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
             IntranetIntegration.tenant_id == tenant_id))).scalars().all()
         if (row.base_url or "").strip()
     }
+    # Follow Up Boss says which account a key opens (services/fub_sync reads /identity), and a
+    # smart list lives at a fixed address inside it -- so a list links without anybody typing a
+    # base URL. It had to be typed, and the live workspace's was empty. A URL an admin did set
+    # still wins.
+    if not provider_bases.get("follow_up_boss"):
+        fub_row = await follow_ups.fub_integration(s, tenant_id)
+        domain = (follow_ups.account_domain(fub_row)
+                  if fub_row is not None and fub_row.status in ("connected", "error") else None)
+        if domain:
+            provider_bases["follow_up_boss"] = f"https://{domain}.followupboss.com/2/people/list/"
 
     def _list_url(item) -> str | None:
         base = provider_bases.get(item.provider or "")
@@ -900,6 +910,48 @@ async def _member_for(s: AsyncSession, user: User) -> IntranetMember | None:
         IntranetMember.tenant_id == user.tenant_id,
         or_(IntranetMember.user_id == user.id, IntranetMember.email == email),
     ))).scalars().first()
+
+
+@router.get("/follow-ups")
+async def get_follow_ups(agent: str | None = Query(None, max_length=64),
+                         user: User = Depends(current_user),
+                         s: AsyncSession = Depends(get_session)):
+    """Needs You Today and the Follow-ups page: who is waiting on this person, and -- where their
+    role allows -- on the team. See services/follow_ups for the rules and the six empties.
+
+    THE PERMISSIONS ARE THE ONES THE WORKSPACE ALREADY SET. A person's own queue is part of the
+    daily run, so it follows Win the Day (`wtd`); the team's follows `team_production`, "everyone
+    else's numbers", through the same strict check My Numbers uses. `?agent=` opens one agent's
+    queue, or "unassigned", and needs the team permission and an agent of THIS workspace.
+    """
+    tenant = await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    levels = await capability_levels(s, tenant.id, member.role_id if member is not None else None)
+    team_ok = _may_see_team(levels, member, user)
+    viewing = None
+    if agent:
+        if not team_ok:
+            raise HTTPException(403, "Your role does not include the team's follow-ups.")
+        if agent == "unassigned":
+            viewing = "unassigned"
+        else:
+            try:
+                agent_id = uuid.UUID(agent)
+            except ValueError:
+                raise HTTPException(404, "No such agent.")
+            viewing = (await s.execute(select(Agent).where(
+                Agent.id == agent_id, Agent.tenant_id == tenant.id,
+                Agent.source == "fub"))).scalar_one_or_none()
+            if viewing is None:
+                raise HTTPException(404, "No such agent.")
+    workspace = (await s.execute(select(IntranetWorkspace).where(
+        IntranetWorkspace.tenant_id == tenant.id))).scalars().first()
+    today = course_sections.workspace_today(workspace.timezone if workspace is not None else None)
+    own_ok = allows(levels, "wtd") and (member is None or member.status != "Removed")
+    return await follow_ups.payload(
+        s, tenant, member, today=today, now=dt.datetime.now(dt.timezone.utc),
+        own_allowed=own_ok, team_allowed=team_ok,
+        show_error=user.role in ("owner", "admin"), viewing=viewing)
 
 
 def _request_out(row: IntranetMarketingRequest, attachment_count: int = 0) -> dict:

@@ -161,6 +161,32 @@ def map_user(u: dict) -> dict:
     }
 
 
+def map_task(t: dict, tz: dt.tzinfo = dt.timezone.utc) -> dict:
+    """An open task. `dueDate` is the day it is due; `dueDateTime`, when FUB sends one, the time.
+    A task with only a time is placed on the workspace's day for that time."""
+    due_at = parse_ts(t.get("dueDateTime"))
+    due_on = None
+    raw = str(t.get("dueDate") or "")[:10]
+    if raw:
+        try:
+            due_on = dt.date.fromisoformat(raw)
+        except ValueError:
+            due_on = None
+    if due_on is None and due_at is not None:
+        due_on = due_at.astimezone(tz).date()
+    person = t.get("personId")
+    assigned = t.get("assignedUserId")
+    return {
+        "external_id": str(t.get("id")),
+        "person_external_id": str(person) if person not in (None, 0, "0", "") else None,
+        "agent_external_id": str(assigned) if assigned not in (None, 0, "0", "") else None,
+        "name": clip(t.get("name"), 300),
+        "task_type": clip(t.get("type"), 40),
+        "due_on": due_on,
+        "due_at": due_at,
+    }
+
+
 def map_person(p: dict, tz: dt.tzinfo = dt.timezone.utc) -> dict:
     assigned = p.get("assignedUserId")
     created = parse_ts(p.get("created") or p.get("createdAt"))

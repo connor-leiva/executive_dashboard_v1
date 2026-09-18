@@ -412,16 +412,24 @@ function FubConnectForm({ row, onClose, onDone }) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  // Said by the server when the key works but belongs to an agent: FUB shows an agent only their
+  // own leads, so the rest of the team's follow-ups would be missing with nothing to say why. The
+  // key IS saved; the form stays open until it has been read.
+  const [warning, setWarning] = useState(null);
 
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
     setErr(null);
     try {
-      await postJSON("/integrations", {
+      const out = await postJSON("/integrations", {
         provider: "fub", business_key: row.business_key,
         token: key.trim() || undefined,
       });
+      if (out?.warning) {
+        setWarning(out.warning);
+        return;
+      }
       onDone();
     } catch (e2) {
       setErr(e2?.detail || "Couldn't save — double-check the API key.");
@@ -442,9 +450,21 @@ function FubConnectForm({ row, onClose, onDone }) {
           <input style={field} type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
         </label>
         {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {warning && (
+          <div role="status" style={{ fontFamily: "var(--font-text)", fontSize: 12.5, lineHeight: 1.45, color: T.daffodilText, background: T.daffodilBg, borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
+            <strong style={{ display: "block", marginBottom: 3 }}>Connected, with one catch</strong>
+            {warning}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
-          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
-          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
+          {warning ? (
+            <button type="button" onClick={onDone} style={btn("primary")}>Done</button>
+          ) : (
+            <>
+              <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+              <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
+            </>
+          )}
         </div>
       </form>
     </div>

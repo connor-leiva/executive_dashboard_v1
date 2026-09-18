@@ -3006,3 +3006,306 @@ span.ut-tick { cursor: default; }
 /* Anchored headings need somewhere to land: without this the sticky top bar covers the heading
    the reader just jumped to. */
 .ut-lesson-body-copy h2[id] { scroll-margin-top: 90px; }
+
+/* ── Needs You Today and the Follow-ups page ───────────────────────────────────────────────
+   A row is one person to contact. The reason sits in a fixed-width pill on the left so the names
+   line up down the list, and the timing sits right-aligned in tabular figures so "2h ago" and
+   "Due yesterday" read as a column. Colour carries the reason, never the only signal: every pill
+   says its reason in words. */
+.ut-fu-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 12px;
+}
+
+.ut-fu-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--wash);
+  color: var(--body);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.ut-fu-chip strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ut-fu-chip.zero {
+  color: var(--faint);
+}
+
+.ut-fu-chip.zero strong {
+  color: var(--faint);
+}
+
+.ut-fu-chip.overdue:not(.zero) {
+  border-color: #dbaca0;
+}
+
+.ut-fu-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.ut-fu-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  padding: 8px 6px;
+  border-top: 1px solid var(--soft-line);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.ut-fu-row:hover {
+  background: var(--wash);
+}
+
+a.ut-fu-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.ut-fu-kind {
+  justify-self: start;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--wash);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.ut-fu-kind.new_lead {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.ut-fu-kind.overdue {
+  background: #faece8;
+  border-color: #efc8bf;
+  color: #9b4330;
+}
+
+.ut-fu-kind.due_today {
+  background: #e3edf0;
+  border-color: var(--accent);
+  color: var(--primary);
+}
+
+.ut-fu-main {
+  min-width: 0;
+}
+
+.ut-fu-main strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ut-fu-main span {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ut-fu-also {
+  color: var(--faint);
+  font-style: normal;
+}
+
+.ut-fu-when {
+  color: var(--muted);
+  font-size: 13px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ut-fu-more {
+  display: inline-block;
+  margin-top: 12px;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ut-fu-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ut-fu-warning {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border: 1px solid #dbaca0;
+  border-radius: 8px;
+  background: #fcf4f2;
+  color: var(--body);
+  font-size: 13px;
+}
+
+.ut-fu-team {
+  display: flex;
+  flex-direction: column;
+}
+
+.ut-fu-agent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 50px;
+  padding: 6px;
+  border-top: 1px solid var(--soft-line);
+  color: inherit;
+  text-decoration: none;
+}
+
+.ut-fu-agent:hover {
+  background: var(--wash);
+}
+
+.ut-fu-agent strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ut-fu-agent span {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ut-fu-agent.unassigned strong {
+  color: var(--primary);
+}
+
+.ut-fu-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  align-self: flex-start;
+}
+
+.ut-fu-tabs button {
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ut-fu-tabs button.active {
+  background: var(--ink);
+  color: #ffffff;
+}
+
+.ut-fu-tabs button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.ut-fu-table-wrap {
+  overflow-x: auto;
+}
+
+.ut-fu-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.ut-fu-table th {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--faint);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.ut-fu-table th:first-child,
+.ut-fu-table td:first-child {
+  text-align: left;
+}
+
+.ut-fu-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--soft-line);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ut-fu-table td a {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.ut-link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (max-width: 560px) {
+  .ut-fu-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "kind when" "main main";
+    gap: 4px 10px;
+  }
+
+  .ut-fu-kind {
+    grid-area: kind;
+  }
+
+  .ut-fu-when {
+    grid-area: when;
+  }
+
+  .ut-fu-main {
+    grid-area: main;
+  }
+}

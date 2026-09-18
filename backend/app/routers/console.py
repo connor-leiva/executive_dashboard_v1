@@ -8,14 +8,18 @@ from urllib.parse import urlparse
 
 from fastapi import (APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException,
                      Query, Request, Response, UploadFile)
+import httpx
 from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from ..db import get_session
 from ..deps import ConsolePrincipal, require_console_access
 from ..models import (
+    Agent,
     Base,
     AuditLog,
+    Integration,
     IntranetAiSetting,
     IntranetAiQuestion,
     IntranetAiSource,
@@ -55,12 +59,14 @@ from ..services.audit import audit
 from ..security import enc
 from .. import plans
 from ..security import new_action_token
-from ..services import (binder_storage, course_sections, google_auth, lesson_media,
+from ..integrations import fub
+from ..services import (binder_storage, course_sections, follow_ups, google_auth, lesson_media,
                         lesson_richtext, mail_templates,
-                        mailer, uploads,
+                        mailer, member_identity, uploads,
                         marketing_delivery)
 from ..services.users import INVITE_DAYS, link_base, primary_host
-from ..services.inheritance import dashboard_connections, ensure_rows, is_inherited
+from ..services.inheritance import (INHERITED_PROVIDERS, dashboard_connections, ensure_rows,
+                                    is_inherited)
 
 router = APIRouter(prefix="/console", tags=["console"])
 
@@ -793,7 +799,17 @@ async def _wtd_integrations(s: AsyncSession, tenant_id, providers: set[str]) -> 
         IntranetIntegration.tenant_id == tenant_id,
         IntranetIntegration.provider_key.in_(providers),
     ))).scalars().all()
-    return {row.provider_key: _integration(row) for row in rows}
+    # The dashboard's status and FUB's own address, as the portal itself resolves them: this map
+    # read the portal row alone, so a list on a connected Follow Up Boss showed as unlinked here.
+    inherited = await dashboard_connections(s, tenant_id)
+    details = await _dashboard_details(s, tenant_id)
+    out = {}
+    for row in rows:
+        item = _integration(row, inherited, details)
+        if not item["base_url"] and item.get("default_base_url"):
+            item["base_url"] = item["default_base_url"]
+        out[row.provider_key] = item
+    return out
 
 
 async def _tile_roles(s: AsyncSession, tenant_id, tile_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
@@ -861,7 +877,30 @@ def _public_integration_config(config: dict | None) -> dict:
     }
 
 
-def _integration(row: IntranetIntegration, inherited: dict[str, str] | None = None) -> dict:
+async def _dashboard_details(s: AsyncSession, tenant_id) -> dict:
+    """For each provider the dashboard owns: its last sync error, and -- for Follow Up Boss -- the
+    account's own smart-list address, which a Win the Day list uses when no base URL is typed."""
+    rows = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id,
+        Integration.provider.in_(tuple(INHERITED_PROVIDERS.values()))))).scalars().all()
+    out: dict = {}
+    for portal_key, dash_key in INHERITED_PROVIDERS.items():
+        mine = [r for r in rows if r.provider == dash_key]
+        if not mine:
+            continue
+        failing = next((r for r in mine if r.status == "error" and r.last_error), None)
+        detail = {"error": failing.last_error[:300] if failing else None, "default_base_url": None}
+        if dash_key == "fub":
+            live = [r for r in mine if r.status in ("connected", "error")]
+            domain = next((d for d in (follow_ups.account_domain(r) for r in live) if d), None)
+            if domain:
+                detail["default_base_url"] = f"https://{domain}.followupboss.com/2/people/list/"
+        out[portal_key] = detail
+    return out
+
+
+def _integration(row: IntranetIntegration, inherited: dict[str, str] | None = None,
+                 details: dict | None = None) -> dict:
     """One provider row, with the dashboard's answer preferred where the dashboard owns it.
 
     `inherited` is the workspace's dashboard connections. Where a provider appears there, its
@@ -885,6 +924,12 @@ def _integration(row: IntranetIntegration, inherited: dict[str, str] | None = No
         # disabling a button.
         "inherited": owned_elsewhere,
         "inherited_from": "Acumyn dashboard" if owned_elsewhere else None,
+        # The dashboard's own failure, where the connection lives; and the address a Win the Day
+        # list opens in when no base URL is set here.
+        "dashboard_error": ((details or {}).get(row.provider_key) or {}).get("error")
+        if owned_elsewhere else None,
+        "default_base_url": ((details or {}).get(row.provider_key) or {}).get("default_base_url")
+        if owned_elsewhere else None,
     }
 
 
@@ -1995,8 +2040,9 @@ async def get_members(status: str | None = Query(None), q: str | None = Query(No
     rows = (await s.execute(select(IntranetMember).where(*where).order_by(
         IntranetMember.status, IntranetMember.full_name))).scalars().all()
     total = int((await s.execute(select(func.count()).select_from(IntranetMember).where(*where))).scalar_one())
+    crm = await _crm_matches(s, p.user.tenant_id, rows)
     return {
-        **_list([_member(r, roles) for r in rows], total),
+        **_list([{**_member(r, roles), "crm": crm.get(r.id)} for r in rows], total),
         "roles": [_role_out(r) for r in sorted(roles.values(), key=lambda item: item.sort)],
         "stats": await _member_stats(s, p.user.tenant_id, roles),
     }
@@ -2114,7 +2160,7 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
                        s: AsyncSession = Depends(get_session)):
     body = _body(body)
     _unknown(body, {"full_name", "email", "role_id", "market", "status", "auth_source",
-                    "title", "bio", "phone", "owns"})
+                    "title", "bio", "phone", "owns", "agent_links"})
     row = await _one(s, IntranetMember, p.user.tenant_id, member_id)
     roles = await _roles_by_id(s, p.user.tenant_id)
     old_role = roles.get(row.role_id)
@@ -2154,12 +2200,20 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
         if field in body:
             setattr(row, field,
                     _text(body, field, nullable=True, max_len=4000 if field == "bio" else 200))
+    if "agent_links" in body:
+        row.agent_links = await _agent_links(s, p.user.tenant_id, body["agent_links"],
+                                             row.agent_links)
+        flag_modified(row, "agent_links")
+        if not role_changed:
+            summary = f"Updated the CRM identity of {row.full_name}"
 
     pending = await _record_mutation(
         s, p, action=action, category="People",
         summary=summary, target_type="member",
         target_id=row.id, pending=False)
-    return _with_pending(_member(row, await _roles_by_id(s, p.user.tenant_id)), pending)
+    crm = await _crm_matches(s, p.user.tenant_id, [row])
+    return _with_pending({**_member(row, await _roles_by_id(s, p.user.tenant_id)),
+                          "crm": crm.get(row.id)}, pending)
 
 
 @router.delete("/members/{member_id}")
@@ -3466,14 +3520,182 @@ async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
     return _with_pending(_sop_version(row), pending)
 
 
+# ── CRM identity on the roster ─────────────────────────────────────────────────────────────
+
+CRM_SOURCES = ("fub", "sisu")
+
+
+async def _crm_matches(s: AsyncSession, tenant_id, members: list[IntranetMember]) -> dict:
+    """{member id: {source: match or None}} for a page of the roster, in one read of the agents."""
+    found = await member_identity.matches_for_many(s, tenant_id, members)
+    out = {}
+    for m in members:
+        row = {}
+        for source in CRM_SOURCES:
+            hit = found.get(m.id, {}).get(source)
+            row[source] = ({"agent_id": _id(hit[0].id), "external_id": hit[0].external_id,
+                            "name": hit[0].name, "email": hit[0].email,
+                            "active": bool(hit[0].is_active), "matched_by": hit[1]}
+                           if hit else None)
+        row["links"] = {k: v for k, v in (m.agent_links or {}).items() if k in CRM_SOURCES and v}
+        out[m.id] = row
+    return out
+
+
+@router.get("/crm-agents")
+async def get_crm_agents(source: str = Query(...), p: ConsolePrincipal = Depends(require_console_access),
+                         s: AsyncSession = Depends(get_session)):
+    """The users a member can be linked to, for the roster's picker: FUB users or Sisu agents."""
+    if source not in CRM_SOURCES:
+        _unprocessable("source", "Expected fub or sisu.")
+    rows = (await s.execute(select(Agent).where(
+        Agent.tenant_id == p.user.tenant_id, Agent.source == source).order_by(
+            Agent.is_active.desc(), Agent.name))).scalars().all()
+    return _list([{"external_id": r.external_id, "name": r.name, "email": r.email,
+                   "active": bool(r.is_active)} for r in rows], len(rows))
+
+
+async def _agent_links(s: AsyncSession, tenant_id, raw, current: dict | None) -> dict | None:
+    """{source: CRM user id}, validated against the users this workspace's sync holds. A source
+    set to null goes back to matching by email; `agent_links: null` clears them all."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        _unprocessable("agent_links", "Expected an object keyed by source.")
+    links = dict(current or {})
+    for source, value in raw.items():
+        if source not in CRM_SOURCES:
+            _unprocessable(f"agent_links.{source}", "Expected fub or sisu.")
+        if value in (None, ""):
+            links.pop(source, None)
+            continue
+        ext = str(value).strip()[:64]
+        exists = (await s.execute(select(Agent.id).where(
+            Agent.tenant_id == tenant_id, Agent.source == source,
+            Agent.external_id == ext))).first()
+        if exists is None:
+            _unprocessable(f"agent_links.{source}", "No such user in this workspace's CRM.")
+        links[source] = ext
+    return links or None
+
+
+# ── Needs You Today settings ─────────────────────────────────────────────────────────────
+
+async def _follow_up_settings_out(s: AsyncSession, tenant: Tenant) -> dict:
+    integ = await follow_ups.fub_integration(s, tenant.id)
+    fstate = ((integ.config or {}).get("fub_state") or {}) if integ else {}
+    return {
+        "settings": follow_ups.settings_for(tenant),
+        "defaults": follow_ups.DEFAULTS,
+        "bounds": {k: {"min": lo, "max": hi} for k, (lo, hi) in follow_ups.BOUNDS.items()},
+        "stages": await follow_ups.stages_in_use(s, tenant.id),
+        # How many overdue tasks the window leaves out, across the account, from the last sync.
+        "older_overdue": fstate.get("older_overdue"),
+        "connection": follow_ups.connection(integ, show_error=True),
+        "backfill": fstate.get("backfill"),
+    }
+
+
+@router.get("/follow-ups")
+async def get_follow_up_settings(p: ConsolePrincipal = Depends(require_console_access),
+                                 s: AsyncSession = Depends(get_session)):
+    return await _follow_up_settings_out(s, p.tenant)
+
+
+@router.patch("/follow-ups")
+async def patch_follow_up_settings(body: dict = Body(...),
+                                   p: ConsolePrincipal = Depends(require_console_access),
+                                   s: AsyncSession = Depends(get_session)):
+    body = _body(body)
+    _unknown(body, set(follow_ups.DEFAULTS))
+    tenant = await s.get(Tenant, p.user.tenant_id)
+    current = follow_ups.settings_for(tenant)
+    try:
+        merged = follow_ups.clean_settings({**current, **body}, strict=True)
+    except ValueError as e:
+        field = str(e)
+        lo_hi = follow_ups.BOUNDS.get(field)
+        _unprocessable(field, f"Expected a whole number from {lo_hi[0]} to {lo_hi[1]}."
+                       if lo_hi else "Expected a list of stage names.")
+    cfg = dict(tenant.config or {})
+    intranet = dict(cfg.get("intranet") or {})
+    intranet["follow_ups"] = merged
+    cfg["intranet"] = intranet
+    tenant.config = cfg
+    flag_modified(tenant, "config")
+    await _record_mutation(
+        s, p, action="config.follow_ups.updated", category="Win the Day",
+        summary="Updated the Needs You Today rules", target_type="config",
+        detail={"from": current, "to": merged}, pending=False)
+    return await _follow_up_settings_out(s, tenant)
+
+
+# ── Win the Day lists: creating one, and the smart lists to pick from ───────────────────────
+
+@router.post("/wtd-lists")
+async def create_wtd_list(body: dict = Body(...), p: ConsolePrincipal = Depends(require_console_access),
+                          s: AsyncSession = Depends(get_session)):
+    """A new call list. The console could edit and reorder lists but never make one, so a
+    workspace with none -- every workspace but the first -- could never have any. It is a draft
+    like every other change here, and goes live on publish."""
+    body = _body(body)
+    _unknown(body, {"name", "provider", "external_list_id", "script_name", "daily_target"})
+    name = _text(body, "name", required=True, max_len=120)
+    last = (await s.execute(select(func.max(IntranetWtdList.position)).where(
+        IntranetWtdList.tenant_id == p.user.tenant_id))).scalar()
+    row = IntranetWtdList(
+        tenant_id=p.user.tenant_id, position=int(last or 0) + 1, name=name,
+        provider=_text(body, "provider", max_len=80) or "follow_up_boss",
+        external_list_id=_text(body, "external_list_id", nullable=True, max_len=64),
+        script_name=_text(body, "script_name", nullable=True, max_len=200),
+        daily_target=_int(body, "daily_target", min_value=1, max_value=10000),
+        active=True, draft_dirty=True)
+    s.add(row)
+    await s.flush()
+    pending = await _record_mutation(
+        s, p, action="content.wtd_list.created", category="Win the Day",
+        summary=f"Added Win the Day list {name}", target_type="wtd_list", target_id=row.id,
+        entity_type="wtd_list", entity_id=row.id, change_kind="created")
+    return _with_pending(_wtd(row), pending)
+
+
+@router.get("/fub-smart-lists")
+async def get_fub_smart_lists(p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    """The account's smart lists, asked of Follow Up Boss with the dashboard's key, so a list is
+    picked by name instead of by the number at the end of its address. Read live: an admin
+    choosing, rarely, and a stale copy would offer lists that no longer exist."""
+    from ..services.sync import _fub_creds
+    integ = await follow_ups.fub_integration(s, p.user.tenant_id)
+    if integ is None or integ.status not in ("connected", "error"):
+        raise HTTPException(409, "Follow Up Boss is not connected. Connect it on the Acumyn "
+                                 "dashboard under Settings, Integrations.")
+    items = []
+    try:
+        async with fub.client(_fub_creds(integ)) as c:
+            async for page, _ in fub.pages(c, "/smartLists", "smartlists", {"fub2": "true"},
+                                           max_pages=5):
+                items.extend({"id": row.get("id"), "name": row.get("name")} for row in page
+                             if row.get("id") is not None)
+    except (httpx.HTTPError, ValueError) as e:
+        raise HTTPException(502, f"Follow Up Boss did not answer: {str(e)[:160]}")
+    items.sort(key=lambda row: str(row["name"] or "").lower())
+    return _list(items, len(items))
+
+
 @router.get("/wtd-lists")
 async def get_wtd_lists(p: ConsolePrincipal = Depends(require_console_access),
                         s: AsyncSession = Depends(get_session)):
+    # The provider rows a list links through, created on first read as the Integrations page does:
+    # a workspace that never opened that page had none, so every list here read "Disconnected"
+    # beside a Follow Up Boss connection that was working.
+    await ensure_rows(s, p.user.tenant_id)
     rows = (await s.execute(select(IntranetWtdList).where(
         IntranetWtdList.tenant_id == p.user.tenant_id).order_by(IntranetWtdList.position))).scalars().all()
     out = _list([_wtd(r) for r in rows], await _count(s, IntranetWtdList, p.user.tenant_id))
     out["stats"] = await _wtd_stats(s, p.user.tenant_id)
     out["integrations"] = await _wtd_integrations(s, p.user.tenant_id, {r.provider for r in rows})
+    await s.commit()
     return out
 
 
@@ -3755,7 +3977,8 @@ async def get_integrations(p: ConsolePrincipal = Depends(require_console_access)
         IntranetIntegration.tenant_id == p.user.tenant_id, _not_signin()).order_by(
             IntranetIntegration.display_name))).scalars().all()
     inherited = await dashboard_connections(s, p.user.tenant_id)
-    payload = _list([_integration(r, inherited) for r in rows],
+    details = await _dashboard_details(s, p.user.tenant_id)
+    payload = _list([_integration(r, inherited, details) for r in rows],
                     await _count(s, IntranetIntegration, p.user.tenant_id, _not_signin()))
     await s.commit()
     return payload
@@ -3782,7 +4005,8 @@ async def patch_integration(integration_id: uuid.UUID, body: dict = Body(...),
         s, p, action="config.integration.updated", category="Integrations",
         summary=f"Updated integration settings for {row.display_name}",
         target_type="integration", target_id=row.id, pending=False)
-    return _with_pending(_integration(row), pending)
+    return _with_pending(_integration(row, await dashboard_connections(s, p.user.tenant_id),
+                                      await _dashboard_details(s, p.user.tenant_id)), pending)
 
 
 @router.post("/integrations/{integration_id}/connect")

@@ -18,7 +18,9 @@ from ..models import (User, Integration, Business, SyncRun, MetricRecord, Tenant
 from ..services.audit import audit
 from ..security import enc, dec, make_capability, read_capability
 from ..tenancy import tenant_app_url
-from ..integrations import qbo, stripe_legacy
+import httpx
+
+from ..integrations import fub, qbo, stripe_legacy
 from ..services import legacy_export, roles, sync_jobs
 from ..services.integrations_view import build_integrations_view
 from ..schemas import IntegrationsOut
@@ -139,8 +141,47 @@ async def sync_one(integ_id: uuid.UUID, bg: BackgroundTasks, period: str = Query
     return {"ok": True}
 
 
+async def _check_fub_key(key: str, base_url: str = "") -> str | None:
+    """Ask Follow Up Boss whether this key works, before it is stored.
+
+    A wrong key used to be accepted without a word and surface half an hour later as a failed
+    sync. Refused outright now (401/403). FUB being unreachable, or answering oddly, is not the
+    key's fault: the key is kept and the sync, which retries, says more.
+
+    Returns a warning when the key belongs to an AGENT rather than an owner or admin: FUB shows an
+    agent only their own leads, so everybody else's follow-ups would be missing without any error
+    to explain it. ("Broker" is FUB's word for an owner or an admin.)
+    """
+    creds = fub.FubCreds(api_key=key, base_url=base_url or "")
+    try:
+        async with fub.client(creds) as c:
+            ident = await fub.get(c, "/identity")
+            who = ident.get("user") or {}
+            role, owner = None, False
+            if who.get("id") is not None:
+                try:
+                    u = await fub.get(c, f"/users/{who['id']}")
+                    role, owner = u.get("role"), bool(u.get("isOwner"))
+                except httpx.HTTPError:
+                    role = None
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (401, 403):
+            raise HTTPException(400, "Follow Up Boss rejected that API key. Copy it again from "
+                                     "Follow Up Boss under Admin, API, and paste the whole key.")
+        return None
+    except httpx.HTTPError:
+        return None
+    if role and str(role).lower() != "broker" and not owner:
+        name = who.get("name") or "this user"
+        return (f"This key belongs to {name}, who is an {role} in Follow Up Boss. FUB shows an "
+                f"agent only their own leads, so only their follow-ups will appear. For the whole "
+                f"team, use an API key from an owner or admin.")
+    return None
+
+
 @router.post("/integrations")
-async def create_integration(body: dict, user: User = Depends(require_role("owner", "admin")),
+async def create_integration(body: dict, bg: BackgroundTasks,
+                             user: User = Depends(require_role("owner", "admin")),
                              s: AsyncSession = Depends(get_session)):
     """Create/update a token-based integration (Go High Level, Arive). Body:
     {provider, business_key, token, config}. Token is encrypted at rest."""
@@ -238,6 +279,11 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
             raise HTTPException(400, "Stripe rejected that key. Use a read-only restricted "
                                      "key (Charges: read, Customers: read, Subscriptions: read).")
 
+    fub_warning = None
+    if provider == "fub" and body.get("token"):
+        fub_warning = await _check_fub_key(
+            body["token"].strip(), ((integ.config or {}).get("base_url") if integ else "") or "")
+
     new = integ is None or not integ.access_token_enc
     if new and not body.get("token"):
         raise HTTPException(400, "A token is required to connect.")
@@ -246,7 +292,10 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
     if body.get("token"):                       # blank on edit = keep the current token
         integ.access_token_enc = enc(body["token"])
     if body.get("config") is not None:
-        integ.config = body["config"]
+        # The sync's own bookkeeping is kept: it is not the form's to overwrite. See
+        # services/fub_sync -- a key for a different FUB account resets it there, on purpose.
+        kept = {k: v for k, v in (integ.config or {}).items() if k == "fub_state"}
+        integ.config = {**body["config"], **kept}
     integ.status = "connected"
     integ.last_error = None
     if integ.id is None:
@@ -255,7 +304,16 @@ async def create_integration(body: dict, user: User = Depends(require_role("owne
     audit(s, user.tenant_id, user.id, "integration.connected", "integration", integ.id,
           {"provider": provider, "business": biz.key})
     await s.commit()
-    return {"id": str(integ.id)}
+    if (provider == "fub" and body.get("token") and tenant.status != "suspended"
+            and not sync_jobs.syncs_frozen(tenant.config)):
+        # Start the first sync now rather than at the next half-hourly tick, so the portal's
+        # follow-ups appear minutes after connecting instead of up to half an hour later. Not for
+        # a workspace an operator has paused: nothing pulls from its sources, requested or not.
+        bg.add_task(sync_jobs.run_one_job, user.tenant_id, integ.id, "mtd")
+    out = {"id": str(integ.id)}
+    if fub_warning:
+        out["warning"] = fub_warning
+    return out
 
 
 async def _cleanup_books_for_business(s: AsyncSession, tenant_id, business_id, purge: bool):

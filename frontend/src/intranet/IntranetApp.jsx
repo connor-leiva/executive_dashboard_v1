@@ -7,9 +7,9 @@ import { search as search_ } from "./search.js";
 import { logoFor } from "./vendor-logos.js";
 import sunburstLogo from "./assets/sunburst-ondark.png";
 import {
+  FOLLOW_UP_KINDS,
   NAV_GROUPS,
   ONBOARDING,
-  PRIORITY_ITEMS,
   WTD_BLOCKS,
 } from "./constants.js";
 
@@ -617,7 +617,7 @@ function Home({ config, wtd, training, onboarding, me, canConfigure }) {
         <div>
           <div className="ut-date">{now.date}</div>
           <h1>{firstName(me) ? `${now.greeting}, ${firstName(me)}.` : `${now.greeting}.`}</h1>
-          <p>Your priority queue and production story will populate as tenant sources are configured.</p>
+          <p>Who is waiting on you today, and how the year is going.</p>
         </div>
         <div className="ut-hero-actions">
           <NavLink className="ut-button light" to="/tools">Open My Tools</NavLink>
@@ -636,7 +636,7 @@ function Home({ config, wtd, training, onboarding, me, canConfigure }) {
       <SunburstBanner config={config} me={me} canConfigure={canConfigure} />
 
       <section className="ut-lower-grid">
-        <NeedsYouToday config={config} />
+        <NeedsYouToday me={me} canConfigure={canConfigure} />
         <QuickLaunch config={config} />
       </section>
 
@@ -800,8 +800,6 @@ function GoalSnapshot({ numbers }) {
   );
 }
 
-/* Whether this workspace has a given provider connected. Vendor-specific surfaces ask this
-   rather than assuming; "connected" is the console's own status value. */
 /* Nav items that belong to a VENDOR rather than to the product. Each appears only where that
    workspace has the relevant integration connected -- Sunburst is a coaching product sold inside
    Sisu, and a permanent nav entry for it would put one customer's vendor in everybody's rail. */
@@ -810,10 +808,6 @@ function GoalSnapshot({ numbers }) {
    gone. Kept as an empty map rather than deleted because the nav filter reads it, and a page that
    genuinely needs a precondition later belongs here rather than in a new mechanism. */
 const VENDOR_READY = {};
-
-function connected(config, providerKey) {
-  return (config?.content?.integrations || {})[providerKey] === "connected";
-}
 
 function SunburstBanner({ config, me, canConfigure }) {
   const numbers = config?.numbers || DEFAULT_CONFIG.numbers;
@@ -865,24 +859,423 @@ function SunburstBanner({ config, me, canConfigure }) {
   );
 }
 
-function NeedsYouToday({ config }) {
-  const fubConnected = connected(config, "follow_up_boss");
-  return (
-    <Panel title="Needs You Today"
-           kicker={fubConnected ? "Pulled From Follow Up Boss" : "No CRM connected"}
-           action={fubConnected ? <NavLink to="/wtd">Open list {"->"}</NavLink> : null}>
-      <div className="ut-priority-list">
-        {PRIORITY_ITEMS.map((item) => (
-          <div className="ut-priority-row" key={item.title}>
-            <div>
-              <strong>{item.title}</strong>
-              <span>{item.source}</span>
-            </div>
-            <em>{item.note}</em>
-          </div>
-        ))}
+/* ── Needs You Today and the Follow-ups page ────────────────────────────────────────────────
+ *
+ * WAS THREE ROWS COMPILED INTO THE PORTAL -- "New lead follow-up · Follow Up Boss · Source not
+ * connected" -- under a kicker that compared the payload's "Connected" to "connected" and so said
+ * "No CRM connected" whatever the workspace had done. Both read GET /intranet/follow-ups now: the
+ * server applies the rules (services/follow_ups) and the permissions, and says which of six empties
+ * this is, so nothing here decides who may see what.
+ *
+ * A ROW OPENS THE PERSON IN FOLLOW UP BOSS. The call happens there, where it is logged and where
+ * "contacted" flips; a tel: link from here would dial around the CRM.
+ */
+const KIND_BY_KEY = Object.fromEntries(FOLLOW_UP_KINDS.map((k) => [k.key, k]));
+const HOME_ROWS = 6;
+// Re-read while the page is open. The server refreshes from FUB every few minutes, so asking
+// more often than that would only re-read the same rows.
+const FOLLOW_UP_POLL_MS = 5 * 60 * 1000;
+
+// The offline preview has no server to ask. It shows the not-connected state, never invented
+// leads -- check-no-mock-data.sh holds the portal to that.
+const OFFLINE_FOLLOW_UPS = {
+  connection: { state: "not_connected", synced_at: null, sync_failed: false, error: null },
+  rules: null, own: null, own_reason: null, team: null, viewing: null,
+};
+
+function useFollowUps(agent) {
+  const [state, setState] = useState({ status: "loading", data: null, error: null });
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!API_BASE) {
+      setState({ status: "ready", data: OFFLINE_FOLLOW_UPS, error: null });
+      return undefined;
+    }
+    let alive = true;
+    setState((s) => ({ ...s, status: s.data ? "refreshing" : "loading" }));
+    const query = agent ? `?agent=${encodeURIComponent(agent)}` : "";
+    getJSON(`/intranet/follow-ups${query}`)
+      .then((data) => { if (alive) setState({ status: "ready", data, error: null }); })
+      .catch((error) => { if (alive) setState((s) => ({ status: "error", data: s.data, error })); });
+    return () => { alive = false; };
+  }, [agent, tick]);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), FOLLOW_UP_POLL_MS);
+    return () => clearInterval(id);
+  }, []);
+  return { ...state, reload: () => setTick((t) => t + 1) };
+}
+
+function clockLabel(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const today = new Date();
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === today.toDateString()) return time;
+  return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
+}
+
+function agoLabel(iso) {
+  if (!iso) return "";
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (minutes < 60) return `${Math.max(minutes, 1)}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+/* The task's day against the VIEWER's calendar, as every date in this portal is. */
+function dueLabel(task) {
+  if (!task) return "";
+  if (task.due_at) {
+    const at = new Date(task.due_at);
+    const sameDay = at.toDateString() === new Date().toDateString();
+    if (sameDay) return at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+  const [y, m, d] = String(task.due_on || "").split("-").map(Number);
+  if (!y) return "";
+  const due = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((today - due) / 86400000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Due yesterday";
+  if (days > 1 && days < 7) return `Due ${days} days ago`;
+  return `Due ${due.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
+
+function quietLabel(iso) {
+  if (!iso) return "";
+  const days = Math.round((Date.now() - new Date(iso).getTime()) / 86400000);
+  return `${days} days quiet`;
+}
+
+function followUpWhen(item) {
+  if (item.kind === "new_lead") return agoLabel(item.at);
+  if (item.kind === "going_cold") return quietLabel(item.at);
+  return dueLabel(item.task);
+}
+
+/* When a task is due, as the end of "Call due ...": "today", "at 2:00 PM", "yesterday". */
+function duePhrase(task) {
+  const label = dueLabel(task);
+  if (label.startsWith("Due ")) return label.slice(4);
+  if (label === "Today") return "today";
+  return label ? `at ${label}` : "";
+}
+
+function followUpDetail(item) {
+  const person = item.person || {};
+  const task = item.task;
+  const taskText = task ? (task.name || task.type || "Task") : "";
+  if (item.kind === "new_lead") {
+    const bits = [person.origin, person.stage].filter(Boolean);
+    if (task) bits.push(`${task.type || "Task"} due ${duePhrase(task)}`);
+    return bits.join(" · ");
+  }
+  if (item.kind === "going_cold") return person.stage || "";
+  return [task && task.type && task.name && task.type !== task.name ? `${task.type}: ${task.name}` : taskText,
+          person.stage].filter(Boolean).join(" · ");
+}
+
+// The other reasons a person is on the list, as the end of "also ...". A new lead's due task is
+// already in its detail line, so it is not said twice.
+const ALSO_PHRASE = { new_lead: "a new lead", overdue: "an overdue task",
+                      due_today: "a task due today", going_cold: "going cold" };
+
+function FollowUpRow({ item }) {
+  const kind = KIND_BY_KEY[item.kind] || { label: item.kind };
+  const also = (item.also || [])
+    .filter((k) => !(item.kind === "new_lead" && item.task && (k === "overdue" || k === "due_today")))
+    .map((k) => ALSO_PHRASE[k] || k);
+  const body = (
+    <>
+      <span className={`ut-fu-kind ${item.kind}`}>{kind.label}</span>
+      <div className="ut-fu-main">
+        <strong>{item.person?.name || "Unnamed person"}</strong>
+        <span>
+          {followUpDetail(item)}
+          {also.length ? <em className="ut-fu-also">{` · also ${also.join(", ")}`}</em> : null}
+        </span>
       </div>
+      <em className="ut-fu-when">{followUpWhen(item)}</em>
+    </>
+  );
+  return item.url ? (
+    <a className="ut-fu-row" href={item.url} target="_blank" rel="noreferrer noopener"
+       title="Open in Follow Up Boss">{body}</a>
+  ) : (
+    <div className="ut-fu-row">{body}</div>
+  );
+}
+
+function FollowUpChips({ counts, rules }) {
+  const kinds = FOLLOW_UP_KINDS.filter((k) => k.key !== "going_cold"
+    || (rules && rules.cold_enabled) || counts?.going_cold);
+  return (
+    <div className="ut-fu-chips">
+      {kinds.map((k) => (
+        <span key={k.key} className={`ut-fu-chip ${k.key} ${counts?.[k.key] ? "" : "zero"}`}>
+          <strong>{counts?.[k.key] || 0}</strong> {k.chip}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* Six different empties, each with its own sentence -- only "caught up" is good news, and each of
+   the others needs somebody different to act. */
+function followUpReason(data, me, canConfigure) {
+  const conn = data?.connection || {};
+  if (conn.state === "not_connected") {
+    return canConfigure
+      ? "This workspace has not connected Follow Up Boss. Connect it in the Acumyn dashboard under Settings, Integrations, and the leads waiting on your team appear here after the first sync."
+      : "This workspace has not connected Follow Up Boss yet. Your follow-ups appear here once an admin connects it.";
+  }
+  if (conn.state === "not_synced") {
+    return "Follow Up Boss is connected, and the first sync has not finished yet. Your follow-ups appear here when it does.";
+  }
+  if (data?.own_reason === "not_on_roster") {
+    return canConfigure
+      ? "Your follow-ups come from the Follow Up Boss user linked to your roster entry, and this account does not have one. Add yourself under People & Roster in the console."
+      : "Your follow-ups come from the Follow Up Boss user linked to your roster entry, and this account does not have one yet. An admin can add you.";
+  }
+  if (data?.own_reason === "unmatched") {
+    return canConfigure
+      ? `We could not match ${me?.email || "your account"} to a Follow Up Boss user. Link one in the console under People & Roster.`
+      : `We could not match ${me?.email || "your account"} to a Follow Up Boss user. An admin can link yours in the console.`;
+  }
+  if (data?.own_reason === "denied") {
+    return "Your role does not include Win the Day, which is where follow-ups live.";
+  }
+  return "";
+}
+
+function SyncWarning({ conn }) {
+  if (!conn?.sync_failed) return null;
+  return (
+    <p className="ut-fu-warning">
+      {`The last Follow Up Boss sync failed${conn.error ? `: ${conn.error}` : ""}. `}
+      {conn.synced_at ? `Showing what it had at ${clockLabel(conn.synced_at)}.` : ""}
+    </p>
+  );
+}
+
+function followUpKicker(fu) {
+  const conn = fu.data?.connection;
+  if (!fu.data) return fu.status === "error" ? "Could not load" : "Checking Follow Up Boss";
+  if (conn?.state === "not_connected") return "No CRM connected";
+  if (conn?.state === "not_synced") return "Waiting for the first sync";
+  if (conn?.sync_failed) return "Follow Up Boss · last sync failed";
+  return `From Follow Up Boss · ${clockLabel(conn?.synced_at)}`;
+}
+
+function TeamGlance({ crew, limit = 4 }) {
+  if (!crew) return null;
+  const rows = crew.by_agent.filter((r) => r.total).slice(0, limit);
+  return (
+    <div className="ut-fu-team">
+      <FollowUpChips counts={crew.counts} />
+      {crew.unassigned_new_leads ? (
+        <NavLink className="ut-fu-agent unassigned" to="/follow-ups?agent=unassigned">
+          <strong>Unassigned new leads</strong>
+          <span>{crew.unassigned_new_leads}</span>
+        </NavLink>
+      ) : null}
+      {rows.map((r) => (
+        <NavLink className="ut-fu-agent" key={r.agent_id} to={`/follow-ups?agent=${r.agent_id}`}>
+          <strong>{r.name}</strong>
+          <span>{teamLine(r)}</span>
+        </NavLink>
+      ))}
+      {!rows.length && !crew.unassigned_new_leads
+        ? <p className="ut-empty">Nobody on the team has anything waiting in Follow Up Boss.</p>
+        : null}
+    </div>
+  );
+}
+
+function teamLine(r) {
+  return [r.new_lead ? `${r.new_lead} new` : "", r.overdue ? `${r.overdue} overdue` : "",
+          r.due_today ? `${r.due_today} today` : "", r.going_cold ? `${r.going_cold} cold` : ""]
+    .filter(Boolean).join(" · ");
+}
+
+function NeedsYouToday({ me, canConfigure }) {
+  const fu = useFollowUps(null);
+  const data = fu.data;
+  const conn = data?.connection;
+  const queue = data?.own;
+  const ready = conn?.state === "ready";
+  let body;
+  if (!data) {
+    body = fu.status === "error"
+      ? (
+        <p className="ut-empty">
+          Follow-ups could not be loaded. <button type="button" className="ut-link-button" onClick={fu.reload}>Try again</button>
+        </p>
+      )
+      : <p className="ut-empty">Loading your follow-ups…</p>;
+  } else if (ready && queue) {
+    const items = queue.items.slice(0, HOME_ROWS);
+    body = (
+      <>
+        <SyncWarning conn={conn} />
+        <FollowUpChips counts={queue.counts} rules={data.rules} />
+        {queue.counts.total ? (
+          <div className="ut-fu-list">
+            {items.map((item) => <FollowUpRow key={`${item.kind}:${item.person?.id}`} item={item} />)}
+          </div>
+        ) : (
+          <p className="ut-empty">You are caught up: nothing new, overdue or due today in Follow Up Boss.</p>
+        )}
+        {queue.counts.total > items.length ? (
+          <NavLink className="ut-fu-more" to="/follow-ups">{`See all ${queue.counts.total} ->`}</NavLink>
+        ) : null}
+      </>
+    );
+  } else if (ready && data.team) {
+    body = (
+      <>
+        <SyncWarning conn={conn} />
+        <TeamGlance crew={data.team} />
+        {data.own_reason ? <p className="ut-fu-note">{`Showing the team. ${followUpReason(data, me, canConfigure)}`}</p> : null}
+      </>
+    );
+  } else {
+    body = <p className="ut-empty">{followUpReason(data, me, canConfigure)}</p>;
+  }
+  return (
+    <Panel title="Needs You Today" kicker={followUpKicker(fu)}
+           action={ready && (queue || data?.team) ? <NavLink to="/follow-ups">Open {"->"}</NavLink> : null}>
+      {body}
     </Panel>
+  );
+}
+
+function FollowUpGroups({ queue, rules }) {
+  if (!queue) return null;
+  if (!queue.counts.total) {
+    return <p className="ut-empty">Caught up: nothing new, overdue or due today in Follow Up Boss.</p>;
+  }
+  return (
+    <>
+      {FOLLOW_UP_KINDS.map((k) => {
+        const items = queue.items.filter((i) => i.kind === k.key);
+        if (!items.length) return null;
+        return (
+          <Panel key={k.key} title={k.plural} kicker={`${items.length}${queue.truncated ? "+" : ""}`}>
+            <div className="ut-fu-list">
+              {items.map((item) => <FollowUpRow key={`${item.kind}:${item.person?.id}`} item={item} />)}
+            </div>
+          </Panel>
+        );
+      })}
+      {queue.truncated ? <p className="ut-fu-note">Showing the first 200. Follow Up Boss has the rest.</p> : null}
+    </>
+  );
+}
+
+function FollowUpsPage({ me, canConfigure }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const params = new URLSearchParams(location.search);
+  const agent = params.get("agent");
+  const fu = useFollowUps(agent);
+  const data = fu.data;
+  const conn = data?.connection;
+  const ready = conn?.state === "ready";
+  const [tab, setTab] = useState(agent ? "team" : "mine");
+  useEffect(() => { if (agent) setTab("team"); }, [agent]);
+  const queue = data?.own;
+  const crew = data?.team;
+  const showTabs = ready && queue && crew;
+  const view = showTabs ? tab : (queue ? "mine" : "team");
+  const rules = data?.rules;
+  const subtitle = ready
+    ? `From Follow Up Boss, as of ${clockLabel(conn.synced_at)}. New leads from the last ${rules?.new_lead_days ?? 7} days, and tasks due today or overdue${rules?.overdue_max_days ? ` within ${rules.overdue_max_days} days` : ""}.`
+    : "Leads waiting on you in Follow Up Boss.";
+
+  let body;
+  if (!data) {
+    body = <Panel title="Follow-ups"><p className="ut-empty">{fu.status === "error" ? "Follow-ups could not be loaded." : "Loading…"}</p></Panel>;
+  } else if (!ready || (!queue && !crew)) {
+    body = <Panel title="Follow-ups"><p className="ut-empty">{followUpReason(data, me, canConfigure)}</p></Panel>;
+  } else if (view === "mine") {
+    body = (
+      <>
+        <FollowUpChips counts={queue.counts} rules={rules} />
+        <FollowUpGroups queue={queue} rules={rules} />
+      </>
+    );
+  } else if (data.viewing) {
+    body = (
+      <>
+        <p className="ut-crumb"><button type="button" className="ut-link-button" onClick={() => navigate("/follow-ups")}>← The team</button></p>
+        <Panel title={data.viewing.agent_id === "unassigned" ? "Unassigned" : data.viewing.name}
+               kicker={`${data.viewing.counts.total} waiting`}>
+          <FollowUpChips counts={data.viewing.counts} rules={rules} />
+        </Panel>
+        <FollowUpGroups queue={data.viewing} rules={rules} />
+      </>
+    );
+  } else {
+    body = (
+      <Panel title="The team" kicker="People waiting, per agent">
+        <TeamTable crew={crew} rules={rules} />
+        {data.own_reason ? <p className="ut-fu-note">{followUpReason(data, me, canConfigure)}</p> : null}
+      </Panel>
+    );
+  }
+
+  return (
+    <Page title="Follow-ups" subtitle={subtitle}>
+      <SyncWarning conn={conn} />
+      {showTabs ? (
+        <div className="ut-fu-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={view === "mine"} className={view === "mine" ? "active" : ""}
+                  onClick={() => { setTab("mine"); if (agent) navigate("/follow-ups"); }}>Mine</button>
+          <button type="button" role="tab" aria-selected={view === "team"} className={view === "team" ? "active" : ""}
+                  onClick={() => setTab("team")}>Team</button>
+        </div>
+      ) : null}
+      {body}
+    </Page>
+  );
+}
+
+function TeamTable({ crew, rules }) {
+  const cold = rules?.cold_enabled || crew.counts.going_cold;
+  const rows = crew.by_agent;
+  return (
+    <div className="ut-fu-table-wrap">
+      <table className="ut-fu-table">
+        <thead>
+          <tr>
+            <th>Agent</th><th>New</th><th>Overdue</th><th>Today</th>{cold ? <th>Cold</th> : null}<th>People</th>
+          </tr>
+        </thead>
+        <tbody>
+          {crew.unassigned_total ? (
+            <tr>
+              <td><NavLink to="/follow-ups?agent=unassigned">Unassigned</NavLink></td>
+              <td>{crew.unassigned_new_leads}</td><td>—</td><td>—</td>{cold ? <td>—</td> : null}
+              <td>{crew.unassigned_total}</td>
+            </tr>
+          ) : null}
+          {rows.map((r) => (
+            <tr key={r.agent_id}>
+              <td><NavLink to={`/follow-ups?agent=${r.agent_id}`}>{r.name}</NavLink></td>
+              <td>{r.new_lead}</td><td>{r.overdue}</td><td>{r.due_today}</td>
+              {cold ? <td>{r.going_cold}</td> : null}
+              <td>{r.total}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!rows.length && !crew.unassigned_total ? <p className="ut-empty">Nobody on the team has anything waiting.</p> : null}
+    </div>
   );
 }
 
@@ -2809,6 +3202,7 @@ export default function IntranetApp() {
         <Route path="/" element={<Home config={boot.config} wtd={wtd} training={training} onboarding={onboarding} me={boot.me} canConfigure={boot.canConfigure} />} />
         <Route path="/tools" element={<Tools config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} />} />
+        <Route path="/follow-ups" element={<FollowUpsPage me={boot.me} canConfigure={boot.canConfigure} />} />
         <Route path="/training" element={<Training state={training} config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/training/:courseId" element={<CourseDetail state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/training/:courseId/:lessonId" element={<LessonPlayer state={training} setState={setTraining} config={boot.config} />} />

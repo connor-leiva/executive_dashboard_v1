@@ -134,30 +134,49 @@ would collide on the same unique key.
 
 ## 5. Sync design
 
-Uses only FUB API features that are documented: the `next` cursor, `fields`, `includeTrash`,
-`contacted`, `lastActivityAfter`, `id=1,2,3`, `/identity`, and tasks' `isCompleted`/`due`/`dueStart`.
-The documented rate limit is 125 requests / 10 s without a system key. A 429 is retried after its
-`Retry-After`.
+**Sized for the real account.** The first successful sync (Phase 0, below) found about **130,000
+people and 135 users** in the live FUB account, and reading all of them took **252 seconds**. So no
+pass that runs every few minutes reads the CRM whole: each one is bounded by a window, a watermark
+or a list of ids.
+
+Documented FUB features are used as documented: the `next` cursor, `fields`, `includeTrash`,
+`lastActivityAfter`, `id=1,2,3`, `/identity`, and tasks' `isCompleted`/`due`/`dueStart`. Two are
+less certain: `dueStart`'s format, and `-created` as a descending sort. Both are checked against
+what comes back, fall back instead of failing, and are named in each run's stats. The documented
+rate limit is 125 requests / 10 s without a system key. A 429 is retried after its `Retry-After`.
 
 **Every run (the 30-minute tick and "Sync now")**
 1. `/identity`: account id and domain, for links. Detects an account change.
 2. `/users`, **all pages**, into `agent`.
-3. **People changed since the watermark:** `lastActivityAfter = watermark − 10 min`,
-   `includeTrash=true`, only the fields in §4. New leads, contacts and any activity arrive this way.
-4. **Recent uncontacted set:** `contacted=false`, `lastActivityAfter = now − N days`. Refreshes the
-   stage and assignment of exactly the people the *New lead* rule reads, so a reassigned new lead
-   moves to its new owner on the next run.
-5. **Open tasks:** `isCompleted=false` with `due=today`, and `due=overdue` limited by `dueStart` to
+3. **Newest people first** (`sort=-created`), walked back to the start of the New Lead window. This
+   catches a lead that arrived a minute ago whether or not FUB has logged activity on it yet. The
+   order is verified page by page. If FUB answers unsorted (or refuses the sort), one page is read and
+   the stats say `newest_order: unsorted|refused`.
+4. **People changed since the watermark:** `lastActivityAfter = watermark − 10 min`,
+   `includeTrash=true`, only the fields in §4. Contacts, calls and changes arrive this way.
+5. **Every uncontacted new lead we hold, re-read by id** (100 per request). Refreshes the stage and
+   owner of exactly the people the *New lead* rule reads, so a reassigned new lead moves to its new
+   owner on the next pass. (The plan used `contacted=false` + `lastActivityAfter`. At 130,000 people
+   that filter also returns old leads browsing the website, so it was replaced before shipping.)
+6. **Open tasks:** `isCompleted=false` with `due=today`, and `due=overdue` limited by `dueStart` to
    the M-day window. If FUB rejects `dueStart`, fetch everything overdue up to a page cap and note it
-   in the run's stats. Stored as a snapshot: tasks that no longer come back are deleted.
-6. **People a task points at that aren't stored yet:** fetched with `id=…`, 100 per request.
-7. **Backfill** (the whole CRM, for the funnel's history and *Going cold*): resumable, at most
-   `FUB_BACKFILL_PAGES_PER_RUN` pages per run, cursor saved between runs. Once finished it's repeated
-   every 24 h, which catches reassignments and stage changes that came with no activity.
+   in the run's stats. Stored as a snapshot: tasks that no longer come back are deleted (mark and
+   sweep on `synced_at`, because a big team's task ids would overflow a `NOT IN`).
+7. **People a task points at that aren't stored yet:** fetched with `id=…`, 100 per request.
+8. **Backfill** (the whole CRM, for the funnel's history and *Going cold*): resumable,
+   `FUB_BACKFILL_PAGES_PER_RUN` = 300 pages (about a minute) per run, cursor saved between runs, so
+   130,000 people take five runs. Once finished it's repeated every 24 h, which catches reassignments
+   and stage changes that came with no activity.
 
-**The quick refresh, every 5 minutes** (`fub_followups_tick`): steps 3, 5 and 6 only, for workspaces
-with FUB connected. No `sync_run` row for this one: the half-hourly run owns status and history. An
-in-process lock per integration means the two never run together.
+**The quick refresh, every 5 minutes** (`fub_followups_tick`): steps 3 to 7, for workspaces whose
+full sync has read the account at least once. No `sync_run` row for this one: the half-hourly run
+owns status and history. An in-process lock per integration means the two never run together, and a
+refresh that finds the lock held skips its turn. A person or task naming a user we have never seen
+re-reads the users first, so a new hire's first lead isn't left unassigned.
+
+**Freshness, stated plainly.** New leads, contacts, calls and tasks: within 5 minutes. A stage change
+or reassignment that FUB records as *no activity* (on a lead that isn't new): up to a day, via the
+re-walk. A test holds that bound.
 
 **Writes** are batched upserts through a dialect-aware helper (Postgres `ON CONFLICT` in production,
 SQLite's in tests), so the test suite runs the same code production runs. Mapping always produces
@@ -170,8 +189,11 @@ older overdue), backfill pages and whether it finished, and whether `dueStart` w
 how the design gets checked against the real account after deploy.
 
 **Connecting checks the key.** `POST /integrations` for `fub` calls `/identity`. A 401/403 is
-refused on the spot ("Follow Up Boss rejected that API key…"). On success the account domain is
-stored.
+refused on the spot ("Follow Up Boss rejected that API key…"); FUB being unreachable is not the
+key's fault, so the key is kept and the sync says more. If the key belongs to an *agent* rather than
+an owner or admin ("Broker" in FUB's terms), the key is saved and the form says so: FUB shows an
+agent only their own leads, so the rest of the team's follow-ups would be missing with no error to
+explain it. A successful connect starts the first sync right away (not for a paused workspace).
 
 ---
 
@@ -186,17 +208,17 @@ with the portal):
                  "synced_at": "…", "sync_failed": false, "error": "… (admins only)",
                  "account_domain": "liveutah1"},
   "rules": {"new_lead_days": 7, "overdue_max_days": 30,
-            "cold": {"enabled": false, "days": 14, "stages": []}},
+            "cold_enabled": false, "cold_days": 14, "cold_stages": []},
   "own": {"agent": {"id": "…", "name": "…", "matched_by": "link|agent_email|email"},
           "counts": {"new_lead": 2, "overdue": 3, "due_today": 5, "going_cold": 0,
-                     "older_overdue": 12, "total": 10},
+                     "total": 10},
           "items": [{"kind": "new_lead|overdue|due_today|going_cold", "also": ["due_today"],
                      "person": {"id": "123", "name": "…", "stage": "Lead", "origin": "Zillow"},
                      "task": {"name": "Call back", "type": "Call", "due_on": "…", "due_at": null},
                      "at": "…", "url": "https://…/2/people/view/123"}],
           "truncated": false} | null,
   "own_reason": "not_on_roster|unmatched|denied|null",
-  "team": {"counts": {…}, "unassigned_new_leads": 4,
+  "team": {"counts": {…}, "unassigned_new_leads": 4, "unassigned_total": 5,
            "by_agent": [{"agent_id": "…", "name": "…", "new_lead": 1, "overdue": 4,
                          "due_today": 2, "going_cold": 0, "total": 7}]} | null,
   "viewing": {"agent_id": "…", "name": "…"} | null
@@ -212,7 +234,12 @@ Console (`console_access`):
 - `PATCH /console/members/{id}` accepts `agent_links`; `GET /console/members` returns each member's
   match (`crm.fub`, `crm.sisu`: who, and how).
 - `GET/PATCH /console/follow-ups`: the §2 settings, plus the stages actually present in the synced
-  leads (with counts) for the *Going cold* picker.
+  leads (with counts) for the *Going cold* picker, and how many overdue tasks across the account
+  the window leaves out.
+- `POST /console/wtd-lists`: a new Win the Day list (a draft until published). The console could
+  edit lists but never create one, so a workspace with none could never have any.
+- `GET /console/fub-smart-lists`: the account's smart lists, read live from FUB, so a list is picked
+  by name. A failure falls back to typing the id.
 
 ---
 
@@ -227,13 +254,14 @@ Console (`console_access`):
 - **Console → People & Roster:** a CRM column showing each member's FUB/Sisu match and how it was
   made, and an editor to pick the FUB user and Sisu agent.
 - **Console → Win the Day:** a *Needs You Today* settings panel (the §2 numbers; the *Going cold*
-  switch, days and stage picker).
+  switch, days and stage picker), and an *Add a call list* form with the smart-list picker.
 - **Console → Integrations:** rows owned by the dashboard (Sisu, FUB) drop the free-form config
   editor that let a key get saved in plaintext, show the dashboard's real status and last error, and
   say that the list base URL defaults to the account's own address.
 - **Win the Day lists:** with no base URL set, links build from the FUB account's domain
   (`https://{domain}.followupboss.com/2/people/list/{id}`).
-- **Dashboard → Integrations:** the FUB form reports a rejected key immediately.
+- **Dashboard → Integrations:** the FUB form reports a rejected key immediately, and warns (while
+  still saving) when the key only sees one agent's leads.
 
 ---
 
@@ -317,3 +345,45 @@ call has to be to count as a conversation (see §9).
   matches until then: neither utah-life roster member matches a FUB user today.
 - Put agents on the roster (People & Roster). A dashboard invite alone doesn't create a roster entry.
 - Optionally turn on *Going cold* and pick its stages.
+
+---
+
+## 12. Build record
+
+**Phase 0: shipped `acab560`, verified in production 2026-09-18.** Migration 0072 ran. The portal row's
+plaintext key is gone (its config is empty). The first sync on the new code, 16:39 UTC, finished
+**`ok` in 252 s**: 129,944 records, **129,809 leads** (the first ever stored; created 2012-07-23 to
+today, every one assigned), **135 FUB users** (the old code stopped at 100), integration `connected`.
+With users paged, **Spring's roster entry now matches a FUB user**. Connor's doesn't: he isn't a FUB
+user, so his portal shows the team view.
+
+**Phases 1–3: built and tested together.** Once Phase 0 gave real numbers, the quick passes were
+changed before shipping (the newest-first walk and the by-id uncontacted refresh in §5; backfill
+slices of 300 pages). Tests: `tests/test_fub_sync.py` and `tests/test_fub_follow_ups.py` run the
+real sync against a fake FUB served over httpx (`tests/fub_fake.py`), plus the rules at their edges,
+permissions, the six empties and the console endpoints.
+
+Checked on production builds of the portal and console, against a local API with local-only demo
+data, by clicking through (see §8):
+- the home panel;
+- the Follow-ups page: Mine, Team, one agent's queue and back;
+- rows that open `…followupboss.com/2/people/view/{id}` in a new tab;
+- 375 px with no horizontal scroll;
+- roster link and unlink, from the editor under the table;
+- adding a call list, and its link built from the account domain;
+- saving the settings and seeing *Going cold* reach the portal;
+- the Integrations row with no config editor.
+
+Three things found by using the screens, and fixed:
+- A new lead with a task due today read "Intro text today · also today". It now reads "Text due
+  today".
+- The roster's link editor opened inside the table's horizontal scroll, half out of view. It now sits
+  under the table, named for whom it edits.
+- The console's Win the Day list showed "Disconnected" beside a working FUB connection, because the
+  workspace's portal provider rows only got created by the Integrations page. The Win the Day
+  endpoint now creates them the same way.
+
+Also changed along the way:
+- `tests/test_tenancy.py`'s FUB connect test now uses the fake FUB, since connecting asks FUB first.
+- The portal's own-numbers source scan (`tests/test_member_numbers.py`) flags any `own.`/`team.` read
+  in the portal source, so the follow-up code names its locals `queue` and `crew`.

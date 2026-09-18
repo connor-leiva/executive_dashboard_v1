@@ -57,6 +57,35 @@ async def syncable_tenant_ids(s) -> list:
             if status != "suspended" and not (cfg or {}).get("syncs_frozen")]
 
 
+async def fub_followups_tick():
+    """Every few minutes: the follow-up passes of the Follow Up Boss sync, for Needs You Today.
+
+    The full sync runs on the half-hourly tick and owns the integration's status and history. This
+    only re-reads what an agent is waiting on -- new leads, contacts, open tasks -- so a lead that
+    arrives at 9:05 is on their home page before 9:30. Only for a workspace whose full sync has
+    succeeded once (it knows its account), and never beside one still running: see
+    services/fub_sync.quick_refresh.
+    """
+    from .models import Integration
+    from .services import fub_sync
+    from .services.sync import _fub_creds
+    async with SessionLocal() as s:
+        tenant_ids = set(await syncable_tenant_ids(s))
+        rows = (await s.execute(select(Integration.id, Integration.tenant_id).where(
+            Integration.provider == "fub", Integration.status == "connected"))).all()
+    for integ_id, tid in rows:
+        if tid not in tenant_ids:
+            continue
+        try:
+            async with SessionLocal() as s2:
+                integ = await s2.get(Integration, integ_id)
+                if integ is None or not fub_sync.state_of(integ).get("account_id"):
+                    continue
+                await fub_sync.quick_refresh(s2, tid, integ, _fub_creds(integ))
+        except Exception as e:  # noqa: BLE001 -- one workspace's failure must not stop the rest
+            print(f"[fub_followups] tenant {tid}: {type(e).__name__}: {e}", flush=True)
+
+
 async def roster_tick():
     """Daily: refresh Sisu agent group memberships (agent.sisu_group_ids) — the live source for
     per-team scorecard attribution. Runs before scorecard_tick; one tenant's failure is isolated.
@@ -348,6 +377,10 @@ def build_scheduler() -> AsyncIOScheduler:
     beat = heartbeat
     sched.add_job(beat(tick), "interval", minutes=settings.SYNC_INTERVAL_MINUTES,
                   next_run_time=dt.datetime.now())
+    # Needs You Today between full syncs. No next_run_time: the tick above starts the first full
+    # sync at once, and this has nothing to do until that one has read the account.
+    sched.add_job(beat(fub_followups_tick), "interval",
+                  minutes=settings.FUB_FOLLOWUPS_INTERVAL_MINUTES)
     _tz = ZoneInfo(settings.BILLING_TIMEZONE)
     sched.add_job(beat(roster_tick), "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
     sched.add_job(beat(scorecard_tick), "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local

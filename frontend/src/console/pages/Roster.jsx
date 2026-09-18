@@ -10,6 +10,7 @@ import {
   ROSTER_FILTERS,
 } from "../constants.js";
 import {
+  useCrmAgents,
   useInviteMember,
   useMembers,
   usePatchMember,
@@ -148,8 +149,120 @@ function InviteForm({ roles, inviteMutation }) {
   );
 }
 
+/* WHO EACH PERSON IS IN THE CRM, and a way to say so when the email cannot.
+ *
+ * A member's own numbers and their follow-ups come from the Sisu agent and the Follow Up Boss user
+ * matched to them, by email unless somebody links one. The portal has told agents "an admin can
+ * set your address on the roster" since the numbers shipped, and there was no such control: the
+ * override existed in the database and on no screen. This column shows every member's match and
+ * how it was made, and the editor picks the user from the CRM's own list rather than asking an
+ * admin to type an address they would have to go and look up. */
+function crmLabel(match, source) {
+  const name = source === "fub" ? "FUB" : "Sisu";
+  if (!match) return `${name}: not matched`;
+  const how = match.matched_by === "link" ? "linked" : match.matched_by === "agent_email" ? "by CRM email" : "by email";
+  return `${name}: ${match.name} (${how})`;
+}
+
+function CrmCell({ member, open, onToggle }) {
+  const crm = member.crm || {};
+  return (
+    <div className="roster-crm">
+      <span className={crm.fub ? "matched" : "unmatched"}>{crmLabel(crm.fub, "fub")}</span>
+      <span className={crm.sisu ? "matched" : "unmatched"}>{crmLabel(crm.sisu, "sisu")}</span>
+      <button type="button" className="roster-crm-toggle" aria-expanded={open} onClick={onToggle}>
+        {open ? "Close" : "Link"}
+      </button>
+    </div>
+  );
+}
+
+function CrmPicker({ source, label, member, value, onChange }) {
+  const query = useCrmAgents(source);
+  const current = member.crm?.[source];
+  const auto = current && current.matched_by !== "link"
+    ? `Match by email (${current.name})`
+    : "Match by email (none found)";
+  if (query.isPending) return <Field label={label}><select disabled><option>Loading…</option></select></Field>;
+  if (query.error) {
+    return (
+      <div className="console-field">
+        <span>{label}</span>
+        <p className="console-form-error">{COPY.loadFailed}</p>
+      </div>
+    );
+  }
+  const agents = query.data?.items || [];
+  if (!agents.length) {
+    return (
+      <div className="console-field">
+        <span>{label}</span>
+        <p className="roster-crm-none">
+          {source === "fub"
+            ? "No Follow Up Boss users yet. Connect Follow Up Boss on the Acumyn dashboard; its users appear here after the first sync."
+            : "No Sisu agents yet. Connect Sisu on the Acumyn dashboard; its agents appear here after the first sync."}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <Field label={label}>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">{auto}</option>
+        {agents.map((a) => (
+          <option key={a.external_id} value={a.external_id}>
+            {`${a.name}${a.email ? ` — ${a.email}` : ""}${a.active ? "" : " (inactive)"}`}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function CrmEditor({ member, busy, onSave, onClose }) {
+  const [fub, setFub] = useState(member.crm?.links?.fub || "");
+  const [sisu, setSisu] = useState(member.crm?.links?.sisu || "");
+  const [error, setError] = useState("");
+  async function save() {
+    setError("");
+    try {
+      await onSave({ fub: fub || null, sisu: sisu || null });
+      onClose();
+    } catch (err) {
+      setError(err.detail || err.message || COPY.loadFailed);
+    }
+  }
+  return (
+    <div className="roster-crm-editor">
+      <h3>{`CRM identity: ${member.full_name}`}</h3>
+      <p>
+        {`Who ${member.full_name} is in each CRM. Leave a box on "Match by email" unless their CRM address differs from ${member.email}.`}
+      </p>
+      <div className="roster-crm-fields">
+        <CrmPicker source="fub" label="Follow Up Boss user" member={member} value={fub} onChange={setFub} />
+        <CrmPicker source="sisu" label="Sisu agent" member={member} value={sisu} onChange={setSisu} />
+      </div>
+      {error ? <p className="console-form-error">{error}</p> : null}
+      <div className="roster-crm-actions">
+        <Button type="button" tone="primary" busy={busy} onClick={save}>Save</Button>
+        <Button type="button" onClick={onClose}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 function RosterTable({ members, roles, patchMutation, removeMutation }) {
   const [savingMember, setSavingMember] = useState("");
+  const [linking, setLinking] = useState("");
+
+  async function saveLinks(memberId, links) {
+    setSavingMember(memberId);
+    try {
+      await patchMutation.mutateAsync({ memberId, body: { agent_links: links } });
+    } finally {
+      setSavingMember("");
+    }
+  }
 
   async function changeRole(memberId, roleId) {
     setSavingMember(memberId);
@@ -169,8 +282,10 @@ function RosterTable({ members, roles, patchMutation, removeMutation }) {
     }
   }
 
+  const editing = members.find((m) => m.id === linking) || null;
   return (
-    <div className="roster-table-wrap">
+    <>
+      <div className="roster-table-wrap">
       <table className="roster-table">
         <thead>
           <tr>
@@ -180,6 +295,7 @@ function RosterTable({ members, roles, patchMutation, removeMutation }) {
             <th>{COPY.rosterMarket}</th>
             <th>{COPY.rosterAuth}</th>
             <th>{COPY.rosterStatus}</th>
+            <th>CRM</th>
             <th />
           </tr>
         </thead>
@@ -203,6 +319,10 @@ function RosterTable({ members, roles, patchMutation, removeMutation }) {
               <td>{member.auth_source}</td>
               <td><StatusChip status={member.status} /></td>
               <td>
+                <CrmCell member={member} open={linking === member.id}
+                         onToggle={() => setLinking(linking === member.id ? "" : member.id)} />
+              </td>
+              <td>
                 <Button
                   type="button"
                   disabled={member.status === REMOVED_MEMBER_STATUS || savingMember === member.id}
@@ -215,7 +335,13 @@ function RosterTable({ members, roles, patchMutation, removeMutation }) {
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+      {editing ? (
+        <CrmEditor key={editing.id} member={editing} busy={savingMember === editing.id}
+                   onSave={(links) => saveLinks(editing.id, links)}
+                   onClose={() => setLinking("")} />
+      ) : null}
+    </>
   );
 }
 

@@ -3762,3 +3762,183 @@ textarea {
   color: var(--console-faint);
   pointer-events: none;
 }
+
+/* ── CRM identity on the roster ─────────────────────────────────────────────────────────── */
+.roster-crm {
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  min-width: 220px;
+}
+
+.roster-crm span {
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.roster-crm .matched {
+  color: var(--console-ink);
+}
+
+.roster-crm .unmatched {
+  color: var(--console-warn);
+}
+
+.roster-crm-toggle {
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--console-teal);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.roster-crm-toggle:focus-visible {
+  outline: 2px solid var(--console-teal);
+  outline-offset: 2px;
+}
+
+.roster-crm-editor {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  background: var(--console-surface);
+}
+
+.roster-crm-editor h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.roster-crm-editor > p {
+  margin: 0;
+  color: var(--console-muted);
+  font-size: 13px;
+}
+
+.roster-crm-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.roster-crm-none {
+  margin: 0;
+  color: var(--console-muted);
+  font-size: 13px;
+}
+
+.roster-crm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Needs You Today settings and adding a call list ────────────────────────────────────── */
+.followup-settings,
+.wtd-add {
+  display: grid;
+  gap: 14px;
+}
+
+.followup-intro {
+  margin: 0;
+  color: var(--console-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 68ch;
+}
+
+.followup-fields,
+.followup-cold {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.followup-hint {
+  margin: 0;
+  color: var(--console-faint);
+  font-size: 13px;
+}
+
+.followup-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--console-ink);
+}
+
+.followup-stages {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.followup-stages legend {
+  padding: 0 4px;
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.followup-stages label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.followup-stages em {
+  color: var(--console-faint);
+  font-style: normal;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.followup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.wtd-add {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wtd-add .followup-actions,
+.wtd-add .followup-hint {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .roster-crm-fields,
+  .followup-fields,
+  .followup-cold,
+  .wtd-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.integration-hint {
+  margin: 0;
+  align-self: end;
+  color: var(--console-faint);
+  font-size: 12.5px;
+  line-height: 1.45;
+}

@@ -89,6 +89,14 @@ class Settings(BaseSettings):
     # Follow Up Boss (lead-source layer — Basic auth: key as username). Key is per tenant,
     # on the integration row, for the same reason as Sisu above.
     FUB_API_BASE: str = "https://api.followupboss.com/v1"
+    # How often Needs You Today is refreshed from FUB between full syncs: new leads, contacts and
+    # open tasks only (services/fub_sync.quick_refresh). Tuning, not configuration.
+    FUB_FOLLOWUPS_INTERVAL_MINUTES: int = 5
+    # How much of the whole CRM one full sync backfills, in pages of 100 people. The walk resumes
+    # where it stopped, so a large account fills in over a few runs instead of holding one open.
+    # Measured on the first live account: 1,300 pages in 252 s, so 300 is about a minute a run and
+    # its 130,000 people are walked in five.
+    FUB_BACKFILL_PAGES_PER_RUN: int = 300
 
     # Sunburst, Sisu's coaching product. Facts about Sisu, the same for every workspace, so they are
     # platform settings rather than anything a customer configures. The HOST is swappable because

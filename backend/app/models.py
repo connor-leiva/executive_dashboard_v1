@@ -396,6 +396,9 @@ class IntranetMember(Base):
     # The address this person is known by in Sisu / Follow Up Boss, when it is not their portal
     # one. NULL -- the normal case -- means "use `email`". See services/member_identity.
     agent_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Who they are in each CRM when an admin has said so: {"fub": "<FUB user id>", "sisu":
+    # "<Sisu agent id>"}. Beats any email match. Picked from the CRM's own list in the console.
+    agent_links: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
     auth_source: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1316,7 +1319,12 @@ class Transaction(Base):
 
 
 class Lead(Base):
-    """FUB people/leads for the top of the funnel."""
+    """FUB people: the top of the dashboard's funnel, and who the portal's Needs You Today lists.
+
+    A NAME AND NO CONTACT DETAILS. A follow-up row opens the person in Follow Up Boss, where the
+    call is made and logged, so nothing here needs a phone number or an email address -- and a
+    copy of every lead's contact details is not something to hold without a reason.
+    """
     __tablename__ = "lead"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
@@ -1325,8 +1333,45 @@ class Lead(Base):
     external_id: Mapped[str] = mapped_column(String(64))
     stage: Mapped[str | None] = mapped_column(String(80), nullable=True)
     agent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent.id"), nullable=True)
+    # The day it arrived, in the workspace's calendar: what the funnel's period filter reads.
     created_at_src: Mapped[date | None] = mapped_column(Date, nullable=True)
-    __table_args__ = (UniqueConstraint("tenant_id", "source", "external_id", name="uq_lead_src_ext"),)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    origin: Mapped[str | None] = mapped_column(String(120), nullable=True)   # FUB `source`: "Zillow"
+    # FUB's own flag: false until somebody calls, texts or emails them. NULL = not yet read.
+    contacted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    src_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source", "external_id", name="uq_lead_src_ext"),
+        Index("ix_lead_follow_up", "tenant_id", "agent_id", "contacted"),
+    )
+
+
+class CrmTask(Base):
+    """An open task from the CRM -- today's and the recent overdue ones -- as the last sync saw it.
+
+    A SNAPSHOT, not a history: each sync rewrites the set and removes what no longer comes back,
+    which is how a task completed in Follow Up Boss leaves Needs You Today.
+    """
+    __tablename__ = "crm_task"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(24), default="fub")
+    external_id: Mapped[str] = mapped_column(String(64))
+    person_external_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent.id", ondelete="SET NULL"), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    task_type: Mapped[str | None] = mapped_column(String(40), nullable=True)   # Call, Text, Follow Up…
+    due_on: Mapped[date | None] = mapped_column(Date, nullable=True)            # the workspace's day
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source", "external_id", name="uq_crm_task_src_ext"),
+        Index("ix_crm_task_agent_due", "tenant_id", "agent_id", "due_on"),
+    )
 
 
 class PLSnapshot(Base):

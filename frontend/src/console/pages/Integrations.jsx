@@ -181,8 +181,15 @@ function IntegrationDetail({ integration, onSave, onConnect, onTest, saving, con
           </Field>
           <Field label={COPY.integrationsBaseUrl}>
             <input value={form.base_url} onChange={(event) => update("base_url", event.target.value)}
-                   placeholder="https://yourteam.followupboss.com/2/people/list/" />
+                   placeholder={integration.default_base_url || "https://yourteam.followupboss.com/2/people/list/"} />
           </Field>
+          {/* Follow Up Boss says which account a key opens, so its smart lists link without a
+              typed base URL. Say so rather than leave an empty box looking like a missing step. */}
+          {integration.default_base_url ? (
+            <p className="integration-hint">
+              {`Optional. Left blank, Win the Day lists open in ${integration.default_base_url.replace(/^https:\/\//, "").split("/")[0]}.`}
+            </p>
+          ) : null}
           <Field label={COPY.integrationsDescription}>
             <textarea value={form.description} onChange={(event) => update("description", event.target.value)} />
           </Field>
@@ -206,11 +213,19 @@ function IntegrationDetail({ integration, onSave, onConnect, onTest, saving, con
         </div>
 
         {integration.last_error ? <p className="integration-error">{integration.last_error}</p> : null}
+        {integration.dashboard_error ? (
+          <p className="integration-error">{`Last sync on the dashboard failed: ${integration.dashboard_error}`}</p>
+        ) : null}
 
-        <section className="integration-config">
-          <h3>{COPY.integrationsConfig}</h3>
-          <ConfigRows rows={form.config_rows} onChange={updateConfig} onAdd={addConfig} onRemove={removeConfig} />
-        </section>
+        {/* NOT FOR A CONNECTION THE DASHBOARD OWNS. This free-form editor is where a live Follow Up
+            Boss key was once typed, under "API Key", and stored in plaintext on a row nothing
+            reads. The credential belongs on the dashboard, where it is encrypted and used. */}
+        {integration.inherited ? null : (
+          <section className="integration-config">
+            <h3>{COPY.integrationsConfig}</h3>
+            <ConfigRows rows={form.config_rows} onChange={updateConfig} onAdd={addConfig} onRemove={removeConfig} />
+          </section>
+        )}
 
         <div className="integration-actions">
           <Button type="submit" tone="primary" busy={saving}>{COPY.integrationsSave}</Button>

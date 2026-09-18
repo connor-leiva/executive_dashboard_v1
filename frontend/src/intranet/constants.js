@@ -5,6 +5,7 @@ export const NAV_GROUPS = [
       { id: "home", label: "Home" },
       { id: "ask", label: "Ask Utah Life" },
       { id: "wtd", label: "Win the Day", capability: "wtd" },
+      { id: "follow-ups", label: "Follow-ups" },
       { id: "sunburst", label: "Sunburst Coaching" },
       { id: "calendar", label: "Team Calendar", capability: "team_calendar" },
       { id: "tools", label: "Tool Launchpad" },
@@ -37,12 +38,6 @@ export const NAV_GROUPS = [
     items: [
     ],
   },
-];
-
-export const PRIORITY_ITEMS = [
-  { title: "New lead follow-up", source: "Follow Up Boss", note: "Source not connected" },
-  { title: "Appointment prep", source: "Calendar", note: "Calendar not connected" },
-  { title: "Marketing request", source: "Requests", note: "Destination not connected" },
 ];
 
 export const WTD_BLOCKS = [
@@ -104,3 +99,11 @@ export const ONBOARDING = [
   { key: "mentor", title: "Mentor check-in scheduled" },
 ];
 
+// The reasons somebody is on Needs You Today, most urgent first -- the server's own order
+// (services/follow_ups.KINDS). `chip` finishes a count ("3 new"); `plural` heads a group.
+export const FOLLOW_UP_KINDS = [
+  { key: "new_lead", label: "New lead", plural: "New leads", chip: "new" },
+  { key: "overdue", label: "Overdue", plural: "Overdue", chip: "overdue" },
+  { key: "due_today", label: "Today", plural: "Due today", chip: "due today" },
+  { key: "going_cold", label: "Going cold", plural: "Going cold", chip: "going cold" },
+];

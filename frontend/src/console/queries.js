@@ -51,6 +51,11 @@ import {
   getTiles,
   getWorkspace,
   getWtdLists,
+  createWtdList,
+  getFubSmartLists,
+  getFollowUpSettings,
+  patchFollowUpSettings,
+  getCrmAgents,
   inviteMember,
   login,
   patchAiSettings,
@@ -119,6 +124,9 @@ export const keys = {
   sop: (sopId) => ["console", "sops", sopId],
   sopVersions: (sopId) => ["console", "sops", sopId, "versions"],
   wtdLists: ["console", "wtd-lists"],
+  fubSmartLists: ["console", "fub-smart-lists"],
+  followUps: ["console", "follow-ups"],
+  crmAgents: (source) => ["console", "crm-agents", source],
   preview: (role) => ["console", "preview", role],
 };
 
@@ -701,6 +709,48 @@ export function useOrderWtdLists() {
   return useMutation({
     mutationFn: putWtdOrder,
     onSuccess: () => invalidateWtd(queryClient),
+  });
+}
+
+export function useCreateWtdList() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createWtdList,
+    onSuccess: () => invalidateWtd(queryClient),
+  });
+}
+
+/* The account's smart lists, asked of Follow Up Boss live. A failure is not an error state for
+   the page: the form falls back to typing the id, which is what it was before. */
+export function useFubSmartLists() {
+  return useQuery({
+    queryKey: keys.fubSmartLists,
+    queryFn: getFubSmartLists,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useFollowUpSettings() {
+  return useQuery({
+    queryKey: keys.followUps,
+    queryFn: getFollowUpSettings,
+  });
+}
+
+export function usePatchFollowUpSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: patchFollowUpSettings,
+    onSuccess: (data) => queryClient.setQueryData(keys.followUps, data),
+  });
+}
+
+export function useCrmAgents(source) {
+  return useQuery({
+    queryKey: keys.crmAgents(source),
+    queryFn: () => getCrmAgents(source),
+    staleTime: 60 * 1000,
   });
 }
 
