@@ -549,3 +549,17 @@ export const PARKED_ROUTES = {
   "/assistant": "AI Assistant",
   "/audit": "Audit Log",
 };
+
+// The console's Win the Day sections, in the order of the portal's tabs.
+export const WTD_SECTIONS = [
+  { key: "page", label: "Page" },
+  { key: "run", label: "Today’s Run" },
+  { key: "lists", label: "Lists" },
+  { key: "call", label: "The Call" },
+  { key: "scripts", label: "Scripts" },
+  { key: "numbers", label: "Numbers & targets" },
+  { key: "tools", label: "Tools" },
+  { key: "followups", label: "Needs You Today" },
+];
+
+export const WTD_KIND_LABEL = { clear: "Clear It", top_down: "Top Down", scan: "Scan" };

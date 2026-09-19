@@ -36,7 +36,7 @@ from ..models import IntranetCapability, IntranetPermission
 CAPABILITY_CONTENT = {
     "training_library": "courses",
     "sop_library": "sops",
-    "wtd": "wtd_lists",
+    "wtd": "wtd",
     "team_calendar": "calendar",
     "marketing_requests": "marketing",
     "own_numbers": "numbers",

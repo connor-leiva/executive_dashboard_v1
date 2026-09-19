@@ -88,11 +88,35 @@ function corpus(content) {
     });
   });
 
-  (c.wtd_lists || []).forEach((list) => {
+  // Win the Day's playbook: each list lands on its own card, each script and tool on its tab.
+  const wtd = c.wtd || {};
+  ((wtd.lists && wtd.lists.items) || []).forEach((list) => {
     out.push({
-      type: "Win the Day", title: list.name,
-      detail: list.script_name || "Call list", to: "/wtd",
-      text: [list.name, list.script_name].join(" "),
+      type: "Win the Day", title: `${list.no} ${list.name}`,
+      detail: list.cadence || "Call list", to: `/wtd/lists#list-${list.no}`,
+      text: [list.name, list.description, list.cadence,
+             ...(list.scripts || []).map((sc) => sc.name)].join(" "),
+    });
+  });
+  ((wtd.run && wtd.run.blocks) || []).forEach((block) => {
+    out.push({
+      type: "Win the Day", title: block.title,
+      detail: block.minutes ? `${block.minutes} min block` : "Block", to: "/wtd",
+      text: [block.title, block.text].join(" "),
+    });
+  });
+  ((wtd.scripts && wtd.scripts.groups) || []).forEach((group) => {
+    (group.items || []).forEach((script) => {
+      out.push({
+        type: "Scripts", title: script.name, detail: group.label, to: "/wtd/scripts",
+        text: [script.name, script.description, group.label].join(" "),
+      });
+    });
+  });
+  ((wtd.tools && wtd.tools.items) || []).forEach((tool) => {
+    out.push({
+      type: "Tools", title: tool.name, detail: tool.block || "Win the Day", to: "/wtd/tools",
+      text: [tool.name, tool.tagline, tool.text].join(" "),
     });
   });
 

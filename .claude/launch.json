@@ -120,6 +120,20 @@
       "url": "http://localhost:4176"
     },
     {
+      "name": "mockup",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4190",
+        "--directory",
+        "../frontend/brand-src/mockups/utah-life-intranet"
+      ],
+      "port": 4190,
+      "url": "http://localhost:4190",
+      "cwd": "backend"
+    },
+    {
       "name": "operator-preview",
       "runtimeExecutable": "npm",
       "runtimeArgs": [

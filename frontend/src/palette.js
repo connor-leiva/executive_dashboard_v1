@@ -115,44 +115,10 @@ export const ACUMYN_TYPE = {
  * Positive and negative are seeds because a workspace has real opinions about them; warning stays
  * fixed because the opinion people have about it is usually wrong.
  */
-const WHITE = "#FFFFFF";
-const BLACK = "#000000";
-
-function _rgb(hex) {
-  const h = String(hex).replace("#", "");
-  const full = h.length === 3 ? h.replace(/./g, "$&$&") : h;
-  const n = parseInt(full, 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function _hex(rgb) {
-  return "#" + rgb.map((v) => Math.max(0, Math.min(255, Math.round(v)))
-    .toString(16).padStart(2, "0")).join("").toUpperCase();
-}
-
-/** Mix `a` toward `b` by `t` (0 = a, 1 = b). */
-export function mix(a, b, t) {
-  const [r1, g1, b1] = _rgb(a);
-  const [r2, g2, b2] = _rgb(b);
-  return _hex([r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t]);
-}
-
-export const lighten = (hex, t) => mix(hex, WHITE, t);
-export const darken = (hex, t) => mix(hex, BLACK, t);
-
-/** Relative luminance, WCAG 2.1. */
-export function luminance(hex) {
-  const [r, g, b] = _rgb(hex).map((c) => {
-    const v = c / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-export function contrast(a, b) {
-  const [l1, l2] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (l1 + 0.05) / (l2 + 0.05);
-}
+// The arithmetic lives in color.js, which does nothing on import -- see the note there for why
+// the portal must never import this file. Re-exported so the dashboard's callers are unchanged.
+import { WHITE, contrast, darken, lighten, luminance, mix } from "./color.js";
+export { contrast, darken, lighten, luminance, mix };
 
 /** The five a workspace actually chooses. */
 export const SEEDS = ["brand", "surface", "ink", "positive", "negative"];

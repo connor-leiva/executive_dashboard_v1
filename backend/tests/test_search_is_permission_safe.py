@@ -59,5 +59,6 @@ def test_every_searchable_type_comes_from_the_payload():
     """A new content type added to the payload should be searchable, and the only way it can be
     is by being read off `content` here. Named explicitly so a reviewer sees what is covered."""
     code = SEARCH.read_text(encoding="utf-8")
-    for key in ("courses", "sops", "tool_groups", "directory", "wtd_lists", "pages"):
-        assert f"c.{key}" in code, f"{key} is in the member payload but not searchable"
+    for key in ("courses", "sops", "tool_groups", "directory", "wtd", "pages"):
+        # A whole name: "c.wtd" is also the start of "c.wtd_lists", a key the payload dropped.
+        assert re.search(rf"c\.{key}" + r"\b", code), f"{key} is in the member payload but not searchable"

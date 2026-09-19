@@ -345,9 +345,14 @@ def test_five_seeds_derive_thirty_tokens_that_all_read():
     from pathlib import Path
 
     pal = Path(__file__).resolve().parents[2] / "frontend" / "src" / "palette.js"
+    # The colour arithmetic lives in color.js (it does nothing on import, so the portal can use it
+    # without palette.js repainting the page), and palette.js imports it. With imports stripped
+    # below, the two are evaluated as one script, color.js first.
+    color = pal.with_name("color.js")
     script = rf"""
       const fs = require('fs');
-      let src = fs.readFileSync({json.dumps(str(pal))}, 'utf8')
+      let src = (fs.readFileSync({json.dumps(str(color))}, 'utf8') + '\n' +
+                 fs.readFileSync({json.dumps(str(pal))}, 'utf8'))
         .replace(/^import .*$/gm, '')
         .replace(/^export /gm, '')
         // the module applies itself at load and calls into typefaces.js; neither is what this

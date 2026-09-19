@@ -722,5 +722,5 @@ async def test_a_win_the_day_list_links_through_the_fub_account_when_no_base_url
         await s.commit()
     async with _client() as c:
         r = await c.get("/api/v1/intranet/config", headers=_H(ws["owner_token"], ws["host"]))
-    lists = {l["name"]: l for l in r.json()["config"]["content"]["wtd_lists"]}
+    lists = {l["name"]: l for l in r.json()["config"]["content"]["wtd"]["lists"]["items"]}
     assert lists["New leads"]["url"] == "https://acme.followupboss.com/2/people/list/42"

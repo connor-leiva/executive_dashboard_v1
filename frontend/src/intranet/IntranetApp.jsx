@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { API_BASE, endViewAs, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile, viewingAs, wasViewingAs } from "../api.js";
+import { useAuthedImage } from "../useAuthedImage.js";
 import { applyPortalPalette } from "./palette.js";
 import { search as search_ } from "./search.js";
 import { logoFor } from "./vendor-logos.js";
@@ -9,9 +10,10 @@ import sunburstLogo from "./assets/sunburst-ondark.png";
 import {
   FOLLOW_UP_KINDS,
   NAV_GROUPS,
+  ASK_ABOUT,
   ONBOARDING,
-  WTD_BLOCKS,
 } from "./constants.js";
+import WinTheDay, { EMPTY_DAY } from "./WinTheDay.jsx";
 
 const DEFAULT_CONFIG = {
   calendar: { google_calendar_url: "" },
@@ -43,7 +45,8 @@ const DEFAULT_CONFIG = {
   },
 };
 
-const DEFAULT_WTD = { checked: {}, tallies: { calls: 0, conversations: 0, appointments: 0, notes: 0 } };
+// The day, as Win the Day keeps it: blocks done, lists worked, minutes, tallies (WinTheDay.jsx).
+const DEFAULT_WTD = EMPTY_DAY;
 const DEFAULT_PROGRESS = { done: {} };
 /* THE DATE LINE AND THE GREETING COME FROM THE VIEWER'S CLOCK.
  *
@@ -536,7 +539,7 @@ function Shell({ me, config, children }) {
         </div>
         <NavLink className="ut-floating-ask" to="/ask">
           <span aria-hidden />
-          Ask about anything
+          {`Ask about ${ASK_ABOUT[current?.id] || "anything"}`}
         </NavLink>
       </main>
     </div>
@@ -646,8 +649,11 @@ function Meter({ value, total, className = "" }) {
 function Home({ config, wtd, training, onboarding, me, canConfigure }) {
   const now = useLocalNow();
   const numbers = config.numbers || DEFAULT_CONFIG.numbers;
-  const totalTasks = WTD_BLOCKS.flatMap((b) => b.items).length;
-  const doneToday = Object.values(wtd.checked || {}).filter(Boolean).length;
+  // The day's blocks from the workspace's own playbook. It counted fifteen compiled-in
+  // checkboxes, so "0/15 Win the Day" read the same in every workspace whatever it ran.
+  const wtdBlocks = config.content?.wtd?.run?.blocks || [];
+  const totalTasks = wtdBlocks.length;
+  const doneToday = wtdBlocks.filter((b) => wtd.blocks?.[b.key]).length;
   // From the workspace's published courses, not a constant, and keyed on lesson id -- the same
   // key the Training page ticks. Counting a hardcoded list meant this progress bar described one
   // customer's curriculum to every other customer.
@@ -687,7 +693,8 @@ function Home({ config, wtd, training, onboarding, me, canConfigure }) {
 
       <section className="ut-lower-grid">
         <ProgressPanel label="Training Library" done={lessonsDone} total={lessons.length} />
-        <ProgressPanel label="Your First 30 Days" done={onboardDone} total={ONBOARDING.length} secondary={`${doneToday}/${totalTasks} Win the Day`} />
+        <ProgressPanel label="Your First 30 Days" done={onboardDone} total={ONBOARDING.length}
+                       secondary={totalTasks ? `${doneToday}/${totalTasks} Win the Day blocks` : undefined} />
       </section>
     </div>
   );
@@ -1413,88 +1420,6 @@ function Tools({ config, canConfigure }) {
           </div>
         </Panel>
       ))}
-    </Page>
-  );
-}
-
-function WinTheDay({ state, setState, config }) {
-  // The workspace's own call lists, from the console. `config.links.fub_lists` was an older
-  // parallel map keyed by hardcoded list names -- the console never wrote to it.
-  const lists = config?.content?.wtd_lists || [];
-  const blocks = WTD_BLOCKS;
-  const total = blocks.flatMap((b) => b.items).length;
-  const done = Object.values(state.checked || {}).filter(Boolean).length;
-  const toggle = (key) => setState((s) => ({ ...s, checked: { ...(s.checked || {}), [key]: !s.checked?.[key] } }));
-  const setTally = (key, value) => setState((s) => ({
-    ...s,
-    tallies: { ...(s.tallies || {}), [key]: Math.max(0, Number(value || 0)) },
-  }));
-
-  return (
-    <Page title="Win the Day" subtitle="Daily checklist state persists per user and resets by local date.">
-      <section className="ut-wtd-hero">
-        <div>
-          <span>Local Day Reset</span>
-          <strong>{done}/{total} complete</strong>
-        </div>
-        <Meter value={done} total={total} />
-      </section>
-      <div className="ut-two-grid">
-        {blocks.map((block) => (
-          <Panel key={block.id} title={block.title}>
-            <div className="ut-check-list">
-              {block.items.map((item) => {
-                const key = `${block.id}:${item}`;
-                return (
-                  <label key={key} className="ut-check">
-                    <input type="checkbox" checked={Boolean(state.checked?.[key])} onChange={() => toggle(key)} />
-                    <span>{item}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </Panel>
-        ))}
-      </div>
-      <Panel title="Daily Tallies" kicker="Manual until source integrations are configured">
-        <div className="ut-tally-grid">
-          {Object.keys(DEFAULT_WTD.tallies).map((key) => (
-            <label key={key}>
-              <span>{key.replace("_", " ")}</span>
-              <input type="number" min="0" value={state.tallies?.[key] ?? 0} onChange={(e) => setTally(key, e.target.value)} />
-            </label>
-          ))}
-        </div>
-      </Panel>
-      <Panel title="Call Lists" kicker="Configured in the admin console">
-        {!lists.length ? (
-          <p className="ut-empty">
-            {deniedBy(config, "wtd")
-              ? "Your role does not have access to Win the Day."
-              : "Call lists appear here once an admin adds them in the console under Win the Day."}
-          </p>
-        ) : (
-        <div className="ut-fub-grid">
-          {lists.map((item) => {
-            return (
-              <div className="ut-fub-card" key={item.id}>
-                <strong>{item.name}</strong>
-                {item.script_name || item.daily_target ? (
-                  <em>
-                    {item.script_name}
-                    {item.script_name && item.daily_target ? " · " : ""}
-                    {item.daily_target ? `${item.daily_target}/day` : ""}
-                  </em>
-                ) : null}
-                {item.url
-                  ? <a href={item.url} target="_blank" rel="noreferrer noopener">Open list</a>
-                  : <span>No list ID configured</span>}
-              </div>
-            );
-          })}
-        </div>
-        )}
-      </Panel>
     </Page>
   );
 }
@@ -2819,6 +2744,16 @@ function Marketing({ config, canConfigure }) {
  * "who do I ask" needs the people whose job that is at the top, and everyone else in an order
  * they can scan.
  */
+/* A colleague's photo, fetched with the session: the route is behind it, and a bare <img src>
+   sends none -- which is why no directory photo had ever displayed. Initials until it arrives,
+   and for good when there is none. */
+function PersonPhoto({ person, className = "ut-person-photo", initialsClass = "ut-person-initials" }) {
+  const src = useAuthedImage(person.photo_url || null, getBlob);
+  return src
+    ? <img className={className} src={src} alt="" />
+    : <span className={initialsClass}>{initials(person.name)}</span>;
+}
+
 function Directory({ config }) {
   const people = config?.content?.directory || [];
   const ordered = [...people].sort((a, b) =>
@@ -2842,10 +2777,7 @@ function Directory({ config }) {
         {ordered.map((person) => (
           <div className="ut-person" key={person.id}>
             <div className="ut-person-head">
-              {person.photo_url
-                ? <img className="ut-person-photo" src={fileUrl(person.photo_url)} alt=""
-                       onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                : <span className="ut-person-initials">{initials(person.name)}</span>}
+              <PersonPhoto person={person} />
               <div>
                 <strong>{person.name}</strong>
                 <em>{person.title || person.role}{person.market ? ` · ${person.market}` : ""}</em>
@@ -3264,7 +3196,8 @@ export default function IntranetApp() {
       <Routes>
         <Route path="/" element={<Home config={boot.config} wtd={wtd} training={training} onboarding={onboarding} me={boot.me} canConfigure={boot.canConfigure} />} />
         <Route path="/tools" element={<Tools config={boot.config} canConfigure={boot.canConfigure} />} />
-        <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} />} />
+        <Route path="/wtd" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} canConfigure={boot.canConfigure} />} />
+        <Route path="/wtd/:tab" element={<WinTheDay state={wtd} setState={setWtd} config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/follow-ups" element={<FollowUpsPage me={boot.me} canConfigure={boot.canConfigure} />} />
         <Route path="/training" element={<Training state={training} config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/training/:courseId" element={<CourseDetail state={training} setState={setTraining} config={boot.config} />} />

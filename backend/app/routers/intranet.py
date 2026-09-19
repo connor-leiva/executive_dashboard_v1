@@ -26,9 +26,11 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetIntegration, IntranetLessonAttachment,
                       IntranetSopCategory, IntranetUserState,
                       IntranetAiQuestion, IntranetContentGap, IntranetWorkspace,
-                      IntranetWtdList, Tenant, User, Agent)
+                      IntranetWtdList, IntranetWtdPlaybook, IntranetWtdScript, Tenant, User,
+                      Agent)
 from ..services import (binder_storage, course_sections, follow_ups, intranet_assistant,
-                        lesson_media, lesson_richtext, member_numbers, sunburst, uploads)
+                        lesson_media, lesson_richtext, member_numbers, sunburst, uploads,
+                        wtd_playbook)
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import DENIED, allows, capability_levels
 from ..services.audit import audit
@@ -278,11 +280,21 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     visible = [t for t in tiles
                if t.id not in audience or my_role in audience[t.id]]
 
-    wtd = [] if not allows(levels, "wtd") else (await s.execute(select(IntranetWtdList).where(
+    wtd_allowed = allows(levels, "wtd")
+    wtd = [] if not wtd_allowed else (await s.execute(select(IntranetWtdList).where(
         IntranetWtdList.tenant_id == tenant_id,
         IntranetWtdList.active.is_(True),
         published(IntranetWtdList),
     ).order_by(IntranetWtdList.position))).scalars().all()
+    # The playbook around the lists, and the scripts they name: published, like the lists.
+    wtd_book = None if not wtd_allowed else (await s.execute(select(IntranetWtdPlaybook).where(
+        IntranetWtdPlaybook.tenant_id == tenant_id,
+        published(IntranetWtdPlaybook)))).scalars().first()
+    wtd_scripts = [] if not wtd_allowed else (await s.execute(select(IntranetWtdScript).where(
+        IntranetWtdScript.tenant_id == tenant_id,
+        IntranetWtdScript.active.is_(True),
+        published(IntranetWtdScript),
+    ).order_by(IntranetWtdScript.position, IntranetWtdScript.name))).scalars().all()
 
     courses = [] if not allows(levels, "training_library") else (await s.execute(
         select(IntranetCourse).where(
@@ -500,11 +512,9 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     # base URL. It had to be typed, and the live workspace's was empty. A URL an admin did set
     # still wins.
     if not provider_bases.get("follow_up_boss"):
-        fub_row = await follow_ups.fub_integration(s, tenant_id)
-        domain = (follow_ups.account_domain(fub_row)
-                  if fub_row is not None and fub_row.status in ("connected", "error") else None)
-        if domain:
-            provider_bases["follow_up_boss"] = f"https://{domain}.followupboss.com/2/people/list/"
+        fub_base = await follow_ups.fub_list_base(s, tenant_id)
+        if fub_base:
+            provider_bases["follow_up_boss"] = fub_base
 
     def _list_url(item) -> str | None:
         base = provider_bases.get(item.provider or "")
@@ -547,10 +557,17 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         "on_roster": member is not None,
         "tool_groups": [{"id": name.lower().replace(" ", "_"), "label": name, "tools": items}
                         for name, items in groups.items()],
-        "wtd_lists": [{"id": str(w.id), "name": w.name, "script_name": w.script_name,
-                       "daily_target": w.daily_target, "provider": w.provider,
-                       "url": _list_url(w)}
-                      for w in wtd],
+        # THE PAGE, READY TO DRAW (services/wtd_playbook): counts filled in, lists numbered,
+        # grouped and linked, scripts joined, and this person's targets for today worked out --
+        # on the server, so the on-ramp is counted in the office's calendar, not the browser's.
+        # None when this role may not see Win the Day, rather than an empty page to hide.
+        "wtd": (wtd_playbook.resolve(
+            wtd_book.content if wtd_book is not None else None,
+            lists=wtd, scripts=wtd_scripts, list_url=_list_url,
+            list_base=provider_bases.get("follow_up_boss"),
+            started_on=member.started_on if member is not None else None,
+            personal=member.wtd_goals if member is not None else None,
+            today=today) if wtd_allowed else None),
         # WIDER THAN A TITLE, because a title is not a course. Everything below is already
         # authored in the console and was being dropped here, which is why the portal fell back
         # to a compiled-in list: there was nothing in the payload to render. `source_type` and

@@ -37,6 +37,7 @@ class FakeFub:
         self.ignore_sort_order = False  # accept `-created` but answer oldest first
         self.identity = {"account": {"id": 777, "domain": "acme"},
                          "user": {"id": 1, "name": "Owner", "email": "owner@acme.test"}}
+        self.smart_lists: list[dict] = []     # {"id": 35, "name": "01. Recently Active"}
 
     # ── routing ──────────────────────────────────────────────────────────────────────────
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -60,6 +61,8 @@ class FakeFub:
             if self.refuse_sort and "sort" in params:
                 return httpx.Response(400, json={"errorMessage": "Invalid sort"})
             return self._page("people", self._people(params), params)
+        if path == "/smartLists":
+            return self._page("smartlists", self.smart_lists, params)
         if path == "/tasks":
             if self.refuse_due_start and "dueStart" in params:
                 return httpx.Response(400, json={"errorMessage": "Invalid dueStart"})

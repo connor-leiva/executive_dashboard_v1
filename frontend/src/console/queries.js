@@ -55,6 +55,17 @@ import {
   getFubSmartLists,
   getFollowUpSettings,
   patchFollowUpSettings,
+  deleteWtdList,
+  getWtdPlaybook,
+  patchWtdPlaybook,
+  getWtdScripts,
+  createWtdScript,
+  patchWtdScript,
+  deleteWtdScript,
+  putWtdScriptOrder,
+  checkWtdLists,
+  importWtdPlaybook,
+  getWtdPeople,
   getCrmAgents,
   inviteMember,
   login,
@@ -125,6 +136,10 @@ export const keys = {
   sop: (sopId) => ["console", "sops", sopId],
   sopVersions: (sopId) => ["console", "sops", sopId, "versions"],
   wtdLists: ["console", "wtd-lists"],
+  wtdPlaybook: ["console", "wtd", "playbook"],
+  wtdScripts: ["console", "wtd", "scripts"],
+  wtdPeople: ["console", "wtd", "people"],
+  wtdCheck: ["console", "wtd", "check"],
   fubSmartLists: ["console", "fub-smart-lists"],
   followUps: ["console", "follow-ups"],
   crmAgents: (source) => ["console", "crm-agents", source],
@@ -177,6 +192,9 @@ function invalidateLaunchpad(queryClient) {
 function invalidateWtd(queryClient) {
   invalidateOverview(queryClient);
   queryClient.invalidateQueries({ queryKey: keys.wtdLists });
+  // The playbook, its scripts and each person's targets move together: a list names scripts, a
+  // scoreboard row decides which targets exist, and an import replaces all of them at once.
+  queryClient.invalidateQueries({ queryKey: ["console", "wtd"] });
   queryClient.invalidateQueries({ queryKey: ["console", "preview"] });
 }
 
@@ -729,6 +747,81 @@ export function useCreateWtdList() {
     mutationFn: createWtdList,
     onSuccess: () => invalidateWtd(queryClient),
   });
+}
+
+export function useDeleteWtdList() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteWtdList,
+    onSuccess: () => invalidateWtd(queryClient),
+  });
+}
+
+export function useWtdPlaybook() {
+  return useQuery({ queryKey: keys.wtdPlaybook, queryFn: getWtdPlaybook });
+}
+
+export function usePatchWtdPlaybook() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: patchWtdPlaybook,
+    onSuccess: () => invalidateWtd(queryClient),
+  });
+}
+
+export function useWtdScripts() {
+  return useQuery({ queryKey: keys.wtdScripts, queryFn: getWtdScripts });
+}
+
+export function useCreateWtdScript() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: createWtdScript, onSuccess: () => invalidateWtd(queryClient) });
+}
+
+export function usePatchWtdScript() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scriptId, body }) => patchWtdScript(scriptId, body),
+    onSuccess: () => invalidateWtd(queryClient),
+  });
+}
+
+export function useDeleteWtdScript() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: deleteWtdScript, onSuccess: () => invalidateWtd(queryClient) });
+}
+
+export function useOrderWtdScripts() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: putWtdScriptOrder, onSuccess: () => invalidateWtd(queryClient) });
+}
+
+/* Asked of Follow Up Boss only when somebody presses Check: it is a live call per smart-list page,
+   and the answer only changes when the lists do. */
+export function useCheckWtdLists() {
+  return useMutation({ mutationFn: checkWtdLists });
+}
+
+export function useImportWtdPlaybook() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: importWtdPlaybook, onSuccess: () => invalidateWtd(queryClient) });
+}
+
+/* A person's on-ramp start and own targets, saved on their roster row: the roster and the Win the
+   Day targets table both show them. */
+export function usePatchWtdPerson() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memberId, body }) => patchMember(memberId, body),
+    onSuccess: () => {
+      invalidateRoster(queryClient);
+      queryClient.invalidateQueries({ queryKey: keys.wtdPeople });
+    },
+  });
+}
+
+export function useWtdPeople() {
+  return useQuery({ queryKey: keys.wtdPeople, queryFn: getWtdPeople });
 }
 
 /* The account's smart lists, asked of Follow Up Boss live. A failure is not an error state for

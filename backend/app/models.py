@@ -405,6 +405,13 @@ class IntranetMember(Base):
     # Who they are in each CRM when an admin has said so: {"fub": "<FUB user id>", "sisu":
     # "<Sisu agent id>"}. Beats any email match. Picked from the CRM's own list in the console.
     agent_links: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    # ── Win the Day, for this person ─────────────────────────────────────────────────────
+    # Day 1 of the new-agent on-ramp. NULL means not on it -- the team's targets apply. It does
+    # not fall back to when they accepted the portal invite: every existing agent would be on
+    # Week One the week the portal rolled out.
+    started_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Targets somebody set for this person, {tally key: number}. Beat the on-ramp and the team's.
+    wtd_goals: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
     auth_source: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -802,13 +809,73 @@ class IntranetWtdList(Base):
     external_list_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     script_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     daily_target: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ── its place in the playbook (services/wtd_playbook) ────────────────────────────────
+    # Which heading it sits under and which block of the day works it -- both keys into the
+    # playbook document, which is where those headings and blocks are written.
+    group_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    block_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cadence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # clear | top_down | scan. The product's vocabulary rather than the workspace's: it decides
+    # behaviour (only a Top Down list is timed), so it is not free text.
+    kind: Mapped[str] = mapped_column(Text, default="clear", server_default="clear")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Ids of this workspace's IntranetWtdScript rows, in the order the chips show.
+    script_ids: Mapped[list | None] = mapped_column(JSONType, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    __table_args__ = (UniqueConstraint("tenant_id", "position", name="uq_intranet_wtd_tenant_position"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "position", name="uq_intranet_wtd_tenant_position"),
+        CheckConstraint("kind IN ('clear','top_down','scan')", name="ck_intranet_wtd_list_kind"),
+    )
+
+
+class IntranetWtdPlaybook(Base):
+    """A workspace's Win the Day method, as one validated document (services/wtd_playbook).
+
+    ONE ROW, NOT A DOZEN TABLES. The header, the blocks of the day, the call steps, the habits,
+    the scoreboard and the on-ramp are short ordered lists of prose with no identity outside the
+    page, written and read together. Lists and scripts are rows, because other things point at
+    them: an agent's day records lists by id, and lists name their scripts.
+
+    Publishable like every other content table -- having `published_at` and `draft_dirty` is what
+    enrols it in the console's publish cycle."""
+    __tablename__ = "intranet_wtd_playbook"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    content: Mapped[dict] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_intranet_wtd_playbook_tenant"),)
+
+
+class IntranetWtdScript(Base):
+    """One script in the workspace's library: a chip on the lists that use it, and a card on the
+    Scripts tab when it belongs to a group. A script with no group is a chip only -- the mockup's
+    'Sphere Model' and 'Lead Ponds' are links a list points at, not scripts to read."""
+    __tablename__ = "intranet_wtd_script"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text)
+    chip: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    group_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    position: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class IntranetLaunchpadTile(Base):

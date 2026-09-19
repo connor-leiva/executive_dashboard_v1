@@ -158,10 +158,55 @@ def corpus(content: dict) -> list[dict]:
             },
         })
 
-    for wtd in c.get("wtd_lists") or []:
+    # WIN THE DAY IS A PLAYBOOK NOW, not a list of names: the lists with what each is for and
+    # which scripts go with it, the blocks of the day, how to work a call, the scripts and the
+    # targets. Each points at its own tab, so a citation opens the part that answers.
+    wtd = c.get("wtd") or {}
+    for item in (wtd.get("lists") or {}).get("items") or []:
         out.append({
-            "kind": "Win the Day", "title": wtd.get("name"), "ref": "/wtd",
-            "facts": {"script": wtd.get("script_name")},
+            "kind": "Win the Day list", "title": f"{item.get('no')} {item.get('name')}",
+            "ref": f"/wtd/lists#list-{item.get('no')}",
+            "facts": {"what": item.get("description"), "cadence": item.get("cadence"),
+                      "kind": item.get("kind"),
+                      "scripts": [sc.get("name") for sc in item.get("scripts") or []]},
+        })
+    for block in (wtd.get("run") or {}).get("blocks") or []:
+        out.append({
+            "kind": "Win the Day block", "title": block.get("title"), "ref": "/wtd",
+            "facts": {"minutes": block.get("minutes"), "what": block.get("text"),
+                      "lists": block.get("lists")},
+        })
+    call = wtd.get("call") or {}
+    if call.get("steps") or call.get("habits"):
+        out.append({
+            "kind": "Win the Day", "title": call.get("title") or "How to work a list",
+            "ref": "/wtd/call",
+            "facts": {"steps": [f"{s.get('title')} {s.get('text')}" for s in call.get("steps") or []],
+                      "compliance": (call.get("compliance") or {}).get("text"),
+                      "habits": [h.get("title") for h in call.get("habits") or []]},
+        })
+    for group in (wtd.get("scripts") or {}).get("groups") or []:
+        for script in group.get("items") or []:
+            out.append({
+                "kind": "Script", "title": script.get("name"), "ref": "/wtd/scripts",
+                "facts": {"for": group.get("label"), "what": script.get("description"),
+                          "url": script.get("url")},
+            })
+    numbers = wtd.get("numbers") or {}
+    if numbers.get("rows"):
+        out.append({
+            "kind": "Win the Day", "title": numbers.get("title") or "The scoreboard",
+            "ref": "/wtd/numbers",
+            "facts": {"targets": [{"metric": r.get("label"), "daily": r.get("daily"),
+                                   "weekly": r.get("weekly")} for r in numbers["rows"]],
+                      "onramp": [{"phase": ph.get("label"), "targets": ph.get("goals"),
+                                  "focus": ph.get("focus")}
+                                 for ph in (numbers.get("onramp") or {}).get("phases") or []]},
+        })
+    for tool in (wtd.get("tools") or {}).get("items") or []:
+        out.append({
+            "kind": "Tool", "title": tool.get("name"), "ref": "/wtd/tools",
+            "facts": {"when": tool.get("block"), "what": tool.get("text"), "url": tool.get("url")},
         })
 
     return [e for e in out if e.get("title")]

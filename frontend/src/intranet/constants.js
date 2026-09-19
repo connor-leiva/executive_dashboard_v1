@@ -40,54 +40,6 @@ export const NAV_GROUPS = [
   },
 ];
 
-export const WTD_BLOCKS = [
-  {
-    id: "power",
-    title: "Power Up",
-    items: [
-      "Review priorities",
-      "Check calendar blocks",
-      "Confirm follow-up list",
-    ],
-  },
-  {
-    id: "time",
-    title: "Time-Sensitive",
-    items: [
-      "Return urgent messages",
-      "Review active client needs",
-      "Confirm today's appointments",
-    ],
-  },
-  {
-    id: "market",
-    title: "Market Prep",
-    items: [
-      "Review hot sheets",
-      "Check pricing changes",
-      "Identify client opportunities",
-    ],
-  },
-  {
-    id: "lead",
-    title: "Lead Generation",
-    items: [
-      "Work contact list",
-      "Log call outcomes",
-      "Send next-step messages",
-    ],
-  },
-  {
-    id: "close",
-    title: "Close Out",
-    items: [
-      "Update CRM",
-      "Record numbers",
-      "Set tomorrow's first action",
-    ],
-  },
-];
-
 export const ONBOARDING = [
   { key: "profile", title: "Profile and accounts" },
   { key: "tools", title: "Core tools access" },
@@ -107,3 +59,15 @@ export const FOLLOW_UP_KINDS = [
   { key: "due_today", label: "Today", plural: "Due today", chip: "due today" },
   { key: "going_cold", label: "Going cold", plural: "Going cold", chip: "going cold" },
 ];
+
+// What the floating Ask button names on each page, as the mockup's does ("Ask about Win the Day").
+// A page not listed asks about anything.
+export const ASK_ABOUT = {
+  wtd: "Win the Day",
+  sops: "the SOPs",
+  training: "training",
+  brand: "the brand kit",
+  marketing: "a request",
+  numbers: "your numbers",
+  tools: "a tool",
+};

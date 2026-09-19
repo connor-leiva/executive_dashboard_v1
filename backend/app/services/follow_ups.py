@@ -37,7 +37,7 @@ import uuid
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Agent, CrmTask, Integration, IntranetMember, Lead
+from ..models import Agent, CrmTask, Integration, IntranetIntegration, IntranetMember, Lead
 from . import member_identity
 
 DEFAULTS = {"new_lead_days": 7, "overdue_max_days": 30, "cold_enabled": False, "cold_days": 14,
@@ -133,6 +133,25 @@ async def fub_integration(s: AsyncSession, tenant_id) -> Integration | None:
         synced = _aware(row.last_synced_at) or dt.datetime.min.replace(tzinfo=dt.timezone.utc)
         return (live, synced)
     return max(rows, key=rank)
+
+
+async def fub_list_base(s: AsyncSession, tenant_id) -> str | None:
+    """Where this workspace's Follow Up Boss smart lists live: `…/2/people/list/`, with the list id
+    to follow. ONE ANSWER for the portal and the console, so a list cannot link one way on the
+    page and another on the screen that configures it.
+
+    A base URL an admin typed on the portal's Follow Up Boss row still wins. Otherwise it is built
+    from the account the key opens (services/fub_sync reads /identity), so nobody types it."""
+    row = (await s.execute(select(IntranetIntegration).where(
+        IntranetIntegration.tenant_id == tenant_id,
+        IntranetIntegration.provider_key == "follow_up_boss"))).scalars().first()
+    typed = (row.base_url or "").strip() if row is not None else ""
+    if typed:
+        return typed
+    integ = await fub_integration(s, tenant_id)
+    domain = (account_domain(integ)
+              if integ is not None and integ.status in ("connected", "error") else None)
+    return f"https://{domain}.followupboss.com/2/people/list/" if domain else None
 
 
 def connection(integ: Integration | None, *, show_error: bool) -> dict:

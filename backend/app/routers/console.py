@@ -52,6 +52,8 @@ from ..models import (
     IntranetSopCategory,
     IntranetSopVersion,
     IntranetWtdList,
+    IntranetWtdPlaybook,
+    IntranetWtdScript,
     IntranetWorkspace,
     Tenant, User,
 )
@@ -63,7 +65,7 @@ from ..integrations import fub
 from ..services import (binder_storage, course_sections, follow_ups, google_auth, lesson_media,
                         lesson_richtext, mail_templates,
                         mailer, member_identity, uploads,
-                        marketing_delivery)
+                        marketing_delivery, wtd_playbook)
 from ..services.users import INVITE_DAYS, link_base, primary_host
 from ..services.inheritance import (INHERITED_PROVIDERS, dashboard_connections, ensure_rows,
                                     is_inherited)
@@ -566,6 +568,7 @@ def _member(row: IntranetMember, roles: dict[uuid.UUID, IntranetRole] | None = N
         # a colleague's title should see the one already set rather than a blank box.
         "title": row.title, "bio": row.bio, "phone": row.phone, "owns": row.owns,
         "has_photo": bool(row.photo_key),
+        "started_on": _iso(row.started_on), "wtd_goals": row.wtd_goals or {},
         "invite": _invite_state(account),
     }
 
@@ -785,6 +788,18 @@ def _wtd(row: IntranetWtdList) -> dict:
         "id": _id(row.id), "position": row.position, "name": row.name,
         "provider": row.provider, "external_list_id": row.external_list_id,
         "script_name": row.script_name, "daily_target": row.daily_target,
+        "group_key": row.group_key, "block_key": row.block_key, "cadence": row.cadence,
+        "kind": row.kind or "clear", "description": row.description,
+        "script_ids": [str(x) for x in (row.script_ids or [])],
+        "active": bool(row.active), "published_at": _iso(row.published_at),
+        "draft_dirty": bool(row.draft_dirty),
+    }
+
+
+def _wtd_script(row: IntranetWtdScript) -> dict:
+    return {
+        "id": _id(row.id), "name": row.name, "chip": row.chip, "url": row.url,
+        "description": row.description, "group_key": row.group_key, "position": row.position,
         "active": bool(row.active), "published_at": _iso(row.published_at),
         "draft_dirty": bool(row.draft_dirty),
     }
@@ -1249,6 +1264,9 @@ async def _config_bundle(s: AsyncSession, tenant_id) -> dict:
         IntranetSopCategory.tenant_id == tenant_id).order_by(IntranetSopCategory.sort, IntranetSopCategory.name))).scalars().all()
     wtd = (await s.execute(select(IntranetWtdList).where(
         IntranetWtdList.tenant_id == tenant_id).order_by(IntranetWtdList.position))).scalars().all()
+    wtd_book = await _playbook_row(s, tenant_id)
+    wtd_scripts = (await s.execute(select(IntranetWtdScript).where(
+        IntranetWtdScript.tenant_id == tenant_id).order_by(IntranetWtdScript.position))).scalars().all()
     tiles = (await s.execute(select(IntranetLaunchpadTile).where(
         IntranetLaunchpadTile.tenant_id == tenant_id).order_by(IntranetLaunchpadTile.sort, IntranetLaunchpadTile.name))).scalars().all()
     tile_roles = await _tile_roles(s, tenant_id, [t.id for t in tiles])
@@ -1275,6 +1293,8 @@ async def _config_bundle(s: AsyncSession, tenant_id) -> dict:
         "sop_categories": _list([_sop_category(c) for c in cats]),
         "sops": await _sops_bundle(s, tenant_id),
         "wtd_lists": _list([_wtd(r) for r in wtd]),
+        "wtd_playbook": wtd_playbook.current(wtd_book.content) if wtd_book else None,
+        "wtd_scripts": _list([_wtd_script(r) for r in wtd_scripts]),
         "tiles": _list([_tile(r, tile_roles) for r in tiles]),
         "calendar_categories": _list([_calendar_category(r, cal_roles) for r in cals]),
         "integrations": _list([_integration(r, inherited_conn) for r in integrations]),
@@ -2228,7 +2248,7 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
                        s: AsyncSession = Depends(get_session)):
     body = _body(body)
     _unknown(body, {"full_name", "email", "role_id", "market", "status", "auth_source",
-                    "title", "bio", "phone", "owns", "agent_links"})
+                    "title", "bio", "phone", "owns", "agent_links", "started_on", "wtd_goals"})
     row = await _one(s, IntranetMember, p.user.tenant_id, member_id)
     roles = await _roles_by_id(s, p.user.tenant_id)
     old_role = roles.get(row.role_id)
@@ -2268,6 +2288,17 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
         if field in body:
             setattr(row, field,
                     _text(body, field, nullable=True, max_len=4000 if field == "bio" else 200))
+    # Win the Day, for this person: the on-ramp's day 1 (None takes them off it) and their own
+    # targets, which must be ones the playbook's scoreboard counts.
+    if "started_on" in body:
+        row.started_on = _date_value(body, "started_on")
+    if "wtd_goals" in body:
+        try:
+            row.wtd_goals = wtd_playbook.clean_personal_goals(
+                body["wtd_goals"], wtd_playbook.tally_keys(await _draft_content(s, p.user.tenant_id)))
+        except wtd_playbook.SectionError as e:
+            _unprocessable(e.field, e.message)
+        flag_modified(row, "wtd_goals")
     if "agent_links" in body:
         row.agent_links = await _agent_links(s, p.user.tenant_id, body["agent_links"],
                                              row.agent_links)
@@ -3702,6 +3733,67 @@ async def patch_follow_up_settings(body: dict = Body(...),
 
 # ── Win the Day lists: creating one, and the smart lists to pick from ───────────────────────
 
+LIST_FIELDS = {"name", "provider", "external_list_id", "script_name", "daily_target",
+               "group_key", "block_key", "cadence", "kind", "description", "script_ids"}
+
+
+async def _playbook_row(s: AsyncSession, tenant_id, *, create: bool = False
+                        ) -> IntranetWtdPlaybook | None:
+    row = (await s.execute(select(IntranetWtdPlaybook).where(
+        IntranetWtdPlaybook.tenant_id == tenant_id))).scalars().first()
+    if row is None and create:
+        row = IntranetWtdPlaybook(tenant_id=tenant_id, content=wtd_playbook.empty_content(),
+                                  draft_dirty=True)
+        s.add(row)
+        await s.flush()
+    return row
+
+
+async def _draft_content(s: AsyncSession, tenant_id) -> dict:
+    """The playbook as the console is editing it (published or not), read tolerantly."""
+    row = await _playbook_row(s, tenant_id)
+    return wtd_playbook.current(row.content if row else None)
+
+
+async def _apply_list_fields(s: AsyncSession, tenant_id, row: IntranetWtdList, body: dict) -> None:
+    """The fields that place a list in the playbook. A group or block must be one the playbook
+    has -- the console offers them as a choice, so anything else is a stale screen or a typo --
+    and scripts must be this workspace's."""
+    content = await _draft_content(s, tenant_id)
+    for field, keys in (("group_key", {g["key"] for g in content["lists"]["groups"]}),
+                        ("block_key", {b["key"] for b in content["run"]["blocks"]})):
+        if field in body:
+            value = _text(body, field, nullable=True, max_len=32) or None
+            if value is not None and value not in keys:
+                _unprocessable(field, "Not one of the playbook's "
+                                      + ("groups." if field == "group_key" else "blocks."))
+            setattr(row, field, value)
+    if "cadence" in body:
+        row.cadence = _text(body, "cadence", nullable=True, max_len=32) or None
+    if "kind" in body:
+        row.kind = _enum(body, "kind", wtd_playbook.KIND_KEYS) or row.kind
+    if "description" in body:
+        row.description = _text(body, "description", nullable=True, max_len=600) or None
+    if "script_ids" in body:
+        raw = body.get("script_ids")
+        if raw is None:
+            raw = []
+        if not isinstance(raw, list) or len(raw) > 6:
+            _unprocessable("script_ids", "Expected up to six script ids.")
+        try:
+            ids = list(dict.fromkeys(str(uuid.UUID(str(x))) for x in raw))
+        except ValueError:
+            _unprocessable("script_ids", "Expected script ids.")
+        if ids:
+            known = {str(x) for x in (await s.execute(select(IntranetWtdScript.id).where(
+                IntranetWtdScript.tenant_id == tenant_id,
+                IntranetWtdScript.id.in_([uuid.UUID(x) for x in ids])))).scalars()}
+            if set(ids) - known:
+                _unprocessable("script_ids", "Not one of this workspace's scripts.")
+        row.script_ids = ids or None
+        flag_modified(row, "script_ids")
+
+
 @router.post("/wtd-lists")
 async def create_wtd_list(body: dict = Body(...), p: ConsolePrincipal = Depends(require_console_access),
                           s: AsyncSession = Depends(get_session)):
@@ -3709,7 +3801,7 @@ async def create_wtd_list(body: dict = Body(...), p: ConsolePrincipal = Depends(
     workspace with none -- every workspace but the first -- could never have any. It is a draft
     like every other change here, and goes live on publish."""
     body = _body(body)
-    _unknown(body, {"name", "provider", "external_list_id", "script_name", "daily_target"})
+    _unknown(body, LIST_FIELDS)
     name = _text(body, "name", required=True, max_len=120)
     last = (await s.execute(select(func.max(IntranetWtdList.position)).where(
         IntranetWtdList.tenant_id == p.user.tenant_id))).scalar()
@@ -3719,7 +3811,8 @@ async def create_wtd_list(body: dict = Body(...), p: ConsolePrincipal = Depends(
         external_list_id=_text(body, "external_list_id", nullable=True, max_len=64),
         script_name=_text(body, "script_name", nullable=True, max_len=200),
         daily_target=_int(body, "daily_target", min_value=1, max_value=10000),
-        active=True, draft_dirty=True)
+        kind="clear", active=True, draft_dirty=True)
+    await _apply_list_fields(s, p.user.tenant_id, row, body)
     s.add(row)
     await s.flush()
     pending = await _record_mutation(
@@ -3735,8 +3828,13 @@ async def get_fub_smart_lists(p: ConsolePrincipal = Depends(require_console_acce
     """The account's smart lists, asked of Follow Up Boss with the dashboard's key, so a list is
     picked by name instead of by the number at the end of its address. Read live: an admin
     choosing, rarely, and a stale copy would offer lists that no longer exist."""
+    items = await _fub_smart_lists(s, p.user.tenant_id)
+    return _list(items, len(items))
+
+
+async def _fub_smart_lists(s: AsyncSession, tenant_id) -> list[dict]:
     from ..services.sync import _fub_creds
-    integ = await follow_ups.fub_integration(s, p.user.tenant_id)
+    integ = await follow_ups.fub_integration(s, tenant_id)
     if integ is None or integ.status not in ("connected", "error"):
         raise HTTPException(409, "Follow Up Boss is not connected. Connect it on the Acumyn "
                                  "dashboard under Settings, Integrations.")
@@ -3750,7 +3848,7 @@ async def get_fub_smart_lists(p: ConsolePrincipal = Depends(require_console_acce
     except (httpx.HTTPError, ValueError) as e:
         raise HTTPException(502, f"Follow Up Boss did not answer: {str(e)[:160]}")
     items.sort(key=lambda row: str(row["name"] or "").lower())
-    return _list(items, len(items))
+    return items
 
 
 @router.get("/wtd-lists")
@@ -3775,27 +3873,63 @@ async def patch_wtd_list(list_id: uuid.UUID, body: dict = Body(...),
                          s: AsyncSession = Depends(get_session)):
     row = await _one(s, IntranetWtdList, p.user.tenant_id, list_id)
     body = _body(body)
-    _unknown(body, {"position", "name", "provider", "external_list_id", "script_name", "daily_target", "active"})
+    _unknown(body, LIST_FIELDS | {"position", "active"})
     if "position" in body:
         row.position = _int(body, "position", min_value=0) or 0
     if "name" in body:
-        row.name = _text(body, "name", required=True) or row.name
+        row.name = _text(body, "name", required=True, max_len=120) or row.name
     if "provider" in body:
         row.provider = _text(body, "provider", required=True, max_len=80) or row.provider
     if "external_list_id" in body:
-        row.external_list_id = _text(body, "external_list_id", nullable=True)
+        row.external_list_id = _text(body, "external_list_id", nullable=True, max_len=64)
     if "script_name" in body:
-        row.script_name = _text(body, "script_name", nullable=True)
+        row.script_name = _text(body, "script_name", nullable=True, max_len=200)
     if "daily_target" in body:
         row.daily_target = _int(body, "daily_target", min_value=1)
     if "active" in body:
         row.active = bool(_bool(body, "active"))
+    await _apply_list_fields(s, p.user.tenant_id, row, body)
     row.draft_dirty = True
     pending = await _record_mutation(
         s, p, action="content.wtd_list.updated", category="Win the Day",
         summary=f"Updated Win the Day list {row.position}", target_type="wtd_list",
         target_id=row.id, entity_type="wtd_list", entity_id=row.id)
     return _with_pending(_wtd(row), pending)
+
+
+@router.delete("/wtd-lists/{list_id}")
+async def delete_wtd_list(list_id: uuid.UUID, p: ConsolePrincipal = Depends(require_console_access),
+                          s: AsyncSession = Depends(get_session)):
+    """Gone, not hidden: turning a list off (`active`) is the way to take it out of the run for a
+    while. The rest close up so the numbers agents see stay 01, 02, 03."""
+    row = await _one(s, IntranetWtdList, p.user.tenant_id, list_id)
+    name = row.name
+    await s.delete(row)
+    await s.flush()
+    await _renumber_lists(s, p.user.tenant_id)
+    pending = await _record_mutation(
+        s, p, action="content.wtd_list.deleted", category="Win the Day",
+        summary=f"Removed Win the Day list {name}", target_type="wtd_list", target_id=list_id,
+        entity_type="wtd_list", change_kind="deleted")
+    return {"deleted": True, "pending_changes": pending}
+
+
+async def _renumber_lists(s: AsyncSession, tenant_id, order: list[str] | None = None) -> None:
+    """Positions 1..n in `order` (or the current order). Two passes because (tenant, position)
+    is unique: every row steps out of the way first, then takes its place."""
+    rows = (await s.execute(select(IntranetWtdList).where(
+        IntranetWtdList.tenant_id == tenant_id).order_by(IntranetWtdList.position))).scalars().all()
+    if order is not None:
+        by_id = {str(r.id): r for r in rows}
+        rows = [by_id[i] for i in order]
+    for i, row in enumerate(rows, start=1):
+        row.position = 1000 + i
+    await s.flush()
+    for i, row in enumerate(rows, start=1):
+        if row.position != i:
+            row.position = i
+            row.draft_dirty = True
+    await s.flush()
 
 
 @router.put("/wtd-lists/order")
@@ -3807,16 +3941,306 @@ async def put_wtd_order(body: dict = Body(...), p: ConsolePrincipal = Depends(re
     rows = (await s.execute(select(IntranetWtdList).where(
         IntranetWtdList.tenant_id == p.user.tenant_id))).scalars().all()
     by_id = {str(r.id): r for r in rows}
-    if set(map(str, ids)) != set(by_id):
+    if set(map(str, ids)) != set(by_id) or len(ids) != len(by_id):
         _unprocessable("ids", "Must include every list exactly once.")
-    for pos, row_id in enumerate(ids, start=1):
-        by_id[str(row_id)].position = pos
-        by_id[str(row_id)].draft_dirty = True
+    await _renumber_lists(s, p.user.tenant_id, [str(i) for i in ids])
+    for row in rows:
+        row.draft_dirty = True
     pending = await _record_mutation(
         s, p, action="content.wtd_list.reordered", category="Win the Day",
         summary="Reordered Win the Day lists", target_type="wtd_list",
         entity_type="wtd_list")
     return {**(await get_wtd_lists(p, s)), "pending_changes": pending}
+
+
+# ── the Win the Day playbook (services/wtd_playbook) ──────────────────────────────────────
+
+async def _playbook_out(s: AsyncSession, tenant_id) -> dict:
+    row = await _playbook_row(s, tenant_id)
+    base = await follow_ups.fub_list_base(s, tenant_id)
+    return {
+        "content": wtd_playbook.current(row.content if row else None),
+        "exists": row is not None,
+        "published_at": _iso(row.published_at) if row else None,
+        "draft_dirty": bool(row.draft_dirty) if row else False,
+        "kinds": list(wtd_playbook.KINDS),
+        # What an empty "Open Follow Up Boss" and every list and pond link resolve to.
+        "fub": {"list_base": base, "people_url": wtd_playbook.people_url(base)},
+    }
+
+
+@router.get("/wtd/playbook")
+async def get_wtd_playbook(p: ConsolePrincipal = Depends(require_console_access),
+                           s: AsyncSession = Depends(get_session)):
+    return await _playbook_out(s, p.user.tenant_id)
+
+
+@router.patch("/wtd/playbook")
+async def patch_wtd_playbook(body: dict = Body(...),
+                             p: ConsolePrincipal = Depends(require_console_access),
+                             s: AsyncSession = Depends(get_session)):
+    """One or more whole sections, each validated on its own (services/wtd_playbook). A draft like
+    every other change here: agents see it when somebody publishes."""
+    body = _body(body)
+    _unknown(body, set(wtd_playbook.SECTIONS))
+    if not body:
+        _unprocessable("body", "Send at least one section.")
+    cleaned = {}
+    for name, value in body.items():
+        try:
+            cleaned[name] = wtd_playbook.clean_section(name, value)
+        except wtd_playbook.SectionError as e:
+            _unprocessable(e.field, e.message)
+    row = await _playbook_row(s, p.user.tenant_id, create=True)
+    content = wtd_playbook.current(row.content)
+    content.update(cleaned)
+    row.content = content
+    flag_modified(row, "content")
+    row.draft_dirty = True
+    names = ", ".join(sorted(cleaned))
+    pending = await _record_mutation(
+        s, p, action="content.wtd_playbook.updated", category="Win the Day",
+        summary=f"Updated the Win the Day playbook ({names})", target_type="wtd_playbook",
+        target_id=row.id, entity_type="wtd_playbook", entity_id=row.id)
+    return {**(await _playbook_out(s, p.user.tenant_id)), "pending_changes": pending}
+
+
+# ── the script library ───────────────────────────────────────────────────────────────────
+
+SCRIPT_FIELDS = {"name", "chip", "url", "description", "group_key", "active"}
+
+
+async def _apply_script_fields(s: AsyncSession, tenant_id, row: IntranetWtdScript,
+                               body: dict) -> None:
+    if "name" in body:
+        row.name = _text(body, "name", required=True, max_len=120)
+    if "chip" in body:
+        row.chip = _text(body, "chip", nullable=True, max_len=40) or None
+    if "url" in body:
+        raw = _text(body, "url", nullable=True, max_len=500) or None
+        try:
+            row.url = wtd_playbook._link(raw)
+        except ValueError as e:
+            _unprocessable("url", str(e))
+    if "description" in body:
+        row.description = _text(body, "description", nullable=True, max_len=400) or None
+    if "group_key" in body:
+        value = _text(body, "group_key", nullable=True, max_len=32) or None
+        if value is not None:
+            content = await _draft_content(s, tenant_id)
+            if value not in {g["key"] for g in content["scripts"]["groups"]}:
+                _unprocessable("group_key", "Not one of the playbook's script groups.")
+        row.group_key = value
+    if "active" in body:
+        row.active = bool(_bool(body, "active"))
+
+
+@router.get("/wtd/scripts")
+async def get_wtd_scripts(p: ConsolePrincipal = Depends(require_console_access),
+                          s: AsyncSession = Depends(get_session)):
+    rows = (await s.execute(select(IntranetWtdScript).where(
+        IntranetWtdScript.tenant_id == p.user.tenant_id).order_by(
+            IntranetWtdScript.position, IntranetWtdScript.name))).scalars().all()
+    return _list([_wtd_script(r) for r in rows])
+
+
+@router.post("/wtd/scripts")
+async def create_wtd_script(body: dict = Body(...),
+                            p: ConsolePrincipal = Depends(require_console_access),
+                            s: AsyncSession = Depends(get_session)):
+    body = _body(body)
+    _unknown(body, SCRIPT_FIELDS)
+    if "name" not in body:
+        _unprocessable("name", "Required.")
+    last = (await s.execute(select(func.max(IntranetWtdScript.position)).where(
+        IntranetWtdScript.tenant_id == p.user.tenant_id))).scalar()
+    row = IntranetWtdScript(tenant_id=p.user.tenant_id, name="", position=int(last or 0) + 1,
+                            active=True, draft_dirty=True)
+    await _apply_script_fields(s, p.user.tenant_id, row, body)
+    s.add(row)
+    await s.flush()
+    pending = await _record_mutation(
+        s, p, action="content.wtd_script.created", category="Win the Day",
+        summary=f"Added the script {row.name}", target_type="wtd_script", target_id=row.id,
+        entity_type="wtd_script", entity_id=row.id, change_kind="created")
+    return _with_pending(_wtd_script(row), pending)
+
+
+@router.patch("/wtd/scripts/{script_id}")
+async def patch_wtd_script(script_id: uuid.UUID, body: dict = Body(...),
+                           p: ConsolePrincipal = Depends(require_console_access),
+                           s: AsyncSession = Depends(get_session)):
+    row = await _one(s, IntranetWtdScript, p.user.tenant_id, script_id)
+    body = _body(body)
+    _unknown(body, SCRIPT_FIELDS)
+    await _apply_script_fields(s, p.user.tenant_id, row, body)
+    row.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.wtd_script.updated", category="Win the Day",
+        summary=f"Updated the script {row.name}", target_type="wtd_script", target_id=row.id,
+        entity_type="wtd_script", entity_id=row.id)
+    return _with_pending(_wtd_script(row), pending)
+
+
+@router.delete("/wtd/scripts/{script_id}")
+async def delete_wtd_script(script_id: uuid.UUID,
+                            p: ConsolePrincipal = Depends(require_console_access),
+                            s: AsyncSession = Depends(get_session)):
+    """Gone from the library AND from every list that named it -- a chip pointing at a deleted
+    script would be a link to nothing on an agent's screen."""
+    row = await _one(s, IntranetWtdScript, p.user.tenant_id, script_id)
+    name, sid = row.name, str(row.id)
+    for lst in (await s.execute(select(IntranetWtdList).where(
+            IntranetWtdList.tenant_id == p.user.tenant_id))).scalars().all():
+        if sid in [str(x) for x in (lst.script_ids or [])]:
+            lst.script_ids = [x for x in lst.script_ids if str(x) != sid] or None
+            flag_modified(lst, "script_ids")
+            lst.draft_dirty = True
+    await s.delete(row)
+    pending = await _record_mutation(
+        s, p, action="content.wtd_script.deleted", category="Win the Day",
+        summary=f"Removed the script {name}", target_type="wtd_script", target_id=script_id,
+        entity_type="wtd_script", change_kind="deleted")
+    return {"deleted": True, "pending_changes": pending}
+
+
+@router.put("/wtd/scripts/order")
+async def put_wtd_script_order(body: dict = Body(...),
+                               p: ConsolePrincipal = Depends(require_console_access),
+                               s: AsyncSession = Depends(get_session)):
+    ids = _body(body).get("ids")
+    rows = (await s.execute(select(IntranetWtdScript).where(
+        IntranetWtdScript.tenant_id == p.user.tenant_id))).scalars().all()
+    by_id = {str(r.id): r for r in rows}
+    if not isinstance(ids, list) or len(ids) != len(by_id) or set(map(str, ids)) != set(by_id):
+        _unprocessable("ids", "Must include every script exactly once.")
+    for pos, row_id in enumerate(ids, start=1):
+        by_id[str(row_id)].position = pos
+        by_id[str(row_id)].draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.wtd_script.reordered", category="Win the Day",
+        summary="Reordered the scripts", target_type="wtd_script", entity_type="wtd_script")
+    return {**(await get_wtd_scripts(p, s)), "pending_changes": pending}
+
+
+# ── checking list ids against the account ────────────────────────────────────────────────
+
+@router.get("/wtd/lists/check")
+async def check_wtd_list_ids(p: ConsolePrincipal = Depends(require_console_access),
+                             s: AsyncSession = Depends(get_session)):
+    """Which list and pond ids are not smart lists in the connected Follow Up Boss account.
+
+    Asked with the stored key, on the server; ids and names are all that come back. This is how
+    an imported playbook's ids get checked -- never by reading the key anywhere else."""
+    rows = (await s.execute(select(IntranetWtdList).where(
+        IntranetWtdList.tenant_id == p.user.tenant_id).order_by(IntranetWtdList.position))).scalars().all()
+    content = await _draft_content(s, p.user.tenant_id)
+    wanted = [{"kind": "list", "id": str(r.external_list_id).strip(), "name": r.name}
+              for r in rows if r.provider == "follow_up_boss" and (r.external_list_id or "").strip()]
+    wanted += [{"kind": "pond", "id": link["list_id"], "name": link["label"]}
+               for link in content["lists"]["ponds"]["links"]]
+    account = {str(item["id"]): item["name"] for item in await _fub_smart_lists(s, p.user.tenant_id)}
+    missing = [w for w in wanted if w["id"] not in account]
+    return {"checked": len(wanted), "missing": missing,
+            "found": [{**w, "account_name": account[w["id"]]} for w in wanted if w["id"] in account]}
+
+
+# ── moving a playbook between workspaces ─────────────────────────────────────────────────
+
+@router.get("/wtd/export")
+async def export_wtd_playbook(p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    row = await _playbook_row(s, p.user.tenant_id)
+    lists = (await s.execute(select(IntranetWtdList).where(
+        IntranetWtdList.tenant_id == p.user.tenant_id).order_by(IntranetWtdList.position))).scalars().all()
+    scripts = (await s.execute(select(IntranetWtdScript).where(
+        IntranetWtdScript.tenant_id == p.user.tenant_id).order_by(
+            IntranetWtdScript.position, IntranetWtdScript.name))).scalars().all()
+    return wtd_playbook.export_bundle(row.content if row else None, lists, scripts)
+
+
+@router.post("/wtd/import")
+async def import_wtd_playbook(body: dict = Body(...),
+                              p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    """A playbook file, checked whole before anything is written, then written as a DRAFT.
+
+    It refuses to overwrite: a workspace that already has a playbook, lists or scripts must say
+    `replace`, and replacing removes them now -- the imported ones appear when somebody
+    publishes."""
+    body = _body(body)
+    _unknown(body, {"bundle", "replace"})
+    try:
+        bundle = wtd_playbook.clean_bundle(body.get("bundle"))
+    except wtd_playbook.SectionError as e:
+        _unprocessable(e.field, e.message)
+    tid = p.user.tenant_id
+    existing = (await _playbook_row(s, tid) is not None
+                or await _count(s, IntranetWtdList, tid) > 0
+                or await _count(s, IntranetWtdScript, tid) > 0)
+    if existing and not _bool(body, "replace", default=False):
+        raise HTTPException(409, "This workspace already has a Win the Day playbook, lists or "
+                                 "scripts. Import again with replace to swap them for the file's.")
+    await s.execute(sa_delete(IntranetWtdList).where(IntranetWtdList.tenant_id == tid))
+    await s.execute(sa_delete(IntranetWtdScript).where(IntranetWtdScript.tenant_id == tid))
+    await s.execute(sa_delete(IntranetWtdPlaybook).where(IntranetWtdPlaybook.tenant_id == tid))
+    await s.flush()
+    playbook = IntranetWtdPlaybook(tenant_id=tid, content=bundle["content"], draft_dirty=True)
+    s.add(playbook)
+    ids = {}
+    for i, item in enumerate(bundle["scripts"], start=1):
+        script = IntranetWtdScript(
+            tenant_id=tid, name=item["name"], chip=item.get("chip"), url=item.get("url"),
+            description=item.get("description"), group_key=item.get("group_key"), position=i,
+            active=bool(item.get("active", True)), draft_dirty=True)
+        s.add(script)
+        await s.flush()
+        ids[item["ref"]] = str(script.id)
+    for i, item in enumerate(bundle["lists"], start=1):
+        s.add(IntranetWtdList(
+            tenant_id=tid, position=i, name=item["name"],
+            provider=item.get("provider") or "follow_up_boss",
+            external_list_id=item.get("external_list_id"), cadence=item.get("cadence"),
+            kind=item.get("kind") or "clear", description=item.get("description"),
+            group_key=item.get("group_key"), block_key=item.get("block_key"),
+            script_ids=[ids[r] for r in item.get("scripts") or []] or None,
+            active=bool(item.get("active", True)), draft_dirty=True))
+    await s.flush()
+    pending = await _record_mutation(
+        s, p, action="content.wtd_playbook.imported", category="Win the Day",
+        summary=(f"Imported a Win the Day playbook: {len(bundle['lists'])} lists, "
+                 f"{len(bundle['scripts'])} scripts"),
+        target_type="wtd_playbook", target_id=playbook.id, entity_type="wtd_playbook",
+        entity_id=playbook.id, change_kind="created",
+        detail={"replaced": existing, "lists": len(bundle["lists"]),
+                "scripts": len(bundle["scripts"])})
+    return {**(await _playbook_out(s, tid)), "lists": len(bundle["lists"]),
+            "scripts": len(bundle["scripts"]), "pending_changes": pending}
+
+
+# ── each person's targets ────────────────────────────────────────────────────────────────
+
+@router.get("/wtd/people")
+async def get_wtd_people(p: ConsolePrincipal = Depends(require_console_access),
+                         s: AsyncSession = Depends(get_session)):
+    """The roster with each person's on-ramp start and personal targets, and where that puts them
+    today -- so an admin setting a start date sees the phase it lands them in."""
+    tid = p.user.tenant_id
+    content = await _draft_content(s, tid)
+    ws = await _workspace_row(s, tid)
+    today = course_sections.workspace_today(ws.timezone if ws else None)
+    rows = (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == tid, IntranetMember.status != "Removed").order_by(
+            IntranetMember.full_name))).scalars().all()
+    tallies = [{"key": r["tally"]["key"], "label": r["label"], "goal": r["tally"].get("goal")}
+               for r in content["numbers"]["rows"] if r.get("tally")]
+    people = []
+    for m in rows:
+        goals, phase = wtd_playbook.goals_for(content["numbers"], m.started_on, m.wtd_goals, today)
+        people.append({"id": _id(m.id), "name": m.full_name, "status": m.status,
+                       "started_on": _iso(m.started_on), "wtd_goals": m.wtd_goals or {},
+                       "goals_today": goals, "onramp_phase": phase})
+    return {"tallies": tallies, "today": today.isoformat(), "items": people}
 
 
 @router.get("/tiles")

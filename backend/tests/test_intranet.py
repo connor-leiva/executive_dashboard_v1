@@ -394,7 +394,7 @@ async def test_a_workspace_gets_its_own_content_not_another_customers():
 
     content = cfg["content"]
     assert [r["name"] for r in content["roles"]] == ["Stylist"], content["roles"]
-    assert [w["name"] for w in content["wtd_lists"]] == ["Chair turns"]
+    assert [w["name"] for w in content["wtd"]["lists"]["items"]] == ["Chair turns"]
     tools = [t["name"] for g in content["tool_groups"] for t in g["tools"]]
     assert tools == ["Acme Booking"], tools
     # And nothing from the customer the constants file was shaped around.
@@ -873,7 +873,9 @@ async def test_the_matrix_is_reported_so_the_rail_can_match_it():
     await _deny(ids["tenant_id"], "wtd")
     content = await _content(host, tokens["member"])
     assert content["capabilities"].get("wtd") == "None"
-    assert content["wtd_lists"] == []
+    # Nothing at all, not an empty page: the rail hides the entry and there is no playbook,
+    # list or target in the payload to read.
+    assert content["wtd"] is None
 
 
 async def test_a_denied_role_cannot_file_a_marketing_request():
@@ -919,10 +921,11 @@ async def test_a_call_list_carries_the_link_the_console_configured():
     async with _client() as c:
         cfg = (await c.get("/api/v1/intranet/config",
                            headers=_H(tokens["member"], host))).json()["config"]
-    lists = {row["name"]: row for row in cfg["content"]["wtd_lists"]}
+    lists = {row["name"]: row for row in cfg["content"]["wtd"]["lists"]["items"]}
     assert lists["New leads"]["url"] == "https://team.followupboss.com/2/people/list/42"
-    assert lists["New leads"]["script_name"] == "New lead script"
-    assert lists["New leads"]["daily_target"] == 15
+    # A list written before the script library existed keeps its script, as a plain chip.
+    assert lists["New leads"]["scripts"] == [{"name": "New lead script", "url": None}]
+    assert [lists["New leads"]["no"], lists["Sphere"]["no"]] == ["01", "02"]
     # Present but unlinked, rather than hidden: an admin needs to see the list they have not
     # finished configuring.
     assert lists["Sphere"]["url"] is None
@@ -943,7 +946,7 @@ async def test_a_call_list_without_a_connected_provider_has_no_link():
     async with _client() as c:
         cfg = (await c.get("/api/v1/intranet/config",
                            headers=_H(tokens["member"], host))).json()["config"]
-    assert cfg["content"]["wtd_lists"][0]["url"] is None
+    assert cfg["content"]["wtd"]["lists"]["items"][0]["url"] is None
 
 
 # -- the workspace's own colours -----------------------------------------------------------

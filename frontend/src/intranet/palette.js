@@ -9,7 +9,9 @@
  * than assigned somewhere it does not belong; giving a swatch a home it was never drawn for is
  * how a workspace ends up with a gold border it never asked for.
  */
-import { darken, lighten, luminance } from "../palette.js";
+// color.js, NOT ../palette.js: that module paints the dashboard's fonts and colours onto the page
+// root the moment it is imported, which is how the portal was rendering in Instrument Sans.
+import { darken, lighten, luminance, mix } from "../color.js";
 
 /** Swatch -> the one variable it maps to directly. */
 const DIRECT = {
@@ -40,11 +42,33 @@ const RAIL_TEXT = [
   ["--rail-label", 0.32],
 ];
 
+/* WHO'S WHO AND WIN THE DAY'S OWN SHADES, each a blend of one of the workspace's swatches toward
+   a target, with the blend measured against the mockup. They are applied ONLY when that swatch
+   differs from the default -- a blend cannot hit the mockup's hex exactly, and a workspace that
+   kept Utah Life's colours must get exactly the mockup, not a near miss.
+   [variable, swatch, toward, t]; toward "ink" means the workspace's ink. */
+const DEFAULTS = { ink: "#171e22", brand: "#395262", accent: "#aecbd4", canvas: "#eae7e6" };
+const DERIVED = [
+  ["--hair", "canvas", "#ffffff", 0.43],
+  ["--line-done", "canvas", "ink", 0.038],
+  ["--input-line", "canvas", "ink", 0.176],
+  ["--steel", "brand", "#ffffff", 0.206],
+  ["--accent-line", "accent", "#ffffff", 0.275],
+  ["--avatar", "accent", "#ffffff", 0.54],
+  ["--photo", "ink", "#000000", 0.334],
+  ["--dark-edge", "ink", "#ffffff", 0.17],
+];
+
 const MANAGED = [
   ...Object.values(DIRECT),
   ...RAIL_SHADES.map(([name]) => name),
   ...RAIL_TEXT.map(([name]) => name),
+  ...DERIVED.map(([name]) => name),
 ];
+
+function changed(p, swatch) {
+  return Boolean(p[swatch]) && String(p[swatch]).toLowerCase() !== DEFAULTS[swatch];
+}
 
 export function applyPortalPalette(palette) {
   if (typeof document === "undefined") return;
@@ -58,6 +82,12 @@ export function applyPortalPalette(palette) {
   const p = palette || {};
   Object.entries(DIRECT).forEach(([swatch, name]) => {
     if (p[swatch]) root.style.setProperty(name, p[swatch]);
+  });
+
+  DERIVED.forEach(([name, swatch, toward, t]) => {
+    if (!changed(p, swatch) && !(toward === "ink" && changed(p, "ink"))) return;
+    const from = p[swatch] || DEFAULTS[swatch];
+    root.style.setProperty(name, mix(from, toward === "ink" ? (p.ink || DEFAULTS.ink) : toward, t));
   });
 
   if (!p.ink) return;
