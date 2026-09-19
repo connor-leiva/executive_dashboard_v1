@@ -4541,3 +4541,13 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Examples, not values. The console's fields are bold and a placeholder inherited it, so an empty
+   Tag box reading "Bilingual" looked like somebody's tag. */
+.pe-drawer input::placeholder,
+.pe-drawer textarea::placeholder,
+.wtdc-form input::placeholder,
+.wtdc-form textarea::placeholder {
+  color: var(--console-faint);
+  font-weight: 400;
+}

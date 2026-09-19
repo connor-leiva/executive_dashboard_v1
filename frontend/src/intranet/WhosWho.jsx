@@ -164,7 +164,7 @@ export default function WhosWho({ config, canConfigure }) {
       {leaders.length ? (
         <>
           <Section title="Leadership" />
-          <div className="ut-who-leaders">
+          <div className={`ut-who-leaders${leaders.length < 3 ? " few" : ""}`}>
             {leaders.map((p) => <Leader key={p.id} person={p} onOpen={() => open(p.id)} />)}
           </div>
         </>

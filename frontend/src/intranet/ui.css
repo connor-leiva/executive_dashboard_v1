@@ -4706,6 +4706,12 @@ a.ut-wtd-tool-name:hover {
   margin-top: 20px;
 }
 
+/* One or two leaders keep the width three would have, instead of stretching into banners: the
+   mockup's auto-fit draws three across, and with fewer it widens each card to fill the row. */
+.ut-who-leaders.few {
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+}
+
 .ut-who-leader {
   width: 100%;
   text-align: left;
@@ -4803,9 +4809,11 @@ a.ut-wtd-tool-name:hover {
 }
 
 /* Agents. */
+/* auto-fill where the mockup has auto-fit: identical once a row is full (the mockup shows nine),
+   and a workspace with one or two agents keeps card-sized cards rather than one across the page. */
 .ut-who-agents {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
   gap: 12px;
   margin-top: 18px;
 }
