@@ -780,6 +780,12 @@ italic fonts, and none of the dashboard's type.
 
 ### Phases 4–5: Who's Who
 
+**Shipped as `2591e03`, 2026-09-19, and checked in production:** alembic at `0076`, the twelve
+new member columns and both checks in place (existing members read *they* and *auto*),
+`intranet_directory_setting` present and empty, the new portal and console routes refusing a
+request without a session, and the built portal and console carrying the new pages, the 1152px
+width and the drawer's styles.
+
 **Built:**
 
 - **Phase 4, the model and the console.**
