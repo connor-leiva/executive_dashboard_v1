@@ -865,7 +865,7 @@ width and the drawer's styles.
     profile field, photo upload, focus and removal, and a refused field named.
 - **At 375px**, neither page scrolls sideways.
 
-### Phase 6: Utah Life, live (Who's Who done; Win the Day is Connor's)
+### Phase 6: Utah Life, live
 
 Connor approved entering the four leaders from the mockup, 2026-09-19. Done in his signed-in
 console on `utah-life`, through the console's own forms, so every field was checked by the server
@@ -888,6 +888,17 @@ and the audit log records it under his account:
 stretched that card across the page; one or two leaders did the same. And the drawer's example
 placeholders were bold enough to read as values.
 
-**Still Connor's:** import and publish the Win the Day playbook, check its list ids against Follow
-Up Boss, add the REMO link, put real production figures in the band if wanted, send the invites
-when ready, and look at both pages as an agent.
+**Win the Day, the same day, at Connor's request:**
+
+- Before importing: Utah Life had no playbook, lists or scripts (so the import replaced nothing)
+  and no other drafts pending (so Publish took only the playbook live).
+- Imported `utah-life-playbook.json` in the console (13 lists, 12 scripts) and published it. The
+  playbook, all 13 lists and all 12 scripts are live, with nothing left pending.
+- *Check the ids against Follow Up Boss*: all 20 ids are smart lists in the account. The live
+  page's list links open `liveutah1`'s smart lists.
+- **Found doing it, fixed in `464014b`:** after Publish the console went on saying *Draft · not yet
+  published* until a reload. Publish and Discard only refreshed the overview; they now refresh
+  every page.
+
+**Still Connor's:** add the REMO link (the mockup's is `#`), put real production figures in the
+band if wanted, send the invites when ready, and look at both pages as an agent.
