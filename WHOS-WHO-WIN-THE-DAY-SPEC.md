@@ -864,3 +864,30 @@ width and the drawer's styles.
   - the console page and the drawer from both screens: placement, order, featured, stats, every
     profile field, photo upload, focus and removal, and a refused field named.
 - **At 375px**, neither page scrolls sideways.
+
+### Phase 6: Utah Life, live (Who's Who done; Win the Day is Connor's)
+
+Connor approved entering the four leaders from the mockup, 2026-09-19. Done in his signed-in
+console on `utah-life`, through the console's own forms, so every field was checked by the server
+and the audit log records it under his account:
+
+- **Justin Nelson, Lauren Griner and Jace Gillies added to the roster** as Managers, sign-in
+  *Manual*, invites **held**: nobody was emailed. Their addresses came from the workspace's own
+  synced Sisu and Follow Up Boss users, not typed from memory.
+- **All four profiles and photos**, from the mockup: Spring's whole profile (subtitle, quote, bio,
+  what to bring her, phone, office, what she owns, photo) and the other three's cards (title,
+  market, what to bring them, photo). Spring's *She Owns* has no SOP line: Utah Life has no SOPs
+  in the library yet.
+- **The page:** Spring featured, with one number that counts itself (*Agents on the team*); the
+  mockup's 612 units and $268M are sample figures. Leadership in the mockup's order. Connor's own
+  entry is hidden.
+- Checked in the live portal: the band, the Leadership cards and Spring's profile look as the
+  mockup does.
+
+**Found doing it, fixed in `74205fc`:** with one agent (Utah Life has one so far) the agents grid
+stretched that card across the page; one or two leaders did the same. And the drawer's example
+placeholders were bold enough to read as values.
+
+**Still Connor's:** import and publish the Win the Day playbook, check its list ids against Follow
+Up Boss, add the REMO link, put real production figures in the band if wanted, send the invites
+when ready, and look at both pages as an agent.
