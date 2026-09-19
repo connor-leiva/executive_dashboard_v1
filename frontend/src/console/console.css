@@ -4266,3 +4266,278 @@ textarea {
     justify-items: start;
   }
 }
+
+/* ── Who's Who: the page, and the profile drawer shared with People & Roster ───────────── */
+.whoc-row .wtdc-list-head {
+  flex-wrap: wrap;
+}
+
+.whoc-name {
+  display: grid;
+  gap: 2px;
+  font-weight: 600;
+  flex: 1 1 200px;
+}
+
+.whoc-name small {
+  color: var(--console-faint);
+  font-weight: 500;
+  font-size: 12.5px;
+}
+
+.wtdc-counted {
+  align-self: end;
+  padding-bottom: 12px;
+}
+
+.pe-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(22, 32, 31, 0.36);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pe-drawer {
+  width: min(680px, 100vw);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--console-surface);
+  box-shadow: -24px 0 60px rgba(22, 32, 31, 0.18);
+  outline: none;
+}
+
+.pe-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px;
+  background: white;
+  border-bottom: 1px solid var(--console-line);
+}
+
+.pe-head div {
+  display: grid;
+  gap: 3px;
+}
+
+.pe-head span {
+  color: var(--console-faint);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.pe-head strong {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.pe-close {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pe-body {
+  padding: 20px 24px 40px;
+}
+
+.pe-body .console-field input,
+.pe-body .console-field select,
+.pe-body .console-field textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.pe-photo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+}
+
+.pe-photo-main {
+  display: grid;
+  gap: 10px;
+}
+
+.pe-photo-pick {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  padding: 0;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  cursor: crosshair;
+  overflow: hidden;
+}
+
+.pe-photo-pick img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.pe-focus {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 2px solid white;
+  border-radius: 99px;
+  box-shadow: 0 0 0 2px rgba(22, 32, 31, 0.55);
+  pointer-events: none;
+}
+
+.pe-photo-empty {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+  max-width: 320px;
+  border: 1px dashed var(--console-line);
+  border-radius: 8px;
+  color: var(--console-muted);
+  font-size: 13.5px;
+  text-align: center;
+  padding: 16px;
+}
+
+.pe-crops {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.pe-crop {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.pe-crop img {
+  display: block;
+  object-fit: cover;
+  background: #0f1417;
+}
+
+.pe-crop.card img {
+  width: 100px;
+  height: 107px;
+  border-radius: 8px;
+}
+
+.pe-crop.round img {
+  width: 64px;
+  height: 64px;
+  border-radius: 99px;
+}
+
+.pe-crop.band img {
+  width: 100px;
+  height: 64px;
+  border-radius: 6px;
+}
+
+.pe-lines {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 8px;
+}
+
+.pe-lines legend {
+  padding: 0 4px;
+  color: var(--console-faint);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.pe-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.pe-line.two {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+/* Matches .console-field's inputs, which take 13px bold from their label; these sit in a
+   fieldset instead, so they say it themselves. */
+.pe-line input {
+  height: 42px;
+  min-width: 0;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--console-ink);
+  background: white;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pe-line button,
+.pe-add {
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  padding: 0 12px;
+  min-height: 36px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  justify-self: start;
+}
+
+.pe-actions {
+  position: sticky;
+  bottom: 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--console-lineSoft);
+  background: var(--console-surface);
+}
+
+.wtdc-table select {
+  width: 100%;
+  min-width: 170px;
+  height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: white;
+  color: var(--console-ink);
+  padding: 0 10px;
+}
+
+@media (max-width: 640px) {
+  .pe-photo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pe-crops {
+    grid-auto-flow: column;
+    justify-content: start;
+  }
+  .pe-line.two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

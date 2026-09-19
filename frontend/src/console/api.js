@@ -93,6 +93,15 @@ function detailText(detail) {
   return "";
 }
 
+/* A page whose boxes are labelled differently from the wire's keys names the field its own way:
+   `name(key)` gives the page's label for a key ("owns_items.1.url" -> "Owned item 2, link"), or
+   null, in which case the plain text above is used. */
+export function namedError(err, name) {
+  const errors = Array.isArray(err?.errors) ? err.errors : [];
+  const named = errors.map((e) => (e && e.message && name(e.field) ? `${name(e.field)}: ${e.message}` : null));
+  return errors.length && named.every(Boolean) ? named.join(" ") : err?.detail || err?.message || "";
+}
+
 async function throwFor(res) {
   const raw = await res.text();
   let parsed = raw;
@@ -259,6 +268,17 @@ export const checkWtdLists = () => consoleGet("/wtd/lists/check");
 export const exportWtdPlaybook = () => consoleGet("/wtd/export");
 export const importWtdPlaybook = (body) => consoleSend("POST", "/wtd/import", body);
 export const getWtdPeople = () => consoleGet("/wtd/people");
+export const getDirectory = () => consoleGet("/directory");
+export const patchDirectory = (body) => consoleSend("PATCH", "/directory", body);
+export const putLeadershipOrder = (body) => consoleSend("PUT", "/directory/leadership/order", body);
+export const uploadMemberPhoto = (memberId, file) => consoleUpload(`/members/${memberId}/photo`, { file });
+export const deleteMemberPhoto = (memberId) => consoleSend("DELETE", `/members/${memberId}/photo`);
+// An authenticated fetch for the preview: an <img src> sends no Authorization header.
+export async function getMemberPhoto(memberId) {
+  const res = await fetch(consolePath(`/members/${memberId}/photo`), { headers: authHeaders() });
+  if (!res.ok) await throwFor(res);
+  return res.blob();
+}
 export const getCrmAgents = (source) => consoleGet(query("/crm-agents", { source }));
 export const getTiles = () => consoleGet("/tiles");
 export const createTile = (body) => consoleSend("POST", "/tiles", body);

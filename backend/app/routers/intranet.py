@@ -26,11 +26,12 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetIntegration, IntranetLessonAttachment,
                       IntranetSopCategory, IntranetUserState,
                       IntranetAiQuestion, IntranetContentGap, IntranetWorkspace,
-                      IntranetWtdList, IntranetWtdPlaybook, IntranetWtdScript, Tenant, User,
+                      IntranetWtdList, IntranetWtdPlaybook, IntranetWtdScript,
+                      IntranetDirectorySetting, Tenant, User,
                       Agent)
 from ..services import (binder_storage, course_sections, follow_ups, intranet_assistant,
                         lesson_media, lesson_richtext, member_numbers, sunburst, uploads,
-                        wtd_playbook)
+                        whos_who, wtd_playbook)
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import DENIED, allows, capability_levels
 from ..services.audit import audit
@@ -371,20 +372,23 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         lessons_by_course[course_id] = course_sections.order_lessons(
             group, sections_by_course.get(course_id, []))
 
-    # ── who's who ────────────────────────────────────────────────────────────────────────
-    # ACTIVE MEMBERS ONLY. An invited colleague has not arrived and a removed one has left, and
-    # a directory listing either is one people stop trusting. Ordered by name, because this is a
-    # list somebody scans for a person rather than a ranking.
+    # ── who's who (services/whos_who) ────────────────────────────────────────────────────
+    # EVERYONE ON THE ROSTER, not everyone who has signed in (D1). This was Active only, so a team
+    # added quietly with held invites showed nobody -- and a colleague is a colleague before they
+    # accept a portal invite. Removed people are gone; Hidden people are left out on purpose.
     #
     # The whole roster is visible to the whole workspace -- that is what a staff directory is --
     # but only the fields a colleague needs in order to work with somebody. Nothing about their
-    # account, their status history, or how they sign in.
+    # account, their status history, or how they sign in. Bios and contact details are on the
+    # profile route, not in this payload.
     directory_rows = (await s.execute(select(IntranetMember).where(
         IntranetMember.tenant_id == tenant_id,
-        IntranetMember.status == "Active",
+        IntranetMember.status != "Removed",
     ).order_by(IntranetMember.full_name))).scalars().all()
     role_names = {r.id: r.name for r in roles}
     leadership = {r.id for r in roles if r.is_leadership}
+    dir_setting = (await s.execute(select(IntranetDirectorySetting).where(
+        IntranetDirectorySetting.tenant_id == tenant_id))).scalars().first()
 
     # ── the workspace's own pages ────────────────────────────────────────────────────────
     pages = (await s.execute(select(IntranetPage).where(
@@ -643,12 +647,8 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
                                  for le in lessons_by_course.get(c.id, [])]}
                     for c in courses],
         "sops": [_sop_out(sop) for sop in sops],
-        "directory": [{"id": str(m.id), "name": m.full_name, "title": m.title,
-                       "role": role_names.get(m.role_id), "market": m.market,
-                       "email": m.email, "phone": m.phone, "bio": m.bio, "owns": m.owns,
-                       "is_leadership": m.role_id in leadership,
-                       "photo_url": (f"/intranet/directory/{m.id}/photo" if m.photo_key else None)}
-                      for m in directory_rows],
+        "directory": await _directory_payload(s, tenant_id, directory_rows, dir_setting,
+                                              role_names, leadership, member, today),
         # Pages this workspace wrote for itself. The rail builds its own entries from these, so
         # a page that is unpublished, inactive, or not for this role never reaches the browser
         # at all rather than being hidden once it gets there.
@@ -1256,6 +1256,84 @@ async def acknowledge_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
     return {"acknowledged_at": _iso(existing.acknowledged_at)}
 
 
+async def _directory_payload(s: AsyncSession, tenant_id, rows, setting, role_names: dict,
+                             leadership: set, viewer: IntranetMember | None,
+                             today: dt.date) -> dict:
+    """Who's Who, laid out as the page draws it: the featured person, the stats under them, the
+    Leadership section in its chosen order, and everyone else by name. The featured person appears
+    once, in the band -- not again as a card below it."""
+    listed = [m for m in rows if whos_who.listed(m, leadership)]
+    you = viewer.id if viewer is not None else None
+
+    def _card(m):
+        return whos_who.card(m, role_name=role_names.get(m.role_id), you=m.id == you)
+
+    featured = next((m for m in listed if setting is not None and m.id == setting.featured_member_id),
+                    None)
+    leaders = sorted((m for m in listed if m is not featured
+                      and whos_who.placement(m, leadership) == "leadership"),
+                     key=lambda m: (m.directory_order if m.directory_order is not None else 999,
+                                    m.full_name.lower()))
+    agents = [m for m in listed if m is not featured
+              and whos_who.placement(m, leadership) == "agents"]
+
+    stats = list(setting.stats or []) if setting is not None else []
+    team = None
+    if any((st.get("source") or "") in whos_who.SISU_SOURCES for st in stats):
+        # Only when the workspace chose to show a Sisu total (D3), and only if Sisu is there.
+        if (await member_numbers.sisu_state(s, tenant_id))["connected"]:
+            team = await member_numbers.team_figures(s, tenant_id, today)
+    intro = setting.intro if setting is not None and setting.intro else ""
+    return {
+        "intro": whos_who.fill(intro, len(listed)) if intro else "",
+        "team_size": len(listed),
+        "featured": ({**_card(featured),
+                      "eyebrow": (setting.featured_label or featured.title
+                                  or role_names.get(featured.role_id) or "")}
+                     if featured is not None else None),
+        "stats": whos_who.resolve_stats(stats, team_size=len(listed), team=team),
+        "leadership": [_card(m) for m in leaders],
+        "agents": [_card(m) for m in agents],
+        "preview_count": setting.preview_count if setting is not None else 9,
+    }
+
+
+@router.get("/directory/{member_id}")
+async def directory_profile(member_id: uuid.UUID, user: User = Depends(current_user),
+                            s: AsyncSession = Depends(get_session)):
+    """One person's profile page: the card, and what only the profile shows -- the quote, bio, the
+    bring list, how to reach them and what they own. Anyone the directory lists; a hidden or
+    removed person answers 404, as if they were never on it.
+
+    WHAT THEY OWN includes the SOPs whose owner they are, read from the SOP library rather than
+    typed twice -- and only for a viewer whose role can open the SOP library, or the links would
+    be doors to a page that refuses them."""
+    await _enabled_tenant(s, user)
+    roles = (await s.execute(select(IntranetRole).where(
+        IntranetRole.tenant_id == user.tenant_id, published(IntranetRole)))).scalars().all()
+    leadership = {r.id for r in roles if r.is_leadership}
+    row = (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == user.tenant_id, IntranetMember.id == member_id))).scalars().first()
+    if row is None or not whos_who.listed(row, leadership):
+        raise HTTPException(404, "Not found")
+    viewer = await _member_for(s, user)
+    levels = await capability_levels(s, user.tenant_id, viewer.role_id if viewer else None)
+    owned: list[dict] = []
+    if allows(levels, "sop_library"):
+        sops = (await s.execute(select(IntranetSop).where(
+            IntranetSop.tenant_id == user.tenant_id, IntranetSop.owner_member_id == row.id,
+            IntranetSop.state == "Live", published(IntranetSop)).order_by(IntranetSop.title))).scalars().all()
+        version_ids = [x.current_version_id for x in sops if x.current_version_id]
+        labels = {}
+        if version_ids:
+            labels = dict((await s.execute(select(IntranetSopVersion.id, IntranetSopVersion.version_label)
+                                           .where(IntranetSopVersion.id.in_(version_ids)))).all())
+        owned = [{"id": str(x.id), "title": x.title, "version": labels.get(x.current_version_id)}
+                 for x in sops]
+    return whos_who.profile(row, role_name={r.id: r.name for r in roles}.get(row.role_id),
+                            you=viewer is not None and viewer.id == row.id, owned_sops=owned)
+
+
 @router.get("/directory/{member_id}/photo")
 async def directory_photo(member_id: uuid.UUID, user: User = Depends(current_user),
                           s: AsyncSession = Depends(get_session)):
@@ -1269,10 +1347,13 @@ async def directory_photo(member_id: uuid.UUID, user: User = Depends(current_use
     await _enabled_tenant(s, user)
     if await _member_for(s, user) is None:
         raise HTTPException(404, "Not found")
+    # The directory's own rule (D1): anyone not Removed and not Hidden. It was Active only, which
+    # would have 404'd the photo of everybody listed before they signed in.
     row = (await s.execute(select(IntranetMember).where(
         IntranetMember.tenant_id == user.tenant_id,
         IntranetMember.id == member_id,
-        IntranetMember.status == "Active",
+        IntranetMember.status != "Removed",
+        IntranetMember.directory_placement != "hidden",
     ))).scalars().first()
     if row is None or not row.photo_key or not binder_storage.exists(row.photo_key):
         raise HTTPException(404, "Not found")

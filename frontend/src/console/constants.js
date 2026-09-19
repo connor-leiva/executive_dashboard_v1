@@ -22,6 +22,7 @@ export const NAV_SECTIONS = [
       { to: "/training", label: "Training Library" },
       { to: "/sops", label: "SOP Library" },
       { to: "/wtd", label: "Win the Day" },
+      { to: "/whos-who", label: "Who's Who" },
       { to: "/launchpad", label: "Tool Launchpad" },
       { to: "/pages", label: "Pages" },
     ],

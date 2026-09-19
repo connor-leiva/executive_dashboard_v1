@@ -130,19 +130,27 @@ def corpus(content: dict) -> list[dict]:
                 "facts": {"group": group.get("label"), "url": tool.get("url")},
             })
 
-    for person in c.get("directory") or []:
+    # Who's Who is laid out as the page draws it now (services/whos_who): the featured person,
+    # the leadership and the agents. Each person points at their own profile.
+    directory = c.get("directory") or {}
+    people = [("featured", directory["featured"])] if directory.get("featured") else []
+    people += [("leadership", p) for p in directory.get("leadership") or []]
+    people += [("agents", p) for p in directory.get("agents") or []]
+    for section, person in people:
         out.append({
-            "kind": "Person", "title": person.get("name"), "ref": "/directory",
+            "kind": "Person", "title": person.get("name"), "ref": f"/directory/{person.get('id')}",
             "facts": {
                 "title": person.get("title"),
-                "role": person.get("role"),
                 "market": person.get("market"),
-                # The field that answers "who handles X", which is most of what a directory is
-                # opened for.
+                "headline": person.get("headline"),
+                "tag": person.get("tag"),
+                # What to bring them and what they own answer "who handles X", which is most of
+                # what a directory is opened for.
+                "bring_them": person.get("help_line"),
                 "owns": person.get("owns"),
                 "email": person.get("email"),
                 "phone": person.get("phone"),
-                "leadership": person.get("is_leadership"),
+                "leadership": section in ("featured", "leadership"),
             },
         })
 

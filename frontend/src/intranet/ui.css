@@ -533,9 +533,10 @@ input {
 
 .ut-home,
 .ut-page {
-  /* 1240 is the mockup's main max-width. It was 1268, which only shows above ~1300px but is
-     exactly what a 1920 check is for. */
-  width: min(1240px, 100%);
+  /* 1152: the mockup's main is max-width 1240 with border-box sizing and 44px of padding each
+     side, so its CONTENT caps at 1152 -- measured in the mockup at 1920px. This said 1240, which
+     is identical up to ~1530px and 88px too wide on a big monitor. */
+  width: min(1152px, 100%);
 }
 
 .ut-home {
@@ -1313,91 +1314,6 @@ button.sun-prompt { text-align: left; width: 100%; }
   font-size: 13.5px;
 }
 
-/* Who's Who. A grid of people rather than a table: a directory is scanned for a face and a
-   name, and a table row is the wrong shape for a photograph. */
-.ut-directory {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-.ut-person {
-  padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
-}
-
-.ut-person-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.ut-person-head strong { display: block; font-size: 15px; font-weight: 600; }
-.ut-person-head em {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 12.5px;
-  font-style: normal;
-}
-
-.ut-person-photo,
-.ut-person-initials {
-  width: 46px;
-  height: 46px;
-  flex: none;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-/* Initials when there is no photograph -- a person-shaped placeholder icon on every card makes
-   a team look like a database, and a monogram at least belongs to them. */
-.ut-person-initials {
-  display: grid;
-  place-items: center;
-  background: var(--rail);
-  color: var(--panel);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: .02em;
-}
-
-.ut-person-owns {
-  margin: 0 0 10px;
-  color: var(--body);
-  font-size: 13.5px;
-  line-height: 1.5;
-}
-
-.ut-person-owns span {
-  margin-right: 6px;
-  color: var(--faint);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-
-.ut-person-contact {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 12px;
-}
-
-.ut-person-contact a {
-  color: var(--primary);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-  word-break: break-word;
-}
-
-.ut-person-contact a:hover { text-decoration: underline; }
-
 /* An authored page's prose and its link row. Deliberately plain: this is a workspace's own
    writing, and the design's job is to set it readably rather than to decorate it. */
 .ut-page-body {
@@ -1615,6 +1531,12 @@ button.sun-prompt { text-align: left; width: 100%; }
   align-items: center;
   gap: 12px;
   border-top: 1px solid var(--soft-line);
+}
+
+/* The SOP a Who's Who profile linked to (/sops#sop-<id>): found at a glance, not flashed. */
+.ut-table-row.is-target {
+  background: var(--wash);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 /* A button that opens a document, wearing the type it sits in. It has to be a <button> rather
@@ -3376,7 +3298,7 @@ a.ut-fu-row:focus-visible {
    is grid minimums written as min(Npx, 100%): identical at desktop widths, and a phone never
    scrolls sideways. */
 .ut-wtd {
-  width: min(1240px, 100%);
+  width: min(1152px, 100%);   /* the mockup's content width; see .ut-page */
 }
 
 .ut-wtd-eyebrow {
@@ -4568,5 +4490,683 @@ a.ut-wtd-tool-name:hover {
   }
   .ut-wtd-won {
     margin-left: 0;
+  }
+}
+
+/* ── WHO'S WHO ──────────────────────────────────────────────────────────────────────────────
+   Ported from the mockup's markup (brand-src/mockups/utah-life-intranet/template.html, lines
+   1598-1717), declaration for declaration, the way Win the Day is: the mockup's pixel values,
+   every colour a token, grid minimums as min(Npx, 100%) so a phone never scrolls sideways.
+   Buttons carry `line-height: normal` because the mockup's do -- `font: inherit` would otherwise
+   hand them whatever line-height their parent has. */
+.ut-who {
+  width: min(1152px, 100%);
+}
+
+.ut-who-eyebrow {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-who-title {
+  margin: 10px 0 0;
+  font-family: var(--font-text);
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.6px;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.ut-who-lede {
+  margin: 12px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--body);
+  max-width: 560px;
+}
+
+/* The featured band. */
+.ut-who-band {
+  margin-top: 30px;
+  background: var(--ink);
+  border-radius: 20px;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+}
+
+.ut-who-band-copy {
+  padding: 44px 46px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.ut-who-band-eyebrow {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ut-who-band-name {
+  margin: 14px 0 0;
+  font-family: var(--font-text);
+  font-size: 42px;
+  line-height: 1;
+  letter-spacing: -0.8px;
+  font-weight: 400;
+  color: #ffffff;
+}
+
+.ut-who-band-sub {
+  margin-top: 12px;
+  font-size: 15px;
+  color: var(--rail-text);
+}
+
+.ut-who-band-quote {
+  margin: 26px 0 0;
+  font-family: var(--font-display);
+  font-size: 23px;
+  line-height: 1.45;
+  font-style: italic;
+  font-weight: 400;
+  color: #ffffff;
+  max-width: 420px;
+  text-wrap: pretty;
+}
+
+.ut-who-band-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 30px;
+  flex-wrap: wrap;
+}
+
+.ut-who-band-button {
+  border: 0;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: normal;
+  padding: 12px 20px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.ut-who-band-button:hover {
+  background: var(--accent);
+}
+
+.ut-who-stats {
+  display: flex;
+  gap: 32px;
+  margin-top: 34px;
+  padding-top: 26px;
+  border-top: 1px solid var(--rail-line);
+  flex-wrap: wrap;
+}
+
+.ut-who-stat-v {
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: -0.4px;
+  color: #ffffff;
+}
+
+.ut-who-stat-k {
+  margin-top: 7px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--rail-dim);
+}
+
+/* The photo melts into the canvas colour with multiply: a cut-out on white loses its white. */
+.ut-who-band-photo {
+  position: relative;
+  min-height: 460px;
+  background: var(--page);
+  overflow: hidden;
+}
+
+.ut-who-band-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  mix-blend-mode: multiply;
+}
+
+/* A section heading and its rule: Leadership, Agents. */
+.ut-who-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 44px;
+  flex-wrap: wrap;
+}
+
+.ut-who-section h2 {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ut-who-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+  min-width: 20px;
+}
+
+.ut-who-count {
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.ut-who-count-toggle {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--primary);
+  font-size: 11.5px;
+  line-height: normal;
+  cursor: pointer;
+}
+
+.ut-who-count-toggle:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+/* Leadership. */
+.ut-who-leaders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.ut-who-leader {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  padding: 0;
+  background: var(--ink);
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  line-height: normal;
+  cursor: pointer;
+}
+
+.ut-who-leader:hover {
+  transform: translateY(-3px);
+}
+
+.ut-who-leader-photo {
+  position: relative;
+  display: block;
+  height: 268px;
+  background: var(--photo);
+  overflow: hidden;
+}
+
+/* The photo fades out below 68%, into the ground behind it, under the name. */
+.ut-who-leader-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  mask-image: linear-gradient(180deg, #000 0%, #000 68%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 68%, transparent 100%);
+}
+
+.ut-who-leader-initials {
+  position: absolute;
+  inset: 0 0 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 56px;
+  letter-spacing: -1px;
+  color: var(--dark-edge);
+}
+
+.ut-who-leader-body {
+  display: block;
+  padding: 0 24px 26px;
+  margin-top: -26px;
+  position: relative;
+}
+
+.ut-who-leader-eyebrow {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ut-who-leader-name {
+  display: block;
+  margin-top: 9px;
+  font-size: 22px;
+  line-height: 1.1;
+  letter-spacing: -0.3px;
+  color: #ffffff;
+}
+
+.ut-who-leader-help {
+  display: block;
+  margin-top: 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--rail-text);
+}
+
+/* The mockup's own stack, not --font-ui: Archivo has no arrow, and the arrow must fall back to
+   what the mockup's does (the generic sans-serif). Through --font-ui it came from Segoe UI,
+   whose taller line made every leadership card a pixel taller than the mockup's. */
+.ut-who-leader-more {
+  display: block;
+  margin-top: 16px;
+  font-family: "Archivo", sans-serif;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* Agents. */
+.ut-who-agents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.ut-who-agent {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--ink);
+  line-height: normal;
+  cursor: pointer;
+}
+
+.ut-who-agent:hover {
+  border-color: var(--accent);
+}
+
+.ut-who-initials {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 99px;
+  background: var(--avatar);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.ut-who-agent-text {
+  display: block;
+  min-width: 0;
+  flex: 1;
+}
+
+.ut-who-agent-name {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.ut-who-agent-line {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.ut-who-agent-tag {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+/* One person. */
+.ut-who-back {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: normal;
+  cursor: pointer;
+}
+
+.ut-who-back:hover {
+  color: var(--ink);
+}
+
+.ut-who-profile {
+  margin-top: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.ut-who-profile-head {
+  background: var(--ink);
+  padding: 38px 44px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.ut-who-profile-photo,
+.ut-who-profile-initials {
+  width: 104px;
+  height: 104px;
+  flex: 0 0 104px;
+  border-radius: 99px;
+  background: var(--dark-line);
+}
+
+.ut-who-profile-photo {
+  display: block;
+  object-fit: cover;
+}
+
+.ut-who-profile-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: var(--accent);
+}
+
+.ut-who-profile-id {
+  flex: 1;
+  min-width: min(240px, 100%);
+}
+
+.ut-who-profile-eyebrow {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ut-who-profile-name {
+  margin: 12px 0 0;
+  font-family: var(--font-text);
+  font-size: 38px;
+  line-height: 1;
+  letter-spacing: -0.6px;
+  font-weight: 400;
+  color: #ffffff;
+}
+
+.ut-who-profile-sub {
+  margin-top: 10px;
+  font-size: 15px;
+  color: var(--rail-text);
+}
+
+.ut-who-profile-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* A link drawn as the mockup's outline button, so mailto:, sms: and slack:// all just work. */
+.ut-who-message {
+  display: inline-block;
+  border: 1px solid var(--dark-edge);
+  background: transparent;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: normal;
+  padding: 12px 18px;
+  border-radius: 10px;
+  text-decoration: none;
+}
+
+.ut-who-message:hover {
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.ut-who-profile-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 44px;
+  padding: 40px 44px;
+  container-type: inline-size;
+}
+
+/* Nothing to read, only how to reach them -- most agents. The boxes keep the column they have
+   beside a written profile, on the left where the eye starts, instead of stretching across a
+   card they cannot fill. 644px is where the grid above goes to two columns (2 x 300 + 44). */
+@container (min-width: 644px) {
+  .ut-who-profile-body.side-only .ut-who-profile-side {
+    width: calc((100% - 44px) / 2);
+  }
+}
+
+.ut-who-profile-main {
+  min-width: 0;
+}
+
+.ut-who-quote {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1.45;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+
+.ut-who-para {
+  margin: 14px 0 0;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--body);
+  text-wrap: pretty;
+}
+
+.ut-who-quote + .ut-who-para {
+  margin-top: 24px;
+}
+
+.ut-who-profile-main > .ut-who-para:first-child {
+  margin-top: 0;
+}
+
+.ut-who-bring {
+  margin-top: 30px;
+}
+
+.ut-who-profile-main > .ut-who-bring:first-child {
+  margin-top: 0;
+}
+
+.ut-who-label {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-who-bring-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 12px;
+}
+
+.ut-who-bring-row {
+  display: flex;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--hair);
+  font-size: 15.5px;
+  line-height: 1.45;
+  color: var(--body);
+}
+
+.ut-who-dot {
+  width: 5px;
+  height: 5px;
+  margin-top: 8px;
+  flex: 0 0 5px;
+  border-radius: 99px;
+  background: var(--accent);
+}
+
+.ut-who-profile-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.ut-who-box {
+  background: var(--wash);
+  border: 1px solid var(--soft-line);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.ut-who-box-label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-who-reach {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.ut-who-reach-k {
+  color: var(--faint);
+}
+
+.ut-who-reach a,
+.ut-who-owned {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.ut-who-reach a:hover,
+.ut-who-owned:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+/* The phone is a tel: link -- on a phone this page is how somebody calls a colleague -- drawn
+   as the mockup's plain figure. */
+.ut-who-reach a.ut-who-tel {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.ut-who-owns {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 12px;
+}
+
+.ut-who-owned {
+  font-size: 14px;
+  font-weight: 500;
+  padding: 9px 0;
+  border-top: 1px solid var(--soft-line);
+}
+
+.ut-who-owned.plain {
+  color: var(--ink);
+}
+
+.ut-who-owned.plain:hover {
+  text-decoration: none;
+}
+
+@media (max-width: 760px) {
+  .ut-who-title {
+    font-size: 36px;
+  }
+  .ut-who-band-copy {
+    padding: 30px 24px;
+  }
+  .ut-who-band-name {
+    font-size: 36px;
+  }
+  .ut-who-band-photo {
+    min-height: 340px;
+  }
+  .ut-who-profile-head {
+    padding: 28px 24px;
+    gap: 20px;
+  }
+  .ut-who-profile-name {
+    font-size: 32px;
+  }
+  .ut-who-profile-body {
+    padding: 28px 24px;
+    gap: 32px;
   }
 }

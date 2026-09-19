@@ -66,6 +66,11 @@ import {
   checkWtdLists,
   importWtdPlaybook,
   getWtdPeople,
+  getDirectory,
+  patchDirectory,
+  putLeadershipOrder,
+  uploadMemberPhoto,
+  deleteMemberPhoto,
   getCrmAgents,
   inviteMember,
   login,
@@ -140,6 +145,7 @@ export const keys = {
   wtdScripts: ["console", "wtd", "scripts"],
   wtdPeople: ["console", "wtd", "people"],
   wtdCheck: ["console", "wtd", "check"],
+  directory: ["console", "directory"],
   fubSmartLists: ["console", "fub-smart-lists"],
   followUps: ["console", "follow-ups"],
   crmAgents: (source) => ["console", "crm-agents", source],
@@ -818,6 +824,48 @@ export function usePatchWtdPerson() {
       queryClient.invalidateQueries({ queryKey: keys.wtdPeople });
     },
   });
+}
+
+/* WHO'S WHO. The page's settings and everyone's placement move together with the roster: a
+   profile saved from either screen shows on both. */
+function invalidateDirectory(queryClient) {
+  invalidateRoster(queryClient);
+  queryClient.invalidateQueries({ queryKey: keys.directory });
+}
+
+export function useDirectory() {
+  return useQuery({ queryKey: keys.directory, queryFn: getDirectory });
+}
+
+export function usePatchDirectory() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: patchDirectory, onSuccess: () => invalidateDirectory(queryClient) });
+}
+
+export function useLeadershipOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: putLeadershipOrder, onSuccess: () => invalidateDirectory(queryClient) });
+}
+
+export function usePatchProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memberId, body }) => patchMember(memberId, body),
+    onSuccess: () => invalidateDirectory(queryClient),
+  });
+}
+
+export function useUploadMemberPhoto() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memberId, file }) => uploadMemberPhoto(memberId, file),
+    onSuccess: () => invalidateDirectory(queryClient),
+  });
+}
+
+export function useDeleteMemberPhoto() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: deleteMemberPhoto, onSuccess: () => invalidateDirectory(queryClient) });
 }
 
 export function useWtdPeople() {

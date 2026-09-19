@@ -76,15 +76,18 @@ function corpus(content) {
     });
   });
 
-  (c.directory || []).forEach((person) => {
+  // Who's Who as the page lays it out: the featured person, the leadership, the agents. Each
+  // result opens that person's profile.
+  const dir = c.directory || {};
+  [dir.featured, ...(dir.leadership || []), ...(dir.agents || [])].filter(Boolean).forEach((person) => {
     out.push({
       type: "People", title: person.name,
-      detail: [person.title || person.role, person.market].filter(Boolean).join(" · "),
-      to: "/directory",
-      // Searchable by what somebody OWNS, not just their name: "who handles compliance" is the
-      // question a directory is actually opened for.
-      text: [person.name, person.title, person.role, person.market, person.owns,
-             person.email].join(" "),
+      detail: [person.title, person.market].filter(Boolean).join(" · "),
+      to: `/directory/${person.id}`,
+      // Searchable by what somebody OWNS and what to bring them, not just their name: "who
+      // handles compliance" is the question a directory is actually opened for.
+      text: [person.name, person.title, person.market, person.headline, person.tag,
+             person.help_line, person.email, ...(person.owns || [])].join(" "),
     });
   });
 

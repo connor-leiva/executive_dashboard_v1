@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { API_BASE, endViewAs, fileUrl, getBlob, getJSON, hasToken, logout, patchJSON, postJSON, putJSON, uploadFile, viewingAs, wasViewingAs } from "../api.js";
-import { useAuthedImage } from "../useAuthedImage.js";
 import { applyPortalPalette } from "./palette.js";
 import { search as search_ } from "./search.js";
 import { logoFor } from "./vendor-logos.js";
@@ -14,6 +13,7 @@ import {
   ONBOARDING,
 } from "./constants.js";
 import WinTheDay, { EMPTY_DAY } from "./WinTheDay.jsx";
+import WhosWho, { Profile as WhosWhoProfile } from "./WhosWho.jsx";
 
 const DEFAULT_CONFIG = {
   calendar: { google_calendar_url: "" },
@@ -2342,6 +2342,12 @@ async function saveSop(sop) {
  * been uploaded and stored the whole time with no member route to serve them. */
 function Sops({ config }) {
   const sops = (config?.content?.sops) || [];
+  // A profile's owned SOP links here as /sops#sop-<id>: that row is scrolled to and marked.
+  const { hash } = useLocation();
+  const target = hash.startsWith("#sop-") ? hash.slice(5) : "";
+  useEffect(() => {
+    if (target) document.getElementById(`sop-${target}`)?.scrollIntoView({ block: "center" });
+  }, [target, sops.length]);
   const [error, setError] = useState(null);
   // Acknowledgements the server has confirmed since this page loaded, laid over what the payload
   // arrived with. Avoids refetching the whole workspace config to reflect one tick.
@@ -2391,7 +2397,7 @@ function Sops({ config }) {
         {error ? <p className="ut-empty">{error}</p> : null}
         <div className="ut-table">
           {sops.map((sop) => (
-            <div className="ut-table-row" key={sop.id}>
+            <div className={`ut-table-row${sop.id === target ? " is-target" : ""}`} key={sop.id} id={`sop-${sop.id}`}>
               <span>{sop.category || "—"}</span>
               <strong>
                 {sop.file_url
@@ -2732,69 +2738,6 @@ function Marketing({ config, canConfigure }) {
               )}
         </Panel>
       )}
-    </Page>
-  );
-}
-
-/* THE ROSTER WAS ALREADY THERE. This screen said "Directory is empty" while intranet_member held
- * the whole team -- admin-only, with no member-facing read. It is the first thing a new starter
- * looks for and it told them their workspace had nobody in it.
- *
- * Leadership first, then everyone else alphabetically. Not a ranking: a new agent looking for
- * "who do I ask" needs the people whose job that is at the top, and everyone else in an order
- * they can scan.
- */
-/* A colleague's photo, fetched with the session: the route is behind it, and a bare <img src>
-   sends none -- which is why no directory photo had ever displayed. Initials until it arrives,
-   and for good when there is none. */
-function PersonPhoto({ person, className = "ut-person-photo", initialsClass = "ut-person-initials" }) {
-  const src = useAuthedImage(person.photo_url || null, getBlob);
-  return src
-    ? <img className={className} src={src} alt="" />
-    : <span className={initialsClass}>{initials(person.name)}</span>;
-}
-
-function Directory({ config }) {
-  const people = config?.content?.directory || [];
-  const ordered = [...people].sort((a, b) =>
-    (b.is_leadership ? 1 : 0) - (a.is_leadership ? 1 : 0) || a.name.localeCompare(b.name));
-
-  if (!ordered.length) {
-    return (
-      <Page title="Who's Who" subtitle="Everyone in this workspace.">
-        <Panel title="Nobody yet">
-          <p className="ut-empty">
-            People appear here once they are added to the roster in the console.
-          </p>
-        </Panel>
-      </Page>
-    );
-  }
-
-  return (
-    <Page title="Who's Who" subtitle={`${ordered.length} ${ordered.length === 1 ? "person" : "people"} in this workspace.`}>
-      <div className="ut-directory">
-        {ordered.map((person) => (
-          <div className="ut-person" key={person.id}>
-            <div className="ut-person-head">
-              <PersonPhoto person={person} />
-              <div>
-                <strong>{person.name}</strong>
-                <em>{person.title || person.role}{person.market ? ` · ${person.market}` : ""}</em>
-              </div>
-            </div>
-            {person.owns ? <p className="ut-person-owns"><span>Owns</span> {person.owns}</p> : null}
-            {person.bio ? <p className="ut-page-body">{person.bio}</p> : null}
-            <div className="ut-person-contact">
-              {/* mailto and tel rather than plain text: on a phone this page IS how somebody
-                  calls a colleague, and making them retype a number is the difference between
-                  a directory and a list of names. */}
-              {person.email ? <a href={`mailto:${person.email}`}>{person.email}</a> : null}
-              {person.phone ? <a href={`tel:${person.phone}`}>{person.phone}</a> : null}
-            </div>
-          </div>
-        ))}
-      </div>
     </Page>
   );
 }
@@ -3208,7 +3151,8 @@ export default function IntranetApp() {
         <Route path="/numbers" element={<Numbers config={boot.config} me={boot.me} canConfigure={boot.canConfigure} />} />
         <Route path="/calendar" element={<Calendar config={boot.config} canConfigure={boot.canConfigure} saveConfig={boot.saveConfig} />} />
         <Route path="/marketing" element={<Marketing config={boot.config} canConfigure={boot.canConfigure} />} />
-        <Route path="/directory" element={<Directory config={boot.config} />} />
+        <Route path="/directory" element={<WhosWho config={boot.config} canConfigure={boot.canConfigure} />} />
+        <Route path="/directory/:id" element={<WhosWhoProfile config={boot.config} />} />
         <Route path="/brand" element={<BrandKit config={boot.config} />} />
         <Route path="/ask" element={<Ask config={boot.config} me={boot.me} />} />
         <Route path="/sunburst" element={<SunburstPage config={boot.config} me={boot.me} canConfigure={boot.canConfigure} />} />

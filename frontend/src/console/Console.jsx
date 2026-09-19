@@ -35,6 +35,7 @@ import Pages from "./pages/Pages.jsx";
 import ToolLaunchpad from "./pages/ToolLaunchpad.jsx";
 import Training from "./pages/Training.jsx";
 import WinTheDay from "./pages/WinTheDay.jsx";
+import WhosWho from "./pages/WhosWho.jsx";
 
 function cssVars() {
   return Object.fromEntries(Object.entries(palette).map(([key, value]) => [`--console-${key}`, value]));
@@ -361,6 +362,7 @@ export default function Console() {
           <Route path="/training" element={<Training />} />
           <Route path="/sops" element={<SopLibrary />} />
           <Route path="/wtd" element={<WinTheDay />} />
+          <Route path="/whos-who" element={<WhosWho />} />
           <Route
             path="/launchpad"
             element={(

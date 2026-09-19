@@ -159,8 +159,13 @@ def test_an_sop_with_a_file_says_the_file_was_not_read():
 def test_people_are_searchable_by_what_they_own():
     """"Who handles compliance" is the question a directory is opened for, and a name-only entry
     cannot answer it."""
-    entry = ia.corpus({"directory": [{"name": "Ada", "owns": "Compliance", "title": "Ops"}]})[0]
-    assert entry["facts"]["owns"] == "Compliance"
+    entry = ia.corpus({"directory": {"agents": [
+        {"id": "1", "name": "Ada", "owns": ["Compliance"], "title": "Ops",
+         "phone": "801-555-0100", "email": "ada@example.com",
+         "help_line": "File reviews and the deal you think is stuck."}]}})[0]
+    assert entry["facts"]["owns"] == ["Compliance"]
+    assert entry["facts"]["phone"] == "801-555-0100", "the assistant cannot say how to reach them"
+    assert entry["ref"] == "/directory/1", "a person should open their own profile"
 
 
 def test_authored_pages_carry_their_prose():

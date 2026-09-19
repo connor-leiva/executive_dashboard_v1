@@ -412,6 +412,22 @@ class IntranetMember(Base):
     started_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     # Targets somebody set for this person, {tally key: number}. Beat the on-ramp and the team's.
     wtd_goals: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    # ── Who's Who (WHOS-WHO-WIN-THE-DAY-SPEC.md; services/whos_who) ─────────────────────
+    headline: Mapped[str | None] = mapped_column(Text, nullable=True)     # "Associate Broker · …"
+    tag: Mapped[str | None] = mapped_column(Text, nullable=True)          # "Bilingual"
+    help_line: Mapped[str | None] = mapped_column(Text, nullable=True)    # what to bring them
+    quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bring: Mapped[list | None] = mapped_column(JSONType, nullable=True)   # ["A goal you want to raise…"]
+    office: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Picks the headings: Bring Her / Reach Him / They Own. "they" until somebody says otherwise.
+    pronoun: Mapped[str] = mapped_column(Text, default="they", server_default="they")
+    message_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The typed half of "She Owns" -- [{label, url?}]. The other half is the SOPs they own.
+    owns_items: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    photo_focus: Mapped[str | None] = mapped_column(Text, nullable=True)  # "50% 12%"
+    # auto (a leadership role -> Leadership, anyone else -> Agents) | leadership | agents | hidden.
+    directory_placement: Mapped[str] = mapped_column(Text, default="auto", server_default="auto")
+    directory_order: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     auth_source: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -424,8 +440,31 @@ class IntranetMember(Base):
     __table_args__ = (
         CheckConstraint("auth_source IN ('SSO','Guest','Manual')", name="ck_intranet_member_auth_source"),
         CheckConstraint("status IN ('Active','Invited','Removed')", name="ck_intranet_member_status"),
+        CheckConstraint("pronoun IN ('she','he','they')", name="ck_intranet_member_pronoun"),
+        CheckConstraint("directory_placement IN ('auto','leadership','agents','hidden')",
+                        name="ck_intranet_member_placement"),
         UniqueConstraint("tenant_id", "email", name="uq_intranet_member_tenant_email"),
     )
+
+
+class IntranetDirectorySetting(Base):
+    """The Who's Who page itself: who is featured, the intro, the three stats, and how many agents
+    show before "Show all". Immediate, not publishable -- the page is a view of the roster, and the
+    roster is not staged content (see IntranetMember's profile note)."""
+    __tablename__ = "intranet_directory_setting"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    featured_member_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id", ondelete="SET NULL"), nullable=True)
+    featured_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stats: Mapped[list] = mapped_column(JSONType, default=list, server_default=text("'[]'"))
+    preview_count: Mapped[int] = mapped_column(SmallInteger, default=9, server_default="9")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_intranet_directory_setting_tenant"),)
 
 
 class IntranetCourse(Base):

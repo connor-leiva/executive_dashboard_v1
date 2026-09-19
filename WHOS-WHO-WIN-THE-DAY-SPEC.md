@@ -712,6 +712,11 @@ Connor approved every decision (D1–D10) and asked for all phases, 2026-09-18.
 
 ### Phases 1–3: Win the Day
 
+**Shipped as `9409ca4`, 2026-09-19, and checked in production:** alembic at `0075`, the two new
+tables present and empty, the new list columns and the kind check in place, the new routes
+refusing a request without a session, and the built portal carrying the new page, the `opsz` and
+italic fonts, and none of the dashboard's type.
+
 **Built:**
 
 - **Phase 1, groundwork.**
@@ -772,3 +777,84 @@ Connor approved every decision (D1–D10) and asked for all phases, 2026-09-18.
   - a block, a tally, a list and the minutes each persist across a reload;
   - `#list-03` lands on list 03;
   - at 375px no tab scrolls sideways.
+
+### Phases 4–5: Who's Who
+
+**Built:**
+
+- **Phase 4, the model and the console.**
+  - Migration `0076_whos_who`: the profile columns on `intranet_member` (subtitle, tag, what to
+    bring them, quote, bring list, office, pronoun, message link, owned items, photo focus,
+    placement and Leadership order), with the old free-text `owns` carried into the first owned
+    item; and `intranet_directory_setting` for the page itself.
+  - `services/whos_who.py`: the field rules, placement, the stats (typed, the team's size, or a
+    Sisu total only when Sisu is connected), the card and the profile, and photo processing.
+  - Console routes: the page's settings, the Leadership order, and a photo's upload, removal and
+    preview. The member update takes every profile field.
+  - The console's Who's Who page (the page, Featured, Leadership in order, everyone's placement)
+    and one profile drawer, opened from there and from People & Roster, with click-to-focus and
+    previews of the three crops the portal draws.
+- **Phase 5, the portal.**
+  - `intranet/WhosWho.jsx`: the directory and the profile page, ported from the template (lines
+    1598–1717) into `ut-who-*` classes, as Win the Day was.
+  - `/directory/:id`. Agent cards, search results and the assistant open a person's profile. SOP
+    rows carry `#sop-<id>` anchors, so an owned SOP opens on its row, marked.
+  - The old flat directory and its styles are gone.
+
+**Found on the way, beyond this spec:**
+
+- **Every portal page was 88px too wide on a large monitor.** The mockup's `max-width: 1240px` is
+  its main's *outer* width (border-box, 44px of padding each side), so its content stops at
+  1152px. Measured in the mockup at 1920px. Home, the pages and Win the Day now stop at 1152;
+  nothing changes below about 1530px.
+- **Archivo has no arrow.** *View profile →* falls back for the arrow, and through the portal's
+  UI font stack it fell back to Segoe UI, whose taller line made every leadership card a pixel
+  taller than the mockup's. That one label uses the mockup's own stack.
+- **Photos.**
+  - A replaced photo kept its address, so the portal's five-minute cache kept showing the old
+    one. The address now carries a version.
+  - The console's preview is never cached, or *Replace photo* would preview the old photo.
+  - An image over 50 megapixels is refused from its header, before it is decoded: 15 MB of PNG
+    can decode into gigabytes. A JPEG decodes at a reduced scale on its way to 2000px.
+- **The migration's data step** follows 0046's rule (`CAST(… AS jsonb)` on Postgres) and is
+  compiled against the Postgres dialect in a test. Production had no free-text `owns` to carry.
+- **Contact details stay on the card.** Phase 4 had moved email and phone to the profile route,
+  and the assistant could no longer answer *"what's Justin's number"*. They are back on the card;
+  the bio is the profile's alone.
+- **Console wording.**
+  - The *Automatic* option names where Automatic would put someone: *Automatic (Leadership)* for
+    a manager moved into Agents. It named where they sat.
+  - A refused field is named as the page labels it: *Owned item 2, link*, not
+    `owns_items.1.url`.
+  - A featured person who is later hidden stays in the select as *(hidden, so no band shows)*,
+    and saving the eyebrow no longer re-sends them and gets refused.
+- **Deliberate differences, beyond §7.3:**
+  - the agents grid keeps the mockup's initials, because a photo there would be a full-size
+    fetch per agent for a 44px circle;
+  - a profile with nothing to read keeps its contact box in the left column, where the eye
+    starts, instead of leaving that column empty;
+  - the card's *what to bring them* line stands in for a bring list nobody has written, so a
+    profile never says less than the card that led to it.
+
+**Verified:**
+
+- 21 new tests (18 for Who's Who, 3 for the migration). The full suite passed, 1,875 tests,
+  before the last round of fixes, and every file those fixes touched passed again after them.
+  One migration head. The migration ran up, down and up again on a copy of a real database,
+  carrying an old `owns` over.
+- **Side by side at 1440px against the mockup**, with the mockup's content seeded locally only:
+  the four leaders with the bundle's photos, 82 agents, and Spring's SOP.
+  - The header, the featured band, and the whole profile page are pixel-identical to the mockup.
+    The only differing pixels on the profile are the local account's email address.
+  - Leadership cards are identical apart from JPEG noise inside the photos.
+  - The remaining differences are the workspace's own shell, the agents' order (by name), and
+    *Showing 9 of 82 · Show all* (§7.3.1).
+- **Clicked through in a browser:**
+  - Show all and Show fewer; an agent card, a leadership card and the band each open the right
+    profile; back to the directory; Message is the person's email;
+  - an owned SOP opens the SOP library on its row, marked and in view;
+  - searching a name opens that person's profile;
+  - a hidden person's address says they are not on Who's Who;
+  - the console page and the drawer from both screens: placement, order, featured, stats, every
+    profile field, photo upload, focus and removal, and a refused field named.
+- **At 375px**, neither page scrolls sideways.

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import ProfileEditor from "../ProfileEditor.jsx";
+
 import {
   AUTH_SOURCE_OPTIONS,
   COPY,
@@ -250,6 +252,8 @@ function InviteChip({ member }) {
 function RosterTable({ members, roles, patchMutation, removeMutation }) {
   const [savingMember, setSavingMember] = useState("");
   const [linking, setLinking] = useState("");
+  // Whose Who's Who profile is open: the same drawer the Who's Who screen uses.
+  const [profileOf, setProfileOf] = useState("");
   const sendMutation = useSendMemberInvite();
   // The last invite sent from this table, with its link. An admin needs a way to hand it over
   // directly: the most common reason an invite "never arrived" is a spam folder, and the answer
@@ -363,6 +367,9 @@ function RosterTable({ members, roles, patchMutation, removeMutation }) {
                       {member.invite === "sent" ? "Resend invite" : "Send invite"}
                     </Button>
                   ) : null}
+                  {member.status !== REMOVED_MEMBER_STATUS ? (
+                    <Button type="button" onClick={() => setProfileOf(member.id)}>Edit profile</Button>
+                  ) : null}
                   <Button
                     type="button"
                     disabled={member.status === REMOVED_MEMBER_STATUS || savingMember === member.id}
@@ -381,6 +388,10 @@ function RosterTable({ members, roles, patchMutation, removeMutation }) {
         <CrmEditor key={editing.id} member={editing} busy={savingMember === editing.id}
                    onSave={(links) => saveLinks(editing.id, links)}
                    onClose={() => setLinking("")} />
+      ) : null}
+      {profileOf && members.find((m) => m.id === profileOf) ? (
+        <ProfileEditor key={profileOf} member={members.find((m) => m.id === profileOf)}
+                       onClose={() => setProfileOf("")} />
       ) : null}
     </>
   );

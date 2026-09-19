@@ -51,6 +51,7 @@ from ..models import (
     IntranetSopAcknowledgement,
     IntranetSopCategory,
     IntranetSopVersion,
+    IntranetDirectorySetting,
     IntranetWtdList,
     IntranetWtdPlaybook,
     IntranetWtdScript,
@@ -65,7 +66,7 @@ from ..integrations import fub
 from ..services import (binder_storage, course_sections, follow_ups, google_auth, lesson_media,
                         lesson_richtext, mail_templates,
                         mailer, member_identity, uploads,
-                        marketing_delivery, wtd_playbook)
+                        marketing_delivery, member_numbers, whos_who, wtd_playbook)
 from ..services.users import INVITE_DAYS, link_base, primary_host
 from ..services.inheritance import (INHERITED_PROVIDERS, dashboard_connections, ensure_rows,
                                     is_inherited)
@@ -569,6 +570,12 @@ def _member(row: IntranetMember, roles: dict[uuid.UUID, IntranetRole] | None = N
         "title": row.title, "bio": row.bio, "phone": row.phone, "owns": row.owns,
         "has_photo": bool(row.photo_key),
         "started_on": _iso(row.started_on), "wtd_goals": row.wtd_goals or {},
+        # Who's Who: everything the profile drawer edits, as stored.
+        "headline": row.headline, "tag": row.tag, "help_line": row.help_line, "quote": row.quote,
+        "bring": row.bring or [], "office": row.office, "pronoun": row.pronoun or "they",
+        "message_url": row.message_url, "owns_items": row.owns_items or [],
+        "photo_focus": row.photo_focus, "directory_placement": row.directory_placement or "auto",
+        "directory_order": row.directory_order,
         "invite": _invite_state(account),
     }
 
@@ -2248,7 +2255,8 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
                        s: AsyncSession = Depends(get_session)):
     body = _body(body)
     _unknown(body, {"full_name", "email", "role_id", "market", "status", "auth_source",
-                    "title", "bio", "phone", "owns", "agent_links", "started_on", "wtd_goals"})
+                    "title", "bio", "phone", "owns", "agent_links", "started_on", "wtd_goals"}
+            | whos_who.PROFILE_FIELDS)
     row = await _one(s, IntranetMember, p.user.tenant_id, member_id)
     roles = await _roles_by_id(s, p.user.tenant_id)
     old_role = roles.get(row.role_id)
@@ -2288,6 +2296,14 @@ async def patch_member(member_id: uuid.UUID, body: dict = Body(...),
         if field in body:
             setattr(row, field,
                     _text(body, field, nullable=True, max_len=4000 if field == "bio" else 200))
+    # Who's Who: the profile the directory and the profile page draw (services/whos_who).
+    for field in sorted(whos_who.PROFILE_FIELDS & set(body)):
+        try:
+            setattr(row, field, whos_who.clean_field(field, body[field]))
+        except whos_who.ProfileError as e:
+            _unprocessable(e.field, e.message)
+        if field in ("bring", "owns_items"):
+            flag_modified(row, field)
     # Win the Day, for this person: the on-ramp's day 1 (None takes them off it) and their own
     # targets, which must be ones the playbook's scoreboard counts.
     if "started_on" in body:
@@ -4241,6 +4257,187 @@ async def get_wtd_people(p: ConsolePrincipal = Depends(require_console_access),
                        "started_on": _iso(m.started_on), "wtd_goals": m.wtd_goals or {},
                        "goals_today": goals, "onramp_phase": phase})
     return {"tallies": tallies, "today": today.isoformat(), "items": people}
+
+
+# ── Who's Who (services/whos_who) ──────────────────────────────────────────────────────────
+
+async def _directory_row(s: AsyncSession, tenant_id, *, create: bool = False
+                         ) -> IntranetDirectorySetting | None:
+    row = (await s.execute(select(IntranetDirectorySetting).where(
+        IntranetDirectorySetting.tenant_id == tenant_id))).scalars().first()
+    if row is None and create:
+        row = IntranetDirectorySetting(tenant_id=tenant_id, stats=[], preview_count=9)
+        s.add(row)
+        await s.flush()
+    return row
+
+
+def _directory_settings(row: IntranetDirectorySetting | None) -> dict:
+    return {
+        "featured_member_id": _id(row.featured_member_id) if row else None,
+        "featured_label": row.featured_label if row else None,
+        "intro": row.intro if row else None,
+        "stats": list(row.stats or []) if row else [],
+        "preview_count": row.preview_count if row else 9,
+    }
+
+
+async def _directory_out(s: AsyncSession, tenant_id) -> dict:
+    roles = await _roles_by_id(s, tenant_id)
+    leadership = {rid for rid, r in roles.items() if r.is_leadership}
+    rows = (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == tenant_id, IntranetMember.status != "Removed").order_by(
+            IntranetMember.full_name))).scalars().all()
+    people = []
+    for m in rows:
+        people.append({
+            "id": _id(m.id), "name": m.full_name, "email": m.email, "status": m.status,
+            "role_name": roles[m.role_id].name if m.role_id in roles else None,
+            "title": m.title, "market": m.market, "tag": m.tag, "has_photo": bool(m.photo_key),
+            "placement": m.directory_placement or "auto",
+            "shown_in": whos_who.placement(m, leadership),
+            # Where Automatic would put them, for the option's label -- not where they sit now.
+            "auto_shown_in": "leadership" if m.role_id in leadership else "agents",
+            "order": m.directory_order,
+        })
+    listed = [p for p in people if p["shown_in"] != "hidden"]
+    return {
+        "settings": _directory_settings(await _directory_row(s, tenant_id)),
+        "people": people,
+        "team_size": len(listed),
+        "sisu_connected": (await member_numbers.sisu_state(s, tenant_id))["connected"],
+        "leadership_roles": sorted(r.name for r in roles.values() if r.is_leadership),
+    }
+
+
+@router.get("/directory")
+async def get_directory(p: ConsolePrincipal = Depends(require_console_access),
+                        s: AsyncSession = Depends(get_session)):
+    return await _directory_out(s, p.user.tenant_id)
+
+
+@router.patch("/directory")
+async def patch_directory(body: dict = Body(...),
+                          p: ConsolePrincipal = Depends(require_console_access),
+                          s: AsyncSession = Depends(get_session)):
+    """The page's settings: who is featured, the intro, three stats, the preview count. Immediate,
+    like the roster it shows."""
+    body = _body(body)
+    _unknown(body, {"intro", "featured_label", "stats", "preview_count", "featured_member_id"})
+    tid = p.user.tenant_id
+    sisu = (await member_numbers.sisu_state(s, tid))["connected"]
+    try:
+        clean = whos_who.clean_settings(body, sisu_connected=sisu)
+    except whos_who.ProfileError as e:
+        _unprocessable(e.field, e.message)
+    row = await _directory_row(s, tid, create=True)
+    if "featured_member_id" in body:
+        member_id = _uuid_value(body, "featured_member_id", nullable=True)
+        if member_id is not None:
+            member = await _one(s, IntranetMember, tid, member_id)
+            roles = await _roles_by_id(s, tid)
+            leadership = {rid for rid, r in roles.items() if r.is_leadership}
+            if not whos_who.listed(member, leadership):
+                _unprocessable("featured_member_id",
+                               "That person is hidden or removed. Show them on Who's Who first.")
+        row.featured_member_id = member_id
+    for field, value in clean.items():
+        setattr(row, field, value)
+    if "stats" in clean:
+        flag_modified(row, "stats")
+    await _record_mutation(
+        s, p, action="content.directory.updated", category="People",
+        summary="Updated the Who's Who page", target_type="directory", target_id=row.id,
+        detail={"fields": sorted(body)}, pending=False)
+    return await _directory_out(s, tid)
+
+
+@router.put("/directory/leadership/order")
+async def put_leadership_order(body: dict = Body(...),
+                               p: ConsolePrincipal = Depends(require_console_access),
+                               s: AsyncSession = Depends(get_session)):
+    """The order of the Leadership section, as a list of member ids."""
+    ids = _body(body).get("ids")
+    if not isinstance(ids, list) or len(ids) > 60:
+        _unprocessable("ids", "Expected the leadership members, in order.")
+    tid = p.user.tenant_id
+    try:
+        wanted = [uuid.UUID(str(x)) for x in ids]
+    except ValueError:
+        _unprocessable("ids", "Expected member ids.")
+    rows = {m.id: m for m in (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == tid, IntranetMember.id.in_(wanted)))).scalars().all()}
+    if len(rows) != len(set(wanted)):
+        _unprocessable("ids", "Not all of those are on this workspace's roster.")
+    for i, member_id in enumerate(wanted):
+        rows[member_id].directory_order = i
+    await _record_mutation(
+        s, p, action="content.directory.reordered", category="People",
+        summary="Reordered Who's Who leadership", target_type="directory", pending=False)
+    return await _directory_out(s, tid)
+
+
+@router.post("/members/{member_id}/photo")
+async def upload_member_photo(member_id: uuid.UUID, file: UploadFile = File(...),
+                              p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    """A photo for Who's Who, re-encoded before it is stored (services/whos_who.process_photo):
+    checked by its bytes, upright, no EXIF (a phone photo's GPS never reaches the portal), at most
+    2000px, transparency flattened onto white."""
+    row = await _one(s, IntranetMember, p.user.tenant_id, member_id)
+    data = await file.read(whos_who.MAX_PHOTO_BYTES + 1)
+    try:
+        jpeg = whos_who.process_photo(data)
+    except whos_who.ProfileError as e:
+        _unprocessable("file", e.message)
+    old = row.photo_key
+    key = binder_storage.store(p.user.tenant_id, row.id,
+                               f"photo-{binder_storage.content_hash(jpeg)[:12]}.jpg", jpeg)
+    row.photo_key = key
+    if old and old != key:
+        try:
+            binder_storage.delete(old)
+        except Exception:        # the new photo is what matters; a stray old file is harmless
+            pass
+    await _record_mutation(
+        s, p, action="access.member.photo_set", category="People",
+        summary=f"Set the Who's Who photo for {row.full_name}", target_type="member",
+        target_id=row.id, detail={"bytes": len(jpeg)}, pending=False)
+    return {"item": _member(row, await _roles_by_id(s, p.user.tenant_id), await _account_of(s, row))}
+
+
+@router.delete("/members/{member_id}/photo")
+async def delete_member_photo(member_id: uuid.UUID,
+                              p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    row = await _one(s, IntranetMember, p.user.tenant_id, member_id)
+    old = row.photo_key
+    row.photo_key = None
+    if old:
+        try:
+            binder_storage.delete(old)
+        except Exception:
+            pass
+    await _record_mutation(
+        s, p, action="access.member.photo_removed", category="People",
+        summary=f"Removed the Who's Who photo for {row.full_name}", target_type="member",
+        target_id=row.id, pending=False)
+    return {"item": _member(row, await _roles_by_id(s, p.user.tenant_id), await _account_of(s, row))}
+
+
+@router.get("/members/{member_id}/photo")
+async def get_member_photo(member_id: uuid.UUID,
+                           p: ConsolePrincipal = Depends(require_console_access),
+                           s: AsyncSession = Depends(get_session)):
+    """The stored photo, for the console's preview. Behind the console's session like the rest.
+
+    Never cached: the address does not change when the photo does, so Replace photo would
+    otherwise preview the old one."""
+    row = await _one(s, IntranetMember, p.user.tenant_id, member_id)
+    if not row.photo_key or not binder_storage.exists(row.photo_key):
+        raise HTTPException(404, "No photo")
+    return Response(content=binder_storage.read(row.photo_key), media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
 
 
 @router.get("/tiles")

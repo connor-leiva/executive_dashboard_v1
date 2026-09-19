@@ -1164,7 +1164,8 @@ async def _roster(slug: str):
             IntranetMember(tenant_id=tenant.id, full_name="Zoe Agent",
                            email=f"member@{slug}.test", role_id=agent.id, status="Active",
                            auth_source="Manual", title="Buyer Agent", market="Salt Lake",
-                           phone="801-555-0100", owns="Buyer pipeline",
+                           phone="801-555-0100",
+                           owns_items=[{"label": "Buyer pipeline", "url": None}],
                            bio="Ten years in residential."),
             IntranetMember(tenant_id=tenant.id, full_name="Alice Leader",
                            email=f"lead@{slug}.test", role_id=leader.id, status="Active",
@@ -1181,21 +1182,35 @@ async def _roster(slug: str):
     return host, tokens, tenant
 
 
-async def test_the_directory_lists_the_workspaces_own_people():
-    host, tokens, _ = await _roster("dirmine")
-    people = (await _content(host, tokens["member"]))["directory"]
-    by_name = {p["name"]: p for p in people}
+def _people(directory: dict) -> list[dict]:
+    featured = [directory["featured"]] if directory.get("featured") else []
+    return featured + directory["leadership"] + directory["agents"]
 
-    assert set(by_name) == {"Zoe Agent", "Alice Leader"}, (
-        "an invited or removed colleague was listed as if they were here")
+
+async def test_the_directory_lists_the_workspaces_own_people():
+    """Everyone on the roster who is not Removed (D1): an invited colleague is a colleague before
+    they accept a portal invite. Leadership roles sit in Leadership; the rest are agents, by name."""
+    host, tokens, _ = await _roster("dirmine")
+    directory = (await _content(host, tokens["member"]))["directory"]
+    by_name = {p["name"]: p for p in _people(directory)}
+
+    assert set(by_name) == {"Zoe Agent", "Alice Leader", "Invited Person"}, (
+        "a removed colleague was listed, or an invited one was left off")
+    assert [p["name"] for p in directory["leadership"]] == ["Alice Leader"]
+    assert [p["name"] for p in directory["agents"]] == ["Invited Person", "Zoe Agent"]
     zoe = by_name["Zoe Agent"]
-    assert zoe["title"] == "Buyer Agent" and zoe["role"] == "Agent"
-    assert zoe["market"] == "Salt Lake"
-    assert zoe["phone"] == "801-555-0100"
-    assert zoe["owns"] == "Buyer pipeline"
-    assert zoe["bio"].startswith("Ten years")
-    assert by_name["Alice Leader"]["is_leadership"] is True
-    assert zoe["is_leadership"] is False
+    assert zoe["title"] == "Buyer Agent" and zoe["market"] == "Salt Lake"
+    assert zoe["owns"] == ["Buyer pipeline"]
+    assert zoe["is_you"] is True, "the reader's own card is not marked"
+    # A bio is the profile's, not the payload every page load carries. How to reach somebody is
+    # on the card, as it always was: search finds people by address and the assistant answers
+    # "what's Zoe's number" -- which it could not while contact details were profile-only.
+    assert "bio" not in zoe
+    assert zoe["phone"] == "801-555-0100" and zoe["email"]
+    async with _client() as c:
+        profile = (await c.get(f"/api/v1/intranet/directory/{zoe['id']}",
+                               headers=_H(tokens["member"], host))).json()
+    assert profile["phone"] == "801-555-0100" and profile["bio"].startswith("Ten years")
 
 
 async def test_the_directory_says_nothing_about_how_somebody_signs_in():
@@ -1203,10 +1218,13 @@ async def test_the_directory_says_nothing_about_how_somebody_signs_in():
     Account state -- auth_source, status history, the linked user id -- is the console's business
     and nobody else's."""
     host, tokens, _ = await _roster("dirfields")
-    people = (await _content(host, tokens["member"]))["directory"]
+    people = _people((await _content(host, tokens["member"]))["directory"])
+    async with _client() as c:
+        people += [(await c.get(f"/api/v1/intranet/directory/{p['id']}",
+                                headers=_H(tokens["member"], host))).json() for p in people]
     leaked = {k for p in people for k in p} & {
         "auth_source", "status", "user_id", "invited_at", "activated_at", "removed_at",
-        "last_synced_at", "photo_key", "role_id",
+        "last_synced_at", "photo_key", "role_id", "agent_links", "agent_email", "wtd_goals",
     }
     assert not leaked, f"the directory exposed account fields: {sorted(leaked)}"
 
@@ -1238,8 +1256,8 @@ async def test_a_photo_needs_a_session_and_belongs_to_one_workspace():
     assert anonymous.status_code in (401, 403), "a photo was served without a session"
 
     # ...and it is offered in the payload only once there is one to serve.
-    people = {p["name"]: p for p in (await _content(host_a, tokens_a["member"]))["directory"]}
-    assert people["Zoe Agent"]["photo_url"] == f"/intranet/directory/{member_id}/photo"
+    people = {p["name"]: p for p in _people((await _content(host_a, tokens_a["member"]))["directory"])}
+    assert people["Zoe Agent"]["photo_url"].startswith(f"/intranet/directory/{member_id}/photo?v=")
     assert people["Alice Leader"]["photo_url"] is None
 
 
