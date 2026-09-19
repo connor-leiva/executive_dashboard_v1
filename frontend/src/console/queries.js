@@ -1107,11 +1107,24 @@ export function usePatchSetupTask() {
   });
 }
 
+/* PUBLISH AND DISCARD CHANGE WHAT EVERY PAGE SHOWS, not only the overview: either one moves
+   staged content -- a playbook, a course, a tile -- into or out of the live set. Refreshing the
+   overview alone left Win the Day saying "Draft · not yet published" after a publish (Utah Life's
+   playbook, 2026-09-19), and it would have kept showing a discarded import's lists. Every console
+   query is keyed under "console", so this refreshes whatever page is open -- except Follow Up
+   Boss's own smart lists, which are asked of Follow Up Boss live and which publishing cannot
+   change: refetching them would only spend the shared account's rate limit. */
+const NOT_STAGED = new Set([keys.fubSmartLists[1]]);
+
+function invalidateEverything(queryClient) {
+  queryClient.invalidateQueries({ queryKey: ["console"], predicate: (q) => !NOT_STAGED.has(q.queryKey[1]) });
+}
+
 export function usePublish() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: publishChanges,
-    onSuccess: () => invalidateOverview(queryClient),
+    onSuccess: () => invalidateEverything(queryClient),
   });
 }
 
@@ -1119,6 +1132,6 @@ export function useDiscardPending() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: discardChanges,
-    onSuccess: () => invalidateOverview(queryClient),
+    onSuccess: () => invalidateEverything(queryClient),
   });
 }
