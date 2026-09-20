@@ -11,8 +11,9 @@ SOP and lists them in one flat table; a member's only way to read a procedure is
 Nothing in the mockup's two screens is drawn from data the product keeps, except the title, the
 category, the owner and the version label.
 
-Everything here is a proposal. Nothing has been built. §9 is the list of decisions that are
-Connor's, each with what I would choose.
+§9 is the list of decisions that were Connor's; he approved all ten on 2026-09-20 and asked for
+every phase. **Phases 1-6 are built** — §12 is the record of what was done and what was found
+doing it. Phase 7 is his content, and needs the answers in §11.
 
 Reference: the mockup is local-only at `frontend/brand-src/mockups/utah-life-intranet/`
 (gitignored). The SOP screens are `template.html` lines 791–865 (the library) and 867–930 (one
@@ -283,4 +284,76 @@ make the data real.
 
 ## 12. Build record
 
-Nothing built yet. This document is the audit Connor asked for on 2026-09-20.
+Connor approved D1-D10 and asked for every phase, 2026-09-20.
+
+### Phases 1-4: the faults, the model, the console, the two portal screens (`653c805`)
+
+**Built:**
+
+- **Migration `0077_sop_library`.** `intranet_sop` gains `summary`, `body`, `published_body`,
+  `applies_to`, `tool_ids`, `last_reviewed_on` and `required`; a version's file columns become
+  nullable, because a revision of a written procedure has no file and acknowledgements hang off
+  the version.
+- **`services/sop_library.py`:** what a procedure may say (checked field by field, a refusal
+  naming the step it came from), what each screen needs of it, *Changed This Month*, and the
+  department rail.
+- **The console page:** the procedure editor (opening paragraph, steps with reorder, the
+  callout), a summary, applies-to, required reading, tools picked from the Launchpad, Mark
+  reviewed, department ordering, an archived filter with Restore, make-current, a revision with
+  no file, and who has read it with who has not.
+- **The member's library and reader**, ported from the mockup into `ut-sop-*` classes.
+- **The assistant** reads written procedures and cites the procedure rather than the library;
+  an uploaded document is still off limits to it, and says so (D10).
+
+**Decisions as built:**
+
+- D1 both: an SOP is a written procedure, a document, or both; a PDF is read in the page.
+- D2 the text waits for Publish. `published_body` is what members read, and Discard puts the
+  draft back to it -- which makes Discard mean something here, where everywhere else it only
+  clears the queue.
+- D3 members see the count, the console sees the names.
+- D6 *Last updated* is the current revision's date, not any row edit.
+
+**The faults, closed:** the detail route's hardcoded acknowledgement count; unchecked uploads
+(now sniffed, 25 MB, PDF or Word); one-way archiving; no way back to an earlier revision;
+departments stuck in creation order; a review that left no trace.
+
+**Deliberate differences from the mockup:** the agents-grid equivalent (the card grid) uses
+auto-fill so a library with two procedures keeps card-sized cards; *Changed This Month* is
+derived and hidden when nothing changed this month; a filed procedure shows its document where
+the steps would be; and the owner card offers *Send a Message* plus a link to their Who's Who
+profile, which the mockup had no directory to link to.
+
+**Verified:** 14 tests for the new behaviour plus the touched suites; both screens captured at
+1440px beside the mockup and compared component by component (title 36px/400/-0.5px, the 28px
+step circles on `--page` in `--primary`, the 3px callout rule, the acknowledgement button, the
+sidebar cards -- all as drawn); anchors, acknowledging, the embedded document, and 375px with no
+sideways scroll.
+
+### Phases 5-6: Suggest a Change, and drafting from a document
+
+**Built:**
+
+- **Migration `0078_sop_suggestions`.** A member's note about one procedure, queued in the
+  console under it and emailed to its owner, with a reply-to of the person who said it (D5).
+  Not a comment thread: a procedure has one owner.
+- **A required procedure announces its new revisions** (D7). Acknowledging is per revision, so a
+  new one quietly makes everybody's assurance stale; for the ones an admin marked required, the
+  team is told. Only for a procedure members can actually open, one email per person per
+  revision.
+- **Draft from the document** (`services/sop_drafting.py`): the words are read out of a PDF
+  (pypdf) or a .docx (its own zip, no new dependency), and the assistant returns the procedure in
+  the shape the library holds -- through the same validation a typed one goes through. It fills
+  the editor and **saves nothing**: somebody reads it, fixes it and presses save, because the
+  model is drafting a procedure that people follow.
+
+**Verified:** 4 more tests (the suggestion queue and its email, the required-revision
+announcement, reading a PDF and a .docx, and a draft coming back in the library's shape with a
+fake model); clicked through in both front ends -- the rail's form and the named button on a
+procedure ("Out of date? Tell Spring"), the console's queue with who said it and Done, and the
+draft button's honest refusal on a machine with no assistant key.
+
+### Phase 7: Utah Life, live
+
+Not started: it needs Connor to say where the procedures live now, which ones matter most, and
+whether the mockup's five departments are the real set (§11).

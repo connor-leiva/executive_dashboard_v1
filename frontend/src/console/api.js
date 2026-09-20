@@ -221,11 +221,15 @@ export const patchSop = (sopId, body) => consoleSend("PATCH", `/sops/${sopId}`, 
 export const deleteSop = (sopId) => consoleSend("DELETE", `/sops/${sopId}`);
 export const getSopVersions = (sopId) => consoleGet(`/sops/${sopId}/versions`);
 export const putSopBody = (sopId, body) => consoleSend("PUT", `/sops/${sopId}/body`, { body });
+export const draftSopBody = (sopId, text) => consoleSend("POST", `/sops/${sopId}/draft`, { text });
 export const reviewSop = (sopId, body) => consoleSend("POST", `/sops/${sopId}/review`, body || {});
 export const restoreSop = (sopId) => consoleSend("POST", `/sops/${sopId}/restore`);
 export const setCurrentSopVersion = (sopId, versionId) =>
   consoleSend("POST", `/sops/${sopId}/versions/${versionId}/current`);
 export const getSopReaders = (sopId) => consoleGet(`/sops/${sopId}/acknowledgements`);
+export const getSopSuggestions = (sopId) => consoleGet(`/sops/${sopId}/suggestions`);
+export const patchSopSuggestion = (suggestionId, body) =>
+  consoleSend("PATCH", `/sop-suggestions/${suggestionId}`, body);
 // A revision of the written procedure: a label and no file (services/sop_library).
 export const reviseSop = (sopId, versionLabel) =>
   consoleUpload(`/sops/${sopId}/versions`, { version_label: versionLabel });

@@ -858,6 +858,33 @@ class IntranetSopAcknowledgement(Base):
     )
 
 
+class IntranetSopSuggestion(Base):
+    """"Something out of date? Tell the owner." (SOP-LIBRARY-SPEC.md, D5)
+
+    A member's note about one procedure, queued for the console under that procedure and emailed
+    to whoever owns it. Deliberately NOT a comment thread: a procedure has one owner, and the way
+    it changes is that they change it.
+    """
+    __tablename__ = "intranet_sop_suggestion"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    sop_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("intranet_sop.id", ondelete="CASCADE"), nullable=False)
+    member_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("intranet_member.id", ondelete="SET NULL"), nullable=True)
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="New", server_default="New")
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        CheckConstraint("status IN ('New','Read','Done')", name="ck_intranet_sop_suggestion_status"),
+    )
+
+
 class IntranetWtdList(Base):
     __tablename__ = "intranet_wtd_list"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)

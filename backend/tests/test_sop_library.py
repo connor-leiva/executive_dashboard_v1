@@ -10,6 +10,7 @@ archiving can be undone (F3), and somebody can see who has read the thing (F4).
 import datetime as dt
 import io
 import struct
+import zipfile
 import zlib
 
 import httpx
@@ -474,3 +475,152 @@ def test_changed_this_month_is_this_month_or_nothing():
     assert [c["title"] for c in sop_library.changed_this_month(cards, today)] == ["Newer", "New"]
     assert sop_library.changed_this_month([cards[2]], today) == [], \
         "a panel headed Changed This Month must not list April"
+
+# ── Suggest a Change, and the email a required revision sends (D5, D7) ─────────────────────
+
+def _capture_mail(monkeypatch):
+    from app.config import settings
+    from app.services import mailer
+
+    sent = []
+
+    async def fake_post(payload, headers):
+        sent.append(payload)
+        return 200, "{}"
+    monkeypatch.setattr(mailer, "_post", fake_post)
+    monkeypatch.setattr(settings, "RESEND_API_KEY", "re_test")
+    monkeypatch.setattr(settings, "MAIL_FROM", "Acumyn <hello@mail.acumyn.io>")
+    monkeypatch.setattr(settings, "MAIL_REPLY_TO", "")
+    return sent
+
+
+async def test_a_member_tells_the_owner_and_the_console_keeps_it(monkeypatch):
+    sent = _capture_mail(monkeypatch)
+    ws = await _workspace("sopsuggest")
+    category = await _category(ws, "Listings")
+    owner = await _person(ws, "Olive Owner", role="manager")
+    reader = await _person(ws, "Rhea Reader")
+    async with _client() as c:
+        h = _H(ws["owner"], ws["host"])
+        sop = await _sop(c, ws, title="Intake", category_id=category, state="Live",
+                         owner_member_id=owner["id"])
+        await c.put(f"/api/console/sops/{sop['id']}/body", headers=h, json={"body": BODY})
+        await c.post(f"/api/console/sops/{sop['id']}/versions", headers=h,
+                     data={"version_label": "v1"})
+        await c.post("/api/console/publish", headers=h, json={})
+        filed = await c.post(f"/api/v1/intranet/sops/{sop['id']}/suggest",
+                             headers=_H(reader["token"], ws["host"]),
+                             json={"text": "Step 2 sends people to the old packet."})
+        empty = await c.post(f"/api/v1/intranet/sops/{sop['id']}/suggest",
+                             headers=_H(reader["token"], ws["host"]), json={"text": "  "})
+        queue = await c.get(f"/api/console/sops/{sop['id']}/suggestions", headers=h)
+        listed = await c.get("/api/console/sops", headers=h)
+        item = queue.json()["items"][0]
+        done = await c.patch(f"/api/console/sop-suggestions/{item['id']}", headers=h,
+                             json={"status": "Done", "resolution_note": "Packet link fixed."})
+        after = await c.get(f"/api/console/sops/{sop['id']}/suggestions", headers=h)
+
+    assert filed.status_code == 200 and empty.status_code == 422
+    assert item["from"] == "Rhea Reader" and item["status"] == "New"
+    assert "old packet" in item["text"]
+    assert queue.json()["open"] == 1
+    assert listed.json()["items"][0]["open_suggestions"] == 1
+    # The owner hears about it, and can reply to the person who said it.
+    assert [m["to"] for m in sent] == [[owner["email"]]]
+    assert "Intake" in sent[0]["subject"] and sent[0].get("reply_to") in (reader["email"],
+                                                                         [reader["email"]])
+    assert done.status_code == 200
+    assert after.json()["open"] == 0 and after.json()["items"][0]["resolution_note"] == "Packet link fixed."
+
+
+async def test_a_required_procedure_tells_the_team_when_it_changes(monkeypatch):
+    """D7. Acknowledging is per revision, so a new one quietly makes everybody's stale."""
+    sent = _capture_mail(monkeypatch)
+    ws = await _workspace("soprequired")
+    category = await _category(ws, "Transactions")
+    await _person(ws, "Rhea Reader")
+    async with _client() as c:
+        h = _H(ws["owner"], ws["host"])
+        quiet = await _sop(c, ws, title="Optional reading", category_id=category, state="Live")
+        await c.put(f"/api/console/sops/{quiet['id']}/body", headers=h, json={"body": BODY})
+        await c.post(f"/api/console/sops/{quiet['id']}/versions", headers=h,
+                     data={"version_label": "v1"})
+        loud = await _sop(c, ws, title="Under Contract", category_id=category, state="Live",
+                          required=True)
+        await c.put(f"/api/console/sops/{loud['id']}/body", headers=h, json={"body": BODY})
+        await c.post("/api/console/publish", headers=h, json={})
+        before = len(sent)
+        await c.post(f"/api/console/sops/{loud['id']}/versions", headers=h,
+                     data={"version_label": "v2"})
+    announced = sent[before:]
+    recipients = sorted(m["to"][0] for m in announced)
+    assert "Rhea Reader".lower().split()[0] + "@" + ws["host"] in recipients
+    assert all("Under Contract" in m["subject"] for m in announced)
+    assert not any("Optional reading" in m["subject"] for m in sent), \
+        "a procedure nobody must read announced itself"
+
+
+# ── drafting a procedure from its document (phase 6) ───────────────────────────────────────
+
+def test_the_words_are_read_out_of_a_pdf_and_a_word_file():
+    from pypdf import PdfWriter
+
+    from app.services import sop_drafting
+
+    out = io.BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    writer.write(out)
+    assert sop_drafting.extract(out.getvalue(), "application/pdf") == "", \
+        "a page with no text should read as nothing, not as noise"
+
+    body = ('<?xml version="1.0"?><w:document><w:body>'
+            "<w:p><w:r><w:t>Log the appointment in Sisu.</w:t></w:r></w:p>"
+            "<w:p><w:r><w:t>Send the packet.</w:t></w:r></w:p>"
+            "</w:body></w:document>")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("word/document.xml", body)
+    text = sop_drafting.extract(buf.getvalue(),
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    assert "Log the appointment in Sisu." in text and "Send the packet." in text
+    # A file it cannot read says so by returning nothing, rather than raising into the console.
+    assert sop_drafting.extract(b"not a document", "application/pdf") == ""
+
+
+async def test_a_draft_comes_back_in_the_shape_the_library_holds():
+    """The model's answer goes through the same gate a typed procedure does, and is NOT saved."""
+    from app.services import sop_drafting
+
+    class FakeBlock:
+        type = "tool_use"
+        input = {"intro": "From yes to the sign coming down.",
+                 "steps": [{"title": "Log the appointment", "text": "In Sisu, the same day."},
+                           {"title": "", "text": "dropped, it has no title"},
+                           {"title": "x" * 500, "text": "y" * 4000}],
+                 "callout": {"label": "Do Not Skip", "text": "Nothing unsigned to the MLS."}}
+
+    class FakeResponse:
+        content = [FakeBlock()]
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            FakeMessages.seen = kwargs
+            return FakeResponse()
+
+    class FakeClient:
+        messages = FakeMessages()
+
+    import app.services.intranet_assistant as ia
+    original, ia._client = ia._client, FakeClient()
+    try:
+        drafted = await sop_drafting.draft("New Listing Intake", "the document text")
+    finally:
+        ia._client = original
+
+    assert drafted["intro"].startswith("From yes")
+    assert [s["title"] for s in drafted["steps"]][:1] == ["Log the appointment"]
+    assert len(drafted["steps"]) == 2, "a step with no title should be dropped, not refused"
+    assert len(drafted["steps"][1]["title"]) <= sop_library.TEXT_LIMITS["step_title"]
+    assert drafted["callout"]["text"] == "Nothing unsigned to the MLS."
+    assert "the document text" in FakeMessages.seen["messages"][0]["content"]

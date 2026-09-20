@@ -6,6 +6,7 @@ import {
   useCreateSop,
   useCreateSopCategory,
   useDownloadSopVersion,
+  useDraftSopBody,
   useMembers,
   usePatchSop,
   usePatchSopCategory,
@@ -20,6 +21,8 @@ import {
   useSopCategoryOrder,
   useSopReaders,
   useSops,
+  useSopSuggestions,
+  usePatchSopSuggestion,
   useSopVersions,
   useTiles,
   useUploadSopVersion,
@@ -132,7 +135,9 @@ function SopList({ sops, selectedId, onSelect, onNew, archived, onArchived }) {
             <small>
               {[sop.state, sop.has_published_body ? "written" : "document only",
                 `${sop.version_count} ${sop.version_count === 1 ? "revision" : "revisions"}`,
-                sop.required ? "required" : ""].filter(Boolean).join(" · ")}
+                sop.required ? "required" : "",
+                sop.open_suggestions ? `${sop.open_suggestions} suggested` : ""]
+                .filter(Boolean).join(" · ")}
             </small>
           </button>
         ))}
@@ -214,6 +219,23 @@ function ProcedureEditor({ sop, busy, onSave }) {
   const [form, setForm] = useState(() => bodyForm(sop));
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState("");
+  const drafting = useDraftSopBody();
+
+  async function draft(text) {
+    setMessage("");
+    setError("");
+    try {
+      const out = await drafting.mutateAsync({ sopId: sop.id, text: text || "" });
+      setForm(bodyForm({ body: out.body }));
+      setPasting(false);
+      setPasted("");
+      setMessage(`Drafted from ${out.source}. Read it through, fix what it got wrong, then save.`);
+    } catch (err) {
+      setError(err.detail || err.message);
+    }
+  }
 
   useEffect(() => {
     setForm(bodyForm(sop));
@@ -256,6 +278,27 @@ function ProcedureEditor({ sop, busy, onSave }) {
           ? (sop?.has_published_body ? "Published" : "Nothing written yet")
           : "Unpublished changes"}</span>
       </header>
+      {/* A first draft from the document this procedure already is, for a library that lives in
+          a Drive folder today. It fills the boxes below and saves nothing. */}
+      <div className="sop-draft">
+        <Button type="button" busy={drafting.isPending}
+                disabled={!sop?.current_version?.byte_size} onClick={() => draft("")}>
+          Draft from the document
+        </Button>
+        <Button type="button" onClick={() => setPasting((v) => !v)}>
+          {pasting ? "Never mind" : "Draft from pasted text"}
+        </Button>
+        {pasting ? (
+          <div className="sop-draft-paste">
+            <textarea rows={4} value={pasted} placeholder="Paste the procedure as it is written today"
+                      onChange={(e) => setPasted(e.target.value)} />
+            <Button type="button" tone="primary" busy={drafting.isPending}
+                    disabled={!pasted.trim()} onClick={() => draft(pasted)}>
+              Draft it
+            </Button>
+          </div>
+        ) : null}
+      </div>
       <form className="wtdc-form" onSubmit={submit}>
         <Field label="Opening paragraph">
           <textarea rows={3} value={form.intro} maxLength={1500}
@@ -355,6 +398,48 @@ function ToolsPanel({ sop, tiles, busy, onSave }) {
       <div className="followup-actions">
         <Button type="button" busy={busy} onClick={save}>Save the tools</Button>
         {message ? <span className="roster-form-message">{message}</span> : null}
+      </div>
+    </section>
+  );
+}
+
+function SuggestionsPanel({ sopId }) {
+  const suggestions = useSopSuggestions(sopId, true);
+  const patch = usePatchSopSuggestion();
+  const [note, setNote] = useState({});
+  if (suggestions.isPending || suggestions.error) return null;
+  const items = suggestions.data?.items || [];
+  if (!items.length) return null;
+  const move = (item, status) => patch.mutate({
+    suggestionId: item.id, sopId, body: { status, resolution_note: note[item.id] ?? item.resolution_note },
+  });
+  return (
+    <section className="sop-suggestions">
+      <header>
+        <h3>What the team says</h3>
+        <span>{suggestions.data.open ? `${suggestions.data.open} open` : "All handled"}</span>
+      </header>
+      <div className="sop-suggestion-list">
+        {items.map((item) => (
+          <div className={`sop-suggestion ${item.status.toLowerCase()}`} key={item.id}>
+            <div className="sop-suggestion-head">
+              <strong>{item.from || "Someone"}</strong>
+              <span>{formatDate(item.created_at)}</span>
+              <span className="sop-suggestion-status">{item.status}</span>
+            </div>
+            <p>{item.text}</p>
+            <div className="sop-suggestion-row">
+              <input value={note[item.id] ?? item.resolution_note ?? ""} placeholder="What you did about it"
+                     maxLength={500} onChange={(e) => setNote((n) => ({ ...n, [item.id]: e.target.value }))} />
+              {item.status === "New" ? (
+                <Button type="button" busy={patch.isPending} onClick={() => move(item, "Read")}>Mark read</Button>
+              ) : null}
+              {item.status !== "Done" ? (
+                <Button type="button" tone="primary" busy={patch.isPending} onClick={() => move(item, "Done")}>Done</Button>
+              ) : null}
+            </div>
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -548,6 +633,7 @@ function SopDetail({
             onMakeCurrent={onMakeCurrent}
           />
           <ReadersPanel sopId={sop.id} enabled={Boolean(sop.current_version_id)} />
+          <SuggestionsPanel sopId={sop.id} />
         </>
       ) : null}
     </Panel>

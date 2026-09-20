@@ -48,6 +48,7 @@ import {
   getSopCategories,
   getSops,
   getSopReaders,
+  getSopSuggestions,
   getSopVersions,
   getTiles,
   getWorkspace,
@@ -111,6 +112,8 @@ import {
   syncMembers,
   testIntegration,
   testMarketing,
+  draftSopBody,
+  patchSopSuggestion,
   putSopBody,
   putSopCategoryOrder,
   restoreSop,
@@ -524,6 +527,22 @@ export function useSopReaders(sopId, enabled) {
     queryKey: [...keys.sops, sopId, "readers"],
     queryFn: () => getSopReaders(sopId),
     enabled: Boolean(sopId) && enabled !== false,
+  });
+}
+
+export function useSopSuggestions(sopId, enabled) {
+  return useQuery({
+    queryKey: [...keys.sops, sopId, "suggestions"],
+    queryFn: () => getSopSuggestions(sopId),
+    enabled: Boolean(sopId) && enabled !== false,
+  });
+}
+
+export function usePatchSopSuggestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ suggestionId, body }) => patchSopSuggestion(suggestionId, body),
+    onSuccess: (_data, vars) => invalidateSops(queryClient, vars.sopId),
   });
 }
 
@@ -1106,6 +1125,11 @@ export function usePutSopBody() {
     mutationFn: ({ sopId, body }) => putSopBody(sopId, body),
     onSuccess: (_data, vars) => invalidateSops(queryClient, vars.sopId),
   });
+}
+
+export function useDraftSopBody() {
+  // Nothing is written by this: the draft comes back and the editor fills with it, unsaved.
+  return useMutation({ mutationFn: ({ sopId, text }) => draftSopBody(sopId, text) });
 }
 
 export function useReviewSop() {

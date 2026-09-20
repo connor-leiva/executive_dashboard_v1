@@ -4651,3 +4651,113 @@ textarea {
   border-color: var(--console-teal);
   color: var(--console-ink);
 }
+
+/* What the team says about a procedure. */
+.sop-suggestions {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--console-line);
+  display: grid;
+  gap: 12px;
+}
+
+.sop-suggestions > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sop-suggestions h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.sop-suggestions > header span {
+  color: var(--console-faint);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sop-suggestion {
+  border: 1px solid var(--console-lineSoft);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.sop-suggestion.done {
+  opacity: 0.6;
+}
+
+.sop-suggestion-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.sop-suggestion-head span {
+  color: var(--console-faint);
+  font-size: 12.5px;
+}
+
+.sop-suggestion-status {
+  margin-left: auto;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.sop-suggestion p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.sop-suggestion-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sop-suggestion-row input {
+  flex: 1 1 200px;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Draft from the document. */
+.sop-draft {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.sop-draft-paste {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 8px;
+}
+
+.sop-draft-paste textarea {
+  width: 100%;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--console-ink);
+  background: white;
+}

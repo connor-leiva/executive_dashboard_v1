@@ -6,7 +6,7 @@ import json
 import re
 import uuid
 
-from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query, Response,
+from fastapi import (APIRouter, Body, Depends, File, Form, HTTPException, Query, Response,
                      UploadFile)
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
@@ -26,14 +26,16 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetIntegration, IntranetLessonAttachment,
                       IntranetSopCategory, IntranetUserState,
                       IntranetAiQuestion, IntranetContentGap, IntranetWorkspace,
+                      IntranetSopSuggestion,
                       IntranetWtdList, IntranetWtdPlaybook, IntranetWtdScript,
                       IntranetDirectorySetting, Tenant, User,
                       Agent)
 from ..services import (binder_storage, course_sections, follow_ups, intranet_assistant,
-                        lesson_media, lesson_richtext, member_numbers, sop_library, sunburst,
-                        uploads, whos_who, wtd_playbook)
+                        lesson_media, lesson_richtext, mailer, member_numbers, sop_library,
+                        sunburst, uploads, whos_who, wtd_playbook)
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import DENIED, allows, capability_levels
+from ..services.users import primary_host
 from ..services.audit import audit
 
 def _iso(value) -> str | None:
@@ -1322,6 +1324,49 @@ async def read_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
         sop, category_name=category.name if category is not None else None, owner=owner,
         version=version, acknowledged_at=acknowledged_at, document=document, tools=tools,
         acknowledged_count=acknowledged_count, team_size=team_size)
+
+
+@router.post("/sops/{sop_id}/suggest")
+async def suggest_sop_change(sop_id: uuid.UUID, body: dict = Body(...),
+                             user: User = Depends(current_user),
+                             s: AsyncSession = Depends(get_session)):
+    """"Something out of date? Tell the owner." (D5)
+
+    Queued in the console under the procedure and emailed to whoever owns it. Not a comment
+    thread: a procedure has one owner, and the way it changes is that they change it.
+    """
+    await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    if member is None:
+        raise HTTPException(404, "Not found")
+    sop = await _live_sop(s, user.tenant_id, sop_id, member)
+    text = str((body or {}).get("text") or "").strip()
+    if not text:
+        raise HTTPException(422, "Say what is out of date.")
+    if len(text) > 1500:
+        raise HTTPException(422, "At most 1500 characters.")
+    row = IntranetSopSuggestion(tenant_id=user.tenant_id, sop_id=sop.id, member_id=member.id,
+                                text=text, status="New")
+    s.add(row)
+    audit(s, user.tenant_id, user.id, "intranet.sop_suggestion", "sop", sop.id)
+    await s.commit()
+
+    owner = (await s.get(IntranetMember, sop.owner_member_id)) if sop.owner_member_id else None
+    to = (getattr(owner, "email", None) or "").strip()
+    if to:
+        host = await primary_host(s, user.tenant_id)
+        link = f"https://{host}/intranet/sops/{sop.id}"
+        lines = [f"{member.full_name} says something in {sop.title} is out of date:", "",
+                 text, "", f"The procedure: {link}",
+                 "It is in your console under SOP Library as well."]
+        note = "\n".join(lines)
+        # Never raises and never blocks the member: mailer.send swallows its own failures, and
+        # the suggestion is already saved either way.
+        await mailer.send(to, f"A suggestion on {sop.title}",
+                          "<p>" + note.replace("\n", "<br>") + "</p>", note,
+                          reply_to=member.email or None,
+                          idempotency_key=f"sop-suggestion-{row.id}")
+    return {"filed": True}
 
 
 @router.post("/sops/{sop_id}/acknowledge")

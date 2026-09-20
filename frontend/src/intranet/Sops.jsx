@@ -27,6 +27,60 @@ function shortDate(value) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+/* "Something out of date? Tell the owner." The member writes it, the owner gets an email and
+   the console gets it in a queue under that procedure (D5). */
+function Suggest({ sops, sopId, label, onDone }) {
+  const [open, setOpen] = useState(false);
+  const [chosen, setChosen] = useState(sopId || "");
+  const [text, setText] = useState("");
+  const [state, setState] = useState("");
+
+  async function send(event) {
+    event.preventDefault();
+    const id = sopId || chosen;
+    if (!id || !text.trim()) return;
+    setState("sending");
+    try {
+      await postJSON(`/intranet/sops/${id}/suggest`, { text: text.trim() });
+      setText("");
+      setState("sent");
+      if (onDone) onDone();
+    } catch {
+      setState("failed");
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className="ut-sop-suggest-btn" onClick={() => setOpen(true)}>
+        {label}
+      </button>
+    );
+  }
+  return (
+    <form className="ut-sop-suggest-form" onSubmit={send}>
+      {!sopId ? (
+        <select value={chosen} onChange={(e) => setChosen(e.target.value)} aria-label="Which procedure">
+          <option value="">Which procedure?</option>
+          {sops.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+        </select>
+      ) : null}
+      <textarea value={text} rows={3} maxLength={1500} placeholder="What is out of date?"
+                aria-label="What is out of date" onChange={(e) => setText(e.target.value)} />
+      <div className="ut-sop-suggest-row">
+        <button type="submit" className="ut-sop-suggest-send" disabled={state === "sending"}>
+          {state === "sending" ? "Sending…" : "Send to the owner"}
+        </button>
+        <button type="button" className="ut-sop-suggest-cancel" onClick={() => { setOpen(false); setState(""); }}>
+          Cancel
+        </button>
+      </div>
+      {state === "sent" ? <div className="ut-sop-suggest-ok">Sent. Thank you.</div> : null}
+      {state === "failed" ? <div className="ut-sop-suggest-ok">That did not send. Try again in a moment.</div> : null}
+    </form>
+  );
+}
+
 // ── the library ────────────────────────────────────────────────────────────────────────────
 
 function Card({ sop, onOpen }) {
@@ -117,6 +171,7 @@ export default function Sops({ config, canConfigure }) {
             <div className="ut-sop-suggest-d">
               Tell the owner. Procedures change because someone in the field said so.
             </div>
+            <Suggest sops={sops} label="Suggest a Change" />
           </div>
         </aside>
 
@@ -289,6 +344,12 @@ export function Procedure({ config }) {
               <span className="ut-sop-ack-note">{error || note}</span>
             </div>
           ) : null}
+
+          <div className="ut-sop-tell">
+            <Suggest sops={[]} sopId={id}
+                     label={owner?.name ? `Out of date? Tell ${firstName(owner.name)}`
+                                        : "Something out of date?"} />
+          </div>
         </div>
 
         <aside className="ut-sop-side">

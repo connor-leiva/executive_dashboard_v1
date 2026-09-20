@@ -50,6 +50,7 @@ from ..models import (
     IntranetSop,
     IntranetSopAcknowledgement,
     IntranetSopCategory,
+    IntranetSopSuggestion,
     IntranetSopVersion,
     IntranetDirectorySetting,
     IntranetWtdList,
@@ -66,8 +67,8 @@ from ..integrations import fub
 from ..services import (binder_storage, course_sections, follow_ups, google_auth, lesson_media,
                         lesson_richtext, mail_templates,
                         mailer, member_identity, uploads,
-                        marketing_delivery, member_numbers, sop_library, whos_who,
-                        wtd_playbook)
+                        marketing_delivery, member_numbers, sop_drafting, sop_library,
+                        whos_who, wtd_playbook)
 from ..services.users import INVITE_DAYS, link_base, primary_host
 from ..services.inheritance import (INHERITED_PROVIDERS, dashboard_connections, ensure_rows,
                                     is_inherited)
@@ -76,6 +77,7 @@ router = APIRouter(prefix="/console", tags=["console"])
 
 LEVELS = {"Full", "View", "Limited", "None"}
 COURSE_STATES = {"Draft", "Live", "Needs Review"}
+SOP_SUGGESTION_STATUSES = ("New", "Read", "Done")
 SOP_STATES = {"Draft", "Live", "Needs Review", "Archived"}
 MEMBER_STATUSES = {"Active", "Invited", "Removed"}
 MEMBER_FILTERS = {"active", "pending", "guests", "leadership", "everyone"}
@@ -777,7 +779,8 @@ def _sop_version(row: IntranetSopVersion) -> dict:
 
 def _sop(row: IntranetSop, category: IntranetSopCategory | None = None,
          owner: IntranetMember | None = None, version: IntranetSopVersion | None = None,
-         version_count: int = 0, acknowledged_count: int = 0) -> dict:
+         version_count: int = 0, acknowledged_count: int = 0,
+         open_suggestions: int = 0) -> dict:
     return {
         "id": _id(row.id), "title": row.title, "category_id": _id(row.category_id),
         "category_name": category.name if category else None,
@@ -794,6 +797,7 @@ def _sop(row: IntranetSop, category: IntranetSopCategory | None = None,
         "summary": row.summary, "applies_to": row.applies_to,
         "tool_ids": list(row.tool_ids or []), "required": bool(row.required),
         "last_reviewed_on": _iso(row.last_reviewed_on),
+        "open_suggestions": open_suggestions,
         "body": row.body or None,
         "body_live": (row.body or None) == (row.published_body or None),
         "has_published_body": sop_library.has_body(row.published_body),
@@ -1238,10 +1242,17 @@ async def _sops_bundle(s: AsyncSession, tenant_id, *, include_archived: bool = F
         IntranetSopVersion.sop_id.in_([r.id for r in rows]) if rows else False,
     ).group_by(IntranetSopVersion.sop_id))).all()
     ack_counts = {r[0]: int(r[1]) for r in ack_rows}
+    suggestion_rows = (await s.execute(select(
+        IntranetSopSuggestion.sop_id, func.count()).where(
+            IntranetSopSuggestion.tenant_id == tenant_id,
+            IntranetSopSuggestion.status != "Done",
+            IntranetSopSuggestion.sop_id.in_([r.id for r in rows]) if rows else False,
+        ).group_by(IntranetSopSuggestion.sop_id))).all()
+    suggestions = {r[0]: int(r[1]) for r in suggestion_rows}
     total = await _count(s, IntranetSop, tenant_id, *([] if include_archived else [IntranetSop.archived_at.is_(None)]))
     return _list([
         _sop(r, cats.get(r.category_id), owners.get(r.owner_member_id), versions.get(r.current_version_id),
-             version_counts.get(r.id, 0), ack_counts.get(r.id, 0))
+             version_counts.get(r.id, 0), ack_counts.get(r.id, 0), suggestions.get(r.id, 0))
         for r in rows
     ], total)
 
@@ -3516,7 +3527,10 @@ async def get_sop(sop_id: uuid.UUID, p: ConsolePrincipal = Depends(require_conso
     acknowledged = await _count(s, IntranetSopAcknowledgement, p.user.tenant_id,
                                 IntranetSopAcknowledgement.sop_version_id == row.current_version_id
                                 ) if row.current_version_id else 0
-    return _sop(row, cat, owner, version, version_count, int(acknowledged))
+    waiting = await _count(s, IntranetSopSuggestion, p.user.tenant_id,
+                           IntranetSopSuggestion.sop_id == row.id,
+                           IntranetSopSuggestion.status != "Done")
+    return _sop(row, cat, owner, version, version_count, int(acknowledged), int(waiting))
 
 
 @router.post("/sops")
@@ -3632,7 +3646,8 @@ async def download_sop_version(sop_id: uuid.UUID, version_id: uuid.UUID,
 
 
 @router.post("/sops/{sop_id}/versions")
-async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
+async def upload_sop_version(sop_id: uuid.UUID, bg: BackgroundTasks,
+                             version_label: str = Form(...),
                              file: UploadFile | None = File(None),
                              p: ConsolePrincipal = Depends(require_console_access),
                              s: AsyncSession = Depends(get_session)):
@@ -3700,7 +3715,44 @@ async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
         s, p, action="content.sop.version_uploaded", category="SOPs",
         summary=f"{what} {label} for SOP {sop.title}", target_type="sop_version",
         target_id=row.id, entity_type="sop", entity_id=sop.id, change_kind="updated")
+    await _announce_sop_revision(s, p, sop, label, bg)
     return _with_pending(_sop_version(row), pending)
+
+
+async def _mail_each(recipients: list[tuple[str, str]], subject: str, text: str) -> None:
+    """One email each, after the response has gone (see the caller). `recipients` is
+    (address, idempotency key) so a double-clicked upload cannot send the same news twice."""
+    html = "<p>" + text.replace("\n", "<br>") + "</p>"
+    for to, key in recipients:
+        await mailer.send(to, subject, html, text, idempotency_key=key)
+
+
+async def _announce_sop_revision(s: AsyncSession, p: ConsolePrincipal, sop: IntranetSop,
+                                 label: str, bg: BackgroundTasks) -> None:
+    """A new revision of a REQUIRED procedure tells the team it is waiting (D7).
+
+    Acknowledging is per revision, so a new one quietly makes everybody's assurance stale. For
+    the procedures an admin marked required, saying nothing would mean the team is out of date
+    on paper and nobody has been told. Only for a procedure members can actually open -- a Draft
+    revised in private announces nothing -- and only to people with an address.
+
+    SENT AFTER THE RESPONSE. A team of eighty-six is eighty-six calls to the mail provider, and
+    an admin who pressed Upload should not be watching a spinner while they go out.
+    """
+    if not sop.required or sop.state != "Live" or sop.published_at is None:
+        return
+    members = (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == p.user.tenant_id,
+        IntranetMember.status == "Active"))).scalars().all()
+    recipients = [((m.email or "").strip(), f"sop-revision-{sop.id}-{label}-{m.id}")
+                  for m in members if (m.email or "").strip()]
+    if not recipients:
+        return
+    host = await primary_host(s, p.user.tenant_id)
+    link = f"https://{host}/intranet/sops/{sop.id}"
+    text = (f"{sop.title} has a new version ({label}).\n\n"
+            f"It is required reading, so it is asking you to read it again: {link}")
+    bg.add_task(_mail_each, recipients, f"New version of {sop.title}", text)
 
 
 @router.put("/sops/{sop_id}/body")
@@ -3728,6 +3780,48 @@ async def put_sop_body(sop_id: uuid.UUID, body: dict = Body(...),
         entity_type="sop", entity_id=row.id,
         detail={"steps": len((clean or {}).get("steps") or [])})
     return _with_pending(await get_sop(row.id, p, s), pending)
+
+
+@router.post("/sops/{sop_id}/draft")
+async def draft_sop_body(sop_id: uuid.UUID, body: dict = Body(default_factory=dict),
+                         p: ConsolePrincipal = Depends(require_console_access),
+                         s: AsyncSession = Depends(get_session)):
+    """A first draft of the procedure, read from its document or from pasted text (phase 6).
+
+    RETURNED, NOT SAVED. Whoever owns the procedure reads it, fixes it and presses save; nothing
+    a model wrote becomes the team's procedure without somebody saying so.
+    """
+    sop = await _one(s, IntranetSop, p.user.tenant_id, sop_id)
+    payload = _body(body or {})
+    _unknown(payload, {"text"})
+    if not sop_drafting.available():
+        raise HTTPException(503, "The assistant is not configured for this platform.")
+
+    text = (str(payload.get("text") or "")).strip()[:sop_drafting.MAX_CHARS]
+    source = "pasted text"
+    if not text:
+        version = (await s.get(IntranetSopVersion, sop.current_version_id)
+                   if sop.current_version_id else None)
+        if version is None or not version.storage_key or not binder_storage.exists(version.storage_key):
+            _unprocessable("text", "Attach a document first, or paste the procedure in.")
+        text = sop_drafting.extract(binder_storage.read(version.storage_key), version.content_type)
+        source = version.filename or "the document"
+        if not text:
+            _unprocessable(
+                "file", "There are no words to read in that file -- a scan, most likely. "
+                        "Paste the procedure in instead.")
+    try:
+        drafted = await sop_drafting.draft(sop.title, text)
+    except sop_library.SopError as e:
+        _unprocessable(e.field, e.message)
+    except Exception as e:                      # noqa: BLE001 -- an outage is not a 500 for them
+        raise HTTPException(503, f"The draft could not be written: {type(e).__name__}")
+    await _record_mutation(
+        s, p, action="content.sop.body_drafted", category="SOPs",
+        summary=f"Drafted the procedure for {sop.title} from {source}", target_type="sop",
+        target_id=sop.id, entity_type="sop", entity_id=sop.id, pending=False,
+        detail={"steps": len(drafted.get("steps") or []), "source": source})
+    return {"body": drafted, "source": source}
 
 
 @router.post("/sops/{sop_id}/review")
@@ -3817,6 +3911,51 @@ async def get_sop_acknowledgements(sop_id: uuid.UUID,
               "acknowledged_at": _iso(acked.get(m.id))} for m in members]
     return {**_list(items, len(items)), "version": version_label,
             "acknowledged": sum(1 for i in items if i["acknowledged_at"])}
+
+
+@router.get("/sops/{sop_id}/suggestions")
+async def get_sop_suggestions(sop_id: uuid.UUID,
+                              p: ConsolePrincipal = Depends(require_console_access),
+                              s: AsyncSession = Depends(get_session)):
+    """What the team has said about this procedure (D5)."""
+    await _one(s, IntranetSop, p.user.tenant_id, sop_id)
+    rows = (await s.execute(select(IntranetSopSuggestion).where(
+        IntranetSopSuggestion.tenant_id == p.user.tenant_id,
+        IntranetSopSuggestion.sop_id == sop_id).order_by(
+            IntranetSopSuggestion.created_at.desc()))).scalars().all()
+    names = {}
+    member_ids = [r.member_id for r in rows if r.member_id]
+    if member_ids:
+        names = {m.id: m.full_name for m in (await s.execute(select(IntranetMember).where(
+            IntranetMember.tenant_id == p.user.tenant_id,
+            IntranetMember.id.in_(member_ids)))).scalars()}
+    items = [{"id": _id(r.id), "text": r.text, "status": r.status,
+              "from": names.get(r.member_id), "created_at": _iso(r.created_at),
+              "resolution_note": r.resolution_note, "resolved_at": _iso(r.resolved_at)}
+             for r in rows]
+    return {**_list(items, len(items)),
+            "open": sum(1 for i in items if i["status"] != "Done")}
+
+
+@router.patch("/sop-suggestions/{suggestion_id}")
+async def patch_sop_suggestion(suggestion_id: uuid.UUID, body: dict = Body(...),
+                               p: ConsolePrincipal = Depends(require_console_access),
+                               s: AsyncSession = Depends(get_session)):
+    row = await _one(s, IntranetSopSuggestion, p.user.tenant_id, suggestion_id)
+    payload = _body(body)
+    _unknown(payload, {"status", "resolution_note"})
+    if "status" in payload:
+        row.status = _enum(payload, "status", SOP_SUGGESTION_STATUSES) or row.status
+        row.resolved_at = _now() if row.status == "Done" else None
+    if "resolution_note" in payload:
+        row.resolution_note = _text(payload, "resolution_note", nullable=True, max_len=500)
+    sop = await _one(s, IntranetSop, p.user.tenant_id, row.sop_id)
+    await _record_mutation(
+        s, p, action="content.sop.suggestion_updated", category="SOPs",
+        summary=f"{row.status} a suggestion on {sop.title}", target_type="sop_suggestion",
+        target_id=row.id, entity_type="sop", entity_id=sop.id, pending=False)
+    return {"item": {"id": _id(row.id), "status": row.status,
+                     "resolution_note": row.resolution_note, "resolved_at": _iso(row.resolved_at)}}
 
 
 @router.put("/sop-categories/order")

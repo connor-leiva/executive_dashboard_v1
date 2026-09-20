@@ -24,6 +24,7 @@ dependencies = [
     "pyotp>=2.9",               # TOTP second factor for the Binder step-up unlock
     "nh3>=0.2",                 # HTML sanitizer (Rust ammonia) for lesson bodies
     "pillow>=10",               # Who's Who photos: checked by their bytes, EXIF stripped, re-encoded
+    "pypdf>=5",                 # reading an uploaded SOP so the assistant can draft its steps
 ]
 
 [project.optional-dependencies]
