@@ -407,7 +407,7 @@ function SuggestionsPanel({ sopId }) {
   const suggestions = useSopSuggestions(sopId, true);
   const patch = usePatchSopSuggestion();
   const [note, setNote] = useState({});
-  if (suggestions.isPending || suggestions.error) return null;
+  if (suggestions.isLoading || suggestions.error) return null;
   const items = suggestions.data?.items || [];
   if (!items.length) return null;
   const move = (item, status) => patch.mutate({
@@ -449,7 +449,7 @@ function ReadersPanel({ sopId, enabled }) {
   const readers = useSopReaders(sopId, enabled);
   const [all, setAll] = useState(false);
   if (!enabled) return null;
-  if (readers.isPending) return <LoadingState />;
+  if (readers.isLoading) return <LoadingState />;
   if (readers.error) return null;
   const items = readers.data?.items || [];
   const outstanding = items.filter((i) => !i.acknowledged_at);
@@ -827,11 +827,15 @@ export default function SopLibrary() {
           onMove={moveCategory}
         />
       </div>
-      {sopQuery.isPending && !isNew ? <LoadingState /> : null}
+      {sopQuery.isLoading ? <LoadingState /> : null}
       {sopQuery.error && !isNew ? <ErrorState title={COPY.sopError} onRetry={() => sopQuery.refetch()} /> : null}
-      {/* Same bug as Training's course pane, same fix: a disabled query is permanently
-          `isPending` in React Query v5, sopQuery is disabled exactly when isNew, so New SOP set
-          the state and rendered nothing. See the note there. */}
+      {/* `isLoading`, not `isPending`, on every query that can be switched off: in React Query v5
+          `isPending` only means "no data", so a disabled query is pending FOREVER, while
+          `isLoading` is `isPending && isFetching` and is honestly false while the query is off.
+          The note that used to sit here warned about the render gate above and the line below it
+          did the same thing in another shape -- `busy` -- which is how a workspace with no
+          procedures got a permanently greyed-out Create SOP. Name the flag correctly instead of
+          re-deriving the guard. */}
       {isNew || detail ? (
         <SopDetail
           sop={detail}
@@ -842,7 +846,7 @@ export default function SopLibrary() {
           isNew={isNew}
           form={form}
           setForm={setForm}
-          busy={busy || versionsQuery.isPending}
+          busy={busy || versionsQuery.isLoading}
           message={message}
           error={error}
           onSave={saveSop}

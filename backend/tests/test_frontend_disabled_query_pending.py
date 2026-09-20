@@ -86,3 +86,68 @@ def test_no_render_gate_waits_on_a_query_that_isnew_disables():
     assert not offenders, (
         "a render gate waits on a query that is disabled whenever isNew is true, so it can never "
         "become ready and the new-item form will never appear:\n  " + "\n  ".join(offenders))
+
+
+# --- and the same fault wearing different clothes -------------------------------------------
+#
+# The test above encodes ONE SHAPE: a render gate. Connor then reported the SOP Library as "there
+# is nothing to link, upload, write out, or save", and the cause was the same disabled query three
+# lines BELOW the comment warning about it -- folded into `busy`, so every button in the detail
+# form, including Create SOP, was disabled forever:
+#
+#     const versionsQuery = useSopVersions(detail?.id || "", Boolean(detail?.id));   // disabled
+#     ...
+#     busy={busy || versionsQuery.isPending}
+#
+# Only a workspace with NO procedures can hit it, so it survived every test and every click-through
+# that started from an existing one -- which is every new workspace, on the screen whose job is to
+# create the first thing.
+#
+# So the rule here is not "and also check busy=". It is about the flag itself: a query that can be
+# switched off must never be asked `isPending`, because in v5 that only means "no data" and a
+# disabled query has none, forever. `isLoading` (`isPending && isFetching`) is the honest question
+# and is false while the query is off, so the consumer cannot get it wrong no matter what it feeds.
+#
+# The hook list is DERIVED from the query modules, not kept here: a new conditional hook is covered
+# the day it is written, and this test cannot go stale the way a list of screens does.
+
+ASSIGNED = re.compile(r"(?:const|let)\s+(\w+)\s*=\s*(use\w+)\(")
+DESTRUCTURED = re.compile(r"(?:const|let)\s*\{([^}]*)\}\s*=\s*(use\w+)\(")
+
+
+def _switchable_hooks() -> dict[str, str]:
+    """Every exported hook whose useQuery takes an `enabled:` option."""
+    hooks = {}
+    for mod in sorted(SRC.rglob("*.js")):
+        text = _code_only(mod.read_text(encoding="utf-8"))
+        for m in re.finditer(r"export function (use\w+)\(", text):
+            nxt = text.find("\nexport function ", m.end())
+            body = text[m.end(): nxt if nxt != -1 else len(text)]
+            if "useQuery(" in body and re.search(r"\benabled:", body):
+                hooks[m.group(1)] = str(mod.relative_to(SRC))
+    return hooks
+
+
+def test_a_query_that_can_be_switched_off_is_never_asked_ispending():
+    hooks = _switchable_hooks()
+    assert hooks, "found no conditionally-enabled query hooks -- the scan broke, not the code"
+
+    offenders = []
+    for path in _jsx():
+        code = _code_only(path.read_text(encoding="utf-8"))
+        owners = {m.group(1): m.group(2) for m in ASSIGNED.finditer(code) if m.group(2) in hooks}
+        for names, hook in ((m.group(1), m.group(2)) for m in DESTRUCTURED.finditer(code)):
+            if hook in hooks and re.search(r"\bisPending\b", names):
+                offenders.append(f"{path.relative_to(SRC)}: destructures isPending from {hook}")
+        if not owners:
+            continue
+        for n, line in enumerate(code.splitlines(), 1):
+            for var, hook in owners.items():
+                if re.search(rf"\b{var}\.isPending\b", line):
+                    offenders.append(f"{path.relative_to(SRC)}:{n}: [{hook}] {line.strip()[:100]}")
+
+    assert not offenders, (
+        "these read `isPending` on a query that can be disabled, and a disabled query is pending "
+        "forever in React Query v5 -- whatever it feeds (a render gate, a spinner, a `busy` or "
+        "`disabled` prop) is stuck in that state for as long as the query is off. Ask "
+        "`isLoading` instead:\n  " + "\n  ".join(offenders))

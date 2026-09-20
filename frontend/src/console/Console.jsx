@@ -310,7 +310,7 @@ export default function Console() {
         pendingChanges={pendingQuery.data}
         pendingLoading={pendingQuery.isPending}
         preview={previewQuery.data}
-        previewLoading={previewQuery.isPending}
+        previewLoading={previewQuery.isLoading}
         selectedRole={selectedRole}
         setSelectedRole={setSelectedRole}
         publishMutation={publishMutation}
@@ -330,7 +330,7 @@ export default function Console() {
       pendingChanges={pendingQuery.data}
       pendingLoading={pendingQuery.isPending}
       preview={previewQuery.data}
-      previewLoading={previewQuery.isPending}
+      previewLoading={previewQuery.isLoading}
       selectedRole={selectedRole}
       setSelectedRole={setSelectedRole}
       publishMutation={publishMutation}
@@ -369,7 +369,7 @@ export default function Console() {
               <ToolLaunchpad
                 selectedRole={selectedRole}
                 preview={previewQuery.data}
-                previewLoading={previewQuery.isPending}
+                previewLoading={previewQuery.isLoading}
               />
             )}
           />
