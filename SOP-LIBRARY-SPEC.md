@@ -362,7 +362,58 @@ built portal carries the library, the reader and the suggestion form; the consol
 procedure editor, the draft buttons and the suggestion queue. Both pages were opened in
 production: they render, with nothing in the browser console.
 
+### The first procedure could not be created (`b3d2275`)
+
+Connor, trying it in production: *"there's nothing to link, upload, write out, or save"*. Exactly
+what it looked like. The New SOP form rendered with editable fields and a greyed-out **Create
+SOP**, and the document, tools and revision panels only appear once a procedure exists -- so a
+workspace with none had no way to make one. Utah Life has none. That is every new workspace, on
+the screen whose only job is the first thing.
+
+`useSopVersions` is switched off until a procedure is selected, and `isPending` in React Query v5
+only means "no data" -- a query that is off has none and never will, so it is pending forever. It
+was folded into `busy`, which disables every button in the detail form:
+
+    const versionsQuery = useSopVersions(detail?.id || "", Boolean(detail?.id));   // disabled
+    busy={busy || versionsQuery.isPending}
+
+Nothing caught it. The suite starts from a seeded library, and so did every click-through; only an
+empty one reaches the state. A comment three lines above the broken line warned about this exact
+bug in its other shape, and `test_frontend_disabled_query_pending` encoded that shape alone.
+
+**Fixed at the flag, not the guard.** `isLoading` is `isPending && isFetching`, it is honestly
+false while a query is off, and it is what all seven callers of a switchable query were asking
+for. The test now derives the set of hooks that can be switched off **from the query module
+itself** and refuses `isPending` on any of them, whatever it feeds -- a hook written next month is
+covered the day it is written. Confirmed by reverting the line and watching it fail.
+
+Also learned: `npm run build` is dashboard + intranet only. A console change is compiled by
+`npm run build:console`, and Railway's LF checkout hashes differently from a CRLF working copy, so
+a bundle filename is not a deploy signal -- compare content.
+
 ### Phase 7: Utah Life, live
 
-Not started: it needs Connor to say where the procedures live now, which ones matter most, and
-whether the mockup's five departments are the real set (§11).
+**Two test procedures exist in production** (2026-09-20), both owned by connor, both in Sisu,
+both Applies to Everyone, both Live and published, both named and summarised as test content that
+is safe to delete:
+
+- **Test Procedure (Document)** -- a PDF uploaded as its revision, read inline in the reader, with
+  the acknowledgement button and "0 of 6 people have acknowledged v1". It carries a v2 as well:
+  that second revision was uploaded only to check a refresh (below), and is the same file.
+- **Test Procedure (Written)** -- an opening paragraph, three numbered steps and a Do Not Skip
+  callout, with the on-this-page anchors and the owner card. Written, saved, and live only after
+  Publish, which is D2 working as designed.
+
+Both appear in the member's library under Sisu and in *Changed This Month*, and both are visible
+when viewing as Member, not only as Owner.
+
+**One thing seen once and not reproduced:** the very first upload into an empty library said
+"Version uploaded" but left the panel on "No version uploaded" and the row on "0 revisions"; a
+reload showed it correctly, so the write was never in doubt. Uploading a second revision the same
+way refreshed everything immediately, and the network log shows the POST followed by the expected
+refetches, so the invalidation is wired correctly. Recorded rather than patched: the mechanism was
+not identified, and a fix for a mechanism nobody has seen is a guess.
+
+**Still open, and still Connor's to answer:** where the real procedures live now, which ones
+matter most, and whether the mockup's five departments are the real set (§11). Utah Life has one
+department today (Sisu) and two owners in the dropdown (connor, Spring Bengtzen).
