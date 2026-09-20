@@ -556,8 +556,10 @@ async def test_an_sop_carries_its_version_owner_and_a_way_to_open_it():
     content = await _content(host, tokens["member"])
     sop = content["sops"][0]
     assert sop["title"] == "Under contract checklist"
-    assert sop["category"] == "Transactions"
-    assert sop["owner"] == "A Member"
+    assert sop["category"] == "Transactions" and sop["department"] == "Transactions"
+    # The owner is a person now, not a name: the library shows their face and the procedure
+    # offers a way to message them (services/whos_who.card).
+    assert sop["owner"]["name"] == "A Member"
     assert sop["version"] == "v3"
     assert sop["filename"] == "checklist.pdf"
     assert sop["review_due_on"] == "2027-01-31"

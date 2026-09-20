@@ -201,12 +201,14 @@ async def test_a_citation_the_model_invented_is_dropped():
     try:
         async with SessionLocal() as s:
             out = await ia.ask(s, uuid.uuid4(), "Acme",
-                               {"sops": [{"title": "Checklist", "version": "v1"}]},
+                               {"sops": [{"id": "abc", "title": "Checklist", "version": "v1"}]},
                                "where is it")
     finally:
         ia._client = original
 
-    assert [c["ref"] for c in out["citations"]] == ["/sops"], \
+    # "/sops" is not a ref any more either: a procedure has its own page, so a citation
+    # names the procedure rather than the library it sits in.
+    assert [c["ref"] for c in out["citations"]] == [], \
         "a fabricated citation survived into the answer"
     assert out["answered"] is True
 

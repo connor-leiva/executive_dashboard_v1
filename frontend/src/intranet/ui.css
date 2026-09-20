@@ -5178,3 +5178,740 @@ a.ut-wtd-tool-name:hover {
     gap: 32px;
   }
 }
+
+/* ── THE SOP LIBRARY ────────────────────────────────────────────────────────────────────────
+   Ported from the mockup's markup (brand-src/mockups/utah-life-intranet/template.html, lines
+   791-865 for the library and 867-930 for one procedure), declaration for declaration, as Win
+   the Day and Who's Who were: the mockup's pixel values, every colour a token, grid minimums as
+   min(Npx, 100%) so a phone never scrolls sideways. */
+.ut-sop {
+  width: min(1152px, 100%);
+}
+
+.ut-sop-eyebrow {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-sop-title {
+  margin: 10px 0 0;
+  font-family: var(--font-text);
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.6px;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.ut-sop-lede {
+  margin: 12px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--body);
+  max-width: 600px;
+}
+
+.ut-sop-cols {
+  display: flex;
+  gap: 38px;
+  margin-top: 32px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+/* The rail. */
+.ut-sop-rail {
+  flex: 0 0 246px;
+  width: 246px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.ut-sop-search {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.ut-sop-rail-label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-sop-depts {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+}
+
+.ut-sop-depts button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-top: 1px solid var(--line-done);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 2px;
+  font-size: 14.5px;
+  font-weight: 400;
+  line-height: normal;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ut-sop-depts button:hover {
+  color: var(--ink);
+}
+
+.ut-sop-depts button.on {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.ut-sop-dept-n {
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.ut-sop-depts button.on .ut-sop-dept-n {
+  color: var(--primary);
+}
+
+.ut-sop-suggest {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+
+.ut-sop-suggest-t {
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.ut-sop-suggest-d {
+  margin-top: 7px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.ut-sop-suggest-btn {
+  margin-top: 14px;
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: normal;
+  padding: 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.ut-sop-suggest-btn:hover {
+  border-color: var(--primary);
+}
+
+.ut-sop-main {
+  flex: 1 1 380px;
+  min-width: 0;
+}
+
+/* Changed this month. */
+.ut-sop-changed {
+  background: var(--ink);
+  border-radius: 16px;
+  padding: 24px 28px;
+  color: #ffffff;
+}
+
+.ut-sop-changed-label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ut-sop-changed-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.ut-sop-changed-list button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-top: 1px solid var(--rail-line);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 0;
+  line-height: normal;
+  cursor: pointer;
+}
+
+.ut-sop-changed-list button:hover {
+  opacity: 0.75;
+}
+
+.ut-sop-changed-v {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--accent);
+  width: 52px;
+  flex: 0 0 52px;
+}
+
+.ut-sop-changed-mid {
+  flex: 1;
+  min-width: 0;
+}
+
+.ut-sop-changed-t {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+.ut-sop-changed-m {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--sun-dim);
+}
+
+.ut-sop-changed-go {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--sun-dim);
+  white-space: nowrap;
+}
+
+/* The cards. */
+.ut-sop-listhead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 34px;
+}
+
+.ut-sop-listhead h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.ut-sop-listhead span {
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* auto-fill, not the mockup's auto-fit: identical once a row is full (the mockup shows six), and
+   a library with two procedures keeps card-sized cards rather than one across the page. */
+.ut-sop-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.ut-sop-card {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  line-height: normal;
+  cursor: pointer;
+}
+
+.ut-sop-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+}
+
+.ut-sop-card-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.ut-sop-chip {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--soft-line);
+  padding: 4px 8px;
+  border-radius: 5px;
+}
+
+.ut-sop-card-v {
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.ut-sop-card-title {
+  display: block;
+  margin-top: 15px;
+  font-size: 17.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.ut-sop-card-sum {
+  display: block;
+  margin-top: 9px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.ut-sop-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hair);
+}
+
+.ut-sop-card-who {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 99px;
+  background: var(--page);
+  color: var(--body);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+}
+
+.ut-sop-card-owner {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--body);
+}
+
+.ut-sop-card-when {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.ut-sop-none {
+  margin: 18px 0 0;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+
+/* ── one procedure ────────────────────────────────────────────────────────────────────────── */
+.ut-sop-back {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: normal;
+  cursor: pointer;
+}
+
+.ut-sop-back:hover {
+  color: var(--ink);
+}
+
+.ut-sop-page {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+  gap: 30px;
+  margin-top: 20px;
+  align-items: start;
+}
+
+.ut-sop-doc {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 40px 46px;
+  min-width: 0;
+}
+
+.ut-sop-doc-eyebrow {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-sop-doc-title {
+  margin: 14px 0 0;
+  font-family: var(--font-text);
+  font-size: 36px;
+  line-height: 1.08;
+  letter-spacing: -0.5px;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.ut-sop-meta {
+  margin-top: 18px;
+  padding: 14px 0;
+  border-top: 1px solid var(--soft-line);
+  border-bottom: 1px solid var(--soft-line);
+  display: flex;
+  gap: 34px;
+  flex-wrap: wrap;
+}
+
+.ut-sop-meta-k {
+  font-family: var(--font-ui);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-sop-meta-v {
+  margin-top: 5px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ut-sop-intro {
+  margin: 24px 0 0;
+  font-size: 16.5px;
+  line-height: 1.6;
+  color: var(--body);
+  text-wrap: pretty;
+}
+
+.ut-sop-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 32px;
+}
+
+.ut-sop-step {
+  display: flex;
+  gap: 18px;
+  scroll-margin-top: 90px;
+}
+
+.ut-sop-step-n {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 99px;
+  background: var(--page);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ut-sop-step-t {
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.ut-sop-step-d {
+  margin-top: 7px;
+  font-size: 15.5px;
+  line-height: 1.55;
+  color: var(--body);
+  text-wrap: pretty;
+}
+
+.ut-sop-callout {
+  margin-top: 34px;
+  background: var(--page);
+  border-left: 3px solid var(--primary);
+  border-radius: 0 10px 10px 0;
+  padding: 20px 24px;
+}
+
+.ut-sop-callout-label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.ut-sop-callout-text {
+  margin-top: 9px;
+  font-size: 15.5px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+/* The document, for a procedure that is one. Not in the mockup, which has no filed SOPs. */
+.ut-sop-doc-file {
+  margin-top: 34px;
+  padding-top: 22px;
+  border-top: 1px solid var(--soft-line);
+}
+
+.ut-sop-embed {
+  width: 100%;
+  height: 560px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--page);
+}
+
+.ut-sop-download {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.ut-sop-download:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.ut-sop-ack {
+  margin-top: 34px;
+  padding-top: 22px;
+  border-top: 1px solid var(--soft-line);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.ut-sop-ack-btn {
+  border: 0;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: normal;
+  padding: 12px 20px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.ut-sop-ack-btn:hover:enabled {
+  background: var(--ink);
+}
+
+.ut-sop-ack-btn:disabled {
+  cursor: default;
+}
+
+.ut-sop-ack-note {
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+/* The sidebar. */
+.ut-sop-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 96px;
+  min-width: 0;
+}
+
+.ut-sop-side-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px 22px;
+}
+
+.ut-sop-label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-sop-toc {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 12px;
+}
+
+.ut-sop-toc a {
+  font-size: 13.5px;
+  color: var(--body);
+  padding: 7px 0;
+  border-top: 1px solid var(--hair);
+  text-decoration: none;
+}
+
+.ut-sop-toc a:hover {
+  color: var(--ink);
+}
+
+.ut-sop-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.ut-sop-tools a {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary);
+  border: 1px solid var(--line);
+  padding: 6px 11px;
+  border-radius: 99px;
+  text-decoration: none;
+}
+
+.ut-sop-tools a:hover {
+  border-color: var(--primary);
+}
+
+.ut-sop-owner {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ut-sop-owner-who {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 99px;
+  background: var(--avatar);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ut-sop-owner-n {
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
+.ut-sop-owner-r {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.ut-sop-owner-go {
+  margin-top: 14px;
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: normal;
+  padding: 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.ut-sop-owner-go {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+}
+
+.ut-sop-owner-go:hover {
+  border-color: var(--primary);
+  color: var(--ink);
+}
+
+.ut-sop-owner-profile {
+  margin-top: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: normal;
+  cursor: pointer;
+}
+
+.ut-sop-owner-profile:hover {
+  color: var(--ink);
+}
+
+@media (max-width: 760px) {
+  .ut-sop-title {
+    font-size: 36px;
+  }
+  .ut-sop-rail {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .ut-sop-doc {
+    padding: 28px 24px;
+  }
+  .ut-sop-doc-title {
+    font-size: 30px;
+  }
+  .ut-sop-side {
+    position: static;
+  }
+  .ut-sop-embed {
+    height: 380px;
+  }
+}

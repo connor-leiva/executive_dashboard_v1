@@ -30,8 +30,8 @@ from ..models import (IntranetCourse, IntranetLaunchpadTile, IntranetLaunchpadTi
                       IntranetDirectorySetting, Tenant, User,
                       Agent)
 from ..services import (binder_storage, course_sections, follow_ups, intranet_assistant,
-                        lesson_media, lesson_richtext, member_numbers, sunburst, uploads,
-                        whos_who, wtd_playbook)
+                        lesson_media, lesson_richtext, member_numbers, sop_library, sunburst,
+                        uploads, whos_who, wtd_playbook)
 from ..services.inheritance import dashboard_connections
 from ..services.intranet_permissions import DENIED, allows, capability_levels
 from ..services.audit import audit
@@ -236,7 +236,7 @@ def _audience_allows(audience: dict, course_id, role_id) -> bool:
 
 
 async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember | None,
-                             user: User | None = None) -> dict:
+                             user: User | None = None, *, full: bool = False) -> dict:
     """The workspace's OWN configured content, as the intranet should render it.
 
     THIS IS THE MULTI-TENANCY FIX AND IT IS NOT COSMETIC. The console has always written roles,
@@ -435,6 +435,7 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
     # list of titles -- no version to cite, no owner to ask, no file to open.
     versions = {}
     owner_names = {}
+    owner_cards: dict = {}
     version_ids: list = []
     if sops:
         version_ids = [sop.current_version_id for sop in sops if sop.current_version_id]
@@ -444,9 +445,18 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
                 IntranetSopVersion.id.in_(version_ids)))).scalars().all()}
         owner_ids = [sop.owner_member_id for sop in sops if sop.owner_member_id]
         if owner_ids:
-            owner_names = {m.id: m.full_name for m in (await s.execute(select(IntranetMember).where(
+            owner_rows = (await s.execute(select(IntranetMember).where(
                 IntranetMember.tenant_id == tenant_id,
-                IntranetMember.id.in_(owner_ids)))).scalars().all()}
+                IntranetMember.id.in_(owner_ids)))).scalars().all()
+            owner_names = {m.id: m.full_name for m in owner_rows}
+            # The owner as Who's Who knows them, so the library can show a face and the
+            # procedure can offer Send a Message. Somebody hidden from the directory keeps
+            # their name here -- they own the procedure either way -- but no profile to open.
+            owner_cards = {
+                m.id: {**whos_who.card(m, role_name=role_names.get(m.role_id), you=False),
+                       "profile_url": (f"/directory/{m.id}" if whos_who.listed(m, leadership)
+                                       else None)}
+                for m in owner_rows}
 
     # What THIS member has already acknowledged. The console has counted these since it shipped
     # and the table had never had a row inserted, because no member route wrote one -- the
@@ -467,20 +477,29 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         # Per VERSION, not per SOP: acknowledging v2 says nothing about v3, and the table is
         # keyed that way on purpose. Republishing a procedure correctly asks everybody again.
         acked = acknowledged.get(sop.current_version_id)
+        document = bool(version is not None and version.storage_key)
+        card = sop_library.card(
+            sop, category_name=category_names.get(sop.category_id),
+            owner=owner_cards.get(sop.owner_member_id), version=version,
+            acknowledged_at=_iso(acked), document=document)
+        body = sop.published_body or {}
         return {
-            "id": str(sop.id),
-            "title": sop.title,
-            "category": category_names.get(sop.category_id),
-            "owner": owner_names.get(sop.owner_member_id),
+            **card,
+            # The old shape, still here because the search index, the assistant and anything
+            # else that learned these names keeps working.
+            "category": card["department"],
             "updated_at": _iso(sop.updated_at),
             "review_due_on": sop.review_due_on.isoformat() if sop.review_due_on else None,
-            "version": version.version_label if version else None,
             "filename": version.filename if version else None,
-            "byte_size": int(version.byte_size) if version else None,
+            "byte_size": int(version.byte_size) if version and version.byte_size else None,
             # A path under the API base, not a storage URL: the bytes are proxied so that a
             # link cannot outlive the reader's access to the workspace.
-            "file_url": f"/intranet/sops/{sop.id}/file" if version else None,
-            "acknowledged_at": _iso(acked),
+            "file_url": f"/intranet/sops/{sop.id}/file" if document else None,
+            # The step TITLES, so searching "order media" finds the procedure that says it. The
+            # step text itself is on the procedure's own page, which is what keeps this payload
+            # the size of a library rather than the size of the library's contents.
+            "steps": [step.get("title") for step in (body.get("steps") or []) if step.get("title")],
+            "body_text": sop_library.body_text(body) if full else None,
         }
 
     # Which providers this workspace has actually connected. Keys and status only -- no
@@ -549,6 +568,7 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
         )).scalars().all():
             attachments_by_lesson.setdefault(att.lesson_id, []).append(att)
 
+    sop_cards = [_sop_out(sop) for sop in sops]
     return {
         "roles": [{"key": r.key, "name": r.name, "is_leadership": bool(r.is_leadership)}
                   for r in roles],
@@ -646,7 +666,11 @@ async def _published_content(s: AsyncSession, tenant_id, member: IntranetMember 
                                       for a in attachments_by_lesson.get(le.id, [])]}
                                  for le in lessons_by_course.get(c.id, [])]}
                     for c in courses],
-        "sops": [_sop_out(sop) for sop in sops],
+        "sops": sop_cards,
+        # The rail down the left of the library: every department, in the order the console put
+        # them in, each with how many procedures are in it.
+        "sop_departments": sop_library.departments(
+            sop_cards, [c.name for c in sop_categories]) if sop_cards else [],
         "directory": await _directory_payload(s, tenant_id, directory_rows, dir_setting,
                                               role_names, leadership, member, today),
         # Pages this workspace wrote for itself. The rail builds its own entries from these, so
@@ -1212,6 +1236,94 @@ async def _live_sop(s: AsyncSession, tenant_id, sop_id: uuid.UUID,
     return row
 
 
+@router.get("/sops/{sop_id}")
+async def read_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
+                   s: AsyncSession = Depends(get_session)):
+    """One procedure, as its own page draws it (SOP-LIBRARY-SPEC.md 1.2).
+
+    The PUBLISHED body, never the draft, plus the tools it needs, the owner as somebody you can
+    message, and how many colleagues have read this revision. Behind `_live_sop`, so an id kept
+    from an archived procedure -- or held by a role that may not open the library -- is worth
+    nothing.
+    """
+    await _enabled_tenant(s, user)
+    member = await _member_for(s, user)
+    if member is None:
+        raise HTTPException(404, "Not found")
+    sop = await _live_sop(s, user.tenant_id, sop_id, member)
+
+    category = await s.get(IntranetSopCategory, sop.category_id) if sop.category_id else None
+    version = (await s.get(IntranetSopVersion, sop.current_version_id)
+               if sop.current_version_id else None)
+    roles = (await s.execute(select(IntranetRole).where(
+        IntranetRole.tenant_id == user.tenant_id, published(IntranetRole)))).scalars().all()
+    leadership = {r.id for r in roles if r.is_leadership}
+    role_names = {r.id: r.name for r in roles}
+
+    owner = None
+    if sop.owner_member_id:
+        row = (await s.execute(select(IntranetMember).where(
+            IntranetMember.tenant_id == user.tenant_id,
+            IntranetMember.id == sop.owner_member_id))).scalars().first()
+        if row is not None:
+            owner = {**whos_who.card(row, role_name=role_names.get(row.role_id), you=False),
+                     "profile_url": (f"/directory/{row.id}" if whos_who.listed(row, leadership)
+                                     else None),
+                     # Questions on this? goes straight to them, as the mockup's button does.
+                     "message_url": row.message_url or (f"mailto:{row.email}" if row.email else None)}
+
+    # THE TOOLS AS TILES THIS MEMBER MAY SEE. A tile with no audience is everyone's; one with an
+    # audience belongs to those roles, exactly as the launchpad decides it -- so a restricted
+    # tool cannot become a link through the back of a procedure.
+    tools: list[dict] = []
+    wanted = [str(t) for t in (sop.tool_ids or []) if t]
+    if wanted:
+        tiles = (await s.execute(select(IntranetLaunchpadTile).where(
+            IntranetLaunchpadTile.tenant_id == user.tenant_id,
+            IntranetLaunchpadTile.active.is_(True),
+            published(IntranetLaunchpadTile)))).scalars().all()
+        audience: dict = {}
+        if tiles:
+            for tile_id, role_id in (await s.execute(select(
+                IntranetLaunchpadTileRole.tile_id, IntranetLaunchpadTileRole.role_id,
+            ).where(IntranetLaunchpadTileRole.tenant_id == user.tenant_id,
+                    IntranetLaunchpadTileRole.tile_id.in_([t.id for t in tiles])))).all():
+                audience.setdefault(tile_id, set()).add(role_id)
+        by_id = {str(t.id): t for t in tiles
+                 if t.id not in audience or member.role_id in audience[t.id]}
+        tools = [{"id": t, "name": by_id[t].name, "url": by_id[t].url}
+                 for t in wanted if t in by_id]
+
+    acknowledged_at = None
+    acknowledged_count = 0
+    if sop.current_version_id:
+        rows = (await s.execute(select(IntranetSopAcknowledgement).where(
+            IntranetSopAcknowledgement.tenant_id == user.tenant_id,
+            IntranetSopAcknowledgement.sop_version_id == sop.current_version_id))).scalars().all()
+        acknowledged_count = len(rows)
+        acknowledged_at = next(
+            (_iso(r.acknowledged_at) for r in rows if r.member_id == member.id), None)
+    team_size = int((await s.execute(select(func.count()).select_from(IntranetMember).where(
+        IntranetMember.tenant_id == user.tenant_id,
+        IntranetMember.status != "Removed"))).scalar_one())
+
+    document = None
+    if version is not None and version.storage_key:
+        document = {
+            "filename": version.filename,
+            "byte_size": int(version.byte_size) if version.byte_size else None,
+            "content_type": version.content_type,
+            "url": f"/intranet/sops/{sop.id}/file",
+            # A PDF can be read in the page. Anything else is a download.
+            "inline": version.content_type == "application/pdf",
+        }
+
+    return sop_library.reader(
+        sop, category_name=category.name if category is not None else None, owner=owner,
+        version=version, acknowledged_at=acknowledged_at, document=document, tools=tools,
+        acknowledged_count=acknowledged_count, team_size=team_size)
+
+
 @router.post("/sops/{sop_id}/acknowledge")
 async def acknowledge_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
                           s: AsyncSession = Depends(get_session)):
@@ -1491,7 +1603,8 @@ async def download_lesson_attachment(lesson_id: uuid.UUID, attachment_id: uuid.U
 
 
 @router.get("/sops/{sop_id}/file")
-async def download_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
+async def download_sop(sop_id: uuid.UUID, disposition: str = Query("attachment"),
+                       user: User = Depends(current_user),
                        s: AsyncSession = Depends(get_session)):
     """The current version of a published SOP, proxied.
 
@@ -1515,13 +1628,25 @@ async def download_sop(sop_id: uuid.UUID, user: User = Depends(current_user),
         IntranetSopVersion.tenant_id == user.tenant_id,
         IntranetSopVersion.id == row.current_version_id,
     ))).scalars().first()
-    if version is None or not binder_storage.exists(version.storage_key):
+    # A revision of a WRITTEN procedure has no file. The procedure is on its own page; there is
+    # nothing here to hand over.
+    if version is None or not version.storage_key:
+        raise HTTPException(404, "Not found")
+    if not binder_storage.exists(version.storage_key):
         raise HTTPException(404, "Not found")
     safe = binder_storage.safe_filename(version.filename)
+    # INLINE ONLY FOR A PDF, and only when asked: the reader embeds the document in the page, and
+    # everything else stays an attachment, as every upload in this product does. A PDF is the one
+    # type here a browser renders without running anything, and the bytes were sniffed on upload,
+    # so the type is ours rather than the uploader's. nosniff keeps the browser from
+    # second-guessing it either way.
+    inline = disposition == "inline" and version.content_type == "application/pdf"
+    how = "inline" if inline else "attachment"
     return Response(
         content=binder_storage.read(version.storage_key),
         media_type=version.content_type,
-        headers={"Content-Disposition": 'attachment; filename="' + safe + '"'},
+        headers={"Content-Disposition": how + '; filename="' + safe + '"',
+                 "X-Content-Type-Options": "nosniff"},
     )
 
 
@@ -1593,7 +1718,9 @@ async def ask_assistant(body: AskBody, user: User = Depends(current_user),
     if not question:
         raise HTTPException(422, "Ask a question.")
 
-    content = await _published_content(s, user.tenant_id, member)
+    # `full`: the procedures themselves, not only their titles (D10). Every page load
+    # carries the library; the assistant runs once per question and can afford the text.
+    content = await _published_content(s, user.tenant_id, member, full=True)
     workspace = await s.get(IntranetWorkspace, user.tenant_id)
     name = (workspace.name if workspace and workspace.name else tenant.name) or "this workspace"
     result = await intranet_assistant.ask(s, user.tenant_id, name, content, question)

@@ -108,14 +108,21 @@ def corpus(content: dict) -> list[dict]:
             })
 
     for sop in c.get("sops") or []:
+        # A WRITTEN procedure can be answered from; an uploaded document still cannot (D10).
+        # `body_text` is only in the payload the assistant asks for, and only for a member whose
+        # role may open the library -- this list is built from that member's own content.
         out.append({
             "kind": "SOP",
             "title": sop.get("title"),
-            "ref": "/sops",
+            "ref": f"/sops/{sop.get('id')}",
             "facts": {
                 "category": sop.get("category"),
                 "version": sop.get("version"),
-                "owner": sop.get("owner"),
+                "owner": (sop.get("owner") or {}).get("name"),
+                "summary": sop.get("summary"),
+                "applies_to": sop.get("applies_to"),
+                "procedure": sop.get("body_text") or None,
+                "steps": sop.get("steps") or None,
                 # Said explicitly so the model does not infer that a downloadable file means it
                 # has read the file.
                 "document": ("an attached file, whose contents are NOT available to you"
@@ -231,8 +238,9 @@ WHAT THE CORPUS ACTUALLY CONTAINS. For most entries it holds titles, owners, ver
 and descriptions -- not the body of the document. Where an SOP says its contents are not available \
 to you, you have NOT read that document and must not summarise, paraphrase or quote it. Say where \
 it is, who owns it and which version is current, and point them at it. Authored Pages and reading \
-lessons DO carry real prose: an entry with a `body` is one you have actually read and may answer \
-from directly.
+lessons DO carry real prose, and so does an SOP with a `procedure`: an entry with a `body` or a \
+`procedure` is one you have actually read, and its numbered steps may be answered from and \
+quoted by number.
 
 {grounding}
 

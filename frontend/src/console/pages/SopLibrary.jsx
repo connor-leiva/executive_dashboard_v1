@@ -9,14 +9,32 @@ import {
   useMembers,
   usePatchSop,
   usePatchSopCategory,
+  usePutSopBody,
   useRemoveSopCategory,
+  useRestoreSop,
+  useReviewSop,
+  useReviseSop,
+  useSetCurrentSopVersion,
   useSop,
   useSopCategories,
+  useSopCategoryOrder,
+  useSopReaders,
   useSops,
   useSopVersions,
+  useTiles,
   useUploadSopVersion,
 } from "../queries.js";
 import { Button, EmptyState, ErrorState, Field, LoadingState, Panel } from "../ui.jsx";
+
+/* THE SOP LIBRARY (SOP-LIBRARY-SPEC.md, phases 1-2).
+ *
+ * An SOP used to be a title, a category, an owner and an uploaded file. It is now a procedure
+ * somebody can read: an intro, numbered steps, and the one thing not to skip -- with the document
+ * still here for the ones that are a document (D1).
+ *
+ * THE PROCEDURE IS THE ONE THING ON THIS PAGE THAT WAITS FOR PUBLISH (D2). Everything else is
+ * live as it is saved, as the rest of this console is; a procedure halfway through a rewrite is
+ * not the procedure the team should be following, so the text is held until somebody publishes. */
 
 const NEW_SOP_ID = "new";
 
@@ -33,6 +51,7 @@ function formatDate(value) {
 
 function formatBytes(value) {
   const bytes = Number(value) || 0;
+  if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -41,8 +60,11 @@ function formatBytes(value) {
 function sopForm(sop, categories, members) {
   return {
     title: sop?.title || "",
+    summary: sop?.summary || "",
     category_id: sop?.category_id || categories[0]?.id || "",
     owner_member_id: sop?.owner_member_id || members[0]?.id || "",
+    applies_to: sop?.applies_to || "",
+    required: Boolean(sop?.required),
     state: sop?.state === "Archived" ? "Draft" : sop?.state || "Draft",
     review_due_on: dateValue(sop?.review_due_on),
   };
@@ -51,10 +73,22 @@ function sopForm(sop, categories, members) {
 function sopPayload(form) {
   return {
     title: form.title.trim(),
+    summary: form.summary.trim(),
     category_id: form.category_id,
     owner_member_id: form.owner_member_id || null,
+    applies_to: form.applies_to.trim(),
+    required: Boolean(form.required),
     state: form.state,
     review_due_on: form.review_due_on || null,
+  };
+}
+
+function bodyForm(sop) {
+  const body = sop?.body || {};
+  return {
+    intro: body.intro || "",
+    steps: (body.steps || []).map((step) => ({ title: step.title || "", text: step.text || "" })),
+    callout: { label: body.callout?.label || "Do Not Skip", text: body.callout?.text || "" },
   };
 }
 
@@ -77,9 +111,13 @@ function SopHealth({ health }) {
   );
 }
 
-function SopList({ sops, selectedId, onSelect, onNew }) {
+function SopList({ sops, selectedId, onSelect, onNew, archived, onArchived }) {
   return (
     <Panel title={COPY.sopTitle} action={<Button type="button" onClick={onNew}>{COPY.sopNew}</Button>}>
+      <label className="sop-archived-toggle">
+        <input type="checkbox" checked={archived} onChange={(e) => onArchived(e.target.checked)} />
+        <span>Show archived</span>
+      </label>
       {!sops.length ? <EmptyState title={COPY.sopEmpty} /> : null}
       <div className="sop-list">
         {sops.map((sop) => (
@@ -91,7 +129,11 @@ function SopList({ sops, selectedId, onSelect, onNew }) {
           >
             <span>{sop.category_name || COPY.sopCategory}</span>
             <strong>{sop.title}</strong>
-            <small>{sop.state} - {formatDate(sop.review_due_on)} - {sop.version_count} versions</small>
+            <small>
+              {[sop.state, sop.has_published_body ? "written" : "document only",
+                `${sop.version_count} ${sop.version_count === 1 ? "revision" : "revisions"}`,
+                sop.required ? "required" : ""].filter(Boolean).join(" · ")}
+            </small>
           </button>
         ))}
       </div>
@@ -99,7 +141,7 @@ function SopList({ sops, selectedId, onSelect, onNew }) {
   );
 }
 
-function CategoryRow({ category, busy, onSave, onDelete }) {
+function CategoryRow({ category, busy, onSave, onDelete, onMove, first, last }) {
   const [name, setName] = useState(category.name || "");
 
   useEffect(() => {
@@ -117,6 +159,10 @@ function CategoryRow({ category, busy, onSave, onDelete }) {
         <input value={name} onChange={(event) => setName(event.target.value)} required />
       </Field>
       <span>{category.sop_count ?? 0}</span>
+      <div className="tile-actions">
+        <button type="button" disabled={busy || first} onClick={() => onMove(category.id, -1)}>{COPY.moveUp}</button>
+        <button type="button" disabled={busy || last} onClick={() => onMove(category.id, 1)}>{COPY.moveDown}</button>
+      </div>
       <Button type="submit" busy={busy}>{COPY.sopSaveCategory}</Button>
       <Button type="button" disabled={busy || Boolean(category.sop_count)} onClick={() => onDelete(category.id)}>
         {COPY.sopDeleteCategory}
@@ -125,7 +171,7 @@ function CategoryRow({ category, busy, onSave, onDelete }) {
   );
 }
 
-function CategoryPanel({ categories, busy, onCreate, onSave, onDelete }) {
+function CategoryPanel({ categories, busy, onCreate, onSave, onDelete, onMove }) {
   const [name, setName] = useState("");
 
   async function submit(event) {
@@ -136,14 +182,18 @@ function CategoryPanel({ categories, busy, onCreate, onSave, onDelete }) {
 
   return (
     <Panel title={COPY.sopCategories}>
+      <p className="followup-hint">The rail down the left of the member&rsquo;s library, in this order.</p>
       <div className="sop-category-list">
-        {categories.map((category) => (
+        {categories.map((category, i) => (
           <CategoryRow
             key={category.id}
             category={category}
             busy={busy}
             onSave={onSave}
             onDelete={onDelete}
+            onMove={onMove}
+            first={i === 0}
+            last={i === categories.length - 1}
           />
         ))}
       </div>
@@ -158,18 +208,202 @@ function CategoryPanel({ categories, busy, onCreate, onSave, onDelete }) {
   );
 }
 
-function VersionUpload({ busy, onUpload }) {
+/* The procedure itself. Saved on its own, because it is the one thing here that waits for
+   Publish, and the page says which of the two the team is currently reading. */
+function ProcedureEditor({ sop, busy, onSave }) {
+  const [form, setForm] = useState(() => bodyForm(sop));
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setForm(bodyForm(sop));
+    setMessage("");
+    setError("");
+  }, [sop?.id, sop?.body]);
+
+  const setStep = (i, patch) => setForm((f) => ({
+    ...f, steps: f.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)),
+  }));
+  const move = (i, to) => setForm((f) => {
+    if (to < 0 || to >= f.steps.length) return f;
+    const steps = [...f.steps];
+    const [moved] = steps.splice(i, 1);
+    steps.splice(to, 0, moved);
+    return { ...f, steps };
+  });
+
+  async function submit(event) {
+    event.preventDefault();
+    setMessage("");
+    setError("");
+    try {
+      await onSave({
+        intro: form.intro,
+        steps: form.steps,
+        callout: form.callout.text.trim() ? form.callout : null,
+      });
+      setMessage("Saved as a draft. Members keep reading the published one until you press Publish.");
+    } catch (err) {
+      setError(err.detail || err.message);
+    }
+  }
+
+  return (
+    <section className="sop-procedure">
+      <header>
+        <h3>The procedure</h3>
+        <span>{sop?.body_live
+          ? (sop?.has_published_body ? "Published" : "Nothing written yet")
+          : "Unpublished changes"}</span>
+      </header>
+      <form className="wtdc-form" onSubmit={submit}>
+        <Field label="Opening paragraph">
+          <textarea rows={3} value={form.intro} maxLength={1500}
+                    placeholder="From the moment a seller says yes to the day the sign comes down, this is the sequence."
+                    onChange={(e) => setForm((f) => ({ ...f, intro: e.target.value }))} />
+        </Field>
+        <div className="wtdc-repeat">
+          {form.steps.map((step, i) => (
+            <div className="wtdc-item" key={i}>
+              <Field label={`Step ${i + 1}`}>
+                <input value={step.title} maxLength={160} placeholder="Log the appointment in Sisu the same day"
+                       onChange={(e) => setStep(i, { title: e.target.value })} />
+              </Field>
+              <Field label="What it means">
+                <textarea rows={2} value={step.text} maxLength={1200}
+                          placeholder="Set it as a listing appointment with the source."
+                          onChange={(e) => setStep(i, { text: e.target.value })} />
+              </Field>
+              <div className="tile-actions">
+                <button type="button" disabled={i === 0} onClick={() => move(i, i - 1)}>{COPY.moveUp}</button>
+                <button type="button" disabled={i === form.steps.length - 1} onClick={() => move(i, i + 1)}>{COPY.moveDown}</button>
+                <button type="button" onClick={() => setForm((f) => ({ ...f, steps: f.steps.filter((_, j) => j !== i) }))}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+          <div>
+            <Button type="button" onClick={() => setForm((f) => ({ ...f, steps: [...f.steps, { title: "", text: "" }] }))}>
+              Add a step
+            </Button>
+          </div>
+        </div>
+        <div className="wtdc-grid-2">
+          <Field label="Callout label">
+            <input value={form.callout.label} maxLength={40}
+                   onChange={(e) => setForm((f) => ({ ...f, callout: { ...f.callout, label: e.target.value } }))} />
+          </Field>
+          <Field label="The one thing not to skip (blank: no callout)">
+            <textarea rows={2} value={form.callout.text} maxLength={800}
+                      placeholder="Never input a listing to the MLS before the signed agreement is uploaded."
+                      onChange={(e) => setForm((f) => ({ ...f, callout: { ...f.callout, text: e.target.value } }))} />
+          </Field>
+        </div>
+        <div className="followup-actions">
+          <Button type="submit" tone="primary" busy={busy}>Save the procedure</Button>
+          {message ? <span className="roster-form-message">{message}</span> : null}
+          {error ? <span className="console-form-error">{error}</span> : null}
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function ToolsPanel({ sop, tiles, busy, onSave }) {
+  const [chosen, setChosen] = useState(() => new Set(sop?.tool_ids || []));
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    setChosen(new Set(sop?.tool_ids || []));
+    setMessage("");
+  }, [sop?.id, sop?.tool_ids]);
+
+  function toggle(id) {
+    setChosen((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function save() {
+    await onSave([...chosen]);
+    setMessage("Saved.");
+  }
+
+  return (
+    <section className="sop-tools">
+      <header>
+        <h3>Tools you&rsquo;ll need</h3>
+        <span>{chosen.size ? `${chosen.size} chosen` : "None"}</span>
+      </header>
+      <p className="followup-hint">
+        From the Tool Launchpad, so the links stay right. A member only sees the tools their role
+        may open.
+      </p>
+      <div className="sop-tool-picker">
+        {tiles.map((tile) => (
+          <label key={tile.id} className={chosen.has(tile.id) ? "on" : ""}>
+            <input type="checkbox" checked={chosen.has(tile.id)} onChange={() => toggle(tile.id)} />
+            <span>{tile.name}</span>
+          </label>
+        ))}
+        {!tiles.length ? <EmptyState title="No tools on the launchpad yet." /> : null}
+      </div>
+      <div className="followup-actions">
+        <Button type="button" busy={busy} onClick={save}>Save the tools</Button>
+        {message ? <span className="roster-form-message">{message}</span> : null}
+      </div>
+    </section>
+  );
+}
+
+function ReadersPanel({ sopId, enabled }) {
+  const readers = useSopReaders(sopId, enabled);
+  const [all, setAll] = useState(false);
+  if (!enabled) return null;
+  if (readers.isPending) return <LoadingState />;
+  if (readers.error) return null;
+  const items = readers.data?.items || [];
+  const outstanding = items.filter((i) => !i.acknowledged_at);
+  const shown = all ? items : outstanding;
+  return (
+    <section className="sop-readers">
+      <header>
+        <h3>Who has read it</h3>
+        <span>{`${readers.data.acknowledged} of ${items.length}${readers.data.version ? ` · ${readers.data.version}` : ""}`}</span>
+      </header>
+      <div className="tile-actions">
+        <button type="button" className={all ? "" : "on"} onClick={() => setAll(false)}>Still to read ({outstanding.length})</button>
+        <button type="button" className={all ? "on" : ""} onClick={() => setAll(true)}>Everyone</button>
+      </div>
+      <div className="sop-reader-list">
+        {shown.map((person) => (
+          <div className="sop-reader-row" key={person.member_id}>
+            <strong>{person.name}</strong>
+            <span>{person.acknowledged_at ? formatDate(person.acknowledged_at) : "Not yet"}</span>
+          </div>
+        ))}
+        {!shown.length ? <EmptyState title="Everybody has read this revision." /> : null}
+      </div>
+    </section>
+  );
+}
+
+function VersionUpload({ busy, onUpload, onRevise, canRevise }) {
   const [versionLabel, setVersionLabel] = useState("");
   const [file, setFile] = useState(null);
 
   async function submit(event) {
     event.preventDefault();
-    if (!file) return;
     // Same trap as the brand logo slots: currentTarget is null after the await, so it is read
     // now. Here it had no try/catch either, so the throw became an unhandled rejection on an
     // upload that had already stored the document.
     const form = event.currentTarget;
-    await onUpload(versionLabel, file);
+    if (file) await onUpload(versionLabel, file);
+    else await onRevise(versionLabel);
     setVersionLabel("");
     setFile(null);
     form.reset();
@@ -180,33 +414,46 @@ function VersionUpload({ busy, onUpload }) {
       <Field label={COPY.sopVersionLabel}>
         <input value={versionLabel} onChange={(event) => setVersionLabel(event.target.value)} required />
       </Field>
-      <Field label={COPY.sopFile}>
-        <input type="file" accept=".pdf,.doc,.docx" onChange={(event) => setFile(event.target.files?.[0] || null)} required />
+      <Field label="Document (optional once the procedure is written)">
+        <input type="file" accept=".pdf,.doc,.docx" onChange={(event) => setFile(event.target.files?.[0] || null)} />
       </Field>
-      <Button type="submit" tone="primary" busy={busy}>{COPY.sopUploadVersion}</Button>
+      <Button type="submit" tone="primary" busy={busy} disabled={!file && !canRevise}>
+        {file ? COPY.sopUploadVersion : "New revision"}
+      </Button>
     </form>
   );
 }
 
-function VersionsPanel({ sop, versions, busy, onUpload, onDownload }) {
+function VersionsPanel({ sop, versions, busy, onUpload, onRevise, onDownload, onMakeCurrent }) {
   return (
     <section className="sop-versions">
       <header>
         <h3>{COPY.sopVersions}</h3>
         <span>{sop?.current_version?.version_label || COPY.sopNoVersion}</span>
       </header>
-      <VersionUpload busy={busy} onUpload={onUpload} />
+      <p className="followup-hint">
+        A revision asks the team to read it again: whoever acknowledged the last one has not
+        acknowledged this.
+      </p>
+      <VersionUpload busy={busy} onUpload={onUpload} onRevise={onRevise}
+                     canRevise={Boolean(sop?.body)} />
       <div className="sop-version-list">
         {versions.map((version) => (
           <div className="sop-version-row" key={version.id}>
             <div>
               <strong>{version.version_label}</strong>
-              <small>{version.filename} - {formatBytes(version.byte_size)}</small>
+              <small>{version.filename
+                ? `${version.filename} · ${formatBytes(version.byte_size)}`
+                : "The written procedure"}</small>
             </div>
-            {version.id === sop?.current_version_id ? <span>{COPY.sopCurrentVersion}</span> : <span />}
-            <Button type="button" disabled={busy || !version.byte_size} onClick={() => onDownload(version)}>
-              {COPY.sopDownload}
-            </Button>
+            {version.id === sop?.current_version_id
+              ? <span>{COPY.sopCurrentVersion}</span>
+              : <Button type="button" disabled={busy} onClick={() => onMakeCurrent(version)}>Make current</Button>}
+            {version.byte_size ? (
+              <Button type="button" disabled={busy} onClick={() => onDownload(version)}>
+                {COPY.sopDownload}
+              </Button>
+            ) : <span />}
           </div>
         ))}
       </div>
@@ -215,20 +462,9 @@ function VersionsPanel({ sop, versions, busy, onUpload, onDownload }) {
 }
 
 function SopDetail({
-  sop,
-  categories,
-  members,
-  versions,
-  isNew,
-  form,
-  setForm,
-  busy,
-  message,
-  error,
-  onSave,
-  onArchive,
-  onUpload,
-  onDownload,
+  sop, categories, members, versions, tiles, isNew, form, setForm, busy, message, error,
+  onSave, onArchive, onRestore, onUpload, onRevise, onDownload, onMakeCurrent, onSaveBody,
+  onSaveTools, onReview,
 }) {
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -256,6 +492,10 @@ function SopDetail({
               ))}
             </select>
           </Field>
+          <Field label="Applies to">
+            <input value={form.applies_to} maxLength={120} placeholder="Listing Agents"
+                   onChange={(event) => update("applies_to", event.target.value)} />
+          </Field>
           <Field label={COPY.sopState}>
             <select value={form.state} onChange={(event) => update("state", event.target.value)}>
               {SOP_STATE_OPTIONS.map((option) => (
@@ -267,30 +507,59 @@ function SopDetail({
             <input type="date" value={form.review_due_on} onChange={(event) => update("review_due_on", event.target.value)} />
           </Field>
         </div>
+        <Field label="One line, on the card">
+          <input value={form.summary} maxLength={200}
+                 placeholder="From the seller saying yes to the sign coming down."
+                 onChange={(event) => update("summary", event.target.value)} />
+        </Field>
+        <label className="sop-required">
+          <input type="checkbox" checked={form.required}
+                 onChange={(event) => update("required", event.target.checked)} />
+          <span>Required reading — everybody is asked to read each new revision</span>
+        </label>
         {message ? <p className="roster-form-message">{message}</p> : null}
         {error ? <p className="console-form-error">{error}</p> : null}
         <div className="training-actions">
           <Button type="submit" tone="primary" busy={busy}>{isNew ? COPY.sopCreate : COPY.sopSave}</Button>
-          {!isNew ? <Button type="button" disabled={busy} onClick={onArchive}>{COPY.sopArchive}</Button> : null}
+          {!isNew && !sop?.archived_at ? (
+            <>
+              <Button type="button" disabled={busy} onClick={onReview}>
+                {sop?.last_reviewed_on ? `Reviewed ${formatDate(sop.last_reviewed_on)} · mark reviewed` : "Mark reviewed"}
+              </Button>
+              <Button type="button" disabled={busy} onClick={onArchive}>{COPY.sopArchive}</Button>
+            </>
+          ) : null}
+          {!isNew && sop?.archived_at ? (
+            <Button type="button" disabled={busy} onClick={onRestore}>Restore</Button>
+          ) : null}
         </div>
       </form>
-      {!isNew ? (
-        <VersionsPanel
-          sop={sop}
-          versions={versions}
-          busy={busy}
-          onUpload={onUpload}
-          onDownload={onDownload}
-        />
+      {!isNew && sop ? (
+        <>
+          <ProcedureEditor sop={sop} busy={busy} onSave={onSaveBody} />
+          <ToolsPanel sop={sop} tiles={tiles} busy={busy} onSave={onSaveTools} />
+          <VersionsPanel
+            sop={sop}
+            versions={versions}
+            busy={busy}
+            onUpload={onUpload}
+            onRevise={onRevise}
+            onDownload={onDownload}
+            onMakeCurrent={onMakeCurrent}
+          />
+          <ReadersPanel sopId={sop.id} enabled={Boolean(sop.current_version_id)} />
+        </>
       ) : null}
     </Panel>
   );
 }
 
 export default function SopLibrary() {
-  const sopsQuery = useSops(true);
+  const [archived, setArchived] = useState(false);
+  const sopsQuery = useSops(true, archived);
   const categoriesQuery = useSopCategories(true);
   const membersQuery = useMembers({ filter: "active" }, true);
+  const tilesQuery = useTiles(true);
   const [selectedId, setSelectedId] = useState("");
   const [form, setForm] = useState(() => sopForm(null, [], []));
   const [message, setMessage] = useState("");
@@ -298,15 +567,22 @@ export default function SopLibrary() {
   const createSop = useCreateSop();
   const patchSop = usePatchSop();
   const archiveSop = useArchiveSop();
+  const restoreSop = useRestoreSop();
+  const reviewSop = useReviewSop();
+  const putBody = usePutSopBody();
   const createCategory = useCreateSopCategory();
   const patchCategory = usePatchSopCategory();
   const removeCategory = useRemoveSopCategory();
+  const categoryOrder = useSopCategoryOrder();
   const uploadVersion = useUploadSopVersion();
+  const reviseSop = useReviseSop();
+  const makeCurrent = useSetCurrentSopVersion();
   const downloadVersion = useDownloadSopVersion();
   const sops = sopsQuery.data?.items || [];
   const health = sopsQuery.data?.health || {};
   const categories = categoriesQuery.data?.items || [];
   const members = membersQuery.data?.items || [];
+  const tiles = tilesQuery.data?.items || [];
   const isNew = selectedId === NEW_SOP_ID || !selectedId;
   const sopQuery = useSop(isNew ? "" : selectedId, Boolean(selectedId && !isNew));
   const detail = sopQuery.data || null;
@@ -315,10 +591,16 @@ export default function SopLibrary() {
   const busy = createSop.isPending
     || patchSop.isPending
     || archiveSop.isPending
+    || restoreSop.isPending
+    || reviewSop.isPending
+    || putBody.isPending
     || createCategory.isPending
     || patchCategory.isPending
     || removeCategory.isPending
+    || categoryOrder.isPending
     || uploadVersion.isPending
+    || reviseSop.isPending
+    || makeCurrent.isPending
     || downloadVersion.isPending;
 
   useEffect(() => {
@@ -369,64 +651,48 @@ export default function SopLibrary() {
     }
   }
 
-  async function archiveSelected() {
-    if (!detail) return;
+  async function run(fn, done) {
     setMessage("");
     setError("");
     try {
-      await archiveSop.mutateAsync(detail.id);
-      setSelectedId("");
-      setMessage(COPY.sopSaved);
-    } catch (err) {
-      setError(err.detail || err.message);
-    }
-  }
-
-  async function addCategory(body) {
-    setMessage("");
-    setError("");
-    try {
-      await createCategory.mutateAsync(body);
-      setMessage(COPY.sopSaved);
+      await fn();
+      if (done) setMessage(done);
     } catch (err) {
       setError(err.detail || err.message);
       throw err;
     }
   }
 
-  async function saveCategory(categoryId, body) {
-    setMessage("");
-    setError("");
-    try {
-      await patchCategory.mutateAsync({ categoryId, body });
-      setMessage(COPY.sopSaved);
-    } catch (err) {
-      setError(err.detail || err.message);
-    }
-  }
+  const archiveSelected = () => detail && run(
+    () => archiveSop.mutateAsync(detail.id).then(() => setSelectedId("")), COPY.sopSaved).catch(() => {});
+  const restoreSelected = () => detail && run(
+    () => restoreSop.mutateAsync(detail.id), "Restored as a draft.").catch(() => {});
+  const reviewSelected = () => detail && run(
+    () => reviewSop.mutateAsync({ sopId: detail.id, body: {} }), "Reviewed today.").catch(() => {});
+  const addCategory = (body) => run(() => createCategory.mutateAsync(body), COPY.sopSaved);
+  const saveCategory = (categoryId, body) => run(
+    () => patchCategory.mutateAsync({ categoryId, body }), COPY.sopSaved).catch(() => {});
+  const deleteCategory = (categoryId) => run(
+    () => removeCategory.mutateAsync(categoryId), COPY.sopSaved).catch(() => {});
+  const saveBody = (body) => putBody.mutateAsync({ sopId: detail.id, body });
+  const saveTools = (toolIds) => run(
+    () => patchSop.mutateAsync({ sopId: detail.id, body: { tool_ids: toolIds } })).catch(() => {});
+  const uploadSopVersion = (versionLabel, file) => run(
+    () => uploadVersion.mutateAsync({ sopId: detail.id, versionLabel, file }), COPY.sopUploaded);
+  const reviseSopVersion = (versionLabel) => run(
+    () => reviseSop.mutateAsync({ sopId: detail.id, versionLabel }),
+    "A new revision. Everybody is asked to read it again.");
+  const makeVersionCurrent = (version) => run(
+    () => makeCurrent.mutateAsync({ sopId: detail.id, versionId: version.id }),
+    `${version.version_label} is the current one.`).catch(() => {});
 
-  async function deleteCategory(categoryId) {
-    setMessage("");
-    setError("");
-    try {
-      await removeCategory.mutateAsync(categoryId);
-      setMessage(COPY.sopSaved);
-    } catch (err) {
-      setError(err.detail || err.message);
-    }
-  }
-
-  async function uploadSopVersion(versionLabel, file) {
-    if (!detail) return;
-    setMessage("");
-    setError("");
-    try {
-      await uploadVersion.mutateAsync({ sopId: detail.id, versionLabel, file });
-      setMessage(COPY.sopUploaded);
-    } catch (err) {
-      setError(err.detail || err.message);
-      throw err;
-    }
+  function moveCategory(categoryId, by) {
+    const ids = categories.map((c) => c.id);
+    const from = ids.indexOf(categoryId);
+    const to = from + by;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    run(() => categoryOrder.mutateAsync({ ids }), COPY.sopSaved).catch(() => {});
   }
 
   async function downloadSopVersion(version) {
@@ -464,13 +730,15 @@ export default function SopLibrary() {
     <div className="sop-grid">
       <SopHealth health={health} />
       <div className="sop-sidebar">
-        <SopList sops={sops} selectedId={selectedId} onSelect={selectSop} onNew={newSop} />
+        <SopList sops={sops} selectedId={selectedId} onSelect={selectSop} onNew={newSop}
+                 archived={archived} onArchived={setArchived} />
         <CategoryPanel
           categories={categories}
           busy={busy}
           onCreate={addCategory}
           onSave={saveCategory}
           onDelete={deleteCategory}
+          onMove={moveCategory}
         />
       </div>
       {sopQuery.isPending && !isNew ? <LoadingState /> : null}
@@ -484,6 +752,7 @@ export default function SopLibrary() {
           categories={categories}
           members={members}
           versions={versions}
+          tiles={tiles}
           isNew={isNew}
           form={form}
           setForm={setForm}
@@ -492,8 +761,14 @@ export default function SopLibrary() {
           error={error}
           onSave={saveSop}
           onArchive={archiveSelected}
+          onRestore={restoreSelected}
+          onReview={reviewSelected}
           onUpload={uploadSopVersion}
+          onRevise={reviseSopVersion}
           onDownload={downloadSopVersion}
+          onMakeCurrent={makeVersionCurrent}
+          onSaveBody={saveBody}
+          onSaveTools={saveTools}
         />
       ) : null}
     </div>

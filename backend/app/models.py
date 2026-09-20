@@ -786,6 +786,24 @@ class IntranetSop(Base):
     review_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("intranet_sop_version.id", use_alter=True, name="fk_sop_current_version"), nullable=True)
+    # ── the procedure itself (SOP-LIBRARY-SPEC.md; services/sop_library) ─────────────────
+    # An SOP is a document, a written procedure, or both (D1). `body` is what the console
+    # edits; `published_body` is what members read, so a procedure being rewritten is not in
+    # force until somebody publishes it (D2) -- the rest of this table is live as it is saved,
+    # as the whole console is.
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)      # the card's one line
+    body: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    published_body: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    applies_to: Mapped[str | None] = mapped_column(Text, nullable=True)   # "Listing Agents"
+    # Tool Launchpad tiles this procedure needs, as ids. Each viewer sees only the tiles their
+    # role may see, so this is a reference rather than a copied link.
+    tool_ids: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    # When somebody last checked the procedure is still true. `review_due_on` is the forward
+    # date; this is the fact, and it is what members are shown as "last updated" alongside the
+    # current version's date.
+    last_reviewed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Required reading: a new version emails the team rather than resetting quietly (D7).
+    required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     draft_dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
@@ -805,10 +823,13 @@ class IntranetSopVersion(Base):
     sop_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("intranet_sop.id", ondelete="CASCADE"), nullable=False)
     version_label: Mapped[str] = mapped_column(Text)
-    filename: Mapped[str] = mapped_column(Text)
-    storage_key: Mapped[str] = mapped_column(Text)
-    content_type: Mapped[str] = mapped_column(Text)
-    byte_size: Mapped[int] = mapped_column(BigInteger)
+    # A REVISION, which may or may not have a file. It was always a file, because an SOP was
+    # always a document; a written procedure revises too, and acknowledgements hang off the
+    # version, so a body-only revision needs a row of its own to ask the team again.
+    filename: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    byte_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("intranet_member.id"), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

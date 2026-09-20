@@ -14,6 +14,7 @@ import {
 } from "./constants.js";
 import WinTheDay, { EMPTY_DAY } from "./WinTheDay.jsx";
 import WhosWho, { Profile as WhosWhoProfile } from "./WhosWho.jsx";
+import Sops, { Procedure } from "./Sops.jsx";
 
 const DEFAULT_CONFIG = {
   calendar: { google_calendar_url: "" },
@@ -2315,121 +2316,6 @@ function AuthoredPage({ config }) {
   );
 }
 
-function shortDate(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
-/* Fetched with the session and handed over as a download rather than linked directly: the bytes
-   are proxied so a URL cannot outlive the reader's access to the workspace, which means a plain
-   <a href> would 401. */
-async function saveSop(sop) {
-  const blob = await getBlob(sop.file_url);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = sop.filename || "sop";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-/* The workspace's own SOPs. This read a compiled-in SOPS constant -- six of one customer's
- * procedure names -- because the payload carried only a title and a category. The documents had
- * been uploaded and stored the whole time with no member route to serve them. */
-function Sops({ config }) {
-  const sops = (config?.content?.sops) || [];
-  // A profile's owned SOP links here as /sops#sop-<id>: that row is scrolled to and marked.
-  const { hash } = useLocation();
-  const target = hash.startsWith("#sop-") ? hash.slice(5) : "";
-  useEffect(() => {
-    if (target) document.getElementById(`sop-${target}`)?.scrollIntoView({ block: "center" });
-  }, [target, sops.length]);
-  const [error, setError] = useState(null);
-  // Acknowledgements the server has confirmed since this page loaded, laid over what the payload
-  // arrived with. Avoids refetching the whole workspace config to reflect one tick.
-  const [justAcked, setJustAcked] = useState({});
-  const [saving, setSaving] = useState(null);
-
-  async function open(sop) {
-    setError(null);
-    try {
-      await saveSop(sop);
-    } catch {
-      setError("That document could not be opened. It may have been replaced — reload and try again.");
-    }
-  }
-
-  async function acknowledge(sop) {
-    setError(null);
-    setSaving(sop.id);
-    try {
-      const r = await postJSON(`/intranet/sops/${sop.id}/acknowledge`, {});
-      setJustAcked((m) => ({ ...m, [sop.id]: r.acknowledged_at }));
-    } catch {
-      setError("That didn't save. Try again in a moment.");
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  if (!sops.length) {
-    const denied = deniedBy(config, "sop_library");
-    return (
-      <Page title="SOPs" subtitle="Standard operating procedures for this workspace.">
-        <Panel title={denied ? "Not available to your role" : "Nothing published yet"}>
-          <p className="ut-empty">
-            {denied
-              ? "Your role does not have access to the SOP library. Ask an admin if that looks wrong."
-              : "SOPs appear here once an admin publishes them in the console."}
-          </p>
-        </Panel>
-      </Page>
-    );
-  }
-
-  return (
-    <Page title="SOPs" subtitle="Standard operating procedures for this workspace.">
-      <Panel title="Standard Operating Procedures">
-        {error ? <p className="ut-empty">{error}</p> : null}
-        <div className="ut-table">
-          {sops.map((sop) => (
-            <div className={`ut-table-row${sop.id === target ? " is-target" : ""}`} key={sop.id} id={`sop-${sop.id}`}>
-              <span>{sop.category || "—"}</span>
-              <strong>
-                {sop.file_url
-                  ? <button type="button" className="ut-linkish" onClick={() => open(sop)}>
-                      {sop.title}
-                    </button>
-                  : sop.title}
-                {sop.version ? <em> · {sop.version}</em> : null}
-                {sop.owner ? <em> · {sop.owner}</em> : null}
-              </strong>
-              {/* A BUTTON, not a checkbox. Acknowledging a procedure is an assertion recorded
-                  against a specific version -- there is no un-acknowledge -- so it must not be
-                  something a stray click can toggle off. Once done it stops being a control and
-                  becomes a fact with a date on it. */}
-              {(justAcked[sop.id] || sop.acknowledged_at) ? (
-                <span className="ut-acked">
-                  Acknowledged {shortDate(justAcked[sop.id] || sop.acknowledged_at)}
-                </span>
-              ) : (
-                <button type="button" className="ut-button" disabled={saving === sop.id}
-                        onClick={() => acknowledge(sop)}>
-                  {saving === sop.id ? "Saving…" : "Acknowledge"}
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </Panel>
-    </Page>
-  );
-}
-
 /* Where the figures come from, and how fresh they are. */
 function numbersSubtitle(numbers) {
   if (!numbers.synced_at) return "Production from Sisu.";
@@ -3147,7 +3033,8 @@ export default function IntranetApp() {
         <Route path="/training/:courseId/:lessonId" element={<LessonPlayer state={training} setState={setTraining} config={boot.config} />} />
         <Route path="/p/:pageKey" element={<AuthoredPage config={boot.config} />} />
         <Route path="/onboarding" element={<Onboarding state={onboarding} setState={setOnboarding} />} />
-        <Route path="/sops" element={<Sops config={boot.config} />} />
+        <Route path="/sops" element={<Sops config={boot.config} canConfigure={boot.canConfigure} />} />
+        <Route path="/sops/:id" element={<Procedure config={boot.config} />} />
         <Route path="/numbers" element={<Numbers config={boot.config} me={boot.me} canConfigure={boot.canConfigure} />} />
         <Route path="/calendar" element={<Calendar config={boot.config} canConfigure={boot.canConfigure} saveConfig={boot.saveConfig} />} />
         <Route path="/marketing" element={<Marketing config={boot.config} canConfigure={boot.canConfigure} />} />

@@ -66,7 +66,8 @@ from ..integrations import fub
 from ..services import (binder_storage, course_sections, follow_ups, google_auth, lesson_media,
                         lesson_richtext, mail_templates,
                         mailer, member_identity, uploads,
-                        marketing_delivery, member_numbers, whos_who, wtd_playbook)
+                        marketing_delivery, member_numbers, sop_library, whos_who,
+                        wtd_playbook)
 from ..services.users import INVITE_DAYS, link_base, primary_host
 from ..services.inheritance import (INHERITED_PROVIDERS, dashboard_connections, ensure_rows,
                                     is_inherited)
@@ -787,6 +788,15 @@ def _sop(row: IntranetSop, category: IntranetSopCategory | None = None,
         "version_count": version_count, "acknowledged_count": acknowledged_count,
         "archived_at": _iso(row.archived_at), "published_at": _iso(row.published_at),
         "draft_dirty": bool(row.draft_dirty),
+        # The procedure (services/sop_library). `body` is the draft this page edits;
+        # `body_live` says whether what members are reading is what is on screen, because the
+        # text -- alone in this console -- waits for Publish.
+        "summary": row.summary, "applies_to": row.applies_to,
+        "tool_ids": list(row.tool_ids or []), "required": bool(row.required),
+        "last_reviewed_on": _iso(row.last_reviewed_on),
+        "body": row.body or None,
+        "body_live": (row.body or None) == (row.published_body or None),
+        "has_published_body": sop_library.has_body(row.published_body),
     }
 
 
@@ -3472,10 +3482,23 @@ async def delete_sop_category(category_id: uuid.UUID, p: ConsolePrincipal = Depe
     return _with_pending(out, pending)
 
 
+def _apply_sop_fields(row: IntranetSop, body: dict) -> None:
+    """The procedure's own fields (services/sop_library), checked one at a time so a refusal
+    names the box it came from."""
+    for field in sorted(sop_library.PROFILE_FIELDS & set(body)):
+        try:
+            setattr(row, field, sop_library.clean_field(field, body[field]))
+        except sop_library.SopError as e:
+            _unprocessable(e.field, e.message)
+        if field == "tool_ids":
+            flag_modified(row, field)
+
+
 @router.get("/sops")
-async def get_sops(p: ConsolePrincipal = Depends(require_console_access),
+async def get_sops(include_archived: bool = Query(False),
+                   p: ConsolePrincipal = Depends(require_console_access),
                    s: AsyncSession = Depends(get_session)):
-    out = await _sops_bundle(s, p.user.tenant_id)
+    out = await _sops_bundle(s, p.user.tenant_id, include_archived=include_archived)
     out["health"] = await _sop_health(s, p.user.tenant_id)
     return out
 
@@ -3488,14 +3511,20 @@ async def get_sop(sop_id: uuid.UUID, p: ConsolePrincipal = Depends(require_conso
     owner = await _member_by_id_or_none(s, p.user.tenant_id, row.owner_member_id)
     version = await s.get(IntranetSopVersion, row.current_version_id) if row.current_version_id else None
     version_count = await _count(s, IntranetSopVersion, p.user.tenant_id, IntranetSopVersion.sop_id == row.id)
-    return _sop(row, cat, owner, version, version_count, 0)
+    # Was a literal 0: the console asked how many people had read a procedure and was always
+    # told nobody, while the listing beside it counted properly.
+    acknowledged = await _count(s, IntranetSopAcknowledgement, p.user.tenant_id,
+                                IntranetSopAcknowledgement.sop_version_id == row.current_version_id
+                                ) if row.current_version_id else 0
+    return _sop(row, cat, owner, version, version_count, int(acknowledged))
 
 
 @router.post("/sops")
 async def create_sop(body: dict = Body(...), p: ConsolePrincipal = Depends(require_console_access),
                      s: AsyncSession = Depends(get_session)):
     body = _body(body)
-    _unknown(body, {"title", "category_id", "owner_member_id", "state", "review_due_on"})
+    _unknown(body, {"title", "category_id", "owner_member_id", "state", "review_due_on",
+                    "last_reviewed_on"} | sop_library.PROFILE_FIELDS)
     category_id = _uuid_value(body, "category_id", required=True)
     await _one(s, IntranetSopCategory, p.user.tenant_id, category_id)
     owner_id = _uuid_value(body, "owner_member_id", nullable=True) if "owner_member_id" in body else None
@@ -3507,7 +3536,9 @@ async def create_sop(body: dict = Body(...), p: ConsolePrincipal = Depends(requi
         owner_member_id=owner_id,
         state=_enum(body, "state", SOP_STATES, "Draft") or "Draft",
         review_due_on=_date_value(body, "review_due_on"),
+        last_reviewed_on=_date_value(body, "last_reviewed_on"),
     )
+    _apply_sop_fields(row, body)
     s.add(row)
     pending = await _record_mutation(
         s, p, action="content.sop.created", category="SOPs",
@@ -3522,7 +3553,8 @@ async def patch_sop(sop_id: uuid.UUID, body: dict = Body(...),
                     s: AsyncSession = Depends(get_session)):
     row = await _one(s, IntranetSop, p.user.tenant_id, sop_id)
     body = _body(body)
-    _unknown(body, {"title", "category_id", "owner_member_id", "state", "review_due_on"})
+    _unknown(body, {"title", "category_id", "owner_member_id", "state", "review_due_on",
+                    "last_reviewed_on"} | sop_library.PROFILE_FIELDS)
     if "title" in body:
         row.title = _text(body, "title", required=True) or row.title
     if "category_id" in body:
@@ -3540,6 +3572,9 @@ async def patch_sop(sop_id: uuid.UUID, body: dict = Body(...),
         old_state = row.state
     if "review_due_on" in body:
         row.review_due_on = _date_value(body, "review_due_on")
+    if "last_reviewed_on" in body:
+        row.last_reviewed_on = _date_value(body, "last_reviewed_on")
+    _apply_sop_fields(row, body)
     row.draft_dirty = True
     action = "content.sop.state_changed" if old_state != row.state else "content.sop.updated"
     pending = await _record_mutation(
@@ -3583,6 +3618,8 @@ async def download_sop_version(sop_id: uuid.UUID, version_id: uuid.UUID,
     row = await _one(s, IntranetSopVersion, p.user.tenant_id, version_id)
     if row.sop_id != sop_id:
         raise HTTPException(404, "Not found.")
+    if not row.storage_key:
+        raise HTTPException(404, "That revision is the written procedure; it has no document.")
     if not binder_storage.exists(row.storage_key):
         raise HTTPException(404, "Stored SOP version file not found.")
     data = binder_storage.read(row.storage_key)
@@ -3596,9 +3633,20 @@ async def download_sop_version(sop_id: uuid.UUID, version_id: uuid.UUID,
 
 @router.post("/sops/{sop_id}/versions")
 async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
-                             file: UploadFile = File(...),
+                             file: UploadFile | None = File(None),
                              p: ConsolePrincipal = Depends(require_console_access),
                              s: AsyncSession = Depends(get_session)):
+    """A new revision of this procedure: a document, or -- with no file -- the written procedure
+    as it now stands.
+
+    A REVISION WITHOUT A FILE is what a written procedure needs. Acknowledgements hang off the
+    version, so this is how a rewrite asks the team to read it again; the document ones work
+    exactly as they did.
+
+    THE BYTES ARE CHECKED. This was the one upload in the product that took a file on trust: no
+    size limit, and the type stored was whatever the browser declared, replayed to members later.
+    Handouts have been sniffed since they shipped (services/uploads); so is this now.
+    """
     sop = await _one(s, IntranetSop, p.user.tenant_id, sop_id)
     label = (version_label or "").strip()
     if not label:
@@ -3608,12 +3656,29 @@ async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
                              IntranetSopVersion.version_label == label)
     if duplicate:
         _unprocessable("version_label", "Version label already exists for this SOP.")
-    data = await file.read()
+
     version_id = uuid.uuid4()
-    name = binder_storage.safe_filename(file.filename or "sop.bin")
-    content_type = file.content_type or "application/octet-stream"
-    storage_key = f"intranet/{p.user.tenant_id}/sops/{sop.id}/{version_id}-{name}"
-    binder_storage.put(storage_key, data, content_type)
+    name = storage_key = content_type = None
+    byte_size = None
+    if file is not None and (file.filename or "").strip():
+        data = await file.read()
+        if not data:
+            _unprocessable("file", "That file is empty.")
+        if len(data) > uploads.MAX_DOCUMENT_BYTES:
+            _unprocessable(
+                "file", f"Larger than {uploads.MAX_DOCUMENT_BYTES // (1024 * 1024)} MB.")
+        sniffed = uploads.sniff_document(data)
+        if sniffed is None:
+            _unprocessable("file", "A procedure document must be a PDF or a Word file.")
+        content_type = sniffed
+        stem = binder_storage.safe_filename(file.filename or "procedure").rsplit(".", 1)[0]
+        name = stem + uploads.DOCUMENT_TYPES[sniffed]
+        byte_size = len(data)
+        storage_key = f"intranet/{p.user.tenant_id}/sops/{sop.id}/{version_id}-{name}"
+        binder_storage.put(storage_key, data, content_type)
+    elif not sop_library.has_body(sop.body):
+        _unprocessable("file", "Attach a document, or write the procedure first.")
+
     row = IntranetSopVersion(
         id=version_id,
         tenant_id=p.user.tenant_id,
@@ -3622,7 +3687,7 @@ async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
         filename=name,
         storage_key=storage_key,
         content_type=content_type,
-        byte_size=len(data),
+        byte_size=byte_size,
         uploaded_by=p.member.id,
         uploaded_at=_now(),
     )
@@ -3630,11 +3695,155 @@ async def upload_sop_version(sop_id: uuid.UUID, version_label: str = Form(...),
     await s.flush()
     sop.current_version_id = row.id
     sop.draft_dirty = True
+    what = "Uploaded" if storage_key else "Revised"
     pending = await _record_mutation(
         s, p, action="content.sop.version_uploaded", category="SOPs",
-        summary=f"Uploaded {label} for SOP {sop.title}", target_type="sop_version",
+        summary=f"{what} {label} for SOP {sop.title}", target_type="sop_version",
         target_id=row.id, entity_type="sop", entity_id=sop.id, change_kind="updated")
     return _with_pending(_sop_version(row), pending)
+
+
+@router.put("/sops/{sop_id}/body")
+async def put_sop_body(sop_id: uuid.UUID, body: dict = Body(...),
+                       p: ConsolePrincipal = Depends(require_console_access),
+                       s: AsyncSession = Depends(get_session)):
+    """The written procedure, saved as a DRAFT (D2).
+
+    Alone in this console the text waits for Publish: a title saved is a title live, but a
+    procedure halfway through a rewrite is not the procedure the team should be following.
+    `published_body` is what members read until then."""
+    row = await _one(s, IntranetSop, p.user.tenant_id, sop_id)
+    payload = _body(body)
+    _unknown(payload, {"body"})
+    try:
+        clean = sop_library.clean_body(payload.get("body"))
+    except sop_library.SopError as e:
+        _unprocessable(e.field, e.message)
+    row.body = clean
+    flag_modified(row, "body")
+    row.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.sop.body_saved", category="SOPs",
+        summary=f"Saved the procedure for {row.title}", target_type="sop", target_id=row.id,
+        entity_type="sop", entity_id=row.id,
+        detail={"steps": len((clean or {}).get("steps") or [])})
+    return _with_pending(await get_sop(row.id, p, s), pending)
+
+
+@router.post("/sops/{sop_id}/review")
+async def review_sop(sop_id: uuid.UUID, body: dict = Body(default_factory=dict),
+                     p: ConsolePrincipal = Depends(require_console_access),
+                     s: AsyncSession = Depends(get_session)):
+    """Somebody checked this procedure is still true today. Records the fact, and moves the next
+    review on if a date is given -- the library had only the forward date, so nothing said
+    whether the last review ever happened."""
+    row = await _one(s, IntranetSop, p.user.tenant_id, sop_id)
+    payload = _body(body or {})
+    _unknown(payload, {"reviewed_on", "review_due_on"})
+    row.last_reviewed_on = _date_value(payload, "reviewed_on") or dt.date.today()
+    if "review_due_on" in payload:
+        row.review_due_on = _date_value(payload, "review_due_on")
+    if row.state == "Needs Review":
+        row.state = "Live"
+    row.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.sop.reviewed", category="SOPs",
+        summary=f"Reviewed SOP {row.title}", target_type="sop", target_id=row.id,
+        entity_type="sop", entity_id=row.id)
+    return _with_pending(await get_sop(row.id, p, s), pending)
+
+
+@router.post("/sops/{sop_id}/restore")
+async def restore_sop(sop_id: uuid.UUID, p: ConsolePrincipal = Depends(require_console_access),
+                      s: AsyncSession = Depends(get_session)):
+    """Un-archive. Archiving was a one-way door: nothing cleared `archived_at` and the listing
+    hides archived rows, so a procedure archived by mistake was gone from the console for good.
+    It comes back as a Draft, so putting it in front of the team again is a deliberate act."""
+    row = await _one(s, IntranetSop, p.user.tenant_id, sop_id)
+    if row.archived_at is None:
+        _unprocessable("sop_id", "That procedure is not archived.")
+    row.archived_at = None
+    row.state = "Draft"
+    row.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.sop.state_changed", category="SOPs",
+        summary=f"Restored SOP {row.title}", target_type="sop", target_id=row.id,
+        entity_type="sop", entity_id=row.id, change_kind="updated")
+    return _with_pending(await get_sop(row.id, p, s), pending)
+
+
+@router.post("/sops/{sop_id}/versions/{version_id}/current")
+async def set_current_sop_version(sop_id: uuid.UUID, version_id: uuid.UUID,
+                                  p: ConsolePrincipal = Depends(require_console_access),
+                                  s: AsyncSession = Depends(get_session)):
+    """Put an earlier revision back in front of the team -- the way back from a bad upload, which
+    the console did not have. Acknowledgements follow the version, so whoever acknowledged this
+    one still has."""
+    sop = await _one(s, IntranetSop, p.user.tenant_id, sop_id)
+    version = await _one(s, IntranetSopVersion, p.user.tenant_id, version_id)
+    if version.sop_id != sop.id:
+        raise HTTPException(404, "Not found.")
+    sop.current_version_id = version.id
+    sop.draft_dirty = True
+    pending = await _record_mutation(
+        s, p, action="content.sop.version_current", category="SOPs",
+        summary=f"Made {version.version_label} current for SOP {sop.title}",
+        target_type="sop_version", target_id=version.id, entity_type="sop", entity_id=sop.id,
+        change_kind="updated")
+    return _with_pending(await get_sop(sop.id, p, s), pending)
+
+
+@router.get("/sops/{sop_id}/acknowledgements")
+async def get_sop_acknowledgements(sop_id: uuid.UUID,
+                                   p: ConsolePrincipal = Depends(require_console_access),
+                                   s: AsyncSession = Depends(get_session)):
+    """Who has read the current revision and who has not (D3). The count has been in the listing
+    since the table shipped; the names were nowhere, and the names are the half an admin chasing
+    a procedure actually needs."""
+    sop = await _one(s, IntranetSop, p.user.tenant_id, sop_id)
+    members = (await s.execute(select(IntranetMember).where(
+        IntranetMember.tenant_id == p.user.tenant_id,
+        IntranetMember.status != "Removed").order_by(IntranetMember.full_name))).scalars().all()
+    acked: dict = {}
+    version_label = None
+    if sop.current_version_id:
+        current = await s.get(IntranetSopVersion, sop.current_version_id)
+        version_label = current.version_label if current else None
+        acked = {row.member_id: row.acknowledged_at for row in (await s.execute(
+            select(IntranetSopAcknowledgement).where(
+                IntranetSopAcknowledgement.tenant_id == p.user.tenant_id,
+                IntranetSopAcknowledgement.sop_version_id == sop.current_version_id))).scalars()}
+    items = [{"member_id": _id(m.id), "name": m.full_name, "status": m.status,
+              "acknowledged_at": _iso(acked.get(m.id))} for m in members]
+    return {**_list(items, len(items)), "version": version_label,
+            "acknowledged": sum(1 for i in items if i["acknowledged_at"])}
+
+
+@router.put("/sop-categories/order")
+async def put_sop_category_order(body: dict = Body(...),
+                                 p: ConsolePrincipal = Depends(require_console_access),
+                                 s: AsyncSession = Depends(get_session)):
+    """The order of the departments down the member's rail. `sort` existed and nothing could
+    change it, so the rail kept whatever order somebody happened to create them in."""
+    ids = _body(body).get("ids")
+    if not isinstance(ids, list) or len(ids) > 60:
+        _unprocessable("ids", "Expected the departments, in order.")
+    try:
+        wanted = [uuid.UUID(str(x)) for x in ids]
+    except ValueError:
+        _unprocessable("ids", "Expected department ids.")
+    rows = {c.id: c for c in (await s.execute(select(IntranetSopCategory).where(
+        IntranetSopCategory.tenant_id == p.user.tenant_id,
+        IntranetSopCategory.id.in_(wanted)))).scalars().all()}
+    if len(rows) != len(set(wanted)):
+        _unprocessable("ids", "Not all of those are departments of this workspace.")
+    for i, category_id in enumerate(wanted):
+        rows[category_id].sort = i
+        rows[category_id].draft_dirty = True
+    await _record_mutation(
+        s, p, action="content.sop_category.updated", category="SOPs",
+        summary="Reordered the SOP departments", target_type="sop_category")
+    return await get_sop_categories(p, s)
 
 
 # ── CRM identity on the roster ─────────────────────────────────────────────────────────────
@@ -4947,6 +5156,23 @@ def _publishable_models() -> tuple:
     return tuple(sorted(found, key=lambda m: m.__name__))
 
 
+async def _stage_sop_bodies(s: AsyncSession, tenant_id, *, revert: bool) -> None:
+    """The one piece of content that waits for Publish (D2, services/sop_library).
+
+    Publishing copies each draft procedure into `published_body`, which is what members read;
+    discarding copies it back, which makes Discard mean something for SOPs -- everywhere else it
+    only clears the queue, because everywhere else the draft was already live.
+    """
+    rows = (await s.execute(select(IntranetSop).where(
+        IntranetSop.tenant_id == tenant_id))).scalars().all()
+    for row in rows:
+        source, target = ("published_body", "body") if revert else ("body", "published_body")
+        value = getattr(row, source)
+        if getattr(row, target) != value:
+            setattr(row, target, value)
+            flag_modified(row, target)
+
+
 async def _set_publish_state(s: AsyncSession, tenant_id, when: dt.datetime, dirty: bool) -> None:
     for model in _publishable_models():
         rows = (await s.execute(select(model).where(model.tenant_id == tenant_id))).scalars().all()
@@ -4977,6 +5203,7 @@ async def publish_changes(body: dict = Body(default_factory=dict),
     await s.flush()
     for row in pending_rows:
         row.publish_batch_id = batch.id
+    await _stage_sop_bodies(s, p.user.tenant_id, revert=False)
     await _set_publish_state(s, p.user.tenant_id, when, False)
     pending = await _record_mutation(
         s, p, action="console.publish", category="Publish",
@@ -4994,6 +5221,7 @@ async def discard_changes(p: ConsolePrincipal = Depends(require_console_access),
         IntranetPendingChange.tenant_id == p.user.tenant_id,
         IntranetPendingChange.publish_batch_id.is_(None),
     ))
+    await _stage_sop_bodies(s, p.user.tenant_id, revert=True)
     await _set_publish_state(s, p.user.tenant_id, _now(), False)
     pending = await _record_mutation(
         s, p, action="console.discard", category="Publish",

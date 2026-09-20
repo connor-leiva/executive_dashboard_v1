@@ -4551,3 +4551,103 @@ textarea {
   color: var(--console-faint);
   font-weight: 400;
 }
+
+/* ── The SOP library: the procedure, its tools, and who has read it ───────────────────────── */
+.sop-archived-toggle,
+.sop-required {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--console-muted);
+}
+
+.sop-required {
+  color: var(--console-ink);
+}
+
+.sop-procedure,
+.sop-tools,
+.sop-readers {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--console-line);
+  display: grid;
+  gap: 12px;
+}
+
+.sop-procedure > header,
+.sop-tools > header,
+.sop-readers > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sop-procedure h3,
+.sop-tools h3,
+.sop-readers h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.sop-procedure > header span,
+.sop-tools > header span,
+.sop-readers > header span {
+  color: var(--console-faint);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sop-tool-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sop-tool-picker label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--console-line);
+  border-radius: 99px;
+  padding: 7px 13px;
+  background: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sop-tool-picker label.on {
+  border-color: var(--console-teal);
+  background: var(--console-tealSoft);
+}
+
+.sop-reader-list {
+  display: grid;
+  gap: 1px;
+}
+
+.sop-reader-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--console-lineSoft);
+  font-size: 13.5px;
+}
+
+.sop-reader-row span {
+  color: var(--console-faint);
+  font-size: 12.5px;
+}
+
+.sop-readers .tile-actions button.on {
+  border-color: var(--console-teal);
+  color: var(--console-ink);
+}

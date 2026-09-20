@@ -213,12 +213,22 @@ export const getSopCategories = () => consoleGet("/sop-categories");
 export const createSopCategory = (body) => consoleSend("POST", "/sop-categories", body);
 export const patchSopCategory = (categoryId, body) => consoleSend("PATCH", `/sop-categories/${categoryId}`, body);
 export const deleteSopCategory = (categoryId) => consoleSend("DELETE", `/sop-categories/${categoryId}`);
-export const getSops = () => consoleGet("/sops");
+export const putSopCategoryOrder = (body) => consoleSend("PUT", "/sop-categories/order", body);
+export const getSops = (includeArchived) => consoleGet(query("/sops", { include_archived: includeArchived || undefined }));
 export const getSop = (sopId) => consoleGet(`/sops/${sopId}`);
 export const createSop = (body) => consoleSend("POST", "/sops", body);
 export const patchSop = (sopId, body) => consoleSend("PATCH", `/sops/${sopId}`, body);
 export const deleteSop = (sopId) => consoleSend("DELETE", `/sops/${sopId}`);
 export const getSopVersions = (sopId) => consoleGet(`/sops/${sopId}/versions`);
+export const putSopBody = (sopId, body) => consoleSend("PUT", `/sops/${sopId}/body`, { body });
+export const reviewSop = (sopId, body) => consoleSend("POST", `/sops/${sopId}/review`, body || {});
+export const restoreSop = (sopId) => consoleSend("POST", `/sops/${sopId}/restore`);
+export const setCurrentSopVersion = (sopId, versionId) =>
+  consoleSend("POST", `/sops/${sopId}/versions/${versionId}/current`);
+export const getSopReaders = (sopId) => consoleGet(`/sops/${sopId}/acknowledgements`);
+// A revision of the written procedure: a label and no file (services/sop_library).
+export const reviseSop = (sopId, versionLabel) =>
+  consoleUpload(`/sops/${sopId}/versions`, { version_label: versionLabel });
 export const uploadSopVersion = (sopId, versionLabel, file) => (
   consoleUpload(`/sops/${sopId}/versions`, { version_label: versionLabel, file })
 );

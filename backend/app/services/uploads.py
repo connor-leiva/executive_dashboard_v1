@@ -109,6 +109,38 @@ def _jpeg_size(data: bytes) -> tuple[int, int] | None:
     return None
 
 
+# A procedure's document: PDF, or a Word file in either container. Bigger than a handout,
+# because a scanned procedure is a real thing; still sniffed, because nothing else here trusts a
+# browser's Content-Type and the SOP uploader was the one path that did.
+DOCUMENT_TYPES = {
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/msword": ".doc",
+}
+MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
+_ZIP = bytes.fromhex("504b0304")
+_OLE2 = bytes.fromhex("d0cf11e0a1b11ae1")
+
+
+def sniff_document(data: bytes) -> str | None:
+    """What an uploaded procedure actually is: a PDF, a .docx or an older .doc.
+
+    A .docx is a zip, and so is every other Office file, so the zip has to name Word: the first
+    entries of a .docx are `[Content_Types].xml` and `word/…`, which is what this looks for. The
+    older .doc is an OLE2 container it shares with .xls and .ppt -- that one is accepted as Word
+    on the strength of the container alone, which is the most the bytes will say.
+    """
+    if data.startswith(b"%PDF-"):
+        return "application/pdf"
+    if data.startswith(_ZIP):
+        if b"word/" in data[:65536]:
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        return None
+    if data.startswith(_OLE2):
+        return "application/msword"
+    return None
+
+
 def sniff_attachment(data: bytes) -> str | None:
     """The type the BYTES claim, ignoring the filename and the browser's Content-Type entirely.
 

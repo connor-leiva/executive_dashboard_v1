@@ -47,6 +47,7 @@ import {
   getSop,
   getSopCategories,
   getSops,
+  getSopReaders,
   getSopVersions,
   getTiles,
   getWorkspace,
@@ -110,6 +111,12 @@ import {
   syncMembers,
   testIntegration,
   testMarketing,
+  putSopBody,
+  putSopCategoryOrder,
+  restoreSop,
+  reviewSop,
+  reviseSop,
+  setCurrentSopVersion,
   uploadSopVersion,
   uploadWorkspaceLogo,
 } from "./api.js";
@@ -512,10 +519,18 @@ export function useCourse(courseId, enabled) {
   });
 }
 
-export function useSops(enabled) {
+export function useSopReaders(sopId, enabled) {
   return useQuery({
-    queryKey: keys.sops,
-    queryFn: getSops,
+    queryKey: [...keys.sops, sopId, "readers"],
+    queryFn: () => getSopReaders(sopId),
+    enabled: Boolean(sopId) && enabled !== false,
+  });
+}
+
+export function useSops(enabled, includeArchived) {
+  return useQuery({
+    queryKey: [...keys.sops, { archived: Boolean(includeArchived) }],
+    queryFn: () => getSops(includeArchived),
     enabled,
   });
 }
@@ -1082,6 +1097,54 @@ export function useArchiveSop() {
   return useMutation({
     mutationFn: deleteSop,
     onSuccess: (_data, sopId) => invalidateSops(queryClient, sopId),
+  });
+}
+
+export function usePutSopBody() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sopId, body }) => putSopBody(sopId, body),
+    onSuccess: (_data, vars) => invalidateSops(queryClient, vars.sopId),
+  });
+}
+
+export function useReviewSop() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sopId, body }) => reviewSop(sopId, body),
+    onSuccess: (_data, vars) => invalidateSops(queryClient, vars.sopId),
+  });
+}
+
+export function useRestoreSop() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: restoreSop,
+    onSuccess: (_data, sopId) => invalidateSops(queryClient, sopId),
+  });
+}
+
+export function useSetCurrentSopVersion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sopId, versionId }) => setCurrentSopVersion(sopId, versionId),
+    onSuccess: (_data, vars) => invalidateSops(queryClient, vars.sopId),
+  });
+}
+
+export function useReviseSop() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sopId, versionLabel }) => reviseSop(sopId, versionLabel),
+    onSuccess: (_data, vars) => invalidateSops(queryClient, vars.sopId),
+  });
+}
+
+export function useSopCategoryOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: putSopCategoryOrder,
+    onSuccess: () => invalidateSops(queryClient),
   });
 }
 

@@ -61,9 +61,13 @@ function corpus(content) {
   (c.sops || []).forEach((sop) => {
     out.push({
       type: "SOPs", title: sop.title,
-      detail: [sop.category, sop.version, sop.owner].filter(Boolean).join(" · "),
-      to: "/sops",
-      text: [sop.title, sop.category, sop.owner, sop.filename].join(" "),
+      detail: [sop.department, sop.version, sop.owner?.name].filter(Boolean).join(" · "),
+      // The procedure itself, not the library it is in.
+      to: `/sops/${sop.id}`,
+      // Searchable by what its steps SAY, which is how somebody looks for a procedure they
+      // cannot name: "order media" finds the listing intake.
+      text: [sop.title, sop.summary, sop.department, sop.owner?.name, sop.filename,
+             ...(sop.steps || [])].join(" "),
     });
   });
 
