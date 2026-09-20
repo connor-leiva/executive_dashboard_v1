@@ -353,6 +353,15 @@ fake model); clicked through in both front ends -- the rail's form and the named
 procedure ("Out of date? Tell Spring"), the console's queue with who said it and Done, and the
 draft button's honest refusal on a machine with no assistant key.
 
+### Shipped and checked in production, 2026-09-20
+
+`653c805` and `e91365c`. Alembic at `0078`; the seven new `intranet_sop` columns present, a
+version's file columns nullable, `intranet_sop_suggestion` present with its status check, and
+every existing procedure untouched. All ten new routes refuse a request without a session. The
+built portal carries the library, the reader and the suggestion form; the console carries the
+procedure editor, the draft buttons and the suggestion queue. Both pages were opened in
+production: they render, with nothing in the browser console.
+
 ### Phase 7: Utah Life, live
 
 Not started: it needs Connor to say where the procedures live now, which ones matter most, and
