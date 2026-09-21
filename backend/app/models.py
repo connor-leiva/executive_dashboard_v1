@@ -77,10 +77,10 @@ class PlatformUser(Base):
 
 
 class PlatformAudit(Base):
-    """The operator's own trail: every change an Acumyn operator makes, across every workspace.
+    """The operator's own trail: every change an Axcion operator makes, across every workspace.
 
     Written IN ADDITION to the workspace's own audit_log row, never instead of it, so a customer
-    still sees what Acumyn did to their workspace (services/operator_audit.record writes both).
+    still sees what Axcion did to their workspace (services/operator_audit.record writes both).
     Append-only, and kept 400 days.
 
     It has to outlive what it describes. `tenant_id` is deliberately not a foreign key, so deleting
@@ -129,7 +129,7 @@ class JobHeartbeat(Base):
 
 
 class PlatformBillingConfig(Base):
-    """Acumyn's own Stripe account: the one that charges workspaces, never a workspace's.
+    """Axcion's own Stripe account: the one that charges workspaces, never a workspace's.
 
     One row, id 1. The keys are pasted into the operator console and stored encrypted with
     FERNET_KEY, like every workspace integration credential, rather than read from environment
@@ -149,12 +149,12 @@ class PlatformBillingConfig(Base):
 
 
 class PlatformSubscription(Base):
-    """A workspace's subscription to Acumyn, MIRRORED from Stripe (OPERATOR-CONSOLE-SPEC §4.3).
+    """A workspace's subscription to Axcion, MIRRORED from Stripe (OPERATOR-CONSOLE-SPEC §4.3).
 
     Stripe is the source of truth for every Stripe field here; this row is corrected from Stripe by
     webhooks and the hourly reconciliation, and never edited by hand. `status` is Stripe's own
     vocabulary, verbatim, and money is cents. Only billing_contact_email and po_reference are
-    Acumyn's. A workspace with no row has no Stripe customer: it is not billed (C13).
+    Axcion's. A workspace with no row has no Stripe customer: it is not billed (C13).
     """
     __tablename__ = "platform_subscription"
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
@@ -180,7 +180,7 @@ class PlatformSubscription(Base):
 
 
 class PlatformInvoice(Base):
-    """One of a workspace's invoices from Acumyn, mirrored from Stripe. Cents."""
+    """One of a workspace's invoices from Axcion, mirrored from Stripe. Cents."""
     __tablename__ = "platform_invoice"
     stripe_invoice_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
@@ -209,7 +209,7 @@ class Domain(Base):
     __tablename__ = "domain"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
-    hostname: Mapped[str] = mapped_column(String(255), unique=True)   # e.g. app.acumyn.io
+    hostname: Mapped[str] = mapped_column(String(255), unique=True)   # e.g. app.axcion.io
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -247,7 +247,7 @@ class User(Base):
     totp_last_used: Mapped[str | None] = mapped_column(String(12), nullable=True)  # replay guard: last code
     totp_failed: Mapped[int] = mapped_column(Integer, default=0)
     totp_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Set only on an Acumyn operator's support account (OPERATOR-CONSOLE.md, C8). Such an account is
+    # Set only on an Axcion operator's support account (OPERATOR-CONSOLE.md, C8). Such an account is
     # read-only and stops working at this moment: deps.current_user enforces both on every request,
     # and worker.expire_support_access disables it afterwards. Null for every ordinary account.
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1617,7 +1617,7 @@ class LoanRecord(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "source", "external_id", name="uq_loan_src_ext"),)
 
 
-# ══ Acumyn Books module (SPEC-books-module Part 1) ══════════════════════════
+# ══ Axcion Books module (SPEC-books-module Part 1) ══════════════════════════
 # Additive: Books runs the bookkeeping the Command Center reads. The scan pipeline
 # and review draft write ONLY to these tables; QuickBooks write-back is a separate,
 # feature-flagged, human-approved action. Nothing here replaces PLSnapshot (the
@@ -1742,7 +1742,7 @@ class BooksReview(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "period", name="uq_books_review"),)
 
 
-# ── Acumyn Binder module (SPEC-binder-module Part 1) ─────────────────────────
+# ── Axcion Binder module (SPEC-binder-module Part 1) ─────────────────────────
 # A document-driven obligation engine. LegalEntity is tenant data (user-created,
 # never seeded); JurisdictionRule is product reference data (seeded). Every
 # Obligation is human-confirmed before it is tracked — enforced in the service
@@ -1945,7 +1945,7 @@ class SalesCall(Base):
     call_time_raw: Mapped[str | None] = mapped_column(String(120), nullable=True)
     call_time_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # parsed; null if unparseable
     outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)           # Showed | No Show | Cancelled | Rescheduled
-    outcome_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)      # when Acumyn first observed it
+    outcome_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)      # when Axcion first observed it
     payment_type: Mapped[str | None] = mapped_column(String(24), nullable=True)      # PIF | Financed | Monthly | Custom (§6.1) — feeds the payment mix
     # ── recording. meeting_url arrives from GHL's "Appointment Link" the moment the call is
     # booked; everything below is written by the bot scheduler and the Recall webhook. All
@@ -2561,7 +2561,7 @@ class AllocationContribution(Base):
 # ── Meta Ads module (SPEC-ads-module.md Part 6) ────────────────────────────────────────
 #
 # The point of this module is the JOIN, not the click metrics. Meta owns impression, click and
-# its own lead count; Acumyn already owns the registration, the booked call, the outcome, the
+# its own lead count; Axcion already owns the registration, the booked call, the outcome, the
 # signature and the cash. Nobody owned the seam between them, and campaigns rank differently by
 # clicks than by customers - that difference is the whole product.
 #

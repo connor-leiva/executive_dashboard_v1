@@ -1,7 +1,7 @@
-"""Acumyn Books — the deterministic scan pipeline (SPEC-books-module Part 3.1-3.2).
+"""Axcion Books — the deterministic scan pipeline (SPEC-books-module Part 3.1-3.2).
 
 Runs in the worker after each txn sync, over scan_state='pending' rows oldest first.
-Writes ONLY to Acumyn tables (book_txn, ic_link) — never to QuickBooks. Two passes here:
+Writes ONLY to Axcion tables (book_txn, ic_link) — never to QuickBooks. Two passes here:
 
   Pass 1  history rules  — a vendor categorized the same way >= 3 times clears silently
                            (the everyday ~90%); a known vendor at an unusual amount is

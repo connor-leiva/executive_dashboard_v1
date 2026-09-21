@@ -1,12 +1,12 @@
-"""Acumyn charging workspaces, through Acumyn's own Stripe account (OPERATOR-CONSOLE-SPEC §6).
+"""Axcion charging workspaces, through Axcion's own Stripe account (OPERATOR-CONSOLE-SPEC §6).
 
 NOT a workspace's Stripe. A workspace's own Stripe account is a revenue source it syncs from
-(integrations/stripe_legacy.py, stripe_bc.py). This is the opposite direction of money: Acumyn's
+(integrations/stripe_legacy.py, stripe_bc.py). This is the opposite direction of money: Axcion's
 account, billing the workspace for its plan. Nothing here reads or writes a workspace's Stripe.
 
 WHAT IS AUTHORITATIVE (§6.2). Stripe owns the charged amount, the subscription status, the period,
 the payment method and the invoices; the tables written here are mirrors of those and are never
-edited by hand. Acumyn owns the plan tier, the token budget, the billing contact and the PO
+edited by hand. Axcion owns the plan tier, the token budget, the billing contact and the PO
 reference. Changing the plan never calls Stripe, and the console says so.
 
 THE ACCOUNT'S KEYS ARE CONFIGURED IN THE CONSOLE, not in environment variables: an operator pastes
@@ -79,7 +79,7 @@ async def active_key(s: AsyncSession) -> str:
     """The secret key, when billing is connected and switched on. Raises BillingUnavailable."""
     cfg = await config(s)
     if cfg is None or not cfg.secret_key_enc:
-        raise BillingUnavailable("Platform billing is not connected. Connect Acumyn's Stripe account "
+        raise BillingUnavailable("Platform billing is not connected. Connect Axcion's Stripe account "
                                  "on the System page first.")
     if not cfg.enabled:
         raise BillingUnavailable("Platform billing is connected but switched off on the System page.")
@@ -164,7 +164,7 @@ def _method_text(pm) -> tuple[str | None, str | None]:
 async def _tenant_for(s: AsyncSession, obj: dict) -> Tenant | None:
     """The workspace a Stripe object belongs to: its metadata first (set when the console created
     the customer), then the customer id already mirrored."""
-    tid = (obj.get("metadata") or {}).get("acumyn_tenant_id")
+    tid = (obj.get("metadata") or {}).get("axcion_tenant_id")
     if tid:
         try:
             tenant = await s.get(Tenant, uuid.UUID(tid))
@@ -310,7 +310,7 @@ async def sync_tenant(s: AsyncSession, tenant: Tenant, key: str) -> list[str]:
     if row.stripe_subscription_id:
         sub = await stripe(key, "GET", f"/subscriptions/{row.stripe_subscription_id}",
                            params=[("expand[]", "default_payment_method")])
-        sub.setdefault("metadata", {}).setdefault("acumyn_tenant_id", str(tenant.id))
+        sub.setdefault("metadata", {}).setdefault("axcion_tenant_id", str(tenant.id))
         # Stamped as of the pull: a webhook created before this moment describes older state and
         # must not overwrite what was just read.
         await apply_subscription(s, sub, pulled_at)
@@ -318,7 +318,7 @@ async def sync_tenant(s: AsyncSession, tenant: Tenant, key: str) -> list[str]:
                             params=[("customer", row.stripe_customer_id), ("limit", "24")])
     for inv in invoices.get("data") or []:
         inv.setdefault("metadata", {})
-        inv["metadata"].setdefault("acumyn_tenant_id", str(tenant.id))
+        inv["metadata"].setdefault("axcion_tenant_id", str(tenant.id))
         await apply_invoice(s, inv)
     changed = [f for f in MIRRORED if getattr(row, f) != before[f]]
     row.synced_at = dt.datetime.now(dt.timezone.utc)

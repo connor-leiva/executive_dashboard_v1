@@ -1,4 +1,4 @@
-"""Acumyn Binder API (SPEC-binder-module Part 8). All routes under /api/v1/binder, gated by
+"""Axcion Binder API (SPEC-binder-module Part 8). All routes under /api/v1/binder, gated by
 the `binder` tab. Step 2 ships the entity lifecycle; the matrix / review / obligation
 mutations land with later steps. Payload shapes mirror the Binder mockups."""
 import logging
@@ -196,7 +196,7 @@ async def ingest_email(to: str = Form(...), files: list[UploadFile] = File(...),
     if not settings.BINDER_INGEST_SECRET or not secrets.compare_digest(
             x_ingest_secret or "", settings.BINDER_INGEST_SECRET):
         raise HTTPException(404, "Not found")         # constant-time; 404 leaks nothing either way
-    _, _, host = (to or "").partition("@")            # binder@{slug}.acumyn.io -> slug
+    _, _, host = (to or "").partition("@")            # binder@{slug}.axcion.io -> slug
     slug = host.split(".")[0] if host else ""
     tenant = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
     if tenant is None:

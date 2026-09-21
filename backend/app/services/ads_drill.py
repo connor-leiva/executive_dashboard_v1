@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import AdAttribution, AdCampaign, AdConversion, MetricRecord
-from .ads_funnel import ACUMYN_STAGES, FUNNEL_DEFS, RUNG_DEFS
+from .ads_funnel import AXCION_STAGES, FUNNEL_DEFS, RUNG_DEFS
 
 # Stages whose source field exists but is never populated on this tenant's data are NOT errors,
 # and the drill is the natural place to say so - somebody clicking a zero wants to know whether
@@ -55,7 +55,7 @@ async def drill_ads(s: AsyncSession, tenant_id, acct, metric: str, start, end,
     if not metric.startswith("funnel."):
         return None
     stage = metric.split(".", 1)[1]
-    if stage not in ACUMYN_STAGES:
+    if stage not in AXCION_STAGES:
         return None
 
     label = STAGE_LABELS.get(stage, stage.title())

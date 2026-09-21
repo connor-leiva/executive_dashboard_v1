@@ -1,4 +1,4 @@
-"""Google sign-in for every workspace, through ONE Google app that Acumyn owns.
+"""Google sign-in for every workspace, through ONE Google app that Axcion owns.
 
 WHY ONE APP (decided 2026-09-16, reversing the per-workspace design this file used to carry).
 The earlier shape had each team register an OAuth client in their own Google Cloud project and
@@ -8,8 +8,8 @@ client id and secret are platform configuration, set on the API service like the
 and every workspace signs in through it. What a workspace still decides is whether the button is
 offered at all, and which email domains may use it.
 
-What that trades, stated once: the consent screen says Acumyn, and if Google ever suspended
-Acumyn's app, Google sign-in would stop for every workspace together. Password sign-in does not
+What that trades, stated once: the consent screen says Axcion, and if Google ever suspended
+Axcion's app, Google sign-in would stop for every workspace together. Password sign-in does not
 depend on it and keeps working.
 
 WHAT KEEPS WORKSPACES APART is not the app, and never was. The callback is one URL for everyone,
@@ -102,7 +102,7 @@ def read_id_token(id_token: str, client_id: str) -> dict:
     if claims.get("aud") != client_id:
         # Without this, a token minted for a DIFFERENT Google app would be accepted -- the
         # classic confused-deputy in OAuth sign-in.
-        raise GoogleAuthError("id_token audience is not Acumyn's client id")
+        raise GoogleAuthError("id_token audience is not Axcion's client id")
     if claims.get("iss") not in ISSUERS:
         raise GoogleAuthError(f"unexpected issuer {claims.get('iss')!r}")
     exp = claims.get("exp")
@@ -142,7 +142,7 @@ PROVIDER_KEY = "google_workspace"
 
 
 def platform_configured() -> bool:
-    """Whether this deployment has Acumyn's Google app configured at all. Both halves, or neither:
+    """Whether this deployment has Axcion's Google app configured at all. Both halves, or neither:
     an id without its secret gets as far as Google's consent screen and fails on the way back."""
     return bool((settings.GOOGLE_CLIENT_ID or "").strip()
                 and (settings.GOOGLE_CLIENT_SECRET or "").strip())

@@ -17,7 +17,7 @@ _current_tenant: ContextVar[uuid.UUID | None] = ContextVar("current_tenant", def
 #
 # Keep this list SMALL, and check a candidate against the hosts real deployments are actually
 # served from before adding one. `www` was in here, copied from a generic reserved-names list,
-# and it took production down: www.acumyn.io is where the dashboard actually lives, so every
+# and it took production down: www.axcion.io is where the dashboard actually lives, so every
 # API call from the real site failed tenant resolution before it reached anything else. A name
 # in here is unreachable by design — that is only correct for names nobody would ever serve an
 # app from.
@@ -142,8 +142,8 @@ async def resolve_tenant(request: Request) -> uuid.UUID:
 
     # THE BARE APEX IS THE MARKETING SITE AND RESOLVES TO NO TENANT.
     # This needs its own check rather than an entry in PLATFORM_HOSTS, because that set is only
-    # ever consulted as `{label}.PLATFORM_DOMAIN` — and the apex has no label. "acumyn.io" does
-    # not end with ".acumyn.io", so it reaches neither the branch above nor the wildcard below,
+    # ever consulted as `{label}.PLATFORM_DOMAIN` — and the apex has no label. "axcion.io" does
+    # not end with ".axcion.io", so it reaches neither the branch above nor the wildcard below,
     # and falls through to the single-tenant fallback. With one tenant that means the marketing
     # host serves a customer's realm to the open internet; with two it starts 404-ing on its
     # own, silently, on the day the second customer is provisioned. Neither is a decision

@@ -56,7 +56,7 @@ def _capture(monkeypatch):
     return calls
 
 
-def _enable(monkeypatch, key="re_test", frm="Acumyn <hello@mail.acumyn.io>", reply=""):
+def _enable(monkeypatch, key="re_test", frm="Axcion <hello@mail.axcion.io>", reply=""):
     monkeypatch.setattr(settings, "RESEND_API_KEY", key)
     monkeypatch.setattr(settings, "MAIL_FROM", frm)
     monkeypatch.setattr(settings, "MAIL_REPLY_TO", reply)
@@ -78,7 +78,7 @@ async def test_a_successful_send_carries_both_bodies(monkeypatch):
     assert await mailer.send("a@b.com", "Subject", "<p>hi</p>", "hi") is True
 
     payload, headers = calls[0]
-    assert payload["from"] == "Acumyn <hello@mail.acumyn.io>"
+    assert payload["from"] == "Axcion <hello@mail.axcion.io>"
     assert payload["to"] == ["a@b.com"], "a single recipient must still be a list"
     assert payload["subject"] == "Subject"
     # Both, always. A text part is what non-HTML clients render and what spam scoring expects to
@@ -117,12 +117,12 @@ async def test_a_transport_error_returns_false_rather_than_raising(monkeypatch):
 async def test_reply_to_prefers_the_caller_then_the_setting_then_nothing(monkeypatch):
     calls = _capture(monkeypatch)
 
-    _enable(monkeypatch, reply="support@acumyn.io")
+    _enable(monkeypatch, reply="support@axcion.io")
     await mailer.send("a@b.com", "S", "<p>h</p>", "h", reply_to="inviter@acme.com")
     assert calls[-1][0]["reply_to"] == "inviter@acme.com", "an explicit reply_to must win"
 
     await mailer.send("a@b.com", "S", "<p>h</p>", "h")
-    assert calls[-1][0]["reply_to"] == "support@acumyn.io", "the setting is the fallback"
+    assert calls[-1][0]["reply_to"] == "support@axcion.io", "the setting is the fallback"
 
     _enable(monkeypatch, reply="")
     await mailer.send("a@b.com", "S", "<p>h</p>", "h")
@@ -146,7 +146,7 @@ def test_user_supplied_names_are_escaped_in_the_html():
     """A workspace name and a user's name both reach the HTML body, and both are typed by
     somebody. The subject is a mail header rather than markup, so it is not escaped there."""
     _subject, html, _text = mail_templates.invite(
-        "https://acme.acumyn.io/accept-invite?token=x", "<script>alert(1)</script>", "A & B")
+        "https://acme.axcion.io/accept-invite?token=x", "<script>alert(1)</script>", "A & B")
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
     assert "A &amp; B" in html and "A & B" not in html

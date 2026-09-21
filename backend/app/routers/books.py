@@ -1,6 +1,6 @@
-"""Acumyn Books API (SPEC-books-module Part 4). All routes under /api/v1/books, gated by
+"""Axcion Books API (SPEC-books-module Part 4). All routes under /api/v1/books, gated by
 the `books` tab; CFO-only actions (characterize, rules) additionally require owner/admin.
-Payload shapes mirror acumyn-books-v2.jsx."""
+Payload shapes mirror axcion-books-v2.jsx."""
 import datetime as dt
 import uuid
 from decimal import Decimal

@@ -40,7 +40,7 @@ def test_the_update_binds_every_parameter_it_names(is_pg):
 
 def test_the_pinned_palette_is_complete_and_is_real_hex():
     """It has to reproduce the compiled-in look exactly. A missing token falls through to
-    Acumyn's default, which would move ONE colour on a live dashboard — the kind of change
+    Axcion's default, which would move ONE colour on a live dashboard — the kind of change
     nobody reports and everybody notices."""
     mod = _module()
     assert len(mod.LEGACY_PALETTE) == 30, "the palette had 30 slots; this must pin all of them"

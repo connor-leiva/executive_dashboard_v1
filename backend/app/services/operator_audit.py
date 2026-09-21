@@ -1,8 +1,8 @@
 """The operator's own trail, across every workspace (OPERATOR-CONSOLE-SPEC §4.2 and §9).
 
-Every change an Acumyn operator makes writes TWO rows, through `record()` and nowhere else:
+Every change an Axcion operator makes writes TWO rows, through `record()` and nowhere else:
 
-  1. `audit_log`, in the workspace's own trail, so a customer can see what Acumyn did to their
+  1. `audit_log`, in the workspace's own trail, so a customer can see what Axcion did to their
      workspace. actor_user_id stays null, because the actor is not a user of that tenant; `by`
      names the operator.
   2. `platform_audit`, the cross-tenant trail an operator reads on the Audit view. Deriving that view
@@ -48,7 +48,7 @@ def record(s: AsyncSession, op: PlatformUser, t, action: str, target_type: str |
     """Write both rows for one operator change. `t` is the workspace: anything with `id` and `slug`.
     The caller owns the commit, so the two rows land together or not at all."""
     audit(s, t.id, None, action, target_type, target_id, {"by": op.email, **detail},
-          category=category, actor_label=f"{op.name or op.email} (Acumyn)"[:255])
+          category=category, actor_label=f"{op.name or op.email} (Axcion)"[:255])
     reason = detail.get("reason")
     s.add(PlatformAudit(
         operator_id=op.id, operator_email=op.email, action=action,

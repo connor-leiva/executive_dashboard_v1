@@ -1,4 +1,4 @@
-"""Acumyn Binder — Step 6 confirmation-loop tests (SPEC Part 5.1 / 6).
+"""Axcion Binder — Step 6 confirmation-loop tests (SPEC Part 5.1 / 6).
 
 The human-in-the-loop that turns ProposedObligation rows into tracked Obligations: confirm
 (the ONLY path that creates an obligation, always with confirmed_by), ambiguous-pick

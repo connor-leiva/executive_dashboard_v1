@@ -13,7 +13,7 @@ Grandfathering is right when the current behaviour is correct FOR THAT ROW. Here
 for exactly one row.
 
 So: keep it on the workspace whose brand it actually is — the one that predates multi-tenancy by
-two months — and clear it everywhere else, so those workspaces fall back to Acumyn's identity
+two months — and clear it everywhere else, so those workspaces fall back to Axcion's identity
 until they choose their own.
 
 ONLY CLEARS WHAT 0049 WROTE. Each value is compared against 0049's literals before being removed,
@@ -79,8 +79,8 @@ LEGACY_LOGIN = {
 }
 
 # The eight ribbed gradients are part of that customer's delivered visual identity, so they are
-# addressed as HER configuration rather than as a platform asset. Everyone else gets Acumyn's
-# bokeh, which is Acumyn's own artwork.
+# addressed as HER configuration rather than as a platform asset. Everyone else gets Axcion's
+# bokeh, which is Axcion's own artwork.
 HERO_PLATES = {
     "evergreen": "/brand/RibbedGradient_Evergreen.jpg",
     "meadow": "/brand/RibbedGradient_Meadow.jpg",

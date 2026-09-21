@@ -93,7 +93,7 @@ async def public_brand(s: AsyncSession = Depends(get_session)):
 
     A HOST THAT RESOLVES TO NOTHING GETS THE PLATFORM'S OWN IDENTITY, not a 404. That is
     deliberate on two counts. It is the honest answer — before you are signed in you are at
-    Acumyn, not inside a workspace — and it means this endpoint cannot be used to ask "does a
+    Axcion, not inside a workspace — and it means this endpoint cannot be used to ask "does a
     workspace exist at this address", which a 404 would answer for anyone who cared to iterate.
 
     Nothing here is private: it is the same branding painted on the page a moment later.

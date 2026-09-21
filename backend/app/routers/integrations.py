@@ -93,8 +93,8 @@ async def qbo_callback(
 
 # ── manual refresh (async via BackgroundTasks) ────────────────────
 # The jobs live in services/sync_jobs.py, because the operator console's Sync buttons run them too.
-FROZEN = ("Syncing is paused for this workspace by Acumyn support, so nothing can be pulled right "
-          "now. Contact Acumyn support to resume it.")
+FROZEN = ("Syncing is paused for this workspace by Axcion support, so nothing can be pulled right "
+          "now. Contact Axcion support to resume it.")
 
 
 async def _refuse_if_frozen(s: AsyncSession, tenant_id) -> None:

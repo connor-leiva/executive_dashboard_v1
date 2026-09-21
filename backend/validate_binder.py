@@ -1,4 +1,4 @@
-"""Acumyn Binder - Part 13 Step 4 go/no-go (scaffolding, built in Step 3).
+"""Axcion Binder - Part 13 Step 4 go/no-go (scaffolding, built in Step 3).
 
 Runs the Binder pipeline against a FOLDER of real documents in a LOCAL seeded DB and prints,
 per document, what was ingested and (once Step 4 lands) what the extractor proposes. This is

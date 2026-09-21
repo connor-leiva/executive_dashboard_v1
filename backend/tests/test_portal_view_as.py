@@ -1,4 +1,4 @@
-"""An Acumyn operator viewing a workspace's portal as one of its people: support access, extended.
+"""An Axcion operator viewing a workspace's portal as one of its people: support access, extended.
 
 The operator console's support access opens a time-boxed, read-only account in a workspace, with a
 reason, an email to its owners and a line in both audit trails. This extends it into the portal:
@@ -60,7 +60,7 @@ def _capture_mail(monkeypatch):
         return 200, "{}"
     monkeypatch.setattr(mailer, "_post", fake_post)
     monkeypatch.setattr(settings, "RESEND_API_KEY", "re_test")
-    monkeypatch.setattr(settings, "MAIL_FROM", "Acumyn <hello@mail.acumyn.io>")
+    monkeypatch.setattr(settings, "MAIL_FROM", "Axcion <hello@mail.axcion.io>")
     monkeypatch.setattr(settings, "MAIL_REPLY_TO", "")
     return sent
 
@@ -171,7 +171,7 @@ async def test_the_portal_reads_as_the_member_and_they_are_told_nothing(monkeypa
 
     assert me["name"] == "Ada Agent" and me["email"] == f"ada@{ws['slug']}.test"
     assert me["view_as"]["name"] == "Ada Agent"
-    assert "(Acumyn support)" in me["view_as"]["by"]
+    assert "(Axcion support)" in me["view_as"]["by"]
     assert {a["id"] for a in me["apps"]} == {"intranet"}, "an agent is not offered the dashboard"
 
     content = config["config"]["content"]

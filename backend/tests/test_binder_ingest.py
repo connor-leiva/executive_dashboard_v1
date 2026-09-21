@@ -1,4 +1,4 @@
-"""Acumyn Binder — Step 3 ingestion tests (SPEC Part 2).
+"""Axcion Binder — Step 3 ingestion tests (SPEC Part 2).
 
 The upload channel end to end: a document is stored, hashed, deduped, queued for extraction
 (never producing an obligation), and observable via a SyncRun on batches. Covers validation,
@@ -282,14 +282,14 @@ def test_r2_backend_roundtrip(monkeypatch):
         def delete_object(self, Bucket, Key): blobs.pop((Bucket, Key), None)
 
     monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "acct")
-    monkeypatch.setattr(settings, "R2_BUCKET", "acumyn-binder")
+    monkeypatch.setattr(settings, "R2_BUCKET", "axcion-binder")
     monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "key")
     monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "secret")
     monkeypatch.setattr(bs, "_r2_client", lambda: FakeR2())
 
     ref = bs.store("tenant-x", "doc-y", "policy.pdf", b"pdf-bytes")
     assert ref == "tenant-x/doc-y/policy.pdf"
-    assert ("acumyn-binder", ref) in blobs          # went to the bucket, not the local disk
+    assert ("axcion-binder", ref) in blobs          # went to the bucket, not the local disk
     assert bs.exists(ref) is True and bs.read(ref) == b"pdf-bytes"
     assert bs.exists("tenant-x/doc-y/missing.pdf") is False
     bs.delete(ref)
@@ -311,7 +311,7 @@ async def test_email_webhook_disabled_without_secret(monkeypatch):
     monkeypatch.setattr(settings, "BINDER_INGEST_SECRET", "")     # channel off
     async with _client() as c:
         r = await c.post("/api/v1/binder/ingest/email",
-                         data={"to": "binder@springb.acumyn.io"},
+                         data={"to": "binder@springb.axcion.io"},
                          files=[("files", ("x.pdf", b"data", "application/pdf"))],
                          headers={"X-Ingest-Secret": "whatever"})
     assert r.status_code == 404
@@ -331,13 +331,13 @@ async def test_email_webhook_is_closed_until_the_tenant_opts_in(monkeypatch):
         await s.commit()
     async with _client() as c:
         r = await c.post("/api/v1/binder/ingest/email",
-                         data={"to": "binder@springb.acumyn.io"},
+                         data={"to": "binder@springb.axcion.io"},
                          files=[("files", ("x.pdf", b"unsolicited", "application/pdf"))],
                          headers={"X-Ingest-Secret": "s3cret"})
     assert r.status_code == 404, r.text
     async with _client() as c:                            # and a bad secret is 404 too
         r = await c.post("/api/v1/binder/ingest/email",
-                         data={"to": "binder@springb.acumyn.io"},
+                         data={"to": "binder@springb.axcion.io"},
                          files=[("files", ("x.pdf", b"unsolicited", "application/pdf"))],
                          headers={"X-Ingest-Secret": "wrong"})
     assert r.status_code == 404
@@ -352,7 +352,7 @@ async def test_email_webhook_ingests_with_secret(monkeypatch):
         await s.commit()
     async with _client() as c:
         r = await c.post("/api/v1/binder/ingest/email",
-                         data={"to": "binder@springb.acumyn.io"},
+                         data={"to": "binder@springb.axcion.io"},
                          files=[("files", ("policy_email.pdf", b"emailed policy bytes", "application/pdf"))],
                          headers={"X-Ingest-Secret": "s3cret"})
     assert r.status_code == 200 and r.json()["created"] >= 1

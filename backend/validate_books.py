@@ -1,4 +1,4 @@
-"""Acumyn Books - Part 10 Step 2 go/no-go.
+"""Axcion Books - Part 10 Step 2 go/no-go.
 
 Confirms the QBO transaction pull and, above all, the P&L DETAIL report shape against
 ONE live realm BEFORE any Books endpoint is written. The report tree is the only

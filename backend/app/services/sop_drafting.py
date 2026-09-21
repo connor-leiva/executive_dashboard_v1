@@ -20,7 +20,7 @@ from ..config import settings
 from . import sop_library
 from .intranet_assistant import _anthropic, available  # noqa: F401 -- one client, one key
 
-log = logging.getLogger("acumyn.sop_drafting")
+log = logging.getLogger("axcion.sop_drafting")
 
 # Enough of a procedure to draft from; a 90-page handbook is not one procedure anyway.
 MAX_CHARS = 24000

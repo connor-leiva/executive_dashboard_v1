@@ -127,9 +127,9 @@ async def test_unknown_host_does_not_reveal_which_tenants_exist():
     """resolve_tenant used to echo the host back, which enumerated the customer list for
     anyone probing the shared API origin."""
     async with _client() as c:
-        r = await c.post("/api/v1/auth/login", headers=_H(host="nope.acumyn.io"),
+        r = await c.post("/api/v1/auth/login", headers=_H(host="nope.axcion.io"),
                          json={"email": "x@y.z", "password": "nope"})
-    assert "nope.acumyn.io" not in r.text
+    assert "nope.axcion.io" not in r.text
 
 
 async def test_platform_subdomain_resolves_without_a_domain_row():
@@ -200,7 +200,7 @@ async def test_the_hosts_a_real_deployment_is_served_from_resolve():
 
     `www` was put in the hard-reserved set — copied from a generic list of names a SaaS
     platform "should" reserve — and the reserved check runs ahead of the domain lookup, so the
-    name became unreachable by construction. www.acumyn.io is where this dashboard is actually
+    name became unreachable by construction. www.axcion.io is where this dashboard is actually
     served. Every API call from the real site returned 400 "No tenant in context" before it
     reached authentication, which presented as nobody being able to sign in with a password
     that was definitely correct.
@@ -275,7 +275,7 @@ async def test_wildcard_reserved_hosts_are_claimable_by_an_operator_but_not_by_a
 async def test_the_bare_apex_is_the_marketing_site_and_resolves_to_no_tenant():
     """The apex serves the marketing site, so it resolves to NO workspace — and nothing made
     that true before. PLATFORM_HOSTS is only ever consulted as `{label}.PLATFORM_DOMAIN`, and the
-    apex has no label: `acumyn.io` does not end with `.acumyn.io`, so it reached neither that
+    apex has no label: `axcion.io` does not end with `.axcion.io`, so it reached neither that
     guard nor the wildcard and fell through to the single-tenant fallback. With one tenant the
     marketing host answered as that customer; with two it began 404-ing by itself, on the day
     the second was provisioned.
@@ -350,17 +350,17 @@ async def test_invite_links_use_the_configured_platform_domain(monkeypatch):
         await s.commit()
         tid = bare.id
 
-    monkeypatch.setattr(settings, "PLATFORM_DOMAIN", "acumyn-staging.test")
+    monkeypatch.setattr(settings, "PLATFORM_DOMAIN", "axcion-staging.test")
     async with SessionLocal() as s:
-        assert await users.primary_host(s, tid) == "nodomainco.acumyn-staging.test"
+        assert await users.primary_host(s, tid) == "nodomainco.axcion-staging.test"
         # ...and through link_base, which the invite and reset routes actually call. With no
         # Origin to prefer (a script, a server-side call) the fallback is the whole answer.
         no_origin = Request({"type": "http", "headers": []})
-        assert await users.link_base(no_origin, s, tid) == "https://nodomainco.acumyn-staging.test"
+        assert await users.link_base(no_origin, s, tid) == "https://nodomainco.axcion-staging.test"
 
 
 async def test_the_domains_script_refuses_the_apex():
-    """`tenant_domains.py --add acumyn.io --primary` is how the apex became a tenant's primary
+    """`tenant_domains.py --add axcion.io --primary` is how the apex became a tenant's primary
     domain in production once, which sent every reset link to a parked page. As the marketing
     site it would be worse: resolve_tenant refuses the host, so the row looks added and never
     works, while tenant_app_url hands it out as the workspace's own origin — every invite,
@@ -544,16 +544,16 @@ def test_cors_lets_a_dev_tenant_subdomain_in_without_letting_anyone_else():
     from app.config import Settings
 
     dev = Settings(DATABASE_URL="sqlite+aiosqlite:///./x.db", ENV="development",
-                   PLATFORM_DOMAIN="acumyn.io")
+                   PLATFORM_DOMAIN="axcion.io")
     rx = re.compile(dev.origin_regex)
 
     for origin in ("http://utah-life.localhost:4173", "http://localhost:5174",
-                   "http://a.b.localhost:5175", "https://springb.acumyn.io", "https://acumyn.io"):
+                   "http://a.b.localhost:5175", "https://springb.axcion.io", "https://axcion.io"):
         assert rx.fullmatch(origin), f"dev CORS should allow {origin}"
 
     for origin in ("http://localhost.evil.com", "http://notlocalhost:4173",
-                   "https://acumyn.io.evil.com", "https://notacumyn.io", "http://evil.com",
-                   "https://localhost:4173.evil.com", "http://localhost.acumyn.io.evil.com"):
+                   "https://axcion.io.evil.com", "https://notaxcion.io", "http://evil.com",
+                   "https://localhost:4173.evil.com", "http://localhost.axcion.io.evil.com"):
         assert not rx.fullmatch(origin), f"dev CORS must refuse {origin}"
 
 
@@ -569,12 +569,12 @@ def test_a_deployed_config_never_gets_the_localhost_origin_rule():
     for env, url in (("production", "sqlite+aiosqlite:///./x.db"),
                      ("staging", "sqlite+aiosqlite:///./x.db"),
                      ("development", "postgresql+asyncpg://u:p@h/db")):
-        deployed = Settings(DATABASE_URL=url, ENV=env, PLATFORM_DOMAIN="acumyn.io")
+        deployed = Settings(DATABASE_URL=url, ENV=env, PLATFORM_DOMAIN="axcion.io")
         assert deployed._deployed, f"{env}/{url} should count as deployed"
         rx = re.compile(deployed.origin_regex)
         assert "localhost" not in deployed.origin_regex, f"localhost rule leaked into {env}"
         assert not rx.fullmatch("http://utah-life.localhost:4173")
-        assert rx.fullmatch("https://springb.acumyn.io"), "platform origins must still work"
+        assert rx.fullmatch("https://springb.axcion.io"), "platform origins must still work"
 
 
 async def test_a_dev_subdomain_resolves_the_tenant_it_names():

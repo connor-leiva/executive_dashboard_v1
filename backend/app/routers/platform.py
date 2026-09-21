@@ -93,7 +93,7 @@ def _record(s: AsyncSession, op: PlatformUser, request: Request, t: Tenant, acti
             target_type: str | None = None, target_id=None, *, category: str = "Workspace",
             **detail) -> None:
     """Record an operator's change twice: in the workspace's own audit log, where the customer can
-    see what Acumyn did, and in platform_audit, the operator's cross-tenant trail. Every mutation
+    see what Axcion did, and in platform_audit, the operator's cross-tenant trail. Every mutation
     in this router goes through here (services/operator_audit.py)."""
     operator_audit.record(s, op, t, action, target_type, target_id, request=request,
                           category=category, **detail)
@@ -351,9 +351,9 @@ async def tenant_audit(slug: str, limit: int = 50,
         {"action": r.action, "target_type": r.target_type, "target_id": r.target_id,
          "detail": r.detail, "category": r.category,
          "summary": operator_audit.operator_summary(r.action, r.summary),
-         # Who did it: a named person in the workspace, Acumyn (no actor, and the operator's
+         # Who did it: a named person in the workspace, Axcion (no actor, and the operator's
          # address in detail.by), or the system.
-         "actor": ("acumyn" if not r.actor_user_id and (r.detail or {}).get("by")
+         "actor": ("axcion" if not r.actor_user_id and (r.detail or {}).get("by")
                    else "user" if r.actor_user_id else "system"),
          "actor_label": ((r.detail or {}).get("by") or (r.detail or {}).get("email")
                          if not r.actor_user_id
@@ -406,7 +406,7 @@ async def fleet(op: PlatformUser = Depends(current_platform_user),
     now = _now()
     rows = await _fleet_rows(s, now)
     rollup = _rollup(rows)
-    # MRR is Acumyn's own revenue from its mirror of Stripe, never a workspace's figures: active
+    # MRR is Axcion's own revenue from its mirror of Stripe, never a workspace's figures: active
     # subscriptions only, a yearly price spread over twelve. Null until platform billing is connected.
     cfg = await platform_billing.config(s)
     if cfg is not None and cfg.secret_key_enc:
@@ -982,20 +982,27 @@ async def audit_trail(scope: str = "all", operator: str | None = None, tenant: s
                       s: AsyncSession = Depends(get_session)):
     """Every change across the platform, newest first.
 
-    `acumyn` is the operator trail, platform_audit. `tenants` is what each workspace's own team
+    `axcion` is the operator trail, platform_audit. `tenants` is what each workspace's own team
     changed, read from the workspaces' audit logs: entries with a person as the actor, leaving out
     sign-ins and second-factor checks because they are not changes. An operator's change also appears
     in the workspace's log with no actor, and is only ever read from platform_audit, so nothing is
     listed twice. `operator=me` narrows the operator trail to the caller.
     """
-    if scope not in ("all", "acumyn", "tenants"):
-        raise HTTPException(400, "scope must be all, acumyn or tenants")
+    # TRANSITIONAL, remove at Phase 10 of AXCION-REBRAND-SPEC.md. "acumyn" was this scope's
+    # name before the September 2026 rename. The operator console ships on the `zippy-cat`
+    # service and this API on `executive_dashboard_v1`: they deploy from the same commit but
+    # not at the same instant, so for the length of that window an old console asks this new
+    # API for scope=acumyn. Refusing it would 400 the whole audit view rather than degrade it.
+    if scope == "acumyn":
+        scope = "axcion"
+    if scope not in ("all", "axcion", "tenants"):
+        raise HTTPException(400, "scope must be all, axcion or tenants")
     limit = max(1, min(200, limit))
     cutoff = _parse_before(before)
     slug = tenant.strip().lower() if tenant else None
     events: list[dict] = []
 
-    if scope in ("all", "acumyn"):
+    if scope in ("all", "axcion"):
         q = select(PlatformAudit).order_by(PlatformAudit.created_at.desc()).limit(limit + 1)
         if cutoff is not None:
             q = q.where(PlatformAudit.created_at < cutoff)
@@ -1005,7 +1012,7 @@ async def audit_trail(scope: str = "all", operator: str | None = None, tenant: s
             q = q.where(PlatformAudit.tenant_slug == slug)
         for r in (await s.execute(q)).scalars().all():
             events.append({
-                "id": f"p:{r.id}", "at": _iso(r.created_at), "scope": "acumyn",
+                "id": f"p:{r.id}", "at": _iso(r.created_at), "scope": "axcion",
                 "who": r.operator_email, "action": r.action, "summary": "",
                 "tenant_slug": r.tenant_slug, "target_type": r.target_type, "target_id": r.target_id,
                 "detail": r.detail or {}, "reason": r.reason, "ip": r.ip})
@@ -1174,7 +1181,7 @@ async def system_flags(op: PlatformUser = Depends(current_platform_user)):
     ]}
 
 
-# ── phase 5: Acumyn charging workspaces, through Acumyn's own Stripe account ──────────────
+# ── phase 5: Axcion charging workspaces, through Axcion's own Stripe account ──────────────
 class BillingConfigBody(BaseModel):
     # Each optional so the webhook secret can be added after the key, and billing switched off
     # without re-pasting either. Never returned, by any route.
@@ -1224,7 +1231,7 @@ async def billing_config(op: PlatformUser = Depends(current_platform_user),
 async def set_billing_config(body: BillingConfigBody, request: Request,
                              op: PlatformUser = Depends(current_platform_user),
                              s: AsyncSession = Depends(get_session)):
-    """Connect Acumyn's Stripe account, or change or switch off the connection.
+    """Connect Axcion's Stripe account, or change or switch off the connection.
 
     A new secret key is verified against Stripe before it is stored: an account that cannot be read
     is refused rather than saved and discovered broken at the first charge. Keys are stored
@@ -1312,7 +1319,7 @@ def _subscription_out(row, cfg) -> dict | None:
 @router.get("/tenants/{slug}/billing")
 async def tenant_billing(slug: str, op: PlatformUser = Depends(current_platform_user),
                          s: AsyncSession = Depends(get_session)):
-    """The Stripe mirror, read-only, beside the four fields Acumyn enforces. Prices appear here
+    """The Stripe mirror, read-only, beside the four fields Axcion enforces. Prices appear here
     because this is the operator's billing surface (C3); no tenant-facing response carries one."""
     t = await _get(s, slug)
     cfg = await platform_billing.config(s)
@@ -1351,7 +1358,7 @@ async def tenant_billing(slug: str, op: PlatformUser = Depends(current_platform_
 async def patch_tenant_billing(slug: str, body: BillingPatch, request: Request,
                                op: PlatformUser = Depends(current_platform_user),
                                s: AsyncSession = Depends(get_session)):
-    """The four fields Acumyn owns. None of them calls Stripe: changing the plan changes what the
+    """The four fields Axcion owns. None of them calls Stripe: changing the plan changes what the
     workspace can do on its next request, and does not change what Stripe charges."""
     t = await _get(s, slug)
     row = await s.get(PlatformSubscription, t.id)
@@ -1424,7 +1431,7 @@ async def create_billing_customer(slug: str, body: CustomerBody, request: Reques
             raise HTTPException(409, f"Stripe has no active price with the lookup key {lookup}. Create it in "
                                      "Stripe (see OPERATOR-CONSOLE.md) and try again.")
         price = prices["data"][0]
-        meta = [("metadata[acumyn_tenant_id]", str(t.id)), ("metadata[acumyn_slug]", t.slug)]
+        meta = [("metadata[axcion_tenant_id]", str(t.id)), ("metadata[axcion_slug]", t.slug)]
         customer = await platform_billing.stripe(key, "POST", "/customers",
                                                  data=[("email", email), ("name", t.name), *meta])
         sub_data = [("customer", customer["id"]), ("items[0][price]", price["id"]),
@@ -1442,7 +1449,7 @@ async def create_billing_customer(slug: str, body: CustomerBody, request: Reques
     await platform_billing.apply_subscription(s, subscription, _now())
     latest = subscription.get("latest_invoice")
     if isinstance(latest, dict):
-        latest.setdefault("metadata", {})["acumyn_tenant_id"] = str(t.id)
+        latest.setdefault("metadata", {})["axcion_tenant_id"] = str(t.id)
         await platform_billing.apply_invoice(s, latest)
     _record(s, op, request, t, "billing.customer_created", "subscription", subscription.get("id"),
             category="Workspace", plan=tier, price=lookup)
@@ -1461,7 +1468,7 @@ async def send_payment_link(slug: str, request: Request, bg: BackgroundTasks,
                             op: PlatformUser = Depends(current_platform_user),
                             s: AsyncSession = Depends(get_session)):
     """Email the billing contact Stripe's own page for the open invoice, where they pay it or add a
-    payment method. The link is Stripe's, so no card detail ever passes through Acumyn."""
+    payment method. The link is Stripe's, so no card detail ever passes through Axcion."""
     t = await _get(s, slug)
     await _billing_key(s)
     row = await s.get(PlatformSubscription, t.id)
@@ -1499,7 +1506,7 @@ async def retry_billing(slug: str, request: Request, op: PlatformUser = Depends(
                 category="Workspace", error=str(e)[:300])
         await s.commit()
         raise HTTPException(402, f"Stripe could not collect it: {e}")
-    paid.setdefault("metadata", {})["acumyn_tenant_id"] = str(t.id)
+    paid.setdefault("metadata", {})["axcion_tenant_id"] = str(t.id)
     await platform_billing.apply_invoice(s, paid)
     _record(s, op, request, t, "billing.retried", "invoice", invoice.stripe_invoice_id,
             category="Workspace", status=paid.get("status"))
@@ -1523,7 +1530,7 @@ async def sync_billing(slug: str, op: PlatformUser = Depends(current_platform_us
 
 @router.post("/webhooks/stripe")
 async def stripe_webhook(request: Request, s: AsyncSession = Depends(get_session)):
-    """Stripe's deliveries for Acumyn's own account. NOT operator-gated: Stripe is the caller, and
+    """Stripe's deliveries for Axcion's own account. NOT operator-gated: Stripe is the caller, and
     the signature is the authentication. Verified against the raw body before anything is parsed;
     an unsigned or wrongly signed request is refused with nothing applied."""
     cfg = await platform_billing.config(s)
@@ -1554,9 +1561,9 @@ class TransferBody(BaseModel):
 
 def _support_email(op: PlatformUser) -> str:
     """The support account's address: the operator's own, tagged, so the workspace's roster names a
-    real person at Acumyn and no email is ever sent to it."""
+    real person at Axcion and no email is ever sent to it."""
     local, _, domain = op.email.partition("@")
-    return f"{local.split('+')[0]}+acumyn-support@{domain}"[:255]
+    return f"{local.split('+')[0]}+axcion-support@{domain}"[:255]
 
 
 @router.post("/tenants/{slug}/support-access", status_code=201)
@@ -1586,7 +1593,7 @@ async def open_support_access(slug: str, body: SupportBody, request: Request, bg
     if u is None:
         u = User(tenant_id=t.id, email=email, role="member", status="active", token_version=0)
         s.add(u)
-    u.name = f"{op.name or op.email} (Acumyn support)"[:200]
+    u.name = f"{op.name or op.email} (Axcion support)"[:200]
     u.role, u.status = "member", "active"
     u.tab_access = await tenant_tabs(s, t.id)
     u.password_hash = None
@@ -1748,7 +1755,7 @@ async def export_metadata(slug: str, request: Request, op: PlatformUser = Depend
     trail = (await s.execute(select(AuditLog).where(AuditLog.tenant_id == t.id)
                              .order_by(AuditLog.created_at))).scalars().all()
     archive = {
-        "format": "acumyn-workspace-metadata/1", "exported_at": _now().isoformat(), "exported_by": op.email,
+        "format": "axcion-workspace-metadata/1", "exported_at": _now().isoformat(), "exported_by": op.email,
         "workspace": {"slug": t.slug, "name": t.name, "status": t.status, "plan": t.plan,
                       "created_at": _iso(t.created_at), "hosts": list(hosts)},
         "people": [{"email": u.email, "name": u.name, "role": u.role, "status": u.status,
@@ -1768,7 +1775,7 @@ async def export_metadata(slug: str, request: Request, op: PlatformUser = Depend
     _record(s, op, request, t, "tenant.exported", "tenant", t.id, category="Workspace",
             people=len(users), audit_entries=len(trail))
     await s.commit()
-    filename = f"acumyn-{t.slug}-metadata-{_now().date().isoformat()}.json"
+    filename = f"axcion-{t.slug}-metadata-{_now().date().isoformat()}.json"
     return Response(json.dumps(archive, indent=2, default=str), media_type="application/json",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 

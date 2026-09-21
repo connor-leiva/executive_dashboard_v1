@@ -1,4 +1,4 @@
-"""Acumyn Binder — date math, status, recurrence (SPEC-binder-module Part 6).
+"""Axcion Binder — date math, status, recurrence (SPEC-binder-module Part 6).
 
 Status is COMPUTED, never stored, from due_date + lead_days + today. Recurrence roll-forward
 runs on `complete`. Kept pure so the confirm loop, the matrix, and the reminder worker all

@@ -89,7 +89,7 @@ async def _agent(ws, email, **member) -> dict:
 def _bundle() -> dict:
     """A small but complete playbook: every tab has something on it."""
     return {
-        "format": "acumyn.wtd-playbook", "version": 1,
+        "format": "axcion.wtd-playbook", "version": 1,
         "content": {
             "header": {"eyebrow": "Agent Playbook", "title": "Win the Day.",
                        "lede": "The daily workflow.",

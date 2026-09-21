@@ -1,4 +1,4 @@
-"""Google sign-in: one Acumyn app for every workspace, and a door that only opens for invited people.
+"""Google sign-in: one Axcion app for every workspace, and a door that only opens for invited people.
 
 The properties worth guarding here are mostly about what this must NOT do.
 
@@ -7,7 +7,7 @@ invitation. If a successful sign-in could create a user, then "who is in this wo
 controlled by whoever administers that email domain rather than by the workspace's own admin --
 and domain membership changes without us being told.
 
-ONE APP, NOTHING FOR A WORKSPACE TO SET UP. The client id and secret are Acumyn's and live in the
+ONE APP, NOTHING FOR A WORKSPACE TO SET UP. The client id and secret are Axcion's and live in the
 deployment's settings, so a workspace is offered Google the moment the app exists. What a
 workspace still decides is whether to keep it on and which domains may use it -- and turning it
 off must close the door, not merely hide the button.
@@ -30,7 +30,7 @@ from app.services import google_auth
 
 TRANSPORT = ASGITransport(app=app)
 CLIENT_ID = "1234.apps.googleusercontent.com"
-CLIENT_SECRET = "acumyn-app-secret"
+CLIENT_SECRET = "axcion-app-secret"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -40,7 +40,7 @@ async def _seeded():
 
 @pytest.fixture(autouse=True)
 def _platform_app(monkeypatch):
-    """Acumyn's Google app, configured on the deployment the way production has it."""
+    """Axcion's Google app, configured on the deployment the way production has it."""
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", CLIENT_ID)
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", CLIENT_SECRET)
 
@@ -149,7 +149,7 @@ async def test_a_workspace_that_chose_nothing_is_offered_google_once_the_app_exi
         assert (await c.get("/api/v1/auth/google/config")).json() == {"enabled": True}
 
 
-async def test_without_acumyns_app_nobody_is_offered_the_button(monkeypatch):
+async def test_without_axcions_app_nobody_is_offered_the_button(monkeypatch):
     """Half an app is no app: an id without its secret would get as far as Google's consent screen
     and fail on the way back, so a workspace that wants Google still gets no button."""
     await _choose(enabled=True)
@@ -168,7 +168,7 @@ async def test_a_workspace_that_turned_google_off_offers_no_button():
         assert (await c.get("/api/v1/auth/google/start")).status_code == 404
 
 
-async def test_start_hands_back_googles_url_carrying_acumyns_client_id():
+async def test_start_hands_back_googles_url_carrying_axcions_client_id():
     await _choose(domains=["utahlife.com"])
     async with _client() as c:
         assert (await c.get("/api/v1/auth/google/config")).json() == {"enabled": True}
@@ -183,7 +183,7 @@ async def test_start_hands_back_googles_url_carrying_acumyns_client_id():
 async def _callback(monkeypatch, *, email, tid):
     async def fake_exchange(client_id, client_secret, code, redirect_uri):
         assert (client_id, client_secret) == (CLIENT_ID, CLIENT_SECRET), \
-            "the code must be exchanged with Acumyn's own app"
+            "the code must be exchanged with Axcion's own app"
         return {"id_token": _id_token(email=email)}
     monkeypatch.setattr(google_auth, "exchange_code", fake_exchange)
     state = make_capability("google_signin", minutes=15, tid=str(tid))

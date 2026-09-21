@@ -1,4 +1,4 @@
-"""Acumyn Books — Part 3.1-3.2 deterministic scan tests (SPEC Part 8 test_books_scan.py).
+"""Axcion Books — Part 3.1-3.2 deterministic scan tests (SPEC Part 8 test_books_scan.py).
 
 The scan reads/writes through the ORM, so it runs under SQLite: seed rows with the ORM,
 run_scan, assert states + ICLinks. Distinct payees/amounts/realms per test keep the

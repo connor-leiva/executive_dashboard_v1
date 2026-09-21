@@ -1,4 +1,4 @@
-"""What the team portal inherits from the Acumyn dashboard, rather than asking for twice.
+"""What the team portal inherits from the Axcion dashboard, rather than asking for twice.
 
 A workspace is ONE customer. They connect Sisu once, they have one logo, they picked their
 colours once. The portal and the dashboard being separate surfaces is our implementation detail,

@@ -1,4 +1,4 @@
-"""Acumyn Books API tests (SPEC Part 8 test_books_api.py): rail-conservation invariant,
+"""Axcion Books API tests (SPEC Part 8 test_books_api.py): rail-conservation invariant,
 P&L consolidation + snapshot/lines tie, and queue-action permissions + audit trail.
 (Close + review endpoints arrive with Step 7.)
 """

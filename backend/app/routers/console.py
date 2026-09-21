@@ -980,7 +980,7 @@ def _integration(row: IntranetIntegration, inherited: dict[str, str] | None = No
         # Told to the console so it can say WHERE the connection lives rather than silently
         # disabling a button.
         "inherited": owned_elsewhere,
-        "inherited_from": "Acumyn dashboard" if owned_elsewhere else None,
+        "inherited_from": "Axcion dashboard" if owned_elsewhere else None,
         # The dashboard's own failure, where the connection lives; and the address a Win the Day
         # list opens in when no base URL is set here.
         "dashboard_error": ((details or {}).get(row.provider_key) or {}).get("error")
@@ -1481,7 +1481,7 @@ def _marketing_request(row: IntranetMarketingRequest,
 
 
 # ── Google sign-in ────────────────────────────────────────────────────────────────────────
-# Every workspace signs in through ONE Google app, Acumyn's -- see services/google_auth for why
+# Every workspace signs in through ONE Google app, Axcion's -- see services/google_auth for why
 # it is not a client each team registers. What is left for a workspace is two choices: whether
 # the button is offered, and which email domains may use it.
 
@@ -1506,7 +1506,7 @@ def _google_out(row: IntranetIntegration | None) -> dict:
     available = google_auth.platform_configured()
     return {
         **choices,
-        # Whether this deployment has Acumyn's Google app at all. A workspace can leave sign-in on
+        # Whether this deployment has Axcion's Google app at all. A workspace can leave sign-in on
         # while this is false; the button simply does not appear until it is true.
         "available": available,
         "status": "Connected" if available and choices["enabled"] else "Not Connected",
@@ -1534,7 +1534,7 @@ async def patch_google_signin(body: dict = Body(...),
     admin stages and publishes to their members; this is the door, and it either works now or it
     does not.
 
-    THERE ARE NO CREDENTIALS TO SET. The app is Acumyn's and every workspace uses it, so a body
+    THERE ARE NO CREDENTIALS TO SET. The app is Axcion's and every workspace uses it, so a body
     that still carries a client id or secret is refused rather than quietly ignored -- an old form
     must not look as though it saved one.
     """
@@ -1915,7 +1915,7 @@ async def send_marketing_test(p: ConsolePrincipal = Depends(require_console_acce
     probe = IntranetMarketingRequest(
         id=uuid.uuid4(), tenant_id=p.user.tenant_id,
         requester_label=(p.user.name or p.user.email or "the console"),
-        title="Test message from the Acumyn console",
+        title="Test message from the Axcion console",
         description=("This is a connection test, not a real request -- nothing needs doing. "
                      "If you can read this, marketing requests will arrive here."),
         priority="Normal", status="New", created_at=_now())
@@ -4200,7 +4200,7 @@ async def _fub_smart_lists(s: AsyncSession, tenant_id) -> list[dict]:
     from ..services.sync import _fub_creds
     integ = await follow_ups.fub_integration(s, tenant_id)
     if integ is None or integ.status not in ("connected", "error"):
-        raise HTTPException(409, "Follow Up Boss is not connected. Connect it on the Acumyn "
+        raise HTTPException(409, "Follow Up Boss is not connected. Connect it on the Axcion "
                                  "dashboard under Settings, Integrations.")
     items = []
     try:
@@ -5058,7 +5058,7 @@ async def connect_integration(integration_id: uuid.UUID, body: dict = Body(defau
     # worst of both, because it looks like it worked.
     if is_inherited(row.provider_key):
         _unprocessable("provider",
-                       f"{row.display_name} is connected on the Acumyn dashboard, not here. "
+                       f"{row.display_name} is connected on the Axcion dashboard, not here. "
                        f"Connect it there and this workspace picks it up.")
     body = _body(body or {})
     _unknown(body, {"config"})

@@ -1,4 +1,4 @@
-"""Acumyn Binder module — initial tables + Business.legal_entity_id
+"""Axcion Binder module — initial tables + Business.legal_entity_id
 
 Additive per SPEC-binder-module Part 1: the document-driven obligation engine's tables
 (legal entities, stored documents, proposed vs. confirmed obligations, and the jurisdiction

@@ -1,4 +1,4 @@
-"""Acumyn Binder — document ingestion (SPEC-binder-module Part 2).
+"""Axcion Binder — document ingestion (SPEC-binder-module Part 2).
 
 Three channels land here (upload, forwarding address, bulk folder). Step 3 builds the
 upload path; email/folder reuse the same core and arrive with later steps. Every channel

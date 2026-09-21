@@ -20,7 +20,7 @@ don't know". The system prompt says so explicitly, and refuse_without_source enf
 
 THE API KEY IS THE PLATFORM'S, in env, unlike every tenant integration in this product. Those are
 the customer's own accounts -- their Sisu, their GHL, their Google -- and they configure them
-themselves. Anthropic is Acumyn's cost, billed on through the plan tier that carries
+themselves. Anthropic is Axcion's cost, billed on through the plan tier that carries
 `ai_assistant`, exactly like Resend. A tenant never sees or supplies it.
 """
 from __future__ import annotations

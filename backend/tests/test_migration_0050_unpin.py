@@ -72,7 +72,7 @@ async def test_the_oldest_workspace_keeps_its_brand_and_gains_its_hero_plates():
 
 
 async def test_every_other_workspace_is_returned_to_the_platform_identity():
-    """This is what the owner actually saw: a workspace at its own address rendering Acumyn for a
+    """This is what the owner actually saw: a workspace at its own address rendering Axcion for a
     moment, then flipping to another customer's colours and photograph once /public/brand answered."""
     mod = _module()
     engine = sa.create_engine("sqlite://")
@@ -140,7 +140,7 @@ async def test_running_it_twice_changes_nothing_the_second_time():
 
 
 def test_the_platform_default_is_not_derived_from_a_customer_asset():
-    """The hero the platform ships must be Acumyn's own artwork.
+    """The hero the platform ships must be Axcion's own artwork.
 
     An earlier pass desaturated one customer's ribbed gradient and made it the default for every
     workspace. It was measurably the same artwork in eight tints, so collapsing them was tidy —
@@ -153,7 +153,7 @@ def test_the_platform_default_is_not_derived_from_a_customer_asset():
     assert not (brand / "RibbedGradient.jpg").exists(), (
         "the desaturated derivative of a customer's asset is back as a platform default")
     for plate in ("bokeh-light.jpg", "bokeh-ink.jpg"):
-        assert (brand / "acumyn" / plate).exists(), f"Acumyn's own {plate} is missing"
+        assert (brand / "axcion" / plate).exists(), f"Axcion's own {plate} is missing"
     # And her originals must still be present, since her config now points at them.
     for tint in ("Evergreen", "Meadow", "Petal"):
         assert (brand / f"RibbedGradient_{tint}.jpg").exists(), f"{tint} was not restored"
@@ -188,7 +188,7 @@ async def test_it_restores_a_palette_the_settings_panel_overwrote():
         brand = json.loads(conn.execute(sa.text("SELECT config FROM tenant")).scalar_one())["brand"]
 
     assert brand["palette"] == mod.LEGACY_PALETTE
-    # The seeds now describe HER palette, so the panel opens on her colours rather than Acumyn's.
+    # The seeds now describe HER palette, so the panel opens on her colours rather than Axcion's.
     assert brand["seeds"]["brand"] == "#FA8069"      # her coral, not Cadet
     assert brand["seeds"]["ink"] == "#002E2C"        # her evergreen
     assert brand["typeface"] == "classic", "an unrelated setting was disturbed"

@@ -1,4 +1,4 @@
-"""Acumyn Binder — entity management service (SPEC-binder-module Part 5.0 / 5.1).
+"""Axcion Binder — entity management service (SPEC-binder-module Part 5.0 / 5.1).
 
 Step 2 scope: the manual entity lifecycle (create / list / edit / deactivate) plus the
 read shapes the management screen renders. Entities are tenant data the user configures

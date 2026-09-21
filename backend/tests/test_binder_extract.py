@@ -1,4 +1,4 @@
-"""Acumyn Binder — Step 4 extraction tests (SPEC Part 3 + 4).
+"""Axcion Binder — Step 4 extraction tests (SPEC Part 3 + 4).
 
 Three layers, from most deterministic to least:
   1. Rule lookup + derivation math (pure) — the schedule engine.

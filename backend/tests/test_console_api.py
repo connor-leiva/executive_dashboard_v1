@@ -1667,7 +1667,7 @@ async def test_a_dashboard_connection_shows_up_in_the_portal_without_being_made_
     sisu = next(i for i in items if i["provider_key"] == "sisu")
     assert sisu["status"] == "Connected", "the portal ignored a dashboard connection"
     assert sisu["inherited"] is True
-    assert sisu["inherited_from"] == "Acumyn dashboard"
+    assert sisu["inherited_from"] == "Axcion dashboard"
 
     # A provider the dashboard has never heard of stays the portal's own.
     slack = next(i for i in items if i["provider_key"] == "slack")
@@ -1743,7 +1743,7 @@ async def test_a_workspace_nobody_seeded_still_lists_the_providers_the_dashboard
     assert len(again) == len(first), "reading the page a second time created the rows again"
 
     fub = by_key["follow_up_boss"]
-    assert fub["inherited"] is True and fub["inherited_from"] == "Acumyn dashboard"
+    assert fub["inherited"] is True and fub["inherited_from"] == "Axcion dashboard"
     assert fub["connect_available"] is False, "the console must not offer a credential form here"
 
     # The row's one editable job: the base URL a Win the Day list links through.
@@ -1755,7 +1755,7 @@ async def test_a_workspace_nobody_seeded_still_lists_the_providers_the_dashboard
 
 
 async def test_the_console_asks_a_workspace_for_no_google_credentials(ctx, monkeypatch):
-    """Every workspace signs in through Acumyn's own Google app, so there is nothing to paste.
+    """Every workspace signs in through Axcion's own Google app, so there is nothing to paste.
 
     The panel used to demand a client id and secret from the workspace's own Google Cloud
     project. A body still carrying them is REFUSED rather than quietly ignored, so an old form
@@ -1763,7 +1763,7 @@ async def test_the_console_asks_a_workspace_for_no_google_credentials(ctx, monke
     """
     from app.config import settings
 
-    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "acumyn.apps.googleusercontent.com")
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "axcion.apps.googleusercontent.com")
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "platform-secret")
     h = _H(ctx["a"]["admin"], ctx["a"]["host"])
     async with _client() as c:

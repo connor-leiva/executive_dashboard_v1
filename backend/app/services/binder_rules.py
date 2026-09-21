@@ -1,4 +1,4 @@
-"""Acumyn Binder — jurisdiction rules seed (SPEC-binder-module Part 4).
+"""Axcion Binder — jurisdiction rules seed (SPEC-binder-module Part 4).
 
 The rules engine turns an anchor (formation date, entity type, fiscal year) into a
 compliance schedule. These rows are *reference data*, not tenant data: a seeded rule

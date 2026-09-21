@@ -224,10 +224,10 @@ async def test_invite_link_uses_request_origin():
     owner = await _owner_token()
     async with _client() as c:
         r = await c.post("/api/v1/users/invite",
-                         headers={**_H(owner), "origin": "https://springb.acumyn.io"},
+                         headers={**_H(owner), "origin": "https://springb.axcion.io"},
                          json={"email": "originlink@x.com", "role": "member", "tab_access": ["forum"]})
     assert r.status_code == 200
-    assert r.json()["invite_url"].startswith("https://springb.acumyn.io/accept-invite?token=")
+    assert r.json()["invite_url"].startswith("https://springb.axcion.io/accept-invite?token=")
 
 
 # ── regression: invite must survive >1 primary domain (prod) ─────────

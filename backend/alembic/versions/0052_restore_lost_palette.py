@@ -1,6 +1,6 @@
 """Put back a palette the appearance panel overwrote
 
-The Appearance panel opened on ACUMYN's five colours rather than the workspace's own, and saving
+The Appearance panel opened on AXCION's five colours rather than the workspace's own, and saving
 replaced a hand-built thirty-token palette with those five plus the twenty-five derived from
 them. The workspace's dashboard changed colour because somebody opened a settings page and
 pressed Save — which is the one thing a settings page must never do.

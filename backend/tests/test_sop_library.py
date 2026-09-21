@@ -489,7 +489,7 @@ def _capture_mail(monkeypatch):
         return 200, "{}"
     monkeypatch.setattr(mailer, "_post", fake_post)
     monkeypatch.setattr(settings, "RESEND_API_KEY", "re_test")
-    monkeypatch.setattr(settings, "MAIL_FROM", "Acumyn <hello@mail.acumyn.io>")
+    monkeypatch.setattr(settings, "MAIL_FROM", "Axcion <hello@mail.axcion.io>")
     monkeypatch.setattr(settings, "MAIL_REPLY_TO", "")
     return sent
 

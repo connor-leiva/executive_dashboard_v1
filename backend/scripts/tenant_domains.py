@@ -12,7 +12,7 @@ A tenant's `domain` rows decide two different things, and it is easy to notice o
      primary produces links to a domain you may not even own.
 
   python -m scripts.tenant_domains --tenant springb --list
-  python -m scripts.tenant_domains --tenant springb --add app.acumyn.io --primary
+  python -m scripts.tenant_domains --tenant springb --add app.axcion.io --primary
   python -m scripts.tenant_domains --tenant springb --remove old.example.com
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ def _db_target() -> str:
 def _unreachable_reason(host: str) -> str | None:
     """Why a browser would fail to load this host, or None if it would not.
 
-    DNS alone is not the test, which is the mistake this exists to stop repeating. `acumyn.io`
+    DNS alone is not the test, which is the mistake this exists to stop repeating. `axcion.io`
     resolved perfectly well — to a registrar parking address — and was made the primary domain
     on that basis, so every reset link pointed at an IP that answers nothing and the browser
     just timed out. What matters for a link is whether something ACCEPTS A CONNECTION.
@@ -77,13 +77,13 @@ def _normalize_host(raw: str) -> str:
     # both refusals below.
     host = raw.strip().lower().split("//")[-1].split("/")[0].split(":")[0].rstrip(".")
     apex = settings.PLATFORM_DOMAIN.lower()
-    # The apex is Acumyn's own site, and resolve_tenant refuses it ahead of the domain lookup.
+    # The apex is Axcion's own site, and resolve_tenant refuses it ahead of the domain lookup.
     # A row for it is worse than inert: tenant_app_url hands out the primary row as the
     # workspace's own origin, so every invite, reset, share link and QuickBooks return would
     # land on the marketing page. The apex was made a tenant's primary in production once.
     if host == apex:
         raise SystemExit(
-            f"[error] '{host}' is the platform's own domain: it belongs to Acumyn's own site and "
+            f"[error] '{host}' is the platform's own domain: it belongs to Axcion's own site and "
             f"never resolves to a workspace, and as a primary it would send every invite, reset "
             f"and share link there.\n"
             f"        A workspace lives at <slug>.{apex} or on its own custom domain.")
@@ -105,7 +105,7 @@ async def _run(args) -> None:
     # A primary domain is where every human-facing link is SENT. One that does not
     # resolve produces reset and invite links that time out in the browser, and
     # nothing about the failure points back here. Checked because it happened:
-    # `acumyn.io` was made primary while only `www.acumyn.io` had an A record.
+    # `axcion.io` was made primary while only `www.axcion.io` had an A record.
     unreachable = _unreachable_reason(add_host) if (args.primary and not args.force) else None
     if unreachable:
         raise SystemExit(

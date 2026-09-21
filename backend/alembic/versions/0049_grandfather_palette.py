@@ -1,13 +1,13 @@
 """Pin the existing workspace's colours before the palette stops being compiled in
 
 Every colour in the SPA read `T` from theme.js, which held one customer's 30 hexes as literals.
-Those are now CSS variables whose defaults are Acumyn's brand identity, overridden per workspace
+Those are now CSS variables whose defaults are Axcion's brand identity, overridden per workspace
 at sign-in. Good for every workspace that comes next; a visible, unrequested redesign for the one
 that already exists, whose dashboard would simply come up in somebody else's colours.
 
 Same reasoning as 0046. Any workspace present at this moment is by definition running on the
 compiled-in palette, so writing that palette onto it preserves exactly what its users see today,
-while anything created afterwards starts from Acumyn's identity.
+while anything created afterwards starts from Axcion's identity.
 
 Additive and idempotent: only fills `brand.palette` when it is absent or empty, and never
 overwrites a workspace that has chosen its own.
@@ -60,7 +60,7 @@ LEGACY_PALETTE = {
     "onDarkMute": "#9CB0AB",
 }
 
-# Poppins/Inter is what those components were set in; the new default is Acumyn's Space Grotesk
+# Poppins/Inter is what those components were set in; the new default is Axcion's Space Grotesk
 # and Instrument Sans, so the type is pinned for the same reason the colour is.
 LEGACY_TYPE = {
     "display": "Poppins,sans-serif",

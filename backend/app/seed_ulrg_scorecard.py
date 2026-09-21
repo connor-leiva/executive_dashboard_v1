@@ -1,7 +1,7 @@
 """ULRG L10 Scorecard — Spring seed + backfill (SPEC-ulrg-scorecard Part 6, Steps 1 + 2).
 
 ============================ TENANT SEED — NOT PRODUCT DATA ============================
-Acumyn ships an EMPTY ULRG-shaped scorecard for a new tenant (Part 0.5); Spring's groups,
+Axcion ships an EMPTY ULRG-shaped scorecard for a new tenant (Part 0.5); Spring's groups,
 measurables, and history are THIS tenant's data. So — like the AI demo fixture — Spring/Davis/SLC
 live here (and in the sibling data file), never in the product code (services/frontend), which is
 what the acceptance greps enforce. Load it explicitly:

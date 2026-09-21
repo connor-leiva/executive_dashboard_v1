@@ -1,4 +1,4 @@
-"""Acumyn Binder — Part 1 schema + rule-seed smoke test (build step 1).
+"""Axcion Binder — Part 1 schema + rule-seed smoke test (build step 1).
 
 Confirms the five new tables build via create_all, the two uniqueness constraints the
 later steps rely on (one obligation per entity/kind; one document per content hash), the

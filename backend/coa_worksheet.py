@@ -297,7 +297,7 @@ def build_workbook(accounts, branch_rows, chart, suggest, out_path):
         ("   coa_worksheet.py --apply <this file> --base-url <api> --email <you>", False),
         ("   It shows you what it would do first. Nothing is written until you add --write.", False),
         ("", False),
-        ("Nothing here ever writes to QuickBooks. This only changes how Acumyn READS the books.",
+        ("Nothing here ever writes to QuickBooks. This only changes how Axcion READS the books.",
          True),
     ]
     for text, bold in lines:
@@ -486,7 +486,7 @@ def main() -> None:
     ap.add_argument("--out", default=str(DEFAULT_OUT), help="where to write the worksheet")
     ap.add_argument("--source", choices=("discovery", "api"), default="discovery",
                     help="discovery (default, offline, carries activity) or api (live charts)")
-    ap.add_argument("--base-url", default="https://api.acumyn.io/api/v1")
+    ap.add_argument("--base-url", default="https://api.axcion.io/api/v1")
     ap.add_argument("--email")
     ap.add_argument("--token", help="a bearer token, instead of logging in")
     args = ap.parse_args()

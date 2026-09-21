@@ -50,7 +50,7 @@ def make_token(user_id: uuid.UUID, tenant_id: uuid.UUID, ver: int = 0,
 
 def make_view_token(user_id: uuid.UUID, tenant_id: uuid.UUID, ver: int, member_id: uuid.UUID,
                     expires: dt.datetime) -> str:
-    """An Acumyn support session, narrowed to reading the workspace's portal AS one roster member.
+    """An Axcion support session, narrowed to reading the workspace's portal AS one roster member.
 
     Minted only by the operator console, inside an open support session (routers/platform
     support_view_as): `sub` is the support account and `ver` is its version, so ending support
@@ -117,7 +117,7 @@ def hash_action_token(raw: str) -> str:
 
 
 # ── TOTP second factor (RFC 6238) — used for the Binder step-up unlock ────────────────────
-TOTP_ISSUER = "Acumyn"
+TOTP_ISSUER = "Axcion"
 RECOVERY_CODE_COUNT = 10
 
 

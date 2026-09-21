@@ -1,6 +1,6 @@
 """The operator's own audit trail, and the scheduler's heartbeat.
 
-platform_audit (OPERATOR-CONSOLE-SPEC §4.2): every change an Acumyn operator makes, across every
+platform_audit (OPERATOR-CONSOLE-SPEC §4.2): every change an Axcion operator makes, across every
 workspace, written alongside the workspace's own audit_log row. tenant_id is deliberately NOT a
 foreign key and the slug is copied in, so deleting a workspace cannot delete the record that it was
 deleted. operator_id is nullable with SET NULL: removing an operator keeps their history, and the

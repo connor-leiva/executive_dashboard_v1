@@ -740,7 +740,7 @@ def _config_out(tenant: Tenant, user: User,
     # Derived per member and handed over ready to use, so the portal never builds a URL and there
     # is nothing for an admin to configure. A member-less viewer (an owner not on the roster) gets
     # no link rather than somebody else's conversation.
-    # NOT DURING AN ACUMYN SUPPORT VIEW of somebody's portal. Their link opens their own coaching
+    # NOT DURING AN AXCION SUPPORT VIEW of somebody's portal. Their link opens their own coaching
     # conversation inside Sisu, which is theirs -- a view of their portal must not be a way into
     # it -- so the links are withheld and the portal says why instead of offering a dead button.
     viewing = bool(getattr(user, "view_as", None))
@@ -953,7 +953,7 @@ MARKETING_PRIORITIES = {"Low", "Normal", "High"}
 
 
 async def _member_for(s: AsyncSession, user: User) -> IntranetMember | None:
-    # An Acumyn support view of the portal names the roster entry exactly (deps._viewing_as); an
+    # An Axcion support view of the portal names the roster entry exactly (deps._viewing_as); an
     # address match could find a different row for a re-used address.
     viewing = getattr(user, "view_as_member_id", None)
     if viewing is not None:

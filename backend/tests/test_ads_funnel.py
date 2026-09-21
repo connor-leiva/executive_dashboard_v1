@@ -266,12 +266,12 @@ async def test_an_undated_stage_is_counted_and_never_timed():
     assert rung["n"] == 1 and rung["undated"] == 1     # counted, and its lack of a date reported
 
 
-async def test_meta_rungs_are_never_added_to_acumyn_rungs():
-    """Part 4.8. Meta's lead count and Acumyn's matched registrations measure overlapping
+async def test_meta_rungs_are_never_added_to_axcion_rungs():
+    """Part 4.8. Meta's lead count and Axcion's matched registrations measure overlapping
     populations. The ladder keeps them in separate zones and each rung reports its own count."""
     zones = {r["key"]: r["zone"] for r in F.FUNNEL_DEFS["program"]}
     assert zones["impression"] == zones["click"] == zones["lead"] == "meta"
-    assert zones["registered"] == zones["closed"] == "acumyn"
+    assert zones["registered"] == zones["closed"] == "axcion"
     lead = next(r for r in F.FUNNEL_DEFS["program"] if r["key"] == "lead")
     assert lead.get("diagnostic") is True, "Meta's lead count is never a denominator"
 

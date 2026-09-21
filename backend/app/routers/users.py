@@ -78,7 +78,7 @@ SEED_KEYS = ("brand", "surface", "ink", "positive", "negative")
 # Mirrors frontend/src/typefaces.js. Deliberately a NAME LIST rather than the stacks themselves:
 # the browser owns what each pairing resolves to, and this owns which names are legitimate. A
 # workspace supplying its own font-family string would be injecting CSS into every page.
-TYPEFACES = ("acumyn", "classic", "neutral", "editorial")
+TYPEFACES = ("axcion", "classic", "neutral", "editorial")
 # The sign-in screen's own settings. Enumerations rather than free text for the same reason
 # the typeface is a name and not a font stack: these end up in CSS, and a workspace supplying
 # its own value would be styling a page that renders before anyone has authenticated.
@@ -97,7 +97,7 @@ async def get_appearance(user: User = Depends(require_role("owner", "admin")),
     tenant = await s.get(Tenant, user.tenant_id)
     brand = ((tenant.config or {}).get("brand") or {})
     return {"seeds": brand.get("seeds") or {},
-            "typeface": brand.get("typeface") or "acumyn",
+            "typeface": brand.get("typeface") or "axcion",
             "logo": brand.get("logo"), "logomark": brand.get("logomark"),
             # The sign-in screen. Sent with the rest because it is one Appearance page, even
             # though these reach the browser through /public/brand rather than /me.

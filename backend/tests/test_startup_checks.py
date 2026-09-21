@@ -337,7 +337,7 @@ def test_the_history_window_is_a_reach_limit_not_a_deletion():
 # ── appearance ───────────────────────────────────────────────────────────────────────────
 def test_five_seeds_derive_thirty_tokens_that_all_read():
     """The five-knob decision only holds if the derivation reaches everything and stays legible.
-    Acumyn's own seeds are the case that must never fail — they are what every workspace starts
+    Axcion's own seeds are the case that must never fail — they are what every workspace starts
     from, so a contrast failure there ships to everybody who has not chosen colours."""
     import json
     import re
@@ -361,10 +361,10 @@ def test_five_seeds_derive_thirty_tokens_that_all_read():
       const loadTypeface = () => {{}};
       const stacks = () => ({{}});
       eval(src);
-      const t = derive(seedsFromAcumyn());
+      const t = derive(seedsFromAxcion());
       console.log(JSON.stringify({{
         count: Object.keys(t).length,
-        defaults: contrastProblems(seedsFromAcumyn()),
+        defaults: contrastProblems(seedsFromAxcion()),
         garish: contrastProblems({{brand:'#FFEB3B',surface:'#FFFFFF',ink:'#CCCCCC',
                                    positive:'#AAFFAA',negative:'#FFDDDD'}}).length,
         warningFixed: t.daffodil,
@@ -375,7 +375,7 @@ def test_five_seeds_derive_thirty_tokens_that_all_read():
     got = json.loads(out.stdout)
 
     assert got["count"] == 30, "the derivation must cover every token the app reads"
-    assert got["defaults"] == [], f"Acumyn's own seeds fail contrast: {got['defaults']}"
+    assert got["defaults"] == [], f"Axcion's own seeds fail contrast: {got['defaults']}"
     assert got["garish"] >= 5, "an unreadable palette must be caught, not merely disliked"
     # Warning is not a seed: it stays the specified value whatever else a workspace picks.
     assert got["warningFixed"].upper() == "#7E5A1C"

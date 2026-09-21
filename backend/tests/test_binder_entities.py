@@ -1,4 +1,4 @@
-"""Acumyn Binder — Step 2 entity-management API tests (SPEC Part 5.0 / 8).
+"""Axcion Binder — Step 2 entity-management API tests (SPEC Part 5.0 / 8).
 
 Covers the manual entity lifecycle: name-only saves dormant, full entity is tracking-ready,
 validation + duplicate rejection, edit (with EIN write-only), deactivate hides-but-retains,

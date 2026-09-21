@@ -46,7 +46,7 @@ _HINTS = {
         "The key is valid but may not send from the domain in MAIL_FROM. Check the key's\n"
         "     domain permission and that the domain is Verified in Resend.",
     "Invalid `from`":
-        "MAIL_FROM is malformed. It wants either hello@acumyn.io or Acumyn <hello@acumyn.io>.",
+        "MAIL_FROM is malformed. It wants either hello@axcion.io or Axcion <hello@axcion.io>.",
 }
 
 
@@ -78,7 +78,7 @@ def _explain(body: str) -> str | None:
 
 
 async def _send(to: str) -> int:
-    subject = "Acumyn mail check"
+    subject = "Axcion mail check"
     ok = await mailer.send(
         to, subject,
         "<p>If you are reading this, transactional email works from this service.</p>",

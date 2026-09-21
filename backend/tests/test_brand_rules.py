@@ -5,7 +5,7 @@ the next person tidies up. These run in the backend suite because that is the su
 unusual home for assertions about .jsx, and better than not asserting them.
 
 This file began as the operator console's greyscale guard. The greyscale console was replaced on
-2026-09-17 by the Acumyn-branded operator console (OPERATOR-CONSOLE.md), whose own rules live in
+2026-09-17 by the Axcion-branded operator console (OPERATOR-CONSOLE.md), whose own rules live in
 test_operator_console.py; what remains here are the brand rules for the product itself.
 """
 import pytest
@@ -63,15 +63,15 @@ def test_type_reaches_the_product_through_variables_not_literals():
     Two exemptions, both deliberate:
       * Monospace stacks. An API key or a content hash must stay monospaced whatever a workspace
         picks — the alignment IS the information.
-      * Acumyn's own brand module. brand/acumyn.jsx names Acumyn's type explicitly: the platform's
-        identity must not drift toward whichever workspace was configured last. Acumyn's own
+      * Axcion's own brand module. brand/axcion.jsx names Axcion's type explicitly: the platform's
+        identity must not drift toward whichever workspace was configured last. Axcion's own
         surfaces (the marketing site, the operator console) take it from there as TYPE.*.
     """
     import re
     from pathlib import Path
 
     src_dir = Path(__file__).resolve().parents[2] / "frontend" / "src"
-    exempt = {"typefaces.js", "palette.js", "acumyn.jsx"}
+    exempt = {"typefaces.js", "palette.js", "axcion.jsx"}
     offenders = {}
     for path in sorted(src_dir.rglob("*.js*")):
         if path.name in exempt or "sample" in path.name.lower():
@@ -227,7 +227,7 @@ def test_no_module_names_a_brand_plate_file():
     one customer's licensed gradient no matter what its own brand said.
 
     Excluded: the migration that seeds the paths (it is configuration, and it is server-side) and
-    the bokeh, which is Acumyn's own and is the platform default by design.
+    the bokeh, which is Axcion's own and is the platform default by design.
     """
     import re
     from pathlib import Path
@@ -312,7 +312,7 @@ def test_every_platform_module_has_a_mark():
 
 
 def test_the_favicon_generator_uses_the_marks_real_geometry():
-    """The mark exists twice: acumyn.jsx draws it for the screen, gen_favicons.py draws it for the
+    """The mark exists twice: axcion.jsx draws it for the screen, gen_favicons.py draws it for the
     four PNGs. Two copies because one is JSX and one is Python, and importing across that boundary
     to build a static asset is not worth a build step.
 
@@ -325,7 +325,7 @@ def test_the_favicon_generator_uses_the_marks_real_geometry():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2] / "frontend"
-    jsx = root / "src" / "brand" / "acumyn.jsx"
+    jsx = root / "src" / "brand" / "axcion.jsx"
     gen = root / "scripts" / "gen_favicons.py"
     if not jsx.exists() or not gen.exists():
         return
@@ -341,7 +341,7 @@ def test_the_favicon_generator_uses_the_marks_real_geometry():
     shared = ("ART", "BLADE_RADIUS", "SWEEP")
     a = numbers(jsx.read_text(encoding="utf-8"), shared)
     b = numbers(gen.read_text(encoding="utf-8"), shared)
-    assert set(a) == set(shared), f"acumyn.jsx no longer declares {sorted(set(shared) - set(a))}"
+    assert set(a) == set(shared), f"axcion.jsx no longer declares {sorted(set(shared) - set(a))}"
     assert a == b, f"the favicon generator and the on-screen mark disagree: {a} vs {b}"
 
     jsx_src, gen_src = jsx.read_text(encoding="utf-8"), gen.read_text(encoding="utf-8")
@@ -349,7 +349,7 @@ def test_the_favicon_generator_uses_the_marks_real_geometry():
     # The gap axes, and the two cuts. Written as literals on both sides, so compared as text.
     assert "[90, 210, 330]" in jsx_src and "(90, 210, 330)" in gen_src, "gap axes moved"
     for weight, pupil, which in ((8, 6.5, "standard"), (10, 8, "small")):
-        assert f"weight: {weight}" in jsx_src, f"the {which} cut's weight moved in acumyn.jsx"
+        assert f"weight: {weight}" in jsx_src, f"the {which} cut's weight moved in axcion.jsx"
         assert f'"weight": {weight}, "pupil": {pupil}' in gen_src, \
             f"the {which} cut moved in gen_favicons.py"
 

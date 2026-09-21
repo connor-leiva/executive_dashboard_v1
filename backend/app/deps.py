@@ -77,7 +77,7 @@ async def current_user(
     # every migrated user, so the deploy logs nobody out.
     if int(payload.get("ver", 0)) != int(user.token_version or 0):
         raise HTTPException(401, "Session expired")
-    # SUPPORT ACCESS. An account with expires_at is an Acumyn operator's time-boxed way into this
+    # SUPPORT ACCESS. An account with expires_at is an Axcion operator's time-boxed way into this
     # workspace. Both of its limits are enforced here, on every request, rather than trusted to the
     # expiry job: the session ends at the minute it was opened for, and it can read but never change.
     if user.expires_at is not None:
@@ -91,7 +91,7 @@ async def current_user(
     return user
 
 
-# VIEW AS. What an Acumyn operator's look at a workspace's portal, as one roster member, may
+# VIEW AS. What an Axcion operator's look at a workspace's portal, as one roster member, may
 # reach: the portal's reads and the identity it asks for first. Nothing else -- not the
 # dashboard, not the console, not the Binder -- because it exists to see one person's portal.
 VIEW_AS_PATHS = ("/api/v1/intranet/",)
@@ -148,7 +148,7 @@ async def _viewing_as(request: Request, s: AsyncSession, viewer: User, payload: 
     person.view_as = {
         "member_id": str(member.id),
         "name": member.full_name,
-        "by": viewer.name or viewer.email,          # "<operator> (Acumyn support)"
+        "by": viewer.name or viewer.email,          # "<operator> (Axcion support)"
         "expires_at": dt.datetime.fromtimestamp(int(payload["exp"]), dt.timezone.utc).isoformat(),
     }
     return person

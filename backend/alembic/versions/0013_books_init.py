@@ -1,4 +1,4 @@
-"""Acumyn Books module — initial tables + Tenant.config
+"""Axcion Books module — initial tables + Tenant.config
 
 Additive per SPEC-books-module Part 1: the ledger-transaction / scan-pipeline /
 intercompany / close / review tables the Books module operates on, plus a portfolio-

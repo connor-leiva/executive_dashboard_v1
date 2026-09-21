@@ -1,4 +1,4 @@
-"""Acumyn Binder — extraction pipeline (SPEC-binder-module Part 3).
+"""Axcion Binder — extraction pipeline (SPEC-binder-module Part 3).
 
 Runs (in the worker, once proven via validate_binder) over BinderDocument rows with no
 `extracted` result yet. One Claude call per document classifies + pulls anchors; we then

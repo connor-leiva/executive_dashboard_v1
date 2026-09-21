@@ -1,4 +1,4 @@
-"""Acumyn Books — Part 1 schema smoke test. Confirms the new tables build via
+"""Axcion Books — Part 1 schema smoke test. Confirms the new tables build via
 create_all, the BookTxn source-uniqueness constraint the sync upsert depends on, and
 that the new Tenant.config round-trips. (Sync/scan/API tests arrive with later steps.)"""
 import datetime as dt

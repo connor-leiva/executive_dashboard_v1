@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from ..models import Launch, LaunchWeekly, MetricRecord, SalesCall
 
-# Product structure (in code — the executive model Acumyn imposes, same for every tenant).
+# Product structure (in code — the executive model Axcion imposes, same for every tenant).
 # The five accountable groups; each boundary is a different owner + lever (Section 1).
 ACTIVE_FUNNEL = [("leads", "Leads", "marketing"), ("booked", "Booked", "setters"),
                  ("deciding", "Deciding", "closers"), ("committed", "Committed", "payment ops")]

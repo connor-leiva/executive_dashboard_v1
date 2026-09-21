@@ -1,4 +1,4 @@
-"""Acumyn Binder — document blob storage (SPEC-binder-module Part 2).
+"""Axcion Binder — document blob storage (SPEC-binder-module Part 2).
 
 Two interchangeable backends behind one narrow interface (store / read / delete / exists by an
 opaque ``storage_ref`` keyed ``{tenant_id}/{document_id}/{filename}``):
@@ -59,7 +59,7 @@ def _r2_client():
 
 
 def _base_dir() -> str:
-    base = settings.BINDER_STORAGE_BUCKET or os.path.join(tempfile.gettempdir(), "acumyn_binder_storage")
+    base = settings.BINDER_STORAGE_BUCKET or os.path.join(tempfile.gettempdir(), "axcion_binder_storage")
     os.makedirs(base, exist_ok=True)
     return base
 

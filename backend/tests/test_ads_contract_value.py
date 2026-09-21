@@ -335,7 +335,7 @@ async def test_cash_received_counts_everyone_who_has_paid_not_only_those_sitting
     assert rungs["committed"]["cost_per"] == pytest.approx(10000.0)
     # A funnel does not refill. Nothing below the crossing may convert above 100%.
     for r in f["rungs"]:
-        if r["zone"] == "acumyn" and r["conversion"] is not None:
+        if r["zone"] == "axcion" and r["conversion"] is not None:
             assert r["conversion"] <= 100.0, f"{r['key']} converts at {r['conversion']}%"
 
 

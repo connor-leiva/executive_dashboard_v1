@@ -1,6 +1,6 @@
-"""Acumyn charging workspaces: the Stripe mirror and the account's configuration.
+"""Axcion charging workspaces: the Stripe mirror and the account's configuration.
 
-OPERATOR-CONSOLE-SPEC §4.3. platform_subscription and platform_invoice mirror Acumyn's own Stripe
+OPERATOR-CONSOLE-SPEC §4.3. platform_subscription and platform_invoice mirror Axcion's own Stripe
 account; they are corrected from Stripe and never edited by hand, and money is cents. Two tables
 the spec does not list: platform_stripe_event, so a retried webhook changes nothing, and
 platform_billing_config, the account's keys, entered in the operator console and stored encrypted

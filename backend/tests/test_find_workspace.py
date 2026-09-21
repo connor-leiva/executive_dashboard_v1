@@ -1,4 +1,4 @@
-"""The workspace finder — POST /api/v1/auth/find-workspace, the form on app.acumyn.io.
+"""The workspace finder — POST /api/v1/auth/find-workspace, the form on app.axcion.io.
 
 A workspace is its own host, so somebody who has lost the address has nowhere to sign in. This
 endpoint emails them the list. The EMAIL is the security property: an endpoint that answered
@@ -43,7 +43,7 @@ def _capture(monkeypatch):
         return 200, "{}"
     monkeypatch.setattr(mailer, "_post", fake_post)
     monkeypatch.setattr(settings, "RESEND_API_KEY", "re_test")
-    monkeypatch.setattr(settings, "MAIL_FROM", "Acumyn <hello@mail.acumyn.io>")
+    monkeypatch.setattr(settings, "MAIL_FROM", "Axcion <hello@mail.axcion.io>")
     monkeypatch.setattr(settings, "MAIL_REPLY_TO", "")
     return calls
 

@@ -357,7 +357,7 @@ async def expire_support_access():
             u.status = "disabled"
             u.token_version = (u.token_version or 0) + 1
             audit(s, u.tenant_id, None, "support.access_expired", "user", u.id,
-                  {"by": "Acumyn (expiry)", "account": u.email}, category="Access", actor_label="Acumyn")
+                  {"by": "Axcion (expiry)", "account": u.email}, category="Access", actor_label="Axcion")
             s.add(PlatformAudit(operator_id=None, operator_email=None, action="support.access_expired",
                                 tenant_id=u.tenant_id, tenant_slug=slug, target_type="user", target_id=str(u.id),
                                 detail={"account": u.email, "source": "expiry job"}))

@@ -1,4 +1,4 @@
-"""Acumyn Books — transaction-level QBO sync (SPEC-books-module Part 2).
+"""Axcion Books — transaction-level QBO sync (SPEC-books-module Part 2).
 
 Reuses the live QBO OAuth client and refresh-token rotation already powering
 `sync_qbo_pl` (see sync.py). Additive: nothing here touches the PLSnapshot path the

@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # Opens in the user's active QBO company; the route is derived from the txn type.
     QBO_APP_BASE: str = "https://app.qbo.intuit.com/app"
 
-    # Google sign-in: ONE Google app, Acumyn's, which every workspace signs in through -- see
+    # Google sign-in: ONE Google app, Axcion's, which every workspace signs in through -- see
     # services/google_auth for why it is not a per-workspace client. Platform configuration like
     # the Anthropic key, set on the API service; unset means no Google button anywhere. The
     # callback is infrastructure (one API host, one path) and must be registered verbatim under the
@@ -143,14 +143,14 @@ class Settings(BaseSettings):
     BOOKS_CONF_THRESHOLD: float = 0.9
     BOOKS_WRITEBACK_ENABLED: bool = False
 
-    # Acumyn Binder — document-driven entity-compliance engine (SPEC-binder-module Part 15).
+    # Axcion Binder — document-driven entity-compliance engine (SPEC-binder-module Part 15).
     # Extraction reuses ANTHROPIC_API_KEY; BINDER_EXTRACT_MODEL falls back to ASSISTANT_MODEL
     # when blank. The extraction pipeline only ever proposes obligations — a human confirms
     # each before it is tracked. RULE_STALE_MONTHS drives the admin "stale rules" view (BOI's
     # 2024-2025 turbulence is why rules carry last_verified). Storage/email/ingest are later
     # steps; the keys are declared now so the module's config surface is stable.
     BINDER_EXTRACT_MODEL: str = ""            # default: falls back to ASSISTANT_MODEL
-    BINDER_INGEST_EMAIL_DOMAIN: str = ""      # for binder@{slug}.acumyn.io (Part 3)
+    BINDER_INGEST_EMAIL_DOMAIN: str = ""      # for binder@{slug}.axcion.io (Part 3)
     BINDER_STORAGE_BUCKET: str = ""           # filesystem base (dev) / Railway volume path (Part 2)
     BINDER_REMINDER_DIGEST: str = "daily"     # daily | weekly (Part 9)
     BINDER_RULE_STALE_MONTHS: int = 12
@@ -208,7 +208,7 @@ class Settings(BaseSettings):
     # Must be an address on a domain VERIFIED IN RESEND. A domain that merely exists at the
     # registrar is not verified, and the send fails 403 "not authorized for this domain" —
     # which reads as a key problem and is not one.
-    MAIL_FROM: str = "Acumyn <hello@mail.acumyn.io>"
+    MAIL_FROM: str = "Axcion <hello@mail.axcion.io>"
     # A sending subdomain does not RECEIVE mail, and a password reset deliberately sets no
     # reply-to (a reply about your own password should not go to whichever admin clicked the
     # button). Without this, those replies bounce off a mailbox that was never created. An
@@ -218,7 +218,7 @@ class Settings(BaseSettings):
     # The platform's own domain. Tenants live at {slug}.PLATFORM_DOMAIN unless they bring a
     # custom domain (a `domain` row). Drives tenant-host resolution, the CORS origin regex,
     # and the invite links provisioning hands out — so it is set in ONE place, not three.
-    PLATFORM_DOMAIN: str = "acumyn.io"
+    PLATFORM_DOMAIN: str = "axcion.io"
     # What the PLATFORM calls itself, in the API title and as the default product name for a
     # tenant that has not set its own. Not a customer's name.
     PRODUCT_NAME: str = "Command Center"
@@ -296,7 +296,7 @@ class Settings(BaseSettings):
 
         This is what makes provisioning zero-ops: a tenant at {slug}.PLATFORM_DOMAIN passes
         CORS the moment it exists, with no env edit and no redeploy. Anchored at both ends
-        and with a literal-dot suffix so `notacumyn.io` and `acumyn.io.evil.com` do not
+        and with a literal-dot suffix so `notaxcion.io` and `axcion.io.evil.com` do not
         match. Tenants on their own custom domain are still added to ALLOWED_ORIGINS.
         """
         platform = r"https://([A-Za-z0-9-]+\.)*" + re.escape(self.PLATFORM_DOMAIN)

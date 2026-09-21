@@ -1,4 +1,4 @@
-"""Acumyn Binder — Step 8 reminder tests (SPEC Part 7): stage computation, fire-each-stage-
+"""Axcion Binder — Step 8 reminder tests (SPEC Part 7): stage computation, fire-each-stage-
 once dedup, stage advancement, overdue detection, and the digest cadence gate."""
 import datetime as dt
 

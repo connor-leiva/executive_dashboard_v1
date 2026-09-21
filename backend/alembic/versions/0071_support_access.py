@@ -1,4 +1,4 @@
-"""Support access: a time-boxed account for an Acumyn operator (OPERATOR-CONSOLE-SPEC §4.1, C8 option c).
+"""Support access: a time-boxed account for an Axcion operator (OPERATOR-CONSOLE-SPEC §4.1, C8 option c).
 
 user.expires_at, non-null only on a support account. deps.current_user refuses anything but reads
 from such an account and refuses it entirely once the moment passes; a five-minute job then disables

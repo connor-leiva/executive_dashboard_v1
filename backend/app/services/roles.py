@@ -155,7 +155,7 @@ BRAND_DEFAULTS = {
     "logomark": None,      # the square/bare form, for tight spaces
     # token name -> hex, and font slot -> stack. EMPTY means "use the platform's own identity",
     # which is the honest default: a workspace that has not chosen colours should look like
-    # Acumyn, never like whichever customer happened to be built first.
+    # Axcion, never like whichever customer happened to be built first.
     "palette": {},
     # The five a workspace chose. Undeclared keys are DROPPED by brand(), which is how typeface
     # went missing and how this went missing with it — the browser received neither an explicit
@@ -197,10 +197,10 @@ BRAND_DEFAULTS = {
 
 
 def platform_brand() -> dict:
-    """Acumyn's own identity — what an unresolved host, or a surface with no workspace behind it
+    """Axcion's own identity — what an unresolved host, or a surface with no workspace behind it
     yet, is honestly branded as. Empty palette/type means the SPA keeps its compiled-in defaults,
-    which ARE Acumyn's; sending them again over the wire would be a second copy to keep in step."""
-    return {**BRAND_DEFAULTS, "display_name": "Acumyn", "product_name": "Acumyn",
+    which ARE Axcion's; sending them again over the wire would be a second copy to keep in step."""
+    return {**BRAND_DEFAULTS, "display_name": "Axcion", "product_name": "Axcion",
             "palette": {}, "type": {}, "is_platform": True}
 
 

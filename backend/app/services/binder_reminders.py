@@ -1,4 +1,4 @@
-"""Acumyn Binder — reminders (SPEC-binder-module Part 7).
+"""Axcion Binder — reminders (SPEC-binder-module Part 7).
 
 The mechanism that turns the Binder from a page you must remember to check into something
 that reaches out. Runs in the worker (after status recompute), stages each applicable
@@ -13,7 +13,7 @@ tick proceeds exactly as it did before there was any transport at all.
 
 THIS RUNS ON THE SCHEDULER, which is not always the same process as the api. With a separate
 ``worker`` service it is that service; with ``RUN_WORKER_IN_API`` it is the api itself (which is
-how Acumyn's own production is deployed). Either way ``RESEND_API_KEY`` and ``MAIL_FROM`` must
+how Axcion's own production is deployed). Either way ``RESEND_API_KEY`` and ``MAIL_FROM`` must
 be set wherever the scheduler runs — on a split deployment, set on the api alone, these digests
 keep silently logging while every invite sends fine, which reads as a Binder bug rather than a
 missing variable.

@@ -24,7 +24,7 @@ from typing import Annotated, Any, Literal
 from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, StringConstraints,
                       ValidationError, model_validator)
 
-FORMAT = "acumyn.wtd-playbook"
+FORMAT = "axcion.wtd-playbook"
 FORMAT_VERSION = 1
 
 # THE THREE KINDS OF LIST ARE THE PRODUCT'S, NOT THE WORKSPACE'S. They change behaviour -- only
@@ -647,7 +647,7 @@ class _ImportList(_M):
 
 
 class _Bundle(_M):
-    format: Literal["acumyn.wtd-playbook"]
+    format: Literal["axcion.wtd-playbook"]
     version: Literal[1]
     exported_at: str | None = None
     content: dict

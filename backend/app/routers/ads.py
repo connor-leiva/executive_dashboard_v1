@@ -213,7 +213,7 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
         # Phase 3 fills these. Present and explicitly empty so the frontend contract does not
         # change shape when the funnel lands.
         **_funnel_block,
-        # THE TWO DENOMINATORS, side by side and never added. Meta's lead count and Acumyn's
+        # THE TWO DENOMINATORS, side by side and never added. Meta's lead count and Axcion's
         # matched registrations are two systems counting overlapping populations - a large part
         # of the gap is people who DID register and could not be matched (stripped UTM,
         # cross-device, view-through). Summing them double-counts; calling the difference a
@@ -238,7 +238,7 @@ async def _coverage(s: AsyncSession, tenant_id, start, end, meta_leads: int) -> 
         # measurement systems, and expressing it as a rate invites reading it as a conversion.
         "gap": meta_leads - matched,
         "gap_note": (
-            "Meta counts leads it attributes to itself; Acumyn counts registrations it can match "
+            "Meta counts leads it attributes to itself; Axcion counts registrations it can match "
             "to a campaign. They measure overlapping populations, so the difference is not a "
             "drop-off - much of it is people who did register and could not be matched."),
     }

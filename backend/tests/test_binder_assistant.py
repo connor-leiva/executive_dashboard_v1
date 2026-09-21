@@ -1,4 +1,4 @@
-"""Acumyn Binder — assistant integration (SPEC Part 9.5): the binder_matrix / binder_review
+"""Axcion Binder — assistant integration (SPEC Part 9.5): the binder_matrix / binder_review
 drill keys route to the binder tab and return records, and the assistant context summary is
 shaped correctly. (The Claude call itself is covered by the assistant's own tests.)"""
 import datetime as dt

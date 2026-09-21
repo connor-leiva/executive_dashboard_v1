@@ -1,4 +1,4 @@
-"""Acumyn Books — Part 2 sync unit tests (SPEC Part 8 `test_books_sync.py`).
+"""Axcion Books — Part 2 sync unit tests (SPEC Part 8 `test_books_sync.py`).
 
 Pure-function coverage, matching how test_pl_parser.py tests parse_pl: the P&L detail
 parser and the QBO-object -> BookTxn row mapping. The pg_insert upsert path targets

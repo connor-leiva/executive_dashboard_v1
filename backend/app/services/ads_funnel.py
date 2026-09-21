@@ -218,7 +218,7 @@ async def attribution_coverage(s: AsyncSession, tenant_id, start: dt.date, end: 
 
     Reported explicitly because a rising channel-only share is the leading indicator that the
     tagging is degrading - the moment before the whole number stops being trustworthy. Also
-    carries the two denominators side by side: Meta's own lead count and Acumyn's matched
+    carries the two denominators side by side: Meta's own lead count and Axcion's matched
     registrations are two systems counting overlapping populations, and adding them is forbidden
     (Part 4.8). The UI shows the gap and names it rather than implying one is a shortfall of the
     other.
@@ -262,10 +262,10 @@ FUNNEL_DEFS = {
         {"key": "impression", "label": "Impressions", "src": "ads", "zone": "meta"},
         {"key": "click", "label": "Link clicks", "src": "ads", "zone": "meta"},
         {"key": "lead", "label": "Leads - Meta", "src": "ads", "zone": "meta", "diagnostic": True},
-        {"key": "registered", "label": "Registered", "src": "bc_shift_reg", "zone": "acumyn"},
-        {"key": "booked", "label": "Call booked", "src": "sales_call", "zone": "acumyn"},
-        {"key": "applied", "label": "Applied", "src": "stage_group", "zone": "acumyn"},
-        {"key": "held", "label": "Call held", "src": "sales_call", "zone": "acumyn"},
+        {"key": "registered", "label": "Registered", "src": "bc_shift_reg", "zone": "axcion"},
+        {"key": "booked", "label": "Call booked", "src": "sales_call", "zone": "axcion"},
+        {"key": "applied", "label": "Applied", "src": "stage_group", "zone": "axcion"},
+        {"key": "held", "label": "Call held", "src": "sales_call", "zone": "axcion"},
         # `implied_by` NAMES THE STAGES WHOSE MEMBERS MUST HAVE PASSED THROUGH THIS ONE, and it
         # exists because two of these rungs are a different KIND of fact from the other four.
         #
@@ -280,15 +280,15 @@ FUNNEL_DEFS = {
         # conversion, a cost-per of the whole ad spend divided by one person, and a "biggest leak"
         # callout blaming a step nobody had dropped at. The six enrolled members had all paid; they
         # had simply stopped sitting at the rung that counts payment.
-        {"key": "committed", "label": "Cash received", "src": "stage_group", "zone": "acumyn",
+        {"key": "committed", "label": "Cash received", "src": "stage_group", "zone": "axcion",
          "implied_by": ("closed",)},
-        {"key": "closed", "label": "Enrolled", "src": "stage_group", "zone": "acumyn",
+        {"key": "closed", "label": "Enrolled", "src": "stage_group", "zone": "axcion",
          "closes": True},
     ],
 }
 
 RUNG_DEFS = {d["key"]: d for d in FUNNEL_DEFS["program"]}
-ACUMYN_STAGES = ("registered", "booked", "applied", "held", "committed", "closed")
+AXCION_STAGES = ("registered", "booked", "applied", "held", "committed", "closed")
 HELD_OUTCOMES = ("showed", "held", "attended")
 
 

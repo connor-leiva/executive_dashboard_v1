@@ -1,4 +1,4 @@
-"""Acumyn Binder — Step 7 matrix + entity-binder tests (SPEC Part 6 / 8).
+"""Axcion Binder — Step 7 matrix + entity-binder tests (SPEC Part 6 / 8).
 
 The read side that feeds the matrix: cells per (entity, kind), operating/holding grouping,
 attention flags, the Books tax tie (federal/state tax -> in_progress until the linked

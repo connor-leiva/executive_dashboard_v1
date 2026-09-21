@@ -55,7 +55,7 @@ def _host() -> str:
 def code_for(tenant_id, member_id) -> str:
     """A stable, unguessable 32-character code for one person's Sunburst conversation."""
     message = f"{tenant_id}:{member_id}".encode()
-    key = (settings.APP_SECRET or "").encode() or b"acumyn-sunburst"
+    key = (settings.APP_SECRET or "").encode() or b"axcion-sunburst"
     return hmac.new(key, message, hashlib.sha256).hexdigest()[:CODE_LENGTH]
 
 

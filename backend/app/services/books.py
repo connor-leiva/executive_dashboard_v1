@@ -1,8 +1,8 @@
-"""Acumyn Books — API service layer (SPEC-books-module Part 4).
+"""Axcion Books — API service layer (SPEC-books-module Part 4).
 
 Read builders for the four pages (Home, P&L, Queue, Intercompany) and the human-decision
 mutations (approve / recategorize / escalate / characterize / tie). Payload keys mirror
-acumyn-books-v2.jsx so the frontend wiring is mechanical. Every mutation is audited;
+axcion-books-v2.jsx so the frontend wiring is mechanical. Every mutation is audited;
 the scan pipeline proposes, people approve here.
 """
 from __future__ import annotations

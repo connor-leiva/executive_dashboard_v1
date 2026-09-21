@@ -122,7 +122,7 @@ async def test_a_password_reset_makes_the_entry_active():
 async def test_google_sign_in_makes_the_entry_active(monkeypatch):
     """The route a team will actually use: no emailed link and no password, just Google."""
     p = await _person(account="invited", member="Invited")
-    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "acumyn.apps.googleusercontent.com")
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "axcion.apps.googleusercontent.com")
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "platform-secret")
 
     async def fake_exchange(client_id, client_secret, code, redirect_uri):

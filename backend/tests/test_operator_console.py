@@ -1,4 +1,4 @@
-"""The operator console at admin.acumyn.io, built from OPERATOR-CONSOLE-SPEC.md.
+"""The operator console at admin.axcion.io, built from OPERATOR-CONSOLE-SPEC.md.
 
 test_platform_operators.py holds the original wall between the two realms. This file holds what
 the console added on top of it, phase by phase, and the tests the spec calls load-bearing: the
@@ -163,7 +163,7 @@ def _code(path):
 
 @pytest.mark.skipif(not OPERATOR_SRC.exists(), reason="frontend not present")
 def test_the_operator_module_takes_colour_only_from_the_platform_brand():
-    """acumyn.jsx IS the brand as code. A hex literal in the operator module is a second copy of
+    """axcion.jsx IS the brand as code. A hex literal in the operator module is a second copy of
     it, and the spec allows exactly one exception: the functional amber and red, which the brand
     guide does not define."""
     allowed = {"#855C00", "#F7EFDA", "#E8D6AC", "#B3261E", "#F8E7E4", "#F0CFCB", "#FFFFFF"}
@@ -190,7 +190,7 @@ def test_the_operator_module_never_imports_a_tenants_theming():
 
 @pytest.mark.skipif(not OPERATOR_SRC.exists(), reason="frontend not present")
 def test_the_operator_client_never_names_a_tenant_realm():
-    """X-Tenant-Host selects a tenant. The operator realm has none, and admin.acumyn.io resolves
+    """X-Tenant-Host selects a tenant. The operator realm has none, and admin.axcion.io resolves
     to 404 by design, so a client that sent it would be asking for a realm it can never have."""
     for path in _operator_files():
         assert "x-tenant-host" not in _code(path).lower(), path.name
@@ -198,10 +198,10 @@ def test_the_operator_client_never_names_a_tenant_realm():
 
 @pytest.mark.skipif(not OPERATOR_SRC.exists(), reason="frontend not present")
 def test_the_mark_keeps_its_gap_at_top_dead_centre():
-    """acumyn.jsx exports inGap because this is the one property of the mark that arithmetic
+    """axcion.jsx exports inGap because this is the one property of the mark that arithmetic
     cannot confirm: without the SVG Y-axis flip every measurement still checks out and a blade
     lands at the top. Evaluated here from the file's own numbers."""
-    src = (FRONTEND / "src" / "brand" / "acumyn.jsx").read_text(encoding="utf-8")
+    src = (FRONTEND / "src" / "brand" / "axcion.jsx").read_text(encoding="utf-8")
     sweep = float(re.search(r"^const SWEEP = ([0-9.]+)", src, re.M).group(1))
     axes = [int(x) for x in re.search(r"^const GAP_AXES = \[([0-9, ]+)\]", src, re.M)
             .group(1).split(",")]
@@ -311,7 +311,7 @@ def test_things_going_wrong_slowly_are_watch():
 def test_a_suspended_workspace_is_suspended_but_its_live_share_links_still_reach_triage():
     from app.services import fleet_health as fh
     f = _facts(status="suspended", people=[_person(last_login_at=NOW)], sources=[_source()],
-               share_links_live=3, suspended_by="ops@acumyn.io", suspended_reason="billing lapsed")
+               share_links_live=3, suspended_by="ops@axcion.io", suspended_reason="billing lapsed")
     h = fh.evaluate(f, NOW)
     assert h["state"] == "suspended"
     assert any("Reason: billing lapsed" == line for line in h["why"])
@@ -459,7 +459,7 @@ def test_the_operator_console_ships_in_its_own_bundle_on_its_own_host():
     assert "build:operator" in scripts["build:all"], "the Dockerfile runs build:all"
     assert "COPY --from=build /app/dist/operator /srv/operator" in (FRONTEND / "Dockerfile").read_text(encoding="utf-8")
     caddy = (FRONTEND / "Caddyfile").read_text(encoding="utf-8")
-    assert "@operator host {$OPERATOR_HOST:admin.acumyn.io}" in caddy
+    assert "@operator host {$OPERATOR_HOST:admin.axcion.io}" in caddy
     assert caddy.index("@operator host") < caddy.index("handle {"), "the dashboard catch-all would win"
     assert not (FRONTEND / "src" / "platform" / "PlatformConsole.jsx").exists(), "two operator consoles"
 
@@ -616,7 +616,7 @@ def _capture_mail(monkeypatch):
         return 200, "{}"
     monkeypatch.setattr(mailer, "_post", fake_post)
     monkeypatch.setattr(settings, "RESEND_API_KEY", "re_test")
-    monkeypatch.setattr(settings, "MAIL_FROM", "Acumyn <hello@mail.acumyn.io>")
+    monkeypatch.setattr(settings, "MAIL_FROM", "Axcion <hello@mail.axcion.io>")
     monkeypatch.setattr(settings, "MAIL_REPLY_TO", "")
     return sent
 
@@ -641,10 +641,10 @@ async def _trail(tid, action):
             .order_by(AuditLog.created_at))).scalars().all()
 
 
-def _by_acumyn(row):
+def _by_axcion(row):
     """Written into the workspace's own log, naming the operator, with no tenant user as actor."""
     return (row.actor_user_id is None and (row.detail or {}).get("by") == OP_EMAIL
-            and row.actor_label.endswith("(Acumyn)"))
+            and row.actor_label.endswith("(Axcion)"))
 
 
 async def test_a_tenant_session_cannot_reach_any_write_action():
@@ -691,7 +691,7 @@ async def test_sync_now_runs_the_workspaces_own_job_and_not_twice_at_once(monkey
         assert r.status_code == 404, "a source is only reachable through its own workspace"
     assert ran == [("all", tid), ("one", integ_id)]
     rows = await _trail(tid, "tenant.sync_requested")
-    assert len(rows) == 2 and all(_by_acumyn(r) for r in rows)
+    assert len(rows) == 2 and all(_by_axcion(r) for r in rows)
 
 
 async def test_a_frozen_workspace_pulls_nothing_and_says_who_froze_it_and_why(monkeypatch):
@@ -735,8 +735,8 @@ async def test_a_frozen_workspace_pulls_nothing_and_says_who_froze_it_and_why(mo
                              headers=_H(tok))).status_code == 200
         assert (await c.post("/api/v1/platform/tenants/freezeco/unfreeze-syncs",
                              headers=_H(tok))).status_code == 409
-    assert [_by_acumyn(r) for r in await _trail(tid, "tenant.syncs_frozen")] == [True]
-    assert [_by_acumyn(r) for r in await _trail(tid, "tenant.syncs_unfrozen")] == [True]
+    assert [_by_axcion(r) for r in await _trail(tid, "tenant.syncs_frozen")] == [True]
+    assert [_by_axcion(r) for r in await _trail(tid, "tenant.syncs_unfrozen")] == [True]
 
 
 async def test_the_workspaces_own_sync_buttons_refuse_while_frozen(monkeypatch):
@@ -761,7 +761,7 @@ async def test_the_workspaces_own_sync_buttons_refuse_while_frozen(monkeypatch):
                              json={"reason": "test freeze"})).status_code == 200
         try:
             r = await c.post("/api/v1/sync/all", headers=_H(owner))
-            assert r.status_code == 409 and "Acumyn support" in r.json()["detail"], r.text
+            assert r.status_code == 409 and "Axcion support" in r.json()["detail"], r.text
             if integ is not None:
                 r = await c.post(f"/api/v1/integrations/{integ.id}/sync", headers=_H(owner))
                 assert r.status_code == 409, r.text
@@ -824,7 +824,7 @@ async def test_a_reconnect_link_goes_to_whoever_can_reconnect_and_carries_no_tok
         assert "token" not in p["html"].lower() and body["url"] in p["html"]
         assert "Reconnect &amp; Co" in p["html"], "a workspace name is escaped into the HTML"
     row, = await _trail(tid, "tenant.reconnect_link_sent")
-    assert _by_acumyn(row) and row.detail["sent_to"] == body["sent_to"]
+    assert _by_axcion(row) and row.detail["sent_to"] == body["sent_to"]
 
     nobody = await _tenant_with("nobodyco")
     async with SessionLocal() as s:
@@ -884,7 +884,7 @@ async def test_people_actions_email_the_person_and_never_hand_the_operator_a_way
     assert lck.locked_until is None and lck.failed_logins == 0 and lck.action_token_purpose == "reset"
     for action in ("user.reinvited", "user.unlocked", "user.reset_link"):
         rows = await _trail(tid, action)
-        assert len(rows) == 1 and _by_acumyn(rows[0]), action
+        assert len(rows) == 1 and _by_axcion(rows[0]), action
 
 
 def fleet_aware(d):
@@ -945,7 +945,7 @@ async def test_revoking_share_links_revokes_the_live_ones_and_clears_the_suspend
     assert sorted(link.revoked_at is not None for link in links) == [False, True, True], \
         "an already-expired link is left as it was"
     row, = await _trail(tid, "tenant.share_links_revoked")
-    assert _by_acumyn(row) and row.detail["count"] == 2
+    assert _by_axcion(row) and row.detail["count"] == 2
 
 
 @pytest.mark.skipif(not OPERATOR_SRC.exists(), reason="frontend not present")
@@ -1000,7 +1000,7 @@ async def test_every_operator_change_is_written_to_both_trails():
         assert r.operator_email == OP_EMAIL and r.tenant_id == tid and r.ip == "203.0.113.7"
         assert "by" not in r.detail, "the operator is a column here, not a detail"
         tenant_row, = await _trail(tid, r.action)
-        assert _by_acumyn(tenant_row)
+        assert _by_axcion(tenant_row)
     assert {r.action: r.reason for r in rows}["tenant.suspended"] == "trail test"
     assert {r.action: r.reason for r in rows}["tenant.syncs_frozen"] == "trail freeze"
 
@@ -1043,7 +1043,7 @@ async def test_the_audit_view_lists_each_change_once_and_only_changes():
         assert (await c.post("/api/v1/platform/tenants/scopeco/freeze-syncs", headers=_H(tok),
                              json={"reason": "scope test"})).status_code == 200
         everything = (await c.get("/api/v1/platform/audit?scope=all&tenant=scopeco", headers=_H(tok))).json()
-        mine = (await c.get("/api/v1/platform/audit?scope=acumyn&operator=me", headers=_H(tok))).json()
+        mine = (await c.get("/api/v1/platform/audit?scope=axcion&operator=me", headers=_H(tok))).json()
         teams = (await c.get("/api/v1/platform/audit?scope=tenants&tenant=scopeco", headers=_H(tok))).json()
         paged = (await c.get("/api/v1/platform/audit?scope=all&tenant=scopeco&limit=1", headers=_H(tok))).json()
         older = (await c.get("/api/v1/platform/audit", headers=_H(tok), params={
@@ -1056,7 +1056,7 @@ async def test_the_audit_view_lists_each_change_once_and_only_changes():
     actions = [e["action"] for e in everything["events"]]
     assert sorted(actions) == ["tenant.syncs_frozen", "user.invited"], \
         "the operator's change once, the team's change once, and no sign-in"
-    assert {e["scope"] for e in mine["events"]} == {"acumyn"}
+    assert {e["scope"] for e in mine["events"]} == {"axcion"}
     assert all(e["who"] == OP_EMAIL for e in mine["events"])
     assert [e["action"] for e in teams["events"]] == ["user.invited"]
     assert teams["events"][0]["who"] == "member@scope.test" and teams["events"][0]["ip"] is None
@@ -1206,7 +1206,7 @@ async def _billed(slug, customer, **kw):
 def _sub_event(event_id, tid, customer, status, created, amount=79900):
     return {"id": event_id, "type": "customer.subscription.updated", "created": created,
             "data": {"object": {"id": f"sub_{customer}", "customer": customer, "status": status,
-                                "metadata": {"acumyn_tenant_id": str(tid)},
+                                "metadata": {"axcion_tenant_id": str(tid)},
                                 "items": {"data": [{"price": {"id": "price_x", "unit_amount": amount,
                                                               "currency": "usd",
                                                               "recurring": {"interval": "month"}},
@@ -1381,12 +1381,12 @@ async def test_support_access_is_a_real_read_only_account_that_ends_on_time(monk
         # the account is visible to the workspace, named, and marked as support
         people = (await c.get("/api/v1/platform/tenants/supportco/people", headers=_H(tok))).json()["people"]
         support = [p for p in people if p["expires_at"]]
-        assert len(support) == 1 and "(Acumyn support)" in support[0]["name"]
+        assert len(support) == 1 and "(Axcion support)" in support[0]["name"]
 
     assert [p["to"][0] for p in sent] == ["owner@support.test"]
     assert "the owner says the Forum tab is blank" in sent[0]["html"]
     rows = await _trail(tid, "support.access_opened")
-    assert len(rows) == 1 and _by_acumyn(rows[0]) and rows[0].detail["reason"]
+    assert len(rows) == 1 and _by_axcion(rows[0]) and rows[0].detail["reason"]
     assert [r.reason for r in await _platform_rows("supportco")] == ["the owner says the Forum tab is blank"]
 
     # expiry is enforced on the request itself, not only by the job

@@ -282,9 +282,9 @@ async def test_switching_tenant_realm_does_not_refill_the_budget():
     reset()
     limit, _ = RULES["login"]
     for _ in range(limit):
-        assert check("login", "1.2.3.4", "a.acumyn.io") is None
-    assert check("login", "1.2.3.4", "a.acumyn.io") is not None      # exhausted for that realm
+        assert check("login", "1.2.3.4", "a.axcion.io") is None
+    assert check("login", "1.2.3.4", "a.axcion.io") is not None      # exhausted for that realm
     # A different realm gets its own budget (one tenant must not spend another's)...
-    assert check("login", "1.2.3.4", "b.acumyn.io") is None
+    assert check("login", "1.2.3.4", "b.axcion.io") is None
     # ...and the exhausted one stays exhausted.
-    assert check("login", "1.2.3.4", "a.acumyn.io") is not None
+    assert check("login", "1.2.3.4", "a.axcion.io") is not None
