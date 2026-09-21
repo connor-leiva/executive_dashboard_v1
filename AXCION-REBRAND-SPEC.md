@@ -1,7 +1,25 @@
 # Acumyn → Axcion: rebrand and domain cutover
 
-**Status:** specification, not yet started
+**Status:** in progress — see the phase ledger below
 **Written:** 2026-09-21
+
+| Phase | State |
+|---|---|
+| 0 · Pre-flight | partial — baseline 1899 passing, one Alembic head; **no DB backup taken yet (do this before Phase 9)** |
+| 1 · DNS (GoDaddy) | **done** — axcion.io live, certs valid, apex 301s |
+| 2 · Railway | **done** — `*.axcion.io` + `api.axcion.io` ACTIVE on port 8080 |
+| 3 · External services | **not started** — needs Connor (Resend, Google Cloud, Intuit, Meta) |
+| 4 · Backend code | **done** |
+| 5 · Frontend code | **done** |
+| 6 · Migrations | **done** — `0079_rebrand_stored_names` + `scan_rebrand.py`; scan not yet run against production |
+| 7 · Docs | **done** |
+| 8 · Verify | **done** — 1899 passing (baseline unchanged), 5 bundles build, browser-verified on the prod build |
+| 9 · Cutover | **not started** — no Railway variable has been changed; both domains still serve |
+| 10 · Retire acumyn.io | **not started** |
+| 11 · Visual identity | deferred by D1 |
+
+**Nothing user-facing has changed yet.** Every `acumyn.io` host still serves exactly what it
+did, because the cutover is a Railway variable change (Phase 9) and none has been made.
 **Old identity:** Acumyn · `acumyn.io`
 **New identity:** Axcion · `axcion.io`
 
@@ -135,11 +153,30 @@ hand-kept list, and a hand-kept list is exactly what misses the next one.**
 Run this before Phase 6 and treat its output as the authoritative migration scope:
 
 ```bash
-python backend/scripts/scan_rebrand.py
+cd backend && ./.venv/Scripts/python.exe -m scripts.scan_rebrand --show 2
 ```
 
-The script does not exist yet. **Phase 6.0 creates it.** Its job is to enumerate columns
-from `information_schema` rather than from anyone's memory.
+**Written and shipped** (`backend/scripts/scan_rebrand.py`). Read-only; enumerates every
+text/json column from `information_schema` rather than from anyone's memory, and exits 1 when
+it finds anything, so it can gate a cutover step. **Still needs running against production**
+— it never has been, because the session that wrote it could not read production broadly.
+Until it has run, the migration scope in §6 is believed, not known.
+
+### 1.5 The gap that proves the point
+
+The audit's list of wire contracts (§1.1 item 4) was incomplete, and the miss was found by
+scanning the *consumer* rather than re-reading the list. `backend/app/services/ads_funnel.py`
+emits `zone: "acumyn"` on every funnel rung and `frontend/src/ads/Funnel.jsx` compares against
+it — a second API-to-browser contract of exactly the same shape as `scope`, and nowhere in
+this document's first draft.
+
+It is worth stating what it would have cost, because it is the failure mode this whole class
+of value shares: **nothing would have thrown.** A mismatch would have collapsed the
+Meta/Axcion crossing that is the ads module's entire thesis, silently widened the leak
+calculation to include boundaries it exists to exclude, and withdrawn every rung's
+drill-down — on a tab that would still have rendered and still have looked plausible.
+
+Treat §4.2's table as "the ones found so far", not as the set.
 
 ---
 
@@ -547,6 +584,7 @@ These are read back by something that already holds the old value.
 | `backend/app/routers/platform.py` | 1559 | `+acumyn-support@` | `+axcion-support@` | **Yes** — 6.3 |
 | `backend/app/routers/platform.py` | 1589 | `"(Acumyn support)"` | `"(Axcion support)"` | ↑ |
 | `backend/app/routers/platform.py` | 991, 998, 1008 | `scope` value `"acumyn"` | `"axcion"` | **No — but see below** |
+| `backend/app/services/ads_funnel.py` | 265–285 | rung `zone` value `"acumyn"` | `"axcion"` | **No — but see below.** Not in this spec's first draft; see §1.5 |
 | `backend/app/routers/platform.py` | 1427, 1445, 1502 | `acumyn_tenant_id`, `acumyn_slug` | `axcion_…` | No (0 Stripe rows) |
 | `backend/app/services/platform_billing.py` | 167, 313, 321 | `acumyn_tenant_id` | `axcion_tenant_id` | No (0 Stripe rows) |
 | `backend/app/routers/platform.py` | 1751, 1771 | `acumyn-workspace-metadata/1`, `acumyn-{slug}-…json` | `axcion-…` | No (export format, write-only) |
@@ -559,7 +597,18 @@ These are read back by something that already holds the old value.
 > `zippy-cat`; the API ships on `executive_dashboard_v1`. They deploy at different times
 > from the same commit, so there **is** a window where one side is new and the other old.
 >
-> Make the API accept both for one release:
+> **Both wire contracts are handled the same way, and the alias lives on the READER.** The
+> two services deploy from one commit but not at one instant, so neither order is safe to
+> assume. Rather than sequencing the deploy, each reader accepts both spellings:
+>
+> | Value | Written by | Read by | Alias added to |
+> |---|---|---|---|
+> | `scope` | the API (`platform.py`) + the console (sends it) | both | **both** — API coerces `acumyn`→`axcion` on input; `Audit.jsx` `isOperatorTrail()` on output |
+> | `zone` | the API (`ads_funnel.py`) | `Funnel.jsx` | the browser — `ours()` |
+>
+> Both aliases are removed at **Phase 10.3**, and both carry a comment saying so.
+>
+> The API's input coercion:
 > ```python
 > if scope not in ("all", "acumyn", "axcion", "tenants"):
 >     raise HTTPException(400, "scope must be all, axcion or tenants")
@@ -700,7 +749,14 @@ These are read back by something that already holds the old value.
 
 New Alembic revisions on top of `0078_sop_suggestions`. **One head. Always.**
 
-- [ ] **6.0** Write `backend/scripts/scan_rebrand.py` — enumerate every `text`,
+> **Shipped as ONE revision, `0079_rebrand_stored_names`, not three.** It is one logical
+> change, and atomicity is worth more here than granularity: nobody wants the typeface half
+> applied and the support account not because of a unique-constraint collision. One revision
+> is also one head, and a fork in this history crash-loops the API on deploy. Covered by
+> `backend/tests/test_migration_0079_rebrand.py`, including the up-then-down round trip —
+> a downgrade that has never run is not a rollback plan.
+
+- [x] **6.0** Write `backend/scripts/scan_rebrand.py` — enumerate every `text`,
       `character varying`, `json` and `jsonb` column from `information_schema.columns`,
       count rows matching `ilike '%acumyn%'` in each, and print `table.column: n rows`.
       Enumerate from the schema, never from a list anyone typed. Run it against production
@@ -773,6 +829,17 @@ New Alembic revisions on top of `0078_sop_suggestions`. **One head. Always.**
       unresolved import. The brand-module rename (5.1) is the likely failure here.
 - [ ] **8.4** `cd backend && python -m alembic heads` → one head. Again. It is the
       cheapest check in this document and the most expensive one to skip.
+> **The backend suite reads frontend source.** `test_startup_checks.py` evaluates
+> `seedsFromAxcion()` and cross-checks the typeface name list across the two languages;
+> `test_operator_console.py` reads `frontend/Caddyfile`; `test_storage_config.py` reads
+> `backend/.env.example`; and a test asserts `gen_favicons.py`'s geometry against
+> `brand/axcion.jsx`. So "the frontend is safe to edit while the backend suite runs" is
+> **false** — editing `palette.js` and `typefaces.js` mid-run produced two failures that
+> looked like real regressions and were contamination. Let a run finish before editing
+> either tree, and re-run anything that crosses the boundary.
+>
+> Baseline before any rename work: **1899 passed**.
+
 - [ ] **8.5** **Verify on the production build, not the dev server.** Dev-verified and
       prod-broken has happened twice before. In a fresh terminal:
       ```bash
