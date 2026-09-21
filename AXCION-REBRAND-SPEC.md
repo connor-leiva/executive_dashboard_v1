@@ -14,7 +14,7 @@
 | 6 · Migrations | **done and RUN in production** — `0079` head confirmed; 1 typeface + 1 support account moved, `springb`'s chosen `classic` untouched |
 | 7 · Docs | **done** |
 | 8 · Verify | **done** — 1912 passing, 5 bundles build, production clicked through |
-| 9 · Cutover | **not started** — no host variable changed; every workspace is still at `{slug}.acumyn.io` |
+| 9 · Cutover | **DONE 2026-09-21** — every host serves on axcion.io; old hosts still resolve and marketing/legal links 308 across. Soaking before Phase 10 |
 | 10 · Retire acumyn.io | **not started** |
 | 11 · Visual identity | deferred by D1 |
 
@@ -23,10 +23,12 @@
 > "shipped". Railway deploys from GitHub, so production was running pre-rebrand code the
 > whole time and migration `0079` had not run. Say which one you mean.
 
-**The rename is live; the domain move is not.** Every `acumyn.io` host still serves exactly
-what it did and at the same address — the marketing site, the finder, the operator console and
-every workspace — now wearing the Axcion name. The cutover is a Railway variable change
-(Phase 9) and none has been made.
+**The move is done; the old domain is still standing.** Everything is served at `axcion.io`
+and every workspace's links now point there. `acumyn.io` deliberately keeps working: workspace
+hosts still resolve on their retained `domain` rows, `ALLOWED_ORIGINS` lists them explicitly so
+no browser is refused mid-session, and `www.acumyn.io` 308s to the new marketing site with the
+path intact. Nothing that was ever sent to anyone is broken. Phase 10 is what ends that, and it
+should not start until this has soaked.
 **Old identity:** Acumyn · `acumyn.io`
 **New identity:** Axcion · `axcion.io`
 
