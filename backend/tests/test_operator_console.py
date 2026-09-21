@@ -459,7 +459,13 @@ def test_the_operator_console_ships_in_its_own_bundle_on_its_own_host():
     assert "build:operator" in scripts["build:all"], "the Dockerfile runs build:all"
     assert "COPY --from=build /app/dist/operator /srv/operator" in (FRONTEND / "Dockerfile").read_text(encoding="utf-8")
     caddy = (FRONTEND / "Caddyfile").read_text(encoding="utf-8")
-    assert "@operator host {$OPERATOR_HOST:admin.axcion.io}" in caddy
+    # The host is asserted through the VARIABLE, not the default. What matters is that the
+    # operator console is selected by OPERATOR_HOST and sorts ahead of the catch-all -- the
+    # default beside it is production's current hostname, which moves at the rebrand cutover
+    # (AXCION-REBRAND-SPEC.md Phase 9) and is deliberately still acumyn.io until then. Pinning
+    # the literal made this test fail for the rename rather than for a real fault.
+    assert re.search(r"@operator host \{\$OPERATOR_HOST:[a-z0-9.-]+\}", caddy), \
+        "the operator console must be selected by OPERATOR_HOST"
     assert caddy.index("@operator host") < caddy.index("handle {"), "the dashboard catch-all would win"
     assert not (FRONTEND / "src" / "platform" / "PlatformConsole.jsx").exists(), "two operator consoles"
 

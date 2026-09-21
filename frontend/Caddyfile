@@ -1,24 +1,35 @@
 :{$PORT:3000} {
   encode zstd gzip
 
-  # ACUMYN'S OWN HOSTS FIRST. Every other host that reaches this service is a workspace
-  # ({slug}.acumyn.io, or a customer's own domain), and the catch-all `handle` at the bottom
+  # AXCION'S OWN HOSTS FIRST. Every other host that reaches this service is a workspace
+  # ({slug}.axcion.io, or a customer's own domain), and the catch-all `handle` at the bottom
   # serves it the dashboard. These are pulled out ahead of it.
   #
   #   MARKETING_HOST      serves the marketing site
   #   MARKETING_ALT_HOST  308s to MARKETING_HOST — one canonical host, not two copies
   #   FRONTDOOR_HOST      serves the same bundle, which renders the workspace finder there
   #
-  # WHY www IS THE DEFAULT, NOT THE APEX. acumyn.io's DNS is at GoDaddy, and GoDaddy cannot point
+  # WHY www IS THE DEFAULT, NOT THE APEX. axcion.io's DNS is at GoDaddy, and GoDaddy cannot point
   # a root domain at Railway (no ALIAS, ANAME or CNAME flattening; Railway's own domain docs list
   # it as unsupported). So today only www can reach this service, and an apex-first default would
   # redirect www to a host that does not serve the site. Once the apex is live here (nameservers
-  # moved to Cloudflare, `acumyn.io` added on this service), swap the two on the web service:
-  #   MARKETING_HOST=acumyn.io  MARKETING_ALT_HOST=www.acumyn.io
+  # moved to Cloudflare, `axcion.io` added on this service), swap the two on the web service:
+  #   MARKETING_HOST=axcion.io  MARKETING_ALT_HOST=www.axcion.io
   # No rebuild needed beyond the redeploy Railway does for a variable change.
   #
   # These are env placeholders rather than PLATFORM_DOMAIN because Caddy cannot read a Vite build
   # arg, and a wrong value must never be able to serve the dashboard's sign-in at a platform host.
+  # THE DEFAULTS BELOW STILL SAY acumyn.io, DELIBERATELY, AND THEY ARE THE LAST THING IN THIS
+  # REPO THAT DOES. None of these four variables is set on the `web` service, so Caddy runs on
+  # these defaults and they ARE production's routing. Renaming them here would cut the domain
+  # over on the next deploy of this service for any reason at all -- www.acumyn.io would stop
+  # matching @marketing and fall through to the dashboard catch-all, and admin.acumyn.io would
+  # stop serving the operator console -- which is Phase 9 of AXCION-REBRAND-SPEC.md happening
+  # by accident, on a branch that deploys from main.
+  #
+  # So a default here describes the host that is live TODAY, not the one we are moving to. The
+  # cutover sets the four variables on `web` (spec §2.3); once they are set these defaults stop
+  # being reachable, and they can follow at Phase 10 when acumyn.io is retired.
   #
   # ORDER, checked with `caddy adapt` (2.8.4) rather than assumed: this host handle stays ahead of
   # the /intranet/* and /console/* handles below, so these hosts serve only this bundle, and the
@@ -30,11 +41,11 @@
 
   # Every host used to serve Spring Command Center's privacy.html and eula.html. They are gone,
   # and anything outside this repo that still links them (an app listing, a bookmark) lands on
-  # Acumyn's own documents instead of on a sign-in page.
+  # Axcion's own documents instead of on a sign-in page.
   redir /privacy.html https://{$MARKETING_HOST:www.acumyn.io}/privacy 308
   redir /eula.html https://{$MARKETING_HOST:www.acumyn.io}/terms 308
 
-  # The operator console: Acumyn staff administering workspaces. `admin` is in the API's
+  # The operator console: Axcion staff administering workspaces. `admin` is in the API's
   # PLATFORM_HOSTS, so it can never resolve to a workspace, and the console's own bundle means a
   # customer's browser never downloads the screen that suspends customers.
   @operator host {$OPERATOR_HOST:admin.acumyn.io}
