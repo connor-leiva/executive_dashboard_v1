@@ -399,6 +399,14 @@ Setting `PLATFORM_DOMAIN` is what actually moves CORS.
 
 | Variable | Current | New |
 |---|---|---|
+> **These four are load-bearing, not cosmetic.** Because none of them is set, Caddy runs on
+> the defaults compiled into `frontend/Caddyfile` — so those defaults *are* production's
+> content routing, and they were deliberately left naming `acumyn.io` when the rest of the
+> repo was renamed. Renaming them in code would have cut the domain over on the next deploy
+> of `web` for any reason at all, with none of the API, domain-row or mail work beside it.
+> Setting these variables is therefore the actual cutover switch, and the moment they are set
+> the code defaults stop being reachable.
+
 | `MARKETING_HOST` | *(unset — Caddy default `www.acumyn.io`)* | `www.axcion.io` |
 | `MARKETING_ALT_HOST` | *(unset — default `acumyn.io`)* | `axcion.io` |
 | `FRONTDOOR_HOST` | *(unset — default `app.acumyn.io`)* | `app.axcion.io` |
