@@ -5,21 +5,28 @@
 
 | Phase | State |
 |---|---|
-| 0 · Pre-flight | partial — baseline 1899 passing, one Alembic head; **no DB backup taken yet (do this before Phase 9)** |
+| 0 · Pre-flight | partial — baseline 1899 passing (now 1912), one Alembic head; **no Railway DB backup was taken before 0079 ran** |
 | 1 · DNS (GoDaddy) | **done** — axcion.io live, certs valid, apex 301s |
 | 2 · Railway | **done** — `*.axcion.io` + `api.axcion.io` ACTIVE on port 8080 |
-| 3 · External services | **not started** — needs Connor (Resend, Google Cloud, Intuit, Meta) |
-| 4 · Backend code | **done** |
-| 5 · Frontend code | **done** |
-| 6 · Migrations | **done** — `0079_rebrand_stored_names` (2 values, not 3) + `scan_rebrand.py`; scan run against production (§1.4) |
+| 3 · External services | **Resend done** (`mail.axcion.io` verified, MAIL_FROM/MAIL_REPLY_TO live, test send accepted). Google Cloud, Intuit, Meta, Stripe still pending |
+| 4 · Backend code | **done and DEPLOYED** |
+| 5 · Frontend code | **done and DEPLOYED** |
+| 6 · Migrations | **done and RUN in production** — `0079` head confirmed; 1 typeface + 1 support account moved, `springb`'s chosen `classic` untouched |
 | 7 · Docs | **done** |
-| 8 · Verify | **done** — 1899 passing (baseline unchanged), 5 bundles build, browser-verified on the prod build |
-| 9 · Cutover | **not started** — no Railway variable has been changed; both domains still serve |
+| 8 · Verify | **done** — 1912 passing, 5 bundles build, production clicked through |
+| 9 · Cutover | **not started** — no host variable changed; every workspace is still at `{slug}.acumyn.io` |
 | 10 · Retire acumyn.io | **not started** |
 | 11 · Visual identity | deferred by D1 |
 
-**Nothing user-facing has changed yet.** Every `acumyn.io` host still serves exactly what it
-did, because the cutover is a Railway variable change (Phase 9) and none has been made.
+> **"Committed" and "deployed" are not the same word, and confusing them cost a cycle.**
+> Twelve commits sat on a local `main` for hours while this document said phases were
+> "shipped". Railway deploys from GitHub, so production was running pre-rebrand code the
+> whole time and migration `0079` had not run. Say which one you mean.
+
+**The rename is live; the domain move is not.** Every `acumyn.io` host still serves exactly
+what it did and at the same address — the marketing site, the finder, the operator console and
+every workspace — now wearing the Axcion name. The cutover is a Railway variable change
+(Phase 9) and none has been made.
 **Old identity:** Acumyn · `acumyn.io`
 **New identity:** Axcion · `axcion.io`
 
