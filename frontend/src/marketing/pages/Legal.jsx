@@ -1,9 +1,9 @@
 import React from "react";
-import { CADET, CORE, NEUTRAL, TYPE } from "../../brand/acumyn.jsx";
+import { CADET, CORE, NEUTRAL, TYPE } from "../../brand/axcion.jsx";
 import { DOCS, LEGAL_FACTS, LEGAL_IS_DRAFT } from "../legal.js";
 import { body, h1Type, label, Section, displayType } from "../ui.jsx";
 
-/* /privacy and /terms — Acumyn's own documents.
+/* /privacy and /terms — Axcion's own documents.
  *
  * These replaced Spring Command Center's privacy.html and eula.html, which every host used to
  * serve with Spring's name and unfilled blanks. They are what Google's OAuth

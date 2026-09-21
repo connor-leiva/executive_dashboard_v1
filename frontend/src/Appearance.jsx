@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { T, alpha } from "./theme.js";
 import {
   SEEDS, SEED_META, applyBrand, applyPalette, applyType, contrast, contrastProblems, derive,
-  seedsFromAcumyn, seedsFromPalette, resetBrandOnce,
+  seedsFromAxcion, seedsFromPalette, resetBrandOnce,
 } from "./palette.js";
 import { getJSON, patchJSON, API_BASE, authHeaders, fileUrl } from "./api.js";
 import { PAIRINGS, DEFAULT_PAIRING, loadTypeface, stacks } from "./typefaces.js";
@@ -144,7 +144,7 @@ function MarkSlot({ kind, label, hint, url, busy, onPick, onClear }) {
 }
 
 export default function Appearance() {
-  const [seeds, setSeeds] = useState(seedsFromAcumyn);
+  const [seeds, setSeeds] = useState(seedsFromAxcion);
   const [typeface, setTypeface] = useState(DEFAULT_PAIRING);
   // The sign-in screen. It renders before there is a session, so none of this can come from
   // /me — it rides on /public/brand and is set here.
@@ -172,7 +172,7 @@ export default function Appearance() {
       // rather than the platform's defaults with a Save button next to them.
       const explicit = r.palette && Object.keys(r.palette).length ? r.palette : null;
       const s = (r.seeds && Object.keys(r.seeds).length)
-        ? { ...seedsFromAcumyn(), ...r.seeds }
+        ? { ...seedsFromAxcion(), ...r.seeds }
         : seedsFromPalette(explicit);
       setHadExplicit(!!explicit);
       setSeeds(s);
@@ -238,7 +238,7 @@ export default function Appearance() {
   }
 
   function reset() {
-    setSeeds(seedsFromAcumyn());
+    setSeeds(seedsFromAxcion());
     setTypeface(DEFAULT_PAIRING);
     setSignIn({ tagline: "", plate_side: "left", button_shape: "pill", remember_me: true });
   }
@@ -277,7 +277,7 @@ export default function Appearance() {
                     padding: 22, maxWidth: 620 }}>
         <div style={{ fontFamily: HEAD, fontSize: 16, fontWeight: 700, color: T.ink }}>Appearance</div>
         <p style={{ fontFamily: FONT, fontSize: 13.5, color: T.secondary, lineHeight: 1.6 }}>
-          Your workspace uses Acumyn's colours. Choosing your own is included from the Business
+          Your workspace uses Axcion's colours. Choosing your own is included from the Business
           plan{plan ? ` — you're on ${plan.name}` : ""}.
         </p>
       </div>
@@ -446,7 +446,7 @@ export default function Appearance() {
           <button onClick={reset} style={{ background: "none", border: `1px solid ${T.line}`,
                                            borderRadius: 9, padding: "9px 14px", fontFamily: FONT,
                                            fontSize: 13, color: T.slate, cursor: "pointer" }}>
-            Use Acumyn's
+            Use Axcion's
           </button>
           {blocking && (
             <span style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted }}>

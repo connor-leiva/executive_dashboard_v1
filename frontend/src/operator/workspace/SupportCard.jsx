@@ -132,7 +132,7 @@ export default function SupportCard({ w, reload }) {
       <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${A.lineSoft}` }}>
         <Eyebrow>Past sessions</Eyebrow>
         {data.data.history.length === 0 ? (
-          <div style={{ fontFamily: TYPE.text, fontSize: 12, color: A.mute, marginTop: 8 }}>Nobody from Acumyn has opened support access here.</div>
+          <div style={{ fontFamily: TYPE.text, fontSize: 12, color: A.mute, marginTop: 8 }}>Nobody from Axcion has opened support access here.</div>
         ) : data.data.history.map((h, i) => (
           <div key={`${h.at}-${i}`} style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 8, fontFamily: TYPE.text, fontSize: 12, color: A.body, flexWrap: "wrap" }}>
             <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>

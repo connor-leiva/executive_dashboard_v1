@@ -32,7 +32,7 @@ function verdict(b, reference) {
   const sub = b.subscription;
   if (!sub) {
     return ["No Stripe customer exists for this workspace.",
-      b.billing.connected ? "Nothing is charged until one is created. A workspace Acumyn runs for itself should stay this way."
+      b.billing.connected ? "Nothing is charged until one is created. A workspace Axcion runs for itself should stay this way."
         : "Platform billing is not connected yet, so no workspace can be charged. Connect it on the System page."];
   }
   const amount = sub.amount_cents != null ? `${dollars(sub.amount_cents)} ${sub.interval === "year" ? "a year" : "a month"}` : "an unknown amount";
@@ -143,7 +143,7 @@ function EnforcedCard({ w, b, reference, onSaved }) {
   }
 
   return (
-    <Card title="What Acumyn enforces"
+    <Card title="What Axcion enforces"
       sub="Stripe decides whether they have paid. These decide what the workspace can do, on its next request. Changing the plan does not change what Stripe charges.">
       <div className="ac-form2">
         <Field label="Plan" htmlFor="bl-plan" wide

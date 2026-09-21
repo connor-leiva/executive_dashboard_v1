@@ -1,6 +1,6 @@
 /* The operator console's design tokens.
  *
- * Every brand value comes from ../brand/acumyn.jsx, which is Acumyn's identity guide as code. The
+ * Every brand value comes from ../brand/axcion.jsx, which is Axcion's identity guide as code. The
  * design file carried a hand-copied duplicate of those values; a duplicate is a second brand the
  * day either one is corrected, so none is reproduced here and a backend test fails on any hex
  * literal in this module outside the functional alert set below.
@@ -14,7 +14,7 @@
  *   - Amber text is #855C00, not the spec's #9A6B00, which measures 4.09:1 on its own chip and
  *     4.25:1 on the canvas. Both fail AA for the 10-12px text chips and notes are set in.
  */
-import { CADET, CORE, NEUTRAL, TYPE } from "../brand/acumyn.jsx";
+import { CADET, CORE, NEUTRAL, TYPE } from "../brand/axcion.jsx";
 
 export { TYPE };
 

@@ -372,7 +372,7 @@ export default function AdsView() {
       {/* 01 The chain */}
       <Section n="01" id="chain" title="The chain"
         lede="Meta owns impressions, clicks and its own lead count. Everything after that — the
-              registration, the booked call, the signature, the cash — already lives in Acumyn.
+              registration, the booked call, the signature, the cash — already lives in Axcion.
               Joining the two is what this module is for.">
         {data.funnel ? (
           <>
@@ -511,7 +511,7 @@ export default function AdsView() {
                   <Fig value={num(data.coverage.registrations_matched)} />
                 </div>
                 <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                  of {num(data.coverage.registrations_total)} in Acumyn
+                  of {num(data.coverage.registrations_total)} in Axcion
                 </div>
               </div>
               <div>

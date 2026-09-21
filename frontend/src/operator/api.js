@@ -1,7 +1,7 @@
 /* The operator API client. Bearer token only.
  *
  * NO X-Tenant-Host, ever. That header selects a TENANT realm, and the operator realm has none:
- * admin.acumyn.io resolves to no workspace by design, and every route this client calls names its
+ * admin.axcion.io resolves to no workspace by design, and every route this client calls names its
  * tenant in the path. A backend test fails if the header appears in this module.
  *
  * The session lives under its own storage key, apart from any workspace session a person might
@@ -144,7 +144,7 @@ export const api = {
   system: () => call("/system"),
   flags: () => call("/system/flags"),
 
-  /* Phase 5: Acumyn's own Stripe account. Keys go in, never come back out. */
+  /* Phase 5: Axcion's own Stripe account. Keys go in, never come back out. */
   billingConfig: () => call("/billing/config"),
   setBillingConfig: (body) => call("/billing/config", { method: "PUT", body }),
   billing: (slug) => call(`${slugPath(slug)}/billing`),

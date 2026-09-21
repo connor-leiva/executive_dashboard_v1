@@ -24,7 +24,7 @@ export function getToken() {
   }
 }
 
-/* AN ACUMYN SUPPORT VIEW OF THE PORTAL, as one of the workspace's people.
+/* AN AXCION SUPPORT VIEW OF THE PORTAL, as one of the workspace's people.
  *
  * The operator console opens `/intranet/#view-as=<token>` inside a support session. That token is
  * kept APART from the session above -- this tab only, under its own key -- so opening a view never

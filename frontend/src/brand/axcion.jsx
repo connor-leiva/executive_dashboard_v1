@@ -1,11 +1,11 @@
-/* Acumyn's own identity — the platform's brand, and the default every workspace starts from.
+/* Axcion's own identity — the platform's brand, and the default every workspace starts from.
  *
  * THE MARK IS DRAWN, NOT LOADED. The identity guide specifies it as fully derivable geometry
  * ("so it can be rebuilt at any size without redrawing by eye"), so it is built from those
  * numbers rather than shipped as PNGs. That buys three things a file cannot: it is exact at
  * every size instead of at the sizes somebody happened to export, the small-size cut is a
  * parameter rather than a second asset, and it recolours to any approved treatment without a
- * per-colourway export. It also means the "Powered by Acumyn" footer costs no network request.
+ * per-colourway export. It also means the "Powered by Axcion" footer costs no network request.
  *
  * Geometry, from the guide (§01), on a 64x64 artboard:
  *     blade radius 22u · blade weight 8u (12.5% of artboard) · blade sweep 92 degrees each
@@ -17,12 +17,12 @@
  * non-negotiable, and deriving them means they cannot drift.
  */
 
-/* Acumyn's own site, for any link from inside a workspace to Acumyn itself: "Powered by", the
+/* Axcion's own site, for any link from inside a workspace to Axcion itself: "Powered by", the
    Privacy Policy and Terms. A constant rather than derived from the page's host, because a
-   workspace may be served from its own domain, which says nothing about Acumyn's. www rather than
+   workspace may be served from its own domain, which says nothing about Axcion's. www rather than
    the apex: www serves the site today and redirects to the apex once that is live
    (frontend/Caddyfile), so a link built from this is right on both sides of that cutover. */
-export const ACUMYN_SITE = "https://www.acumyn.io";
+export const AXCION_SITE = "https://www.axcion.io";
 
 const ART = 64;
 const C = ART / 2;
@@ -120,10 +120,10 @@ export const TREATMENT = {
 };
 
 /**
- * The Acumyn mark. `size` picks the cut automatically — the guide switches at 24px, and
+ * The Axcion mark. `size` picks the cut automatically — the guide switches at 24px, and
  * choosing it by hand is how the wrong one ends up in a favicon.
  */
-export function AcumynMark({ size = 32, treatment = "primary", color, title, style }) {
+export function AxcionMark({ size = 32, treatment = "primary", color, title, style }) {
   const cut = size <= 24 ? SMALL : STANDARD;
   const t = TREATMENT[treatment] || TREATMENT.primary;
   const blades = color || t.blades;
@@ -147,17 +147,17 @@ export function AcumynMark({ size = 32, treatment = "primary", color, title, sty
  * Gap is 0.30 x mark; the wordmark is Space Grotesk Bold at -0.02em with its cap height
  * optically aligned to the mark's outer diameter.
  */
-export function AcumynLockup({ size = 24, treatment = "primary", color, style }) {
+export function AxcionLockup({ size = 24, treatment = "primary", color, style }) {
   const t = TREATMENT[treatment] || TREATMENT.primary;
   const wordColor = color || (treatment === "reversed" || treatment === "knockout"
     ? "#FFFFFF" : CORE.ink);
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: size * 0.30, ...style }}>
-      <AcumynMark size={size} treatment={treatment} color={color} title="Acumyn" />
+      <AxcionMark size={size} treatment={treatment} color={color} title="Axcion" />
       <span style={{
         fontFamily: TYPE.display, fontWeight: 700, fontSize: size * 0.86,
         letterSpacing: "-0.02em", lineHeight: 1, color: wordColor,
-      }}>Acumyn</span>
+      }}>Axcion</span>
     </span>
   );
 }

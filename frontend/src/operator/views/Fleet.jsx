@@ -108,7 +108,7 @@ function Chip2({ state }) {
 /* The signed-in operator's own recent changes, from the operator trail. Tenant activity lives on
    each workspace's Activity pane. */
 function YourActionsCard({ onOpen, onAudit }) {
-  const data = useApi(() => api.audit({ scope: "acumyn", operator: "me", limit: 6 }), []);
+  const data = useApi(() => api.audit({ scope: "axcion", operator: "me", limit: 6 }), []);
   const rows = data.data ? data.data.events : [];
   return (
     <Card title="What you did" sub="Your own changes, newest first. Every workspace's own activity lives on its Activity pane.">

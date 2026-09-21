@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { AcumynLockup, CADET, CORE, NEUTRAL, TYPE } from "../../brand/acumyn.jsx";
+import { AxcionLockup, CADET, CORE, NEUTRAL, TYPE } from "../../brand/axcion.jsx";
 import { marketingOrigin } from "../hosts.js";
 import { body, h1Type, label, Styles, WHITE } from "../ui.jsx";
 
-/* app.acumyn.io — the workspace finder.
+/* app.axcion.io — the workspace finder.
  *
- * A workspace IS its host (utah-life.acumyn.io), so there is no single page anybody can sign in
+ * A workspace IS its host (utah-life.axcion.io), so there is no single page anybody can sign in
  * on. What there can be is this: somebody enters their work email, and the addresses of their
  * workspaces are EMAILED to them. Emailing is the whole security property. A page that showed
  * the answer would let anyone walk a list of brokerage email addresses and learn who is a
@@ -77,7 +77,7 @@ export default function FrontDoor() {
   const [problem, setProblem] = useState(null);
   const sentHeading = useRef(null);
 
-  useEffect(() => { document.title = "Find your workspace — Acumyn"; }, []);
+  useEffect(() => { document.title = "Find your workspace — Axcion"; }, []);
   useEffect(() => { if (state === "sent") sentHeading.current?.focus(); }, [state]);
 
   async function onSubmit(e) {
@@ -96,10 +96,10 @@ export default function FrontDoor() {
       setState("idle");
       if (res.status === 422) setProblem("Enter a complete email address, like name@company.com.");
       else if (res.status === 429) setProblem("Too many lookups from this network. Wait a few minutes and try again.");
-      else setProblem("Acumyn couldn't send that just now. Try again in a moment.");
+      else setProblem("Axcion couldn't send that just now. Try again in a moment.");
     } catch {
       setState("idle");
-      setProblem("Acumyn couldn't be reached. Check your connection and try again.");
+      setProblem("Axcion couldn't be reached. Check your connection and try again.");
     }
   }
 
@@ -111,11 +111,11 @@ export default function FrontDoor() {
           maxWidth: 1120, margin: "0 auto", padding: "0 24px", height: 68,
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
         }}>
-          <a href={`${site}/`} aria-label="Acumyn home" style={{ textDecoration: "none", display: "inline-flex" }}>
-            <AcumynLockup size={26} />
+          <a href={`${site}/`} aria-label="Axcion home" style={{ textDecoration: "none", display: "inline-flex" }}>
+            <AxcionLockup size={26} />
           </a>
           <a href={`${site}/`} className="acu-link" style={{ fontFamily: TYPE.text, fontWeight: 600, fontSize: 14 }}>
-            Back to acumyn.io
+            Back to axcion.io
           </a>
         </div>
       </header>
@@ -145,7 +145,7 @@ export default function FrontDoor() {
               <p style={{ ...label, color: CORE.cadet }}>Sign in</p>
               <h1 style={{ ...h1Type, fontSize: "clamp(30px, 4.4vw, 42px)", marginTop: 16 }}>Find your workspace</h1>
               <p style={{ ...body, fontSize: 16, marginTop: 16 }}>
-                Every team on Acumyn signs in at its own address. Enter your work email and
+                Every team on Axcion signs in at its own address. Enter your work email and
                 we&rsquo;ll email you a link to each workspace it belongs to.
               </p>
 
@@ -178,7 +178,7 @@ export default function FrontDoor() {
           maxWidth: 1120, margin: "0 auto", padding: "0 24px",
           display: "flex", flexWrap: "wrap", gap: 20, justifyContent: "space-between", alignItems: "center",
         }}>
-          <span style={{ fontFamily: TYPE.text, fontSize: 13.5, color: NEUTRAL[500] }}>&copy; {new Date().getFullYear()} Acumyn</span>
+          <span style={{ fontFamily: TYPE.text, fontSize: 13.5, color: NEUTRAL[500] }}>&copy; {new Date().getFullYear()} Axcion</span>
           <span style={{ display: "flex", gap: 22 }}>
             <a href={`${site}/privacy`} className="acu-navlink" style={{ fontFamily: TYPE.text, fontSize: 13.5, color: NEUTRAL[600], textDecoration: "none" }}>Privacy</a>
             <a href={`${site}/terms`} className="acu-navlink" style={{ fontFamily: TYPE.text, fontSize: 13.5, color: NEUTRAL[600], textDecoration: "none" }}>Terms</a>

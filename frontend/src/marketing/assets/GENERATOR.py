@@ -1,14 +1,14 @@
 """
-Acumyn ground plates — generated optical texture.
+Axcion ground plates — generated optical texture.
 
 NOT photographs, and never to be captioned as if they were. They are abstract lens
-studies, and they are derived from Acumyn's OWN mark rather than from anyone else's
+studies, and they are derived from Axcion's OWN mark rather than from anyone else's
 visual language: §01 describes the mark as "three blades opening on a fixed point: an
 aperture". A three-bladed iris produces curved-triangular bokeh, so out-of-focus
 highlights on these plates carry the logo's geometry without ever drawing the logo.
 
 Deliberately not the fluted-glass treatment in Spring's brand photos. That is Spring's
-identity; Acumyn is a different brand and borrowing it would repeat exactly the mistake
+identity; Axcion is a different brand and borrowing it would repeat exactly the mistake
 of treating tenant #1's look as the platform's.
 
 Everything here is procedural — no source imagery of any kind.

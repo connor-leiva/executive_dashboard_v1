@@ -90,21 +90,21 @@ export const sampleAdsOverview = {
       conversion: (LINKS / IMPR) * 100, cost_per: SPEND / LINKS, dated: LINKS, undated: 0 },
     { key: "lead", label: "Leads · Meta", zone: "meta", diagnostic: true, n: LEADS, prev: LINKS,
       conversion: (LEADS / LINKS) * 100, cost_per: SPEND / LEADS, dated: LEADS, undated: 0 },
-    { key: "registered", label: "Registered", zone: "acumyn", n: 312, prev: LEADS,
+    { key: "registered", label: "Registered", zone: "axcion", n: 312, prev: LEADS,
       conversion: (312 / LEADS) * 100, cost_per: SPEND / 312, dated: 312, undated: 0 },
-    { key: "booked", label: "Call booked", zone: "acumyn", n: 96, prev: 312,
+    { key: "booked", label: "Call booked", zone: "axcion", n: 96, prev: 312,
       conversion: (96 / 312) * 100, cost_per: SPEND / 96, dated: 96, undated: 0 },
-    { key: "applied", label: "Applied", zone: "acumyn", n: 71, prev: 96,
+    { key: "applied", label: "Applied", zone: "axcion", n: 71, prev: 96,
       conversion: (71 / 96) * 100, cost_per: SPEND / 71, dated: 71, undated: 0 },
-    { key: "held", label: "Call held", zone: "acumyn", n: 58, prev: 71,
+    { key: "held", label: "Call held", zone: "axcion", n: 58, prev: 71,
       conversion: (58 / 71) * 100, cost_per: SPEND / 58, dated: 46, undated: 12 },
     // Cash received counts everyone who HAS paid, not only those still sitting at the stage -
     // the 14 enrolled members paid to get where they are. 19 + 14 = 33, which is why Enrolled
     // now converts at 42% instead of the impossible 600% the exclusive count produced.
-    { key: "committed", label: "Cash received", zone: "acumyn", n: 33, prev: 58,
+    { key: "committed", label: "Cash received", zone: "axcion", n: 33, prev: 58,
       conversion: (33 / 58) * 100, cost_per: SPEND / 33, dated: 33, undated: 0, value: 118500,
       still_here: 19 },
-    { key: "closed", label: "Enrolled", zone: "acumyn", closes: true, n: 14, prev: 33,
+    { key: "closed", label: "Enrolled", zone: "axcion", closes: true, n: 14, prev: 33,
       conversion: (14 / 33) * 100, cost_per: SPEND / 14, dated: 14, undated: 0, value: 174000 },
   ],
   revenue: {
@@ -136,7 +136,7 @@ export const sampleAdsOverview = {
     by_grade: { campaign: 879 }, campaign_grade_or_better: 879, ad_grade: 0,
     meta_leads: LEADS, gap: LEADS - 879,
     gap_note:
-      "Meta counts leads it attributes to itself; Acumyn counts registrations it can match to a " +
+      "Meta counts leads it attributes to itself; Axcion counts registrations it can match to a " +
       "campaign. They measure overlapping populations, so the difference is not a drop-off - much " +
       "of it is people who did register and could not be matched.",
   },

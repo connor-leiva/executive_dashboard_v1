@@ -1,5 +1,5 @@
 import React from "react";
-import { CORE, NEUTRAL, TYPE } from "../../brand/acumyn.jsx";
+import { CORE, NEUTRAL, TYPE } from "../../brand/axcion.jsx";
 import { ProductIcon } from "../../brand/productIcons.jsx";
 import Sequence from "../Sequence.jsx";
 import { SITE, SOURCES, PROBLEM, STEPS, MODULES, TRACE } from "../content.js";
@@ -46,7 +46,7 @@ export default function Home({ Link }) {
               We run our own brokerage on this, every week
             </h2>
             <p style={{ ...body, marginTop: 16, maxWidth: 440 }}>
-              Acumyn started as an internal tool at Utah Life Real Estate Group and never stopped
+              Axcion started as an internal tool at Utah Life Real Estate Group and never stopped
               being one. It is the only product feedback loop we have ever fully trusted.
             </p>
           </div>
@@ -167,7 +167,7 @@ export default function Home({ Link }) {
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center", marginTop: 28 }}>
             <Primary href={SITE.signupUrl} onDark>{SITE.signupLabel}</Primary>
-            <Ghost href={`mailto:${SITE.contactEmail}?subject=Acumyn%20demo`} onDark>Book a demo</Ghost>
+            <Ghost href={`mailto:${SITE.contactEmail}?subject=Axcion%20demo`} onDark>Book a demo</Ghost>
           </div>
         </div>
       </Section>

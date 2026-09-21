@@ -22,8 +22,8 @@
 const GOOGLE = "https://fonts.googleapis.com/css2";
 
 export const PAIRINGS = {
-  acumyn: {
-    label: "Acumyn",
+  axcion: {
+    label: "Axcion",
     note: "The platform's own. Geometric display, quiet text.",
     display: '"Space Grotesk","Helvetica Neue",Arial,sans-serif',
     text: '"Instrument Sans","Helvetica Neue",Arial,sans-serif',
@@ -52,7 +52,7 @@ export const PAIRINGS = {
   },
 };
 
-export const DEFAULT_PAIRING = "acumyn";
+export const DEFAULT_PAIRING = "axcion";
 
 // Every pairing sets numbers in the same face. See the note above — this is not an oversight.
 const DATA_FAMILY = "Archivo:wght@400;500;600;700";

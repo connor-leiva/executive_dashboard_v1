@@ -141,7 +141,7 @@ function PublishStrip({ pendingCount, pendingLoading, publishMutation, discardMu
    customer's company and their brokerage. The portal was fixed for this months ago; the console
    was not, and it is the screen an admin spends the most time in.
 
-   `poweredBy` is the PLATFORM, which is Acumyn for every tenant -- that line is ours, not
+   `poweredBy` is the PLATFORM, which is Axcion for every tenant -- that line is ours, not
    theirs, and it is the same line the portal's footer carries. */
 function Sidebar({ sections, workspaceName }) {
   return (

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { AcumynLockup, CORE, NEUTRAL, TYPE } from "../brand/acumyn.jsx";
+import { AxcionLockup, CORE, NEUTRAL, TYPE } from "../brand/axcion.jsx";
 import { SITE, NAV, META } from "./content.js";
 import { frontDoorUrl, isFrontDoorHost } from "./hosts.js";
 import { wrap, Primary, Styles, WHITE, alpha } from "./ui.jsx";
@@ -10,11 +10,11 @@ import Pricing from "./pages/Pricing.jsx";
 import Legal from "./pages/Legal.jsx";
 import FrontDoor from "./pages/FrontDoor.jsx";
 
-/* Acumyn's public site, and the one bundle served on two hosts.
+/* Axcion's public site, and the one bundle served on two hosts.
  *
- *   www.acumyn.io   the marketing pages: Home, Features, About, Pricing, Privacy, Terms
+ *   www.axcion.io   the marketing pages: Home, Features, About, Pricing, Privacy, Terms
  *                   (the apex takes over once it can reach Railway — see frontend/Caddyfile)
- *   app.acumyn.io   the workspace finder, and nothing else (see pages/FrontDoor.jsx)
+ *   app.axcion.io   the workspace finder, and nothing else (see pages/FrontDoor.jsx)
  *
  * One entry rather than two because the finder is a single form that needs this site's type,
  * buttons and mark, and a second Vite entry for one form is a second build to keep in step.
@@ -141,9 +141,9 @@ function Nav({ path, Link }) {
           (§05); the footer and the closing bands deliberately carry none. */}
       <div style={{ ...wrap, height: 68, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <Link to="/" style={{ textDecoration: "none", display: "inline-flex" }}>
-          {/* The lockup's svg is titled "Acumyn" and so is its wordmark, which a screen reader
-              announces as "Acumyn Acumyn"; the label names the link once, by where it goes. */}
-          <span aria-label="Acumyn home" role="img" style={{ display: "inline-flex" }}><AcumynLockup size={26} /></span>
+          {/* The lockup's svg is titled "Axcion" and so is its wordmark, which a screen reader
+              announces as "Axcion Axcion"; the label names the link once, by where it goes. */}
+          <span aria-label="Axcion home" role="img" style={{ display: "inline-flex" }}><AxcionLockup size={26} /></span>
         </Link>
 
         <nav className="acu-nav" aria-label="Primary">
@@ -203,7 +203,7 @@ function Footer({ Link }) {
     <footer style={{ background: CORE.paper, borderTop: `1px solid ${NEUTRAL[100]}`, padding: "36px 0" }}>
       <div style={{ ...wrap, display: "flex", flexWrap: "wrap", gap: 20, alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontFamily: TYPE.text, fontSize: 13.5, color: NEUTRAL[500] }}>
-          &copy; {new Date().getFullYear()} Acumyn
+          &copy; {new Date().getFullYear()} Axcion
         </span>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 22, alignItems: "center" }}>
           {NAV.slice(1).map((n) => (

@@ -37,7 +37,7 @@ export default function ProvisionView({ onOpen }) {
   const auto = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24);
   const effective = slug || auto;
   const ref = reference.data;
-  const domain = ref ? ref.platform_domain : "acumyn.io";
+  const domain = ref ? ref.platform_domain : "axcion.io";
   const taken = useMemo(() => (tenants.data ? tenants.data.tenants : []).find((w) => w.slug === effective), [tenants.data, effective]);
 
   if (reference.loading && !ref) return <Loading label="Reading plans" />;

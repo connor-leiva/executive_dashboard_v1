@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { CORE, NEUTRAL, TYPE } from "../brand/acumyn.jsx";
+import { CORE, NEUTRAL, TYPE } from "../brand/axcion.jsx";
 import { SITE, HERO } from "./content.js";
 
 /* The scroll-scrubbed hero.
@@ -178,10 +178,10 @@ export default function Sequence() {
             Track production, <span style={{ color: NEUTRAL[500] }}>not spreadsheets</span>
           </h1>
           <p className="acu-seq-sub">
-            Every number Acumyn shows you came from somewhere. Scroll, and watch one land.
+            Every number Axcion shows you came from somewhere. Scroll, and watch one land.
           </p>
           <div className="acu-seq-cta">
-            <a className="acu-btn-ink" href={`mailto:${SITE.contactEmail}?subject=Acumyn%20demo`}>Book a demo</a>
+            <a className="acu-btn-ink" href={`mailto:${SITE.contactEmail}?subject=Axcion%20demo`}>Book a demo</a>
             <p className="acu-seq-support">{HERO.note}</p>
           </div>
         </div>

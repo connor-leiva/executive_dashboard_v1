@@ -8,13 +8,13 @@
  *
  * THE PLATE IS THE TENANT'S. Its background is the workspace's own hero image and its logo is
  * the workspace's own mark, because this page is the first thing a person sees and it should
- * say the name of the company that asked them to sign in, not ours. Acumyn's attribution sits
+ * say the name of the company that asked them to sign in, not ours. Axcion's attribution sits
  * at the bottom of it, once, and is not removable.
  *
  * COLOUR COMES FROM THE PALETTE, NEVER FROM HERE. The design names #3F6B66 for the accent, which
- * is Acumyn's brand seed — so it is T.poppy, the derived action colour, and a workspace that has
+ * is Axcion's brand seed — so it is T.poppy, the derived action colour, and a workspace that has
  * chosen its own five colours gets its own sign-in page for free. Same for type: the design's
- * Space Grotesk / Instrument Sans / Archivo is the `acumyn` pairing, reached through the
+ * Space Grotesk / Instrument Sans / Archivo is the `axcion` pairing, reached through the
  * --font-* variables so a workspace on a different pairing is not overridden by this file.
  */
 import { useEffect, useRef, useState } from "react";
@@ -23,8 +23,8 @@ import { T, alpha } from "../theme.js";
 import { getJSON, API_BASE } from "../api.js";
 import { applyBrand } from "../palette.js";
 import { BrandSignature, setBrand, ribbedHero } from "../Brand.jsx";
-import { PoweredByAcumyn } from "../brand/PoweredBy.jsx";
-import { ACUMYN_SITE } from "../brand/acumyn.jsx";
+import { PoweredByAxcion } from "../brand/PoweredBy.jsx";
+import { AXCION_SITE } from "../brand/axcion.jsx";
 
 const FONT = "var(--font-text)";
 const HEAD = "var(--font-display)";
@@ -69,7 +69,7 @@ function ShellCss() {
   );
 }
 
-/* One side of the fold: the workspace's image, its mark, and Acumyn's attribution. */
+/* One side of the fold: the workspace's image, its mark, and Axcion's attribution. */
 function Plate({ chrome }) {
   const hero = chrome && chrome.hero_image;
   const tagline = (chrome && chrome.tagline) || "";
@@ -106,7 +106,7 @@ function Plate({ chrome }) {
         ) : null}
         {/* "light" is the treatment FOR a dark ground — the guide's white knockout, because
             below Ink 400 the two-tone mark loses its Cadet blades against the plate. */}
-        <PoweredByAcumyn tone="light" align="flex-start" style={{ padding: 0 }} />
+        <PoweredByAxcion tone="light" align="flex-start" style={{ padding: 0 }} />
       </div>
     </div>
   );
@@ -152,14 +152,14 @@ export function AuthShell({ chrome, title, sub, back, above, children, overlay }
           position: "absolute", left: 0, right: 0, bottom: 34, display: "flex",
           justifyContent: "center", gap: 16, fontFamily: FONT, fontSize: 12.5, color: T.muted,
         }}>
-          {/* Acumyn's documents, which cover every workspace it hosts. These pointed at
+          {/* Axcion's documents, which cover every workspace it hosts. These pointed at
               /privacy.html and /eula.html, which were Spring Command Center's, with its name and
               unfilled blanks, on every workspace's sign-in page. A new tab, so opening one never
               costs somebody the password they were typing. */}
-          <a href={`${ACUMYN_SITE}/privacy`} target="_blank" rel="noopener noreferrer"
+          <a href={`${AXCION_SITE}/privacy`} target="_blank" rel="noopener noreferrer"
              style={{ color: T.muted, textDecoration: "none" }}>Privacy Policy</a>
           <span aria-hidden>·</span>
-          <a href={`${ACUMYN_SITE}/terms`} target="_blank" rel="noopener noreferrer"
+          <a href={`${AXCION_SITE}/terms`} target="_blank" rel="noopener noreferrer"
              style={{ color: T.muted, textDecoration: "none" }}>Terms</a>
         </div>
         {overlay}
@@ -349,7 +349,7 @@ export function Handoff({ title, sub }) {
 
 /** The workspace's public branding, cached per host.
  *
- * /public/brand is a round-trip, so the honest first paint is Acumyn's identity and the
+ * /public/brand is a round-trip, so the honest first paint is Axcion's identity and the
  * workspace's arrives a few hundred milliseconds later — which reads as the page changing its
  * mind in front of you. The last answer for THIS host is applied synchronously, so only a
  * genuinely first visit sees the swap.

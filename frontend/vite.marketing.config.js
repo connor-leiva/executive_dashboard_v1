@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Acumyn's public site: the marketing pages AND the app.<domain> workspace finder, one bundle
+// Axcion's public site: the marketing pages AND the app.<domain> workspace finder, one bundle
 // that Caddy serves on both hosts (see src/marketing/Site.jsx).
 //
 // base "/" — unlike intranet and console this entry is served at the ROOT of its own HOST, not
@@ -10,7 +10,7 @@ import react from "@vitejs/plugin-react";
 //
 // publicDir FALSE, like the intranet and console. frontend/public is the DASHBOARD's: it holds
 // Spring's brand photographs among the dashboard's assets, and copying it here would publish
-// another company's images on Acumyn's own domain. What this site needs — its plates, its one
+// another company's images on Axcion's own domain. What this site needs — its plates, its one
 // photo, the favicons — is imported or referenced from index.html, so Vite bundles exactly that.
 export default defineConfig({
   root: "marketing",

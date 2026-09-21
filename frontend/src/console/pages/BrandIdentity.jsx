@@ -175,7 +175,7 @@ export default function BrandIdentity() {
   const domain = useMemo(() => {
     const custom = workspace.data?.custom_domain;
     if (custom) return custom;
-    return `${form.subdomain || workspace.data?.subdomain || "workspace"}.acumyn.io`;
+    return `${form.subdomain || workspace.data?.subdomain || "workspace"}.axcion.io`;
   }, [form.subdomain, workspace.data]);
 
   function update(field, value) {

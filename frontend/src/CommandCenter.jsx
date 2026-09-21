@@ -25,7 +25,7 @@ import Assistant from "./Assistant.jsx";
 import { SpringSignature, setBrand, ribbedHero, Icon , HeroMark} from "./Brand.jsx";
 import { ProductIcon, iconFor } from "./brand/productIcons.jsx";
 import { applyBrand, applyType } from "./palette.js";
-import { PoweredByAcumyn } from "./brand/PoweredBy.jsx";
+import { PoweredByAxcion } from "./brand/PoweredBy.jsx";
 import AppSwitcher from "./AppSwitcher.jsx";
 
 /* ──────────────────────────────────────────────────────────────
@@ -1085,12 +1085,12 @@ function useMe() {
   useEffect(() => {
     if (!API_BASE) {
       // Sample/demo mode — a bundle built with no API base, which is never a real workspace.
-      // It wears ACUMYN's identity, not a customer's. This used to load one customer's logo
+      // It wears AXCION's identity, not a customer's. This used to load one customer's logo
       // files by path, which meant the offline preview a prospect gets shown was branded as
       // somebody else's company. That is the same defect the chrome work set out to fix, left
       // behind in the one branch nobody looks at because it never runs in production.
-      setUser({ name: "Demo", email: "demo@acumyn.io" });
-      setBrand({ display_name: "Acumyn", product_name: "Command Center" });
+      setUser({ name: "Demo", email: "demo@axcion.io" });
+      setBrand({ display_name: "Axcion", product_name: "Command Center" });
       return;
     }
     let alive = true;
@@ -1349,7 +1349,7 @@ export default function CommandCenter() {
               }}>
                 {/* A PLATFORM MODULE GETS ITS MARK; A BUSINESS GETS ITS COLOUR.
                     Not a style preference — the two are different kinds of thing and the rail
-                    already separates them with a divider. A module is a product Acumyn named
+                    already separates them with a divider. A module is a product Axcion named
                     and drew an icon for. A business is the customer's, named by them, and its
                     only visual identity is the accent it was assigned; there is no icon for
                     "The Forum" and inventing one would be us naming their company.
@@ -1436,7 +1436,7 @@ export default function CommandCenter() {
           {/* Attribution sits in the SHELL, not in each view, so it is present on every tab by
               construction — including tabs nobody has written yet. A footer added per page is a
               footer that is missing from the next one. */}
-          <div style={{ padding: "0 26px", maxWidth: 1100 }}><PoweredByAcumyn align="flex-start" /></div>
+          <div style={{ padding: "0 26px", maxWidth: 1100 }}><PoweredByAxcion align="flex-start" /></div>
         </main>
       </div>
 

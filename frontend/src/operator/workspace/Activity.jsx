@@ -5,7 +5,7 @@ import { collapseBy, describe, target } from "../phrases.js";
 import { Card, Chip, Empty, Loading, LoadError, Mono, Seg, useApi } from "../primitives.jsx";
 import { A, TYPE } from "../tokens.js";
 
-const KIND = { user: "Their team", acumyn: "Acumyn", system: "System" };
+const KIND = { user: "Their team", axcion: "Axcion", system: "System" };
 
 /* Machine events collapse: the same action, by the same actor, doing the same thing. */
 const collapse = (events) => collapseBy(events, (e) => [e.action, e.actor, e.actor_label, describe(e), target(e)].join("|"));
@@ -23,7 +23,7 @@ export default function ActivityPane({ w }) {
     <Card title="Activity" pad={0}
       sub="The workspace's own audit log, newest first. Repeated events collapse to one line with a count."
       right={<Seg label="Filter activity" value={show} onChange={setShow}
-        options={[["all", "All"], ["user", "Their team"], ["acumyn", "Acumyn"], ["system", "System"]]} />}>
+        options={[["all", "All"], ["user", "Their team"], ["axcion", "Axcion"], ["system", "System"]]} />}>
       {shown.length === 0 ? (
         <Empty title={rows.length ? "Nothing in this bucket" : "Nothing has happened here yet"}>
           {rows.length ? "No events of this kind in the latest 200. Choose another filter."
@@ -37,7 +37,7 @@ export default function ActivityPane({ w }) {
             <div style={{ flex: 1, minWidth: 0, padding: "11px 16px" }}>
               <div style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap" }}>
                 <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <Chip state={r.actor === "acumyn" ? "trial" : undefined}>{KIND[r.actor]}</Chip>
+                  <Chip state={r.actor === "axcion" ? "trial" : undefined}>{KIND[r.actor]}</Chip>
                   <span style={{ fontFamily: TYPE.text, fontSize: 12.5, fontWeight: 500, color: bad ? A.stop : A.ink }}>{describe(r)}</span>
                   {r.count > 1 ? <Mono size={10.5} c={A.mute}>×{r.count}</Mono> : null}
                 </div>

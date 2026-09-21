@@ -244,7 +244,7 @@ export const COPY = {
   // The PLATFORM, not a brokerage. This said "Powered by PLACE" -- one customer's brokerage --
   // on every tenant's admin console. productName is only a fallback now: the rail reads the
   // workspace's own name from the API.
-  poweredBy: "Powered by Acumyn",
+  poweredBy: "Powered by Axcion",
   loginTitle: "Sign in to continue",
   loginButton: "Sign in",
   tenantHostLabel: "Tenant host",
@@ -513,7 +513,7 @@ export const COPY = {
   incompleteScreen: "This screen will be wired in its build phase.",
 };
 
-export const DEFAULT_TENANT_HOST = "utah-life.acumyn.io";
+export const DEFAULT_TENANT_HOST = "utah-life.axcion.io";
 
 /* Derived from NAV_SECTIONS, not listed again.
  *

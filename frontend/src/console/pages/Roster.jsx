@@ -189,8 +189,8 @@ function CrmPicker({ source, label, member, value, onChange }) {
         <span>{label}</span>
         <p className="roster-crm-none">
           {source === "fub"
-            ? "No Follow Up Boss users yet. Connect Follow Up Boss on the Acumyn dashboard; its users appear here after the first sync."
-            : "No Sisu agents yet. Connect Sisu on the Acumyn dashboard; its agents appear here after the first sync."}
+            ? "No Follow Up Boss users yet. Connect Follow Up Boss on the Axcion dashboard; its users appear here after the first sync."
+            : "No Sisu agents yet. Connect Sisu on the Axcion dashboard; its agents appear here after the first sync."}
         </p>
       </div>
     );

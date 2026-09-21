@@ -806,7 +806,7 @@ export default function TeamCommand() {
               A share link renders this view with no nav and no auth prompt, scoped to one team or the whole scorecard. Paste it into a ClickUp embed view.
             </div>
             <div style={{ fontFamily: FM, fontSize: 11.5, background: C.parchment, padding: "10px 12px", borderRadius: 7, marginTop: 12, color: C.ink, wordBreak: "break-all" }}>
-              https://ulrg.acumyn.io/share/{tab === "scorecard" ? "scorecard" : tab}/k_7f2a91c4
+              https://ulrg.axcion.io/share/{tab === "scorecard" ? "scorecard" : tab}/k_7f2a91c4
             </div>
           </Card>
         )}

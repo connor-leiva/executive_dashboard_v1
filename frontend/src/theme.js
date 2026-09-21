@@ -8,7 +8,7 @@ import { ref } from "./palette.js";
 /* Ramp-native brand tokens (Spring Command Center brand spec, Section 3). */
 /* The 30 palette slots. Their VALUES are CSS variable references, not colours — see palette.js.
    Components keep saying `T.ink`; what `T.ink` resolves to is now decided at runtime by whichever
-   workspace is signed in, with Acumyn's identity as the default. */
+   workspace is signed in, with Axcion's identity as the default. */
 export const T = {
   evergreen: ref("evergreen"),
   ink: ref("ink"),          // text 1

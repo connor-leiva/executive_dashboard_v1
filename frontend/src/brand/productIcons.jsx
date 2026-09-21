@@ -1,6 +1,6 @@
 /* The platform modules' icons — Books, Binder, Agents, Campaigns, Production.
  *
- * Ported from the Acumyn site, which is where they were drawn. They are not a general icon set
+ * Ported from the Axcion site, which is where they were drawn. They are not a general icon set
  * and there is deliberately no way to ask for an arbitrary glyph: five products have a mark,
  * anything else falls back to the blade motif. An icon set with an open door becomes a
  * dependency, and then the rail's chrome is negotiating with whatever a component felt like
@@ -9,7 +9,7 @@
  * WHY THESE AND NOT THE PNG ICON LIBRARY. `Icon` in Brand.jsx masks a PNG from /brand/icons,
  * which is right for the hundreds of small utility glyphs — but a module's mark is the product's
  * identity, and it has to survive being tinted, scaled and put on an evergreen rail. Drawn from
- * the same geometry as the Acumyn mark, it does.
+ * the same geometry as the Axcion mark, it does.
  *
  * CONSTRUCTION, and every number here is load-bearing:
  *   32x32 artboard · stroke 2.6 · caps BUTT · no fill except where a mark is genuinely solid.
@@ -78,7 +78,7 @@ const GLYPHS = {
     </>
   ),
 
-  // The fallback, and the Acumyn mark's own motif reduced to two blades: a loop that has not
+  // The fallback, and the Axcion mark's own motif reduced to two blades: a loop that has not
   // closed. It is what an unrecognised module gets, and it is right for a flywheel.
   loop: () => (
     <>
@@ -115,7 +115,7 @@ export function iconFor(key) {
  *
  * `name` is a glyph name (see GLYPHS) — pass `iconFor(key)` to go from a rail key. An unknown
  * name draws the loop rather than throwing or rendering nothing: a missing icon in a rail is a
- * hole somebody has to notice, and the fallback is a real Acumyn shape, not a placeholder.
+ * hole somebody has to notice, and the fallback is a real Axcion shape, not a placeholder.
  */
 export function ProductIcon({ name, size = 22, tone = "currentColor", title, style }) {
   const draw = GLYPHS[name] || GLYPHS.loop;

@@ -8,7 +8,7 @@ import { loadTypeface, pairingFromStacks, stacks } from "./typefaces.js";
  * customer's brand, baked into the bundle everybody downloads.
  *
  * The fix is not to touch those 2,482 references. It is to change what `T`'s VALUES ARE. Each
- * token becomes `var(--t-name)`, the variables are declared here with Acumyn's identity as the
+ * token becomes `var(--t-name)`, the variables are declared here with Axcion's identity as the
  * default, and a workspace overrides whichever of them it cares about at sign-in. Every existing
  * `T.ink` keeps working, unchanged, and the colour moves from build time to runtime.
  *
@@ -17,13 +17,13 @@ import { loadTypeface, pairingFromStacks, stacks } from "./typefaces.js";
  * not us. So each token ships twice, and alpha() rewrites the variable name rather than reading
  * a colour it cannot see.
  *
- * The defaults below are Acumyn's brand identity guide v1.0: five core colours, the Cadet and
+ * The defaults below are Axcion's brand identity guide v1.0: five core colours, the Cadet and
  * neutral ramps, and the four semantic states. Where the guide names a UI token directly (§10 —
  * primary action Cadet 500, body text Ink 700, canvas Ink 50, borders Ink 100/200) that mapping
  * is used verbatim rather than reinterpreted.
  */
 
-// ── Acumyn core (§06) ────────────────────────────────────────────────────────────────────
+// ── Axcion core (§06) ────────────────────────────────────────────────────────────────────
 export const CORE = { cadet: "#3F6B66", ink: "#16201F", sage: "#8FB3AE",
                       haze: "#BDD5D0", paper: "#EFF0EC" };
 
@@ -56,11 +56,11 @@ export function tint(hex, amount = 0.9) {
   return "#" + [mix(r), mix(g), mix(b)].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
-/* The 30 slots the app actually uses, mapped onto Acumyn. The slot NAMES are the ones the
+/* The 30 slots the app actually uses, mapped onto Axcion. The slot NAMES are the ones the
    components already say (`evergreen`, `poppy`, `daffodil`) — renaming 2,482 references to suit
    a new palette would be a far bigger and riskier change than repointing them, and the names
    are only strings. What they MEAN is in the comments. */
-export const ACUMYN = {
+export const AXCION = {
   evergreen: CORE.ink,          // darkest structural surface + primary button ground
   ink: CORE.ink,                // text 1 — headings
   secondary: NEUTRAL[700],      // text 2 — body (guide §10: "body text Ink 700")
@@ -95,7 +95,7 @@ export const ACUMYN = {
 
 /* Typography (§07). Three families, one job each. Variables for the same reason the colours
    are: the app names a font 868 times, and a workspace's type is part of its identity. */
-export const ACUMYN_TYPE = {
+export const AXCION_TYPE = {
   display: '"Space Grotesk","Helvetica Neue",Arial,sans-serif',
   text: '"Instrument Sans","Helvetica Neue",Arial,sans-serif',
   data: 'Archivo,"Helvetica Neue",Arial,sans-serif',
@@ -135,9 +135,9 @@ export const SEED_META = {
  * The five seeds that best describe an EXISTING thirty-token palette.
  *
  * A workspace that predates the picker has thirty hand-chosen colours, not five. Opening the
- * settings panel on Acumyn's defaults rather than theirs is how a save turns into a redesign
+ * settings panel on Axcion's defaults rather than theirs is how a save turns into a redesign
  * nobody asked for — which is exactly what happened to the first workspace: the panel offered
- * Acumyn's colours, Save wrote them, and thirty hand-built tokens were replaced by Cadet.
+ * Axcion's colours, Save wrote them, and thirty hand-built tokens were replaced by Cadet.
  *
  * These five are the slots the derivation reads BACK from, so re-deriving reproduces the palette
  * closely — not identically, because a hand-built palette can say things five seeds cannot, which
@@ -145,7 +145,7 @@ export const SEED_META = {
  */
 export function seedsFromPalette(palette) {
   const p = palette || {};
-  const base = seedsFromAcumyn();
+  const base = seedsFromAxcion();
   return {
     brand: p.poppy || base.brand,
     surface: p.page || p.parchment || base.surface,
@@ -155,17 +155,17 @@ export function seedsFromPalette(palette) {
   };
 }
 
-export function seedsFromAcumyn() {
+export function seedsFromAxcion() {
   return { brand: CADET[500], surface: NEUTRAL[50], ink: CORE.ink,
            positive: SEMANTIC.success, negative: SEMANTIC.error };
 }
 
 /**
  * Thirty tokens from five. Every relationship here is a ratio rather than a fixed colour, so a
- * workspace's palette holds together the same way Acumyn's does.
+ * workspace's palette holds together the same way Axcion's does.
  */
 export function derive(seeds) {
-  const s = { ...seedsFromAcumyn(), ...(seeds || {}) };
+  const s = { ...seedsFromAxcion(), ...(seeds || {}) };
   const { brand, surface, ink, positive, negative } = s;
   return {
     // structure and text, all off ink
@@ -208,7 +208,7 @@ export function derive(seeds) {
     poppyText: negative,
     gapText: negative,
 
-    // warning stays Acumyn's, deliberately — see the note above
+    // warning stays Axcion's, deliberately — see the note above
     daffodil: SEMANTIC.warning,
     daffodilText: SEMANTIC.warning,
     amber: SEMANTIC.warning,
@@ -291,7 +291,7 @@ export function applyPalette(tokens, el) {
  * part of a visual identity system are exactly that, and they belong to the customer who paid
  * for them.
  *
- * Everything else gets Acumyn's bokeh: soft aperture-shaped blurs echoing the mark's own blades,
+ * Everything else gets Axcion's bokeh: soft aperture-shaped blurs echoing the mark's own blades,
  * laid UNDER a wash of the ground colour. The plate carries texture, the wash carries the brand,
  * so it works for any colour a workspace ever configures -- including colours chosen after this
  * was written. That is why the wash is `rgba(var(--t-*-rgb), .78)` rather than a fixed value: it
@@ -311,7 +311,7 @@ export const HERO_SLOTS = Object.keys(HERO_GROUND);
    time this runs the colour is a CSS variable and JavaScript cannot measure it. */
 const HERO_LIGHT = new Set(["mist", "parchment", "petal", "daffodil", "sprout"]);
 
-const BOKEH = "/brand/acumyn/";
+const BOKEH = "/brand/axcion/";
 
 export const heroSlot = (name) => {
   const g = String(name || "").toLowerCase();
@@ -404,7 +404,7 @@ export function applyBrand(brand, el) {
     applyPalette(derive(b.seeds), el);
     return "derived";
   }
-  applyPalette(ACUMYN, el);              // the platform's own identity
+  applyPalette(AXCION, el);              // the platform's own identity
   return "platform";
 }
 
@@ -449,7 +449,7 @@ export function applyType(fonts, el) {
 /* Applied at module load, which is before React's first paint — so the defaults are present
    from the first frame and a workspace override later only ever CHANGES a value, never
    introduces one. A missing variable would resolve to nothing and paint the page unstyled. */
-applyPalette(ACUMYN);
+applyPalette(AXCION);
 applyHeroPlates(null);            // the platform's bokeh, present from the first frame
 applyType(stacks(undefined));
 loadTypeface(undefined);          // the platform pairing, requested at module load

@@ -1,5 +1,5 @@
 /* The operator console's building blocks, from the design file's primitives with its colour and
-   type replaced by ../brand/acumyn.jsx through tokens.js. */
+   type replaced by ../brand/axcion.jsx through tokens.js. */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { A, STATE, TYPE, WHITE } from "./tokens.js";
 

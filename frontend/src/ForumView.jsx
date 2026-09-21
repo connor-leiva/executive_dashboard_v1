@@ -633,7 +633,7 @@ const CSS = `
 
   /* beCollective Cash card — the petal colorway, light surface with dark ink. The file path was
      written in here directly, which pinned one customer's licensed artwork into the bundle every
-     workspace downloads; a workspace with no plates of its own now gets Acumyn's over petal. */
+     workspace downloads; a workspace with no plates of its own now gets Axcion's over petal. */
   .hero.bc { color:${C.ink};
     ${heroCss("petal")}
     box-shadow:0 2px 6px ${C.evergreen}1A, 0 16px 38px ${C.evergreen}1F, inset 0 1px 0 rgba(255,255,255,.35);

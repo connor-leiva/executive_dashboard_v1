@@ -1,12 +1,12 @@
-"""Render the Acumyn mark to the four favicon PNGs.
+"""Render the Axcion mark to the four favicon PNGs.
 
 WHY A SCRIPT AND NOT FOUR EXPORTED FILES. The mark is specified as geometry, not artwork — the
 identity guide gives radius, weight, sweep and gap axes precisely so it can be rebuilt at any size
-without redrawing by eye, and src/brand/acumyn.jsx already builds it from those numbers for the
+without redrawing by eye, and src/brand/axcion.jsx already builds it from those numbers for the
 screen. Exporting PNGs by hand would fork that: the favicon would slowly stop being the mark.
 Re-running this is how they stay the same shape.
 
-THE NUMBERS ARE DUPLICATED FROM acumyn.jsx ON PURPOSE. This is Python and that is JSX; importing
+THE NUMBERS ARE DUPLICATED FROM axcion.jsx ON PURPOSE. This is Python and that is JSX; importing
 across the boundary would mean a build step to generate a static asset. They are asserted against
 each other by a test instead, which fails if either side moves.
 

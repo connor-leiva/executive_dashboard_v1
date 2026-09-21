@@ -1015,7 +1015,7 @@ function FollowUpSettings() {
         <p className="followup-intro">
           What each agent sees at the top of the portal, from Follow Up Boss: new leads nobody has
           contacted, and tasks due today or overdue. Leaders see the whole team.
-          {conn.state === "not_connected" ? " Follow Up Boss is not connected yet — connect it on the Acumyn dashboard under Settings, Integrations." : ""}
+          {conn.state === "not_connected" ? " Follow Up Boss is not connected yet — connect it on the Axcion dashboard under Settings, Integrations." : ""}
         </p>
         <div className="followup-fields">
           <Field label="New leads from the last (days)">

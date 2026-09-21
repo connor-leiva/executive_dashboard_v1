@@ -489,7 +489,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                   );
                 })}
                 <div className="sd-c-foot">
-                  Counts are launch-to-date calls from Acumyn's own event log, so a rebooked no-show
+                  Counts are launch-to-date calls from Axcion's own event log, so a rebooked no-show
                   still counts as a no-show. Show rate = held / (held + no-show + cancelled).
                 </div>
               </div>
@@ -523,7 +523,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
                       );
                     })}
                     <tr className="sd-tfoot"><td colSpan="12">
-                      Counts are launch-to-date calls from Acumyn's own event log, so a rebooked no-show still
+                      Counts are launch-to-date calls from Axcion's own event log, so a rebooked no-show still
                       counts as a no-show. Show rate = held / (held + no-show + cancelled).
                     </td></tr>
                   </tbody>
@@ -619,7 +619,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
 
         <div className="sd-foot">
           <b>Where the numbers come from:</b> the booking webhook writes rep, booking ID, and call time onto each
-          deal, and outcomes route through the sales workflow. Acumyn logs every change it observes, so history
+          deal, and outcomes route through the sales workflow. Axcion logs every change it observes, so history
           survives even though GHL stores only the latest value. This desk reads; it never writes to GHL.
         </div>
 

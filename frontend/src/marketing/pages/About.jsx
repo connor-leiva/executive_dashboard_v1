@@ -1,5 +1,5 @@
 import React from "react";
-import { CORE, NEUTRAL, TYPE } from "../../brand/acumyn.jsx";
+import { CORE, NEUTRAL, TYPE } from "../../brand/axcion.jsx";
 import { SITE, ABOUT } from "../content.js";
 import {
   label, body, h1Type, h2Type, Primary, Ghost, Section, PageHead, Photo, PLATE, WHITE, alpha,

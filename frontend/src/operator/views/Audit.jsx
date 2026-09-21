@@ -8,7 +8,17 @@ import { A, TYPE } from "../tokens.js";
 const th = { fontFamily: TYPE.text, fontSize: 10, fontWeight: 600, letterSpacing: ".14em", textTransform: "uppercase", color: A.mute, textAlign: "left", padding: "0 10px 9px", whiteSpace: "nowrap" };
 const td = { padding: "11px 10px", borderTop: `1px solid ${A.lineSoft}`, fontFamily: TYPE.text, fontSize: 12.5, color: A.ink, verticalAlign: "top" };
 
-const SCOPES = [["all", "Everything"], ["acumyn", "Acumyn staff"], ["tenants", "Workspace teams"]];
+const SCOPES = [["all", "Everything"], ["axcion", "Axcion staff"], ["tenants", "Workspace teams"]];
+
+/* An event's own scope, as the API reported it. The API emits "axcion"; before the September
+   2026 rename it emitted "acumyn", and the API and this console are separate Railway services
+   that do not deploy together. During that window this console can be reading an old API's
+   rows, so both spellings mean the operator trail. Drop the "acumyn" arm at Phase 10 of
+   AXCION-REBRAND-SPEC.md.
+
+   A mismatch here is silent and wrong rather than broken: every operator action would be
+   labelled "Workspace team", which is precisely the distinction this column exists to draw. */
+const isOperatorTrail = (s) => s === "axcion" || s === "acumyn";
 const BAD = /suspended|syncs_frozen|revoked|deleted|failed/;
 
 function csvCell(value) {
@@ -26,7 +36,7 @@ function exportCsv(events) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `acumyn-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `axcion-audit-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -68,11 +78,11 @@ export default function AuditView({ onOpen }) {
 
   return (
     <Card title="Audit" pad={0}
-      sub={`Every change across the platform: what Acumyn staff did, from the operator trail, and what each workspace's own team did, from its audit log. Sign-ins and second-factor checks are left out; they are not changes.${retention ? ` Operator entries are kept ${retention} days.` : ""}`}
+      sub={`Every change across the platform: what Axcion staff did, from the operator trail, and what each workspace's own team did, from its audit log. Sign-ins and second-factor checks are left out; they are not changes.${retention ? ` Operator entries are kept ${retention} days.` : ""}`}
       right={<Seg label="Filter the audit trail" value={scope} onChange={setScope} options={SCOPES} />}>
       {events.length === 0 ? (
         <Empty title="Nothing recorded">
-          {scope === "acumyn" ? "No operator has changed anything yet." : "No changes have been recorded in this scope."}
+          {scope === "axcion" ? "No operator has changed anything yet." : "No changes have been recorded in this scope."}
         </Empty>
       ) : (
         <div style={{ overflowX: "auto" }}>
@@ -94,7 +104,7 @@ export default function AuditView({ onOpen }) {
                     <td style={td}>
                       <div style={{ fontWeight: 500, overflowWrap: "anywhere" }}>{e.who || "Unknown"}</div>
                       <div style={{ marginTop: 3 }}>
-                        <Chip state={e.scope === "acumyn" ? "trial" : undefined}>{e.scope === "acumyn" ? "Acumyn" : "Workspace team"}</Chip>
+                        <Chip state={isOperatorTrail(e.scope) ? "trial" : undefined}>{isOperatorTrail(e.scope) ? "Axcion" : "Workspace team"}</Chip>
                       </div>
                     </td>
                     <td style={{ ...td, color: bad ? A.stop : A.ink, fontWeight: 500 }}>

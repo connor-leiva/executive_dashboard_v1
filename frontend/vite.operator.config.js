@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// The operator console: Acumyn staff administering workspaces, at admin.acumyn.io. Its own entry
+// The operator console: Axcion staff administering workspaces, at admin.axcion.io. Its own entry
 // and its own bundle, so a customer's browser never downloads the screen that suspends customers,
 // and the operator's session lives on an origin no workspace shares.
 //

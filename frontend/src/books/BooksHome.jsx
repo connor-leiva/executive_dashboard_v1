@@ -18,7 +18,7 @@ function PipelineRail({ rail }) {
   return (
     // The corner glow this used to append to DARK.backgroundImage is gone. It gave a flat
     // pinstriped band some depth, and the band now carries real artwork -- a ribbed gradient or
-    // Acumyn's bokeh -- which is the depth it was imitating. Two texture systems on one panel
+    // Axcion's bokeh -- which is the depth it was imitating. Two texture systems on one panel
     // fight, and the glow held the last two raw hex values in this file.
     <div style={{ position: "relative", overflow: "hidden", borderRadius: 16, padding: "24px 26px",
       ...DARK }}>

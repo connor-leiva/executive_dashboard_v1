@@ -113,7 +113,7 @@ export const SpringLogomark = BrandLogomark;
 
 /* The hero band's surface -- one export, so eleven panels across six files cannot drift.
  *
- * The decision itself (a workspace's own plates vs Acumyn's bokeh) and the reasoning behind it
+ * The decision itself (a workspace's own plates vs Axcion's bokeh) and the reasoning behind it
  * now live in palette.js, next to the colours, because it is resolved the same way they are:
  * written onto the document root when /me answers, then read by name wherever it is needed. This
  * is a pass-through so the call sites that already say `ribbedHero` need no churn.

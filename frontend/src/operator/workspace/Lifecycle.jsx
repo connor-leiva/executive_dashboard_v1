@@ -44,7 +44,7 @@ export default function Lifecycle({ w, reload, onDeleted }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = name ? name[1] : `acumyn-${w.slug}-metadata.json`;
+      a.download = name ? name[1] : `axcion-${w.slug}-metadata.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();

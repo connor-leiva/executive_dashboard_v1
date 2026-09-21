@@ -1,6 +1,6 @@
-/* Acumyn's Privacy Policy and Terms of Service, rendered by pages/Legal.jsx at /privacy, /terms.
+/* Axcion's Privacy Policy and Terms of Service, rendered by pages/Legal.jsx at /privacy, /terms.
  *
- * WRITTEN FROM THE CODE, NOT FROM A TEMPLATE. Every statement about what Acumyn stores, sends or
+ * WRITTEN FROM THE CODE, NOT FROM A TEMPLATE. Every statement about what Axcion stores, sends or
  * deletes was checked against backend/app when this was written (September 2026): the
  * providers, the 365-day transcript purge, the read-only integrations, the absence of cookies
  * and analytics. When the product changes one of those, this file has to change with it — a
@@ -15,7 +15,7 @@
  */
 
 export const LEGAL_FACTS = {
-  entity: { value: "", ask: "legal name of the company that operates Acumyn" },
+  entity: { value: "", ask: "legal name of the company that operates Axcion" },
   contactEmail: { value: "", ask: "an address that receives mail" },
   governingLaw: { value: "", ask: "governing-law state" },
   effectiveDate: { value: "", ask: "effective date" },
@@ -30,14 +30,14 @@ const LAW = { fact: "governingLaw" };
 const privacy = {
   title: "Privacy Policy",
   intro: [
-    ENTITY, " (“Acumyn”, “we”) makes Acumyn, software that real estate teams use to bring their production, books and operations into one place. This policy explains what information we handle, what we use it for, which other companies receive it, and how long we keep it. It covers acumyn.io, app.acumyn.io and every workspace we host, such as your-team.acumyn.io.",
+    ENTITY, " (“Axcion”, “we”) makes Axcion, software that real estate teams use to bring their production, books and operations into one place. This policy explains what information we handle, what we use it for, which other companies receive it, and how long we keep it. It covers axcion.io, app.axcion.io and every workspace we host, such as your-team.axcion.io.",
   ],
   sections: [
     {
       id: "roles",
       h: "Whose data it is",
       blocks: [
-        "A team that uses Acumyn — our customer — decides what goes into its workspace and who can see it. We handle that data on the team’s behalf and to provide the service to it. If you are a member of a workspace, the team that invited you is the first place to take questions about its data.",
+        "A team that uses Axcion — our customer — decides what goes into its workspace and who can see it. We handle that data on the team’s behalf and to provide the service to it. If you are a member of a workspace, the team that invited you is the first place to take questions about its data.",
         "We also handle a smaller amount of information for ourselves: account and sign-in details, security records, and messages you send us.",
       ],
     },
@@ -64,14 +64,14 @@ const privacy = {
           "To keep accounts and data secure: authentication, rate limits, two-factor checks and the audit log.",
           "To answer questions asked of the built-in assistants and to read documents uploaded for that purpose, using Anthropic’s models.",
         ] },
-        "We do not sell personal information. We do not use a team’s data for advertising, and we do not use it to train AI models. Connections to other systems are read-only: Acumyn reads from them and does not change anything in them.",
+        "We do not sell personal information. We do not use a team’s data for advertising, and we do not use it to train AI models. Connections to other systems are read-only: Axcion reads from them and does not change anything in them.",
       ],
     },
     {
       id: "providers",
       h: "Companies that receive data",
       blocks: [
-        "We use these providers to run Acumyn. Each receives only what its job needs.",
+        "We use these providers to run Axcion. Each receives only what its job needs.",
         { table: {
           head: ["Provider", "What it receives", "Why"],
           rows: [
@@ -91,7 +91,7 @@ const privacy = {
       id: "storage",
       h: "Cookies and browser storage",
       blocks: [
-        "Acumyn sets no cookies and runs no analytics or advertising trackers. It uses your browser’s own storage to keep you signed in — until the tab closes, or for up to 30 days — to hold a short-lived second-factor check, and to remember a workspace’s branding between visits.",
+        "Axcion sets no cookies and runs no analytics or advertising trackers. It uses your browser’s own storage to keep you signed in — until the tab closes, or for up to 30 days — to hold a short-lived second-factor check, and to remember a workspace’s branding between visits.",
       ],
     },
     {
@@ -102,17 +102,17 @@ const privacy = {
           "A workspace’s data is kept while the workspace is active.",
           "Call transcripts are deleted automatically 365 days after they are stored. Recordings stay with Recall.ai under its retention; we do not copy them.",
           "Invitation links expire after 7 days and password reset links after 24 hours.",
-          "Records read from GoHighLevel, Arive and Stripe are replaced on every sync, so a record deleted there drops out of Acumyn. Records from the other systems stay until they are deleted here.",
+          "Records read from GoHighLevel, Arive and Stripe are replaced on every sync, so a record deleted there drops out of Axcion. Records from the other systems stay until they are deleted here.",
           "Deleting a Binder document deletes the stored file with it.",
         ] },
-        ["When a team stops using Acumyn, its owner can ask us to delete the workspace’s data by writing to ", CONTACT, "."],
+        ["When a team stops using Axcion, its owner can ask us to delete the workspace’s data by writing to ", CONTACT, "."],
       ],
     },
     {
       id: "security",
       h: "Security",
       blocks: [
-        "Credentials for connected systems and authenticator secrets are encrypted before they are stored, and a deployed server refuses to start with a default key. Connections to Acumyn use HTTPS. Every query is scoped to its own workspace, sensitive areas ask for a second factor again, and sign-in attempts are rate-limited and locked after repeated failures. No system is perfectly secure, and we will tell affected customers without undue delay if their data is compromised.",
+        "Credentials for connected systems and authenticator secrets are encrypted before they are stored, and a deployed server refuses to start with a default key. Connections to Axcion use HTTPS. Every query is scoped to its own workspace, sensitive areas ask for a second factor again, and sign-in attempts are rate-limited and locked after repeated failures. No system is perfectly secure, and we will tell affected customers without undue delay if their data is compromised.",
       ],
     },
     {
@@ -120,7 +120,7 @@ const privacy = {
       h: "Your choices",
       blocks: [
         ["Depending on where you live, you may have the right to see, correct or delete personal information about you, or to object to how it is used. If the information is in a team’s workspace, send the request to that team: it controls the data, and we will help it respond. For anything else, write to us at ", CONTACT, "."],
-        "Acumyn is built for businesses and is not directed to children.",
+        "Axcion is built for businesses and is not directed to children.",
       ],
     },
     {
@@ -143,14 +143,14 @@ const privacy = {
 const terms = {
   title: "Terms of Service",
   intro: [
-    "These terms are an agreement between ", ENTITY, " (“Acumyn”, “we”) and the organization that uses Acumyn (the “customer”), and they also apply to each person the customer invites. If you accept them for an organization, you confirm that you are authorized to. Where the customer has a signed agreement with us, that agreement governs wherever it differs from these terms.",
+    "These terms are an agreement between ", ENTITY, " (“Axcion”, “we”) and the organization that uses Axcion (the “customer”), and they also apply to each person the customer invites. If you accept them for an organization, you confirm that you are authorized to. Where the customer has a signed agreement with us, that agreement governs wherever it differs from these terms.",
   ],
   sections: [
     {
       id: "service",
       h: "The service",
       blocks: [
-        "Acumyn gives each customer its own workspace. People join a workspace by invitation from the customer. We improve the service continually, so features change; features labelled early access are provided as they are and may be changed or withdrawn.",
+        "Axcion gives each customer its own workspace. People join a workspace by invitation from the customer. We improve the service continually, so features change; features labelled early access are provided as they are and may be changed or withdrawn.",
       ],
     },
     {
@@ -164,7 +164,7 @@ const terms = {
       id: "connections",
       h: "Connected systems",
       blocks: [
-        "When the customer connects a system such as QuickBooks Online, Sisu or Follow Up Boss, it authorizes Acumyn to read data from that system to provide the service. The customer must have the right to connect each system and to share its data with us. Connections are read-only. Each connected system is governed by its own terms, and we cannot control its availability or the data it returns.",
+        "When the customer connects a system such as QuickBooks Online, Sisu or Follow Up Boss, it authorizes Axcion to read data from that system to provide the service. The customer must have the right to connect each system and to share its data with us. Connections are read-only. Each connected system is governed by its own terms, and we cannot control its availability or the data it returns.",
       ],
     },
     {
@@ -193,7 +193,7 @@ const terms = {
       h: "Acceptable use",
       blocks: [
         { list: [
-          "Do not use Acumyn to break the law or to infringe anyone’s rights.",
+          "Do not use Axcion to break the law or to infringe anyone’s rights.",
           "Do not upload or connect data you are not entitled to share.",
           "Do not try to reach another customer’s workspace, probe or overload the service, or get around its security or access controls.",
           "Do not resell or provide the service to others without our written agreement.",
@@ -211,14 +211,14 @@ const terms = {
       id: "termination",
       h: "Suspension and ending",
       blocks: [
-        "We may suspend access to protect the service, its users or their data, or when these terms are broken, and we will tell the customer when we do unless that would make things worse. The customer may stop using Acumyn at any time. When the service ends, access ends; a customer’s data is deleted on request as our Privacy Policy describes.",
+        "We may suspend access to protect the service, its users or their data, or when these terms are broken, and we will tell the customer when we do unless that would make things worse. The customer may stop using Axcion at any time. When the service ends, access ends; a customer’s data is deleted on request as our Privacy Policy describes.",
       ],
     },
     {
       id: "disclaimers",
       h: "Disclaimers",
       blocks: [
-        "Acumyn is provided “as is”. Its figures are only as accurate as the systems they come from. It is not financial, tax, legal or compliance advice: compliance deadlines and rules in Binder are aids to your own review, not a substitute for it. To the extent the law allows, we disclaim all warranties not stated in these terms.",
+        "Axcion is provided “as is”. Its figures are only as accurate as the systems they come from. It is not financial, tax, legal or compliance advice: compliance deadlines and rules in Binder are aids to your own review, not a substitute for it. To the extent the law allows, we disclaim all warranties not stated in these terms.",
       ],
     },
     {
@@ -232,7 +232,7 @@ const terms = {
       id: "changes",
       h: "Changes to these terms",
       blocks: [
-        "We may update these terms. We will change the effective date above and email workspace owners before a material change takes effect. Continuing to use Acumyn after that means accepting the updated terms.",
+        "We may update these terms. We will change the effective date above and email workspace owners before a material change takes effect. Continuing to use Axcion after that means accepting the updated terms.",
       ],
     },
     {

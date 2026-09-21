@@ -4,7 +4,7 @@ import { ago } from "../format.js";
 import { Btn, Card, Chip, Field, inputStyle, Loading, LoadError, Mono, Notice, Row, useAction, useApi } from "../primitives.jsx";
 import { A, TYPE } from "../tokens.js";
 
-/* Acumyn's own Stripe account: the one that charges workspaces. Keys are pasted here by an
+/* Axcion's own Stripe account: the one that charges workspaces. Keys are pasted here by an
    operator, verified against Stripe, stored encrypted and never shown again. Nothing in this card
    touches a workspace's own Stripe connection, which lives in that workspace's Settings. */
 export default function BillingSetupCard() {
@@ -24,7 +24,7 @@ export default function BillingSetupCard() {
 
   return (
     <Card title="Platform billing"
-      sub="Acumyn's own Stripe account, which charges workspaces for their plans. Not any workspace's Stripe: those are revenue sources connected inside each workspace.">
+      sub="Axcion's own Stripe account, which charges workspaces for their plans. Not any workspace's Stripe: those are revenue sources connected inside each workspace.">
       <Row k="Account">
         {c.connected ? <><Mono c={A.ink}>{c.account_name || c.account_id}</Mono> {c.livemode ? <Chip state="healthy">Live</Chip> : <Chip state="watch">Test mode</Chip>}</>
           : <span style={{ color: A.mute }}>Not connected</span>}

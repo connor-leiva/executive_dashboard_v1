@@ -900,7 +900,7 @@ function QboEntityForm({ mode, entity, onClose, onDone }) {
         )}
         <label style={check}>
           <input type="checkbox" checked={books} onChange={(e) => setBooks(e.target.checked)} />
-          Feed this entity into Acumyn Books (approval queue, close)
+          Feed this entity into Axcion Books (approval queue, close)
         </label>
         <label style={check}>
           <input type="checkbox" checked={inPortfolio} onChange={(e) => setInPortfolio(e.target.checked)} />

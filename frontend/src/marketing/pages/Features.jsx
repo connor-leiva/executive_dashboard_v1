@@ -1,5 +1,5 @@
 import React from "react";
-import { CORE, NEUTRAL, TYPE } from "../../brand/acumyn.jsx";
+import { CORE, NEUTRAL, TYPE } from "../../brand/axcion.jsx";
 import { ProductIcon } from "../../brand/productIcons.jsx";
 import { SITE, FEATURE_DETAIL, SOURCES, PLATFORM, TRUST } from "../content.js";
 import {
@@ -76,7 +76,7 @@ export default function Features() {
         <p style={label}>Sources</p>
         <h2 style={{ ...h1Type, marginTop: 14, maxWidth: 520 }}>What it reads from</h2>
         <p style={{ ...body, marginTop: 16, maxWidth: 560 }}>
-          Every connection is read-only. Acumyn pulls data and never writes it back, so your
+          Every connection is read-only. Axcion pulls data and never writes it back, so your
           books and your CRM stay the source of truth.
         </p>
         <div className="acu-sources" style={{ background: NEUTRAL[100], border: `1px solid ${NEUTRAL[100]}`, borderRadius: 14, overflow: "hidden", marginTop: 32 }}>
@@ -112,7 +112,7 @@ export default function Features() {
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center", marginTop: 28 }}>
             <Primary href={SITE.signupUrl} onDark>{SITE.signupLabel}</Primary>
-            <Ghost href={`mailto:${SITE.contactEmail}?subject=Acumyn%20demo`} onDark>Book a demo</Ghost>
+            <Ghost href={`mailto:${SITE.contactEmail}?subject=Axcion%20demo`} onDark>Book a demo</Ghost>
           </div>
         </div>
       </Section>

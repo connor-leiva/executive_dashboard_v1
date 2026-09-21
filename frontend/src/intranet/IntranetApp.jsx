@@ -307,7 +307,7 @@ function useScopedState(scope, stateKey, initial, ready) {
   return [value, setValue, loaded];
 }
 
-/* WHOSE PORTAL THIS IS, when it is not the reader's own: an Acumyn support view, opened from the
+/* WHOSE PORTAL THIS IS, when it is not the reader's own: an Axcion support view, opened from the
    operator console inside a support session. Always on screen, because everything below it is
    somebody else's page -- and it says the view is read-only before a click has to. */
 function ViewAsBanner({ me }) {
@@ -713,7 +713,7 @@ function numbersGap(numbers, me, canConfigure) {
       kind: "not_connected",
       title: "Sisu is not connected",
       body: canConfigure
-        ? "This workspace has no Sisu connection yet. Connect Sisu in the Acumyn dashboard under Settings, Integrations, and production appears here after its first sync."
+        ? "This workspace has no Sisu connection yet. Connect Sisu in the Axcion dashboard under Settings, Integrations, and production appears here after its first sync."
         : "This workspace has not connected Sisu yet. Your numbers appear here once an admin connects it.",
       short: "this workspace has not connected Sisu yet.",
     };
@@ -1083,7 +1083,7 @@ function followUpReason(data, me, canConfigure) {
   const conn = data?.connection || {};
   if (conn.state === "not_connected") {
     return canConfigure
-      ? "This workspace has not connected Follow Up Boss. Connect it in the Acumyn dashboard under Settings, Integrations, and the leads waiting on your team appear here after the first sync."
+      ? "This workspace has not connected Follow Up Boss. Connect it in the Axcion dashboard under Settings, Integrations, and the leads waiting on your team appear here after the first sync."
       : "This workspace has not connected Follow Up Boss yet. Your follow-ups appear here once an admin connects it.";
   }
   if (conn.state === "not_synced") {

@@ -1,5 +1,5 @@
 import React from "react";
-import { CORE, CADET, NEUTRAL, TYPE } from "../brand/acumyn.jsx";
+import { CORE, CADET, NEUTRAL, TYPE } from "../brand/axcion.jsx";
 import plateLight from "./assets/aperture-light.jpg";
 import plateInk from "./assets/aperture-ink.jpg";
 import plateDetail from "./assets/aperture-detail.jpg";
@@ -13,8 +13,8 @@ import utahLifeTeam from "./assets/utah-life-team.jpg";
  * shared fragments, and one <style> block per document for what inline styles cannot express.
  * No CSS files, no styling dependencies.
  *
- * The palette, type families and mark all come from ../brand/acumyn.jsx, which the product's
- * "Powered by Acumyn" also draws from. This site shipped with its own copy of the tokens and the
+ * The palette, type families and mark all come from ../brand/axcion.jsx, which the product's
+ * "Powered by Axcion" also draws from. This site shipped with its own copy of the tokens and the
  * mark geometry; two copies of a mark are two marks the day one of them is corrected.
  *
  * A note on the muted grey. The identity guide's product spread sets small labels in a very
@@ -45,7 +45,7 @@ import utahLifeTeam from "./assets/utah-life-team.jpg";
 export const WHITE = "#FFFFFF";
 
 /* A token (or any #rrggbb) as rgba(), so translucent overlays derive from the palette instead of
-   hardcoding triples. acumyn.jsx has no equivalent, and only this site needs one. */
+   hardcoding triples. axcion.jsx has no equivalent, and only this site needs one. */
 export const alpha = (hex, a) => {
   const h = String(hex).replace("#", "");
   const n = parseInt(h.length === 3 ? h.replace(/./g, "$&$&") : h, 16);
@@ -57,10 +57,10 @@ export const alpha = (hex, a) => {
  * PLATES are generated abstract light studies in ./assets. Out-of-focus highlights on
  * them are curved triangles because that is what a THREE-BLADED iris renders, and §01 defines
  * the mark as exactly that — "three blades opening on a fixed point: an aperture". The
- * texture is derived from Acumyn's own mark rather than borrowed from anyone.
+ * texture is derived from Axcion's own mark rather than borrowed from anyone.
  *
  * Deliberately not the fluted-glass treatment in Spring's brand photos. That is Spring's
- * visual identity; Acumyn is a different brand, and adopting it would repeat the mistake of
+ * visual identity; Axcion is a different brand, and adopting it would repeat the mistake of
  * treating tenant #1's look as the platform's.
  *
  * They are grounds and texture. They are NOT photographs: never caption one as a place, a
@@ -71,7 +71,7 @@ export const alpha = (hex, a) => {
  * Only what a page imports is bundled, so none of it rides along in the dashboard's build. And
  * this entry needs no public directory at all — which matters, because frontend/public holds
  * Spring's /brand/photos and other dashboard assets (a different company, a different product,
- * and one identifiable person). Nothing in it may appear on an Acumyn surface.
+ * and one identifiable person). Nothing in it may appear on an Axcion surface.
  *
  * PHOTO is the slot for real photography when it exists. It fixes the aspect ratio, applies
  * a consistent treatment and reserves the caption, so a shoot can be dropped in without

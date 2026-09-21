@@ -7,7 +7,7 @@
    unmapped-guard error in Phase 3 will send people from. Settings is already 1,500 lines of
    things you set once.
 
-   QuickBooks is never written to. Everything here changes how Acumyn READS those books. */
+   QuickBooks is never written to. Everything here changes how Axcion READS those books. */
 import { useMemo, useState } from "react";
 import { postJSON, patchJSON, delJSON } from "../api";
 import { useCoaEntities, useCoaMapping } from "./useBooks.js";
@@ -171,7 +171,7 @@ export default function BooksMapping({ isCFO = false }) {
                   <Count label="By rule" value={d.counts.by_rule} tone={T.teal} />
                   <div style={{ flex: 1, minWidth: 220, fontFamily: font.body, fontSize: 11.5,
                                 color: T.muted, lineHeight: 1.55, paddingTop: 2 }}>
-                    Mapping changes how Acumyn reads these books. It does not touch QuickBooks, and it
+                    Mapping changes how Axcion reads these books. It does not touch QuickBooks, and it
                     does not fix a transaction coded to the wrong account.
                   </div>
                 </div>

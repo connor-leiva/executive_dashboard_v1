@@ -1,4 +1,4 @@
-/* Acumyn marketing — copy and configuration.
+/* Axcion marketing — copy and configuration.
  *
  * Content lives here rather than inside Landing.jsx so that changing a claim, a price or a
  * CTA target does not mean reading JSX. Every capability claim below was checked against
@@ -17,9 +17,9 @@
  * So `signupUrl` below points at a mailto until a real trial flow exists. Point it at the
  * signup route the day that route is built; nothing else on the page has to change.
  *
- * !!  hello@acumyn.io CANNOT RECEIVE MAIL YET.  !!
+ * !!  hello@axcion.io CANNOT RECEIVE MAIL YET.  !!
  *
- * acumyn.io has no MX record, and mail.acumyn.io is Resend's SENDING subdomain, which creates
+ * axcion.io has no MX record, and mail.axcion.io is Resend's SENDING subdomain, which creates
  * no inbox. Every "Start free trial", "Book a demo", "Talk to us" and "Contact" on this site is
  * a mailto to this address, so until a mailbox exists for it (MX records at the registrar)
  * each of them bounces. Change the address here, or create the inbox, before launch.
@@ -28,9 +28,9 @@
  * hosts.js. A workspace is its own host, so there is no single sign-in page to link to.
  */
 export const SITE = {
-  signupUrl: "mailto:hello@acumyn.io?subject=Acumyn%20trial",
+  signupUrl: "mailto:hello@axcion.io?subject=Axcion%20trial",
   signupLabel: "Start free trial",
-  contactEmail: "hello@acumyn.io",
+  contactEmail: "hello@axcion.io",
 };
 
 /* Set to false once real figures replace the placeholders in PRICING. While true, the page
@@ -40,10 +40,10 @@ export const PRICING_IS_PLACEHOLDER = true;
 
 export const HERO = {
   eyebrow: "For real estate teams",
-  /* The display specimen from the brand guide (§07). It is Acumyn's own line. */
+  /* The display specimen from the brand guide (§07). It is Axcion's own line. */
   headline: "Track production, not spreadsheets",
-  sub: "Acumyn connects the systems a real estate team already runs — Sisu, QuickBooks, Follow Up Boss, GoHighLevel — and reconciles them into one production view. Every number on screen traces back to a source record.",
-  note: "Read-only connections. Acumyn never writes to your books or your CRM.",
+  sub: "Axcion connects the systems a real estate team already runs — Sisu, QuickBooks, Follow Up Boss, GoHighLevel — and reconciles them into one production view. Every number on screen traces back to a source record.",
+  note: "Read-only connections. Axcion never writes to your books or your CRM.",
 };
 
 /* Every one of these has a working client making real HTTP calls in
@@ -71,7 +71,7 @@ export const STEPS = [
   {
     n: "01",
     t: "Connect",
-    d: "Authorise QuickBooks and paste credentials for the systems you already run. Connections are stored encrypted and are read-only — Acumyn pulls, it never pushes.",
+    d: "Authorise QuickBooks and paste credentials for the systems you already run. Connections are stored encrypted and are read-only — Axcion pulls, it never pushes.",
   },
   {
     n: "02",
@@ -118,7 +118,7 @@ export const MODULES = [
 export const TRACE = {
   eyebrow: "Lineage",
   heading: "Every number is a question you can answer",
-  body: "Most dashboards give you a figure and ask you to trust it. Acumyn maps every metric to the records it was computed from, a plain-English description of the calculation, and a link straight into QuickBooks, Sisu, Stripe or the CRM. A drill-down also respects permissions — someone who cannot see a tab cannot reach its records through a number.",
+  body: "Most dashboards give you a figure and ask you to trust it. Axcion maps every metric to the records it was computed from, a plain-English description of the calculation, and a link straight into QuickBooks, Sisu, Stripe or the CRM. A drill-down also respects permissions — someone who cannot see a tab cannot reach its records through a number.",
   example: {
     metric: "GCI, month to date",
     value: "$412,900",
@@ -133,7 +133,7 @@ export const TRACE = {
 
 /* Each claim below maps to something real in the backend. Nothing aspirational. */
 export const TRUST = [
-  { t: "Read-only by design", d: "Acumyn pulls data and never writes it back. No integration has a write path to your books or your CRM, so connecting it cannot change your source of truth." },
+  { t: "Read-only by design", d: "Axcion pulls data and never writes it back. No integration has a write path to your books or your CRM, so connecting it cannot change your source of truth." },
   { t: "Credentials encrypted at rest", d: "Integration secrets and two-factor seeds are Fernet-encrypted in the database, and the application refuses to start if it is still holding a default key." },
   { t: "Two-factor step-up", d: "Sensitive areas ask for a second factor again on a short-lived grant, held only for the browser session. Closing the tab re-locks them." },
   { t: "Permissions down to the number", d: "Members are granted individual tabs, and every metric is mapped to the tab that owns it — so a drill-down cannot leak past what someone is allowed to see." },
@@ -142,7 +142,7 @@ export const TRUST = [
 ];
 
 /* ⚠️  PLACEHOLDER PRICING — invented to show the layout. Nothing in the repo defines
-       Acumyn's pricing. Replace every `price` and `priceNote`, then set
+       Axcion's pricing. Replace every `price` and `priceNote`, then set
        PRICING_IS_PLACEHOLDER to false above. */
 export const PRICING = [
   {
@@ -173,10 +173,10 @@ export const PRICING = [
 ];
 
 export const FAQ = [
-  { q: "Can Acumyn change anything in QuickBooks?", a: "No. Every integration is read-only. Acumyn pulls data and reconciles it; writeback does not exist in the product today." },
+  { q: "Can Axcion change anything in QuickBooks?", a: "No. Every integration is read-only. Axcion pulls data and reconciles it; writeback does not exist in the product today." },
   { q: "How long does connecting take?", a: "QuickBooks is an OAuth authorisation and takes about a minute per entity. The others are an API key or a username and token pasted into settings. Your first full sync usually completes the same day." },
   { q: "What if a number looks wrong?", a: "Click it. You get the records it came from, the calculation in plain English, and a link into the source system so you can check it against the original." },
-  { q: "Where do I sign in?", id: "signin", a: "Each workspace has its own address — your-team.acumyn.io — and that is where you and your team sign in. It is in your invitation email. If you cannot find it, enter your work email at app.acumyn.io and we will email you a link to every workspace it belongs to." },
+  { q: "Where do I sign in?", id: "signin", a: "Each workspace has its own address — your-team.axcion.io — and that is where you and your team sign in. It is in your invitation email. If you cannot find it, enter your work email at app.axcion.io and we will email you a link to every workspace it belongs to." },
   { q: "Do you support single sign-on?", a: "Every workspace can sign in with Google, and the people who run the workspace can limit that to their company's email domains. SAML single sign-on is not available yet. Sensitive areas such as Binder ask for a second factor from an authenticator app, with recovery codes." },
   { q: "Where does my data live?", a: "Your reconciled data sits in a Postgres database, scoped to your own workspace, with integration credentials encrypted at rest. Files you upload — Binder documents, logos, lesson and request attachments — are stored in Cloudflare R2. Call recording, which is off unless you turn it on, runs through Recall.ai: Recall holds the recordings under its own retention, and we delete stored transcripts after a year. The assistants, Binder's document reading and call chapters send the text they work on to Anthropic, which can mean a whole uploaded document or a call transcript. The privacy policy lists every provider." },
 ];
@@ -190,12 +190,12 @@ export const NAV = [
 ];
 
 export const META = {
-  "/":         { title: "Acumyn — one production view for real estate teams" },
-  "/features": { title: "Features — Acumyn" },
-  "/about":    { title: "About — Acumyn" },
-  "/pricing":  { title: "Pricing — Acumyn" },
-  "/privacy":  { title: "Privacy Policy — Acumyn" },
-  "/terms":    { title: "Terms of Service — Acumyn" },
+  "/":         { title: "Axcion — one production view for real estate teams" },
+  "/features": { title: "Features — Axcion" },
+  "/about":    { title: "About — Axcion" },
+  "/pricing":  { title: "Pricing — Axcion" },
+  "/privacy":  { title: "Privacy Policy — Axcion" },
+  "/terms":    { title: "Terms of Service — Axcion" },
 };
 
 /* ─── About ────────────────────────────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ export const META = {
 export const ABOUT = {
   eyebrow: "About",
   headline: "We built this for our own brokerage first",
-  standfirst: "Acumyn started as an internal tool at Utah Life Real Estate Group. It was not a product idea. It was a Monday morning problem that would not go away.",
+  standfirst: "Axcion started as an internal tool at Utah Life Real Estate Group. It was not a product idea. It was a Monday morning problem that would not go away.",
 
   story: [
     {
@@ -234,7 +234,7 @@ export const ABOUT = {
 
   /* Each of these is enforced somewhere in the codebase, not aspirational. */
   principles: [
-    { t: "Read-only, always", d: "Acumyn pulls data and never writes it back. Your books and your CRM stay the source of truth, so connecting it can never be the thing that breaks them." },
+    { t: "Read-only, always", d: "Axcion pulls data and never writes it back. Your books and your CRM stay the source of truth, so connecting it can never be the thing that breaks them." },
     { t: "A number you cannot trace is a rumour", d: "Every figure maps to the records behind it, the calculation in plain English, and a link into the system it came from. If we cannot show you where it came from, we would rather not show it." },
     { t: "Refuse rather than mislead", d: "When a mapped statement does not tie out to the trial balance, it does not render. A blocked statement is an afternoon of work. A wrong one that looked right is a quarter." },
     { t: "A person approves anything that ships", d: "Where the product drafts work — reading a document for filing obligations, preparing campaign material — it lands as a draft for review. Nothing commits itself." },
@@ -242,7 +242,7 @@ export const ABOUT = {
 
   closing: {
     h: "Still an operating company",
-    p: "Acumyn is built by people who close transactions, file entity paperwork and sit in the same Monday meeting the product exists to serve. That is the whole reason it is shaped the way it is — and it is why the roadmap tends to be short, specific and drawn from things that annoyed us last week.",
+    p: "Axcion is built by people who close transactions, file entity paperwork and sit in the same Monday meeting the product exists to serve. That is the whole reason it is shaped the way it is — and it is why the roadmap tends to be short, specific and drawn from things that annoyed us last week.",
   },
 };
 

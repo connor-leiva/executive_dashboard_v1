@@ -5,7 +5,7 @@ import IntranetApp from "./IntranetApp.jsx";
 import { adoptViewAs } from "../api.js";
 import "./ui.css";
 
-// Before the first request: an Acumyn support view arrives as `#view-as=` from the operator
+// Before the first request: an Axcion support view arrives as `#view-as=` from the operator
 // console, and every call this tab makes must carry it (see api.js).
 adoptViewAs();
 

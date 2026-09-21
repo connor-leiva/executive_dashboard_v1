@@ -259,7 +259,7 @@ function IntegrationDetail({ integration, onSave, onConnect, onTest, saving, con
 /* HOW YOUR TEAM SIGNS IN — first on the page, because it is the only thing here that decides
    whether anyone can get in at all.
 
-   NOTHING TO SET UP. Every workspace signs in through Acumyn's own Google app, so this is two
+   NOTHING TO SET UP. Every workspace signs in through Axcion's own Google app, so this is two
    choices rather than a form: whether the button is offered, and optionally which email domains
    may use it. It used to ask for a client ID and secret from the workspace's own Google Cloud
    project — a wall no team buying a portal should have to climb before their agents can sign in. */

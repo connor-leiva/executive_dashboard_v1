@@ -1,6 +1,6 @@
 /* The ONLY file under frontend/src/ads/ permitted a hex value. SPEC-ads-module.md Part 13.2.
  *
- * The approved mockup is dark neon - indigo, pink and lime on near-black. Acumyn is parchment
+ * The approved mockup is dark neon - indigo, pink and lime on near-black. Axcion is parchment
  * and evergreen. This is that translation, done once, so no component under ads/ ever reaches
  * for a colour of its own. The acceptance check is a grep, and it is a real rule rather than a
  * tidiness preference: a colour inlined in a component is a colour that survives a rebrand.
@@ -45,10 +45,10 @@ export const C = {
   badBg: alpha(T.poppy, 0.10),
   badBar: T.poppy,
 
-  // The Meta / Acumyn crossing in the funnel. Deliberately NOT a brand colour: the point of the
+  // The Meta / Axcion crossing in the funnel. Deliberately NOT a brand colour: the point of the
   // divide is that the rungs above it are somebody else's measurement.
   metaZone: alpha(T.slate, 0.05),
-  acumynZone: alpha(T.meadow, 0.06),
+  axcionZone: alpha(T.meadow, 0.06),
 
   // ── The approved mockup's vocabulary (ads-meta-performance, Appendix B) ──────────────
   // Added under the mockup's OWN names rather than remapped onto the ones above, so a rule

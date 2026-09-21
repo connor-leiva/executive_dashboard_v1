@@ -6,11 +6,23 @@
  * shows CONVERSION FROM THE PRIOR RUNG, 0 to 100. That is the number you scan for the leak, it is
  * readable at every scale, and it is honest. Counts sit beside it as figures.
  *
- * THE CROSSING. Rungs above `registered` are Meta measuring itself; everything below is Acumyn's
+ * THE CROSSING. Rungs above `registered` are Meta measuring itself; everything below is Axcion's
  * own record. That separation is the module's entire thesis, so it is rendered as a crossing
  * rather than a rule.
  */
 import { C, FIG, FONT, HEAD, band, compact, num, pct, usd } from "./adsTokens.js";
+
+/* A rung's `zone` says who measured it: Meta, or us. The API emits "axcion"; it emitted
+   "acumyn" before the September 2026 rename, and the API and the web bundle are separate
+   Railway services that do not deploy at the same instant. For the length of that window a
+   new bundle can be reading an old API's payload, so BOTH spellings are accepted rather than
+   assuming an order. Every zone test below goes through here.
+
+   Getting this wrong is quiet, not loud: a mismatch does not throw. The crossing collapses,
+   every rung looks like Meta's, the leak calculation silently includes boundaries it is
+   supposed to exclude, and no rung offers its drill-down. Drop the "acumyn" arm once the old
+   API is gone (Phase 10 of AXCION-REBRAND-SPEC.md). */
+const ours = (rung) => rung != null && (rung.zone === "axcion" || rung.zone === "acumyn");
 
 export default function Funnel({ rungs, spend, onDrill }) {
   if (!rungs || !rungs.length) return null;
@@ -24,10 +36,10 @@ export default function Funnel({ rungs, spend, onDrill }) {
      here", about a step that had never been recorded at all. Excluded from the running rather
      than hidden, and the drill on that rung explains which kind of zero it is. */
   const unrecorded = (r, i) => r.n === 0 && rungs.slice(i + 1).some(
-    (later) => later.zone === "acumyn" && (later.n || 0) > 0);
+    (later) => ours(later) && (later.n || 0) > 0);
 
   const leakCandidates = rungs.filter(
-    (r, i) => i > 0 && r.zone === "acumyn" && rungs[i - 1].zone === "acumyn"
+    (r, i) => i > 0 && ours(r) && ours(rungs[i - 1])
               && r.conversion !== null && r.conversion !== undefined
               && !unrecorded(r, i));
   const worst = leakCandidates.length
@@ -59,14 +71,14 @@ export default function Funnel({ rungs, spend, onDrill }) {
 
            - Between impression, click and lead, because an impression is not a person who left.
            - Between lead and registered, because that is a change of MEASUREMENT SYSTEM rather
-             than a step. Meta's lead count and Acumyn's matched registrations count overlapping
+             than a step. Meta's lead count and Axcion's matched registrations count overlapping
              populations, and a large part of the gap is people who did register and could not be
              matched - stripped UTM, cross-device, view-through. Asserting they "left" is the same
              class of lie as an absolute-width bar.
 
            The conversion percentage still renders on those boundaries. Only the headcount claim
            is withheld. Guarded on the zone of BOTH rungs, not just this one. */
-        const drop = prevRung && prevRung.zone === "acumyn" && r.zone === "acumyn"
+        const drop = ours(prevRung) && ours(r)
           ? (r.prev ?? 0) - r.n
           : null;
 
@@ -82,7 +94,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
                 <span style={{ fontFamily: FONT, fontSize: 10.5, fontWeight: 600,
                                letterSpacing: ".08em", textTransform: "uppercase",
                                color: C.muted }}>
-                  In Acumyn
+                  In Axcion
                 </span>
                 <span style={{ flex: 1, height: 1, background: C.line }} />
               </div>
@@ -122,10 +134,10 @@ export default function Funnel({ rungs, spend, onDrill }) {
 
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                  {/* Only the Acumyn rungs open: those are counts of PEOPLE. An impression is
+                  {/* Only the Axcion rungs open: those are counts of PEOPLE. An impression is
                       not somebody you can list, and offering to open one would promise a thing
                       that cannot exist. */}
-                  {onDrill && r.zone === "acumyn" ? (
+                  {onDrill && ours(r) ? (
                     <button type="button" onClick={() => onDrill(r.key, r.label)}
                             className="fn-open"
                             style={{ fontFamily: HEAD, fontSize: 13.5, fontWeight: 600,

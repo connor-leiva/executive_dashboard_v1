@@ -64,7 +64,7 @@ function GoogleMark() {
   );
 }
 
-/** Offered wherever Acumyn's Google app is configured and this workspace has not turned it off —
+/** Offered wherever Axcion's Google app is configured and this workspace has not turned it off —
  *  asked of the server rather than assumed, so nobody is shown a button that cannot work. */
 function GoogleSignIn({ onError }) {
   const [available, setAvailable] = useState(false);
@@ -123,7 +123,7 @@ export function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   // Before you sign in you are at the platform, not inside a workspace — so until /public/brand
-  // answers, the page truthfully wears Acumyn's identity rather than a placeholder.
+  // answers, the page truthfully wears Axcion's identity rather than a placeholder.
   const chrome = useChrome();
   // A Google round trip that failed comes back as ?google_error=<code>. Read once into the same
   // error slot the password form uses, so there is one place errors appear on this screen.

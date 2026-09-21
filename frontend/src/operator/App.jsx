@@ -1,4 +1,4 @@
-/* Acumyn · Operator — the console Acumyn staff run the platform from.
+/* Axcion · Operator — the console Axcion staff run the platform from.
  *
  * THE ONE LAW: no status without its reason. Every chip carries the derivation that produced it and
  * the action that clears it; the API supplies both (services/fleet_health.py).
@@ -7,11 +7,11 @@
  * Never a tenant's numbers.
  *
  * It must never be mistaken for a customer's dashboard. It lives on its own origin
- * (admin.acumyn.io) and in its own bundle, and every screen sits under the ink bar reading
- * "Acumyn | Operator", which no workspace surface has.
+ * (admin.axcion.io) and in its own bundle, and every screen sits under the ink bar reading
+ * "Axcion | Operator", which no workspace surface has.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { AcumynLockup } from "../brand/acumyn.jsx";
+import { AxcionLockup } from "../brand/axcion.jsx";
 import { api, hasSession, operatorName, signIn, signOut } from "./api.js";
 import { Btn, Card, Field, inputStyle, Notice } from "./primitives.jsx";
 import { css } from "./styles.js";
@@ -30,7 +30,7 @@ const NAV = [
   { key: "workspaces", label: "Workspaces", title: "Workspaces", sub: "Every workspace, with the worst open signal on each and the reason for it." },
   { key: "new", label: "New workspace", title: "New workspace", sub: "Live at its own address the moment you press create." },
   { key: "incidents", label: "Incidents", title: "Incidents", sub: "Errors grouped by cause, with what clears each one." },
-  { key: "audit", label: "Audit", title: "Audit", sub: "Every change across the platform, by Acumyn staff and by each workspace's own team." },
+  { key: "audit", label: "Audit", title: "Audit", sub: "Every change across the platform, by Axcion staff and by each workspace's own team." },
   { key: "system", label: "System", title: "System", sub: "What is deployed, whether the API, the worker and the database are well, and the flags that change every workspace at once." },
 ];
 
@@ -82,11 +82,11 @@ function SignIn({ onDone }) {
     <div style={{ minHeight: "100vh", background: A.ground, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ width: "100%", maxWidth: 380 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
-          <AcumynLockup size={24} />
+          <AxcionLockup size={24} />
           <span aria-hidden style={{ width: 1, height: 14, background: A.lineMid }} />
           <span style={{ fontFamily: TYPE.text, fontSize: 13, fontWeight: 600, color: A.body }}>Operator</span>
         </div>
-        <Card title="Sign in" sub="Acumyn staff only. Operator accounts are created from the deployment, never from this page.">
+        <Card title="Sign in" sub="Axcion staff only. Operator accounts are created from the deployment, never from this page.">
           <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
             <Field label="Email" htmlFor="op-email">
               <input id="op-email" type="email" autoComplete="username" required value={email}
@@ -124,7 +124,7 @@ export default function OperatorApp() {
 
   useEffect(() => {
     const nav = NAV.find((n) => n.key === route.section);
-    document.title = route.slug ? `${route.slug} · Acumyn Operator` : `${nav ? nav.title : "Fleet"} · Acumyn Operator`;
+    document.title = route.slug ? `${route.slug} · Axcion Operator` : `${nav ? nav.title : "Fleet"} · Axcion Operator`;
   }, [route]);
 
   const content = (
@@ -147,8 +147,8 @@ export default function OperatorApp() {
       }}>
         <div style={{ maxWidth: 1240, margin: "0 auto", height: 52, display: "flex", alignItems: "center", gap: 14, justifyContent: "space-between" }}>
           <a href="/fleet" onClick={(e) => { e.preventDefault(); go("/fleet"); }}
-            style={{ display: "flex", alignItems: "center", minWidth: 0, textDecoration: "none" }} aria-label="Acumyn Operator, fleet">
-            <AcumynLockup size={20} treatment="reversed" />
+            style={{ display: "flex", alignItems: "center", minWidth: 0, textDecoration: "none" }} aria-label="Axcion Operator, fleet">
+            <AxcionLockup size={20} treatment="reversed" />
             <span aria-hidden style={{ width: 1, height: 12, background: A.onInkMute, opacity: 0.45, margin: "0 9px", flexShrink: 0 }} />
             <span style={{ fontFamily: TYPE.text, fontSize: 11.5, fontWeight: 500, color: A.onInkMute, whiteSpace: "nowrap" }}>Operator</span>
           </a>

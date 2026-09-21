@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { CORE, CADET, NEUTRAL, TYPE } from "../../brand/acumyn.jsx";
+import { CORE, CADET, NEUTRAL, TYPE } from "../../brand/axcion.jsx";
 import { SITE, PRICING, PRICING_IS_PLACEHOLDER, FAQ } from "../content.js";
 import { label, body, card, h1Type, h2Type, Primary, Ghost, Section, PageHead, WHITE } from "../ui.jsx";
 
@@ -98,7 +98,7 @@ export default function Pricing() {
                 {p.cta === "primary" ? (
                   <Primary href={SITE.signupUrl} block onDark={p.featured}>{SITE.signupLabel}</Primary>
                 ) : (
-                  <Ghost href={`mailto:${SITE.contactEmail}?subject=Acumyn%20${encodeURIComponent(p.name)}`} onDark={p.featured} block>
+                  <Ghost href={`mailto:${SITE.contactEmail}?subject=Axcion%20${encodeURIComponent(p.name)}`} onDark={p.featured} block>
                     Talk to us
                   </Ghost>
                 )}

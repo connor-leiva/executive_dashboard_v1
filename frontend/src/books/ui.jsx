@@ -1,4 +1,4 @@
-/* Shared Books UI primitives — port of the acumyn-books-v2 mockup's kit, mapped onto the
+/* Shared Books UI primitives — port of the axcion-books-v2 mockup's kit, mapped onto the
    live dashboard theme tokens (theme.js). */
 import { ribbedHero } from "../Brand.jsx";
 import { T, usd } from "../theme.js";
@@ -103,7 +103,7 @@ export function QboLink({ url, entity }) {
  * It was a hand-drawn pinstripe -- a 13px repeating-linear-gradient standing in for the ribbed
  * gradient the brand actually ships. Three panels in this module wore it, and none of them
  * matched the hero band on Portfolio, which was the whole point of having a hero band. Now it
- * IS that band: the workspace's own plate where one is configured, Acumyn's bokeh otherwise. */
+ * IS that band: the workspace's own plate where one is configured, Axcion's bokeh otherwise. */
 export const DARK = ribbedHero("evergreen");
 
 /* loading skeleton / error+retry / empty — the three data states. */
