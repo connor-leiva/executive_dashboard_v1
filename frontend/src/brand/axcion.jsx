@@ -20,20 +20,18 @@
 /* Axcion's own site, for any link from inside a workspace to Axcion itself: "Powered by", the
    Privacy Policy and Terms. A constant rather than derived from the page's host, because a
    workspace may be served from its own domain, which says nothing about Axcion's. www rather than
-   the apex: www serves the site today and redirects to the apex once that is live
-   (frontend/Caddyfile), so a link built from this is right on both sides of that cutover.
+   the apex: www serves the site, and the apex forwards to it at the registrar.
 
-   THIS STILL SAYS acumyn.io ON PURPOSE. It is a live URL, not a name: it is where the
-   Privacy Policy and Terms links on every sign-in page actually go, and where "Powered by"
-   points. The marketing site is served at whatever `MARKETING_HOST` names on the web
-   service, and that is still www.acumyn.io until the cutover (AXCION_REBRAND-SPEC.md Phase
-   9.5). Renaming this ahead of that host pointed the legal links at a dashboard shell --
-   which it did, in production, for the length of one deploy.
 
-   It moves when MARKETING_HOST moves. Same rule as PLATFORM_DOMAIN and the Caddy defaults:
-   a value naming a live host describes what is live, not what is coming. There is a test
-   tying all three together. */
-export const AXCION_SITE = "https://www.acumyn.io";
+   THIS IS A LIVE URL, NOT A NAME. It is where the Privacy Policy and Terms links on every
+   sign-in page actually go, and where "Powered by" points. The marketing site is served at
+   whatever MARKETING_HOST names on the web service, so this must always name that same host.
+   It was renamed ahead of that host once, during the rebrand, and pointed every workspace's
+   legal links at the dashboard catch-all -- which answers 200, so nothing looked broken.
+   MARKETING_HOST moved to www.axcion.io at the Phase 9 cutover and this moved with it.
+   A test in test_tenancy.py ties this, PLATFORM_DOMAIN and the Caddy host defaults together
+   so none of them can drift alone again. */
+export const AXCION_SITE = "https://www.axcion.io";
 
 const ART = 64;
 const C = ART / 2;

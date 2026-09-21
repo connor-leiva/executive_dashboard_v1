@@ -878,9 +878,12 @@ def test_the_platform_domain_and_the_caddy_hosts_name_the_same_live_domain():
     from app.config import Settings
     caddy = (Path(__file__).resolve().parents[2] / "frontend" / "Caddyfile").read_text(
         encoding="utf-8")
+    # MARKETING_ALT_HOST is deliberately excluded. Its entire job is to name the host being
+    # redirected FROM, which during a domain move is the OLD domain -- it is what makes an old
+    # marketing or legal link 308 to its new address instead of dying. Holding it to the same
+    # rule as the others would forbid the one configuration that keeps old links alive.
     defaults = re.findall(
-        r"\{\$(?:MARKETING_HOST|MARKETING_ALT_HOST|FRONTDOOR_HOST|OPERATOR_HOST):([^}]+)\}",
-        caddy)
+        r"\{\$(?:MARKETING_HOST|FRONTDOOR_HOST|OPERATOR_HOST):([^}]+)\}", caddy)
     assert defaults, "no Caddy host defaults found — the interlock is not watching anything"
 
     domain = Settings(DATABASE_URL="sqlite://").PLATFORM_DOMAIN

@@ -19,43 +19,38 @@
   #
   # These are env placeholders rather than PLATFORM_DOMAIN because Caddy cannot read a Vite build
   # arg, and a wrong value must never be able to serve the dashboard's sign-in at a platform host.
-  # THE DEFAULTS BELOW STILL SAY acumyn.io, DELIBERATELY, AND THEY ARE THE LAST THING IN THIS
-  # REPO THAT DOES. None of these four variables is set on the `web` service, so Caddy runs on
-  # these defaults and they ARE production's routing. Renaming them here would cut the domain
-  # over on the next deploy of this service for any reason at all -- www.acumyn.io would stop
-  # matching @marketing and fall through to the dashboard catch-all, and admin.acumyn.io would
-  # stop serving the operator console -- which is Phase 9 of AXCION-REBRAND-SPEC.md happening
-  # by accident, on a branch that deploys from main.
-  #
-  # So a default here describes the host that is live TODAY, not the one we are moving to. The
-  # cutover sets the four variables on `web` (spec §2.3); once they are set these defaults stop
-  # being reachable, and they can follow at Phase 10 when acumyn.io is retired.
+  # A DEFAULT HERE IS LIVE ROUTING whenever its variable is unset, which was the case for the
+  # whole life of acumyn.io: Caddy ran on these, so renaming one dropped www to the dashboard
+  # catch-all and took the operator console off admin. on the next deploy for any reason. All
+  # four are set explicitly on the `web` service now, at the Phase 9 cutover, and these
+  # defaults follow them. MARKETING_ALT_HOST is www.acumyn.io during the retirement window so
+  # every old marketing and legal link 308s to its new address instead of dying.
   #
   # ORDER, checked with `caddy adapt` (2.8.4) rather than assumed: this host handle stays ahead of
   # the /intranet/* and /console/* handles below, so these hosts serve only this bundle, and the
   # dashboard's catch-all still sorts last. Verified by request, not just by parse: www and app
   # serve this site, the alt host 308s with path and query intact, and a workspace host still
   # gets its dashboard, /intranet/ and /console/ — with both the default and the swapped hosts.
-  @marketing_alt host {$MARKETING_ALT_HOST:acumyn.io}
-  redir @marketing_alt https://{$MARKETING_HOST:www.acumyn.io}{uri} 308
+  @marketing_alt host {$MARKETING_ALT_HOST:www.acumyn.io}
+  redir @marketing_alt https://{$MARKETING_HOST:www.axcion.io}{uri} 308
 
   # Every host used to serve Spring Command Center's privacy.html and eula.html. They are gone,
   # and anything outside this repo that still links them (an app listing, a bookmark) lands on
   # Axcion's own documents instead of on a sign-in page.
-  redir /privacy.html https://{$MARKETING_HOST:www.acumyn.io}/privacy 308
-  redir /eula.html https://{$MARKETING_HOST:www.acumyn.io}/terms 308
+  redir /privacy.html https://{$MARKETING_HOST:www.axcion.io}/privacy 308
+  redir /eula.html https://{$MARKETING_HOST:www.axcion.io}/terms 308
 
   # The operator console: Axcion staff administering workspaces. `admin` is in the API's
   # PLATFORM_HOSTS, so it can never resolve to a workspace, and the console's own bundle means a
   # customer's browser never downloads the screen that suspends customers.
-  @operator host {$OPERATOR_HOST:admin.acumyn.io}
+  @operator host {$OPERATOR_HOST:admin.axcion.io}
   handle @operator {
     root * /srv/operator
     try_files {path} /index.html
     file_server
   }
 
-  @marketing host {$MARKETING_HOST:www.acumyn.io} {$FRONTDOOR_HOST:app.acumyn.io}
+  @marketing host {$MARKETING_HOST:www.axcion.io} {$FRONTDOOR_HOST:app.axcion.io}
   handle @marketing {
     root * /srv/marketing
     try_files {path} /index.html
