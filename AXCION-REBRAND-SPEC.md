@@ -11,7 +11,7 @@
 | 3 · External services | **not started** — needs Connor (Resend, Google Cloud, Intuit, Meta) |
 | 4 · Backend code | **done** |
 | 5 · Frontend code | **done** |
-| 6 · Migrations | **done** — `0079_rebrand_stored_names` + `scan_rebrand.py`; scan not yet run against production |
+| 6 · Migrations | **done** — `0079_rebrand_stored_names` + `scan_rebrand.py`; **scan run against production, 8 columns found, migration confirmed complete** (§1.4) |
 | 7 · Docs | **done** |
 | 8 · Verify | **done** — 1899 passing (baseline unchanged), 5 bundles build, browser-verified on the prod build |
 | 9 · Cutover | **not started** — no Railway variable has been changed; both domains still serve |
@@ -156,11 +156,30 @@ Run this before Phase 6 and treat its output as the authoritative migration scop
 cd backend && ./.venv/Scripts/python.exe -m scripts.scan_rebrand --show 2
 ```
 
-**Written and shipped** (`backend/scripts/scan_rebrand.py`). Read-only; enumerates every
-text/json column from `information_schema` rather than from anyone's memory, and exits 1 when
-it finds anything, so it can gate a cutover step. **Still needs running against production**
-— it never has been, because the session that wrote it could not read production broadly.
-Until it has run, the migration scope in §6 is believed, not known.
+**Written, shipped and RUN against production 2026-09-21** (`backend/scripts/scan_rebrand.py`).
+Read-only; enumerates every text/json column from `information_schema` rather than from
+anyone's memory, and exits 1 when it finds anything, so it can gate a cutover step.
+
+**542 text/json columns scanned. 8 hold the old name. It changed the plan.**
+
+| Column | Rows | Verdict |
+|---|---|---|
+| `tenant.config` | 1 | migration `0079` — `testrealty`'s typeface, confirmed by direct query |
+| `user.email` | 1 | migration `0079` |
+| `user.name` | 1 | migration `0079` |
+| `domain.hostname` | 5 | Phase 9.4, via `scripts/tenant_domains.py` |
+| `audit_log.actor_label` | 10 | exception §A2 — already registered |
+| `audit_log.detail` | 13 | exception §A2 — **was not registered** |
+| `platform_audit.detail` | 10 | exception §A2 — **was not registered** |
+| `intranet_publish_batch.snapshot` | 4 | exception §A2 — **was nowhere in this spec** |
+
+**Migration `0079` needed no change** — its three targets were right and complete. What was
+wrong was the *exception register*, in three places. That matters for Phase 10.11, which
+re-runs this scan and checks the leftovers against §A2: with the register as first written,
+that check would have reported three false gaps and invited somebody to "fix" an audit trail.
+
+The expected leftover set after Phase 10 is now exactly those four exception rows — 37 rows
+across 4 columns, all archival.
 
 ### 1.5 The gap that proves the point
 
@@ -764,7 +783,7 @@ New Alembic revisions on top of `0078_sop_suggestions`. **One head. Always.**
 > `backend/tests/test_migration_0079_rebrand.py`, including the up-then-down round trip —
 > a downgrade that has never run is not a rollback plan.
 
-- [x] **6.0** Write `backend/scripts/scan_rebrand.py` — enumerate every `text`,
+- [x] **6.0** *(run against production 2026-09-21 — see §1.4 for the result)* Write `backend/scripts/scan_rebrand.py` — enumerate every `text`,
       `character varying`, `json` and `jsonb` column from `information_schema.columns`,
       count rows matching `ilike '%acumyn%'` in each, and print `table.column: n rows`.
       Enumerate from the schema, never from a list anyone typed. Run it against production
@@ -991,6 +1010,9 @@ repo and the database against **this list**.
 | Item | Where | Why it stays |
 |---|---|---|
 | `audit_log.actor_label` values reading `… (Acumyn)` | 10 production rows | **Rewriting an audit trail is the one change an audit trail exists to prevent.** These rows record what was done, by whom, under the name the platform had at the time. New rows get the new label (§4.9); old rows are history. This is the one place D4's "rename everything" should not apply. |
+| `audit_log.detail` | 13 production rows | Same trail, same reasoning — the register originally named only `actor_label`, and the scan showed the name is in the JSON payload too: `{"by": "Acumyn (expiry)"}`, and the support account's old address on every support-access entry. Found by §6.0's scan, not by reading the code. |
+| `platform_audit.detail` | 10 production rows | The operator's cross-tenant trail, carrying the same support-account address. Same reasoning. |
+| `intranet_publish_batch.snapshot` | 4 production rows | `"inherited_from": "Acumyn dashboard"`, a **display string** from `console.py` frozen into a publish snapshot. Not in this spec at any point before the scan found it. It stays because the snapshot is an archival record of what the intranet looked like at that moment: `_batch()` never serializes it to a browser, and **nothing in the codebase reads it back** — verified, not assumed. `inherited_from` is recomputed per request and never persisted anywhere else, so even a future rollback restoring it changes nothing a user sees. |
 | R2 bucket `acumyn-storage` | Cloudflare R2, `R2_BUCKET` | R2 buckets cannot be renamed. The only path is create-and-copy across 51 Binder documents plus SOP documents and workspace logos, where a partial copy is silent loss of customer files. The name is never shown to a user and never appears in a handed-out URL. |
 | `platform_audit` historical rows | production | Same reasoning as the audit log. |
 | Railway service names `executive_dashboard_v1`, `zippy-cat`; project `glorious-wholeness` | Railway | Never carried the brand. Renaming churns internal variable references (`RAILWAY_SERVICE_ZIPPY_CAT_URL`) for no gain. |
