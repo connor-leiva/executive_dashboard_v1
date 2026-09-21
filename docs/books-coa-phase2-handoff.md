@@ -5,7 +5,7 @@ Written 2026-08-20, at the end of Phase 1.
 
 ---
 
-Continue the Books module on the Acumyn dashboard (`C:\Users\17192\Desktop\executive_dashboard`).
+Continue the Books module on the Axcion dashboard (`C:\Users\17192\Desktop\executive_dashboard`).
 FastAPI + React, deploys to Railway from `main`. This is Phase 2 of the COA mapping build.
 
 ## Specs — read both before writing anything
@@ -110,7 +110,7 @@ FastAPI + React, deploys to Railway from `main`. This is Phase 2 of the COA mapp
 
 ## Environment
 
-- Railway CLI: link the **acumyn.io** project, NOT "PLACE Command Center" — that's an old
+- Railway CLI: link the **axcion.io** project, NOT "PLACE Command Center" — that's an old
   deployment with a stale database and a different `FERNET_KEY`. It cost hours last session.
 - `backend/.probe.env` holds GHL tokens. Git-ignored. Never open or print it.
 - Run a script against prod with:

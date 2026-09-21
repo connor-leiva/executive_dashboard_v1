@@ -1,5 +1,10 @@
 # Deploying to Railway
 
+> **Renamed from Acumyn to Axcion, September 2026.** The product, the company and the domain
+> all changed at once: `acumyn.io` → `axcion.io`. If you are reading a log line, an old
+> invite, a bookmark or a support ticket that says Acumyn, it means this. The cutover plan,
+> what was deliberately *not* renamed, and why, are in `AXCION-REBRAND-SPEC.md`.
+
 This is a **monorepo** with three deployables. Railway does **not** split a repo
 into services automatically — you create one service per app and scope each with
 a **Root Directory**. (That's why a single root-level service failed with
@@ -145,7 +150,7 @@ from wherever the SCHEDULER runs, and that is not the same place in every deploy
 | a separate `worker` service (this file's §3) | `python -m app.worker` | api **and** worker |
 | one backend service, `RUN_WORKER_IN_API=true` | inside the api process | api only |
 
-**Acumyn's own production is the second one.** There is no worker service — the project is
+**Axcion's own production is the second one.** There is no worker service — the project is
 `zippy-cat` (web) + `executive_dashboard_v1` (api) + Postgres, and the api runs the scheduler
 in-process. So one set of variables on `executive_dashboard_v1` covers every send.
 
@@ -160,8 +165,8 @@ still logs. That is the local-dev and test state, and it is also the safe state 
 | variable | default | why it exists |
 |---|---|---|
 | `RESEND_API_KEY` | *(empty)* | Empty disables sending without breaking anything. Resend shows a key ONCE at creation, so a partial paste is the usual cause of `400 validation_error: API key is invalid` — reissue rather than retry. The key must belong to the same Resend team as the verified domain. |
-| `MAIL_FROM` | `Acumyn <hello@mail.acumyn.io>` | Must be an address on a domain **verified in Resend**. A SUBDOMAIN IS A DIFFERENT DOMAIN to an ESP: verifying `mail.acumyn.io` does not let you send from `acumyn.io`, and the failure is `403 not authorized for this domain` — which reads as a bad key and is not one. Resend keys are also scoped per domain, so the key must cover whichever one this names. Replies to a password reset land here (it sets no reply-to). A sending subdomain does not receive mail, so set `MAIL_REPLY_TO` when this is one. |
-| `MAIL_REPLY_TO` | *(empty)* | **Set this whenever `MAIL_FROM` is on a send-only subdomain.** An invite overrides it with the inviter's own address, so a reply reaches the colleague who sent it; a password reset deliberately does not, and with neither set those replies bounce. |
+| `MAIL_FROM` | `Axcion <hello@mail.axcion.io>` | Must be an address on a domain **verified in Resend**. A SUBDOMAIN IS A DIFFERENT DOMAIN to an ESP: verifying `mail.axcion.io` does not let you send from `axcion.io`, and the failure is `403 not authorized for this domain` — which reads as a bad key and is not one. Resend keys are also scoped per domain, so the key must cover whichever one this names. Replies to a password reset land here (it sets no reply-to). A sending subdomain does not receive mail, so set `MAIL_REPLY_TO` when this is one. |
+| `MAIL_REPLY_TO` | `hello@axcion.io` | **Set this whenever `MAIL_FROM` is on a send-only subdomain**, which it is. An invite overrides it with the inviter's own address, so a reply reaches the colleague who sent it; a password reset deliberately does not, and with neither set those replies bounce. This was empty under `acumyn.io` because that domain had no MX and nothing could receive. `axcion.io` runs Google Workspace, so `hello@axcion.io` is a real inbox and there is no longer any reason to leave it unset. |
 
 To find out which of those is wrong without another deploy cycle, ask the service itself:
 
@@ -253,14 +258,14 @@ lockout waiting for the next customer. `SINGLE_TENANT_FALLBACK=false` turns it o
 
 `admin.`, `api.`, `auth.`, `static.` and `assets.` under `PLATFORM_DOMAIN` belong to the
 platform and never resolve to a tenant; `--add` refuses them. So does the bare apex
-(`acumyn.io`): it is the marketing site, and as a primary row it would send every invite, reset
+(`axcion.io`): it is the marketing site, and as a primary row it would send every invite, reset
 and share link there.
 
 `www.`, `app.` and `staging.` are different: no tenant can claim one by its SLUG, but an operator
 can point one at a tenant with `--add`, so the resolver cannot hard-refuse them. (`www` was once
 in the hard-refused list above, and that took production down while the dashboard was served
-from www.acumyn.io.) **Do not add rows for `www.acumyn.io` or `app.acumyn.io` any more** — they
-are Acumyn's own hosts now, and Caddy serves the marketing site and the workspace finder there
+from www.axcion.io.) **Do not add rows for `www.axcion.io` or `app.axcion.io` any more** — they
+are Axcion's own hosts now, and Caddy serves the marketing site and the workspace finder there
 whatever the API resolves.
 
 **A tenant needs a row for the host it is really served from, even while the fallback is open.**
@@ -269,41 +274,64 @@ second tenant, at which point it closes and the incumbent's front door stops res
 row is not optional bookkeeping — it is what stops onboarding your next customer from taking
 your current one offline.
 
-## Acumyn's own hosts (marketing site and workspace finder)
+## Axcion's own hosts (marketing site and workspace finder)
 
-Everything under `*.acumyn.io` reaches the `web` service through one wildcard record, and Caddy
+Everything under `*.axcion.io` reaches the `web` service through one wildcard record, and Caddy
 decides what each host gets (`frontend/Caddyfile`):
 
 | Host | Serves |
 |---|---|
-| `{slug}.acumyn.io`, a customer's own domain | the dashboard (the catch-all) |
-| `MARKETING_HOST` (default `www.acumyn.io`) | the marketing site: `/`, `/features`, `/about`, `/pricing`, `/privacy`, `/terms` |
-| `MARKETING_ALT_HOST` (default `acumyn.io`) | a 308 to `MARKETING_HOST` |
-| `FRONTDOOR_HOST` (default `app.acumyn.io`) | the workspace finder, which emails someone the address of every workspace they belong to |
-| `OPERATOR_HOST` (default `admin.acumyn.io`) | the operator console, for Acumyn staff (see `OPERATOR-CONSOLE.md`) |
+| `{slug}.axcion.io`, a customer's own domain | the dashboard (the catch-all) |
+| `MARKETING_HOST` (default `www.axcion.io`) | the marketing site: `/`, `/features`, `/about`, `/pricing`, `/privacy`, `/terms` |
+| `MARKETING_ALT_HOST` (default `axcion.io`) | a 308 to `MARKETING_HOST` |
+| `FRONTDOOR_HOST` (default `app.axcion.io`) | the workspace finder, which emails someone the address of every workspace they belong to |
+| `OPERATOR_HOST` (default `admin.axcion.io`) | the operator console, for Axcion staff (see `OPERATOR-CONSOLE.md`) |
 
 These are env variables on the **`web`** service, and they are the only place those hostnames
 are written down. The marketing site and the finder are one Vite entry (`npm run build:marketing`,
 `frontend/marketing/`) that renders the finder when the host starts with `app.`.
 
-**Why www is the default and not the apex.** The apex cannot reach Railway while `acumyn.io`'s DNS
+**Railway's custom-domain limit is 2 per service on this plan.** That is the binding constraint
+whenever a host moves, and three things about it are worth knowing before you hit it:
+
+* **One wildcard domain serves every single-label host under it** — `www`, `app`, `admin` and
+  every `{slug}`. So `axcion.io` needs exactly ONE custom domain on `web`, not one per host.
+  There is no `www.axcion.io` custom domain and there should not be one. (`www.acumyn.io` was
+  registered separately for historical reasons; it was redundant, and removing it is what
+  freed the slot for `*.axcion.io`.)
+* **Each custom domain gets its OWN edge target.** `*.axcion.io` resolves through
+  `4py3r2q2.up.railway.app`; `api.axcion.io` through `klglty5y.up.railway.app`. So deleting a
+  custom domain in Railway without also deleting its DNS record leaves that host pointed at a
+  target Railway no longer routes. Delete the record too, and the `*` record catches the host.
+* **Railway creates a custom domain with NO target port.** The working domains are on 8080. Set
+  it explicitly — `railway domain update --service <svc> --port 8080 <domain>` — and check
+  `railway domain list` shows a port on every row. `ACTIVE` alone does not mean configured.
+
+A wildcard also needs the `_acme-challenge` CNAME for its certificate. Without it the cert
+cannot be issued *or renewed*, so a missing one fails now or silently in 90 days.
+
+**Why www is the default and not the apex.** The apex cannot reach Railway while `axcion.io`'s DNS
 is at GoDaddy: a root domain needs CNAME flattening or an ALIAS/ANAME record, GoDaddy offers
 neither, and Railway's domain docs list GoDaddy as unsupported. The apex's two A records are
 GoDaddy forwarding. To make the apex canonical:
 
 1. Move the domain's nameservers to Cloudflare (free). Recreate every existing record first,
    exactly: the `*` CNAME and `_acme-challenge` CNAME (proxy **off** on both, or the wildcard
-   certificate cannot renew), `www`, `api`, `_railway-verify` TXT, Resend's records under
-   `mail.acumyn.io`, and `_dmarc`.
-2. Railway → `web` → add `acumyn.io` as a custom domain, and point the apex at the target it gives
+   certificate cannot renew), `api` and its `_railway-verify.api` TXT, the `_railway-verify`
+   TXT, Google Workspace's five MX records, the `google-site-verification` TXT,
+   `google._domainkey`, the SPF pair (`@` plus GoDaddy's `dc-…._spfm` target — replace this
+   indirection with a direct `v=spf1 include:_spf.google.com ~all`), Resend's records under
+   `mail.axcion.io`, and `_dmarc`.
+   **There is no `www` record to recreate** — the `*` CNAME serves it.
+2. Railway → `web` → add `axcion.io` as a custom domain, and point the apex at the target it gives
    (a flattened CNAME in Cloudflare). Delete the two GoDaddy forwarding A records.
-3. On `web`, swap the hosts: `MARKETING_HOST=acumyn.io`, `MARKETING_ALT_HOST=www.acumyn.io`.
+3. On `web`, swap the hosts: `MARKETING_HOST=axcion.io`, `MARKETING_ALT_HOST=www.axcion.io`.
    www then 308s to the apex. Nothing in the frontend links to the bare apex, so nothing breaks
    before this step.
 
 **Never add a `domain` row for the apex, www or app.** See above.
 
-**`APP_PUBLIC_URL` on `api` belongs on the finder:** `https://app.acumyn.io`. It is where a Google
+**`APP_PUBLIC_URL` on `api` belongs on the finder:** `https://app.axcion.io`. It is where a Google
 sign-in lands when it fails before its workspace is known (cancelled, or an expired attempt), and
 the finder reads `?google_error=`. Nothing else uses it: workspace links are built from that
 workspace's own domain row. Set it once the finder is deployed.
@@ -313,7 +341,7 @@ so). It is limited to 5 lookups per IP address in 5 minutes (`throttle.py`, `fin
 every match writes an `auth.find_workspace` audit row in the workspace it matched.
 
 **Operator accounts are created from the deployment, never from the console.** The operator
-console at `admin.acumyn.io` needs a `platform_user`. Create one with a password read from the
+console at `admin.axcion.io` needs a `platform_user`. Create one with a password read from the
 environment rather than an argument, so it stays out of shell history:
 
 ```
@@ -322,14 +350,14 @@ railway ssh --service executive_dashboard_v1 "PLATFORM_OPERATOR_PASSWORD='<12+ c
 
 Omit the variable and the script generates a password and prints it once.
 
-### Platform billing: Acumyn's own Stripe account
+### Platform billing: Axcion's own Stripe account
 
-The operator console charges workspaces through **Acumyn's** Stripe account. That is not any
+The operator console charges workspaces through **Axcion's** Stripe account. That is not any
 workspace's Stripe: those are revenue sources connected inside each workspace. Nothing is charged,
 and every billing route refuses, until all of this is done. There are no environment variables for
 it: the keys are entered in the console and stored encrypted.
 
-1. In Acumyn's Stripe account, create three products with monthly USD prices, and give each price
+1. In Axcion's Stripe account, create three products with monthly USD prices, and give each price
    the lookup key the console looks it up by. The console never holds a price id.
 
    | Plan | Lookup key | Amount |
@@ -339,11 +367,11 @@ it: the keys are entered in the console and stored encrypted.
    | Portfolio | `price_portfolio_monthly` | $1,199 |
 
 2. Stripe → Developers → Webhooks → add an endpoint at
-   `https://api.acumyn.io/api/v1/platform/webhooks/stripe`, listening for
+   `https://api.axcion.io/api/v1/platform/webhooks/stripe`, listening for
    `customer.subscription.created`, `customer.subscription.updated`,
    `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`, `invoice.finalized`,
    `payment_method.attached` and `payment_method.detached`.
-3. `admin.acumyn.io` → System → Platform billing: paste the secret key (verified with Stripe before
+3. `admin.axcion.io` → System → Platform billing: paste the secret key (verified with Stripe before
    it is saved) and the endpoint's signing secret, then switch charging on.
 
 Test mode first is the safer order: an `sk_test_` key and a test-mode endpoint behave identically,

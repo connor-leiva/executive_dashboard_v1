@@ -1,8 +1,8 @@
 # Operator console — build record
 
-The operator console is Acumyn staff administering workspaces, served at `admin.acumyn.io`.
+The operator console is Axcion staff administering workspaces, served at `admin.axcion.io`.
 It is built from `OPERATOR-CONSOLE-SPEC.md` (2026-09-17) and its design file
-`acumyn-operator-console.jsx`, in the spec's phase order. This file records what shipped,
+`axcion-operator-console.jsx`, in the spec's phase order. This file records what shipped,
 every decision the spec left open, and every place the build departs from the spec because the
 repo said something different. It is the first thing to read before changing the console.
 
@@ -21,9 +21,9 @@ which is each workspace's own team-portal admin.
 | Sync jobs shared with the workspace's own buttons | `backend/app/services/sync_jobs.py` |
 | The operator trail | `backend/app/services/operator_audit.py`, table `platform_audit` |
 | Scheduled jobs and their heartbeats | `backend/app/services/jobs.py`, table `job_heartbeat` |
-| Platform billing (Acumyn's own Stripe) | `backend/app/services/platform_billing.py`; setup in `DEPLOY.md` |
+| Platform billing (Axcion's own Stripe) | `backend/app/services/platform_billing.py`; setup in `DEPLOY.md` |
 | Tests | `backend/tests/test_operator_console.py`, `test_platform_operators.py`, `test_brand_rules.py` |
-| Hosting | the existing `web` service; Caddy routes `OPERATOR_HOST` (default `admin.acumyn.io`) |
+| Hosting | the existing `web` service; Caddy routes `OPERATOR_HOST` (default `admin.axcion.io`) |
 
 ## Phase status
 
@@ -39,7 +39,7 @@ which is each workspace's own team-portal admin.
 
 ## What each phase shipped
 
-**Phase 1.** The console at `admin.acumyn.io`: sign-in, the ink shell, Fleet (tiles and the
+**Phase 1.** The console at `admin.axcion.io`: sign-in, the ink shell, Fleet (tiles and the
 "Needs you now" queue), Workspaces (search, filter, sort), New workspace, and a workspace's
 Overview, Activity and Danger panes. Server side:
 
@@ -79,8 +79,12 @@ the console gains the Incidents view.
   fleet's token tile totals only the capped workspaces and says how many of the fleet that is.
 
 **Phase 3.** The write actions. Every one is recorded in the workspace's own audit log, naming
-the operator in `detail.by`, with an actor label ending "(Acumyn)", so the customer can see what
-Acumyn did.
+the operator in `detail.by`, with an actor label ending "(Axcion)", so the customer can see what
+Axcion did.
+
+> Audit rows written before the 2026-09 rename end "(Acumyn)". They are deliberately left
+> alone — an audit trail records what happened under the name the platform had at the time,
+> and rewriting it is the one change it exists to prevent. Expect both labels in old trails.
 
 - Sync now, for a workspace (`POST /tenants/{slug}/sync`) or one source
   (`/sources/{id}/sync`), on the same jobs the workspace's own Sync buttons run. Those jobs moved
@@ -108,7 +112,7 @@ Acumyn did.
   and `platform_audit`, with the operator, the workspace's id and slug, the reason and the address
   the change came from. `tenant_id` is not a foreign key, so the row outlives the workspace. Entries
   older than 400 days are deleted by a monthly job.
-- `GET /audit` lists every change across the platform, newest first, in three scopes: Acumyn staff
+- `GET /audit` lists every change across the platform, newest first, in three scopes: Axcion staff
   (from `platform_audit`), workspace teams (from each workspace's audit log, sign-ins and
   second-factor checks left out because they are not changes), or both. An operator's change also
   sits in the workspace's log with no actor and is only read from `platform_audit`, so it is listed
@@ -122,7 +126,7 @@ Acumyn did.
   System view says a worker is healthy only from those rows.
 - Fleet gains "What you did", the signed-in operator's own recent changes.
 
-**Phase 5.** Acumyn charging workspaces, through Acumyn's own Stripe account (§6). Built, tested
+**Phase 5.** Axcion charging workspaces, through Axcion's own Stripe account (§6). Built, tested
 against a mocked Stripe, and switched off until an operator connects the account.
 
 - The mirror (migration `0070_platform_billing`): `platform_subscription` and `platform_invoice`,
@@ -133,7 +137,7 @@ against a mocked Stripe, and switched off until an operator connects the account
   lifetime collected total is recomputed from the invoices, so a replayed `invoice.paid` cannot
   count twice. Transitions into `past_due`, `canceled` and `incomplete` are written to the operator
   trail.
-- A workspace's Billing pane: the Stripe mirror (read-only) and its invoices, what Acumyn enforces
+- A workspace's Billing pane: the Stripe mirror (read-only) and its invoices, what Axcion enforces
   (plan, token budget, billing contact, PO), and the actions: create the Stripe customer and a
   subscription on the plan's price (found by `lookup_key`), send Stripe's own payment page for the
   open invoice to the billing contact, retry the charge, and sync from Stripe now. Changing the plan
@@ -148,8 +152,8 @@ against a mocked Stripe, and switched off until an operator connects the account
 
 - Support access, C8 option (c) (migration `0071_support_access`, `user.expires_at`). Opening it
   needs a reason and a length (15, 30 or 60 minutes). It makes or reuses one real account in the
-  workspace, named "<operator> (Acumyn support)" at the operator's address tagged
-  `+acumyn-support`, with every tab and an `expires_at`, emails the workspace's owners with the
+  workspace, named "<operator> (Axcion support)" at the operator's address tagged
+  `+axcion-support`, with every tab and an `expires_at`, emails the workspace's owners with the
   reason, and records it in both trails. The console opens the workspace in a new tab signed in as
   that account, through the same fragment hand-off Google sign-in uses. `deps.current_user`
   refuses every request that is not a read from such an account and refuses it entirely once
@@ -245,16 +249,16 @@ invoices on every invoice event, so no replay or duplicate event can count a pay
 **A new subscription starts incomplete, or trialing, with Stripe's own invoice page as the way to
 pay.** Creating a customer creates the subscription on the plan's price with
 `payment_behavior=default_incomplete`; "Send payment link" emails the billing contact the open
-invoice's hosted page. No card detail passes through Acumyn, and no Checkout or Billing Portal
+invoice's hosted page. No card detail passes through Axcion, and no Checkout or Billing Portal
 configuration is needed in Stripe. A trialing subscription with no open invoice has no payment link
 to send yet; the button appears once Stripe raises one.
 
 **MRR counts active subscriptions only**, a yearly price spread over twelve months. Past due is
 excluded: it is money not being collected.
 
-**A support account is addressed as the operator, tagged.** `connor@acumyn.io` opens support access
-as `connor+acumyn-support@acumyn.io`, named "Connor Leiva (Acumyn support)". The workspace's Team
-page shows a real person at Acumyn; no email is sent to the tagged address; reopening reuses the
+**A support account is addressed as the operator, tagged.** `connor@axcion.io` opens support access
+as `connor+axcion-support@axcion.io`, named "Connor Leiva (Axcion support)". The workspace's Team
+page shows a real person at Axcion; no email is sent to the tagged address; reopening reuses the
 same account and bumps its token version, so an earlier session never comes back.
 
 **The session reaches the workspace in the URL fragment,** the same hand-off Google sign-in already
@@ -330,21 +334,21 @@ one operator UI.
 
 **The old console was greyscale on purpose, and the new one is not.** Commit `c220caf` made it
 greyscale so an operator could never mistake the screen that suspends customers for a customer's
-dashboard, and `test_operator_console_is_greyscale.py` enforced it. The spec prescribes Acumyn's
+dashboard, and `test_operator_console_is_greyscale.py` enforced it. The spec prescribes Axcion's
 brand instead, so the spec wins. The cue survives in a stronger form: the console is its own
 origin and its own bundle, and every screen sits under an ink header reading
-"Acumyn | Operator" that no workspace surface has. The greyscale tests are replaced by the
+"Axcion | Operator" that no workspace surface has. The greyscale tests are replaced by the
 spec's brand tests (§11).
 
-**Hosting uses the existing `web` service, not a fourth Railway service (§10).** `*.acumyn.io`
-already routes `admin.acumyn.io` to `web`. Caddy serves the operator bundle on that host, in the
+**Hosting uses the existing `web` service, not a fourth Railway service (§10).** `*.axcion.io`
+already routes `admin.axcion.io` to `web`. Caddy serves the operator bundle on that host, in the
 same way it serves the marketing site on `www` and the finder on `app`. A separate service would
 run a second copy of Caddy and static files and add no isolation, because the isolation is the
 token realm on the API.
 
-**The existing favicons are Acumyn's, not Spring's (§10).** `frontend/public/brand/logo/favicon-*`
-are generated by `scripts/gen_favicons.py` from the Acumyn mark's geometry, and a test holds that
-script to `acumyn.jsx`. The operator entry references them; nothing new is generated.
+**The existing favicons are Axcion's, not Spring's (§10).** `frontend/public/brand/logo/favicon-*`
+are generated by `scripts/gen_favicons.py` from the Axcion mark's geometry, and a test holds that
+script to `axcion.jsx`. The operator entry references them; nothing new is generated.
 
 **Amber text is `#855C00`, not `#9A6B00`.** The spec's amber measures 4.09:1 on its own chip
 background and 4.25:1 on the canvas, which fails the AA contrast its §11 requires. `#855C00`

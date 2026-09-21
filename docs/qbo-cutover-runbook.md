@@ -24,7 +24,7 @@ double-count.
 
 3. **Connect The Forum's QBO.**
    **Connect another entity** → Name `The Forum` → *Show its P&L on* → **The Forum** →
-   keep **Feed into Acumyn Books** checked → *Continue to QuickBooks* → authorize the
+   keep **Feed into Axcion Books** checked → *Continue to QuickBooks* → authorize the
    Forum's QuickBooks company in Intuit.
 
 4. **Connect beCollective's QBO.**
@@ -51,7 +51,7 @@ then the onboarding flag clears.
 
 - Default backfill starts Jan 1 of the current year. To cap initial volume, set a
   **Backfill transactions from** date in the connect modal.
-- To keep an entity's P&L on its page but *out* of Books, uncheck **Feed into Acumyn
+- To keep an entity's P&L on its page but *out* of Books, uncheck **Feed into Axcion
   Books** when connecting (or via Edit later).
 
 ## If you mis-route an entity

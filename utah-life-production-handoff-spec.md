@@ -23,7 +23,7 @@ Known reference files from the prior conversation:
 - `C:\Users\17192\Downloads\utah-life-admin-console-implementation-spec.md`
 - `C:\Users\17192\Downloads\utah-life-intranet-implementation-spec.md`
 
-Do not use `C:\Users\17192\Downloads\acumynsitemockup.html` as the intranet target. The user explicitly said that was the wrong file.
+Do not use `C:\Users\17192\Downloads\axcionsitemockup.html` as the intranet target. The user explicitly said that was the wrong file.
 
 ## 0a. THIS IS A MULTI-TENANT PRODUCT
 
@@ -71,7 +71,7 @@ integration catalogue seeded per tenant is a real-estate stack, and one descript
 `utahlife-agents` Google group. The intranet's nav STRUCTURE is still fixed in `constants.js`;
 the labels and content are now the workspace's, but which pages exist is not yet configurable.
 
-## 0c. What the portal INHERITS from the Acumyn dashboard
+## 0c. What the portal INHERITS from the Axcion dashboard
 
 CONNECTIONS ARE INHERITED. APPEARANCE IS NOT. That split is deliberate and worth stating, because
 the obvious instinct is to unify both.
@@ -127,10 +127,10 @@ Steps to a working workspace in production:
 2. The command returns a one-time owner invite URL -- the only moment the raw token exists. It is
    emailed too, but keep the link; on a young sending domain the mail is the part that fails.
 3. Accept the invite and set a password.
-4. Open `https://<slug>.acumyn.io/console/` and configure. This works because provisioning
+4. Open `https://<slug>.axcion.io/console/` and configure. This works because provisioning
    bootstraps the roles, capabilities, console_access grant and owner membership (see 0b);
    before that it 403'd for everybody.
-5. The portal is at `https://<slug>.acumyn.io/intranet/`.
+5. The portal is at `https://<slug>.axcion.io/intranet/`.
 
 THE PORTAL LINK IN THE APP SWITCHER requires BOTH the plan and an existing workspace row.
 Entitlement and existence are separate questions, and collapsing them meant every workspace on
@@ -224,7 +224,7 @@ These decisions came from prior user answers and should be treated as settled un
 
 - Use a close proxy for the final fonts until the real font files are provided.
 - Choose conservative tenant-protection defaults for multi-tenant architecture.
-- The intranet is an additional Acumyn plan feature.
+- The intranet is an additional Axcion plan feature.
 - Every user gets access to the intranet by default.
 - Role/audience tightening is configurable.
 - Use generic avatars until real profile photos are connected.
