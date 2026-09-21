@@ -855,3 +855,37 @@ async def test_omitting_the_plan_still_works_for_existing_callers():
     async with SessionLocal() as s:
         tenant = await s.get(Tenant, tid)
     assert tenant.plan == "team", "the column default should still apply when none is given"
+
+
+# ── the cutover interlock ─────────────────────────────────────────────────────────────────
+# Both of the following are UNSET on their Railway services, so in each case the default
+# compiled into the source is not a fallback — it is production's live configuration. That
+# makes renaming either one, on its own, a deploy-time outage rather than a code change:
+#
+#   * PLATFORM_DOMAIN builds the CORS origin regex. Point it at the new domain before the
+#     cutover and every workspace's browser is refused by its own API, because ALLOWED_ORIGINS
+#     lists only www and the apex. Tenant resolution survives on the `domain` rows; CORS does not.
+#   * The Caddy host defaults ARE the web service's content routing. Point them at the new
+#     domain and the marketing site and operator console stop being served at the live hosts.
+#
+# They describe one fact — the domain this deployment is actually serving today — in two
+# languages, and during a rebrand it is exactly the kind of fact that gets updated in one place.
+# This ties them together so the cutover has to move both or neither.
+
+def test_the_platform_domain_and_the_caddy_hosts_name_the_same_live_domain():
+    from pathlib import Path
+
+    from app.config import Settings
+    caddy = (Path(__file__).resolve().parents[2] / "frontend" / "Caddyfile").read_text(
+        encoding="utf-8")
+    defaults = re.findall(
+        r"\{\$(?:MARKETING_HOST|MARKETING_ALT_HOST|FRONTDOOR_HOST|OPERATOR_HOST):([^}]+)\}",
+        caddy)
+    assert defaults, "no Caddy host defaults found — the interlock is not watching anything"
+
+    domain = Settings(DATABASE_URL="sqlite://").PLATFORM_DOMAIN
+    wrong = [d for d in defaults if d != domain and not d.endswith("." + domain)]
+    assert not wrong, (
+        f"PLATFORM_DOMAIN defaults to {domain!r} but the Caddyfile still defaults to {wrong}. "
+        "Both are live production config because neither variable is set on its service, so "
+        "they move together at the cutover or not at all.")

@@ -218,7 +218,19 @@ class Settings(BaseSettings):
     # The platform's own domain. Tenants live at {slug}.PLATFORM_DOMAIN unless they bring a
     # custom domain (a `domain` row). Drives tenant-host resolution, the CORS origin regex,
     # and the invite links provisioning hands out — so it is set in ONE place, not three.
-    PLATFORM_DOMAIN: str = "axcion.io"
+    #
+    # THIS DEFAULT STILL SAYS acumyn.io ON PURPOSE, and it is not a leftover from the rename.
+    # PLATFORM_DOMAIN is NOT SET on the api service, so this default is not a fallback — it is
+    # production's live value. Renaming it here to axcion.io ahead of the cutover takes the
+    # dashboard DOWN on the next deploy for any reason at all: `origin_regex` is built from it,
+    # so https://springb.acumyn.io stops matching, ALLOWED_ORIGINS only lists www and the apex,
+    # and every workspace's browser is CORS-refused by its own API. Tenant resolution survives
+    # on the `domain` rows; CORS does not. It was verified that way round rather than assumed.
+    #
+    # It moves by SETTING THE VARIABLE at the cutover (AXCION-REBRAND-SPEC.md Phase 9.2), which
+    # is also when the Caddy host defaults move. The two describe the same live domain from two
+    # languages and there is a test that they agree, so neither can be renamed on its own.
+    PLATFORM_DOMAIN: str = "acumyn.io"
     # What the PLATFORM calls itself, in the API title and as the default product name for a
     # tenant that has not set its own. Not a customer's name.
     PRODUCT_NAME: str = "Command Center"
