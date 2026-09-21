@@ -21,8 +21,19 @@
    Privacy Policy and Terms. A constant rather than derived from the page's host, because a
    workspace may be served from its own domain, which says nothing about Axcion's. www rather than
    the apex: www serves the site today and redirects to the apex once that is live
-   (frontend/Caddyfile), so a link built from this is right on both sides of that cutover. */
-export const AXCION_SITE = "https://www.axcion.io";
+   (frontend/Caddyfile), so a link built from this is right on both sides of that cutover.
+
+   THIS STILL SAYS acumyn.io ON PURPOSE. It is a live URL, not a name: it is where the
+   Privacy Policy and Terms links on every sign-in page actually go, and where "Powered by"
+   points. The marketing site is served at whatever `MARKETING_HOST` names on the web
+   service, and that is still www.acumyn.io until the cutover (AXCION_REBRAND-SPEC.md Phase
+   9.5). Renaming this ahead of that host pointed the legal links at a dashboard shell --
+   which it did, in production, for the length of one deploy.
+
+   It moves when MARKETING_HOST moves. Same rule as PLATFORM_DOMAIN and the Caddy defaults:
+   a value naming a live host describes what is live, not what is coming. There is a test
+   tying all three together. */
+export const AXCION_SITE = "https://www.acumyn.io";
 
 const ART = 64;
 const C = ART / 2;

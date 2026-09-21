@@ -889,3 +889,16 @@ def test_the_platform_domain_and_the_caddy_hosts_name_the_same_live_domain():
         f"PLATFORM_DOMAIN defaults to {domain!r} but the Caddyfile still defaults to {wrong}. "
         "Both are live production config because neither variable is set on its service, so "
         "they move together at the cutover or not at all.")
+
+    # And the third one, which was missed the first two times this net was cast and reached
+    # production: the URL the sign-in page's Privacy and Terms links actually point at, and
+    # where "Powered by" goes. It is served at MARKETING_HOST, so it moves when that moves.
+    # Renamed on its own it sends every workspace's legal links to the dashboard catch-all --
+    # a page that returns 200 and looks fine, which is why nothing caught it.
+    brand = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "brand"
+             / "axcion.jsx").read_text(encoding="utf-8")
+    site = re.search(r'AXCION_SITE\s*=\s*"https://([^"]+)"', brand)
+    assert site, "AXCION_SITE not found — the interlock is not watching the marketing URL"
+    assert site.group(1).endswith(domain), (
+        f"AXCION_SITE points at {site.group(1)!r} but the marketing site is served at "
+        f"{domain}. The legal links would 200 onto the dashboard shell.")
