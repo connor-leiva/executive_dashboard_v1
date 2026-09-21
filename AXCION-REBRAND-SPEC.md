@@ -395,9 +395,23 @@ record catch the host instead.
 
 - [x] **2.1** `executive_dashboard_v1` → added `api.axcion.io`. `ACTIVE`, `Verified: yes`,
       certificate `VALID`.
-- [x] **2.2** Freed a slot on `zippy-cat` by removing the `www.acumyn.io` custom domain,
-      then deleted its GoDaddy `www` CNAME so `*.acumyn.io` catches it. `www.acumyn.io`
-      re-verified serving HTTP 200. **No plan upgrade needed.**
+- [x] **2.2** Freed a slot on `zippy-cat` by removing the `www.acumyn.io` custom domain.
+      **No plan upgrade needed.**
+
+      > **This step also caused the one outage of the rebrand, and the lesson is specific.**
+      > Its GoDaddy `www` CNAME was deleted on the reasoning that the `*` record would catch
+      > the host. A check immediately afterwards returned HTTP 200 and the step was recorded
+      > as done. That 200 came from the *old* record still in cache; an hour later the cache
+      > expired and `www.acumyn.io` went dark.
+      >
+      > **GoDaddy's wildcard DNS record does not cover `www`** — it special-cases that label,
+      > confirmed authoritative against three independent resolvers. Railway's wildcard
+      > *domain* does route `www`; the two layers behave differently and only the DNS one
+      > bites. Fixed by giving `www` its own CNAME pointing at the wildcard's target
+      > (`ob6vl1xb.up.railway.app`), which Railway's `*.acumyn.io` then serves.
+      >
+      > **A DNS change that relies on a fallback must be re-checked after the old TTL has
+      > expired, not immediately.** An immediate check reads the thing you just removed.
 - [x] **2.3** `zippy-cat` → added `*.axcion.io`. `ACTIVE`, `Verified: yes`, certificate
       `VALID` (wildcard DNS-01 took ~10 minutes after `_acme-challenge` resolved).
 - [x] **2.4** Both new domains pinned to **target port 8080**. Railway created them with no

@@ -299,6 +299,18 @@ whenever a host moves, and three things about it are worth knowing before you hi
   There is no `www.axcion.io` custom domain and there should not be one. (`www.acumyn.io` was
   registered separately for historical reasons; it was redundant, and removing it is what
   freed the slot for `*.axcion.io`.)
+* **BUT GODADDY'S WILDCARD DNS RECORD DOES NOT COVER `www`.** These are two different layers
+  and only one of them is forgiving. Railway's wildcard *domain* happily routes `www`; the
+  `*` CNAME at GoDaddy will not *resolve* it, because GoDaddy special-cases that label. So
+  every host needs a `*` record EXCEPT `www`, which needs its own CNAME pointing at the same
+  target as `*`.
+
+  This cost an outage on `www.acumyn.io`: its record was deleted on the reasoning that `*`
+  would catch it, a check right afterwards returned 200 from a cached answer, and the site
+  went dark when the cache expired an hour later. Confirmed authoritative against three
+  independent resolvers — an arbitrary subdomain answers, `www` returns nothing. **When a
+  DNS change is meant to be caught by a fallback, re-check it after the old TTL has expired,
+  not immediately.**
 * **Each custom domain gets its OWN edge target.** `*.axcion.io` resolves through
   `4py3r2q2.up.railway.app`; `api.axcion.io` through `klglty5y.up.railway.app`. So deleting a
   custom domain in Railway without also deleting its DNS record leaves that host pointed at a
