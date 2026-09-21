@@ -445,3 +445,35 @@ async def test_lists_still_show_for_a_workspace_that_never_wrote_a_playbook():
     assert [t["key"] for t in wtd["tabs"]] == ["lists"]
     assert wtd["lists"]["groups"] == [{"key": "", "label": ""}]
     assert wtd["lists"]["items"][0]["name"] == "Chair turns"
+
+
+# ── the rebrand: a file exported before the rename still imports ──────────────────────────
+def test_a_playbook_exported_before_the_rebrand_still_imports():
+    """`format` names the product, and the product was renamed Acumyn -> Axcion in September
+    2026. Unlike everything else the rename touched, this string leaves the system: it is
+    written into an EXPORT FILE that sits on somebody's disk or a shared drive and comes back
+    months later. No migration can reach those files.
+
+    Accepting only the new spelling would reject every playbook exported before the rename,
+    permanently, with a validation error naming a field the person never wrote and cannot see.
+    That is why `_Bundle.format` takes both. Exports emit the new one.
+    """
+    old = {**_bundle(), "format": "acumyn.wtd-playbook"}
+    cleaned = w.clean_bundle(old)
+    assert cleaned["content"] == w.clean_content(_bundle()["content"]), \
+        "the old envelope must not change how the document itself is read"
+
+
+def test_a_bundle_from_some_other_product_is_still_refused():
+    """The compatibility arm widens the door by exactly one known value, not to anything. A
+    file that is not a playbook at all must still be rejected on its format alone."""
+    for bogus in ("notacumyn.wtd-playbook", "axcion.some-other-thing", "", None):
+        with pytest.raises(Exception):
+            w.clean_bundle({**_bundle(), "format": bogus})
+
+
+def test_an_export_is_written_with_the_new_name():
+    """The compatibility is one-way: old files are read, new files are never written."""
+    assert w.FORMAT == "axcion.wtd-playbook"
+    out = w.export_bundle(_bundle()["content"], [], [])
+    assert out["format"] == "axcion.wtd-playbook"

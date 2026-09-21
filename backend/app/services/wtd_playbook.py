@@ -647,7 +647,19 @@ class _ImportList(_M):
 
 
 class _Bundle(_M):
-    format: Literal["axcion.wtd-playbook"]
+    # BOTH SPELLINGS ARE ACCEPTED ON IMPORT, and this is the one place in the rebrand where
+    # the old name lives somewhere we do not control. An exported bundle is a FILE: it leaves
+    # the product, sits on somebody's disk or in a shared drive, and comes back months later.
+    # Every playbook exported before the September 2026 rename says "acumyn.wtd-playbook", and
+    # accepting only the new spelling would reject those files for good, with a validation
+    # error about a field the person cannot see and did not write.
+    #
+    # Nothing migrates this: `format` belongs to the export envelope and is never stored --
+    # console.py imports bundle["content"], the inner document. So a database migration could
+    # not have fixed it and the production scan could not have found it.
+    #
+    # Exports emit the new spelling (see FORMAT). This arm stays as long as old files might.
+    format: Literal["axcion.wtd-playbook", "acumyn.wtd-playbook"]
     version: Literal[1]
     exported_at: str | None = None
     content: dict

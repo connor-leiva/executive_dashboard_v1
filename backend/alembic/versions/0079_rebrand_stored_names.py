@@ -1,7 +1,7 @@
-"""Carry the three stored occurrences of the old name across to Axcion
+"""Carry the two stored occurrences of the old name across to Axcion
 
 Acumyn became Axcion in September 2026 (AXCION-REBRAND-SPEC.md). Most of that rename is
-text in source files. Three values are different: they were WRITTEN INTO THE DATABASE under
+text in source files. Two values are different: they were WRITTEN INTO THE DATABASE under
 the old name and are read back by code that now spells it the new way. Renaming the code
 without these would not raise anything — each one fails by quietly falling back.
 
@@ -12,8 +12,16 @@ without these would not raise anything — each one fails by quietly falling bac
     typeface — the same set of fonts today, because acumyn WAS the default, but the row
     would no longer mean what it says and the next default change would move it.
 
-  * `intranet_wtd_playbook.content -> format`. Written by services/wtd_playbook.FORMAT and
-    validated on read against a Literal. A stale value fails the shape check.
+  * There WAS going to be a third: the Win-the-Day playbook's `format`. There is not, and the
+    reason is worth keeping. `format` belongs to the EXPORT ENVELOPE, not to the stored
+    document -- `export_bundle()` writes it into a file, and the importer reads
+    `bundle["content"]`, the inner document, so the string never reaches this table. A
+    migration here would have matched zero rows for ever while reading as though it were
+    doing something. Confirmed against production: the one playbook row has no `format` key.
+
+    The real exposure is a FILE somebody exported before the rename and imports afterwards,
+    which no migration can reach. That is handled where it actually lives, by accepting both
+    spellings in `wtd_playbook._Bundle`.
 
   * The support account (routers/platform._support_email and the name beside it). An
     operator's time-boxed read-only account, addressed `<operator>+acumyn-support@…` and
@@ -25,6 +33,7 @@ WHY ONE MIGRATION AND NOT THREE. The spec sketched these as 0079/0080/0081. They
 logical change — the rename — and an atomic one is better here: if the support-account
 update fails on a collision, nobody wants the typeface half applied and the rest not. One
 revision is also one head, and a fork in this file's history crash-loops the API on deploy.
+(One of the three then turned out not to exist at all; see above.)
 
 WHAT THIS DOES NOT TOUCH, deliberately:
 
@@ -40,8 +49,8 @@ WHAT THIS DOES NOT TOUCH, deliberately:
   * The R2 bucket `acumyn-storage`. R2 cannot rename a bucket and a partial copy of 51
     Binder documents is silent loss of customer files. The name is never shown to anyone.
 
-Expected scope in production when written: 1 tenant row (testrealty), 1 playbook row, 1
-support account. Small enough to verify by eye afterwards, which is worth doing.
+Expected scope in production, confirmed by scripts/scan_rebrand.py: 1 tenant row
+(testrealty) and 1 support account. Small enough to verify by eye afterwards, which is worth doing.
 
 Revision ID: 0079_rebrand_stored_names
 Revises: 0078_sop_suggestions
@@ -58,7 +67,6 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 OLD_TYPEFACE, NEW_TYPEFACE = "acumyn", "axcion"
-OLD_FORMAT, NEW_FORMAT = "acumyn.wtd-playbook", "axcion.wtd-playbook"
 OLD_TAG, NEW_TAG = "+acumyn-support@", "+axcion-support@"
 OLD_SUFFIX, NEW_SUFFIX = "(Acumyn support)", "(Axcion support)"
 
@@ -99,30 +107,14 @@ def _swap_typeface(bind, is_pg, frm: str, to: str) -> int:
     return moved
 
 
-def _swap_playbook(bind, is_pg, frm: str, to: str) -> int:
-    rows = bind.execute(
-        sa.text("SELECT id, content FROM intranet_wtd_playbook")).fetchall()
-    moved = 0
-    for row_id, raw in rows:
-        content = _load(raw)
-        if content.get("format") != frm:
-            continue
-        content["format"] = to
-        bind.execute(sa.text(_set_json("intranet_wtd_playbook", "content", is_pg)),
-                     {"val": json.dumps(content), "id": row_id})
-        moved += 1
-        print(f"[0079] playbook {row_id}: format {frm} -> {to}", flush=True)
-    return moved
-
-
 def _swap_support_accounts(bind, frm_tag: str, to_tag: str,
                            frm_suffix: str, to_suffix: str) -> int:
     """Re-address the operator support accounts.
 
     `(tenant_id, email)` is unique, so a row is skipped rather than updated if the target
     address is already taken in that workspace — an integrity error here would roll back the
-    typeface and playbook work above for a collision that is almost certainly a support
-    account that already got re-addressed.
+    typeface work above for a collision that is almost certainly a support account that has
+    already been re-addressed.
     """
     rows = bind.execute(sa.text(
         'SELECT id, tenant_id, email, name FROM "user" WHERE email LIKE :pat'
@@ -149,9 +141,8 @@ def upgrade() -> None:
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
     t = _swap_typeface(bind, is_pg, OLD_TYPEFACE, NEW_TYPEFACE)
-    p = _swap_playbook(bind, is_pg, OLD_FORMAT, NEW_FORMAT)
     s = _swap_support_accounts(bind, OLD_TAG, NEW_TAG, OLD_SUFFIX, NEW_SUFFIX)
-    print(f"[0079] {t} typeface, {p} playbook, {s} support account(s) renamed", flush=True)
+    print(f"[0079] {t} typeface, {s} support account(s) renamed", flush=True)
 
 
 def downgrade() -> None:
@@ -160,6 +151,5 @@ def downgrade() -> None:
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
     t = _swap_typeface(bind, is_pg, NEW_TYPEFACE, OLD_TYPEFACE)
-    p = _swap_playbook(bind, is_pg, NEW_FORMAT, OLD_FORMAT)
     s = _swap_support_accounts(bind, NEW_TAG, OLD_TAG, NEW_SUFFIX, OLD_SUFFIX)
-    print(f"[0079] reverted {t} typeface, {p} playbook, {s} support account(s)", flush=True)
+    print(f"[0079] reverted {t} typeface, {s} support account(s)", flush=True)

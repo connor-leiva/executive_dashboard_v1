@@ -11,7 +11,7 @@
 | 3 · External services | **not started** — needs Connor (Resend, Google Cloud, Intuit, Meta) |
 | 4 · Backend code | **done** |
 | 5 · Frontend code | **done** |
-| 6 · Migrations | **done** — `0079_rebrand_stored_names` + `scan_rebrand.py`; **scan run against production, 8 columns found, migration confirmed complete** (§1.4) |
+| 6 · Migrations | **done** — `0079_rebrand_stored_names` (2 values, not 3) + `scan_rebrand.py`; scan run against production (§1.4) |
 | 7 · Docs | **done** |
 | 8 · Verify | **done** — 1899 passing (baseline unchanged), 5 bundles build, browser-verified on the prod build |
 | 9 · Cutover | **not started** — no Railway variable has been changed; both domains still serve |
@@ -195,7 +195,19 @@ Meta/Axcion crossing that is the ads module's entire thesis, silently widened th
 calculation to include boundaries it exists to exclude, and withdrawn every rung's
 drill-down — on a tab that would still have rendered and still have looked plausible.
 
-Treat §4.2's table as "the ones found so far", not as the set.
+**A third turned up later, and it is the one that could not have been found by any scan.**
+The Win-the-Day playbook's `format` is not stored in the database at all — it belongs to the
+EXPORT ENVELOPE. `export_bundle()` writes it into a downloadable file and the importer reads
+`bundle["content"]`, the inner document, so the string leaves the product entirely and lives
+on somebody's disk. Accepting only the new spelling would have permanently rejected every
+playbook exported before the rename, with a validation error naming a field the person never
+wrote and cannot see. Handled in `wtd_playbook._Bundle`, which takes both; exports emit the
+new one. The planned migration step for it was **removed** — it would have matched zero rows
+for ever while reading as though it did something.
+
+Treat §4.2's table as "the ones found so far", not as the set. Three were found, by three
+different methods: reading the consumer, scanning production, and following the value out of
+the system into a file.
 
 ---
 
@@ -612,6 +624,7 @@ These are read back by something that already holds the old value.
 | `backend/app/routers/platform.py` | 1589 | `"(Acumyn support)"` | `"(Axcion support)"` | ↑ |
 | `backend/app/routers/platform.py` | 991, 998, 1008 | `scope` value `"acumyn"` | `"axcion"` | **No — but see below** |
 | `backend/app/services/ads_funnel.py` | 265–285 | rung `zone` value `"acumyn"` | `"axcion"` | **No — but see below.** Not in this spec's first draft; see §1.5 |
+| `backend/app/services/wtd_playbook.py` | 27, 662 | export `format` `"acumyn.wtd-playbook"` | `"axcion.wtd-playbook"` | **Impossible.** The value lives in exported FILES outside the product; `_Bundle` accepts both on import for ever, exports emit the new one. See §1.5 |
 | `backend/app/routers/platform.py` | 1427, 1445, 1502 | `acumyn_tenant_id`, `acumyn_slug` | `axcion_…` | No (0 Stripe rows) |
 | `backend/app/services/platform_billing.py` | 167, 313, 321 | `acumyn_tenant_id` | `axcion_tenant_id` | No (0 Stripe rows) |
 | `backend/app/routers/platform.py` | 1751, 1771 | `acumyn-workspace-metadata/1`, `acumyn-{slug}-…json` | `axcion-…` | No (export format, write-only) |
@@ -793,8 +806,12 @@ New Alembic revisions on top of `0078_sop_suggestions`. **One head. Always.**
 - [ ] **6.1** `0079_rebrand_typeface` — `tenant.config -> 'brand' ->> 'typeface'`:
       `'acumyn'` → `'axcion'`. Known scope: **1 row** (`testrealty`). Rows with `NULL`
       need nothing — they resolve through the new default. Write a working `downgrade()`.
-- [ ] **6.2** `0080_rebrand_playbook_format` — `intranet_wtd_playbook.content->>'format'`:
-      `'acumyn.wtd-playbook'` → `'axcion.wtd-playbook'`. Known scope: **1 row**.
+- [x] **6.2** ~~`0080_rebrand_playbook_format`~~ — **cancelled, and the reason is the point.**
+      `format` is never stored: it belongs to the export envelope, and the importer keeps only
+      `bundle["content"]`. Confirmed against production — the single playbook row has no
+      `format` key at all. This step would have matched zero rows for ever while reading like
+      real work. The genuine exposure is an exported file, which no migration can reach; it is
+      handled in `wtd_playbook._Bundle` (§1.5).
 - [ ] **6.3** `0081_rebrand_support_account` — the support `User`:
       `email` `…+acumyn-support@…` → `…+axcion-support@…`, `name`
       `'Connor Leiva (Acumyn support)'` → `'(Axcion support)'`. Known scope: **1 row**.

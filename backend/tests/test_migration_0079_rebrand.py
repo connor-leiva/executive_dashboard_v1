@@ -1,9 +1,14 @@
-"""Migration 0079 — carry the three stored spellings of the old name across to Axcion.
+"""Migration 0079 — carry the two stored spellings of the old name across to Axcion.
 
-Every one of these three values fails QUIETLY when it is left behind: a stale typeface falls
-through to the default pairing, a stale playbook format fails a shape check on read, and a
-stale support address makes the console mint a second account beside the first. None of them
-raises at migration time, so the only way to know the migration did its job is to assert it.
+Both of these values fail QUIETLY when left behind: a stale typeface falls through to the
+default pairing, and a stale support address makes the console mint a second account beside
+the first. Neither raises at migration time, so the only way to know the migration did its
+job is to assert it.
+
+A third was planned and removed. The Win-the-Day playbook's `format` lives in the export
+envelope, never in the stored row, so a migration for it would have matched zero rows for
+ever. The real exposure there is a file exported before the rename, and it is covered in
+test_wtd_playbook.py where the importer is.
 
 The restraint tests matter as much as the rename tests. A workspace that chose "classic" must
 still be on "classic" afterwards, and an ordinary user whose address happens to contain the
@@ -30,7 +35,6 @@ def _module():
 
 def _schema(conn):
     conn.execute(sa.text("CREATE TABLE tenant (id TEXT PRIMARY KEY, slug TEXT, config TEXT)"))
-    conn.execute(sa.text("CREATE TABLE intranet_wtd_playbook (id TEXT PRIMARY KEY, content TEXT)"))
     conn.execute(sa.text(
         'CREATE TABLE "user" (id TEXT PRIMARY KEY, tenant_id TEXT, email TEXT, name TEXT)'))
 
@@ -51,8 +55,7 @@ def _typeface(conn, tid):
 
 
 @pytest.mark.parametrize("is_pg", [True, False])
-@pytest.mark.parametrize("table,column", [("tenant", "config"),
-                                          ("intranet_wtd_playbook", "content")])
+@pytest.mark.parametrize("table,column", [("tenant", "config")])
 def test_every_json_update_binds_the_parameters_it_names(is_pg, table, column):
     """The jsonb CAST is the part that silently does not bind: `:val::jsonb` renders as a cast
     of a literal and loses the parameter. 0046 learned this the hard way; this keeps it learned."""
@@ -92,20 +95,6 @@ def test_a_tenant_with_no_typeface_is_not_given_one():
         assert cfg["brand"]["seeds"] == {"brand": "#123456"}, "the rest of brand is untouched"
 
 
-def test_the_playbook_format_moves_and_the_rest_of_the_content_survives():
-    mod = _module()
-    engine = sa.create_engine("sqlite://")
-    with engine.begin() as conn:
-        _schema(conn)
-        conn.execute(sa.text("INSERT INTO intranet_wtd_playbook VALUES (:i,:c)"),
-                     {"i": "p1", "c": json.dumps(
-                         {"format": "acumyn.wtd-playbook", "sections": [{"t": "Morning"}]})})
-        assert mod._swap_playbook(conn, False, mod.OLD_FORMAT, mod.NEW_FORMAT) == 1
-        content = json.loads(
-            conn.execute(sa.text("SELECT content FROM intranet_wtd_playbook")).scalar_one())
-        assert content["format"] == "axcion.wtd-playbook"
-        assert content["sections"] == [{"t": "Morning"}], "only the format key moves"
-
 
 def test_the_support_account_is_re_addressed_and_renamed():
     mod = _module()
@@ -136,8 +125,8 @@ def test_an_ordinary_account_that_merely_mentions_the_old_name_is_untouched():
 
 
 def test_a_collision_skips_that_row_instead_of_failing_the_whole_migration():
-    """(tenant_id, email) is unique. An integrity error here would roll back the typeface and
-    playbook work for a collision that is almost certainly an account already re-addressed."""
+    """(tenant_id, email) is unique. An integrity error here would roll back the typeface work
+    for a collision that is almost certainly an account that has already been re-addressed."""
     mod = _module()
     engine = sa.create_engine("sqlite://")
     with engine.begin() as conn:
@@ -172,26 +161,20 @@ def test_the_migration_round_trips():
     with engine.begin() as conn:
         _schema(conn)
         _tenant(conn, "t1", "testrealty", {"typeface": "acumyn"})
-        conn.execute(sa.text("INSERT INTO intranet_wtd_playbook VALUES (:i,:c)"),
-                     {"i": "p1", "c": json.dumps({"format": "acumyn.wtd-playbook", "n": 1})})
         _user(conn, "u1", "t1", "c+acumyn-support@x.com", "C (Acumyn support)")
         before = conn.execute(sa.text(
             'SELECT (SELECT config FROM tenant), '
-            '(SELECT content FROM intranet_wtd_playbook), '
             '(SELECT email || "|" || name FROM "user")')).one()
 
         mod._swap_typeface(conn, False, mod.OLD_TYPEFACE, mod.NEW_TYPEFACE)
-        mod._swap_playbook(conn, False, mod.OLD_FORMAT, mod.NEW_FORMAT)
         mod._swap_support_accounts(conn, mod.OLD_TAG, mod.NEW_TAG,
                                    mod.OLD_SUFFIX, mod.NEW_SUFFIX)
         assert _typeface(conn, "t1") == "axcion"
 
         mod._swap_typeface(conn, False, mod.NEW_TYPEFACE, mod.OLD_TYPEFACE)
-        mod._swap_playbook(conn, False, mod.NEW_FORMAT, mod.OLD_FORMAT)
         mod._swap_support_accounts(conn, mod.NEW_TAG, mod.OLD_TAG,
                                    mod.NEW_SUFFIX, mod.OLD_SUFFIX)
         after = conn.execute(sa.text(
             'SELECT (SELECT config FROM tenant), '
-            '(SELECT content FROM intranet_wtd_playbook), '
             '(SELECT email || "|" || name FROM "user")')).one()
         assert after == before
