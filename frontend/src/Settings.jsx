@@ -1072,6 +1072,11 @@ function EntityRow({ e, live, busy, onAction }) {
         {e.realm_id && (
           <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted }}>ID {e.realm_id}</span>
         )}
+        {/* This connection's own configuration, on this connection's own row. */}
+        {e.config_summary?.length > 0 && (
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>
+            {e.config_summary.map(([k, v]) => `${k} ${v}`).join(" · ")}</span>
+        )}
       </div>
       <span style={{ fontFamily: "var(--font-text)", fontSize: 12, flexShrink: 0,
         color: err ? T.poppyText : disc ? T.muted : T.slate, textAlign: "right" }}>{stateText}</span>
@@ -1187,7 +1192,10 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
       <div className={`si-collapse ${open ? "open" : ""}`}>
         <div className="si-collapse-in">
           <div style={{ padding: "0 20px 18px" }}>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, paddingBottom: 12, lineHeight: 1.5 }}>{s.desc(s)}</div>
+            {/* A vendor row's own description, not one member's: DESC is written per provider,
+                so a two-location row would otherwise be described by whichever came first. */}
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, paddingBottom: 12, lineHeight: 1.5 }}>
+              {(s.members?.length || 1) > 1 ? s.meta : s.desc(s)}</div>
 
             {entities.length > 0 && (
               <>
@@ -1206,18 +1214,7 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
               </>
             )}
 
-            {s.config_summary?.length > 0 && (
-              <div style={{ borderTop: `1px solid ${T.line}`, padding: "11px 0 3px", marginTop: 12 }}>
-                {s.config_summary.map(([k, v], i) => (
-                  <div key={i} style={{ display: "flex", gap: 14, padding: "4px 0", fontFamily: "var(--font-text)", fontSize: 12 }}>
-                    <span style={{ width: 130, color: T.muted }}>{k}</span>
-                    <span style={{ color: T.secondary, fontVariantNumeric: "tabular-nums" }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {s.provider === "stripe_legacy" && <LegacyDeltaPanel live={live} />}
+            {(s.members || [s.provider]).includes("stripe_legacy") && <LegacyDeltaPanel live={live} />}
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
               gap: 16, flexWrap: "wrap", marginTop: 14 }}>
@@ -1290,70 +1287,81 @@ const _one = (provider, id, key, name, accent, state = "ok", detail = null) => [
  * EVERY PROVIDER THE API CAN RETURN IS HERE, on purpose. A provider missing from this list is
  * why a white screen could not be reproduced locally: the crash needed the fetched source list
  * to render, and the sample was a different shape than production. */
+/* The offline payload, field for field with the live one — VENDOR ROWS, the shape the server
+ * sends since the merge. Every provider the API can return is here, as a row's own provider or
+ * inside the `members` of the row that stands for it. A provider missing from this list is why a
+ * white screen could not be reproduced locally: the crash needed the fetched list to render, so
+ * the preview was exercising a different payload and looked fine. */
 const SAMPLE_VIEW = {
-  healthy: 3, total: 10, next_sync_in_min: 14, entities_mapped: 6, needs_attention: 2,
+  healthy: 2, total: 8, next_sync_in_min: 14, entities_mapped: 7, needs_attention: 2,
   alerts: [{ title: "Spring B lost its QuickBooks connection",
     detail: "Financials for this entity stopped updating. Last synced 3 days ago.",
     provider: "qbo", business_key: "springb", action: "reconnect" }],
   sources: [
     _src({ provider: "qbo", vendor: "QuickBooks", family: "qbo", category: "Financials",
       meta: "Financials · profit & loss, balance sheet", name: "QuickBooks",
+      members: ["qbo"], connect_provider: "qbo", multi_entity: true,
       status: "attention", status_note: "1 of 3 entities needs reconnect", tag: "3 entities",
-      multi_entity: true,
       ago: "7 min", feeds: ["ulrg", "springb", "sympli"],
       provides: ["Profit & Loss", "Balance Sheet"], last_run: "Last run · 2 entities · 4.2s",
       entities: [
         { integration_id: "e1", business_key: "ulrg", business_name: "ULRG + Team", state: "ok", provider: "qbo",
-          accent: "#61835E", actions: ["sync", "edit", "disconnect", "remove"],
+          accent: "#61835E", actions: ["sync", "edit", "disconnect"], config_summary: [],
           last_synced_at: new Date(Date.now() - 32 * 60000).toISOString(), realm_id: "9130 3540 11" },
         { integration_id: "e2", business_key: "springb", business_name: "Spring B", state: "error", provider: "qbo",
-          accent: "#FA8069", actions: ["reconnect", "edit", "disconnect", "remove"], detail: "Token expired Jun 29" },
+          accent: "#FA8069", actions: ["reconnect", "edit", "disconnect"], config_summary: [], detail: "Token expired Jun 29" },
         { integration_id: "e3", business_key: "sympli", business_name: "Sympli Mortgage", state: "ok", provider: "qbo",
-          accent: "#227175", actions: ["sync", "edit", "disconnect", "remove"],
+          accent: "#227175", actions: ["sync", "edit", "disconnect", "remove"], config_summary: [],
           last_synced_at: new Date(Date.now() - 32 * 60000).toISOString(), realm_id: "9130 3541 88" },
       ] }),
     _src({ provider: "sisu", vendor: "Sisu", family: "sisu", category: "Production",
       meta: "Production · closings, agents and GCI", name: "Sisu", status: "ok",
+      members: ["sisu"], connect_provider: "sisu",
       fresh: "Synced 26 min ago", ago: "26 min", feeds: ["ulrg"], business_name: "ULRG + Team",
       provides: ["Transactions", "Agents", "GCI"], last_run: "Last run · 412 records · 3.1s",
       integration_id: "s1", entities: _one("sisu", "s1", "ulrg", "ULRG + Team", "#61835E") }),
     _src({ provider: "fub", vendor: "Follow Up Boss", family: "fub", category: "CRM",
       meta: "CRM · leads and agent activity", name: "Follow Up Boss", status: "stale",
+      members: ["fub"], connect_provider: "fub",
       fresh: "Synced 19 hours ago", ago: "19 hr", feeds: ["ulrg"], business_name: "ULRG + Team",
       provides: ["Leads", "Agents"], integration_id: "f1",
       entities: _one("fub", "f1", "ulrg", "ULRG + Team", "#61835E"),
       last_run: "Auto-sync has missed its last 37 runs — check the connection" }),
+    /* ONE ROW, TWO PROVIDERS. Each connection keeps its own credentials and its own config, and
+       carries that config on its own entity row — which is what makes the row honest. */
     _src({ provider: "ghl", vendor: "Go High Level", family: "ghl", category: "Marketing",
-      meta: "Marketing · members, renewals and events", name: "Go High Level · The Forum",
-      status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", feeds: ["forum"],
-      business_name: "The Forum", provides: ["Members", "Subscriptions", "Events"],
+      meta: "Marketing · members, renewals and events", name: "Go High Level",
+      members: ["ghl", "ghl_bc"], connect_provider: null, multi_entity: false,
+      status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", tag: "2 entities",
+      feeds: ["forum", "becollective"], provides: ["Members", "Subscriptions", "Events", "Onboarding"],
       last_run: "Last run · 142 members · 38 subscriptions · 2.4s", integration_id: "g1", config: {},
-      entities: _one("ghl", "g1", "forum", "The Forum", "#FFDD1F"),
-      config_summary: [["Location ID", "LqK4…f82"], ["Member tags", "5 tags"], ["Next event", "Park City, UT"]] }),
-    _src({ provider: "ghl_bc", vendor: "Go High Level", family: "ghl", category: "Marketing",
-      meta: "Marketing · members, renewals and events", name: "Go High Level · beCollective",
-      status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", feeds: ["becollective"],
-      business_name: "beCollective", secondary: true, provides: ["Members", "Onboarding", "Events"],
-      last_run: "Last run · 30 members · 25 memberships · 1.9s", integration_id: "gb1", config: {},
-      entities: _one("ghl_bc", "gb1", "becollective", "beCollective", "#FFBA9F"),
-      config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] }),
+      entities: [
+        { integration_id: "g1", business_key: "forum", business_name: "The Forum", state: "ok",
+          provider: "ghl", accent: "#FFDD1F", actions: ["sync", "edit", "disconnect"],
+          last_synced_at: new Date(Date.now() - 62 * 60000).toISOString(),
+          config_summary: [["Location ID", "LqK4…f82"], ["Member tags", "5 tags"], ["Next event", "Park City, UT"]] },
+        { integration_id: "gb1", business_key: "becollective", business_name: "beCollective", state: "ok",
+          provider: "ghl_bc", accent: "#FFBA9F", actions: ["sync", "edit", "disconnect"],
+          last_synced_at: new Date(Date.now() - 64 * 60000).toISOString(),
+          config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] },
+      ] }),
     _src({ provider: "arive", vendor: "Arive", family: "arive", category: "Mortgage",
       meta: "Mortgage · pipeline and fundings", name: "Arive", status: "disconnected",
+      members: ["arive"], connect_provider: "arive",
       provides: ["Loans", "Pipeline"], business_key: "sympli", business_name: "Sympli Mortgage" }),
     _src({ provider: "meta_ads", vendor: "Meta Ads", family: "meta", category: "Advertising",
       meta: "Advertising · spend, impressions and leads", name: "Meta Ads", status: "disconnected",
+      members: ["meta_ads"], connect_provider: "meta_ads",
       provides: ["Spend", "Impressions", "Link clicks", "Leads"], business_key: "springb" }),
     _src({ provider: "stripe_legacy", vendor: "Stripe", family: "stripe", category: "Payments",
-      meta: "Payments · legacy recurring dues", name: "Legacy Stripe · The Forum",
-      status: "disconnected", tag: "Legacy", secondary: true, business_key: "springb",
-      provides: ["Legacy charges", "Recurring dues"] }),
-    _src({ provider: "stripe_bc", vendor: "Stripe", family: "stripe", category: "Payments",
-      meta: "Payments · membership payments", name: "Stripe · beCollective", status: "disconnected",
-      secondary: true, business_key: "springb", business_name: "beCollective",
-      provides: ["Membership payments", "Financed plans"] }),
+      meta: "Payments · legacy recurring dues", name: "Stripe", status: "disconnected",
+      members: ["stripe_legacy", "stripe_bc"], connect_provider: "stripe_legacy",
+      tag: "Legacy", secondary: true, business_key: "springb",
+      provides: ["Legacy charges", "Recurring dues", "Membership payments"] }),
     _src({ provider: "ghl_legacy", vendor: "GHL charge labels", family: "ghl_legacy",
-      category: "Mapping", meta: "Mapping · labels for legacy charges",
-      name: "Old GHL · Charge labels", status: "disconnected", tag: "Legacy", secondary: true,
+      category: "Mapping", meta: "Mapping · labels for legacy charges", name: "GHL charge labels",
+      members: ["ghl_legacy"], connect_provider: "ghl_legacy",
+      status: "disconnected", tag: "Legacy", secondary: true,
       business_key: "springb", provides: ["Charge labels", "Invoice line items"] }),
   ],
 };
@@ -1369,20 +1377,16 @@ function IntegrationsPage() {
   const [adding, setAdding] = useState(false);
   const live = Boolean(API_BASE);
 
-  /* The row's title is the VENDOR, and the vendor alone -- until a workspace has two accounts of
-     one, and then the business each serves tells them apart. That business name is tenant data.
-     It replaces META's hardcoded "Go High Level · The Forum", which named one customer's
-     programmes to every workspace that opened this page. */
+  /* The row's title is the VENDOR. One row per vendor now, so nothing needs disambiguating:
+     "Go High Level" stands for both locations and each appears beneath it by name. This replaces
+     META's hardcoded "Go High Level · The Forum", which named one customer's programmes to every
+     workspace that opened the page. */
   function decorate(v) {
-    const perFamily = {};
-    for (const s of v.sources) perFamily[s.family] = (perFamily[s.family] || 0) + 1;
     return { ...v, sources: v.sources.map((s) => ({
       ...s,
       mono: MONO[s.provider] || (s.provider || "?").slice(0, 2),
       desc: descFor(s.provider),
-      title: (perFamily[s.family] > 1 && s.business_name)
-        ? `${s.vendor} · ${s.business_name}`
-        : (s.vendor || s.name),
+      title: s.vendor || s.name,
     })) };
   }
   function load() {
@@ -1411,10 +1415,18 @@ function IntegrationsPage() {
      every other source authenticates with a key somebody pastes, so its fix is its own form.
      The page used to answer this with five optional props, four of which were passed only when
      the provider happened to be qbo. */
+  /* A vendor row can span two connections, so an action on one of them has to carry THAT
+     connection's provider and config -- editing The Forum's location must not open beCollective's
+     form with beCollective's location id in it. */
+  const editConnection = (e) => setConnecting({
+    provider: e.provider, name: e.business_name, config: e.config || {},
+    business_key: e.business_key, integration_id: e.integration_id, status: "connected",
+  });
+
   function entityAction(action, e, src) {
     if (action === "sync") return syncOne(e.integration_id);
-    if (action === "reconnect") return e.provider === "qbo" ? qboConnect(e.business_key) : editConfig(src);
-    if (action === "edit") return e.provider === "qbo" ? editEntity(e) : editConfig(src);
+    if (action === "reconnect") return e.provider === "qbo" ? qboConnect(e.business_key) : editConnection(e);
+    if (action === "edit") return e.provider === "qbo" ? editEntity(e) : editConnection(e);
     if (action === "disconnect") return disconnectEntity(e);
     if (action === "remove") return deleteEntity(e);
     return undefined;
@@ -1441,7 +1453,9 @@ function IntegrationsPage() {
       return;
     }
     return setConnecting({
-      provider: s.provider, name: s.name, config: s.config || {},
+      // `connect_provider` is the member with no row yet, so connecting a workspace's SECOND
+      // GHL location does not ask anybody to know it is called ghl_bc.
+      provider: s.connect_provider || s.provider, name: s.name, config: s.config || {},
       business_key: s.business_key, integration_id: s.integration_id || null,
       status: s.status === "connected" || s.status === "error" ? s.status : "disconnected",
     });

@@ -100,17 +100,41 @@ async def test_every_provider_the_api_can_return_has_a_family_and_a_category():
         assert family and vendor and category and meta_line, prov
 
 
-async def test_a_family_spans_providers_without_merging_them():
-    """Go High Level is one VENDOR over two providers, and Stripe is another. They must keep
-    separate rows here — separate tokens, configs and sync paths — while sharing a family, which
-    is what lets the UI draw them as one row with two sub-rows."""
+async def test_a_vendor_row_stands_for_two_providers_without_merging_them():
+    """Go High Level is ONE ROW over two providers. The row is presentation; the providers keep
+    separate credentials, separate configs and independent failure, and each appears beneath it
+    as its own connection carrying its own configuration. That last part is what makes the row
+    honest rather than a claim that one credential serves both locations."""
     async with SessionLocal() as s:
-        out = await build_integrations_view(s, await _tenant(s))
-    by = {x.provider: x for x in out.sources}
-    assert by["ghl"].family == by["ghl_bc"].family == "ghl"
-    assert by["ghl"].vendor == by["ghl_bc"].vendor == "Go High Level"
-    assert by["stripe_legacy"].family == by["stripe_bc"].family == "stripe"
-    assert by["ghl"] is not by["ghl_bc"]                      # still two sources
+        t = await _tenant(s)
+        any_biz = (await s.execute(select(Business).where(
+            Business.tenant_id == t))).scalars().first()
+        for prov, loc in (("ghl", "LOC-FORUM"), ("ghl_bc", "LOC-BCOLL")):
+            row = (await s.execute(select(Integration).where(
+                Integration.tenant_id == t, Integration.provider == prov))).scalars().first()
+            if row is None:
+                row = Integration(tenant_id=t, provider=prov, business_id=any_biz.id)
+                s.add(row)
+            row.status = "connected"
+            row.last_synced_at = dt.datetime.now(dt.timezone.utc)
+            row.config = {"location_id": loc, "member_tags": ["member"]}
+        await s.commit()
+        out = await build_integrations_view(s, t)
+        underneath = len((await s.execute(select(Integration).where(
+            Integration.tenant_id == t,
+            Integration.provider.in_(("ghl", "ghl_bc"))))).scalars().all())
+
+    rows = [x for x in out.sources if x.family == "ghl"]
+    assert len(rows) == 1, "Go High Level should be one row"
+    row = rows[0]
+    assert row.vendor == "Go High Level"
+    assert row.members == ["ghl", "ghl_bc"]
+    assert underneath == 2, "the integrations themselves must not have been merged"
+    assert {e.provider for e in row.entities} == {"ghl", "ghl_bc"}
+    # Each connection carries ITS OWN configuration. A summary on the row would describe one
+    # location and imply both.
+    locs = {e.provider: dict(e.config_summary).get("Location ID") for e in row.entities}
+    assert locs["ghl"] and locs["ghl_bc"] and locs["ghl"] != locs["ghl_bc"]
 
 
 async def test_a_broken_entity_becomes_an_alert_that_names_it():
@@ -159,14 +183,19 @@ async def test_the_counts_describe_the_list_they_sit_above():
     assert out.entities_mapped >= 1
 
 
-async def test_secondary_sources_are_marked_so_the_list_can_hold_them_back():
-    """A second GHL location and a legacy Stripe belong to one workspace's arrangements. Offered
-    to every workspace they read as a catalogue of somebody else's programmes."""
+async def test_a_row_is_held_back_only_when_every_member_is_secondary():
+    """A second GHL location is secondary; the FIRST one is not, so the vendor row belongs in the
+    list. Both of our Stripes are one workspace's arrangements, so that row is held back until a
+    row exists — offered to everybody it reads as a catalogue of somebody else's programmes."""
     async with SessionLocal() as s:
         out = await build_integrations_view(s, await _tenant(s))
-    by = {x.provider: x for x in out.sources}
-    assert all(by[p].secondary for p in ("ghl_bc", "ghl_legacy", "stripe_legacy", "stripe_bc"))
-    assert not any(by[p].secondary for p in ("qbo", "sisu", "fub", "arive", "meta_ads"))
+    by = {x.family: x for x in out.sources}
+    assert by["ghl"].members == ["ghl", "ghl_bc"]
+    assert by["ghl"].secondary is False
+    assert by["stripe"].members == ["stripe_legacy", "stripe_bc"]
+    assert by["stripe"].secondary is True
+    assert by["ghl_legacy"].secondary is True
+    assert not any(by[f].secondary for f in ("qbo", "sisu", "fub", "arive", "meta"))
 
 
 async def test_the_row_age_is_a_column_not_a_sentence():
@@ -202,3 +231,37 @@ async def test_remove_is_offered_only_where_the_api_would_accept_it():
         assert offered != (e.business_key in busy_keys), (
             f"{e.business_key}: remove offered={offered} while a non-QBO source "
             f"{'is' if e.business_key in busy_keys else 'is not'} attached")
+
+
+async def test_a_vendor_row_wears_the_worst_state_of_its_connections():
+    """The row is the thing somebody scans, so "one of these is broken" has to survive the merge.
+    And a Connect on that row creates the member that has no row yet, so connecting a second
+    location does not ask anybody to know that it is called ghl_bc."""
+    async with SessionLocal() as s:
+        t = await _tenant(s)
+        rows = {r.provider: r for r in (await s.execute(select(Integration).where(
+            Integration.tenant_id == t,
+            Integration.provider.in_(("ghl", "ghl_bc"))))).scalars().all()}
+        rows["ghl"].status, rows["ghl"].last_error = "error", "Token rejected"
+        rows["ghl_bc"].status = "connected"
+        rows["ghl_bc"].last_synced_at = dt.datetime.now(dt.timezone.utc)
+        await s.commit()
+        out = await build_integrations_view(s, t)
+    row = next(x for x in out.sources if x.family == "ghl")
+    assert row.status == "attention"          # the healthy sibling does not hide the broken one
+    assert {e.state for e in row.entities} == {"error", "ok"}
+    # Nothing left to add: both members have a row.
+    assert row.connect_provider is None and row.multi_entity is False
+
+
+async def test_a_vendor_row_offers_its_unconnected_member():
+    async with SessionLocal() as s:
+        t = await _tenant(s)
+        row = (await s.execute(select(Integration).where(
+            Integration.tenant_id == t, Integration.provider == "ghl_bc"))).scalars().first()
+        await s.delete(row)
+        await s.commit()
+        out = await build_integrations_view(s, t)
+    row = next(x for x in out.sources if x.family == "ghl")
+    assert row.connect_provider == "ghl_bc"
+    assert row.multi_entity is True

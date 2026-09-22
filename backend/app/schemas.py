@@ -272,6 +272,11 @@ class EntityRow(BaseModel):
     # Server-side because it depends on the provider and the row's state, and a menu that offers
     # an action the API will refuse is the dead-button failure this module has shipped three times.
     actions: list[str] = []
+    # The CONNECTION's own configuration, not the vendor's. A vendor row can span two providers
+    # with two different GHL locations behind it, so a summary on the row would describe one of
+    # them and imply both. It belongs to the row that is actually that connection.
+    config_summary: list[list[str]] = []
+    config: dict | None = None
 
 
 class SourceOut(BaseModel):
@@ -308,6 +313,14 @@ class SourceOut(BaseModel):
     # other source is one per workspace, and offering "connect another" there is a button that
     # leads nowhere. A flag rather than `provider == "qbo"` scattered through the page.
     multi_entity: bool = False
+    # ── the vendor row ───────────────────────────────────────────────────────────────────────
+    # Providers this row stands for, in ORDER. Usually one; "Go High Level" is ghl + ghl_bc and
+    # "Stripe" is stripe_legacy + stripe_bc. They remain separate integrations underneath -- this
+    # is a row, not a merge of their credentials.
+    members: list[str] = []
+    # Which provider a "Connect another" here would create. The first member with no row yet, so
+    # a workspace connecting its second GHL location gets ghl_bc without being asked to know that.
+    connect_provider: str | None = None
     ago: str | None = None        # compact "7 min" for the row; `fresh` stays for the drawer
     # A second account of a vendor another workspace already has (a second GHL location, a
     # legacy Stripe). Offering these to every workspace puts one customer's programmes in

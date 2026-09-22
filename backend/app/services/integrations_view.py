@@ -100,6 +100,75 @@ CONNECTABLE_KIND = {
 }
 
 
+# Worst first: a vendor row wears the worst state of the connections behind it, because the row
+# is the thing somebody scans and "one of these is broken" is the fact they need from it.
+_RANK = {"attention": 3, "stale": 2, "ok": 1, "disconnected": 0}
+
+
+def _by_vendor(members: list[SourceOut], raw: dict[str, dict], now) -> list[SourceOut]:
+    """One row per vendor, ordered by where its first provider sits in ORDER.
+
+    THE PROVIDERS ARE NOT MERGED -- only their row is. Each keeps its own credentials, config and
+    sync path, and each appears as its own entity underneath carrying its own configuration. That
+    distinction is the whole reason this is a view function and not a data model change: a vendor
+    row that implied one credential would be describing something that does not exist.
+    """
+    by_family: dict[str, list[SourceOut]] = {}
+    for m in members:
+        by_family.setdefault(m.family, []).append(m)
+
+    out: list[SourceOut] = []
+    for group in by_family.values():
+        if len(group) == 1:
+            solo = group[0]
+            solo.members = [solo.provider]
+            solo.connect_provider = solo.provider
+            out.append(solo)
+            continue
+
+        primary = group[0]                       # first in ORDER
+        entities = [e for m in group for e in m.entities]
+        live = [m for m in group if m.status != "disconnected"]
+        status = max((m.status for m in live), key=lambda s: _RANK[s], default="disconnected")
+        freshest = max((raw[m.provider]["freshest"] for m in group
+                        if raw.get(m.provider, {}).get("freshest")), default=None)
+        # The run line belongs to whichever connection ran most recently; each connection's own
+        # state is on its own entity row, so this is a footnote rather than a claim about both.
+        recent = next((m for m in sorted(
+            group, key=lambda m: raw.get(m.provider, {}).get("freshest") or dt.datetime.min.replace(
+                tzinfo=dt.timezone.utc), reverse=True) if m.last_run), None)
+        # A Connect here creates the first member that has no row yet.
+        spare = next((m for m in group if m.status == "disconnected"), None)
+        provides: list[str] = []
+        for m in group:
+            for c in m.provides:
+                if c not in provides:
+                    provides.append(c)
+
+        out.append(SourceOut(
+            provider=primary.provider, name=primary.vendor, vendor=primary.vendor,
+            family=primary.family, category=primary.category, meta=primary.meta,
+            status=status,
+            # The note names one connection, and a vendor row spanning two would not say which.
+            status_note=None,
+            fresh=_humanize(freshest, now), ago=_ago(freshest, now),
+            provides=provides, feeds=[f for m in group for f in m.feeds],
+            last_run=recent.last_run if recent else None,
+            entities=entities,
+            members=[m.provider for m in group],
+            connect_provider=spare.provider if spare else None,
+            multi_entity=bool(spare),
+            tag=f"{len(entities)} entities" if len(entities) > 1 else primary.tag,
+            # Only when every member is one: a vendor whose FIRST location is ordinary belongs in
+            # the list even though its second is not.
+            secondary=all(m.secondary for m in group),
+            business_key=(spare.business_key if spare else primary.business_key),
+            needs_kind=(spare.needs_kind if spare else primary.needs_kind),
+            integration_id=primary.integration_id))
+
+    return sorted(out, key=lambda s: ORDER.index(s.provider))
+
+
 def _aware(ts: dt.datetime) -> dt.datetime:
     return ts.replace(tzinfo=dt.timezone.utc) if ts.tzinfo is None else ts
 
@@ -195,6 +264,9 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
     sources: list[SourceOut] = []
     alerts: list[Alert] = []
     entities_mapped = 0
+    # Raw values a merge needs and the wire format does not carry: SourceOut holds `fresh` as a
+    # humanized sentence, and "the freshest of two sentences" is not a computation.
+    raw: dict[str, dict] = {}
 
     for prov in ORDER:
         meta = META[prov]
@@ -247,6 +319,7 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
             else:
                 status, note = "ok", None
             entities_mapped += len(connected)
+            raw[prov] = {"freshest": freshest, "connected": bool(connected)}
             sources.append(SourceOut(
                 provider=prov, name=meta["name"], status=status, status_note=note,
                 fresh=_humanize(freshest, now), feeds=feeds, provides=meta["provides"],
@@ -272,6 +345,7 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 status = "ok"
             cfg = (row.config if row else None) or {}
             own = biz_by_id.get(row.business_id) if row else None
+            freshest_here = _aware(row.last_synced_at) if row and row.last_synced_at else None
             bkey = own.key if own else (target.key if target else None)
             entities_mapped += 1 if connected else 0
             # ONE SHAPE FOR EVERY SOURCE. A single-connection provider gets a one-row entities[]
@@ -289,7 +363,9 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                     # No "remove": for these, disconnecting IS the removal -- there is no
                     # per-entity delete behind them the way QuickBooks entities have.
                     actions=(["sync"] if row.status != "error" else ["reconnect"])
-                            + ["edit", "disconnect"]))
+                            + ["edit", "disconnect"],
+                    config=cfg if prov in ("ghl", "ghl_bc") else None,
+                    config_summary=_ghl_config_summary(cfg) if prov in ("ghl", "ghl_bc") else []))
             if status == "attention":
                 alerts.append(Alert(
                     title=f"{vendor} needs attention",
@@ -297,13 +373,16 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                     # Every non-QuickBooks source authenticates with a key somebody pastes, so
                     # the fix is its own form rather than an OAuth round trip.
                     provider=prov, business_key=bkey, action="edit"))
+            raw[prov] = {"freshest": freshest_here, "connected": connected}
             sources.append(SourceOut(
                 provider=prov, name=meta["name"], status=status,
                 status_note=(row.last_error if row and status == "attention" else None),
                 fresh=_humanize(row.last_synced_at if row else None, now),
                 feeds=meta["feeds"] if connected else [], provides=meta["provides"],
                 last_run=_last_run(run, status, interval, now),
-                config_summary=_ghl_config_summary(cfg) if prov in ("ghl", "ghl_bc") and connected else [],
+                # config_summary is on the ENTITY now -- a vendor row can span two locations, and
+                # a summary here would describe one of them while appearing to describe the row.
+                # `config` stays: the banner's "fix it" opens this source's form directly.
                 config=cfg if prov in ("ghl", "ghl_bc") else None,
                 entities=entities,
                 integration_id=str(row.id) if row else None,
@@ -314,6 +393,8 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 secondary=secondary, ago=_ago(row.last_synced_at if row else None, now),
                 business_name=(own.name if own else (target.name if target else None)),
                 tag="Legacy" if prov in LEGACY else None))
+
+    sources = _by_vendor(sources, raw, now)
 
     # Healthy is `ok`, and only `ok`. Degraded work is work somebody still has to do, so it
     # counts against attention rather than for health -- which is what the stat strip says too.

@@ -91,8 +91,12 @@ def test_every_connectable_provider_is_reachable_from_connect_source():
     src = _settings_source()
     fn = src[src.index("function connectSource("):]
     fn = fn[: fn.index("\n  }")]
-    # The single generic branch covers every provider by passing s.provider straight through.
-    generic = "provider: s.provider" in fn
+    # The single generic branch covers every provider by passing the source's provider straight
+    # through. Matched as a PATTERN rather than one literal spelling: it began as
+    # `provider: s.provider` and became `provider: s.connect_provider || s.provider` when a vendor
+    # row learned to connect the member that has no row yet. Both are the generic branch; a guard
+    # that only knew the first spelling failed on a change that could not break what it guards.
+    generic = bool(re.search(r"provider:\s*s\.[A-Za-z_|\s.]*provider", fn))
     assert generic or not (_connectable() - set(re.findall(r'=== "(\w+)"', fn))), (
         "connectSource neither handles providers generically nor names them all")
 
@@ -123,7 +127,11 @@ def test_every_offered_provider_is_in_the_offline_sample():
     src = _settings_source()
     block = src[src.index("const SAMPLE_VIEW = {"):]
     block = block[: block.index("\nfunction IntegrationsPage")]
+    # A provider can appear as a row's own key OR inside the `members` of a vendor row that
+    # stands for it -- "Go High Level" is one row over ghl and ghl_bc. Both count as covered.
     sampled = set(re.findall(r'provider:\s*"(\w+)"', block))
+    for members in re.findall(r"members:\s*\[([^\]]*)\]", block):
+        sampled |= set(re.findall(r'"(\w+)"', members))
     missing = _all_offered() - sampled
     assert not missing, (
         f"these providers are returned by the API and absent from SAMPLE_VIEW: {sorted(missing)} "

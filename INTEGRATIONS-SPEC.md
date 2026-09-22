@@ -282,24 +282,36 @@ that shipped three times in one week.
 
 ---
 
-## Built — and one deliberate deviation
+## Built
 
-Phases 1-6 shipped 2026-09-22 (`b93c64f`, `091e316`, `b1a1150`, `b4d7534`, and this one).
+Phases 1-6 shipped 2026-09-22 (`b93c64f`, `091e316`, `b1a1150`, `b4d7534`, `9c5e37a`), and the
+vendor merge after them.
 
-**The vendor MERGE was not built, and should not be.** §1.2 proposed rendering a family with more
-than one member as a single row ("Go High Level · 2 entities"). Building the rest of it showed why
-that is wrong here: the mockup's one row assumes ONE credential serving two locations, and ours are
-two separate connections with separate tokens, separate configs and independent failure. Merging
-them would claim they are one thing, and it would have to hide each location's own configuration
-summary behind a second level of disclosure the mockup does not have. What shipped instead is the
-row title disambiguating by the business each serves — "Go High Level · The Forum" and
-"· beCollective" — which says the true thing: same vendor, two connections. Say the word if you
-would rather have the drawing.
+**The vendor merge — built, after I argued against it.** §1.2 proposed one row per vendor; I then
+recommended against it, because the mockup's single row assumes ONE credential serving two
+locations while ours are two connections with separate tokens, separate configs and independent
+failure, and merging looked like it would bury each location's configuration behind a second level
+of disclosure. Connor decided to build it, and the objection turned out to be answerable rather
+than fatal:
+
+* **Everything provider-specific moved onto the connection.** `EntityRow` carries its own
+  `config_summary` and `config`, so The Forum's location id sits on The Forum's row and
+  beCollective's on beCollective's. One level of disclosure, nothing hidden — which is what I
+  thought merging would cost.
+* **Editing a connection edits that connection.** The action dispatcher builds the form from the
+  entity's provider and config, so opening The Forum's settings cannot show beCollective's.
+* **The row aggregates and says so.** Status is the worst of its members (a healthy sibling must
+  not hide a broken one), the age is the freshest, `status_note` is dropped because a note naming
+  one connection would appear to describe both, and the run line is the most recent member's.
+* **`connect_provider`** is the member with no row yet, so connecting a workspace's second GHL
+  location does not ask anybody to know it is called `ghl_bc`.
+* **The providers are not merged** — only their row is. A test asserts both Integration rows still
+  exist behind the single "Go High Level" row.
 
 Everything else in §1.1 is in, plus three findings the mockup did not ask about:
 
-* `META`'s hardcoded customer names are gone; a row is titled by vendor and by the business it
-  serves, which is tenant data.
+* `META`'s hardcoded customer names are gone; a row is titled by its vendor, and the businesses
+  are named on the connections beneath it.
 * `CORE_ENTITIES` is gone. It listed one customer's three business keys to decide what "Remove
   entirely" may touch, while `delete_qbo_entity` already enforced the real rule per tenant.
   Checked against production: for springb the rule reproduces that hardcoded set exactly
