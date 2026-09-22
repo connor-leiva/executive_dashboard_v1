@@ -285,6 +285,7 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                             else CONNECTABLE_KIND.get(prov)),
                 family=family, vendor=vendor, category=category, meta=meta_line,
                 secondary=secondary, ago=_ago(row.last_synced_at if row else None, now),
+                business_name=(own.name if own else (target.name if target else None)),
                 tag="Legacy" if prov in LEGACY else None))
 
     # Healthy is `ok`, and only `ok`. Degraded work is work somebody still has to do, so it

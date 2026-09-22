@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, NavLink, Link, useLocation } from "react-router-dom";
-import { T, PROVIDER_NAME, relativeTime } from "./theme.js";
+import { T, alpha, PROVIDER_NAME, relativeTime } from "./theme.js";
 import { getJSON, postJSON, putJSON, patchJSON, delJSON, tenantHeaders, getToken, logout, getBlob } from "./api.js";
 import { Icon, getBrand, setBrand } from "./Brand.jsx";
+import { IntegrationMark } from "./brand/integrationMarks.jsx";
 import { frontDoorUrl } from "./marketing/hosts.js";
 import AISettings from "./AISettings.jsx";
 import SecuritySettings from "./SecuritySettings.jsx";
@@ -782,7 +783,7 @@ function QuickBooksConnect({ live }) {
   return (
     <Card title="QuickBooks" hint="Connect each entity to its QuickBooks company. Financial panels light up once connected and synced.">
       {!live && (
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, background: alpha(T.poppyText, 0.08), border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
           Preview (sample) — connect to the live API to link QuickBooks.
         </div>
       )}
@@ -827,18 +828,36 @@ function QuickBooksConnect({ live }) {
 
 const BIZ_DOT = { ulrg: T.meadow, springb: T.poppy, forum: T.daffodil, becollective: T.petal, edge: T.edge, sympli: T.teal };
 
-function StatusPill({ status }) {
-  const map = {
-    ok: { bg: "transparent", dot: T.meadow, text: T.slate, border: "transparent", label: "Connected" },
-    stale: { bg: T.daffodilBg, dot: T.daffodil, text: T.daffodilText, border: "transparent", label: "Behind schedule" },
-    attention: { bg: "#FFF0EB", dot: T.poppyText, text: T.poppyText, border: "transparent", label: "Action needed" },
-    disconnected: { bg: "transparent", dot: "#C9AF92", text: T.muted, border: T.line, label: "Not connected" },
-  }[status] || {};
+/* The words a status wears.
+ *
+ * `attention` counts what is actually broken rather than saying so vaguely: QuickBooks with one
+ * dead entity out of five reads "1 needs action", which is the difference between a number
+ * somebody can act on and an adjective they have to go and investigate.
+ */
+function statusLabel(src) {
+  if (src.status === "ok") return "Healthy";
+  if (src.status === "stale") return "Degraded";
+  const broken = (src.entities || []).filter((e) => e.state !== "ok").length;
+  return broken ? `${broken} needs action` : "Needs action";
+}
+
+const STATUS_TONE = {
+  ok: { fg: T.meadowInk, bg: T.meadowBg, dot: T.meadow },
+  stale: { fg: T.daffodilText, bg: T.daffodilBg, dot: T.daffodil },
+  attention: { fg: T.poppyText, bg: alpha(T.poppyText, 0.1), dot: T.poppyText },
+};
+
+function StatusPill({ src }) {
+  const tone = STATUS_TONE[src.status] || STATUS_TONE.attention;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: map.bg,
-      border: `1px solid ${map.border}`, borderRadius: 6, padding: "3px 9px",
-      fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, color: map.text, whiteSpace: "nowrap" }}>
-      <span style={{ width: 6, height: 6, borderRadius: 99, background: map.dot }} />{map.label}
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap",
+      padding: "4px 10px", borderRadius: 999, background: tone.bg, color: tone.fg,
+      fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 500,
+    }}>
+      {/* Meaning never lives in colour alone: the dot is decoration, the word carries it. */}
+      <span aria-hidden style={{ width: 6, height: 6, borderRadius: 999, background: tone.dot }} />
+      {statusLabel(src)}
     </span>
   );
 }
@@ -848,11 +867,10 @@ const Chip = ({ children }) => (
     background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 8px" }}>{children}</span>
 );
 
-const FeedDots = ({ feeds }) => (
-  <span style={{ display: "inline-flex", gap: 4, marginLeft: 8 }}>
-    {(feeds || []).map((f) => <span key={f} title={f} style={{ width: 7, height: 7, borderRadius: 2, background: BIZ_DOT[f] || T.muted }} />)}
-  </span>
-);
+/* FeedDots is gone. It rendered `feeds` -- a list of business KEYS -- as coloured dots beside
+   the name, which asked a reader to know the workspace's colour code by heart. The drawer names
+   those same businesses in full, with the same accent as a swatch, so the dots were a worse copy
+   of a better list. `feeds` stays on the payload; one meaning per commit. */
 
 function SBtn({ kind = "ghost", small, icon, children, onClick, disabled, title }) {
   const s = { ghost: { bg: T.white, color: T.slate, border: T.line }, primary: { bg: T.poppy, color: "#fff", border: T.poppy } }[kind];
@@ -1011,22 +1029,32 @@ function EntityRow({ e, live, busy, onSync, onReconnect, onEditEntity, onDisconn
 
 function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisconnect, onConnect, onEdit, onEditEntity, onDisconnectEntity, onDeleteEntity }) {
   const dis = s.status === "disconnected";
-  const collapsedLine = s.status === "attention" ? s.status_note
-    : dis ? s.desc(s) : s.fresh;
+  const collapsedLine = dis ? s.desc(s) : s.fresh;
   return (
     <div className={`si-card ${open ? "on" : ""}`}>
       <div className="si-head" role="button" tabIndex={0} aria-expanded={open} onClick={onToggle}
         onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onToggle(); } }}>
-        <span className="si-mono">{s.mono}</span>
+        <IntegrationMark provider={s.provider} fallback={s.mono} />
         <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
-          <span style={{ display: "flex", alignItems: "center" }}>
-            <span style={{ fontFamily: "var(--font-display)", fontSize: 14.5, fontWeight: 600, color: T.ink }}>{s.name}</span>
-            <FeedDots feeds={s.feeds} />
+          <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 14.5, fontWeight: 600, color: T.ink }}>{s.title}</span>
+            {/* Server-side, so the chip and the list beneath it cannot disagree about how many. */}
+            {s.tag && (
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 500,
+                color: T.slate, background: T.parchment, borderRadius: 6, padding: "2px 8px",
+                whiteSpace: "nowrap" }}>{s.tag}</span>
+            )}
           </span>
-          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 3 }}>{collapsedLine}</span>
+          {/* The CATEGORY line, which is the same on every row of a kind -- what this source is
+              for. The long description moved into the drawer, where there is room to read it. */}
+          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>
+            {s.status === "attention" && s.status_note ? s.status_note : (s.meta || collapsedLine)}</span>
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
-          {dis ? <SBtn kind="primary" small disabled={!live} onClick={(ev) => { ev.stopPropagation(); onConnect(s); }}>Connect</SBtn> : <StatusPill status={s.status} />}
+          <StatusPill src={s} />
+          {/* A fixed column in the data face, so the ages line up down the page. */}
+          <span style={{ fontFamily: "var(--font-data)", fontSize: 11.5, color: T.muted,
+            width: 62, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.ago || ""}</span>
           <span aria-hidden style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, flexShrink: 0 }}>
             <Icon name="chevron_down" size={14} color={T.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .22s ease" }} />
           </span>
@@ -1113,29 +1141,76 @@ const DESC = {
  * lookup falls back rather than assuming every provider the server can return is known here —
  * a new provider should look plain, not take the page down. */
 const descFor = (provider) => DESC[provider] || (() => "");
+const _src = (o) => ({ feeds: [], provides: [], entities: [], config_summary: [],
+  last_run: null, integration_id: null, business_key: null, business_name: null,
+  needs_kind: null, tag: null, ago: null, secondary: false, ...o });
+
+/* The offline payload, field for field with the live one.
+ *
+ * EVERY PROVIDER THE API CAN RETURN IS HERE, on purpose. A provider missing from this list is
+ * why a white screen could not be reproduced locally: the crash needed the fetched source list
+ * to render, and the sample was a different shape than production. */
 const SAMPLE_VIEW = {
-  healthy: 3, total: 8, next_sync_in_min: 14,
+  healthy: 3, total: 10, next_sync_in_min: 14, entities_mapped: 6, needs_attention: 2,
+  alerts: [{ title: "Spring B lost its QuickBooks connection",
+    detail: "Financials for this entity stopped updating. Last synced 3 days ago.",
+    provider: "qbo", business_key: "springb", action: "reconnect" }],
   sources: [
-    // meta_ads is here because its ABSENCE is why a local check could not catch the white
-    // screen the real payload caused: the sample list must carry every provider the API can
-    // return, or the preview is exercising a different shape than production.
-    { provider: "meta_ads", name: "Meta Ads", status: "disconnected", feeds: [],
-      provides: ["Spend", "Impressions", "Link clicks", "Leads"], last_run: null,
-      integration_id: null, business_key: "springb", needs_kind: null },
-    { provider: "qbo", name: "QuickBooks", mono: "QB", status: "attention", status_note: "1 of 3 entities needs reconnect", feeds: ["ulrg", "springb", "sympli"], provides: ["Profit & Loss", "Balance Sheet"], last_run: "Last run · 2 entities · 4.2s",
+    _src({ provider: "qbo", vendor: "QuickBooks", family: "qbo", category: "Financials",
+      meta: "Financials · profit & loss, balance sheet", name: "QuickBooks",
+      status: "attention", status_note: "1 of 3 entities needs reconnect", tag: "3 entities",
+      ago: "7 min", feeds: ["ulrg", "springb", "sympli"],
+      provides: ["Profit & Loss", "Balance Sheet"], last_run: "Last run · 2 entities · 4.2s",
       entities: [
-        { integration_id: "e1", business_key: "ulrg", business_name: "ULRG + Team", state: "ok", last_synced_at: new Date(Date.now() - 32 * 60000).toISOString(), realm_id: "9130 3540 11" },
-        { integration_id: "e2", business_key: "springb", business_name: "Spring B", state: "error", detail: "Token expired Jun 29" },
-        { integration_id: "e3", business_key: "sympli", business_name: "Sympli Mortgage", state: "ok", last_synced_at: new Date(Date.now() - 32 * 60000).toISOString(), realm_id: "9130 3541 88" },
-      ] },
-    { provider: "sisu", name: "Sisu", mono: "Si", status: "ok", fresh: "Synced 26 min ago", feeds: ["ulrg"], provides: ["Transactions", "Agents", "GCI"], last_run: "Last run · 412 records · 3.1s", integration_id: "s1" },
-    { provider: "fub", name: "Follow Up Boss", mono: "FB", status: "stale", fresh: "Synced 19 hours ago", feeds: ["ulrg"], provides: ["Leads", "Agents"], last_run: "Auto-sync has missed its last 37 runs — check the connection", integration_id: "f1" },
-    { provider: "ghl", name: "Go High Level · The Forum", mono: "GH", status: "ok", fresh: "Synced 1 hour ago", feeds: ["forum"], provides: ["Members", "Subscriptions", "Events"], last_run: "Last run · 142 members · 38 subscriptions · 2.4s", integration_id: "g1", config: {}, config_summary: [["Location ID", "LqK4…f82"], ["Member tags", "5 tags"], ["Next event", "Park City, UT"]] },
-    { provider: "ghl_bc", name: "Go High Level · beCollective", mono: "bC", status: "ok", fresh: "Synced 1 hour ago", feeds: ["becollective"], provides: ["Members", "Onboarding", "Events"], last_run: "Last run · 30 members · 25 memberships · 1.9s", integration_id: "gb1", config: {}, config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] },
-    { provider: "arive", name: "Arive", mono: "Ar", status: "disconnected", feeds: [], provides: ["Loans", "Pipeline"], business_key: "sympli" },
-    { provider: "stripe_legacy", name: "Legacy Stripe · The Forum", mono: "St", status: "disconnected", feeds: [], provides: ["Legacy charges", "Recurring dues"], business_key: "springb" },
-    { provider: "stripe_bc", name: "Stripe · beCollective", mono: "Sb", status: "disconnected", feeds: ["becollective"], provides: ["Membership payments", "Financed plans"], business_key: "springb" },
-    { provider: "ghl_legacy", name: "Old GHL · Charge labels", mono: "GL", status: "disconnected", feeds: [], provides: ["Charge labels", "Invoice line items"], business_key: "springb" },
+        { integration_id: "e1", business_key: "ulrg", business_name: "ULRG + Team", state: "ok", provider: "qbo",
+          accent: "#61835E", actions: ["sync", "edit", "disconnect", "remove"],
+          last_synced_at: new Date(Date.now() - 32 * 60000).toISOString(), realm_id: "9130 3540 11" },
+        { integration_id: "e2", business_key: "springb", business_name: "Spring B", state: "error", provider: "qbo",
+          accent: "#FA8069", actions: ["reconnect", "edit", "disconnect", "remove"], detail: "Token expired Jun 29" },
+        { integration_id: "e3", business_key: "sympli", business_name: "Sympli Mortgage", state: "ok", provider: "qbo",
+          accent: "#227175", actions: ["sync", "edit", "disconnect", "remove"],
+          last_synced_at: new Date(Date.now() - 32 * 60000).toISOString(), realm_id: "9130 3541 88" },
+      ] }),
+    _src({ provider: "sisu", vendor: "Sisu", family: "sisu", category: "Production",
+      meta: "Production · closings, agents and GCI", name: "Sisu", status: "ok",
+      fresh: "Synced 26 min ago", ago: "26 min", feeds: ["ulrg"], business_name: "ULRG + Team",
+      provides: ["Transactions", "Agents", "GCI"], last_run: "Last run · 412 records · 3.1s",
+      integration_id: "s1" }),
+    _src({ provider: "fub", vendor: "Follow Up Boss", family: "fub", category: "CRM",
+      meta: "CRM · leads and agent activity", name: "Follow Up Boss", status: "stale",
+      fresh: "Synced 19 hours ago", ago: "19 hr", feeds: ["ulrg"], business_name: "ULRG + Team",
+      provides: ["Leads", "Agents"], integration_id: "f1",
+      last_run: "Auto-sync has missed its last 37 runs — check the connection" }),
+    _src({ provider: "ghl", vendor: "Go High Level", family: "ghl", category: "Marketing",
+      meta: "Marketing · members, renewals and events", name: "Go High Level · The Forum",
+      status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", feeds: ["forum"],
+      business_name: "The Forum", provides: ["Members", "Subscriptions", "Events"],
+      last_run: "Last run · 142 members · 38 subscriptions · 2.4s", integration_id: "g1", config: {},
+      config_summary: [["Location ID", "LqK4…f82"], ["Member tags", "5 tags"], ["Next event", "Park City, UT"]] }),
+    _src({ provider: "ghl_bc", vendor: "Go High Level", family: "ghl", category: "Marketing",
+      meta: "Marketing · members, renewals and events", name: "Go High Level · beCollective",
+      status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", feeds: ["becollective"],
+      business_name: "beCollective", secondary: true, provides: ["Members", "Onboarding", "Events"],
+      last_run: "Last run · 30 members · 25 memberships · 1.9s", integration_id: "gb1", config: {},
+      config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] }),
+    _src({ provider: "arive", vendor: "Arive", family: "arive", category: "Mortgage",
+      meta: "Mortgage · pipeline and fundings", name: "Arive", status: "disconnected",
+      provides: ["Loans", "Pipeline"], business_key: "sympli", business_name: "Sympli Mortgage" }),
+    _src({ provider: "meta_ads", vendor: "Meta Ads", family: "meta", category: "Advertising",
+      meta: "Advertising · spend, impressions and leads", name: "Meta Ads", status: "disconnected",
+      provides: ["Spend", "Impressions", "Link clicks", "Leads"], business_key: "springb" }),
+    _src({ provider: "stripe_legacy", vendor: "Stripe", family: "stripe", category: "Payments",
+      meta: "Payments · legacy recurring dues", name: "Legacy Stripe · The Forum",
+      status: "disconnected", tag: "Legacy", secondary: true, business_key: "springb",
+      provides: ["Legacy charges", "Recurring dues"] }),
+    _src({ provider: "stripe_bc", vendor: "Stripe", family: "stripe", category: "Payments",
+      meta: "Payments · membership payments", name: "Stripe · beCollective", status: "disconnected",
+      secondary: true, business_key: "springb", business_name: "beCollective",
+      provides: ["Membership payments", "Financed plans"] }),
+    _src({ provider: "ghl_legacy", vendor: "GHL charge labels", family: "ghl_legacy",
+      category: "Mapping", meta: "Mapping · labels for legacy charges",
+      name: "Old GHL · Charge labels", status: "disconnected", tag: "Legacy", secondary: true,
+      business_key: "springb", provides: ["Charge labels", "Invoice line items"] }),
   ],
 };
 
@@ -1146,11 +1221,24 @@ function IntegrationsPage() {
   const [busy, setBusy] = useState(null);
   const [syncingAll, setSyncingAll] = useState(false);
   const [connecting, setConnecting] = useState(null);
+  const [filter, setFilter] = useState("All");
   const live = Boolean(API_BASE);
 
+  /* The row's title is the VENDOR, and the vendor alone -- until a workspace has two accounts of
+     one, and then the business each serves tells them apart. That business name is tenant data.
+     It replaces META's hardcoded "Go High Level · The Forum", which named one customer's
+     programmes to every workspace that opened this page. */
   function decorate(v) {
+    const perFamily = {};
+    for (const s of v.sources) perFamily[s.family] = (perFamily[s.family] || 0) + 1;
     return { ...v, sources: v.sources.map((s) => ({
-      ...s, mono: MONO[s.provider] || (s.provider || "?").slice(0, 2), desc: descFor(s.provider) })) };
+      ...s,
+      mono: MONO[s.provider] || (s.provider || "?").slice(0, 2),
+      desc: descFor(s.provider),
+      title: (perFamily[s.family] > 1 && s.business_name)
+        ? `${s.vendor} · ${s.business_name}`
+        : (s.vendor || s.name),
+    })) };
   }
   function load() {
     if (!live) { setView(decorate(SAMPLE_VIEW)); return; }
@@ -1227,7 +1315,27 @@ function IntegrationsPage() {
   if (!view) return <Card title="Integrations"><div style={{ color: T.muted, fontSize: 13 }}>Loading…</div></Card>;
 
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
-  const attention = view.sources.filter((s) => s.status === "attention" || s.status === "stale").length;
+  const attention = view.needs_attention
+    ?? view.sources.filter((s) => s.status === "attention" || s.status === "stale").length;
+  const alerts = view.alerts || [];
+  // The banner's button goes wherever that entity's own button would have gone.
+  const fixAlert = (a) => {
+    if (a.action === "reconnect" && a.business_key) return qboConnect(a.business_key);
+    const src = view.sources.find((x) => x.provider === a.provider);
+    if (src) connectSource(src);
+  };
+
+  /* Connected and Available are two different questions -- "is this working" and "could we use
+     this" -- and one flat list answered neither. A SECONDARY source is a second account of a
+     vendor that belongs to one workspace's arrangements (a second GHL location, a legacy
+     Stripe); offered to every workspace they read as a catalogue of somebody else's programmes,
+     so they appear only where a row already exists. */
+  const connected = view.sources.filter((s) => s.status !== "disconnected");
+  const available = view.sources.filter((s) => s.status === "disconnected"
+    && (!s.secondary || s.integration_id));
+  const visible = connected.filter((s) => filter === "All" ? true
+    : filter === "Healthy" ? s.status === "ok"
+    : s.status !== "ok");
 
   return (
     <>
@@ -1247,39 +1355,114 @@ function IntegrationsPage() {
         .si-btn:focus-visible, .si-danger:focus-visible { outline:2px solid ${T.teal}; outline-offset:2px; border-radius:8px; }
         @media (prefers-reduced-motion: reduce) { .si-collapse { transition:none; } }
       `}</style>
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", paddingBottom: 18, marginBottom: 18, borderBottom: `1px solid ${T.line}` }}>
-        <div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 28, flexWrap: "wrap", marginBottom: 20 }}>
+        <div style={{ maxWidth: 520 }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, letterSpacing: ".13em", textTransform: "uppercase", color: T.poppyText, display: "flex", alignItems: "center", gap: 7 }}>
             <Icon name="puzzle" size={13} color={T.poppyText} />Settings · Integrations
           </div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, letterSpacing: "-.01em", marginTop: 6, color: T.ink }}>Data sources</div>
-          <div style={{ fontSize: 12.5, color: T.slate, marginTop: 5, maxWidth: 520, lineHeight: 1.5 }}>Every number in the Command Center traces to one of these connections. Expand a source to manage its accounts, configuration, and sync.</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", marginTop: 6, color: T.ink }}>Data sources</div>
+          <div style={{ fontSize: 13, color: T.slate, marginTop: 5, lineHeight: 1.5 }}>Every number in the Command Center traces back to one of these connections.</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink, display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-              <Icon name="check_circled" size={13} color={T.meadow} />{view.healthy} of {view.total} sources healthy
-            </div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>
-              {attention > 0 ? `${attention} need${attention === 1 ? "s" : ""} attention · ` : ""}{view.next_sync_in_min != null ? `next auto-sync in ${view.next_sync_in_min} min` : "auto-sync every 30 min"}
-            </div>
-          </div>
-          <SBtn icon="sync" disabled={!live || syncingAll} onClick={syncAll}>{syncingAll ? "Syncing…" : "Sync all"}</SBtn>
-        </div>
+        <SBtn icon="sync" disabled={!live || syncingAll} onClick={syncAll}>{syncingAll ? "Syncing…" : "Sync all"}</SBtn>
       </div>
 
+      {/* The strip reads left to right as one sentence about the whole list, which is what the
+          right-aligned "N of M sources healthy" line could not do on its own. */}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", background: T.white,
+        border: `1px solid ${T.line}`, borderRadius: 12, overflow: "hidden", marginBottom: 18 }}>
+        {[["healthy", view.healthy, T.meadow],
+          ["needs attention", attention, T.poppyText],
+          ["entities mapped", view.entities_mapped ?? 0, T.line]].map(([label, value, dot], i) => (
+          <div key={label} style={{ display: "flex", flexDirection: "column", gap: 2,
+            padding: "14px 20px", borderRight: i < 2 ? `1px solid ${T.line}` : "none" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span aria-hidden style={{ width: 8, height: 8, borderRadius: 999, background: dot }} />
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, color: T.ink, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums" }}>{value}</span>
+            </div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate }}>{label}</div>
+          </div>
+        ))}
+        <span style={{ flex: 1 }} />
+        <span style={{ padding: "0 20px", fontFamily: "var(--font-data)", fontSize: 11, letterSpacing: ".1em", textTransform: "uppercase", color: T.muted, whiteSpace: "nowrap" }}>
+          {view.next_sync_in_min != null ? `Auto-sync in ${view.next_sync_in_min} min` : "Auto-sync every 30 min"}
+        </span>
+      </div>
+
+      {/* One failure, named, with the button that fixes it. The server writes this sentence -- a
+          client re-deriving it from a status enum is how the card's own summary line drifted. */}
+      {alerts.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
+          padding: "14px 16px", marginBottom: 18, borderRadius: 12,
+          border: `1px solid ${alpha(T.poppyText, 0.3)}`, background: alpha(T.poppyText, 0.08) }}>
+          <span aria-hidden style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8,
+            background: T.poppyText, color: T.white, display: "flex", alignItems: "center",
+            justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 700 }}>!</span>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.poppyText }}>
+              {alerts[0].title}{alerts.length > 1 ? ` · and ${alerts.length - 1} more` : ""}</div>
+            {alerts[0].detail && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, marginTop: 2 }}>{alerts[0].detail}</div>}
+          </div>
+          <SBtn kind="primary" disabled={!live} onClick={() => fixAlert(alerts[0])}>
+            {alerts[0].action === "reconnect" ? "Reconnect" : "Fix it"}</SBtn>
+        </div>
+      )}
+
       {!live && (
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, background: alpha(T.poppyText, 0.08), border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
           Preview (sample) — connect to the live API to manage sources.
         </div>
       )}
 
-      {view.sources.map((s) => (
-        <SourceCard key={s.provider} s={s} open={!!open[s.provider]} onToggle={() => toggle(s.provider)}
-          live={live} busy={busy} onSync={syncOne} onReconnect={reconnectEntity}
-          onDisconnect={disconnectSource} onConnect={connectSource} onEdit={editConfig}
-          onEditEntity={editEntity} onDisconnectEntity={disconnectEntity} onDeleteEntity={deleteEntity} />
-      ))}
+      <div style={{ border: `1px solid ${T.line}`, borderRadius: 14, background: T.white, overflow: "hidden", marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
+          padding: "11px 18px", borderBottom: `1px solid ${T.line}`, background: T.parchment }}>
+          <span style={{ fontFamily: "var(--font-data)", fontSize: 10.5, letterSpacing: ".14em", textTransform: "uppercase", color: T.slate }}>
+            Connected · {connected.length}</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {["All", "Needs attention", "Healthy"].map((f) => (
+              <button key={f} onClick={() => setFilter(f)} style={{
+                border: 0, cursor: "pointer", fontFamily: "var(--font-text)", fontSize: 12.5,
+                whiteSpace: "nowrap", fontWeight: filter === f ? 600 : 500, padding: "0 11px",
+                height: 27, borderRadius: 999,
+                background: filter === f ? T.evergreen : T.white,
+                color: filter === f ? T.onDark : T.slate,
+              }}>{f}</button>
+            ))}
+          </span>
+        </div>
+        {visible.length ? visible.map((s) => (
+          <SourceCard key={s.provider} s={s} open={!!open[s.provider]} onToggle={() => toggle(s.provider)}
+            live={live} busy={busy} onSync={syncOne} onReconnect={reconnectEntity}
+            onDisconnect={disconnectSource} onConnect={connectSource} onEdit={editConfig}
+            onEditEntity={editEntity} onDisconnectEntity={disconnectEntity} onDeleteEntity={deleteEntity} />
+        )) : (
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, padding: "22px 18px" }}>
+            Nothing {filter === "Healthy" ? "healthy" : "needing attention"} right now.</div>
+        )}
+      </div>
+
+      {available.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontFamily: "var(--font-data)", fontSize: 10.5, letterSpacing: ".14em", textTransform: "uppercase", color: T.slate }}>
+              Available · {available.length}</span>
+            <span aria-hidden style={{ flex: 1, height: 1, background: T.line }} />
+          </div>
+          {available.map((s) => (
+            <div key={s.provider} style={{ display: "flex", alignItems: "center", gap: 14,
+              flexWrap: "wrap", padding: "14px 18px", borderRadius: 12,
+              border: `1px dashed ${T.line}`, background: T.white }}>
+              <IntegrationMark provider={s.provider} fallback={s.mono} />
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 14.5, fontWeight: 600, color: T.ink }}>{s.title}</div>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{s.meta || s.desc(s)}</div>
+              </div>
+              <SBtn kind="primary" disabled={!live} onClick={() => connectSource(s)}>Connect</SBtn>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, padding: "8px 2px" }}>
         Auto-sync runs every 30 minutes. Disconnecting removes stored tokens; historical data already synced stays in the dashboard.
@@ -1521,7 +1704,7 @@ function BusinessesPage() {
   return (
     <Card title="Businesses" hint="Brand and health config per profit center. Status flags 'watch' automatically when the margin drops below the threshold.">
       {!live && (
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, background: "rgba(250,128,105,0.08)", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText, background: alpha(T.poppyText, 0.08), border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>
           Preview (sample) — connect to the live API to edit.
         </div>
       )}

@@ -300,6 +300,10 @@ class SourceOut(BaseModel):
     category: str = ""            # Financials | Production | CRM | Marketing | Mortgage | ...
     meta: str = ""                # the one-line under the name: "Financials · profit & loss"
     tag: str | None = None        # "5 entities" | "Legacy" -- server-side so it cannot disagree
+    # The business this source is attached to, by NAME. Two sources of one vendor (a second GHL
+    # location) are told apart by the business they serve, and that name is tenant data -- which
+    # is exactly what the hardcoded "Go High Level · The Forum" in META was standing in for.
+    business_name: str | None = None
     ago: str | None = None        # compact "7 min" for the row; `fresh` stays for the drawer
     # A second account of a vendor another workspace already has (a second GHL location, a
     # legacy Stripe). Offering these to every workspace puts one customer's programmes in
