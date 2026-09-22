@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Integration, Business, SyncRun
-from ..schemas import EntityRow, SourceOut, IntegrationsOut
+from ..schemas import Alert, EntityRow, SourceOut, IntegrationsOut
 from . import roles
 
 # Provider order + static metadata (matches the settings mockup).
@@ -58,6 +58,32 @@ META = {
 #
 # The role is the durable fact: Arive reports loans, so it belongs to whichever business is
 # this tenant's lending JV, whatever they call it. Resolved per tenant through roles.py.
+# ── the vendor-grouped view ──────────────────────────────────────────────────────────────────
+# family -> the VENDOR. Several providers share one: ghl + ghl_bc are both Go High Level, and
+# stripe_legacy + stripe_bc are both Stripe. They stay separate providers because they hold
+# separate tokens, configs and sync paths; only the ROW is shared.
+#
+# SECONDARY marks a second account of a vendor that belongs to one workspace's arrangements -- a
+# second GHL location, a legacy Stripe kept alive for old dues. Offered to every workspace they
+# read as a catalogue of somebody else's programmes, so the list shows them only where a row
+# already exists. The Add-source picker can still reach them deliberately.
+FAMILY = {
+    "qbo": ("qbo", "QuickBooks", "Financials", "Financials · profit & loss, balance sheet", False),
+    "sisu": ("sisu", "Sisu", "Production", "Production · closings, agents and GCI", False),
+    "fub": ("fub", "Follow Up Boss", "CRM", "CRM · leads and agent activity", False),
+    "ghl": ("ghl", "Go High Level", "Marketing", "Marketing · members, renewals and events", False),
+    "ghl_bc": ("ghl", "Go High Level", "Marketing", "Marketing · members, renewals and events", True),
+    "ghl_legacy": ("ghl_legacy", "GHL charge labels", "Mapping",
+                   "Mapping · labels for legacy charges", True),
+    "arive": ("arive", "Arive", "Mortgage", "Mortgage · pipeline and fundings", False),
+    "stripe_legacy": ("stripe", "Stripe", "Payments", "Payments · legacy recurring dues", True),
+    "stripe_bc": ("stripe", "Stripe", "Payments", "Payments · membership payments", True),
+    "meta_ads": ("meta", "Meta Ads", "Advertising", "Advertising · spend, impressions and leads", False),
+}
+# Providers whose row wears a "Legacy" chip: kept running for history, not for new work.
+LEGACY = {"stripe_legacy", "ghl_legacy"}
+
+
 CONNECTABLE_KIND = {
     # Ad spend is booked by the entity that runs the campaigns. For a programme business that is
     # the membership entity; a brokerage running its own ads would attach to real_estate. Resolved
@@ -91,6 +117,22 @@ def _humanize(ts, now, prefix="Synced") -> str | None:
         return f"{prefix} {hrs} hour{'s' if hrs != 1 else ''} ago"
     days = hrs // 24
     return f"{prefix} {days} day{'s' if days != 1 else ''} ago"
+
+
+def _ago(ts, now) -> str | None:
+    """The row's right-hand column: "7 min", "3 hr", "2 d". Deliberately not `fresh` -- that one
+    is a sentence for the drawer ("Synced 26 min ago"), and a sentence does not fit a column that
+    has to line up down the page."""
+    if not ts:
+        return None
+    mins = int((now - _aware(ts)).total_seconds() // 60)
+    if mins < 1:
+        return "just now"
+    if mins < 60:
+        return f"{mins} min"
+    if mins < 60 * 24:
+        return f"{mins // 60} hr"
+    return f"{mins // (60 * 24)} d"
 
 
 def _last_run(run: SyncRun | None, status: str, interval: int, now) -> str | None:
@@ -143,10 +185,12 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
             latest_ok_finish = _aware(r.finished_at)
 
     sources: list[SourceOut] = []
-    healthy = 0
+    alerts: list[Alert] = []
+    entities_mapped = 0
 
     for prov in ORDER:
         meta = META[prov]
+        family, vendor, category, meta_line, secondary = FAMILY[prov]
         rows = [i for i in integs if i.provider == prov]
         run = latest_run.get(prov)
 
@@ -170,7 +214,20 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                     realm_id=i.realm_id,
                     detail=(i.last_error or "Re-authorize to resume syncing") if state == "error" else None,
                     display_tab=(b.display_tab or b.key),
-                    books_enabled=bool((b.config or {}).get("books_enabled", True))))
+                    books_enabled=bool((b.config or {}).get("books_enabled", True)),
+                    provider=prov, accent=b.accent,
+                    # A healthy entity syncs; a broken one re-authorizes. Both keep the editing
+                    # and removal that QuickBooks entity routing needs.
+                    actions=(["sync"] if state == "ok" else ["reconnect"])
+                            + ["edit", "disconnect", "remove"]))
+                if state == "error":
+                    alerts.append(Alert(
+                        title=f"{b.name} lost its QuickBooks connection",
+                        detail=(f"Financials for this entity stopped updating. "
+                                f"{_humanize(i.last_synced_at, now, prefix='Last synced')}."
+                                if i.last_synced_at
+                                else "Financials for this entity have never synced."),
+                        provider=prov, business_key=b.key, action="reconnect"))
             connected = [i for i in rows if i.status in ("connected", "error")]
             if not connected:
                 status, note = "disconnected", None
@@ -180,10 +237,14 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 status, note = "stale", None
             else:
                 status, note = "ok", None
+            entities_mapped += len(connected)
             sources.append(SourceOut(
                 provider=prov, name=meta["name"], status=status, status_note=note,
                 fresh=_humanize(freshest, now), feeds=feeds, provides=meta["provides"],
-                last_run=_last_run(run, status, interval, now), entities=entities))
+                last_run=_last_run(run, status, interval, now), entities=entities,
+                family=family, vendor=vendor, category=category, meta=meta_line,
+                secondary=secondary, ago=_ago(freshest, now),
+                tag=f"{len(entities)} entities" if len(entities) > 1 else None))
         else:
             row = rows[0] if rows else None
             # The business this source would attach to. None when the tenant runs no
@@ -200,6 +261,16 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
             else:
                 status = "ok"
             cfg = (row.config if row else None) or {}
+            own = biz_by_id.get(row.business_id) if row else None
+            bkey = own.key if own else (target.key if target else None)
+            entities_mapped += 1 if connected else 0
+            if status == "attention":
+                alerts.append(Alert(
+                    title=f"{vendor} needs attention",
+                    detail=(row.last_error if row else None) or "Its last sync failed.",
+                    # Every non-QuickBooks source authenticates with a key somebody pastes, so
+                    # the fix is its own form rather than an OAuth round trip.
+                    provider=prov, business_key=bkey, action="edit"))
             sources.append(SourceOut(
                 provider=prov, name=meta["name"], status=status,
                 status_note=(row.last_error if row and status == "attention" else None),
@@ -209,17 +280,25 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 config_summary=_ghl_config_summary(cfg) if prov in ("ghl", "ghl_bc") and connected else [],
                 config=cfg if prov in ("ghl", "ghl_bc") else None,
                 integration_id=str(row.id) if row else None,
-                business_key=(biz_by_id.get(row.business_id).key if row and row.business_id in biz_by_id
-                              else (target.key if target else None)),
+                business_key=bkey,
                 needs_kind=(None if (row and row.business_id in biz_by_id) or target
-                            else CONNECTABLE_KIND.get(prov))))
+                            else CONNECTABLE_KIND.get(prov)),
+                family=family, vendor=vendor, category=category, meta=meta_line,
+                secondary=secondary, ago=_ago(row.last_synced_at if row else None, now),
+                tag="Legacy" if prov in LEGACY else None))
 
-        if sources[-1].status in ("ok", "stale"):
-            healthy += 1 if sources[-1].status == "ok" else 0
+    # Healthy is `ok`, and only `ok`. Degraded work is work somebody still has to do, so it
+    # counts against attention rather than for health -- which is what the stat strip says too.
+    # This replaced `if status in ("ok","stale"): healthy += 1 if status == "ok" else 0`, which
+    # computed the same number while reading as though it meant something else.
+    healthy = sum(1 for x in sources if x.status == "ok")
+    needs_attention = sum(1 for x in sources if x.status in ("attention", "stale"))
 
     next_sync = None
     if latest_ok_finish:
         elapsed_min = (now - latest_ok_finish).total_seconds() / 60
         next_sync = max(0, min(interval, round(interval - elapsed_min)))
 
-    return IntegrationsOut(sources=sources, healthy=healthy, total=len(sources), next_sync_in_min=next_sync)
+    return IntegrationsOut(sources=sources, healthy=healthy, total=len(sources),
+                           next_sync_in_min=next_sync, entities_mapped=entities_mapped,
+                           needs_attention=needs_attention, alerts=alerts)

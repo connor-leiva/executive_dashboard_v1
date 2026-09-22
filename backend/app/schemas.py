@@ -264,6 +264,14 @@ class EntityRow(BaseModel):
     detail: str | None = None     # e.g. "Token expired Jun 29"
     display_tab: str | None = None   # the page this entity's P&L routes to (for the edit UI)
     books_enabled: bool = True       # whether it flows into the Books module
+    # WHICH provider this sub-row belongs to. A vendor row can mix them -- "Go High Level" is one
+    # row over two providers (ghl, ghl_bc) -- so a sub-row cannot be assumed to share the row's.
+    provider: str | None = None
+    accent: str | None = None        # Business.accent, the swatch beside the name
+    # What the per-entity menu may offer HERE: sync | reconnect | edit | disconnect | remove.
+    # Server-side because it depends on the provider and the row's state, and a menu that offers
+    # an action the API will refuse is the dead-button failure this module has shipped three times.
+    actions: list[str] = []
 
 
 class SourceOut(BaseModel):
@@ -283,13 +291,44 @@ class SourceOut(BaseModel):
     # Set only when the tenant has NO business of the role this source feeds, so the card
     # can say "add a lending business first" rather than offering a button that 404s.
     needs_kind: str | None = None
+    # ── the vendor-grouped view ──────────────────────────────────────────────────────────────
+    # `family` is the VENDOR; several providers can share one. ghl + ghl_bc are both Go High
+    # Level; stripe_legacy + stripe_bc are both Stripe. They stay separate providers because
+    # they hold separate tokens, configs and sync paths -- the grouping is presentation only.
+    family: str = ""
+    vendor: str = ""              # "Go High Level" -- the row's name once families render
+    category: str = ""            # Financials | Production | CRM | Marketing | Mortgage | ...
+    meta: str = ""                # the one-line under the name: "Financials · profit & loss"
+    tag: str | None = None        # "5 entities" | "Legacy" -- server-side so it cannot disagree
+    ago: str | None = None        # compact "7 min" for the row; `fresh` stays for the drawer
+    # A second account of a vendor another workspace already has (a second GHL location, a
+    # legacy Stripe). Offering these to every workspace puts one customer's programmes in
+    # everyone's catalogue, so they appear only where a row exists -- or behind "Add source".
+    secondary: bool = False
+
+
+class Alert(BaseModel):
+    """A named failure for the banner above the list.
+
+    Built HERE rather than inferred in the browser: the banner names one entity and offers one
+    button ("Spring B lost its QuickBooks connection" / Reconnect), and a client re-deriving that
+    sentence from a status enum is how the card's collapsed line already drifted from its card.
+    """
+    title: str
+    detail: str | None = None
+    provider: str
+    business_key: str | None = None
+    action: str = "reconnect"     # reconnect | edit
 
 
 class IntegrationsOut(BaseModel):
     sources: list[SourceOut]
-    healthy: int
+    healthy: int                  # status == ok. Degraded counts as needing attention, not health.
     total: int
     next_sync_in_min: int | None = None
+    entities_mapped: int = 0      # connected integration rows across every source
+    needs_attention: int = 0      # sources that are attention or stale
+    alerts: list[Alert] = []
 
 
 # ── integrations ──────────────────────────────────────────────────
