@@ -124,10 +124,12 @@ Setting these redeploys the API. Wait for it to come up.
 
 Being configured at the platform makes the button *possible*; each workspace still opts in.
 
-In that workspace's console → **Settings → Integrations → Google Workspace**:
+In that workspace's console → **Integrations → Google sign-in**:
 
-- **Enabled** — whether the button appears on that workspace's sign-in page
-- **Allowed domains** — which email domains may use it, e.g. `utahliferealestate.com`
+- **It is already on.** Every workspace has Google sign-in enabled by default, so there is no
+  Enable button to find — the panel offers **Turn off Google sign-in**, which is the whole
+  control. If the button is missing from the sign-in page, the workspace is not why.
+- **Allowed email domains** — comma separated; blank allows any.
 
 There are no credentials to enter here, and the form refuses a body that carries one rather
 than quietly ignoring it — so an old form cannot look as though it saved something.
@@ -148,7 +150,8 @@ than quietly ignoring it — so an old form cannot look as though it saved somet
 
 | What you see | What it means |
 |---|---|
-| No button at all | One of the two variables is missing, or the workspace has it disabled. Check both. |
+| No button, and the panel says "Google sign-in isn't available yet" | The platform half is not configured. **Check the variable NAMES, not just their values** — a misspelling reads as unset, and the app then treats the pair as absent. This happened for real: `GOOGLE_CLIENT_SECTRET`, with an extra T, looked completely set in the Railway list and meant nothing. Confirm with `curl https://api.axcion.io/api/v1/auth/google/config -H "X-Tenant-Host: <slug>.axcion.io"` — `{"enabled":false}` is the platform half, every time. |
+| No button, panel does NOT say "isn't available yet" | Then it is the workspace: somebody turned it off here. |
 | `redirect_uri_mismatch` | The URI in Google Cloud differs from `GOOGLE_REDIRECT_URI`. Compare them character by character — a trailing slash does it. |
 | "Access blocked: this app is not verified" | The consent screen is still in *Testing*. Publish it (Step 2). |
 | Sign-in completes but bounces back | The address has no account in that workspace, or its domain is not in the allowed list. |
