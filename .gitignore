@@ -22,7 +22,13 @@ consent_audit_out/
 .ruff_cache/
 
 # Brand asset source library (large; processed output in public/brand is committed)
-frontend/brand-src/
+frontend/brand-src/*
+# ...except Axcion's OWN identity, which is the product's rather than a customer's: 1.3MB of
+# delivered masters that scripts/brand_assets.py regenerates every web asset from. Without them
+# a checkout cannot rebuild the brand, and the test holding the committed assets to the delivery
+# finds nothing to compare and passes -- a guard that silently checks nothing.
+# The glob above is `/*` rather than `/` so git descends far enough to see this negation at all.
+!frontend/brand-src/axcion/
 LAUNCH-TAB-UI-BRIEF.md
 backend/probe_bc_utm.py
 

@@ -311,47 +311,72 @@ def test_every_platform_module_has_a_mark():
     assert not stale, f"productIcons maps {stale}, which is not a module the server knows about"
 
 
-def test_the_favicon_generator_uses_the_marks_real_geometry():
-    """The mark exists twice: axcion.jsx draws it for the screen, gen_favicons.py draws it for the
-    four PNGs. Two copies because one is JSX and one is Python, and importing across that boundary
-    to build a static asset is not worth a build step.
+def test_the_web_brand_assets_still_come_from_the_delivered_masters():
+    """The mark used to exist twice — drawn in axcion.jsx for the screen and again in
+    gen_favicons.py for the PNGs — and the guard here held those two drawings to each other. The
+    designed mark landed on 2026-09-22 and there is nothing left to draw: brand-src/axcion/ is the
+    delivery and scripts/brand_assets.py resizes it.
 
-    Two copies of a spec drift, and this pair drifts SILENTLY: the favicons are generated once and
-    committed, so a change to the mark on screen leaves the browser tab showing the old shape with
-    nothing to notice it. The guide calls the blade weight and the equal gaps non-negotiable, so
-    they are held to each other here.
+    The drift it guarded against survived the change, though, in a new form. The web assets are
+    generated once and COMMITTED, so a second delivery that lands in brand-src without anybody
+    re-running the script leaves the product showing the previous mark with nothing to notice it.
+    That is the same silent failure as before, one step upstream.
+
+    Compared as pixels rather than bytes: the emitted file is re-encoded by whatever Pillow the
+    machine has, so two correct runs do not produce identical files.
     """
-    import re
     from pathlib import Path
 
+    from PIL import Image
+
     root = Path(__file__).resolve().parents[2] / "frontend"
-    jsx = root / "src" / "brand" / "axcion.jsx"
-    gen = root / "scripts" / "gen_favicons.py"
-    if not jsx.exists() or not gen.exists():
-        return
+    if not root.exists():
+        return                                     # backend-only checkout
 
-    def numbers(text, names):
-        out = {}
-        for name in names:
-            m = re.search(rf"^(?:export\s+)?(?:const\s+)?{name}\s*=\s*([0-9.]+)", text, re.M)
-            if m:
-                out[name] = float(m.group(1))
-        return out
+    # Asserted, not skipped. .gitignore excludes frontend/brand-src and re-includes this one
+    # directory precisely so this comparison has something to run against; if the delivery is
+    # absent the test would otherwise pass while checking nothing, which is the failure mode the
+    # whole file exists to avoid.
+    src = root / "brand-src" / "axcion"
+    assert src.exists(), "frontend/brand-src/axcion is missing -- it is committed on purpose"
 
-    shared = ("ART", "BLADE_RADIUS", "SWEEP")
-    a = numbers(jsx.read_text(encoding="utf-8"), shared)
-    b = numbers(gen.read_text(encoding="utf-8"), shared)
-    assert set(a) == set(shared), f"axcion.jsx no longer declares {sorted(set(shared) - set(a))}"
-    assert a == b, f"the favicon generator and the on-screen mark disagree: {a} vs {b}"
+    def sig(path):
+        """A 16x16 RGBA thumbnail: enough to tell two artworks apart, coarse enough that a
+        resampler's edge pixels do not read as a difference."""
+        with Image.open(path) as im:
+            return list(im.convert("RGBA").resize((16, 16), Image.LANCZOS).getdata())
 
-    jsx_src, gen_src = jsx.read_text(encoding="utf-8"), gen.read_text(encoding="utf-8")
+    # Copied byte for byte, so held to the byte. These are the sizes the designer drew
+    # separately (§12 of the brief: a favicon is not the master shrunk), and resampling one
+    # would quietly throw that work away.
+    import hashlib
 
-    # The gap axes, and the two cuts. Written as literals on both sides, so compared as text.
-    assert "[90, 210, 330]" in jsx_src and "(90, 210, 330)" in gen_src, "gap axes moved"
-    for weight, pupil, which in ((8, 6.5, "standard"), (10, 8, "small")):
-        assert f"weight: {weight}" in jsx_src, f"the {which} cut's weight moved in axcion.jsx"
-        assert f'"weight": {weight}, "pupil": {pupil}' in gen_src, \
-            f"the {which} cut moved in gen_favicons.py"
+    for master, served in (("AXCION-favicon-16.png", "favicon-16.png"),
+                           ("AXCION-favicon-32.png", "favicon-32.png"),
+                           ("AXCION-favicon-64.png", "favicon-64.png"),
+                           ("AXCION-appicon-ink-180.png", "appicon-180.png")):
+        out = root / "public" / "brand" / "axcion" / served
+        assert out.exists(), f"{served} is missing -- run scripts/brand_assets.py"
+        assert hashlib.sha256(out.read_bytes()).hexdigest() == \
+               hashlib.sha256((src / master).read_bytes()).hexdigest(), \
+               f"{served} is not {master}: re-run scripts/brand_assets.py"
+
+    # Resized, so held to the artwork instead.
+    for master, bundled in (("AXCION-mark-primary.png", "mark-primary.png"),
+                            ("AXCION-mark-reversed.png", "mark-reversed.png"),
+                            ("AXCION-mark-white.png", "mark-white.png"),
+                            ("AXCION-mark-ink.png", "mark-ink.png"),
+                            ("AXCION-mark-cadet.png", "mark-cadet.png"),
+                            ("AXCION-lockup-horizontal-primary.png", "lockup-primary.png"),
+                            ("AXCION-lockup-horizontal-reversed.png", "lockup-reversed.png"),
+                            ("AXCION-lockup-horizontal-white.png", "lockup-white.png"),
+                            ("AXCION-lockup-horizontal-ink.png", "lockup-ink.png")):
+        out = root / "src" / "brand" / "axcion" / bundled
+        assert out.exists(), f"{bundled} is missing -- run scripts/brand_assets.py"
+        a, b = sig(src / master), sig(out)
+        drift = sum(abs(p - q) for pa, pb in zip(a, b) for p, q in zip(pa, pb)) / (16 * 16 * 4)
+        assert drift < 10, (f"{bundled} does not match {master} (mean channel drift {drift:.1f}) "
+                            f"-- re-run scripts/brand_assets.py")
 
 
 def test_every_html_entry_point_ships_the_same_icons():
@@ -360,6 +385,10 @@ def test_every_html_entry_point_ships_the_same_icons():
 
     Also asserts the files exist. A favicon that 404s does not fall back to anything; the browser
     just shows its own placeholder, and nobody files a bug about a tab icon.
+
+    They live under /brand/axcion/ rather than /brand/logo/, which is not tidying: /brand/logo/ is
+    the folder a WORKSPACE's own logo goes in, and the test two above this one exists to stop one
+    customer's file being rendered to everybody. Axcion's own identity does not belong in it.
     """
     from pathlib import Path
 
@@ -367,9 +396,9 @@ def test_every_html_entry_point_ships_the_same_icons():
     if not root.exists():
         return
 
-    expected = ("favicon-32.png", "favicon-16.png", "favicon-180.png")
+    expected = ("favicon-64.png", "favicon-32.png", "favicon-16.png", "appicon-180.png")
     for name in expected:
-        assert (root / "public" / "brand" / "logo" / name).exists(), f"{name} is missing"
+        assert (root / "public" / "brand" / "axcion" / name).exists(), f"{name} is missing"
 
     for page in ("index.html", "console/index.html", "intranet/index.html",
                  "marketing/index.html", "operator/index.html"):

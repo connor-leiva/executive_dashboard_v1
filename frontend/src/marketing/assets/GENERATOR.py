@@ -2,10 +2,18 @@
 Axcion ground plates — generated optical texture.
 
 NOT photographs, and never to be captioned as if they were. They are abstract lens
-studies, and they are derived from Axcion's OWN mark rather than from anyone else's
-visual language: §01 describes the mark as "three blades opening on a fixed point: an
-aperture". A three-bladed iris produces curved-triangular bokeh, so out-of-focus
-highlights on these plates carry the logo's geometry without ever drawing the logo.
+studies, and they are derived from Axcion's OWN visual language rather than anyone
+else's: the identity guide of the time described the mark as "three blades opening on a
+fixed point: an aperture", and a three-bladed iris produces curved-triangular bokeh, so
+out-of-focus highlights carry that geometry without ever drawing the logo.
+
+THAT MARK IS SUPERSEDED. The designed mark was delivered on 2026-09-22 and it is a
+four-pointed crossed form, not an aperture -- so the premise in the paragraph above is
+history, and `blades=3` below is no longer an echo of anything. A four-bladed iris would
+render the new silhouette, and `iris_kernel(blades=4)` is the whole change. It has not
+been made: these plates and their siblings in public/brand/axcion are the hero default for
+every workspace that never chose its own imagery, so regenerating them re-skins those
+workspaces without them asking. That is a decision, not a consequence of a new logo.
 
 Deliberately not the fluted-glass treatment in Spring's brand photos. That is Spring's
 identity; Axcion is a different brand and borrowing it would repeat exactly the mistake

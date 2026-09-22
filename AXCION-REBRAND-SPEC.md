@@ -789,6 +789,8 @@ These are read back by something that already holds the old value.
 - [ ] **5.14** `frontend/scripts/gen_favicons.py` and `frontend/scripts/console-smoke.mjs`
       — prose and any hardcoded host. **Do not re-run `gen_favicons.py`**; the mark is
       unchanged (D1) and the four PNGs stay byte-identical.
+      *(Superseded 2026-09-22: `gen_favicons.py` is deleted. The designed mark arrived and
+      the favicons are the designer's own files — see Phase 11.)*
 - [ ] **5.15** `frontend/src/marketing/assets/GENERATOR.py`,
       `frontend/src/marketing/Sequence.jsx`, `frontend/mockups/*` — prose.
 
@@ -899,8 +901,9 @@ New Alembic revisions on top of `0078_sop_suggestions`. **One head. Always.**
 > **The backend suite reads frontend source.** `test_startup_checks.py` evaluates
 > `seedsFromAxcion()` and cross-checks the typeface name list across the two languages;
 > `test_operator_console.py` reads `frontend/Caddyfile`; `test_storage_config.py` reads
-> `backend/.env.example`; and a test asserts `gen_favicons.py`'s geometry against
-> `brand/axcion.jsx`. So "the frontend is safe to edit while the backend suite runs" is
+> `backend/.env.example`; and a test reads `brand/axcion.jsx` together with the image files
+> under `frontend/brand-src/` and `frontend/src/brand/axcion/`. So "the frontend is safe to
+> edit while the backend suite runs" is
 > **false** — editing `palette.js` and `typefaces.js` mid-run produced two failures that
 > looked like real regressions and were contamination. Let a run finish before editing
 > either tree, and re-run anything that crosses the boundary.
@@ -1004,19 +1007,39 @@ Only after Phase 9 has soaked clean. This is the irreversible step.
 
 ---
 
-## Phase 11 — Visual identity (deferred)
+## Phase 11 — Visual identity — **DONE 2026-09-22**
 
-Stub, per D1. Nothing here is scheduled.
+The designed mark was delivered on 2026-09-22, four days after the domain cutover, and this
+phase stopped being a stub. It was scoped as a mark swap and that is all it turned out to
+be — the paragraph below about grandfathering did not apply, for a reason worth keeping.
 
-When the visual refresh happens, it touches: `frontend/src/brand/axcion.jsx` (the derived
-mark geometry), `frontend/src/palette.js` (the Cadet and Neutral ramps, and the 30 token
-slots), `frontend/src/typefaces.js` (the `axcion` pairing), `frontend/scripts/gen_favicons.py`
-(re-run to regenerate the four PNGs), `frontend/public/brand/axcion/*` (the bokeh
-artwork), and `frontend/src/marketing/assets/*`.
+**What arrived.** 22 PNGs, vendored unmodified at `frontend/brand-src/axcion/` with a
+README recording provenance and gaps. The mark is two crossed tapered blades with a
+detached leaf below the left arm, 831×1024 — **not square**, which is the one fact that
+propagates into code. Colourways: primary (two-tone), reversed, cadet, ink, white; plus a
+wordmark, horizontal and stacked lockups, app icons, and favicons at 16/32/64.
 
-Two constraints carry forward from the current identity guide and should survive any
-redraw: the three gaps stay equal, and the blade weight stays 12.5% of the artboard. Both
-are derived rather than drawn precisely so they cannot drift.
+**What replaced what.**
+
+| Before | After |
+| --- | --- |
+| `brand/axcion.jsx` *drew* three arcs around a pupil from the identity guide's construction numbers | it imports the delivered artwork; `MARK_ASPECT` and the lockup's proportions are read off the files |
+| `scripts/gen_favicons.py` drew the favicons in Python | `scripts/brand_assets.py` resizes the delivery; the favicons are **copied byte for byte** |
+| favicons at `/brand/logo/favicon-*` | `/brand/axcion/favicon-*` — `/brand/logo/` is where a *workspace's* logo goes, and Axcion's own identity does not belong in it |
+| a test held the two drawings to each other | a test holds the committed web assets to the delivered masters |
+
+**The palette did not move.** The delivered PNGs sample to `#3F6B66`, `#16201F` and
+`#8FB3AE` exactly — the brief instructed the designer to inherit the existing palette and
+they did. So `palette.js`, `typefaces.js` and the 30 token slots are untouched, no
+workspace's colours changed, and the grandfathering problem below **did not arise**. That
+is luck of scope, not a solved problem: it is still true of any future palette change.
+
+**What the delivery is missing.** The brief's §23 asks for vector masters (AI, EPS, SVG)
+and a clear-space/minimum-size sheet. Neither came. Consequences: every Axcion mark in the
+product is a raster `<img>` rather than an inline `<svg>`, so `AxcionMark` lost its `color`
+prop and each approved treatment is its own file; and print, engraving and embroidery
+(brief §14) have nothing to work from. `brand_assets.py` is the single file that changes
+when the vectors arrive.
 
 **The hard part is not the code.** Every workspace that never chose its own colours
 inherits the platform defaults, so changing them re-skins those workspaces without them

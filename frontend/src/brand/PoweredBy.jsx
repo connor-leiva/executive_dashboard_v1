@@ -40,10 +40,11 @@ export function PoweredByAxcion({ tone = "dark", align = "center", style }) {
       <a href={AXCION_SITE} target="_blank" rel="noopener noreferrer"
          aria-label="Powered by Axcion"
          style={{ display: "inline-flex", alignItems: "center", gap: 5, textDecoration: "none" }}>
-        {/* No `color` override: the guide's primary treatment is two-tone (Cadet blades, Ink
-            pupil) and passing a colour would collapse it to a one-colour cut. At 14px the mark
-            takes the small-size cut automatically. */}
-        <AxcionMark size={14} treatment={onDark ? "knockout" : "primary"} />
+        {/* Treatment, not colour: the primary cut is two-tone (Cadet and Ink blades, Sage leaf)
+            and there is no colour prop to collapse it with — each approved cut is its own file.
+            16px rather than 14: the designed mark is finer than the drawn one it replaced, and
+            at 14 the leaf disappears into the antialiasing. */}
+        <AxcionMark size={16} treatment={onDark ? "knockout" : "primary"} />
         <span style={{
           fontFamily: TYPE.display, fontWeight: 700, fontSize: 12.5, letterSpacing: "-.02em",
           lineHeight: 1, color: wordColor,

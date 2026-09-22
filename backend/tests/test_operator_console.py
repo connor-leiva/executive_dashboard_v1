@@ -197,23 +197,39 @@ def test_the_operator_client_never_names_a_tenant_realm():
 
 
 @pytest.mark.skipif(not OPERATOR_SRC.exists(), reason="frontend not present")
-def test_the_mark_keeps_its_gap_at_top_dead_centre():
-    """axcion.jsx exports inGap because this is the one property of the mark that arithmetic
-    cannot confirm: without the SVG Y-axis flip every measurement still checks out and a blade
-    lands at the top. Evaluated here from the file's own numbers."""
+def test_the_mark_is_sized_from_the_artworks_real_proportions():
+    """This used to assert that the drawn mark's gap sat at top dead centre -- the one property
+    arithmetic could not confirm, because without the SVG Y-axis flip every measurement still
+    checked out while a blade landed at the top.
+
+    The mark is not drawn any more, so the property worth holding is the one that replaced it:
+    THE ARTWORK IS NOT SQUARE. It is 831x1024, because the leaf hangs below and left of the X, and
+    every caller sizes by height on that basis. A delivery with different proportions, dropped in
+    without updating MARK_ASPECT, renders the mark stretched -- which looks like a rendering bug
+    rather than a stale constant, and is the kind of thing that gets lived with.
+    """
+    from PIL import Image
+
     src = (FRONTEND / "src" / "brand" / "axcion.jsx").read_text(encoding="utf-8")
-    sweep = float(re.search(r"^const SWEEP = ([0-9.]+)", src, re.M).group(1))
-    axes = [int(x) for x in re.search(r"^const GAP_AXES = \[([0-9, ]+)\]", src, re.M)
-            .group(1).split(",")]
-    half_gap = (360 - sweep * len(axes)) / len(axes) / 2
+    m = re.search(r"MARK_ASPECT = ([0-9]+) / ([0-9]+)", src)
+    assert m, "axcion.jsx no longer declares MARK_ASPECT"
+    declared = int(m.group(1)) / int(m.group(2))
 
-    def in_gap(deg):
-        d = deg % 360
-        return any(abs(((d - axis + 540) % 360) - 180) < half_gap for axis in axes)
+    master = FRONTEND / "brand-src" / "axcion" / "AXCION-mark-primary.png"
+    if master.exists():
+        with Image.open(master) as im:
+            real = im.width / im.height
+        assert abs(declared - real) < 0.002, (
+            f"MARK_ASPECT says {declared:.4f}, the artwork is {real:.4f}")
 
-    assert in_gap(90), "the gap is not at top dead centre"
-    assert not in_gap(90 + half_gap + sweep / 2), "the middle of a blade reads as a gap"
-    assert "export function inGap" in src
+    # And the lockup, whose own number exists so that `size` means the same thing in both.
+    lock = re.search(r"ratio: ([0-9]+) / ([0-9]+), markFraction: ([0-9]+) / ([0-9]+)", src)
+    assert lock, "axcion.jsx no longer declares the lockup's proportions"
+    lock_master = FRONTEND / "brand-src" / "axcion" / "AXCION-lockup-horizontal-primary.png"
+    if lock_master.exists():
+        with Image.open(lock_master) as im:
+            assert (int(lock.group(1)), int(lock.group(2))) == im.size, (
+                "the lockup's ratio is not the delivered file's size")
 
 
 # ── fleet health: the ladder, rule by rule ────────────────────────────────────────────────

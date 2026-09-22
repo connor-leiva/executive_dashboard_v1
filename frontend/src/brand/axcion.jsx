@@ -1,21 +1,32 @@
 /* Axcion's own identity — the platform's brand, and the default every workspace starts from.
  *
- * THE MARK IS DRAWN, NOT LOADED. The identity guide specifies it as fully derivable geometry
- * ("so it can be rebuilt at any size without redrawing by eye"), so it is built from those
- * numbers rather than shipped as PNGs. That buys three things a file cannot: it is exact at
- * every size instead of at the sizes somebody happened to export, the small-size cut is a
- * parameter rather than a second asset, and it recolours to any approved treatment without a
- * per-colourway export. It also means the "Powered by Axcion" footer costs no network request.
+ * THE MARK IS THE DESIGNED ARTWORK, LOADED. It used to be DRAWN: before there was a mark there
+ * was an identity guide specifying derivable geometry, so this module built a stand-in from those
+ * numbers — three arcs around a pupil, exact at every size and recolourable for free. The
+ * designed mark arrived on 2026-09-22 and it is a different shape: two crossed tapered blades
+ * with a detached leaf below the left arm, taller than it is wide. Nothing about it is derivable,
+ * and deriving something adjacent would be redrawing somebody's logo by eye.
  *
- * Geometry, from the guide (§01), on a 64x64 artboard:
- *     blade radius 22u · blade weight 8u (12.5% of artboard) · blade sweep 92 degrees each
- *     gap axes at 90 / 210 / 330 degrees · pupil radius 6.5u · terminals butt, radial
- * Small-size cut (§02, at or below 24px): blade weight 10u, pupil 8u — drawn to survive
- * rasterisation, because below 24px the standard cut loses its gaps.
+ * So the artwork ships as files. `frontend/brand-src/axcion/` holds the delivery untouched and
+ * `frontend/scripts/brand_assets.py` resizes it into `./axcion/`, which is what this module
+ * imports. Imported rather than served from /public, because four of the five Vite entries set
+ * publicDir:false and a runtime path into the dashboard's public directory 404s on the marketing
+ * site and the operator console.
  *
- * The three gaps stay equal and the blade weight stays 12.5% — the guide calls both
- * non-negotiable, and deriving them means they cannot drift.
+ * What that costs, and it is worth stating plainly: a raster cannot be recoloured at runtime, so
+ * `AxcionMark` no longer takes a `color` prop and every treatment is its own file. The delivery
+ * is PNG — the brief asked for AI/EPS/SVG masters (§23) and they did not come with it. When they
+ * do, this module and brand_assets.py are what change; nothing that calls them has to.
  */
+import lockupInk from "./axcion/lockup-ink.png";
+import lockupPrimary from "./axcion/lockup-primary.png";
+import lockupReversed from "./axcion/lockup-reversed.png";
+import lockupWhite from "./axcion/lockup-white.png";
+import markCadet from "./axcion/mark-cadet.png";
+import markInk from "./axcion/mark-ink.png";
+import markPrimary from "./axcion/mark-primary.png";
+import markReversed from "./axcion/mark-reversed.png";
+import markWhite from "./axcion/mark-white.png";
 
 /* Axcion's own site, for any link from inside a workspace to Axcion itself: "Powered by", the
    Privacy Policy and Terms. A constant rather than derived from the page's host, because a
@@ -33,18 +44,12 @@
    so none of them can drift alone again. */
 export const AXCION_SITE = "https://www.axcion.io";
 
-const ART = 64;
-const C = ART / 2;
-const BLADE_RADIUS = 22;
-const PUPIL_RADIUS = 6.5;
-const SWEEP = 92;                       // degrees of arc per blade
-const GAP_AXES = [90, 210, 330];        // the centre of each gap
-
-const SMALL = { weight: 10, pupil: 8 }; // the small-size cut
-const STANDARD = { weight: 8, pupil: PUPIL_RADIUS };
-
 /* The five core colours (§06). Cadet is the brand and the single action colour; Ink carries
-   text and dark surfaces; Sage and Haze are support and never carry body copy. */
+   text and dark surfaces; Sage and Haze are support and never carry body copy.
+
+   These are the artwork's colours, not an approximation of them: the delivered PNGs sample to
+   #3F6B66, #16201F and #8FB3AE exactly, which is the brief's "inherits the established palette"
+   honoured. If a future delivery moves them, the files are the authority and these follow. */
 export const CORE = {
   cadet: "#3F6B66",
   ink: "#16201F",
@@ -73,100 +78,57 @@ export const TYPE = {
   data: 'Archivo, "Helvetica Neue", Arial, sans-serif',
 };
 
-const rad = (deg) => (deg * Math.PI) / 180;
+/* THE MARK IS NOT SQUARE. 831x1024 in the delivery: the leaf hangs below and left of the X, and
+   cropping to a square would either clip it or centre the X off-axis. Every caller sizes by
+   HEIGHT and the width follows, which is why `size` means height throughout this module. */
+export const MARK_ASPECT = 831 / 1024;
 
-/* The guide's angles are STANDARD MATH CONVENTION — Y up, counterclockwise from east. SVG is
-   Y DOWN, so the sine is negated here and the arcs sweep counterclockwise (flag 0).
-   Without the flip the whole mark mirrors: the gap axes still land 120 degrees apart and every
-   measurement still checks out, but a BLADE ends up at top dead centre instead of a gap — which
-   the guide lists under misuse ("Don't rotate. The gap sits at top dead centre."). It is the
-   kind of error that survives arithmetic review and only shows up when somebody looks at it. */
-const pt = (deg, r) => [C + r * Math.cos(rad(deg)), C - r * Math.sin(rad(deg))];
+/* The horizontal lockup, measured from the delivered file rather than assumed: 2255x605 overall,
+   with the mark spanning 541 of those 605 pixels. `size` keeps meaning the MARK's height at
+   every call site, so the image is drawn slightly taller than `size` to put its mark at `size` —
+   otherwise swapping a bare mark for a lockup would silently shrink the mark by 11%. */
+const LOCKUP = { ratio: 2255 / 605, markFraction: 541 / 605 };
 
-/** One blade as an SVG arc path. Butt terminals, so the path is the centreline and the
- *  stroke width gives the blade its weight. */
-function bladePath(startDeg, sweepDeg) {
-  const [x1, y1] = pt(startDeg, BLADE_RADIUS);
-  const [x2, y2] = pt(startDeg + sweepDeg, BLADE_RADIUS);
-  const large = sweepDeg > 180 ? 1 : 0;
-  // sweep-flag 0: counterclockwise on screen, which is the positive direction once Y is flipped.
-  return `M ${x1.toFixed(3)} ${y1.toFixed(3)} A ${BLADE_RADIUS} ${BLADE_RADIUS} 0 ${large} 0 ${x2.toFixed(3)} ${y2.toFixed(3)}`;
-}
-
-/** The three blades, derived from the gap axes so the gaps are equal by construction. */
-export function bladePaths() {
-  return GAP_AXES.map((axis) => bladePath(axis + halfGap(), SWEEP));
-}
-
-/** Half the angular width of one gap. Derived rather than written down, so the guide's
- *  "the three gaps stay equal" holds by construction: 3 blades of 92 leave 84 degrees, so each
- *  gap is 28 and a blade starts 14 past its gap axis. */
-export function halfGap() {
-  return (360 - SWEEP * GAP_AXES.length) / GAP_AXES.length / 2;
-}
-
-/** True when `deg` falls inside a gap. Exported because "the gap sits at top dead centre" is
- *  the one property of this mark that arithmetic cannot confirm and a person has to see —
- *  so it is worth being able to assert instead. inGap(90) must be true. */
-export function inGap(deg) {
-  const h = halfGap();
-  const d = ((deg % 360) + 360) % 360;
-  return GAP_AXES.some((axis) => {
-    // shortest angular distance from the gap's centre, 0..180
-    const delta = Math.abs(((d - axis + 540) % 360) - 180);
-    return delta < h;
-  });
-}
-
-/* The approved knockouts (§04). The two-tone mark is the default; a one-colour cut is for
-   anywhere two values will not reproduce. In one-colour cuts the pupil takes the SAME value as
-   the blades — never a hole, or the mark stops reading as an aperture. */
+/* The approved knockouts (§04), each one its own artwork now rather than a pair of colours.
+   `mono` is the one-ink cut for print, engraving and fax; `cadet` is the solid brand-colour cut
+   for a light ground that already carries ink. */
 export const TREATMENT = {
-  primary: { blades: CORE.cadet, pupil: CORE.ink },     // on white
-  reversed: { blades: CORE.sage, pupil: "#FFFFFF" },    // on Ink
-  knockout: { blades: "#FFFFFF", pupil: "#FFFFFF" },    // on Cadet, one value
-  mono: { blades: CORE.ink, pupil: CORE.ink },          // print, engrave, fax
+  primary: { mark: markPrimary, lockup: lockupPrimary },     // on white
+  reversed: { mark: markReversed, lockup: lockupReversed },  // on Ink
+  knockout: { mark: markWhite, lockup: lockupWhite },        // on Cadet, one value
+  mono: { mark: markInk, lockup: lockupInk },                // print, engrave, fax
+  cadet: { mark: markCadet, lockup: lockupPrimary },         // solid brand colour
 };
 
 /**
- * The Axcion mark. `size` picks the cut automatically — the guide switches at 24px, and
- * choosing it by hand is how the wrong one ends up in a favicon.
+ * The Axcion mark. `size` is its HEIGHT in pixels; the width follows from the artwork.
+ *
+ * There is no `color` prop. The treatments are the approved cuts and each is a separate file —
+ * tinting a raster would mean a CSS filter, which is how a two-tone mark becomes one muddy one.
  */
-export function AxcionMark({ size = 32, treatment = "primary", color, title, style }) {
-  const cut = size <= 24 ? SMALL : STANDARD;
+export function AxcionMark({ size = 32, treatment = "primary", title, style }) {
   const t = TREATMENT[treatment] || TREATMENT.primary;
-  const blades = color || t.blades;
-  const pupil = color || t.pupil;      // an explicit colour makes it a one-colour cut
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${ART} ${ART}`} style={style}
-         role={title ? "img" : "presentation"} aria-hidden={title ? undefined : true}
-         focusable="false">
-      {title ? <title>{title}</title> : null}
-      {bladePaths().map((d, i) => (
-        <path key={i} d={d} fill="none" stroke={blades} strokeWidth={cut.weight}
-              strokeLinecap="butt" />
-      ))}
-      <circle cx={C} cy={C} r={cut.pupil} fill={pupil} />
-    </svg>
+    <img src={t.mark} alt={title || ""} aria-hidden={title ? undefined : true}
+         style={{ display: "block", height: size, width: "auto",
+                  // aspectRatio rather than a computed width: rounding a width AND a height to
+                  // whole pixels independently stretches the artwork by up to a percent, which
+                  // is invisible on inspection and wrong. It reserves the space before the file
+                  // loads, too, so nothing shifts when it arrives.
+                  aspectRatio: MARK_ASPECT, ...style }} />
   );
 }
 
 /**
- * The horizontal lockup — the guide's default "in every context that has the width for it".
- * Gap is 0.30 x mark; the wordmark is Space Grotesk Bold at -0.02em with its cap height
- * optically aligned to the mark's outer diameter.
+ * The horizontal lockup — the guide's default "in every context that has the width for it", and
+ * the designer's own icon-to-wordmark scale and clear space rather than this module's guess at
+ * them. `size` is the height of the MARK inside it, so it is interchangeable with AxcionMark.
  */
-export function AxcionLockup({ size = 24, treatment = "primary", color, style }) {
+export function AxcionLockup({ size = 24, treatment = "primary", style }) {
   const t = TREATMENT[treatment] || TREATMENT.primary;
-  const wordColor = color || (treatment === "reversed" || treatment === "knockout"
-    ? "#FFFFFF" : CORE.ink);
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: size * 0.30, ...style }}>
-      <AxcionMark size={size} treatment={treatment} color={color} title="Axcion" />
-      <span style={{
-        fontFamily: TYPE.display, fontWeight: 700, fontSize: size * 0.86,
-        letterSpacing: "-0.02em", lineHeight: 1, color: wordColor,
-      }}>Axcion</span>
-    </span>
+    <img src={t.lockup} alt="Axcion"
+         style={{ display: "block", height: size / LOCKUP.markFraction, width: "auto",
+                  aspectRatio: LOCKUP.ratio, ...style }} />
   );
 }

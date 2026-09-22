@@ -55,9 +55,14 @@ export const alpha = (hex, a) => {
 /* ── Imagery ───────────────────────────────────────────────────────────────────────────
  *
  * PLATES are generated abstract light studies in ./assets. Out-of-focus highlights on
- * them are curved triangles because that is what a THREE-BLADED iris renders, and §01 defines
- * the mark as exactly that — "three blades opening on a fixed point: an aperture". The
- * texture is derived from Axcion's own mark rather than borrowed from anyone.
+ * them are curved triangles because that is what a THREE-BLADED iris renders, which is what
+ * the mark was when they were generated — "three blades opening on a fixed point: an
+ * aperture". The texture is Axcion's own rather than borrowed from anyone.
+ *
+ * The mark it echoes was replaced on 2026-09-22 by the designed one, which is a four-pointed
+ * crossed form. GENERATOR.py records what regenerating would take and why it has not been
+ * done; the short version is that these are texture, and re-rolling them is a visual change
+ * to every surface that uses them rather than part of a logo swap.
  *
  * Deliberately not the fluted-glass treatment in Spring's brand photos. That is Spring's
  * visual identity; Axcion is a different brand, and adopting it would repeat the mistake of

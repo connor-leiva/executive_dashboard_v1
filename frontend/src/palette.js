@@ -291,8 +291,11 @@ export function applyPalette(tokens, el) {
  * part of a visual identity system are exactly that, and they belong to the customer who paid
  * for them.
  *
- * Everything else gets Axcion's bokeh: soft aperture-shaped blurs echoing the mark's own blades,
- * laid UNDER a wash of the ground colour. The plate carries texture, the wash carries the brand,
+ * Everything else gets Axcion's bokeh: soft aperture-shaped blurs, laid UNDER a wash of the
+ * ground colour. They echoed the mark's own blades when the mark was an aperture; it is a
+ * four-pointed crossed form since 2026-09-22 and the plates have not been re-rolled, because
+ * they are the default for every workspace that never chose its own and changing them re-skins
+ * all of them (see marketing/assets/GENERATOR.py). The plate carries texture, the wash carries the brand,
  * so it works for any colour a workspace ever configures -- including colours chosen after this
  * was written. That is why the wash is `rgba(var(--t-*-rgb), .78)` rather than a fixed value: it
  * follows the palette without being recomputed.
