@@ -170,7 +170,10 @@ current page renders unchanged against the new payload — which is what makes P
 4. **Legacy/secondary providers for other workspaces.** `stripe_legacy`, `ghl_legacy`, `ghl_bc` are
    Spring's. *Recommend*: offer them only where a row already exists, or behind "+ Add source →
    Show legacy connectors". Needs a yes before Phase 3, because the Available section makes them loud.
-5. **Vendor logos.** *Resolved 2026-09-22 — a set was supplied (`logo-preview (1).html`).*
+5. **Vendor logos.** *Resolved 2026-09-22 — a set was supplied. Committed verbatim at
+   [`docs/integration-marks-reference.html`](docs/integration-marks-reference.html), because it is
+   the provenance record for marks that now ship in the bundle: where each came from, its licence,
+   and the two open questions below.*
    - **Shipping:** QuickBooks + Stripe (simple-icons, CC0-1.0, inline SVG paths), Follow Up Boss,
      Sisu, Arive (PNG). Sisu and Follow Up Boss were checked against the marks already in
      `frontend/src/intranet/assets/logos/` and match — the new ones are icon-only, which is what a

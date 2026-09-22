@@ -18,6 +18,8 @@
  *
  * ATTRIBUTION. QuickBooks and Stripe are simple-icons (CC0-1.0). The PNGs were supplied by the
  * client. Every mark remains the property of its owner and is shown to identify an integration.
+ * The record of where each came from -- source, licence, brand colour, and the Go High Level
+ * permission question -- is committed at docs/integration-marks-reference.html.
  *
  * The PNGs are 60px. A 21px mark inside a 34px tile wants 63px for a 3x display, so these are
  * three pixels short of perfect there and exact everywhere else; the masters are larger, and
