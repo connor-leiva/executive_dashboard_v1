@@ -826,8 +826,6 @@ function QuickBooksConnect({ live }) {
 
 /* ── integrations (accordion revamp, spec v3 Part 1) ───────────── */
 
-const BIZ_DOT = { ulrg: T.meadow, springb: T.poppy, forum: T.daffodil, becollective: T.petal, edge: T.edge, sympli: T.teal };
-
 /* The words a status wears.
  *
  * `attention` counts what is actually broken rather than saying so vaguely: QuickBooks with one
@@ -988,48 +986,112 @@ function QboEntityForm({ mode, entity, onClose, onDone }) {
   );
 }
 
-const CORE_ENTITIES = new Set(["ulrg", "springb", "sympli"]);
+/* CORE_ENTITIES is gone, and BIZ_DOT with it.
+ *
+ * CORE_ENTITIES listed one customer's three business keys and refused to offer Remove for them.
+ * delete_qbo_entity already enforces the real rule -- the workspace's last business is protected,
+ * and so is one with a non-QBO source attached -- per tenant, and its own docstring points out
+ * that the hardcoded three "protected her and nobody else": a second workspace is provisioned
+ * with a single business, so its whole dashboard was one confirm dialog away. The server says
+ * whether Remove is on offer now, in EntityRow.actions, so there is one rule instead of two.
+ *
+ * BIZ_DOT mapped those same keys to colours. An entity's accent comes from the payload, which is
+ * the workspace's own and is editable under Businesses. */
 
-function EntityRow({ e, live, busy, onSync, onReconnect, onEditEntity, onDisconnectEntity, onDeleteEntity }) {
+/* The per-entity overflow menu.
+ *
+ * ITS ITEMS COME FROM THE PAYLOAD. `EntityRow.actions` is built on the server, so the menu can
+ * only offer what the API will actually accept for that row in that state -- which is the
+ * dead-button failure this module shipped three times, closed at the source rather than by
+ * remembering to keep two lists in step.
+ */
+function EntityMenu({ items, disabled }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = () => setOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [open]);
+  if (!items.length) return null;
+  return (
+    <span style={{ position: "relative", flexShrink: 0 }}>
+      {/* Disabled rather than hidden offline. A control that disappears in the preview cannot be
+          reviewed there, and this page's whole offline mode exists to be reviewed. */}
+      <button aria-label="More actions" aria-haspopup="menu" aria-expanded={open} disabled={disabled}
+        onClick={(ev) => { ev.stopPropagation(); setOpen((o) => !o); }}
+        style={{ width: 30, height: 30, border: `1px solid ${T.line}`, borderRadius: 8,
+          background: T.white, cursor: disabled ? "default" : "pointer",
+          color: disabled ? T.muted : T.slate, fontSize: 13, lineHeight: 1 }}>⋯</button>
+      {open && (
+        <span role="menu" style={{ position: "absolute", right: 0, top: 34, zIndex: 5, minWidth: 176,
+          background: T.white, border: `1px solid ${T.line}`, borderRadius: 10, padding: 5,
+          boxShadow: "0 10px 26px rgba(0,46,44,.14)", display: "flex", flexDirection: "column" }}>
+          {items.map((it) => (
+            <button key={it.label} role="menuitem" disabled={it.disabled}
+              onClick={(ev) => { ev.stopPropagation(); setOpen(false); it.onClick(); }}
+              style={{ textAlign: "left", border: 0, background: "transparent", cursor: "pointer",
+                borderRadius: 7, padding: "7px 9px", fontFamily: "var(--font-text)", fontSize: 12.5,
+                color: it.danger ? T.poppyText : T.slate }}>{it.label}</button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/* One connection. QuickBooks has several of these; every other source has exactly one -- and
+   until this phase that difference was the page's whole shape, with QuickBooks rendering an
+   entity list and everything else rendering a bare card. */
+function EntityRow({ e, live, busy, onAction }) {
   const err = e.state === "error";
   const disc = e.state === "disconnected";
-  const meta = e.realm_id ? `Realm ${e.realm_id}` : "";
+  const can = (a) => (e.actions || []).includes(a);
   const routesTo = e.display_tab && e.display_tab !== e.business_key ? routableLabel(e.display_tab) : null;
-  const statusColor = err ? T.poppyText : disc ? T.muted : T.meadow;
-  const statusText = err ? (e.detail || "Re-authorize to resume syncing")
+  const stateText = err ? (e.detail || "Re-authorize to resume syncing")
     : disc ? "Disconnected — reconnect to resume"
     : (e.last_synced_at ? `Synced ${relativeTime(e.last_synced_at)}` : "Not synced");
+  const menu = [];
+  if (can("edit")) menu.push({ label: "Edit", onClick: () => onAction("edit", e) });
+  if (can("disconnect")) menu.push({ label: "Disconnect", onClick: () => onAction("disconnect", e) });
+  if (can("remove")) menu.push({ label: "Remove entirely", danger: true, onClick: () => onAction("remove", e) });
+  const syncing = busy === e.integration_id;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.line}`, flexWrap: "wrap", opacity: disc ? 0.7 : 1 }}>
-      <span style={{ width: 8, height: 8, borderRadius: 2, background: disc ? T.muted : (BIZ_DOT[e.business_key] || T.muted), flexShrink: 0 }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.ink, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+      padding: "11px 13px", borderBottom: `1px solid ${T.line}`, opacity: disc ? 0.7 : 1 }}>
+      {/* The workspace's own accent for this business, straight off the payload. */}
+      <span aria-hidden style={{ width: 8, height: 8, flexShrink: 0, borderRadius: 3,
+        background: disc ? T.muted : (e.accent || T.muted) }} />
+      <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 13.5, fontWeight: 600,
+          color: T.ink, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           {e.business_name}
           {routesTo && <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>→ {routesTo}</span>}
           {e.books_enabled === false && <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: T.muted, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>Books off</span>}
-        </div>
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: statusColor, marginTop: 2, display: "flex", alignItems: "center", gap: 5 }}>
-          <Icon name={err || disc ? "warning" : "check_circled"} size={11} color={statusColor} />
-          {statusText}
-          {meta && <span style={{ color: T.muted }}>· {meta}</span>}
-        </div>
+        </span>
+        {e.realm_id && (
+          <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted }}>ID {e.realm_id}</span>
+        )}
       </div>
-      {err || disc
-        ? <SBtn kind="primary" small icon="sync" disabled={!live} onClick={() => onReconnect(e)}>Reconnect</SBtn>
-        : <SBtn small icon="sync" disabled={!live || busy === e.integration_id} onClick={() => onSync(e.integration_id)}>{busy === e.integration_id ? "Syncing…" : "Sync now"}</SBtn>}
-      {onEditEntity && !err && <SBtn small icon="tune" disabled={!live} onClick={() => onEditEntity(e)}>Edit</SBtn>}
-      {disc
-        ? (onDeleteEntity && !CORE_ENTITIES.has(e.business_key) &&
-            <button className="si-danger" disabled={!live} onClick={() => onDeleteEntity(e)}>Remove</button>)
-        : (onDisconnectEntity && !err &&
-            <button className="si-danger" disabled={!live} onClick={() => onDisconnectEntity(e)}>Disconnect</button>)}
+      <span style={{ fontFamily: "var(--font-text)", fontSize: 12, flexShrink: 0,
+        color: err ? T.poppyText : disc ? T.muted : T.slate, textAlign: "right" }}>{stateText}</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+        {can("sync") && (
+          <SBtn small icon="sync" disabled={!live || syncing}
+            onClick={() => onAction("sync", e)}>{syncing ? "Syncing…" : "Sync"}</SBtn>
+        )}
+        {can("reconnect") && (
+          <SBtn kind="primary" small disabled={!live} onClick={() => onAction("reconnect", e)}>Reconnect</SBtn>
+        )}
+        <EntityMenu items={menu} disabled={!live} />
+      </span>
     </div>
   );
 }
 
-function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisconnect, onConnect, onEdit, onEditEntity, onDisconnectEntity, onDeleteEntity }) {
-  const dis = s.status === "disconnected";
-  const collapsedLine = dis ? s.desc(s) : s.fresh;
+function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }) {
+  const collapsedLine = s.fresh;
+  const entities = s.entities || [];
   return (
     <div className={`si-card ${open ? "on" : ""}`}>
       <div className="si-head" role="button" tabIndex={0} aria-expanded={open} onClick={onToggle}
@@ -1063,17 +1125,27 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
       <div className={`si-collapse ${open ? "open" : ""}`}>
         <div className="si-collapse-in">
           <div style={{ padding: "0 20px 18px" }}>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.secondary, paddingBottom: 12 }}>{s.desc(s)}</div>
-            {s.entities?.length > 0 && (
-              <div style={{ marginBottom: 4 }}>
-                {s.entities.map((e) => <EntityRow key={e.integration_id} e={e} live={live} busy={busy} onSync={onSync} onReconnect={onReconnect}
-                  onEditEntity={s.provider === "qbo" ? onEditEntity : undefined}
-                  onDisconnectEntity={s.provider === "qbo" ? onDisconnectEntity : undefined}
-                  onDeleteEntity={s.provider === "qbo" ? onDeleteEntity : undefined} />)}
-              </div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, paddingBottom: 12, lineHeight: 1.5 }}>{s.desc(s)}</div>
+
+            {entities.length > 0 && (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 9 }}>
+                  <span style={{ fontFamily: "var(--font-data)", fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase", color: T.muted }}>
+                    {s.multi_entity ? `Entities · ${entities.length} · one connection each` : "Connection"}</span>
+                  <span aria-hidden style={{ flex: 1, height: 1, background: T.line }} />
+                </div>
+                <div style={{ border: `1px solid ${T.line}`, borderRadius: 11, background: T.white, overflow: "hidden" }}>
+                  {entities.map((e, i) => (
+                    <div key={e.integration_id} style={i === entities.length - 1 ? { marginBottom: -1 } : undefined}>
+                      <EntityRow e={e} live={live} busy={busy} onAction={onEntityAction} />
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
+
             {s.config_summary?.length > 0 && (
-              <div style={{ borderTop: `1px solid ${T.line}`, padding: "11px 0 3px" }}>
+              <div style={{ borderTop: `1px solid ${T.line}`, padding: "11px 0 3px", marginTop: 12 }}>
                 {s.config_summary.map(([k, v], i) => (
                   <div key={i} style={{ display: "flex", gap: 14, padding: "4px 0", fontFamily: "var(--font-text)", fontSize: 12 }}>
                     <span style={{ width: 130, color: T.muted }}>{k}</span>
@@ -1082,32 +1154,30 @@ function SourceCard({ s, open, onToggle, live, busy, onSync, onReconnect, onDisc
                 ))}
               </div>
             )}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", borderTop: `1px solid ${T.line}`, paddingTop: 13, marginTop: 8 }}>
-              <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginRight: 2 }}>Provides</span>
-              {(s.provides || []).map((c) => <Chip key={c}>{c}</Chip>)}
-              <span style={{ flex: 1 }} />
-              {s.last_run && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: s.status === "stale" ? T.daffodilText : T.muted }}>{s.last_run}</span>}
+
+            {s.provider === "stripe_legacy" && <LegacyDeltaPanel live={live} />}
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+              gap: 16, flexWrap: "wrap", marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                {/* "Feeds" is what the mockup calls these, and it is the better word: it is what
+                    this source puts INTO the dashboard. The payload still calls it `provides`. */}
+                <span style={{ fontFamily: "var(--font-data)", fontSize: 10, fontWeight: 700, letterSpacing: ".14em", textTransform: "uppercase", color: T.muted }}>Feeds</span>
+                {(s.provides || []).map((c) => <Chip key={c}>{c}</Chip>)}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                {s.last_run && <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: s.status === "stale" ? T.daffodilText : T.muted }}>{s.last_run}</span>}
+                {/* Only where a second connection is actually possible -- `multi_entity` says so
+                    on the payload rather than the page testing for QuickBooks by name. */}
+                {s.multi_entity && (
+                  <button disabled={!live} onClick={() => onConnect(s)} style={{
+                    height: 32, padding: "0 13px", borderRadius: 9, cursor: live ? "pointer" : "default",
+                    border: `1px dashed ${T.line}`, background: "transparent",
+                    fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, whiteSpace: "nowrap",
+                  }}>+ Connect another entity</button>
+                )}
+              </div>
             </div>
-            {!dis && s.provider === "stripe_legacy" && <LegacyDeltaPanel live={live} />}
-            {dis ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14 }}>
-                <SBtn kind="primary" icon="open" disabled={!live} onClick={() => onConnect(s)}>Connect {s.name}</SBtn>
-                <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>{s.desc(s)}</span>
-              </div>
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
-                {!s.entities?.length && <SBtn small icon="sync" disabled={!live || busy === s.integration_id} onClick={() => onSync(s.integration_id)}>{busy === s.integration_id ? "Syncing…" : "Sync now"}</SBtn>}
-                {s.entities?.length > 0 && <SBtn small icon="open" disabled={!live} onClick={() => onConnect(s)}>Connect another entity</SBtn>}
-                {(s.provider === "ghl" || s.provider === "ghl_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit configuration</SBtn>}
-                {s.provider === "arive" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update credentials</SBtn>}
-                {s.provider === "sisu" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update credentials</SBtn>}
-                {s.provider === "fub" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update API key</SBtn>}
-                {(s.provider === "stripe_legacy" || s.provider === "stripe_bc") && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Update key</SBtn>}
-                {s.provider === "ghl_legacy" && <SBtn small icon="tune" disabled={!live} onClick={() => onEdit(s)}>Edit connection</SBtn>}
-                <span style={{ flex: 1 }} />
-                {s.integration_id && <button className="si-danger" disabled={!live} onClick={() => onDisconnect(s)}>Disconnect {s.name}</button>}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1143,7 +1213,15 @@ const DESC = {
 const descFor = (provider) => DESC[provider] || (() => "");
 const _src = (o) => ({ feeds: [], provides: [], entities: [], config_summary: [],
   last_run: null, integration_id: null, business_key: null, business_name: null,
-  needs_kind: null, tag: null, ago: null, secondary: false, ...o });
+  needs_kind: null, tag: null, ago: null, secondary: false, multi_entity: false, ...o });
+
+/* The one-row entities[] a single-connection source carries, so the drawer renders one table for
+   every source and QuickBooks stops being the shape the page is built around. */
+const _one = (id, key, name, accent, state = "ok", detail = null) => [{
+  integration_id: id, business_key: key, business_name: name, accent, state, detail,
+  provider: null, last_synced_at: state === "ok" ? new Date(Date.now() - 26 * 60000).toISOString() : null,
+  actions: (state === "ok" ? ["sync"] : ["reconnect"]).concat(["edit", "disconnect"]),
+}];
 
 /* The offline payload, field for field with the live one.
  *
@@ -1159,6 +1237,7 @@ const SAMPLE_VIEW = {
     _src({ provider: "qbo", vendor: "QuickBooks", family: "qbo", category: "Financials",
       meta: "Financials · profit & loss, balance sheet", name: "QuickBooks",
       status: "attention", status_note: "1 of 3 entities needs reconnect", tag: "3 entities",
+      multi_entity: true,
       ago: "7 min", feeds: ["ulrg", "springb", "sympli"],
       provides: ["Profit & Loss", "Balance Sheet"], last_run: "Last run · 2 entities · 4.2s",
       entities: [
@@ -1175,23 +1254,26 @@ const SAMPLE_VIEW = {
       meta: "Production · closings, agents and GCI", name: "Sisu", status: "ok",
       fresh: "Synced 26 min ago", ago: "26 min", feeds: ["ulrg"], business_name: "ULRG + Team",
       provides: ["Transactions", "Agents", "GCI"], last_run: "Last run · 412 records · 3.1s",
-      integration_id: "s1" }),
+      integration_id: "s1", entities: _one("s1", "ulrg", "ULRG + Team", "#61835E") }),
     _src({ provider: "fub", vendor: "Follow Up Boss", family: "fub", category: "CRM",
       meta: "CRM · leads and agent activity", name: "Follow Up Boss", status: "stale",
       fresh: "Synced 19 hours ago", ago: "19 hr", feeds: ["ulrg"], business_name: "ULRG + Team",
       provides: ["Leads", "Agents"], integration_id: "f1",
+      entities: _one("f1", "ulrg", "ULRG + Team", "#61835E"),
       last_run: "Auto-sync has missed its last 37 runs — check the connection" }),
     _src({ provider: "ghl", vendor: "Go High Level", family: "ghl", category: "Marketing",
       meta: "Marketing · members, renewals and events", name: "Go High Level · The Forum",
       status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", feeds: ["forum"],
       business_name: "The Forum", provides: ["Members", "Subscriptions", "Events"],
       last_run: "Last run · 142 members · 38 subscriptions · 2.4s", integration_id: "g1", config: {},
+      entities: _one("g1", "forum", "The Forum", "#FFDD1F"),
       config_summary: [["Location ID", "LqK4…f82"], ["Member tags", "5 tags"], ["Next event", "Park City, UT"]] }),
     _src({ provider: "ghl_bc", vendor: "Go High Level", family: "ghl", category: "Marketing",
       meta: "Marketing · members, renewals and events", name: "Go High Level · beCollective",
       status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", feeds: ["becollective"],
       business_name: "beCollective", secondary: true, provides: ["Members", "Onboarding", "Events"],
       last_run: "Last run · 30 members · 25 memberships · 1.9s", integration_id: "gb1", config: {},
+      entities: _one("gb1", "becollective", "beCollective", "#FFBA9F"),
       config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] }),
     _src({ provider: "arive", vendor: "Arive", family: "arive", category: "Mortgage",
       meta: "Mortgage · pipeline and fundings", name: "Arive", status: "disconnected",
@@ -1261,11 +1343,20 @@ function IntegrationsPage() {
     try { const { job_id } = await postJSON(`/sync/all`); for (let i = 0; i < 40; i++) { await sleep(3000); const st = await getJSON(`/sync/status/${job_id}`); if (st.status === "ok" || st.status === "error") break; } load(); }
     catch { /* leave as-is */ } finally { setSyncingAll(false); }
   }
-  async function disconnectSource(s) {
-    if (!window.confirm(`Disconnect ${s.name}? Stored tokens are removed; synced history stays.`)) return;
-    setBusy(s.integration_id);
-    try { await postJSON(`/integrations/${s.integration_id}/disconnect`); } finally { setBusy(null); load(); }
+  /* ONE DISPATCHER for every per-entity action, because "reconnect" means two different things
+     and the difference is the provider, not the button. QuickBooks re-authorizes through OAuth;
+     every other source authenticates with a key somebody pastes, so its fix is its own form.
+     The page used to answer this with five optional props, four of which were passed only when
+     the provider happened to be qbo. */
+  function entityAction(action, e, src) {
+    if (action === "sync") return syncOne(e.integration_id);
+    if (action === "reconnect") return e.provider === "qbo" ? qboConnect(e.business_key) : editConfig(src);
+    if (action === "edit") return e.provider === "qbo" ? editEntity(e) : editConfig(src);
+    if (action === "disconnect") return disconnectEntity(e);
+    if (action === "remove") return deleteEntity(e);
+    return undefined;
   }
+
   /* Which form a Connect button opens.
    *
    * GENERIC, and that is the point. This was a per-provider if-chain, and a provider without a
@@ -1309,7 +1400,6 @@ function IntegrationsPage() {
     setBusy(e.integration_id);
     try { await delJSON(`/integrations/qbo/entities/${e.business_key}`); } finally { setBusy(null); load(); }
   }
-  const reconnectEntity = (e) => qboConnect(e.business_key);
 
   if (error) return <Card title="Integrations"><div style={{ color: T.muted, fontSize: 13 }}>Couldn't load integrations.</div></Card>;
   if (!view) return <Card title="Integrations"><div style={{ color: T.muted, fontSize: 13 }}>Loading…</div></Card>;
@@ -1433,9 +1523,8 @@ function IntegrationsPage() {
         </div>
         {visible.length ? visible.map((s) => (
           <SourceCard key={s.provider} s={s} open={!!open[s.provider]} onToggle={() => toggle(s.provider)}
-            live={live} busy={busy} onSync={syncOne} onReconnect={reconnectEntity}
-            onDisconnect={disconnectSource} onConnect={connectSource} onEdit={editConfig}
-            onEditEntity={editEntity} onDisconnectEntity={disconnectEntity} onDeleteEntity={deleteEntity} />
+            live={live} busy={busy} onConnect={connectSource}
+            onEntityAction={(action, e) => entityAction(action, e, s)} />
         )) : (
           <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, padding: "22px 18px" }}>
             Nothing {filter === "Healthy" ? "healthy" : "needing attention"} right now.</div>

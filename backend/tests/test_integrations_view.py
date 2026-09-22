@@ -146,7 +146,8 @@ async def test_entity_rows_carry_their_colour_and_their_actions():
         assert e.accent and e.accent.startswith("#")
         assert ("sync" in e.actions) == (e.state == "ok")
         assert ("reconnect" in e.actions) == (e.state != "ok")
-        assert {"edit", "disconnect", "remove"} <= set(e.actions)
+        # `remove` is conditional -- see the removable test below -- so it is not asserted here.
+        assert {"edit", "disconnect"} <= set(e.actions)
 
 
 async def test_the_counts_describe_the_list_they_sit_above():
@@ -180,3 +181,24 @@ async def test_the_row_age_is_a_column_not_a_sentence():
         out = await build_integrations_view(s, t)
     sisu = next(x for x in out.sources if x.provider == "sisu")
     assert sisu.ago and "ago" not in sisu.ago and "Synced" not in sisu.ago
+
+
+async def test_remove_is_offered_only_where_the_api_would_accept_it():
+    """delete_qbo_entity protects the workspace's last business and any business with a non-QBO
+    source attached -- deleting one of those orphans a live sync. The page used to guard this with
+    a hardcoded set of one customer's three business keys, which protected her and nobody else.
+    The menu now reads the same rule the endpoint enforces."""
+    async with SessionLocal() as s:
+        t = await _tenant(s)
+        out = await build_integrations_view(s, t)
+        attached = {i.business_id for i in (await s.execute(select(Integration).where(
+            Integration.tenant_id == t, Integration.provider != "qbo"))).scalars().all()}
+        keys = {b.id: b.key for b in (await s.execute(
+            select(Business).where(Business.tenant_id == t))).scalars().all()}
+    busy_keys = {keys[bid] for bid in attached if bid in keys}
+    qbo = next(x for x in out.sources if x.provider == "qbo")
+    for e in qbo.entities:
+        offered = "remove" in e.actions
+        assert offered != (e.business_key in busy_keys), (
+            f"{e.business_key}: remove offered={offered} while a non-QBO source "
+            f"{'is' if e.business_key in busy_keys else 'is not'} attached")

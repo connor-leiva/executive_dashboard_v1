@@ -184,6 +184,14 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
         if r.status == "ok" and r.finished_at and (latest_ok_finish is None or _aware(r.finished_at) > latest_ok_finish):
             latest_ok_finish = _aware(r.finished_at)
 
+    # Which businesses delete_qbo_entity would actually accept. Its rule is the workspace's last
+    # business is protected, and so is one with a non-QBO source attached -- deleting that orphans
+    # a live sync. Computed here so the MENU cannot offer a Remove the API will refuse; the page
+    # used to guard this with a hardcoded set of one customer's three business keys, which (as
+    # that endpoint's own docstring says) protected her and nobody else.
+    attached_elsewhere = {i.business_id for i in integs if i.provider != "qbo"}
+    removable = len(businesses) > 1
+
     sources: list[SourceOut] = []
     alerts: list[Alert] = []
     entities_mapped = 0
@@ -219,7 +227,8 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                     # A healthy entity syncs; a broken one re-authorizes. Both keep the editing
                     # and removal that QuickBooks entity routing needs.
                     actions=(["sync"] if state == "ok" else ["reconnect"])
-                            + ["edit", "disconnect", "remove"]))
+                            + ["edit", "disconnect"]
+                            + (["remove"] if removable and b.id not in attached_elsewhere else [])))
                 if state == "error":
                     alerts.append(Alert(
                         title=f"{b.name} lost its QuickBooks connection",
@@ -242,6 +251,7 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 provider=prov, name=meta["name"], status=status, status_note=note,
                 fresh=_humanize(freshest, now), feeds=feeds, provides=meta["provides"],
                 last_run=_last_run(run, status, interval, now), entities=entities,
+                multi_entity=True,
                 family=family, vendor=vendor, category=category, meta=meta_line,
                 secondary=secondary, ago=_ago(freshest, now),
                 tag=f"{len(entities)} entities" if len(entities) > 1 else None))
@@ -264,6 +274,22 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
             own = biz_by_id.get(row.business_id) if row else None
             bkey = own.key if own else (target.key if target else None)
             entities_mapped += 1 if connected else 0
+            # ONE SHAPE FOR EVERY SOURCE. A single-connection provider gets a one-row entities[]
+            # so the drawer renders the same table for all of them, and QuickBooks stops being
+            # the special case the page was built around. `multi_entity` is what says whether a
+            # second connection is even possible, so nothing reads the provider name to decide.
+            entities = []
+            if connected and own:
+                entities.append(EntityRow(
+                    integration_id=str(row.id), business_key=own.key, business_name=own.name,
+                    state="error" if row.status == "error" else "ok",
+                    last_synced_at=row.last_synced_at.isoformat() if row.last_synced_at else None,
+                    detail=row.last_error if row.status == "error" else None,
+                    provider=prov, accent=own.accent,
+                    # No "remove": for these, disconnecting IS the removal -- there is no
+                    # per-entity delete behind them the way QuickBooks entities have.
+                    actions=(["sync"] if row.status != "error" else ["reconnect"])
+                            + ["edit", "disconnect"]))
             if status == "attention":
                 alerts.append(Alert(
                     title=f"{vendor} needs attention",
@@ -279,6 +305,7 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
                 last_run=_last_run(run, status, interval, now),
                 config_summary=_ghl_config_summary(cfg) if prov in ("ghl", "ghl_bc") and connected else [],
                 config=cfg if prov in ("ghl", "ghl_bc") else None,
+                entities=entities,
                 integration_id=str(row.id) if row else None,
                 business_key=bkey,
                 needs_kind=(None if (row and row.business_id in biz_by_id) or target

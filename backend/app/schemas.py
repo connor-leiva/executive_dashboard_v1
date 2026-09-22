@@ -304,6 +304,10 @@ class SourceOut(BaseModel):
     # location) are told apart by the business they serve, and that name is tenant data -- which
     # is exactly what the hardcoded "Go High Level · The Forum" in META was standing in for.
     business_name: str | None = None
+    # Whether this source can hold MORE than one connection. QuickBooks is one per entity; every
+    # other source is one per workspace, and offering "connect another" there is a button that
+    # leads nowhere. A flag rather than `provider == "qbo"` scattered through the page.
+    multi_entity: bool = False
     ago: str | None = None        # compact "7 min" for the row; `fresh` stays for the drawer
     # A second account of a vendor another workspace already has (a second GHL location, a
     # legacy Stripe). Offering these to every workspace puts one customer's programmes in
