@@ -1,9 +1,13 @@
 # Settings › Integrations — audit and phased build
 
-Reference mockup: `Integrations-reference.html` (Claude Design export, currently in `~/Downloads`).
+Reference mockup: [`docs/integrations-reference-mockup.html`](docs/integrations-reference-mockup.html)
+— the Claude Design export this was audited against, committed verbatim so the reference cannot go
+stale or disappear from somebody's Downloads folder. Open it in a browser to see it rendered.
+
 It is a **template with `{{ }}` bindings**, so its markup is the structure and its `<script>` is the
-sample data. Decoded copies used for this audit: the markup is the `<x-dc>` block of the bundle's
-`__bundler/template`, the data model is the `Component` class beneath it.
+sample data — reading the file as text shows placeholders, not the design. To audit it: the markup
+is the `<x-dc>` block inside the bundle's JSON-encoded `__bundler/template`, and the data model is
+the `Component` class beneath it.
 
 Current implementation:
 
