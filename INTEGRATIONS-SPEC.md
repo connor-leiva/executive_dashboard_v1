@@ -275,6 +275,33 @@ that shipped three times in one week.
 
 ---
 
+## Built — and one deliberate deviation
+
+Phases 1-6 shipped 2026-09-22 (`b93c64f`, `091e316`, `b1a1150`, `b4d7534`, and this one).
+
+**The vendor MERGE was not built, and should not be.** §1.2 proposed rendering a family with more
+than one member as a single row ("Go High Level · 2 entities"). Building the rest of it showed why
+that is wrong here: the mockup's one row assumes ONE credential serving two locations, and ours are
+two separate connections with separate tokens, separate configs and independent failure. Merging
+them would claim they are one thing, and it would have to hide each location's own configuration
+summary behind a second level of disclosure the mockup does not have. What shipped instead is the
+row title disambiguating by the business each serves — "Go High Level · The Forum" and
+"· beCollective" — which says the true thing: same vendor, two connections. Say the word if you
+would rather have the drawing.
+
+Everything else in §1.1 is in, plus three findings the mockup did not ask about:
+
+* `META`'s hardcoded customer names are gone; a row is titled by vendor and by the business it
+  serves, which is tenant data.
+* `CORE_ENTITIES` is gone. It listed one customer's three business keys to decide what "Remove
+  entirely" may touch, while `delete_qbo_entity` already enforced the real rule per tenant.
+  Checked against production: for springb the rule reproduces that hardcoded set exactly
+  (becollective and the_forum are removable, the other three are not, because a non-QBO source is
+  attached). For **utah-life**, one business and no protection under the old rule — the menu was
+  offering to remove the only business holding that workspace's dashboard.
+* The alert banner was drawn in `T.poppy`, which is the platform's ACCENT and a cadet green, so a
+  failure read as reassurance. The palette's error token is `poppyText`.
+
 ## Not in the mockup, keep anyway
 
 - `needs_kind` and its "add a lending business first" message — it is what stops a dead Connect

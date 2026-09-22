@@ -110,3 +110,35 @@ def test_the_backend_allow_list_and_the_offered_list_agree():
     assert not missing, (
         f"the settings page offers {sorted(missing)} but create_integration rejects them with "
         f"400 - the connect form will fail with no useful message")
+
+
+def test_every_offered_provider_is_in_the_offline_sample():
+    """The offline payload has to be the same SHAPE as the live one, provider for provider.
+
+    This is not tidiness. A provider missing from the sample is why the white screen could not be
+    reproduced locally: the crash needed the fetched source list to render, so the preview was
+    exercising a different payload than production and looked fine. Now the preview carries every
+    provider the API can return, and a new one has to be added to both halves or this fails.
+    """
+    src = _settings_source()
+    block = src[src.index("const SAMPLE_VIEW = {"):]
+    block = block[: block.index("\nfunction IntegrationsPage")]
+    sampled = set(re.findall(r'provider:\s*"(\w+)"', block))
+    missing = _all_offered() - sampled
+    assert not missing, (
+        f"these providers are returned by the API and absent from SAMPLE_VIEW: {sorted(missing)} "
+        f"- the offline preview is a different shape than production")
+
+
+def test_every_vendor_mark_belongs_to_a_provider_the_api_returns():
+    """A mark keyed to a provider that no longer exists is dead weight that looks maintained.
+    The reverse -- a provider with no mark -- is fine and deliberate: it keeps its monogram."""
+    marks = Path(__file__).resolve().parents[2] / "frontend" / "src" / "brand" / "integrationMarks.jsx"
+    if not marks.exists():
+        return
+    text = marks.read_text(encoding="utf-8")
+    block = text[text.index("const MARKS = {"):]
+    block = block[: block.index("\n};")]
+    keyed = set(re.findall(r"^\s{2}(\w+):", block, re.M))
+    stale = keyed - _all_offered()
+    assert not stale, f"integrationMarks has marks for providers the API never returns: {sorted(stale)}"

@@ -1089,6 +1089,68 @@ function EntityRow({ e, live, busy, onAction }) {
   );
 }
 
+/* "Add source" opens THIS rather than scrolling to the Available list.
+ *
+ * Everything we support is already on the page, so the button has no catalogue to fetch -- what
+ * it has is the list of things not connected yet, which is a different question from "what is
+ * broken" and deserves its own surface rather than a jump.
+ *
+ * It is also where the SECONDARY sources live. A second GHL location or a legacy Stripe belongs
+ * to one workspace's arrangements; listed in Available they read as a catalogue of somebody
+ * else's programmes, but a workspace that genuinely wants one has to be able to find it. Behind
+ * a toggle is the difference between offering and hiding.
+ */
+function AddSourceModal({ sources, live, onPick, onClose }) {
+  const [showLegacy, setShowLegacy] = useState(false);
+  const plain = sources.filter((s) => !s.secondary);
+  const legacy = sources.filter((s) => s.secondary);
+  const shown = showLegacy ? [...plain, ...legacy] : plain;
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,32,30,.36)",
+      display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "8vh 16px" }}>
+      <div role="dialog" aria-label="Add a source" onClick={(ev) => ev.stopPropagation()}
+        style={{ width: "100%", maxWidth: 520, background: T.white, borderRadius: 14,
+          border: `1px solid ${T.line}`, boxShadow: "0 24px 60px rgba(0,46,44,.22)", overflow: "hidden" }}>
+        <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.line}` }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Add a source</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 3 }}>
+            Everything the Command Center can read from. Connecting one starts its first sync.</div>
+        </div>
+        <div style={{ maxHeight: "46vh", overflowY: "auto" }}>
+          {shown.length === 0 && (
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, padding: "20px 18px" }}>
+              Everything we support is already connected.</div>
+          )}
+          {shown.map((s) => (
+            <button key={s.provider} disabled={!live} onClick={() => onPick(s)}
+              style={{ display: "flex", alignItems: "center", gap: 13, width: "100%", textAlign: "left",
+                background: "transparent", border: "none", borderBottom: `1px solid ${T.line}`,
+                padding: "13px 18px", cursor: live ? "pointer" : "default" }}>
+              <IntegrationMark provider={s.provider} fallback={s.mono} size={30} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontFamily: "var(--font-display)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>
+                  {s.title}{s.tag ? ` · ${s.tag}` : ""}</span>
+                <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 2 }}>
+                  {s.meta || s.desc(s)}</span>
+              </span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.teal, flexShrink: 0 }}>Connect</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", flexWrap: "wrap" }}>
+          {legacy.length > 0 && (
+            <button onClick={() => setShowLegacy((v) => !v)} style={{ border: "none", background: "transparent",
+              cursor: "pointer", fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, padding: 0 }}>
+              {showLegacy ? "Hide" : "Show"} legacy and second-account connectors ({legacy.length})</button>
+          )}
+          <span style={{ flex: 1 }} />
+          <SBtn onClick={onClose}>Close</SBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }) {
   const collapsedLine = s.fresh;
   const entities = s.entities || [];
@@ -1217,9 +1279,9 @@ const _src = (o) => ({ feeds: [], provides: [], entities: [], config_summary: []
 
 /* The one-row entities[] a single-connection source carries, so the drawer renders one table for
    every source and QuickBooks stops being the shape the page is built around. */
-const _one = (id, key, name, accent, state = "ok", detail = null) => [{
-  integration_id: id, business_key: key, business_name: name, accent, state, detail,
-  provider: null, last_synced_at: state === "ok" ? new Date(Date.now() - 26 * 60000).toISOString() : null,
+const _one = (provider, id, key, name, accent, state = "ok", detail = null) => [{
+  integration_id: id, business_key: key, business_name: name, accent, state, detail, provider,
+  last_synced_at: state === "ok" ? new Date(Date.now() - 26 * 60000).toISOString() : null,
   actions: (state === "ok" ? ["sync"] : ["reconnect"]).concat(["edit", "disconnect"]),
 }];
 
@@ -1254,26 +1316,26 @@ const SAMPLE_VIEW = {
       meta: "Production · closings, agents and GCI", name: "Sisu", status: "ok",
       fresh: "Synced 26 min ago", ago: "26 min", feeds: ["ulrg"], business_name: "ULRG + Team",
       provides: ["Transactions", "Agents", "GCI"], last_run: "Last run · 412 records · 3.1s",
-      integration_id: "s1", entities: _one("s1", "ulrg", "ULRG + Team", "#61835E") }),
+      integration_id: "s1", entities: _one("sisu", "s1", "ulrg", "ULRG + Team", "#61835E") }),
     _src({ provider: "fub", vendor: "Follow Up Boss", family: "fub", category: "CRM",
       meta: "CRM · leads and agent activity", name: "Follow Up Boss", status: "stale",
       fresh: "Synced 19 hours ago", ago: "19 hr", feeds: ["ulrg"], business_name: "ULRG + Team",
       provides: ["Leads", "Agents"], integration_id: "f1",
-      entities: _one("f1", "ulrg", "ULRG + Team", "#61835E"),
+      entities: _one("fub", "f1", "ulrg", "ULRG + Team", "#61835E"),
       last_run: "Auto-sync has missed its last 37 runs — check the connection" }),
     _src({ provider: "ghl", vendor: "Go High Level", family: "ghl", category: "Marketing",
       meta: "Marketing · members, renewals and events", name: "Go High Level · The Forum",
       status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", feeds: ["forum"],
       business_name: "The Forum", provides: ["Members", "Subscriptions", "Events"],
       last_run: "Last run · 142 members · 38 subscriptions · 2.4s", integration_id: "g1", config: {},
-      entities: _one("g1", "forum", "The Forum", "#FFDD1F"),
+      entities: _one("ghl", "g1", "forum", "The Forum", "#FFDD1F"),
       config_summary: [["Location ID", "LqK4…f82"], ["Member tags", "5 tags"], ["Next event", "Park City, UT"]] }),
     _src({ provider: "ghl_bc", vendor: "Go High Level", family: "ghl", category: "Marketing",
       meta: "Marketing · members, renewals and events", name: "Go High Level · beCollective",
       status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", feeds: ["becollective"],
       business_name: "beCollective", secondary: true, provides: ["Members", "Onboarding", "Events"],
       last_run: "Last run · 30 members · 25 memberships · 1.9s", integration_id: "gb1", config: {},
-      entities: _one("gb1", "becollective", "beCollective", "#FFBA9F"),
+      entities: _one("ghl_bc", "gb1", "becollective", "beCollective", "#FFBA9F"),
       config_summary: [["Location ID", "3JNm…Rnu"], ["Member tags", "3 tags"], ["Next event", "The Shift"]] }),
     _src({ provider: "arive", vendor: "Arive", family: "arive", category: "Mortgage",
       meta: "Mortgage · pipeline and fundings", name: "Arive", status: "disconnected",
@@ -1304,6 +1366,7 @@ function IntegrationsPage() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [connecting, setConnecting] = useState(null);
   const [filter, setFilter] = useState("All");
+  const [adding, setAdding] = useState(false);
   const live = Boolean(API_BASE);
 
   /* The row's title is the VENDOR, and the vendor alone -- until a workspace has two accounts of
@@ -1423,6 +1486,7 @@ function IntegrationsPage() {
   const connected = view.sources.filter((s) => s.status !== "disconnected");
   const available = view.sources.filter((s) => s.status === "disconnected"
     && (!s.secondary || s.integration_id));
+  const addable = view.sources.filter((s) => s.status === "disconnected");
   const visible = connected.filter((s) => filter === "All" ? true
     : filter === "Healthy" ? s.status === "ok"
     : s.status !== "ok");
@@ -1453,7 +1517,12 @@ function IntegrationsPage() {
           <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", marginTop: 6, color: T.ink }}>Data sources</div>
           <div style={{ fontSize: 13, color: T.slate, marginTop: 5, lineHeight: 1.5 }}>Every number in the Command Center traces back to one of these connections.</div>
         </div>
-        <SBtn icon="sync" disabled={!live || syncingAll} onClick={syncAll}>{syncingAll ? "Syncing…" : "Sync all"}</SBtn>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <SBtn icon="sync" disabled={!live || syncingAll} onClick={syncAll}>{syncingAll ? "Syncing…" : "Sync all"}</SBtn>
+          {/* Not gated on `live`: opening the list is read-only, and a trigger that is dead in
+              the preview cannot be reviewed there. The Connect inside each row is gated. */}
+          <SBtn kind="primary" onClick={() => setAdding(true)}>+ Add source</SBtn>
+        </div>
       </div>
 
       {/* The strip reads left to right as one sentence about the whole list, which is what the
@@ -1556,6 +1625,11 @@ function IntegrationsPage() {
       <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, padding: "8px 2px" }}>
         Auto-sync runs every 30 minutes. Disconnecting removes stored tokens; historical data already synced stays in the dashboard.
       </div>
+
+      {adding && (
+        <AddSourceModal sources={addable} live={live} onClose={() => setAdding(false)}
+          onPick={(s) => { setAdding(false); connectSource(s); }} />
+      )}
 
       {connecting && (connecting.provider === "qbo"
         ? <QboEntityForm mode={connecting.mode} entity={connecting.entity} onClose={() => setConnecting(null)}
