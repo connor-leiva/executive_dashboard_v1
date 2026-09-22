@@ -99,15 +99,35 @@ first line for exactly that reason — check it before believing the output.
 
 ### Administering tenants
 
-Tenant administration is a SEPARATE login from any customer's dashboard. Bootstrap the first
-operator once (it cannot be created through the API — the API is gated by an operator session):
+Tenant administration is a SEPARATE login from any customer's dashboard. Operators are made
+here and nowhere else — there is no `/platform/operators` route, because the API is gated by an
+operator session and the first one would have nothing to authenticate against. Every operator
+after the first is made the same way, on purpose: needing deploy access is a stronger control
+than any password.
 
 ```
-railway run --service api python -m scripts.create_operator --email you@example.com --name "You"
+railway ssh --service executive_dashboard_v1 -- python -m scripts.create_operator --email you@example.com --name "'Your Name'"
 ```
+
+Three things about that line, each of which has already cost someone an afternoon:
+
+- **`ssh`, not `run`.** `railway run` executes on YOUR machine with the service's variables
+  injected, and `DATABASE_URL` is `postgres.railway.internal` — unreachable from a laptop. It has
+  to run inside the container.
+- **The `--` is required**, or the CLI eats `--email` and `--name` as its own options.
+- **The name is quoted twice** (`"'Your Name'"`). Railway joins the remaining arguments into one
+  string and runs it through `bash -c`, so one layer of quoting is consumed in transit. With a
+  single layer, `--name "Your Name"` arrives as two words and argparse rejects the second; with
+  none at all, `sh -c "python …"` becomes `sh -c python` and you land in an interactive Python
+  prompt with no script and no error.
 
 The password is generated and printed once, or taken from `PLATFORM_OPERATOR_PASSWORD`. Never
 pass it as an argument — arguments land in shell history and the process list.
+
+There is no role on `platform_user`: **every operator can do everything**, including support
+access into any workspace's portal and replacing the Stripe platform keys. There is also no
+self-service password change and no 2FA — rotating one means re-running this with
+`--reset-password`, which revokes that operator's live sessions.
 
 That account then works against `/api/v1/platform/*`:
 
