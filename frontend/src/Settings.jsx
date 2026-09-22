@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, Navigate, NavLink, Link } from "react-router-dom";
+import { Routes, Route, Navigate, NavLink, Link, useLocation } from "react-router-dom";
 import { T, PROVIDER_NAME, relativeTime } from "./theme.js";
 import { getJSON, postJSON, putJSON, patchJSON, delJSON, tenantHeaders, getToken, logout, getBlob } from "./api.js";
-import { Icon } from "./Brand.jsx";
+import { Icon, getBrand, setBrand } from "./Brand.jsx";
+import { frontDoorUrl } from "./marketing/hosts.js";
 import AISettings from "./AISettings.jsx";
 import SecuritySettings from "./SecuritySettings.jsx";
 import Appearance from "./Appearance.jsx";
@@ -47,13 +48,18 @@ function ensureProviders(rows) {
 /* ── shell ─────────────────────────────────────────────────── */
 
 // Members get a lone Account entry; owners/admins get the full management set.
+//
+// `badge` names a key in the /settings/badges payload. The Integrations one is an ATTENTION
+// count and renders only when something is actually wrong -- a badge that is always present is
+// furniture, and the eye stops reading it. Businesses is a plain count, which is what the
+// mockup draws.
 function subnavFor(role, aiOn) {
   if (role === "member") return [{ to: "/settings/security", label: "Security" },
                                  { to: "/settings/account", label: "Account" }];
   const nav = [
-    { to: "/settings/integrations", label: "Integrations" },
+    { to: "/settings/integrations", label: "Integrations", badge: "integrations_attention", attention: true },
     { to: "/settings/users", label: "Team" },
-    { to: "/settings/businesses", label: "Businesses" },
+    { to: "/settings/businesses", label: "Businesses", badge: "businesses" },
     { to: "/settings/appearance", label: "Appearance" },
   ];
   if (aiOn) nav.push({ to: "/settings/ai", label: "AI Employees" });
@@ -62,8 +68,14 @@ function subnavFor(role, aiOn) {
   return nav;
 }
 
-function SettingsShell({ children, role, aiOn }) {
+function SettingsShell({ children, role, aiOn, badges }) {
   const SUBNAV = subnavFor(role, aiOn);
+  // The breadcrumb's second half is the route's own nav label, so a page cannot be titled one
+  // thing in the rail and another above it.
+  const { pathname } = useLocation();
+  const here = SUBNAV.find((n) => pathname.startsWith(n.to));
+  const brand = getBrand();
+  const workspace = brand.display_name || "Workspace";
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "var(--font-text)" }}>
       <style>{`
@@ -76,18 +88,54 @@ function SettingsShell({ children, role, aiOn }) {
         borderBottom: `1px solid ${T.line}`, background: T.white,
       }}>
         <Link to="/" style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.slate, textDecoration: "none" }}>← Command Center</Link>
+        <span aria-hidden style={{ width: 1, height: 18, background: T.line }} />
         <span style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Settings</span>
+        {here && (
+          <>
+            <span aria-hidden style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>/</span>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 16, color: T.slate }}>{here.label}</span>
+          </>
+        )}
+        <span style={{ flex: 1 }} />
+        {/* Identity, not a switcher: a user belongs to one workspace on its own subdomain, so
+            there is nothing to switch to. It links to the finder, which is the one place that
+            knows every workspace an email belongs to. */}
+        <a href={frontDoorUrl()} title="Your workspaces" style={{
+          display: "flex", alignItems: "center", gap: 8, textDecoration: "none",
+          border: `1px solid ${T.line}`, borderRadius: 999, padding: "3px 12px 3px 3px",
+          background: T.parchment,
+        }}>
+          <span aria-hidden style={{
+            width: 26, height: 26, borderRadius: 999, background: T.evergreen, color: T.onDark,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600,
+          }}>{workspace.trim().charAt(0).toUpperCase()}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 500, color: T.secondary }}>{workspace}</span>
+        </a>
       </div>
-      <div style={{ display: "flex", gap: 26, padding: 26, maxWidth: 1000 }}>
+      <div style={{ display: "flex", gap: 26, padding: 26, maxWidth: 1100 }}>
         <nav style={{ width: 170, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-          {SUBNAV.map((n) => (
-            <NavLink key={n.to} to={n.to} style={({ isActive }) => ({
-              fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: isActive ? 600 : 500,
-              color: isActive ? T.ink : T.slate, textDecoration: "none",
-              background: isActive ? T.white : "transparent", border: `1px solid ${isActive ? T.line : "transparent"}`,
-              borderRadius: 8, padding: "9px 12px",
-            })}>{n.label}</NavLink>
-          ))}
+          {SUBNAV.map((n) => {
+            const count = n.badge ? badges?.[n.badge] : null;
+            const show = count != null && count > 0;
+            return (
+              <NavLink key={n.to} to={n.to} style={({ isActive }) => ({
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: isActive ? 600 : 500,
+                color: isActive ? T.ink : T.slate, textDecoration: "none",
+                background: isActive ? T.white : "transparent", border: `1px solid ${isActive ? T.line : "transparent"}`,
+                borderRadius: 8, padding: "9px 12px",
+              })}>
+                <span>{n.label}</span>
+                {show && (
+                  <span style={{
+                    fontFamily: "var(--font-data)", fontSize: 11, fontVariantNumeric: "tabular-nums",
+                    color: n.attention ? T.poppyText : T.muted,
+                  }}>{count}</span>
+                )}
+              </NavLink>
+            );
+          })}
         </nav>
         <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
       </div>
@@ -1734,23 +1782,33 @@ function UsersPage() {
 
 /* ── routes ────────────────────────────────────────────────── */
 
+const SAMPLE_BADGES = { businesses: 5, integrations_attention: 1 };
+
 export default function Settings() {
   const [role, setRole] = useState(null);
   const [aiOn, setAiOn] = useState(false);
+  const [badges, setBadges] = useState(null);
   useEffect(() => {
-    if (!API_BASE) { setRole("owner"); return; }
-    getJSON("/me").then((m) => { setRole(m.role); setAiOn((m.tabs || []).includes("ai_employees")); })
-      .catch(() => setRole("member"));
+    if (!API_BASE) { setRole("owner"); setBadges(SAMPLE_BADGES); return; }
+    getJSON("/me").then((m) => {
+      // Settings is a SIBLING route of CommandCenter, which is the only other caller of
+      // setBrand -- so a deep link straight to /settings found an empty brand holder and the
+      // workspace chip read "Workspace". Same shape as the palette not applying on this route.
+      if (m.brand) setBrand(m.brand);
+      setRole(m.role); setAiOn((m.tabs || []).includes("ai_employees"));
+    }).catch(() => setRole("member"));
+    // A badge is decoration: if this fails the nav simply carries no counts.
+    getJSON("/settings/badges").then(setBadges).catch(() => {});
   }, []);
   // Wait for the role before mounting routes — else the catch-all redirect fires
   // with isAdmin=false and bounces a deep-link to /settings/users away.
   if (role === null) {
-    return <SettingsShell role={null}><Card><div style={{ color: T.muted, fontSize: 13 }}>Loading…</div></Card></SettingsShell>;
+    return <SettingsShell role={null} badges={badges}><Card><div style={{ color: T.muted, fontSize: 13 }}>Loading…</div></Card></SettingsShell>;
   }
   const isAdmin = role === "owner" || role === "admin";
   const home = isAdmin ? "/settings/integrations" : "/settings/account";
   return (
-    <SettingsShell role={role} aiOn={aiOn}>
+    <SettingsShell role={role} aiOn={aiOn} badges={badges}>
       <Routes>
         <Route path="account" element={<AccountPage />} />
         <Route path="security" element={<SecuritySettings />} />

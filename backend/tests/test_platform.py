@@ -73,11 +73,32 @@ async def test_role_matrix_on_management_routes():
     owner = await _owner_token()
     async with _client() as c:
         # members are 403 on management + integration routes
-        for path in ("/api/v1/users", "/api/v1/settings/integrations", "/api/v1/businesses"):
+        for path in ("/api/v1/users", "/api/v1/settings/integrations", "/api/v1/businesses",
+                     "/api/v1/settings/badges"):
             assert (await c.get(path, headers=_H(member))).status_code == 403
         assert (await c.post("/api/v1/sync/all", headers=_H(member))).status_code == 403
         # owner passes
         assert (await c.get("/api/v1/users", headers=_H(owner))).status_code == 200
+
+
+async def test_settings_badges_agree_with_the_pages_they_count():
+    """The nav badge sits next to the page it counts, which is exactly where somebody would
+    notice it disagreeing. It reads build_integrations_view rather than running its own query
+    over the same rows, and this pins that."""
+    from app.services.integrations_view import build_integrations_view
+    from app.db import SessionLocal
+    from sqlalchemy import select
+    from app.models import Business, Tenant
+
+    owner = await _owner_token()
+    async with _client() as c:
+        badges = (await c.get("/api/v1/settings/badges", headers=_H(owner))).json()
+        businesses = (await c.get("/api/v1/businesses", headers=_H(owner))).json()
+    assert badges["businesses"] == len(businesses)
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        view = await build_integrations_view(s, t.id)
+    assert badges["integrations_attention"] == view.needs_attention
 
 
 async def test_tab_routes_gate_by_grant():

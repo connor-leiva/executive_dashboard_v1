@@ -34,6 +34,21 @@ async def settings_integrations(user: User = Depends(require_role("owner", "admi
     return await build_integrations_view(s, user.tenant_id)
 
 
+@router.get("/settings/badges")
+async def settings_badges(user: User = Depends(require_role("owner", "admin")),
+                          s: AsyncSession = Depends(get_session)):
+    """The counts the Settings nav wears beside Integrations and Businesses.
+
+    `integrations` comes from build_integrations_view rather than a second query over the same
+    rows. Two places computing "needs attention" is two numbers that drift, and a badge sitting
+    next to the page it counts is exactly where somebody would notice them disagreeing.
+    """
+    view = await build_integrations_view(s, user.tenant_id)
+    businesses = (await s.execute(select(func.count(Business.id)).where(
+        Business.tenant_id == user.tenant_id))).scalar_one()
+    return {"businesses": businesses, "integrations_attention": view.needs_attention}
+
+
 @router.get("/integrations/qbo/connect")
 async def qbo_connect(business_key: str, user: User = Depends(require_role("owner", "admin")),
                       s: AsyncSession = Depends(get_session)):
