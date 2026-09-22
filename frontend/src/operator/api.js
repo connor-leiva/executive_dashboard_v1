@@ -119,6 +119,7 @@ export const api = {
   suspend: (slug, reason) => call(`${slugPath(slug)}/suspend`, { method: "POST", body: { reason } }),
   resume: (slug) => call(`${slugPath(slug)}/resume`, { method: "POST", body: {} }),
   resendOwnerInvite: (slug) => call(`${slugPath(slug)}/resend-invite`, { method: "POST", body: {} }),
+  createPortal: (slug) => call(`${slugPath(slug)}/create-portal`, { method: "POST", body: {} }),
 
   /* Phase 3: the write actions. Every one is recorded in the workspace's own audit log. */
   syncTenant: (slug) => post(`${slugPath(slug)}/sync`),

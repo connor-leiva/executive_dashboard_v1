@@ -30,9 +30,10 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import plans
 from ..config import settings
-from ..models import (AuditLog, Business, Integration, PlatformSubscription, ShareLink, SyncRun,
-                      Tenant, User)
+from ..models import (AuditLog, Business, Integration, IntranetWorkspace, PlatformSubscription,
+                      ShareLink, SyncRun, Tenant, User)
 
 RANK = {"broken": 0, "stalled": 1, "watch": 2, "trial": 3, "healthy": 4, "suspended": 5}
 
@@ -144,6 +145,11 @@ class WorkspaceFacts:
     frozen_at: dt.datetime | None = None
     frozen_by: str | None = None
     frozen_reason: str | None = None
+    # What the plan promises against what the workspace actually has. The portal is gated twice --
+    # the plan permits it, and an intranet_workspace row is it existing -- and the two can disagree.
+    plan: str = ""
+    portal_entitled: bool = False
+    portal_exists: bool = False
 
 
 @dataclass
@@ -247,6 +253,26 @@ def signals(f: WorkspaceFacts, now: dt.datetime) -> list[Signal]:
             "Derived on read from the workspace's integration rows and its creation date.",
             _action("Send setup link", "send_setup_link"),
             _action("Open sources", "open", pane="sources")))
+
+    # A workspace can be ENTITLED to the portal and not HAVE one. The plan's `intranet` flag says
+    # it may; an intranet_workspace row is it existing; and those rows are only ever created by
+    # provisioning, which did not create them until 2026-09-03. Every workspace older than that is
+    # paying for something it cannot see, permanently, and nothing else in the product says so --
+    # four of the first five were in that state for months, found by eye rather than by Fleet.
+    #
+    # Not gated on age or on suspension: the mismatch is true the moment it exists, and a suspended
+    # workspace still has the wrong rows waiting for it when it resumes.
+    if f.portal_entitled and not f.portal_exists:
+        out.append(Signal(
+            "stalled", "portal:missing", "Paying for the team portal, and has none",
+            "Nobody here is offered Intranet in the app switcher, because the workspace has no "
+            "portal rows. They are created when a workspace is provisioned, and this one was "
+            "provisioned before that happened.",
+            f"plan {f.plan} · includes the portal · not created",
+            "Derived on read from the plan's intranet flag against whether an intranet_workspace "
+            "row exists. Creating the portal clears this row.",
+            _action("Create the portal", "create_portal"),
+            _action("Open modules", "open", pane="modules")))
 
     # WATCH: things going wrong slowly.
     if not f.syncs_frozen and f.status != "suspended":
@@ -424,7 +450,10 @@ async def gather(s: AsyncSession, tenant: Tenant, now: dt.datetime | None = None
         slug=tenant.slug, name=tenant.name, status=tenant.status, created_at=tenant.created_at,
         sources=sources, people=people, share_links_live=int(live_links) - int(expired_links),
         tokens_used=int(tokens or 0), token_budget=token_budget_for(tenant),
-        syncs_frozen=bool((tenant.config or {}).get("syncs_frozen")))
+        syncs_frozen=bool((tenant.config or {}).get("syncs_frozen")),
+        plan=plans.plan_of(tenant), portal_entitled=plans.allows(tenant, "intranet"),
+        portal_exists=(await s.execute(select(IntranetWorkspace.tenant_id).where(
+            IntranetWorkspace.tenant_id == tenant.id).limit(1))).first() is not None)
 
     # C11: a trial is Stripe's `trialing`, read from the mirror; no column on the tenant says so.
     sub = await s.get(PlatformSubscription, tenant.id)

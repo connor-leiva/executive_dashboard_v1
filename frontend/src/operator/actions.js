@@ -18,6 +18,14 @@ const CALLS = {
       return `A fresh invite went to ${r.owner_email}.`;
     },
   },
+  create_portal: {
+    run: async (slug) => {
+      const r = await api.createPortal(slug);
+      return r.owner_email
+        ? `The portal is there. ${r.owner_email} is its first member and can open the console; everything else the workspace fills in itself.`
+        : "The portal is there, but the workspace has no owner account, so nobody can administer it yet.";
+    },
+  },
   reconnect_link: {
     run: async (slug, action) => {
       const r = await api.reconnectLink(slug, action.source_id);

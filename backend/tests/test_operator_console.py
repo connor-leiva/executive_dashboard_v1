@@ -1500,3 +1500,106 @@ async def test_deleting_a_workspace_needs_its_slug_and_leaves_the_record_of_it()
     rows = await _platform_rows("deleteco")
     assert [row.action for row in rows] == ["tenant.deleted"]
     assert rows[0].detail["hosts"] == ["deleteco.brokerage.test"] and rows[0].operator_email == OP_EMAIL
+
+
+# ── the portal a plan includes, and the workspace that does not have one ──────────────────
+#
+# Found by eye, not by Fleet: four of the first five production workspaces were on a plan that
+# includes the team portal and had no portal rows at all, because the rows are created by
+# provisioning and provisioning did not create them until 2026-09-03. `springb` sat that way from
+# July. Nothing in the console said so -- it showed the plan, and it showed the modules, and never
+# compared them -- which is exactly the kind of quiet mismatch Fleet exists to catch.
+
+async def _portal_rows(tid):
+    from app.models import IntranetWorkspace
+
+    async with SessionLocal() as s:
+        return (await s.execute(select(IntranetWorkspace).where(
+            IntranetWorkspace.tenant_id == tid))).scalars().all()
+
+
+async def _signal_keys(slug):
+    """Every signal Fleet raises for one workspace, by key."""
+    import datetime as dt
+
+    from app.models import Tenant
+    from app.services import fleet_health
+
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one()
+        facts = await fleet_health.gather(s, t)
+    return {sig.key for sig in fleet_health.signals(facts, dt.datetime.now(dt.timezone.utc))}
+
+
+async def test_fleet_says_when_a_plan_includes_the_portal_and_the_workspace_has_none():
+    tid = await _tenant_with("portalless", plan="portfolio")
+    assert "portal:missing" in await _signal_keys("portalless")
+
+
+async def test_a_plan_without_the_portal_raises_nothing():
+    """The signal is a MISMATCH, not a checklist item. A Team workspace with no portal is exactly
+    what it should be, and a fleet that cries about it is one an operator learns to ignore."""
+    await _tenant_with("teamonly", plan="team")
+    assert "portal:missing" not in await _signal_keys("teamonly")
+
+
+async def test_creating_the_portal_clears_the_signal_and_writes_both_trails():
+    tid = await _tenant_with("fixportal", plan="portfolio")
+    owner = await _account(tid, "owner@fixportal.test", role="owner")
+    assert "portal:missing" in await _signal_keys("fixportal")
+
+    async with _client() as c:
+        r = await c.post("/api/v1/platform/tenants/fixportal/create-portal",
+                         headers=_H(await _op_token()))
+    assert r.status_code == 200, r.text
+    assert r.json()["owner_email"] == "owner@fixportal.test"
+
+    assert len(await _portal_rows(tid)) == 1
+    assert "portal:missing" not in await _signal_keys("fixportal"), \
+        "the signal is derived on read, so creating the portal must clear it with no stored state"
+
+    row, = await _trail(tid, "tenant.portal_created")
+    assert _by_axcion(row)
+    assert any(a.action == "tenant.portal_created" for a in await _platform_rows("fixportal"))
+
+
+async def test_it_refuses_a_second_portal_and_a_plan_that_does_not_include_one():
+    await _tenant_with("twiceportal", plan="portfolio")
+    async with _client() as c:
+        first = await c.post("/api/v1/platform/tenants/twiceportal/create-portal",
+                             headers=_H(await _op_token()))
+        second = await c.post("/api/v1/platform/tenants/twiceportal/create-portal",
+                              headers=_H(await _op_token()))
+    assert first.status_code == 200 and second.status_code == 409
+
+    await _tenant_with("noplanportal", plan="team")
+    async with _client() as c:
+        r = await c.post("/api/v1/platform/tenants/noplanportal/create-portal",
+                         headers=_H(await _op_token()))
+    assert r.status_code == 409 and "does not include" in r.json()["detail"]
+
+
+async def test_an_operator_cannot_put_one_customers_content_in_another_workspace():
+    """The guardrail on this action. `scripts/seed_intranet.py` is one real customer's staff list,
+    courses and tiles, and it is the only other thing that writes these rows -- so the route must
+    create STRUCTURE and nothing else, or a button in the console becomes a data leak."""
+    from sqlalchemy import func
+
+    from app.models import IntranetCourse, IntranetLaunchpadTile, IntranetMember, IntranetRole
+
+    tid = await _tenant_with("structureonly", plan="portfolio")
+    await _account(tid, "owner@structureonly.test", role="owner")
+    async with _client() as c:
+        r = await c.post("/api/v1/platform/tenants/structureonly/create-portal",
+                         headers=_H(await _op_token()))
+    assert r.status_code == 200
+
+    async with SessionLocal() as s:
+        async def count(model):
+            return (await s.execute(select(func.count()).select_from(model).where(
+                model.tenant_id == tid))).scalar_one()
+
+        assert await count(IntranetRole) == 3           # structure
+        assert await count(IntranetMember) == 1         # the owner, so somebody can administer it
+        assert await count(IntranetCourse) == 0         # and no content whatsoever
+        assert await count(IntranetLaunchpadTile) == 0

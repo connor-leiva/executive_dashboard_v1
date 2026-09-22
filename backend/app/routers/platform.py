@@ -37,6 +37,7 @@ from ..security import (dec, enc, hash_pw, make_platform_token, make_token, make
                         new_action_token, verify_pw)
 from ..services import (fleet_health, fleet_rollup, jobs, mail_templates, mailer, operator_audit,
                         platform_billing, sync_jobs)
+from ..services.intranet_bootstrap import bootstrap_intranet
 from ..throttle import client_ip
 from ..services.provisioning import INVITE_VALID_DAYS, invite_url, provision_tenant
 from ..services.tabs import PLATFORM_TABS, tenant_tab_descriptors, tenant_tabs
@@ -303,6 +304,39 @@ async def resume_tenant(request: Request, slug: str, op: PlatformUser = Depends(
     _record(s, op, request, t, "tenant.resumed", "tenant", t.id)
     await s.commit()
     return {"slug": t.slug, "status": t.status}
+
+
+@router.post("/tenants/{slug}/create-portal")
+async def create_portal(request: Request, slug: str,
+                        op: PlatformUser = Depends(current_platform_user),
+                        s: AsyncSession = Depends(get_session)):
+    """Give a workspace the portal its plan already includes.
+
+    The rows a portal needs are created by provisioning, and provisioning did not create them
+    until 2026-09-03 — so every workspace older than that is entitled to a portal it has never
+    had, with no way inside the product to fix it. This is that way.
+
+    STRUCTURE ONLY: roles, capabilities, the console_access grant, an empty checklist and the
+    owner as first member. No roster, no courses, no tiles — an operator must not be able to put
+    one customer's content in another customer's workspace, and `scripts/seed_intranet.py`, the
+    only other thing that writes these rows, is exactly that.
+    """
+    t = await _get(s, slug)
+    if not plans.allows(t, "intranet"):
+        raise HTTPException(409, f"The {plans.plan_of(t)} plan does not include the team portal. "
+                                 "Change the plan first.")
+    exists = (await s.execute(select(IntranetWorkspace.tenant_id).where(
+        IntranetWorkspace.tenant_id == t.id).limit(1))).first()
+    if exists:
+        raise HTTPException(409, "That workspace already has a portal.")
+    owner = (await s.execute(select(User).where(
+        User.tenant_id == t.id, User.role == "owner").order_by(User.created_at))).scalars().first()
+    await bootstrap_intranet(s, t.id, workspace_name=t.name, subdomain=t.slug,
+                             owner_email=owner.email if owner else None)
+    _record(s, op, request, t, "tenant.portal_created", "tenant", t.id, category="Workspace",
+            owner_email=owner.email if owner else None)
+    await s.commit()
+    return {"slug": t.slug, "owner_email": owner.email if owner else None}
 
 
 @router.post("/tenants/{slug}/resend-invite")
