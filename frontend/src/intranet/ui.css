@@ -5981,3 +5981,209 @@ a.ut-wtd-tool-name:hover {
   margin-top: 0;
   padding: 9px 14px;
 }
+
+/* ── My Settings ─────────────────────────────────────────────────────────────────────────────
+   The page a person edits their own entry on. Same page furniture as SOPs and Who's Who -- the
+   1152px column, the eyebrow/title/lede, cards flat white on the canvas -- because it is one more
+   page of the portal and not a settings screen bolted onto it. */
+.ut-set {
+  width: min(1152px, 100%);
+}
+
+.ut-set-eyebrow {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-set-title {
+  margin: 10px 0 0;
+  font-family: var(--font-text);
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.6px;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.ut-set-lede {
+  margin: 12px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--body);
+  max-width: 640px;
+}
+
+.ut-set-notice {
+  margin: 20px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: 10px;
+  background: var(--wash);
+  color: var(--body);
+  font-size: 13.5px;
+}
+
+.ut-set-card {
+  display: block;
+  margin-top: 24px;
+  padding: 22px 24px 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.ut-set-card-title {
+  margin: 0;
+  font-family: var(--font-text);
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: -0.2px;
+  color: var(--ink);
+}
+
+.ut-set-card-lede {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  max-width: 620px;
+}
+
+/* `minmax(0, 1fr)` rather than `1fr`: a grid track's minimum is its CONTENT, so a long unbroken
+   value in one field would otherwise push the column -- and the page -- wider than the viewport. */
+.ut-set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 16px 20px;
+  margin-top: 18px;
+}
+
+.ut-set-grid.wide {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 640px;
+}
+
+.ut-set-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ut-set-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ut-set-field input,
+.ut-set-field select,
+.ut-set-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 11px;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--panel);
+}
+
+.ut-set-field textarea {
+  resize: vertical;
+}
+
+.ut-set-field input:focus-visible,
+.ut-set-field select:focus-visible,
+.ut-set-field textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.ut-set-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--faint);
+}
+
+.ut-set-hint.over {
+  color: var(--warm-ink);
+}
+
+.ut-set-error {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--warm-ink);
+}
+
+.ut-set-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.ut-set-photo-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.ut-set-photo {
+  width: 104px;
+  height: 104px;
+  flex: 0 0 104px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--avatar);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-ui);
+  font-size: 30px;
+  font-weight: 500;
+  color: var(--primary);
+}
+
+.ut-set-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ut-set-photo-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* The real input is driven by the button beside it: a bare file input cannot be styled, and its
+   "No file chosen" is a lie on a page where the file is already uploaded. */
+.ut-set-file {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .ut-set-title {
+    font-size: 30px;
+  }
+
+  .ut-set-card {
+    padding: 18px 16px 20px;
+  }
+}

@@ -24,6 +24,9 @@ export const NAV_GROUPS = [
     label: "Team",
     items: [
       { id: "directory", label: "Who's Who" },
+      // Not gated on a capability. Editing your own entry is not a privilege a workspace grants;
+      // it is the minimum a person has over the thing the directory says about them.
+      { id: "settings", label: "My Settings" },
     ],
   },
   {

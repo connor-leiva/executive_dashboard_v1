@@ -134,6 +134,29 @@ def clean_field(field: str, value: Any):
 PROFILE_FIELDS = set(TEXT_LIMITS) | {"bring", "pronoun", "message_url", "owns_items",
                                      "photo_focus", "directory_placement", "directory_order"}
 
+# ── what a person may change about THEMSELVES ────────────────────────────────────────────────
+#
+# Split by consequence, not by convenience. A profile field describes a colleague, and the person
+# it describes is the best source for it -- an agent should not have to ask an admin to fix their
+# own pronoun or a headline that is out of date. Anything that decides WHERE somebody appears,
+# what they may reach, or who a CRM believes they are is the workspace's call, not theirs.
+#
+# An ALLOWLIST rather than PROFILE_FIELDS minus a deny set, so a field added later is admin-only
+# until somebody decides otherwise: the safe direction to be wrong in. A test holds every field in
+# PROFILE_FIELDS to being in exactly one of these two, so adding one forces the decision rather
+# than defaulting it silently.
+SELF_SERVICE_FIELDS = set(TEXT_LIMITS) | {"bring", "pronoun", "message_url", "owns_items",
+                                          "photo_focus"}
+# Where you sit in the directory, and in what order. A workspace decides how it presents itself.
+ADMIN_ONLY_FIELDS = {"directory_placement", "directory_order"}
+
+# Columns on the member row itself (not part of PROFILE_FIELDS) that a person owns about
+# themselves. `full_name` is here deliberately: names change, getting someone's name wrong is not
+# a small thing, and nothing keys off it -- services/member_identity matches a person to a CRM by
+# agent_links, agent_email and email, never by name. `email` is NOT here: it is how they sign in.
+SELF_SERVICE_COLUMNS = {"full_name", "title", "bio", "phone", "owns"}
+COLUMN_LIMITS = {"full_name": 200, "title": 200, "phone": 200, "owns": 200, "bio": 4000}
+
 
 def clean_settings(body: dict, *, sisu_connected: bool) -> dict:
     """The page's own settings. `featured_member_id` is checked by the router, which can see the

@@ -15,6 +15,7 @@ import {
 import WinTheDay, { EMPTY_DAY } from "./WinTheDay.jsx";
 import WhosWho, { Profile as WhosWhoProfile } from "./WhosWho.jsx";
 import Sops, { Procedure } from "./Sops.jsx";
+import MySettings from "./MySettings.jsx";
 
 const DEFAULT_CONFIG = {
   calendar: { google_calendar_url: "" },
@@ -3040,6 +3041,7 @@ export default function IntranetApp() {
         <Route path="/marketing" element={<Marketing config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/directory" element={<WhosWho config={boot.config} canConfigure={boot.canConfigure} />} />
         <Route path="/directory/:id" element={<WhosWhoProfile config={boot.config} />} />
+        <Route path="/settings" element={<MySettings />} />
         <Route path="/brand" element={<BrandKit config={boot.config} />} />
         <Route path="/ask" element={<Ask config={boot.config} me={boot.me} />} />
         <Route path="/sunburst" element={<SunburstPage config={boot.config} me={boot.me} canConfigure={boot.canConfigure} />} />

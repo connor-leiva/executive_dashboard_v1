@@ -92,6 +92,24 @@ function storeToken(token, remember) {
   }
 }
 
+/* A token that REPLACES the current one, kept where the current one was kept.
+ *
+ * Changing a password bumps the account's token_version, which is exactly what makes every other
+ * session stop working -- including the tab it was changed from. The server hands back a fresh
+ * token for that reason, and dropping it signs the person out of the page they just succeeded on.
+ * `remember` is read from where the old token lives, so "remember me" survives a password change
+ * instead of quietly becoming a session-only sign-in. */
+export function replaceToken(token) {
+  if (!token) return;
+  let remember = false;
+  try {
+    remember = Boolean(localStorage.getItem(TOKEN_KEY));
+  } catch {
+    remember = false;               // storage blocked: keep it in memory for this page's life
+  }
+  storeToken(token, remember);
+}
+
 /* ── step-up (second factor) grants ──────────────────────────────────────────────
    A section behind a second factor (Binder) answers 428 until the request carries a
    live grant. Grants live in sessionStorage, NOT localStorage: closing the tab

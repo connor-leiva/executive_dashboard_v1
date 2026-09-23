@@ -1923,3 +1923,140 @@ async def put_state(scope: str, body: IntranetStateIn,
         "value": row.value,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
+
+
+# ── My Settings: what a person may change about themselves ───────────────────────────────────
+#
+# Until now a member could change nothing. A new agent's headshot, a wrong pronoun, a headline
+# from a job they no longer do -- every one of them was a message to whoever holds console access,
+# and in a workspace of eighty-six that is a queue nobody wants. The split between this and the
+# console is in services/whos_who: a profile field describes a colleague and its subject is the
+# best source for it; where somebody appears in the directory is the workspace's decision.
+#
+# Nothing here needs a capability. Editing your own profile is not a privilege a workspace grants,
+# it is the minimum a person has over their own entry -- and every route is scoped to the member
+# the SESSION resolves to, never to an id in the request, so there is no other entry to reach.
+#
+# An Axcion support session cannot touch any of it: deps.current_user refuses every method outside
+# READ_METHODS for a support or view-as token, so impersonation cannot write a profile. That is
+# load-bearing, and test_my_settings pins it.
+
+async def _me(s: AsyncSession, user: User) -> IntranetMember:
+    """The caller's own roster entry, or the honest reason there is none."""
+    member = await _member_for(s, user)
+    if member is None:
+        raise HTTPException(409, "You are not on this workspace's roster yet, so there is no "
+                                 "profile to edit. An admin can add you under People & Roster.")
+    return member
+
+
+def _my_profile_out(member: IntranetMember) -> dict:
+    out = {field: getattr(member, field, None) for field in sorted(whos_who.SELF_SERVICE_FIELDS)}
+    out.update({field: getattr(member, field, None) for field in sorted(whos_who.SELF_SERVICE_COLUMNS)})
+    out["email"] = member.email                  # shown, never editable: it is how they sign in
+    # The same shape the directory sends (services/whos_who.profile): API-base-relative, because
+    # the portal's authenticated fetch prepends the base. A "/api/v1/..." here would be fetched
+    # from "<base>/api/v1/..." and 404 on a photo that exists.
+    out["photo_url"] = (f"/intranet/directory/{member.id}/photo"
+                        f"?v={whos_who.photo_version(member.photo_key)}") if member.photo_key else None
+    out["limits"] = {**whos_who.TEXT_LIMITS, **whos_who.COLUMN_LIMITS}
+    return out
+
+
+@router.get("/me/profile")
+async def my_profile(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    await _enabled_tenant(s, user)
+    return _my_profile_out(await _me(s, user))
+
+
+@router.patch("/me/profile")
+async def patch_my_profile(body: dict = Body(...), user: User = Depends(current_user),
+                           s: AsyncSession = Depends(get_session)):
+    """Only the fields a person owns. An admin-only field named here is REFUSED rather than
+    ignored: a form that silently drops what somebody typed teaches them the product is broken."""
+    await _enabled_tenant(s, user)
+    member = await _me(s, user)
+    if not isinstance(body, dict):
+        raise HTTPException(422, "Expected an object.")
+
+    allowed = whos_who.SELF_SERVICE_FIELDS | whos_who.SELF_SERVICE_COLUMNS
+    refused = sorted(set(body) - allowed)
+    if refused:
+        named = ", ".join(refused)
+        raise HTTPException(422, f"Not yours to change here: {named}. "
+                                 "An admin sets those in the console.")
+
+    for field in sorted(whos_who.SELF_SERVICE_FIELDS & set(body)):
+        try:
+            setattr(member, field, whos_who.clean_field(field, body[field]))
+        except whos_who.ProfileError as e:
+            raise HTTPException(422, f"{e.field}: {e.message}")
+        if field in ("bring", "owns_items"):
+            flag_modified(member, field)
+
+    for field in sorted(whos_who.SELF_SERVICE_COLUMNS & set(body)):
+        text = str(body[field] or "").strip()
+        if len(text) > whos_who.COLUMN_LIMITS[field]:
+            raise HTTPException(422, f"{field}: At most {whos_who.COLUMN_LIMITS[field]} characters.")
+        # A name is the one thing here that cannot be blanked: the directory, the SOP owner card
+        # and every mention of this person read it.
+        if field == "full_name" and not text:
+            raise HTTPException(422, "full_name: Your name cannot be empty.")
+        setattr(member, field, text or (member.full_name if field == "full_name" else None))
+
+    audit(s, user.tenant_id, user.id, "intranet.profile.updated", "member", str(member.id),
+          {"fields": sorted(set(body))}, category="People",
+          summary=f"{member.full_name} updated their own profile")
+    await s.commit()
+    await s.refresh(member)
+    return _my_profile_out(member)
+
+
+@router.post("/me/photo")
+async def upload_my_photo(file: UploadFile = File(...), user: User = Depends(current_user),
+                          s: AsyncSession = Depends(get_session)):
+    """The same treatment an admin's upload gets (services/whos_who.process_photo): checked by its
+    bytes rather than its name, turned upright, stripped of metadata so a phone photo's GPS never
+    reaches the portal, flattened onto white and re-encoded."""
+    await _enabled_tenant(s, user)
+    member = await _me(s, user)
+    data = await file.read(whos_who.MAX_PHOTO_BYTES + 1)
+    try:
+        jpeg = whos_who.process_photo(data)
+    except whos_who.ProfileError as e:
+        raise HTTPException(422, f"{e.field}: {e.message}")
+    old = member.photo_key
+    member.photo_key = binder_storage.store(
+        user.tenant_id, member.id, f"photo-{binder_storage.content_hash(jpeg)[:12]}.jpg", jpeg)
+    if old and old != member.photo_key:
+        try:
+            binder_storage.delete(old)
+        except Exception:      # the new photo is what matters; a stray old file is harmless
+            pass
+    audit(s, user.tenant_id, user.id, "intranet.profile.photo_set", "member", str(member.id),
+          {"bytes": len(jpeg)}, category="People",
+          summary=f"{member.full_name} set their own photo")
+    await s.commit()
+    await s.refresh(member)
+    return _my_profile_out(member)
+
+
+@router.delete("/me/photo")
+async def remove_my_photo(user: User = Depends(current_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Taking your own photo down. The directory falls back to initials, which is what it draws
+    for everybody who has never set one."""
+    await _enabled_tenant(s, user)
+    member = await _me(s, user)
+    old = member.photo_key
+    member.photo_key = None
+    if old:
+        try:
+            binder_storage.delete(old)
+        except Exception:
+            pass
+    audit(s, user.tenant_id, user.id, "intranet.profile.photo_cleared", "member", str(member.id),
+          {}, category="People", summary=f"{member.full_name} removed their own photo")
+    await s.commit()
+    await s.refresh(member)
+    return _my_profile_out(member)
