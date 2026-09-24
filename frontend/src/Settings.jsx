@@ -2230,7 +2230,12 @@ function UsersPage() {
  * person recognises, so the screen shows names and saves ids. A stage map built from names
  * empties itself the day somebody renames "Offer out" to "ICA sent" (D2).
  */
-const REC_GROUPS = ["Sourced", "Appointment set", "Met", "Offer out", "Signed", "Nurture"];
+/* The five funnel groups, then the parked ones. Anything not in the funnel is held out of the
+   Pipeline card and out of the chase rules, so the nurture BANDS are a cadence a brokerage picks
+   -- Hot every 30 days, Cold every 180 -- rather than three stages that look active.
+   This list is `recruiting_settings.KNOWN_GROUPS` on the server; a test holds the two together. */
+const REC_GROUPS = ["Sourced", "Appointment set", "Met", "Offer out", "Signed",
+                    "Nurture", "Hot Nurture", "Warm Nurture", "Cold Nurture"];
 
 function RecruitingPage() {
   const live = Boolean(API_BASE);
@@ -2367,7 +2372,9 @@ function RecruitingPage() {
             </div>
             <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
               <b>Signed</b> is what “signed this month” counts. <b>Met</b> and <b>Offer out</b> are what the path to goal is
-              drawn from. <b>Appointment set</b> is where the SDR hands over. A stage left unmapped is not counted anywhere.
+              drawn from. <b>Appointment set</b> is where the SDR hands over. The <b>Nurture</b> groups are parked — held out
+              of the pipeline breakdown and off everybody’s daily list — and the Hot/Warm/Cold bands are there if you want a
+              follow-up cadence rather than one bucket. A stage left unmapped is not counted anywhere.
             </div>
           </div>
         )}

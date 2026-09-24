@@ -14,11 +14,28 @@ from __future__ import annotations
 
 import re
 
-# Groups the product reasons about by name. A workspace may label the rest however it likes, but
-# these five carry behaviour -- Signed is what "signed this month" counts, Met and Offer out are
-# what the path is drawn from, Appointment set is the SDR's hand-off, Nurture is held out of the
-# active pipeline -- so they are offered as the defaults and validated if present.
-KNOWN_GROUPS = ("Sourced", "Appointment set", "Met", "Offer out", "Signed", "Nurture")
+# Groups the product reasons about by name. Signed is what "signed this month" counts, Met and
+# Offer out are what the path is drawn from, Appointment set is the SDR's hand-off.
+#
+# The funnel, in order. These five are what "the pipeline" means: somebody is moving through them
+# or they are not in play. Everything else a workspace maps is PARKED -- held out of the pipeline
+# card and out of the chase rules -- which is what makes the nurture bands below safe to add.
+FUNNEL_GROUPS = ("Sourced", "Appointment set", "Met", "Offer out", "Signed")
+
+# The only groups a chase rule may fire on -- stated as what we DO act on, never as a list of
+# what to skip. The skip list was `(Signed, Nurture)`, which quietly meant that an UNMAPPED
+# stage, or any group a brokerage named itself, was treated as an active part of the funnel and
+# generated daily tasks for people nobody intended to chase. Adding "Hot Nurture" would have
+# done it too. Enumerating the four the product actually understands cannot rot that way.
+CHASE_GROUPS = frozenset(FUNNEL_GROUPS) - {"Signed"}
+
+# Parked, with an optional follow-up cadence in the name. A brokerage that wants one bucket uses
+# "Nurture"; one that wants a drumbeat splits it and the Pipeline card shows the bands. Anything
+# NOT in FUNNEL_GROUPS is treated as parked, so this list is a convenience for the settings
+# dropdown rather than a thing the rest of the product keys on.
+NURTURE_GROUPS = ("Nurture", "Hot Nurture", "Warm Nurture", "Cold Nurture")
+
+KNOWN_GROUPS = FUNNEL_GROUPS + NURTURE_GROUPS
 OWNER_ROLES = ("sdr", "team_leader")
 SEAT_ROLES = ("team_leader", "sdr")
 

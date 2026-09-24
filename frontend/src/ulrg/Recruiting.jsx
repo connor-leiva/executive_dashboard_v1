@@ -746,12 +746,35 @@ function Leaderboard({ data }) {
 function Pipeline({ data }) {
   const p = data.pipeline;
   if (!p) return <Card><SectionTitle>Pipeline</SectionTitle><NotYet>{data.connection?.reason}</NotYet></Card>;
-  const max = Math.max(1, ...p.stages.map((s) => s.n));
+
+  /* Parked people are OFF by default, and that is the whole point of the card. At ULRG 1,347 of
+     1,625 candidates are in nurture, so drawn together the funnel is a row of slivers beside one
+     enormous bar and "what is moving right now" becomes unreadable. Off, this answers the
+     question an exec actually asks; on, it answers "and how big is the back catalogue".
+
+     One scale across both, deliberately. Scaling the two sections separately would make a bar of
+     250 and a bar of 14 look comparable, which is a prettier chart and a false one -- and the
+     squashing IS the finding when you turn nurture on. */
+  const [showNurture, setShowNurture] = useState(false);
+  const parked = p.nurture_stages || [];
+  const shown = showNurture ? [...p.stages, ...parked] : p.stages;
+  const max = Math.max(1, ...shown.map((s) => s.n));
   return (
     <Card>
-      <SectionTitle meta={`Active now · ${p.active} people · ${p.nurture} in nurture`}>Pipeline</SectionTitle>
+      <SectionTitle
+        meta={`${p.active} active${p.nurture ? ` · ${p.nurture} parked` : ""}`}
+        right={parked.length > 0 && (
+          <button type="button" onClick={() => setShowNurture((v) => !v)}
+                  aria-pressed={showNurture}
+                  style={{ fontFamily: FB, fontSize: 12, padding: "5px 10px", borderRadius: 99,
+                           whiteSpace: "nowrap", cursor: "pointer",
+                           border: `1px solid ${showNurture ? C.teal : C.hair}`,
+                           background: showNurture ? C.mist : C.white,
+                           color: showNurture ? C.ink : C.slate }}>
+            {showNurture ? "Hide" : "Show"} nurture{p.nurture ? ` (${p.nurture})` : ""}
+          </button>)}>Pipeline</SectionTitle>
       {p.stages.length === 0 && <NotYet>No stages are mapped yet. Map them in Settings › Recruiting.</NotYet>}
-      {p.stages.map((st) => (
+      {shown.map((st) => (
         <div key={st.label} style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr) 84px",
                                      gap: 10, alignItems: "center", padding: "9px 0",
                                      borderBottom: `1px solid ${C.hairSoft}` }}>
@@ -760,15 +783,22 @@ function Pipeline({ data }) {
                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.label}</span>
             <span style={{ display: "block", fontFamily: FM, fontSize: 9.5, textTransform: "uppercase",
                            letterSpacing: ".06em",
-                           color: st.owner_role === "sdr" ? C.amberInk : C.teal }}>
-              {st.owner_role === "sdr" ? "SDR" : "Team Leaders"}
+                           color: parked.includes(st) ? C.muted
+                             : st.owner_role === "sdr" ? C.amberInk : C.teal }}>
+              {parked.includes(st) ? "Parked"
+                : st.owner_role === "sdr" ? "SDR" : "Team Leaders"}
             </span>
           </span>
           <span style={{ minWidth: 0 }}>
             <span style={{ display: "block", height: 18, borderRadius: 4,
                            width: `${Math.max(2, (st.n / max) * 100)}%`,
-                           background: st.label === "Signed" ? C.meadow
-                             : st.owner_role === "sdr" ? C.daffodilBg : C.mist }} />
+                           // Parked reads as an outline, not a filled bar: it is a holding pen,
+                           // not a step somebody is standing on.
+                           background: parked.includes(st) ? "transparent"
+                             : st.label === "Signed" ? C.meadow
+                               : st.owner_role === "sdr" ? C.daffodilBg : C.mist,
+                           border: parked.includes(st) ? `1px dashed ${DASHED}` : "none",
+                           boxSizing: "border-box" }} />
           </span>
           <span style={{ textAlign: "right" }}>
             <span style={{ display: "block", fontFamily: FM, fontSize: 12.5, fontWeight: 600, color: C.ink }}>{st.n}</span>
@@ -785,6 +815,7 @@ function Pipeline({ data }) {
       )}
       <div style={{ fontFamily: FB, fontSize: 11.5, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>
         The SDR owns candidates through Appointment set. Team Leaders own them from the meeting on.
+        {parked.length > 0 && " Nurture is parked: counted here, but not in flight and not on anybody's daily list."}
       </div>
     </Card>
   );
@@ -1151,12 +1182,18 @@ const SAMPLE = {
     { seat_id: "s2", name: "Marcus Bell", first: "Marcus", initials: "MB", role: "team_leader",
       title: "Team Leader · Sandy", rank: 2, signed: 2, held_mtd: 6, goal: 3, pace: 2.6,
       pace_pct: 87, close_rate_90d: 22, queue: { done: 0, total: 2 } }],
-  pipeline: { active: 22, nurture: 3, unmapped: 0, stages: [
+  pipeline: { active: 19, nurture: 74, unmapped: 0, stages: [
     { label: "Sourced", owner_role: "sdr", n: 6, gci: 985000, stuck: 1, conv_90d: null },
     { label: "Appointment set", owner_role: "sdr", n: 5, gci: 740000, stuck: 0, conv_90d: null },
     { label: "Met", owner_role: "team_leader", n: 6, gci: 1120000, stuck: 2, conv_90d: null },
     { label: "Offer out", owner_role: "team_leader", n: 2, gci: 430000, stuck: 0, conv_90d: null },
-    { label: "Signed", owner_role: "team_leader", n: 3, gci: 610000, stuck: 0, conv_90d: null }] },
+    { label: "Signed", owner_role: "team_leader", n: 3, gci: 610000, stuck: 0, conv_90d: null }],
+    // Parked, and bigger than the funnel -- which is the shape a real account has and the reason
+    // the toggle exists. Off by default, so the sample opens on what is moving.
+    nurture_stages: [
+      { label: "Hot Nurture", owner_role: "team_leader", n: 9, gci: 1340000, stuck: 4, conv_90d: null },
+      { label: "Warm Nurture", owner_role: "team_leader", n: 24, gci: 2180000, stuck: 19, conv_90d: null },
+      { label: "Cold Nurture", owner_role: "team_leader", n: 41, gci: 2960000, stuck: 38, conv_90d: null }] },
   sources: [
     { name: "Sphere of influence", candidates: 14, signed: 3, rate: 21, cost_each: null, gci: 410000 },
     { name: "Referral", candidates: 6, signed: 2, rate: 33, cost_each: null, gci: 200000 },

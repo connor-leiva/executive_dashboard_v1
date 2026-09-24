@@ -44,6 +44,16 @@ G_OFFER = "Offer out"
 G_SIGNED = "Signed"
 G_NURTURE = "Nurture"
 
+# The groups a chase rule may fire on, named POSITIVELY. Three rules used to ask "is this Signed
+# or Nurture?" and skip if so -- which quietly meant that a stage nobody had mapped yet, and any
+# group a brokerage named for itself, counted as an active part of the funnel and produced daily
+# tasks for people nobody intended to chase. Splitting Nurture into Hot/Warm/Cold would have done
+# it too: three new labels, none of them the literal "Nurture", all of them suddenly chased.
+#
+# A list of what to skip is only ever as current as the last person who remembered to add to it.
+# This one is the four the product actually knows how to move somebody through.
+from .recruiting_settings import CHASE_GROUPS  # settings imports rules lazily, so no cycle
+
 OUTBOUND = ("sms_out", "email_out", "call_out")
 INBOUND = ("sms_in", "email_in", "call_in")
 
@@ -237,7 +247,7 @@ def _stage_owner(facts: Facts, cand) -> uuid.UUID | None:
 # can read, and so turning one off is a config flag rather than an edit.
 
 def rule_new_lead_untouched(facts, cand, now, tz, cfg):
-    if cand.stage_group in (G_SIGNED, G_NURTURE) or (cand.status or "open") != "open":
+    if cand.stage_group not in CHASE_GROUPS or (cand.status or "open") != "open":
         return None
     created = _aware(cand.created_at_src) or _aware(cand.first_seen_at)
     if created is None or (now - created) < dt.timedelta(minutes=cfg["minutes"]):
@@ -309,7 +319,7 @@ def rule_offer_out_stale(facts, cand, now, tz, cfg):
 
 
 def rule_no_touch_7d(facts, cand, now, tz, cfg):
-    if cand.stage_group in (G_SIGNED, G_NURTURE) or (cand.status or "open") != "open":
+    if cand.stage_group not in CHASE_GROUPS or (cand.status or "open") != "open":
         return None
     acts = [_aware(a.occurred_at) for a in facts.acts(cand.id)]
     floored = False
@@ -335,7 +345,7 @@ def rule_no_touch_7d(facts, cand, now, tz, cfg):
 
 
 def rule_stage_14d(facts, cand, now, tz, cfg):
-    if cand.stage_group in (G_SIGNED, G_NURTURE) or (cand.status or "open") != "open":
+    if cand.stage_group not in CHASE_GROUPS or (cand.status or "open") != "open":
         return None
     entered = _aware(cand.entered_stage_at)
     if entered is None or (now - entered) < dt.timedelta(days=cfg["days"]):

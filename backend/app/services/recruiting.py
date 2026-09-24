@@ -31,9 +31,9 @@ from ..models import (
 from . import recruiting_accountability as acct
 from . import recruiting_rules as rules
 from . import roles
+from .recruiting_settings import FUNNEL_GROUPS
 
 SIGNED_GROUP = "Signed"
-NURTURE_GROUP = "Nurture"
 # The two groups the "path to goal" is drawn from, nearest the signature first (§7, Path).
 PATH_GROUPS = ("Offer out", "Met")
 
@@ -395,25 +395,35 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
         entered = _aware(cand.entered_stage_at)
         if entered and (now - entered).days >= 7:
             bucket["stuck"] += 1
-    ordered = []
+    # Two lists, not one. The funnel is what an exec means by "the pipeline" -- who is moving --
+    # and the parked groups are everyone being kept warm. Rendering them together makes the tab
+    # unreadable at ULRG's shape, where 1,347 of 1,625 are parked and every active bar is a
+    # rounding error beside them. Split by what IS the funnel rather than by the literal label
+    # "Nurture", so a brokerage that splits nurture into cadence bands does not have three new
+    # labels silently reappear among the active stages.
+    ordered, parked = [], []
     for row in groups_cfg:
         try:
             label, owner_role = row[0], row[1]
         except (TypeError, IndexError):
             continue
-        if label == NURTURE_GROUP:
-            continue
         got = counts.get(label, {"n": 0, "gci": 0.0, "stuck": 0})
-        ordered.append({"label": label, "owner_role": owner_role, "n": got["n"],
-                        "gci": round(got["gci"]), "stuck": got["stuck"],
-                        # A 90-day conversion needs stage history that only accrues after this
-                        # ships. Null now; real once there are 90 days of events.
-                        "conv_90d": None})
+        (ordered if label in FUNNEL_GROUPS else parked).append(
+            {"label": label, "owner_role": owner_role, "n": got["n"],
+             "gci": round(got["gci"]), "stuck": got["stuck"],
+             # A 90-day conversion needs stage history that only accrues after this
+             # ships. Null now; real once there are 90 days of events.
+             "conv_90d": None})
     payload["pipeline"] = {
-        "active": sum(1 for c in open_cands if c.stage_group != NURTURE_GROUP),
-        "nurture": sum(1 for c in open_cands if c.stage_group == NURTURE_GROUP),
+        # "Active" is what is IN FLIGHT: the funnel minus Signed, which is an outcome rather than
+        # a position. Anything mapped outside the funnel is parked, whatever it is called.
+        "active": sum(1 for c in open_cands
+                      if c.stage_group in FUNNEL_GROUPS and c.stage_group != SIGNED_GROUP),
+        "nurture": sum(1 for c in open_cands
+                       if c.stage_group and c.stage_group not in FUNNEL_GROUPS),
         "unmapped": sum(1 for c in open_cands if not c.stage_group),
         "stages": ordered,
+        "nurture_stages": parked,
     }
 
     # ── commitments ─────────────────────────────────────────────────────────────────────────
