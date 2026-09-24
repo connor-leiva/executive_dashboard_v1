@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
+from ..security import enc
 from ..db import get_session
 from .. import plans
 from ..deps import current_user, require_tab
@@ -582,6 +583,9 @@ async def get_recruiting_settings(user: User = Depends(current_user),
             for key in recruiting_rules.DEFAULTS
         ],
         "merge_fields": list(recruiting_rules.MERGE_FIELDS),
+        # Whether the optional webhook is configured -- never the secret itself. A settings
+        # screen that echoed it back would make the encrypted copy pointless.
+        "webhook_configured": bool((integ.config or {}).get("webhook_secret_enc")) if integ else False,
         "seats": [{"id": str(x.id), "role": x.role, "display_name": x.display_name,
                    "title": x.title, "ghl_user_id": x.ghl_user_id, "calendar_id": x.calendar_id,
                    "from_number": x.from_number, "writeback_enabled": x.writeback_enabled,
@@ -929,3 +933,49 @@ async def put_recruiting_commitment(body: dict, user: User = Depends(current_use
 def recruiting_accountability_tz():
     from ..services.recruiting_rules import business_tz
     return business_tz()
+
+
+# ── the optional Workflow webhook's secret (RECRUITING-SPEC §5.6, Phase 6b) ──────────────────────
+
+
+@router.post("/recruiting/webhook-secret")
+async def rotate_recruiting_webhook_secret(user: User = Depends(current_user),
+                                           s: AsyncSession = Depends(get_session)):
+    """Generate a new webhook secret and return it ONCE.
+
+    Shown once and stored encrypted, like any credential: if it could be read back, the copy in
+    our database would be as good as the one in GHL, and rotating it would stop meaning anything.
+    Rotating invalidates the old one immediately -- which is the point, and is why the screen says
+    so before you press it.
+    """
+    _require_admin(user)
+    integ = await _recruiting_integration(s, user.tenant_id)
+    if integ is None:
+        raise HTTPException(404, "No recruiting location is connected.")
+    secret = secrets.token_urlsafe(32)
+    integ.config = {**(integ.config or {}), "webhook_secret_enc": enc(secret)}
+    audit(s, user.tenant_id, user.id, "recruiting.webhook.rotate", category="Recruiting",
+          target_type="integration", target_id=str(integ.id),
+          summary="Rotated the recruiting webhook secret")
+    await s.commit()
+    return {"secret": secret,
+            "header": "X-Axcion-Secret",
+            "url": "/api/v1/webhooks/ghl-recruiting",
+            "note": "Copy this now — it is stored encrypted and cannot be shown again."}
+
+
+@router.delete("/recruiting/webhook-secret")
+async def clear_recruiting_webhook_secret(user: User = Depends(current_user),
+                                          s: AsyncSession = Depends(get_session)):
+    """Turn the webhook off. The five-minute poll carries on regardless, which is why this is
+    safe to do the moment a Workflow looks wrong."""
+    _require_admin(user)
+    integ = await _recruiting_integration(s, user.tenant_id)
+    if integ is None:
+        raise HTTPException(404, "No recruiting location is connected.")
+    integ.config = {k: v for k, v in (integ.config or {}).items() if k != "webhook_secret_enc"}
+    audit(s, user.tenant_id, user.id, "recruiting.webhook.clear", category="Recruiting",
+          target_type="integration", target_id=str(integ.id),
+          summary="Disabled the recruiting webhook")
+    await s.commit()
+    return {"ok": True}

@@ -130,6 +130,9 @@ class Settings(BaseSettings):
     # How often the outbox retries what it queued. One minute because the thing waiting is a
     # person who pressed Send and was told "queued, will retry".
     RECRUITING_OUTBOX_INTERVAL_MINUTES: int = 1
+    # The conversations poll. Five minutes is §5.6's costing: about 1 + N(changed) + 3 requests
+    # per run, comfortably inside HighLevel's 100-per-10-seconds.
+    RECRUITING_ACTIVITY_INTERVAL_MINUTES: int = 5
     # Legacy Stripe ACCOUNT timezone — Stripe renders charge dates in the account's tz
     # (Connor's is UTC), so legacy-Stripe `created` resolves here. Matching each source
     # to its own system's tz makes the dashboard agree with both AND lines the two copies

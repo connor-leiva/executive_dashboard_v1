@@ -57,6 +57,39 @@ async def syncable_tenant_ids(s) -> list:
             if status != "suspended" and not (cfg or {}).get("syncs_frozen")]
 
 
+async def recruiting_activity_tick():
+    """Every few minutes: read back what happened in GoHighLevel (§5.6).
+
+    Private Integration Tokens have no webhooks, so this polls. It is what makes the SDR card's
+    dials and conversations real, what fills speed-to-lead, and what lets a rule clear itself
+    when a recruit replies IN GHL -- none of which needed new logic, only rows.
+
+    NEVER BESIDE A RUNNING SYNC and never before the first one: the service checks that the
+    connection is configured and has synced, because without candidates there is nothing to
+    attach a message to and every row fetched would be paid for and discarded.
+    """
+    from .models import Integration
+    from .services.recruiting_poll import poll_activity
+    async with SessionLocal() as s:
+        tenant_ids = set(await syncable_tenant_ids(s))
+        rows = (await s.execute(select(Integration.tenant_id).where(
+            Integration.provider == "ghl_recruiting",
+            Integration.status == "connected"))).all()
+    for (tid,) in rows:
+        if tid not in tenant_ids:
+            continue
+        try:
+            async with SessionLocal() as s2:
+                out = await poll_activity(s2, tid)
+            # Anything the poll could not classify is printed rather than swallowed. V3 (the
+            # message `type` values) is unsettled, and this is how it gets answered from real
+            # traffic instead of from a guess.
+            if out.get("unknown_types"):
+                print(f"[recruiting_activity] {tid}: unclassified {out['unknown_types']}", flush=True)
+        except Exception as e:  # noqa: BLE001 - one workspace must not stop the rest
+            print(f"[recruiting_activity] {tid}: {e}", flush=True)
+
+
 async def recruiting_outbox_tick():
     """Every minute: retry what is queued, fail what is stuck, purge bodies past retention.
 
@@ -447,6 +480,11 @@ def build_scheduler() -> AsyncIOScheduler:
     sched.add_job(beat(recruiting_queue_tick), "cron", hour=6, minute=0, timezone=_tz)
     sched.add_job(beat(recruiting_outbox_tick), "interval",
                   minutes=settings.RECRUITING_OUTBOX_INTERVAL_MINUTES)
+    # Offset from the queue tick rather than sharing its cadence: the poll WRITES the activity
+    # rows the rules then read, so running them on the same beat would have the rules evaluating
+    # a reply that landed a moment after they looked.
+    sched.add_job(beat(recruiting_activity_tick), "interval",
+                  minutes=settings.RECRUITING_ACTIVITY_INTERVAL_MINUTES)
     sched.add_job(beat(roster_tick), "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
     sched.add_job(beat(scorecard_tick), "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
     # After the syncs have had the night to land: attribution reads registrations the GHL sync

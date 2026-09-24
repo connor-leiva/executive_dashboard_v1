@@ -11,7 +11,7 @@ from .models import Base
 from .startup_checks import enforce_config
 from .tenancy import resolve_tenant, set_tenant
 from .throttle import enforce
-from .routers import recall as recall_router, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform, ads, intranet, console
+from .routers import recall as recall_router, ghl_recruiting_webhook, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform, ads, intranet, console
 
 log = logging.getLogger("app")
 
@@ -112,6 +112,9 @@ def create_app() -> FastAPI:
     app.include_router(ulrg.router, prefix="/api/v1")
     app.include_router(intranet.router, prefix="/api/v1")
     app.include_router(recall_router.router, prefix="/api/v1")   # /api/v1/webhooks/recall (secret-gated)
+    # /api/v1/webhooks/ghl-recruiting — optional, secret-gated, and a hint only: it
+    # triggers the ordinary poll rather than trusting anything in the body (§5.6).
+    app.include_router(ghl_recruiting_webhook.router, prefix="/api/v1")
     # The operator surface: a different auth realm (platform tokens, not tenant sessions), and
     # the only router that takes its tenant from the path rather than the host.
     app.include_router(platform.router, prefix="/api/v1")

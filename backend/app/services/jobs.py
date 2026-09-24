@@ -35,6 +35,9 @@ def catalog() -> list[dict]:
         # write-back off there is nothing queued to retry, and the retention purge still has a
         # year of dry-run request bodies to age out. Tying it to the write-back flag showed the
         # operator console a job as disabled while it ran every minute.
+        {"job": "recruiting_activity_tick",
+         "what": "Reads replies, calls and appointment statuses back from GHL",
+         "every_minutes": settings.RECRUITING_ACTIVITY_INTERVAL_MINUTES, "enabled": True},
         {"job": "recruiting_outbox_tick",
          "what": "Retries queued recruiting writes and purges old request bodies",
          "every_minutes": settings.RECRUITING_OUTBOX_INTERVAL_MINUTES, "enabled": True},

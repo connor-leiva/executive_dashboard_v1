@@ -2395,6 +2395,7 @@ function RecruitingPage() {
       </Card>
 
       <RecruitingGoals live={live} />
+      <RecruitingWebhook data={data} live={live} onChanged={load} />
       <RecruitingRules data={data} draft={draft} setDraft={(d) => { setDraft(d); setSaved(false); }} live={live} />
       <RecruitingTemplates data={data} draft={draft} setDraft={(d) => { setDraft(d); setSaved(false); }} live={live} />
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2426,6 +2427,94 @@ function RecruitingPage() {
  * Per period, so setting October cannot change what September was judged against. A verdict
  * that moves after the fact is not a verdict.
  */
+/* Settings › Recruiting › Faster updates (RECRUITING-SPEC §5.6, Phase 6b).
+ *
+ * OPTIONAL, AND THE COPY SAYS SO. Recruiting already reads GHL every five minutes; this only
+ * shortens the wait. If the Workflow is never built, or somebody deletes it, or GHL stops
+ * sending, nothing breaks — which is worth saying on the screen, because an admin deciding
+ * whether to do fifteen minutes of setup deserves to know what happens if they do not.
+ *
+ * The secret is shown ONCE. It is a credential: if this screen could read it back, our stored
+ * copy would be as useful as the one in GHL and rotating it would stop meaning anything.
+ */
+function RecruitingWebhook({ data, live, onChanged }) {
+  const [secret, setSecret] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const on = Boolean(data.webhook_configured);
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+
+  async function rotate() {
+    setBusy(true); setErr(null);
+    try { setSecret((await postJSON("/ulrg/recruiting/webhook-secret", {})).secret); onChanged(); }
+    catch (e) { setErr(String(e?.message || e)); }
+    finally { setBusy(false); }
+  }
+  async function clear() {
+    setBusy(true); setErr(null);
+    try { await delJSON("/ulrg/recruiting/webhook-secret"); setSecret(null); onChanged(); }
+    catch (e) { setErr(String(e?.message || e)); }
+    finally { setBusy(false); }
+  }
+
+  const code = { fontFamily: "var(--font-data)", fontSize: 12, background: T.page,
+                 border: `1px solid ${T.line}`, borderRadius: 6, padding: "3px 6px",
+                 wordBreak: "break-all" };
+
+  return (
+    <Card>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>
+          Faster updates <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 400, color: T.muted }}>· optional</span>
+        </div>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: on ? T.meadowInk : T.muted }}>
+          {on ? "On" : "Off"}
+        </span>
+      </div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4, lineHeight: 1.55 }}>
+        Recruiting already reads GHL every five minutes. A Workflow webhook makes a reply or a
+        stage change show up in seconds instead. Nothing breaks without it — the poll carries on
+        either way, so this is safe to turn off the moment it looks wrong.
+      </div>
+
+      <ol style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary,
+                   lineHeight: 1.7, paddingLeft: 18, marginTop: 14, marginBottom: 0 }}>
+        <li>Press <b>Generate secret</b> below and copy it — it is shown once.</li>
+        <li>In GHL, build a Workflow on the recruiting location with the triggers
+          <b> Customer Replied</b>, <b>Appointment Status</b> and <b>Pipeline Stage Changed</b>.</li>
+        <li>Add a <b>Webhook</b> action. Method <b>POST</b>, URL <span style={code}>{origin}/api/v1/webhooks/ghl-recruiting</span></li>
+        <li>Add a custom header <span style={code}>X-Axcion-Secret</span> with the secret as its value.</li>
+        <li>Publish the Workflow. Nothing else is needed — the body is not read.</li>
+      </ol>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 10, lineHeight: 1.5 }}>
+        Axcion ignores what the webhook sends and re-reads the change from GHL with its own
+        credentials, so nothing in that payload can alter a record here.
+      </div>
+
+      {secret && (
+        <div style={{ marginTop: 14, background: T.page, border: `1px solid ${T.line}`,
+                      borderRadius: 9, padding: "11px 13px" }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.ink }}>
+            Copy this now — it cannot be shown again
+          </div>
+          <div style={{ ...code, marginTop: 6, padding: "7px 9px" }}>{secret}</div>
+        </div>
+      )}
+
+      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+        <SBtn kind="primary" disabled={!live || busy} onClick={rotate}>
+          {busy ? "Working…" : on ? "Replace secret" : "Generate secret"}
+        </SBtn>
+        {on && <SBtn disabled={!live || busy} onClick={clear}>Turn off</SBtn>}
+        {on && <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>
+          Replacing stops the old secret working immediately.</span>}
+      </div>
+    </Card>
+  );
+}
+
 function RecruitingGoals({ live }) {
   const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [data, setData] = useState(null);
@@ -2816,6 +2905,7 @@ const RECRUITING_SAMPLE = {
     errors: {},
   },
   suggested_groups: null,
+  webhook_configured: false,
   rule_meta: [
     { key: "new_lead_untouched", label: "New lead, no contact", fields: [{ name: "minutes", min: 5, max: 1440 }] },
     { key: "appt_24h", label: "Appointment tomorrow", fields: [{ name: "from_hours", min: 2, max: 72 }, { name: "to_hours", min: 4, max: 96 }] },
