@@ -49,12 +49,12 @@ def _appt(cand, start, status="confirmed", seat_id=TL, created=None, event_id="e
                                  created_at_src=created or (NOW - dt.timedelta(days=2)))
 
 
-def _facts(cands, appts=(), acts=()):
+def _facts(cands, appts=(), acts=(), watch=None):
     by = {}
     for a in acts:
         by.setdefault(str(a.candidate_id), []).append(a)
     return R.Facts(candidates=list(cands), appointments=list(appts), activity_by_candidate=by,
-                   seats_by_id={}, sdr_seat_id=SDR,
+                   seats_by_id={}, sdr_seat_id=SDR, watch_start=watch,
                    group_owner={"Sourced": "sdr", "Appointment set": "sdr", "Met": "team_leader",
                                 "Offer out": "team_leader", "Signed": "team_leader",
                                 "Nurture": "team_leader"})
@@ -355,3 +355,73 @@ async def test_an_unconfigured_workspace_builds_nothing_rather_than_erroring():
         integ.config = keep
         await s.commit()
     assert out["skipped"] == "not configured" and out["opened"] == 0
+
+
+# ── the watch-start floor ────────────────────────────────────────────────────────────────────
+#
+# Two rules reason from the ABSENCE of an activity row. The poll reads conversations forward from
+# the day the location was connected and never backfills, so for a candidate last contacted before
+# that there is no row and never will be -- which makes "nobody has reached out yet" a claim about
+# our own blindness. On ULRG's first live day it was 202 such claims across 1,654 candidates, only
+# 19 of which had any history we had actually seen.
+
+def _rule(key, cand, facts, **over):
+    return dict(R.RULES)[key](facts, cand, NOW, TZ, dict(R.DEFAULTS[key], **over))
+
+
+def test_a_candidate_that_arrived_before_we_were_watching_is_not_a_new_lead():
+    watch = NOW - dt.timedelta(hours=6)
+    old = _cand(stage_group="Sourced", owner_seat_id=None,
+                created_at_src=NOW - dt.timedelta(days=270))
+    assert _rule("new_lead_untouched", old, _facts([old], watch=watch)) is None,         "claimed nobody reached out to a candidate that predates the connection"
+
+    # One that genuinely arrived after we connected is still caught.
+    fresh = _cand(stage_group="Sourced", owner_seat_id=None,
+                  created_at_src=NOW - dt.timedelta(hours=3))
+    hit = _rule("new_lead_untouched", fresh, _facts([fresh], watch=watch))
+    assert hit is not None and hit.rule_key == "new_lead_untouched"
+
+    # With no watch_start known, behaviour is exactly what it was.
+    assert _rule("new_lead_untouched", old, _facts([old])) is not None
+
+
+def test_silence_is_measured_from_when_we_started_listening():
+    old = _cand(stage_group="Sourced", created_at_src=NOW - dt.timedelta(days=270))
+
+    # Connected this morning: there is no seven-day silence to report, however long the candidate
+    # has been sitting in GHL.
+    today = _facts([old], watch=NOW - dt.timedelta(hours=6))
+    assert _rule("no_touch_7d", old, today) is None,         "reported a silence longer than we have been watching"
+
+    # Watching three weeks and still nothing seen: reportable, and it says which it is.
+    weeks = _facts([old], watch=NOW - dt.timedelta(days=21))
+    hit = _rule("no_touch_7d", old, weeks)
+    assert hit is not None
+    assert "since we connected" in hit.why, hit.why
+    assert "months" not in hit.why, "still claiming a silence it never observed"
+
+
+def test_a_real_activity_row_always_beats_the_floor():
+    """The floor covers only the case where we have NO evidence. A row we actually saw is
+    evidence even when it predates the floor, and must not be overridden by it."""
+    watch = NOW - dt.timedelta(hours=6)
+    old = _cand(stage_group="Sourced", created_at_src=NOW - dt.timedelta(days=270))
+    # The poll's first run looks back 30 days, so activity CAN predate the first sync.
+    seen = _act(old, "sms_out", NOW - dt.timedelta(days=23))
+    hit = _rule("no_touch_7d", old, _facts([old], acts=[seen], watch=watch))
+    assert hit is not None, "a 23-day silence we DID observe was suppressed by the floor"
+    assert "since we connected" not in hit.why, "reported observed silence as our own blindness"
+
+    # An outbound we saw still cancels the new-lead rule regardless of the floor.
+    fresh = _cand(stage_group="Sourced", owner_seat_id=None,
+                  created_at_src=NOW - dt.timedelta(hours=3))
+    touched = _facts([fresh], acts=[_act(fresh, "sms_out", NOW - dt.timedelta(hours=1))],
+                     watch=watch)
+    assert _rule("new_lead_untouched", fresh, touched) is None
+
+
+def test_load_facts_derives_the_watch_start_from_the_earliest_candidate():
+    """It is derived, not stored, so it needs no migration and cannot drift out of date."""
+    import inspect
+    src = inspect.getsource(R.load_facts)
+    assert "watch_start=" in src and "first_seen_at" in src

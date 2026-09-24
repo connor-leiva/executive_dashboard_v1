@@ -189,6 +189,12 @@ class Facts:
     seats_by_id: dict = field(default_factory=dict)
     sdr_seat_id: uuid.UUID | None = None
     group_owner: dict = field(default_factory=dict)      # group label -> "sdr" | "team_leader"
+    # When this workspace began observing the recruiting location at all -- the first sync.
+    # Two rules reason from the ABSENCE of activity, and absence only means something after this
+    # moment: the poll reads conversations forward from where it started and never backfills, so
+    # for a candidate last contacted before we connected there is no row and never will be.
+    # Without this, "nobody has reached out yet" is a claim about our own blindness.
+    watch_start: dt.datetime | None = None
 
     def acts(self, candidate_id) -> list:
         return self.activity_by_candidate.get(str(candidate_id), [])
@@ -235,6 +241,10 @@ def rule_new_lead_untouched(facts, cand, now, tz, cfg):
         return None
     created = _aware(cand.created_at_src) or _aware(cand.first_seen_at)
     if created is None or (now - created) < dt.timedelta(minutes=cfg["minutes"]):
+        return None
+    # It arrived before we were watching, so it is not a new lead to us and its silence is not
+    # evidence. This is the difference between 202 items and 19 on a freshly connected location.
+    if facts.watch_start is not None and created < facts.watch_start:
         return None
     if facts.last(cand.id, OUTBOUND) is not None:
         return None
@@ -302,13 +312,26 @@ def rule_no_touch_7d(facts, cand, now, tz, cfg):
     if cand.stage_group in (G_SIGNED, G_NURTURE) or (cand.status or "open") != "open":
         return None
     acts = [_aware(a.occurred_at) for a in facts.acts(cand.id)]
-    last = max(acts) if acts else (_aware(cand.created_at_src) or _aware(cand.first_seen_at))
+    floored = False
+    if acts:
+        last = max(acts)                    # real evidence, whatever it says
+    else:
+        # No activity row at all, which does NOT mean nothing happened -- it means we have not
+        # looked, because the poll only reads forward from the day we connected. The silence we
+        # can honestly claim starts there.
+        last = _aware(cand.created_at_src) or _aware(cand.first_seen_at)
+        if facts.watch_start is not None and (last is None or last < facts.watch_start):
+            last, floored = facts.watch_start, True
     if last is None or (now - last) < dt.timedelta(days=cfg["days"]):
         return None
+    # Say which one it is. "Nothing has happened in 9 months" reads as a fact about the candidate;
+    # when it is really a fact about how long we have been watching, the list has to admit that or
+    # nobody can trust the rest of it.
+    why = (f"Nothing since we connected {_ago(now - last)} ago." if floored
+           else f"Nothing has happened here in {_ago(now - last)}.")
     # The window is the silence itself, so one item per quiet spell rather than one a day.
     return Item("no_touch_7d", cand.id, _day(last, tz), _stage_owner(facts, cand),
-                last + dt.timedelta(days=cfg["days"]),
-                f"Nothing has happened here in {_ago(now - last)}.", "text")
+                last + dt.timedelta(days=cfg["days"]), why, "text")
 
 
 def rule_stage_14d(facts, cand, now, tz, cfg):
@@ -477,9 +500,14 @@ async def load_facts(s: AsyncSession, tenant_id, integ: Integration | None) -> F
         except (TypeError, IndexError):
             continue
     sdr = next((x for x in seats if x.role == "sdr"), None)
+    # The earliest candidate we have ever seen IS the moment we started watching: `first_seen_at`
+    # is server-defaulted on insert, so the whole first sync shares one timestamp and every later
+    # arrival is after it. Derived rather than stored, so it needs no migration and cannot drift.
+    seen = [_aware(c.first_seen_at) for c in cands if c.first_seen_at]
     return Facts(candidates=cands, appointments=appts, activity_by_candidate=dict(by_cand),
                  seats_by_id={str(x.id): x for x in seats},
-                 sdr_seat_id=sdr.id if sdr else None, group_owner=owner_of)
+                 sdr_seat_id=sdr.id if sdr else None, group_owner=owner_of,
+                 watch_start=min(seen) if seen else None)
 
 
 async def build_queue(s: AsyncSession, tenant_id) -> dict:
