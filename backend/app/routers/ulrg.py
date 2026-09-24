@@ -26,8 +26,8 @@ from ..deps import current_user, require_tab
 from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue,
                       ScorecardGoal, ShareLink, Integration, RecruitingCandidate,
                       RecruitingQueueItem, RecruitingSeat)
-from ..services import (binder_storage, recruiting, recruiting_rules,
-                        recruiting_settings, scorecard)
+from ..services import (binder_storage, recruiting, recruiting_actions,
+                        recruiting_rules, recruiting_settings, scorecard)
 from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
@@ -780,3 +780,25 @@ async def queue_rebuild(user: User = Depends(current_user),
     """
     _require_admin(user)
     return await recruiting_rules.build_queue(s, user.tenant_id)
+
+
+# ── writing back (RECRUITING-SPEC §5.3) ──────────────────────────────────────────────────────────
+
+
+@router.post("/recruiting/actions")
+async def recruiting_action(body: dict, user: User = Depends(current_user),
+                            s: AsyncSession = Depends(get_session)):
+    """The ONE way anything in this product writes to a customer's GoHighLevel.
+
+    The service does authorisation, the four gates, compliance, the outbox row and the call, in
+    that order. This function's only job is turning a refusal into the right status code: 409 for
+    a gate a workspace could open, 422 for compliance it cannot and should not.
+
+    An idempotency key is required rather than defaulted, so a client that forgets one is refused
+    rather than quietly given at-least-once delivery of a text message.
+    """
+    await _assert_scope_view(user, s, "ulrg")
+    try:
+        return await recruiting_actions.submit(s, user.tenant_id, user, body)
+    except recruiting_actions.WriteRefused as refusal:
+        raise HTTPException(refusal.code, refusal.reason) from refusal

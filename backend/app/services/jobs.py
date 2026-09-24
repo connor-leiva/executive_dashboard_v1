@@ -31,6 +31,13 @@ def catalog() -> list[dict]:
         {"job": "fub_followups_tick", "what": "Refreshes follow-ups from Follow Up Boss", "every_minutes": settings.FUB_FOLLOWUPS_INTERVAL_MINUTES, "enabled": True},
         {"job": "recruiting_queue_tick", "what": "Rebuilds the recruiting Do-next queue",
          "every_minutes": settings.RECRUITING_QUEUE_INTERVAL_MINUTES, "enabled": True},
+        # `enabled` means "this job runs", not "sending is on". The tick runs either way: with
+        # write-back off there is nothing queued to retry, and the retention purge still has a
+        # year of dry-run request bodies to age out. Tying it to the write-back flag showed the
+        # operator console a job as disabled while it ran every minute.
+        {"job": "recruiting_outbox_tick",
+         "what": "Retries queued recruiting writes and purges old request bodies",
+         "every_minutes": settings.RECRUITING_OUTBOX_INTERVAL_MINUTES, "enabled": True},
         {"job": "roster_tick", "what": "Refreshes Sisu agent offices", "every_minutes": DAY, "enabled": True},
         {"job": "scorecard_tick", "what": "Resolves scorecard metrics", "every_minutes": DAY, "enabled": True},
         {"job": "ads_funnel_tick", "what": "Attributes registrations to ads", "every_minutes": DAY, "enabled": True},

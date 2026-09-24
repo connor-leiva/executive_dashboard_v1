@@ -123,6 +123,13 @@ class Settings(BaseSettings):
     # person is looking at: a reply that lands at 9:05 should clear its item before they
     # next glance at the list, not at the next half-hourly sync.
     RECRUITING_QUEUE_INTERVAL_MINUTES: int = 5
+    # Gate 1 of 4 (§5.2). OFF, and an unset env var means this default IS the live configuration
+    # -- so the deployment ships unable to send until somebody decides otherwise, in writing, in
+    # Railway. The other three gates are per workspace, per seat, and not-frozen.
+    RECRUITING_WRITEBACK_ENABLED: bool = False
+    # How often the outbox retries what it queued. One minute because the thing waiting is a
+    # person who pressed Send and was told "queued, will retry".
+    RECRUITING_OUTBOX_INTERVAL_MINUTES: int = 1
     # Legacy Stripe ACCOUNT timezone — Stripe renders charge dates in the account's tz
     # (Connor's is UTC), so legacy-Stripe `created` resolves here. Matching each source
     # to its own system's tz makes the dashboard agree with both AND lines the two copies

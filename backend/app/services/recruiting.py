@@ -158,8 +158,7 @@ async def _connection(s: AsyncSession, tenant_id, is_admin: bool) -> tuple[Integ
         Integration.provider == "ghl_recruiting"))).scalars().first()
     if row is None:
         return None, {"state": "not_connected", "synced_at": None, "sync_failed": False,
-                      "error": None, "reason": WHY["not_connected"],
-                      "writeback": {"open": False, "reason": "Nothing is connected."}}
+                      "error": None, "reason": WHY["not_connected"], "writeback": None}
     cfg = row.config or {}
     if not cfg.get("pipeline_id"):
         state, reason = "not_configured", WHY["not_configured"]
@@ -174,9 +173,9 @@ async def _connection(s: AsyncSession, tenant_id, is_admin: bool) -> tuple[Integ
         # A raw provider error can carry a location id or a token fragment. Owners only.
         "error": (row.last_error if is_admin else None),
         "reason": reason,
-        # Phase 1 writes nothing. Stated as a closed gate rather than omitted, so the UI has the
-        # same shape it will have in Phase 4 and the button reads "Sending is off" from day one.
-        "writeback": {"open": False, "reason": "Write-back ships in Phase 4."},
+        # The REAL gate state now (§5.2), so the drawer's button can name which of the four is
+        # shut rather than being mysteriously dead. Filled by the caller, which knows the seat.
+        "writeback": None,
     }
 
 
@@ -198,6 +197,11 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
         .order_by(RecruitingSeat.role, RecruitingSeat.display_name))).scalars().all())
     viewer = await _seat_for_viewer(s, tenant_id, user, seats, as_seat)
     integ, connection = await _connection(s, tenant_id, viewer["is_admin"])
+    own_seat = next((x for x in seats if x.user_id and str(x.user_id) == str(user.id)), None)
+    if connection["writeback"] is None:
+        from . import recruiting_actions
+        connection["writeback"] = await recruiting_actions.writeback_state(
+            s, tenant_id, integ, own_seat)
     by_seat = {str(x.id): x for x in seats}
     leaders = [x for x in seats if x.role == "team_leader"]
     sdr = next((x for x in seats if x.role == "sdr"), None)

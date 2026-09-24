@@ -57,6 +57,28 @@ async def syncable_tenant_ids(s) -> list:
             if status != "suspended" and not (cfg or {}).get("syncs_frozen")]
 
 
+async def recruiting_outbox_tick():
+    """Every minute: retry what is queued, fail what is stuck, purge bodies past retention.
+
+    Runs even when the platform flag is off, on purpose. With sending disabled there is nothing
+    queued to retry, and the purge still has a year of `dry_run` request bodies to age out.
+    """
+    from .models import Integration
+    from .services.recruiting_actions import drain
+    async with SessionLocal() as s:
+        tenant_ids = set(await syncable_tenant_ids(s))
+        rows = (await s.execute(select(Integration.tenant_id).where(
+            Integration.provider == "ghl_recruiting"))).all()
+    for (tid,) in rows:
+        if tid not in tenant_ids:
+            continue
+        try:
+            async with SessionLocal() as s2:
+                await drain(s2, tid)
+        except Exception as e:  # noqa: BLE001 - one workspace's outbox must not stop the rest
+            print(f"[recruiting_outbox] {tid}: {e}", flush=True)
+
+
 async def recruiting_queue_tick():
     """Every few minutes: re-evaluate the recruiting rules and reconcile the queue.
 
@@ -417,6 +439,8 @@ def build_scheduler() -> AsyncIOScheduler:
     sched.add_job(beat(recruiting_queue_tick), "interval",
                   minutes=settings.RECRUITING_QUEUE_INTERVAL_MINUTES)
     sched.add_job(beat(recruiting_queue_tick), "cron", hour=6, minute=0, timezone=_tz)
+    sched.add_job(beat(recruiting_outbox_tick), "interval",
+                  minutes=settings.RECRUITING_OUTBOX_INTERVAL_MINUTES)
     sched.add_job(beat(roster_tick), "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
     sched.add_job(beat(scorecard_tick), "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
     # After the syncs have had the night to land: attribution reads registrations the GHL sync
