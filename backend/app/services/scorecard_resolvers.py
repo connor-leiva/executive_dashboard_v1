@@ -351,6 +351,129 @@ LOOKBACK_WEEKS = 3     # re-resolve the open week + the 2 before it every day, s
                        # run or a late Sisu sync self-heals — writes are idempotent upserts.
 
 
+# ── Recruiting (RECRUITING-SPEC §8) ──────────────────────────────────────────────────────────────
+#
+# Four figures the L10 board has been typing by hand since it was built. They stay HAND until a
+# parallel week matches (the repo's standing rule) -- these only make the flip possible.
+#
+# UNAVAILABLE vs 0.0 IS THE WHOLE CARE HERE, and the class docstring above explains what
+# conflating them cost. A workspace with no recruiting connection, or one whose first sync has
+# not landed, CANNOT LOOK: it returns UNAVAILABLE and the hand-entered number on the row stays.
+# A connected workspace with a quiet week looked and found nothing: it returns 0.0, and the row
+# says zero, which is a fact somebody needs.
+
+
+async def _recruiting_ready(s, tenant_id) -> bool:
+    """Connected, configured and synced at least once. Anything less means we cannot look."""
+    from ..models import Integration
+    row = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id,
+        Integration.provider == "ghl_recruiting"))).scalars().first()
+    if row is None or (row.status or "") not in ("connected", "error"):
+        return False
+    cfg = row.config or {}
+    return bool(cfg.get("pipeline_id") and cfg.get("synced_at"))
+
+
+def _week_bounds(week_start: dt.date, week_end: dt.date):
+    """The week as an aware UTC half-open interval, anchored on the business day.
+
+    Business-local rather than UTC: a Monday-keyed week computed in UTC starts on Sunday evening
+    in Denver, which moves every figure on the board by one day for six hours a night.
+    """
+    from ..services.recruiting_rules import business_tz
+    tz = business_tz()
+    start = dt.datetime.combine(week_start, dt.time.min, tzinfo=tz)
+    end = dt.datetime.combine(week_end + dt.timedelta(days=1), dt.time.min, tzinfo=tz)
+    return start, end
+
+
+@resolver("ghl_recruiting_new")
+async def recruiting_new_leads(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                               group=None):
+    """New Recruitment Leads / Week — candidates that ARRIVED in the week.
+
+    Counted on `created_at_src`, the date GHL says the opportunity was created, not on when we
+    first saw it: a workspace connecting mid-quarter would otherwise record its whole back
+    catalogue as one enormous week.
+    """
+    from ..models import RecruitingCandidate
+    if not await _recruiting_ready(s, tenant_id):
+        return UNAVAILABLE
+    start, end = _week_bounds(week_start, week_end)
+    rows = (await s.execute(select(func.count(RecruitingCandidate.id)).where(
+        RecruitingCandidate.tenant_id == tenant_id,
+        RecruitingCandidate.created_at_src >= start,
+        RecruitingCandidate.created_at_src < end))).scalar()
+    return float(rows or 0)
+
+
+@resolver("ghl_recruiting_held")
+async def recruiting_appts_held(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                group=None):
+    """Recruiting Appointments Met — appointments that were HELD in the week.
+
+    `showed`, on the appointment's own start time. D8 also allows "reached the Met group" as a
+    fallback definition; that is a config decision and not this resolver's to make, so this
+    counts the thing GHL records rather than inferring it.
+    """
+    from ..models import RecruitingAppointment
+    if not await _recruiting_ready(s, tenant_id):
+        return UNAVAILABLE
+    start, end = _week_bounds(week_start, week_end)
+    rows = (await s.execute(select(func.count(RecruitingAppointment.id)).where(
+        RecruitingAppointment.tenant_id == tenant_id,
+        func.lower(RecruitingAppointment.status) == "showed",
+        RecruitingAppointment.start_at >= start,
+        RecruitingAppointment.start_at < end))).scalar()
+    return float(rows or 0)
+
+
+@resolver("ghl_recruiting_booked")
+async def recruiting_appts_booked(s, tenant_id, business_id, week_start: dt.date,
+                                  week_end: dt.date, group=None):
+    """Recruiting Appts Booked (D10's new row) — appointments CREATED in the week.
+
+    Booked and held are different weeks for the same meeting, and the SDR is measured on the
+    first while the Team Leader is measured on the second. Counting either one twice would make
+    one of them look like the other's work.
+    """
+    from ..models import RecruitingAppointment
+    if not await _recruiting_ready(s, tenant_id):
+        return UNAVAILABLE
+    start, end = _week_bounds(week_start, week_end)
+    rows = (await s.execute(select(func.count(RecruitingAppointment.id)).where(
+        RecruitingAppointment.tenant_id == tenant_id,
+        RecruitingAppointment.created_at_src >= start,
+        RecruitingAppointment.created_at_src < end))).scalar()
+    return float(rows or 0)
+
+
+@resolver("ghl_recruiting_signed_qtd")
+async def recruiting_signed_qtd(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                group=None):
+    """QTD Agents Recruited — a SNAPSHOT, already cumulative, and never summed.
+
+    Everything signed since the quarter began, as at the end of this week. The board's own
+    snapshot handling keeps it from being added up across weeks; the resolver's job is to make
+    each week's value the running total rather than that week's increment.
+
+    Distinct CANDIDATES, not events: somebody moved out of Signed and back has still been
+    recruited once.
+    """
+    from ..models import RecruitingStageEvent
+    if not await _recruiting_ready(s, tenant_id):
+        return UNAVAILABLE
+    quarter_start = dt.date(week_end.year, 3 * ((week_end.month - 1) // 3) + 1, 1)
+    start, end = _week_bounds(quarter_start, week_end)
+    rows = (await s.execute(select(func.count(func.distinct(RecruitingStageEvent.candidate_id))).where(
+        RecruitingStageEvent.tenant_id == tenant_id,
+        RecruitingStageEvent.to_group == "Signed",
+        RecruitingStageEvent.occurred_at >= start,
+        RecruitingStageEvent.occurred_at < end))).scalar()
+    return float(rows or 0)
+
+
 def _recent_weeks(today: dt.date, n: int = LOOKBACK_WEEKS) -> list[tuple[dt.date, dt.date]]:
     """The `n` most recent Monday…Sunday weeks (newest first): the open week and the n-1 before it.
     Weeks are keyed by their Monday (SPEC 2.3)."""

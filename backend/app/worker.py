@@ -92,7 +92,8 @@ async def recruiting_queue_tick():
     like every other tick.
     """
     from .models import Integration
-    from .services.recruiting_rules import build_queue
+    from .services.recruiting_accountability import roll_forward
+    from .services.recruiting_rules import build_queue, business_tz
     async with SessionLocal() as s:
         tenant_ids = set(await syncable_tenant_ids(s))
         rows = (await s.execute(select(Integration.tenant_id).where(
@@ -103,6 +104,11 @@ async def recruiting_queue_tick():
             continue
         try:
             async with SessionLocal() as s2:
+                # Monday rollover rides this tick rather than owning one. It only FILLS GAPS, so
+                # running it every five minutes is the same as running it once -- and a separate
+                # weekly job would be a thing that can fail quietly for a week before anybody
+                # notices the commitments are blank.
+                await roll_forward(s2, tid, dt.datetime.now(business_tz()).date())
                 await build_queue(s2, tid)
         except Exception as e:  # noqa: BLE001 - one workspace's rules must not stop the rest
             print(f"[recruiting_queue] {tid}: {e}", flush=True)

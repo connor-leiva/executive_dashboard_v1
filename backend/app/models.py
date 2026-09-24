@@ -3124,3 +3124,58 @@ class RecruitingAction(Base):
         UniqueConstraint("tenant_id", "idempotency_key", name="uq_recruiting_action_idem"),
         Index("ix_recruiting_action_drain", "status", "next_attempt_at"),
     )
+
+
+class RecruitingCommitment(Base):
+    """What a seat says they will do THIS WEEK (RECRUITING-SPEC §4.8).
+
+    ACTUALS ARE NEVER STORED HERE. They are computed from the stage events, appointments and
+    activities every time they are asked for, so a commitment and its progress cannot drift apart
+    -- which is the failure that makes a weekly number quietly meaningless.
+
+    One row per (seat, week, metric). The week is a MONDAY in business-local time: a week keyed
+    off UTC starts on Sunday evening in Denver, and a commitment that appears the night before
+    the week it belongs to is worse than no commitment.
+    """
+    __tablename__ = "recruiting_commitment"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    seat_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recruiting_seat.id", ondelete="CASCADE"), index=True)
+    week_start: Mapped[date] = mapped_column(Date, index=True)      # Monday, business-local
+    metric: Mapped[str] = mapped_column(String(16))                 # held|offers|booked|dials|convos
+    commit: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "seat_id", "week_start", "metric",
+                         name="uq_recruiting_commitment"),
+        Index("ix_recruiting_commitment_week", "tenant_id", "week_start"),
+    )
+
+
+class RecruitingGoal(Base):
+    """A monthly target, per period, on the ScorecardGoal pattern (§9 Phase 5, D7).
+
+    PER PERIOD, so a past month's verdict never changes when somebody sets next month's target.
+    That is the whole reason ScorecardGoal is keyed this way, and the reason this is a table
+    rather than a number on the seat.
+
+    `seat_id` NULL means the TEAM goal. A team goal and the sum of its seats are different
+    numbers on purpose: an owner may carry a target the splits do not add up to, and pretending
+    otherwise would either inflate the seats or hide the gap.
+    """
+    __tablename__ = "recruiting_goal"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    seat_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_seat.id", ondelete="CASCADE"), nullable=True, index=True)
+    period_key: Mapped[str] = mapped_column(String(16), index=True)  # "2026-09"
+    metric: Mapped[str] = mapped_column(String(16))                  # signed|booked|show_rate|dials|convos
+    goal: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        # A NULL seat_id is the team row. Postgres treats NULLs as distinct in a unique index, so
+        # two team goals for one metric would both be allowed -- hence the coalesce-free split:
+        # the service reads at most one and the settings screen writes by upsert.
+        UniqueConstraint("tenant_id", "seat_id", "period_key", "metric",
+                         name="uq_recruiting_goal"),
+        Index("ix_recruiting_goal_period", "tenant_id", "period_key", "metric"),
+    )

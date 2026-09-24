@@ -28,6 +28,7 @@ from ..models import (
     Integration, RecruitingActivity, RecruitingAppointment, RecruitingCandidate,
     RecruitingQueueItem, RecruitingSeat, RecruitingStageEvent, User,
 )
+from . import recruiting_accountability as acct
 from . import recruiting_rules as rules
 from . import roles
 
@@ -42,8 +43,10 @@ WHY = {
     "queue_empty": "Nothing is due. Tomorrow's list builds at 6:00 am.",
     "queue_unconfigured": "No stages are mapped yet, so the rules have nothing to reason about. "
                           "Finish Settings › Recruiting.",
-    "commitments": "Weekly commitments arrive with accountability (Phase 5).",
-    "goal": "Monthly goals are set in Settings › Recruiting › Goals (Phase 5). Signings are counted already.",
+    "no_goal": "No goal set for this period yet. An owner can set one in "
+               "Settings › Recruiting › Goals.",
+    "no_commitments": "Nobody has committed to a number this week yet.",
+    "no_seats": "No recruiting seats yet. Add them in Settings › Recruiting.",
     "calendars": "Open slots are read live from GHL when booking ships (Phase 4b).",
     "activity": "Dials, conversations and replies arrive with the conversation poll (Phase 6).",
     "not_connected": "No recruiting location is connected. Connect one in Settings › Integrations.",
@@ -206,7 +209,7 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
     leaders = [x for x in seats if x.role == "team_leader"]
     sdr = next((x for x in seats if x.role == "sdr"), None)
 
-    unavailable = {"commitments": WHY["commitments"], "calendars": WHY["calendars"]}
+    unavailable = {"calendars": WHY["calendars"]}
 
     payload: dict = {
         "as_of": now.isoformat(),
@@ -245,6 +248,19 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
 
     appts = list((await s.execute(select(RecruitingAppointment).where(
         RecruitingAppointment.tenant_id == tenant_id))).scalars().all())
+    acts = list((await s.execute(select(RecruitingActivity).where(
+        RecruitingActivity.tenant_id == tenant_id))).scalars().all())
+    all_events = list((await s.execute(select(RecruitingStageEvent).where(
+        RecruitingStageEvent.tenant_id == tenant_id))).scalars().all())
+
+    # This week, business-local, and what each seat has actually done in it. Actuals are DERIVED
+    # every time rather than stored, so a commitment and its progress cannot drift apart.
+    week_start = acct.monday_of(today)
+    elapsed_week = acct.week_elapsed(today)
+    commits = await acct.commitments_for(s, tenant_id, week_start)
+    actuals = {str(x.id): acct.weekly_actuals(x.id, week_start, tz, appointments=appts,
+                                              activities=acts, stage_events=all_events)
+               for x in seats}
 
     # ── goal: the countable half only ───────────────────────────────────────────────────────
     signings = []
@@ -257,13 +273,32 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
             "occurred_on": _aware(ev.occurred_at).astimezone(tz).date().isoformat(),
             "seat_id": str(ev.actor_seat_id) if ev.actor_seat_id else None,
         })
-    payload["goal"] = {
-        "scope": "team", "signed": len(signings), "signings": signings,
-        # Everything below needs a goal, and a goal is a Phase 5 setting. Null rather than 0:
-        # "on pace for 0 of 0" is a sentence that means nothing and looks like a bug.
-        "goal": None, "pace": None, "pace_pct": None, "verdict": None, "need": None, "split": None,
-    }
-    unavailable["goal"] = WHY["goal"]
+    goals = await acct.goals_for(s, tenant_id, per["key"])
+    seat_scope = viewer.get("seat_id") if viewer["role"] in ("team_leader", "sdr") else None
+    if seat_scope:
+        # A Team Leader's hero is THEIR month: their signings against their goal. The team's
+        # numbers are still on the leaderboard below, which is where comparison belongs.
+        mine = [x for x in signings if x["seat_id"] == seat_scope]
+        target = (goals.get(seat_scope) or {}).get("signed")
+        best = await acct.best_month(s, tenant_id, seat_scope)
+        judged = acct.judge(len(mine), target, per["elapsed"], best)
+        payload["goal"] = {"scope": "seat", "signed": len(mine), "signings": mine,
+                           "split": None, **judged}
+    else:
+        target = (goals.get(None) or {}).get("signed")
+        best = await acct.best_month(s, tenant_id)
+        judged = acct.judge(len(signings), target, per["elapsed"], best)
+        payload["goal"] = {
+            "scope": "team", "signed": len(signings), "signings": signings, **judged,
+            # What each seat is carrying. Shown even when the parts do not add up to the whole:
+            # an owner may hold a target the splits do not reach, and hiding that would make the
+            # gap somebody else's surprise.
+            "split": [{"seat_id": str(x.id), "name": x.display_name, "first": _first(x.display_name),
+                       "goal": (goals.get(str(x.id)) or {}).get("signed")}
+                      for x in leaders] or None,
+        }
+    if payload["goal"]["goal"] is None:
+        unavailable["goal"] = WHY["no_goal"]
 
     # ── path: who is closest to signing ─────────────────────────────────────────────────────
     path_rows = []
@@ -284,7 +319,9 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
             "status": {"label": None, "tone": "mute"},
         })
     path_rows.sort(key=lambda r: (PATH_GROUPS.index(r["stage"]), -(r["days"] or 0)))
-    payload["path"] = {"line": _path_line(len(signings), path_rows), "rows": path_rows}
+    payload["path"] = {"line": acct.path_line(payload["goal"]["signed"],
+                                              payload["goal"]["goal"], path_rows),
+                       "rows": path_rows}
 
     # ── the SDR card: booked and held are real; dials and replies are not yet ───────────────
     if sdr is not None:
@@ -296,29 +333,53 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
         # yet is not a no-show, and counting it as one punishes a team for booking ahead.
         settled = [a for a in appts if _in_period(a.start_at, per, tz)
                    and (a.status or "").lower() in ("showed", "noshow", "no-show", "cancelled")]
+        sdr_goals = goals.get(str(sdr.id)) or {}
+        show_rate = round(100 * len(held) / len(settled)) if settled else None
+        booked_judged = acct.judge(len(booked), sdr_goals.get("booked"), per["elapsed"],
+                                   await acct.best_month(s, tenant_id, sdr.id))
         payload["sdr"] = {
             **_seat_public(sdr),
-            "month": {"booked": len(booked), "held": len(held),
-                      "show_rate": round(100 * len(held) / len(settled)) if settled else None,
-                      "goal": None, "pace": None, "show_goal": None, "verdict": None},
-            "week": None, "speed_to_lead": None,
+            "month": {"booked": len(booked), "held": len(held), "show_rate": show_rate,
+                      "show_goal": sdr_goals.get("show_rate"),
+                      "goal": booked_judged["goal"], "pace": booked_judged["pace"],
+                      "verdict": booked_judged["verdict"], "need": booked_judged["need"]},
+            "week": _week_rows(sdr, commits.get(str(sdr.id), {}), actuals.get(str(sdr.id), {}),
+                               elapsed_week, ("booked", "held", "dials", "convos")),
+            "speed_to_lead": (lambda stl: stl and {**stl,
+                              "goal_minutes": int(sdr_goals.get("speed_minutes") or 15)})(
+                acct.speed_to_lead(cands, acts, now)),
             "by_calendar": [_calendar_strip(x, appts, now, tz) for x in leaders],
         }
-        unavailable["sdr_week"] = WHY["commitments"]
-        unavailable["speed_to_lead"] = WHY["activity"]
+        if not payload["sdr"]["speed_to_lead"]:
+            unavailable["speed_to_lead"] = WHY["activity"]
 
     # ── leaderboard: signings and held are countable; pace is not ───────────────────────────
     held_by_seat: dict = defaultdict(int)
     for a in appts:
         if (a.status or "").lower() == "showed" and a.seat_id and _in_period(a.start_at, per, tz):
             held_by_seat[str(a.seat_id)] += 1
+    queue_rows = list((await s.execute(select(RecruitingQueueItem).where(
+        RecruitingQueueItem.tenant_id == tenant_id))).scalars().all())
+    today_local = now.astimezone(tz).date()
     board = []
     for seat in leaders:
         sid = str(seat.id)
         mine = [x for x in signings if x["seat_id"] == sid]
-        board.append({**_seat_public(seat), "signed": len(mine), "held_mtd": held_by_seat.get(sid, 0),
-                      "goal": None, "pace": None, "pace_pct": None, "close_rate_90d": None,
-                      "queue": None})
+        judged = acct.judge(len(mine), (goals.get(sid) or {}).get("signed"), per["elapsed"],
+                            await acct.best_month(s, tenant_id, seat.id))
+        theirs = [q for q in queue_rows if str(q.owner_seat_id or "") == sid]
+        done_today = [q for q in theirs if q.cleared_at
+                      and _aware(q.cleared_at).astimezone(tz).date() == today_local]
+        board.append({**_seat_public(seat), "signed": len(mine),
+                      "held_mtd": held_by_seat.get(sid, 0),
+                      "close_rate_90d": acct.close_rate_90d(
+                          seat.id, stage_events=all_events, appointments=appts, now=now),
+                      # Today's list, not the backlog: the leaderboard column is "did you clear
+                      # what you were given today", which is a different question from "how many
+                      # items exist".
+                      "queue": {"done": len(done_today),
+                                "total": len(done_today) + sum(1 for q in theirs if q.state == "open")},
+                      **judged})
     board.sort(key=lambda r: (-r["signed"], -r["held_mtd"], r["name"] or ""))
     for i, row in enumerate(board, 1):
         row["rank"] = i
@@ -354,6 +415,35 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
         "unmapped": sum(1 for c in open_cands if not c.stage_group),
         "stages": ordered,
     }
+
+    # ── commitments ─────────────────────────────────────────────────────────────────────────
+    if seats:
+        payload["commitments"] = {
+            "week_start": week_start.isoformat(),
+            "day": min(5, today.weekday() + 1), "of": 5,
+            "team_leaders": [
+                {**_seat_public(seat),
+                 # Owner edits anybody's; a seat edits its own. Decided here rather than in the
+                 # browser, because a control the client decides to show is a control the client
+                 # can decide to show.
+                 "editable": viewer["is_admin"] or viewer.get("seat_id") == str(seat.id),
+                 **{metric: {"actual": actuals.get(str(seat.id), {}).get(metric, 0),
+                             "commit": commits.get(str(seat.id), {}).get(metric),
+                             "band_pct": acct.band_pct(
+                                 actuals.get(str(seat.id), {}).get(metric, 0),
+                                 commits.get(str(seat.id), {}).get(metric), elapsed_week)}
+                    for metric in ("held", "offers")}}
+                for seat in leaders],
+            "rollup": {
+                "held": sum(actuals.get(str(x.id), {}).get("held", 0) for x in leaders),
+                "booked": sum(actuals.get(str(x.id), {}).get("booked", 0) for x in seats),
+                "scorecard": ["Recruiting Appts Met", "Recruiting Appts Booked"],
+            },
+        }
+        if not commits:
+            unavailable["commitments"] = WHY["no_commitments"]
+    else:
+        unavailable["commitments"] = WHY["no_seats"]
 
     # ── the queue ───────────────────────────────────────────────────────────────────────────
     payload["queue"] = await _queue(s, tenant_id, integ, viewer, seats, cand_by_id, now, tz)
@@ -477,23 +567,20 @@ def _calendar_strip(seat: RecruitingSeat, appts, now, tz) -> dict:
             "held": sum(1 for c in cells if c == "held"), "booked": len(mine)}
 
 
-def _path_line(signed: int, rows: list[dict]) -> str:
-    """The sentence above the path list.
-
-    It does NOT mention the goal, because Phase 1 has no goal to mention. Saying "closing every
-    offer out gets you to 8" without knowing the target would be inventing the only number that
-    matters.
-    """
-    offers = sum(1 for r in rows if r["stage"] == "Offer out")
-    met = sum(1 for r in rows if r["stage"] == "Met")
-    if not rows:
-        return "Nobody is past the first meeting yet."
-    parts = []
-    if offers:
-        parts.append(f"{offers} offer{'s' if offers != 1 else ''} out")
-    if met:
-        parts.append(f"{met} met and deciding")
-    return f"{' · '.join(parts)}. {signed} signed so far this month."
+def _week_rows(seat, commit_map, actual_map, elapsed, metrics) -> list[dict]:
+    """The SDR card's four rows. `when` is part of the contract, not decoration: booked and held
+    are weekly figures and dials are a today figure, and a card that showed all four the same way
+    would be comparing a week to an afternoon."""
+    labels = {"booked": ("Appointments booked", "this week"), "held": ("Appointments held", "this week"),
+              "dials": ("Dials", "this week"), "convos": ("Conversations", "this week")}
+    out = []
+    for metric in metrics:
+        label, when = labels[metric]
+        actual = actual_map.get(metric, 0)
+        commit = commit_map.get(metric)
+        out.append({"key": metric, "label": label, "when": when, "actual": actual,
+                    "commit": commit, "band_pct": acct.band_pct(actual, commit, elapsed)})
+    return out
 
 
 async def candidate_detail(s: AsyncSession, tenant_id, user: User, candidate_id: str,

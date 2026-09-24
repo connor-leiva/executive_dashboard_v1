@@ -25,9 +25,11 @@ from .. import plans
 from ..deps import current_user, require_tab
 from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue,
                       ScorecardGoal, ShareLink, Integration, RecruitingCandidate,
-                      RecruitingQueueItem, RecruitingSeat)
-from ..services import (binder_storage, recruiting, recruiting_actions,
-                        recruiting_rules, recruiting_settings, scorecard)
+                      RecruitingCommitment, RecruitingGoal, RecruitingQueueItem,
+                      RecruitingSeat)
+from ..services import (binder_storage, recruiting, recruiting_accountability,
+                        recruiting_actions, recruiting_rules, recruiting_settings,
+                        scorecard)
 from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
@@ -802,3 +804,128 @@ async def recruiting_action(body: dict, user: User = Depends(current_user),
         return await recruiting_actions.submit(s, user.tenant_id, user, body)
     except recruiting_actions.WriteRefused as refusal:
         raise HTTPException(refusal.code, refusal.reason) from refusal
+
+
+# ── goals and commitments (RECRUITING-SPEC §9 Phase 5) ───────────────────────────────────────────
+# A goal is a MONTH and an owner sets it. A commitment is a WEEK and the person doing the work
+# sets it. Keeping them apart is the point: one is a target somebody is given, the other is a
+# number they chose, and a tool that blurs them turns a commitment into an assignment.
+
+
+@router.get("/recruiting/goals")
+async def get_recruiting_goals(period: str | None = Query(None),
+                               user: User = Depends(current_user),
+                               s: AsyncSession = Depends(get_session)):
+    _require_admin(user)
+    tz = recruiting_accountability_tz()
+    per = recruiting.resolve_period(period, dt.datetime.now(tz).date())
+    seats = list((await s.execute(select(RecruitingSeat).where(
+        RecruitingSeat.tenant_id == user.tenant_id, RecruitingSeat.active.is_(True))
+        .order_by(RecruitingSeat.role, RecruitingSeat.display_name))).scalars().all())
+    goals = await recruiting_accountability.goals_for(s, user.tenant_id, per["key"])
+    return {
+        "period": {"key": per["key"], "label": per["label"]},
+        "metrics": list(recruiting_accountability.GOAL_METRICS),
+        "team": goals.get(None) or {},
+        "seats": [{"seat_id": str(x.id), "name": x.display_name, "role": x.role,
+                   "goals": goals.get(str(x.id)) or {}} for x in seats],
+    }
+
+
+@router.put("/recruiting/goals")
+async def put_recruiting_goals(body: dict, user: User = Depends(current_user),
+                               s: AsyncSession = Depends(get_session)):
+    """Upsert goals for ONE period. Absent metrics are left alone; an explicit null clears one.
+
+    Per period, on the ScorecardGoal pattern: setting October must not silently rewrite what
+    September was judged against, because a verdict that changes after the fact is not a verdict.
+    """
+    _require_admin(user)
+    period_key = (body.get("period_key") or "").strip()
+    if not period_key:
+        raise HTTPException(422, "Which period?")
+    entries = body.get("entries")
+    if not isinstance(entries, list):
+        raise HTTPException(422, "entries must be a list")
+
+    existing = {(str(g.seat_id) if g.seat_id else None, g.metric): g
+                for g in (await s.execute(select(RecruitingGoal).where(
+                    RecruitingGoal.tenant_id == user.tenant_id,
+                    RecruitingGoal.period_key == period_key))).scalars().all()}
+    for entry in entries[:200]:
+        metric = (entry or {}).get("metric")
+        if metric not in recruiting_accountability.GOAL_METRICS:
+            raise HTTPException(422, f"Unknown metric {metric!r}")
+        seat_id = entry.get("seat_id") or None
+        row = existing.get((str(seat_id) if seat_id else None, metric))
+        value = entry.get("goal")
+        if value in (None, ""):
+            if row is not None:
+                await s.delete(row)
+            continue
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(422, f"{metric} must be a number") from None
+        if value < 0 or value > 100000:
+            raise HTTPException(422, f"{metric} is out of range")
+        if row is None:
+            s.add(RecruitingGoal(tenant_id=user.tenant_id, seat_id=seat_id,
+                                 period_key=period_key, metric=metric, goal=value))
+        else:
+            row.goal = value
+    audit(s, user.tenant_id, user.id, "recruiting.goals", category="Recruiting",
+          summary=f"Set recruiting goals for {period_key}")
+    await s.commit()
+    return {"ok": True}
+
+
+@router.put("/recruiting/commitments")
+async def put_recruiting_commitment(body: dict, user: User = Depends(current_user),
+                                    s: AsyncSession = Depends(get_session)):
+    """One seat's number for this week.
+
+    An owner may set anybody's; a seat may set its own and nobody else's. A commitment somebody
+    else typed for you is a target, and the word for a target is goal.
+    """
+    await _assert_scope_view(user, s, "ulrg")
+    metric = (body.get("metric") or "").strip()
+    if metric not in recruiting_accountability.SEAT_METRICS:
+        raise HTTPException(422, f"Unknown metric {metric!r}")
+    seat = (await s.execute(select(RecruitingSeat).where(
+        RecruitingSeat.tenant_id == user.tenant_id,
+        RecruitingSeat.id == body.get("seat_id")))).scalars().first()
+    if seat is None:
+        raise HTTPException(404, "No such seat")
+    if (user.role or "") not in ("owner", "admin") and str(seat.user_id or "") != str(user.id):
+        raise HTTPException(403, "You can only set your own commitment.")
+
+    try:
+        value = int(body.get("commit"))
+    except (TypeError, ValueError):
+        raise HTTPException(422, "commit must be a whole number") from None
+    if value < 0 or value > 999:
+        raise HTTPException(422, "commit is out of range")
+
+    tz = recruiting_accountability_tz()
+    week = recruiting_accountability.monday_of(dt.datetime.now(tz).date())
+    row = (await s.execute(select(RecruitingCommitment).where(
+        RecruitingCommitment.tenant_id == user.tenant_id,
+        RecruitingCommitment.seat_id == seat.id,
+        RecruitingCommitment.week_start == week,
+        RecruitingCommitment.metric == metric))).scalars().first()
+    if row is None:
+        s.add(RecruitingCommitment(tenant_id=user.tenant_id, seat_id=seat.id, week_start=week,
+                                   metric=metric, commit=value))
+    else:
+        row.commit = value
+    audit(s, user.tenant_id, user.id, "recruiting.commitment", category="Recruiting",
+          target_type="recruiting_seat", target_id=str(seat.id),
+          summary=f"{seat.display_name}: {metric} {value} for week of {week}")
+    await s.commit()
+    return {"ok": True, "week_start": week.isoformat()}
+
+
+def recruiting_accountability_tz():
+    from ..services.recruiting_rules import business_tz
+    return business_tz()

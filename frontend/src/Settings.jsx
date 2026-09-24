@@ -2394,6 +2394,7 @@ function RecruitingPage() {
         </div>
       </Card>
 
+      <RecruitingGoals live={live} />
       <RecruitingRules data={data} draft={draft} setDraft={(d) => { setDraft(d); setSaved(false); }} live={live} />
       <RecruitingTemplates data={data} draft={draft} setDraft={(d) => { setDraft(d); setSaved(false); }} live={live} />
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2415,6 +2416,150 @@ function RecruitingPage() {
    are all arrive in `rule_meta`, because the engine owns them. A form that carried its own copy
    would keep refusing a value the server had started accepting, and nobody would know which half
    was wrong. */
+/* Settings › Recruiting › Goals (RECRUITING-SPEC §9 Phase 5, D7).
+ *
+ * A GOAL IS A MONTH AND AN OWNER SETS IT; a commitment is a week and the person doing the work
+ * sets it, on the tab. Keeping them in different places is not tidiness — a tool that let an
+ * owner type somebody's weekly commitment would have turned a commitment into an assignment,
+ * and the word for an assignment is goal.
+ *
+ * Per period, so setting October cannot change what September was judged against. A verdict
+ * that moves after the fact is not a verdict.
+ */
+function RecruitingGoals({ live }) {
+  const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
+  const [data, setData] = useState(null);
+  const [draft, setDraft] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const load = useCallback(() => {
+    if (!live) { setData(GOALS_SAMPLE); setDraft(flatten(GOALS_SAMPLE)); return; }
+    getJSON(`/ulrg/recruiting/goals?period=${period}`)
+      .then((d) => { setData(d); setDraft(flatten(d)); })
+      .catch(() => setErr("Couldn't load the goals."));
+  }, [live, period]);
+  useEffect(load, [load]);
+
+  function flatten(d) {
+    const out = {};
+    for (const [metric, value] of Object.entries(d.team || {})) out[`team:${metric}`] = value;
+    for (const seat of d.seats || []) {
+      for (const [metric, value] of Object.entries(seat.goals || {})) out[`${seat.seat_id}:${metric}`] = value;
+    }
+    return out;
+  }
+
+  const set = (key) => (e) => {
+    setDraft({ ...draft, [key]: e.target.value === "" ? "" : Number(e.target.value) });
+    setSaved(false);
+  };
+
+  async function save() {
+    setBusy(true); setErr(null);
+    try {
+      const entries = Object.entries(draft).map(([key, goal]) => {
+        const [who, metric] = key.split(":");
+        return { seat_id: who === "team" ? null : who, metric, goal: goal === "" ? null : goal };
+      });
+      await putJSON("/ulrg/recruiting/goals", { period_key: data.period.key, entries });
+      setSaved(true);
+      load();
+    } catch (e) {
+      setErr(String(e?.message || e) || "Couldn't save.");
+    } finally { setBusy(false); }
+  }
+
+  if (!data) return null;
+  const num = { width: 88, boxSizing: "border-box", fontFamily: "var(--font-data)", fontSize: 13,
+                color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 7,
+                padding: "6px 8px" };
+
+  /* Which metrics a seat is even asked about. An SDR has no signing target and a Team Leader has
+     no dial target, and showing both to both would be a form that teaches people to skip fields. */
+  const metricsFor = (role) => (role === "sdr"
+    ? ["booked", "show_rate", "dials", "convos"]
+    : ["signed"]);
+
+  return (
+    <Card>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Goals</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4, lineHeight: 1.5 }}>
+            The monthly targets the hero and the leaderboard are judged against. Weekly commitments
+            are set by the people doing the work, on the tab itself.
+          </div>
+        </div>
+        <span style={{ flex: 1 }} />
+        <label style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate }}>
+          Period{" "}
+          <input type="month" value={period} disabled={!live}
+                 onChange={(e) => { setPeriod(e.target.value); setSaved(false); }}
+                 style={{ ...num, width: 140, marginLeft: 6 }} />
+        </label>
+      </div>
+
+      <div style={{ marginTop: 16, borderTop: `1px solid ${T.line}`, paddingTop: 12,
+                    display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.ink, flex: "1 1 180px" }}>
+          Team · signings this month
+        </span>
+        <input type="number" min="0" style={num} disabled={!live}
+               value={draft["team:signed"] ?? ""} onChange={set("team:signed")} />
+      </div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+        The team target and the seat targets are allowed to differ. An owner may carry a number the
+        splits do not add up to, and the tab shows both rather than quietly reconciling them.
+      </div>
+
+      {(data.seats || []).map((seat) => (
+        <div key={seat.seat_id} style={{ borderTop: `1px solid ${T.line}`, marginTop: 12, paddingTop: 12 }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.ink }}>
+            {seat.name} <span style={{ fontWeight: 400, color: T.muted }}>· {seat.role === "sdr" ? "SDR" : "Team Leader"}</span>
+          </div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 8 }}>
+            {metricsFor(seat.role).map((metric) => (
+              <label key={metric} style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>
+                <span style={{ display: "block", marginBottom: 3 }}>
+                  {metric === "show_rate" ? "show rate %" : metric}
+                </span>
+                <input type="number" min="0" style={num} disabled={!live}
+                       value={draft[`${seat.seat_id}:${metric}`] ?? ""}
+                       onChange={set(`${seat.seat_id}:${metric}`)} />
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {(data.seats || []).length === 0 && (
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 14 }}>
+          No seats yet. Add them in the Roster below, then come back and give them a number.
+        </div>
+      )}
+
+      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
+        <SBtn kind="primary" disabled={!live || busy} onClick={save}>{busy ? "Saving…" : `Save ${data.period.label} goals`}</SBtn>
+        {saved && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.meadowInk }}>Saved.</span>}
+      </div>
+    </Card>
+  );
+}
+
+const GOALS_SAMPLE = {
+  period: { key: "2026-09", label: "September" },
+  metrics: ["signed", "booked", "show_rate", "dials", "convos"],
+  team: { signed: 9 },
+  seats: [
+    { seat_id: "s1", name: "Jenna Ruiz", role: "team_leader", goals: { signed: 3 } },
+    { seat_id: "s2", name: "Marcus Bell", role: "team_leader", goals: { signed: 3 } },
+    { seat_id: "s3", name: "Cole Whittaker", role: "sdr", goals: { booked: 24, show_rate: 75 } },
+  ],
+};
+
 function RecruitingRules({ data, draft, setDraft, live }) {
   const meta = data.rule_meta || [];
   const rules = draft.rules || {};

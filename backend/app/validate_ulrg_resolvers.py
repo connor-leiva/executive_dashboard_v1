@@ -39,6 +39,20 @@ def _resolver_for(group_key: str, name: str) -> str | None:
     until validated). Overall homes → business-wide; each team's Homes-Sold / Under-Contract /
     Appointments-Met / Clients-Signed → per-team."""
     n = name.lower()
+    # Recruiting (§8). Matched before the team branches because these are BOARD rows, not
+    # per-office ones -- and matched on "recruit" first so "Recruiting Appointments Met" never
+    # reaches the Sisu appointments resolver below, which counts client appointments and would
+    # have produced a confidently wrong number.
+    if "recruit" in n:
+        if "lead" in n:
+            return "ghl_recruiting_new"
+        if "booked" in n:
+            return "ghl_recruiting_booked"
+        if "met" in n or "appt" in n or "appointment" in n:
+            return "ghl_recruiting_held"
+        if "qtd" in n or "agents recruited" in n:
+            return "ghl_recruiting_signed_qtd"
+        return None
     if "sympli" in n and ("attach" in n or "mortgage" in n):
         return "ulrg_team_sympli_attach"                    # per-office AND overall (resolver handles both)
     if "meraki" in n:

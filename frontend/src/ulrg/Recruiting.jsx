@@ -15,7 +15,7 @@
  * blank card that cannot tell them apart gets read as "we recruited nobody".
  */
 import { useState } from "react";
-import { postJSON } from "../api.js";
+import { postJSON, putJSON } from "../api.js";
 import { Bar, Card, Chip, Eyebrow } from "./Parts.jsx";
 import { C, FB, FD, FM, band, verdictStyle } from "./scorecardMath.js";
 import { useCandidate, useRecruiting } from "./useRecruiting.js";
@@ -403,7 +403,7 @@ const ACTION_LABEL = { text: "Text", call: "Call", email: "Email", book: "Book" 
 
 /* ── 3. The SDR card ────────────────────────────────────────────────────────────────────── */
 
-function SdrCard({ data }) {
+function SdrCard({ data, onChanged }) {
   const { sdr, unavailable } = data;
   if (!sdr) {
     return (
@@ -425,9 +425,25 @@ function SdrCard({ data }) {
       </div>
       <MetricLine label="Appointments booked" when="this month" actual={m.booked} commit={m.goal} />
       <MetricLine label="Appointments held" when="this month" actual={m.held} commit={null} />
-      <div style={{ marginTop: 12 }}>
-        <NotYet>{unavailable?.sdr_week || unavailable?.commitments}</NotYet>
-      </div>
+      {(sdr.week || []).map((row) => (
+        <WeekLine key={row.key} row={row} seatId={sdr.seat_id}
+                  editable={data.viewer.is_admin || data.viewer.seat_id === sdr.seat_id}
+                  onChanged={onChanged} />
+      ))}
+      {sdr.speed_to_lead && (
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, paddingTop: 10 }}>
+          <span style={{ fontFamily: FB, fontSize: 12.5, color: C.body, flex: 1 }}>Speed to lead</span>
+          <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted }}>median, this month</span>
+          <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 600,
+                         color: sdr.speed_to_lead.median_minutes > (sdr.speed_to_lead.goal_minutes || 15)
+                           ? C.poppyInk : C.meadowInk }}>
+            {sdr.speed_to_lead.median_minutes} min
+          </span>
+        </div>
+      )}
+      {!sdr.speed_to_lead && unavailable?.speed_to_lead && (
+        <div style={{ marginTop: 12 }}><NotYet>{unavailable.speed_to_lead}</NotYet></div>
+      )}
       <div style={{ marginTop: 16 }}>
         <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: ".07em", textTransform: "uppercase",
                       color: C.muted, borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
@@ -465,6 +481,27 @@ function SlotCell({ kind }) {
   return <span style={{ flex: "1 1 0", minWidth: 0, height: 14, borderRadius: 3, ...look }} />;
 }
 
+/* −/+ on a weekly commitment. Writes straight through and re-fetches, rather than holding a
+   local number: a commitment somebody else changed while you were looking at it should win, and
+   optimistic UI on a shared target is how two people end up sure of different numbers. */
+function Stepper({ value, onSet, disabled, step = 1 }) {
+  const btn = {
+    width: 16, height: 16, lineHeight: "14px", borderRadius: 4, border: `1px solid ${C.hair}`,
+    background: C.surface, color: C.slate, fontFamily: FM, fontSize: 11, padding: 0,
+    cursor: disabled ? "default" : "pointer",
+  };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <button type="button" style={btn} disabled={disabled || (value || 0) <= 0}
+              onClick={() => onSet(Math.max(0, (value || 0) - step))} aria-label="Less">−</button>
+      <span style={{ fontFamily: FM, fontSize: 12, color: C.slate, minWidth: 14, textAlign: "center" }}>
+        {value ?? "–"}</span>
+      <button type="button" style={btn} disabled={disabled}
+              onClick={() => onSet((value || 0) + step)} aria-label="More">+</button>
+    </span>
+  );
+}
+
 function MetricLine({ label, when, actual, commit }) {
   const pct = commit ? Math.round((actual / commit) * 100) : null;
   return (
@@ -488,12 +525,112 @@ function MetricLine({ label, when, actual, commit }) {
 
 /* ── 4. Team Leader commitments ─────────────────────────────────────────────────────────── */
 
-function Commitments({ data }) {
+function WeekLine({ row, seatId, editable, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  async function set(value) {
+    if (!API_LIVE) return;
+    setBusy(true);
+    try {
+      await putJSON("/ulrg/recruiting/commitments",
+                    { seat_id: seatId, metric: row.key, commit: value });
+      onChanged();
+    } finally { setBusy(false); }
+  }
+  return (
+    <div style={{ padding: "9px 0", borderBottom: `1px solid ${C.hairSoft}` }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontFamily: FB, fontSize: 12.5, color: C.body, minWidth: 0, flex: 1 }}>{row.label}</span>
+        <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{row.when}</span>
+        <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+                       color: row.band_pct === null || row.band_pct === undefined
+                         ? C.ink : (band(row.band_pct) || {}).ink }}>
+          {row.actual}{row.commit ? ` / ${row.commit}` : ""}
+        </span>
+        {editable && <Stepper value={row.commit} onSet={set} disabled={busy || !API_LIVE}
+                              step={row.key === "dials" ? 5 : 1} />}
+      </div>
+      <div style={{ marginTop: 6, height: 4 }}>
+        {row.band_pct === null || row.band_pct === undefined
+          ? <div style={{ height: 4, borderRadius: 99, background: C.hairSoft }} />
+          : <Bar pct={row.band_pct} />}
+      </div>
+    </div>
+  );
+}
+
+function Commitments({ data, onChanged }) {
+  const c = data.commitments;
+  if (!c) {
+    return (
+      <Card>
+        <SectionTitle>Team Leader commitments</SectionTitle>
+        <NotYet>{data.unavailable?.commitments}</NotYet>
+      </Card>
+    );
+  }
+  const weekLabel = new Date(`${c.week_start}T12:00:00`).toLocaleDateString(undefined,
+    { month: "short", day: "numeric" });
   return (
     <Card>
-      <SectionTitle>Team Leader commitments</SectionTitle>
-      <NotYet>{data.unavailable?.commitments}</NotYet>
+      <SectionTitle meta={`Week of ${weekLabel} · day ${c.day} of ${c.of}`}>
+        Team Leader commitments
+      </SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 96px 96px", gap: 10,
+                    fontFamily: FM, fontSize: 9, letterSpacing: ".07em", textTransform: "uppercase",
+                    color: C.muted, borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
+        <span>Team Leader</span><span>Appts held</span><span>Offers sent</span>
+      </div>
+      {c.team_leaders.map((row) => (
+        <div key={row.seat_id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 96px 96px",
+                                        gap: 10, alignItems: "center", padding: "10px 0",
+                                        borderBottom: `1px solid ${C.hairSoft}` }}>
+          <span style={{ minWidth: 0, fontFamily: FB, fontSize: 12.5, color: C.ink, overflow: "hidden",
+                         textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {row.first}{data.viewer.seat_id === row.seat_id
+              ? <b style={{ fontWeight: 600, color: C.slate }}> (you)</b> : ""}
+          </span>
+          {["held", "offers"].map((metric) => (
+            <CommitCell key={metric} cell={row[metric]} metric={metric} seatId={row.seat_id}
+                        editable={row.editable} onChanged={onChanged} />
+          ))}
+        </div>
+      ))}
+      <div style={{ background: C.parchment, borderRadius: 9, marginTop: 12, padding: "10px 13px",
+                    fontFamily: FB, fontSize: 12, color: C.slate, lineHeight: 1.5 }}>
+        <b style={{ fontWeight: 600, color: C.ink }}>
+          {c.rollup.held} held, {c.rollup.booked} booked this week.</b>{" "}
+        Both roll into the L10 Scorecard on Monday as {c.rollup.scorecard.join(" and ")}.
+      </div>
     </Card>
+  );
+}
+
+function CommitCell({ cell, metric, seatId, editable, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  async function set(value) {
+    if (!API_LIVE) return;
+    setBusy(true);
+    try {
+      await putJSON("/ulrg/recruiting/commitments", { seat_id: seatId, metric, commit: value });
+      onChanged();
+    } finally { setBusy(false); }
+  }
+  return (
+    <span style={{ minWidth: 0 }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontFamily: FM, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap",
+                       color: cell.band_pct === null || cell.band_pct === undefined
+                         ? C.ink : (band(cell.band_pct) || {}).ink }}>
+          {cell.actual}{cell.commit ? ` / ${cell.commit}` : ""}
+        </span>
+        {editable && <Stepper value={cell.commit} onSet={set} disabled={busy || !API_LIVE} />}
+      </span>
+      <span style={{ display: "block", marginTop: 5 }}>
+        {cell.band_pct === null || cell.band_pct === undefined
+          ? <span style={{ display: "block", height: 4, borderRadius: 99, background: C.hairSoft }} />
+          : <Bar pct={cell.band_pct} w={72} />}
+      </span>
+    </span>
   );
 }
 
@@ -509,16 +646,16 @@ function Leaderboard({ data }) {
         <NotYet>No Team Leader seats yet. Add them in Settings › Recruiting.</NotYet>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <div style={{ minWidth: 520 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "22px minmax(150px,1fr) 128px 48px 64px",
+          <div style={{ minWidth: 560 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "22px minmax(150px,1fr) 128px 48px 64px 70px",
                           gap: 8, fontFamily: FM, fontSize: 9, letterSpacing: ".07em",
                           textTransform: "uppercase", color: C.muted,
                           borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
-              <span>#</span><span>Team Leader</span><span>Signed</span><span>Held</span><span>Close</span>
+              <span>#</span><span>Team Leader</span><span>Signed</span><span>Held</span><span>Close</span><span>Queue</span>
             </div>
             {rows.map((r) => (
               <div key={r.seat_id} style={{ display: "grid",
-                     gridTemplateColumns: "22px minmax(150px,1fr) 128px 48px 64px", gap: 8,
+                     gridTemplateColumns: "22px minmax(150px,1fr) 128px 48px 64px 70px", gap: 8,
                      alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.hairSoft}`,
                      background: r.seat_id === mine ? C.daffodilBg : "transparent" }}>
                 <span style={{ fontFamily: FD, fontSize: 14, fontWeight: 700,
@@ -549,6 +686,10 @@ function Leaderboard({ data }) {
                                color: r.close_rate_90d === null || r.close_rate_90d === undefined ? C.muted
                                  : r.close_rate_90d < 25 ? C.poppyInk : C.body }}>
                   {r.close_rate_90d === null || r.close_rate_90d === undefined ? "–" : `${r.close_rate_90d}%`}
+                </span>
+                <span style={{ fontFamily: FM, fontSize: 12.5, whiteSpace: "nowrap",
+                               color: r.queue && r.queue.done >= r.queue.total ? C.meadowInk : C.body }}>
+                  {r.queue ? `${r.queue.done} of ${r.queue.total}` : "–"}
                 </span>
               </div>
             ))}
@@ -802,8 +943,8 @@ export default function Recruiting() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
         <div style={{ flex: "2 1 580px", minWidth: 0 }}><DoNext data={view} onChanged={reload} /></div>
         <div style={{ flex: "1 1 340px", minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
-          <SdrCard data={view} />
-          <Commitments data={view} />
+          <SdrCard data={view} onChanged={reload} />
+          <Commitments data={view} onChanged={reload} />
         </div>
       </div>
 
@@ -887,15 +1028,16 @@ const SAMPLE = {
     { seat_id: "s2", name: "Marcus Bell", first: "Marcus", initials: "MB", role: "team_leader", title: "Team Leader · Sandy" },
     { seat_id: "s3", name: "Cole Whittaker", first: "Cole", initials: "CW", role: "sdr", title: "SDR" },
   ],
-  goal: { scope: "team", signed: 5, goal: null, pace: null, pace_pct: null, verdict: null, need: null,
-          split: null,
+  goal: { scope: "team", signed: 5, goal: 9, pace: 6.5, pace_pct: 72, verdict: "stretch", need: 4,
+          split: [{ seat_id: "s1", name: "Jenna Ruiz", first: "Jenna", goal: 3 },
+                  { seat_id: "s2", name: "Marcus Bell", first: "Marcus", goal: 3 }],
           signings: [
             { candidate_id: "c1", name: "Kara Whitfield", initials: "KW", occurred_on: "2026-09-04", seat_id: "s1" },
             { candidate_id: "c2", name: "Devon Pierce", initials: "DP", occurred_on: "2026-09-09", seat_id: "s1" },
             { candidate_id: "c3", name: "Alina Ross", initials: "AR", occurred_on: "2026-09-12", seat_id: "s2" },
             { candidate_id: "c4", name: "Ben Ortiz", initials: "BO", occurred_on: "2026-09-18", seat_id: "s2" },
             { candidate_id: "c5", name: "Sam Ndiaye", initials: "SN", occurred_on: "2026-09-22", seat_id: "s1" }] },
-  path: { line: "2 offers out · 1 met and deciding. 5 signed so far this month.",
+  path: { line: "Closing every offer out gets you to 7. 2 more from Met gets you to 9.",
           rows: [
             { candidate_id: "c6", name: "Sunny Kaur", stage: "Offer out", days: 7, brokerage: "Summit Ridge Group",
               owner_initials: "MB", owner_seat_id: "s2", status: { label: null, tone: "mute" } },
@@ -904,8 +1046,13 @@ const SAMPLE = {
             { candidate_id: "c8", name: "Priya Raman", stage: "Met", days: 11, brokerage: "Lakeline Realty",
               owner_initials: "MB", owner_seat_id: "s2", status: { label: null, tone: "mute" } }] },
   sdr: { seat_id: "s3", name: "Cole Whittaker", first: "Cole", initials: "CW", role: "sdr", title: "SDR",
-         month: { booked: 17, held: 12, show_rate: 71, goal: null, pace: null, show_goal: null, verdict: null },
-         week: null, speed_to_lead: null,
+         month: { booked: 17, held: 12, show_rate: 71, goal: 24, pace: 22, show_goal: 75,
+                  verdict: "stretch", need: 7 },
+         week: [{ key: "booked", label: "Appointments booked", when: "this week", actual: 5, commit: 8, band_pct: 104 },
+                { key: "held", label: "Appointments held", when: "this week", actual: 3, commit: 5, band_pct: 100 },
+                { key: "dials", label: "Dials", when: "this week", actual: 42, commit: 60, band_pct: 117 },
+                { key: "convos", label: "Conversations", when: "this week", actual: 9, commit: 15, band_pct: 100 }],
+         speed_to_lead: { median_minutes: 112, n: 14, untouched: 3, goal_minutes: 15 },
          by_calendar: [
            { seat_id: "s1", name: "Jenna Ruiz", first: "Jenna", initials: "JR", role: "team_leader", title: null,
              cells: ["held", "held", "up", "open", "open", "open"], held: 2, booked: 3 },
@@ -941,14 +1088,25 @@ const SAMPLE = {
     cleared: [{ id: "q0", name: "Priya Raman", how: "Done",
                 at: new Date().toISOString(), undoable: true }],
   },
-  commitments: null,
+  commitments: {
+    week_start: "2026-09-21", day: 3, of: 5,
+    team_leaders: [
+      { seat_id: "s1", name: "Jenna Ruiz", first: "Jenna", initials: "JR", role: "team_leader",
+        title: "Team Leader · Draper", editable: true,
+        held: { actual: 3, commit: 4, band_pct: 125 }, offers: { actual: 1, commit: 2, band_pct: 83 } },
+      { seat_id: "s2", name: "Marcus Bell", first: "Marcus", initials: "MB", role: "team_leader",
+        title: "Team Leader · Sandy", editable: true,
+        held: { actual: 2, commit: 4, band_pct: 83 }, offers: { actual: 2, commit: 2, band_pct: 167 } },
+    ],
+    rollup: { held: 5, booked: 5, scorecard: ["Recruiting Appts Met", "Recruiting Appts Booked"] },
+  },
   leaderboard: [
     { seat_id: "s1", name: "Jenna Ruiz", first: "Jenna", initials: "JR", role: "team_leader",
-      title: "Team Leader · Draper", rank: 1, signed: 3, held_mtd: 8, goal: null, pace: null,
-      pace_pct: null, close_rate_90d: null, queue: null },
+      title: "Team Leader · Draper", rank: 1, signed: 3, held_mtd: 8, goal: 3, pace: 3.9,
+      pace_pct: 130, close_rate_90d: 38, queue: { done: 1, total: 2 } },
     { seat_id: "s2", name: "Marcus Bell", first: "Marcus", initials: "MB", role: "team_leader",
-      title: "Team Leader · Sandy", rank: 2, signed: 2, held_mtd: 6, goal: null, pace: null,
-      pace_pct: null, close_rate_90d: null, queue: null }],
+      title: "Team Leader · Sandy", rank: 2, signed: 2, held_mtd: 6, goal: 3, pace: 2.6,
+      pace_pct: 87, close_rate_90d: 22, queue: { done: 0, total: 2 } }],
   pipeline: { active: 22, nurture: 3, unmapped: 0, stages: [
     { label: "Sourced", owner_role: "sdr", n: 6, gci: 985000, stuck: 1, conv_90d: null },
     { label: "Appointment set", owner_role: "sdr", n: 5, gci: 740000, stuck: 0, conv_90d: null },
