@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Instrument+Sans:wght@400;500;600;700&family=Archivo:wght@400;500;600;700&display=swap">
+<style>
+:root{--font-display:"Space Grotesk","Helvetica Neue",Arial,sans-serif;--font-text:"Instrument Sans","Helvetica Neue",Arial,sans-serif;--font-data:Archivo,"Helvetica Neue",Arial,sans-serif}
+html,body{margin:0;background:#F2EDE6;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#1F6E72;text-decoration:none}
+a:hover{color:#002E2C;text-decoration:underline}
+button{font:inherit}
+textarea:focus,input:focus,select:focus{outline:2px solid #5F7D5A;outline-offset:1px}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#F2EDE6;padding:28px 26px 72px;font-family:var(--font-text);color:#3B4B44;">
+<div style="max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:16px;">
+
+  <div>
+    <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:#93A099;">ULRG + Team</div>
+    <div style="display:flex;gap:4px;border-bottom:1px solid #ECE6DC;margin-top:10px;flex-wrap:wrap;align-items:flex-end;">
+      <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:#93A099;padding:9px 15px 11px;">Overview</div>
+      <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:#93A099;padding:9px 15px 11px;">Scorecard</div>
+      <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:#002E2C;padding:9px 15px 11px;border-bottom:2.5px solid #5F7D5A;margin-bottom:-1px;">Recruiting</div>
+      <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:#93A099;padding:7px 15px 9px;line-height:1.2;"><div>Listing Team</div><div style="font-family:var(--font-text);font-size:10px;font-weight:500;margin-top:1px;">Dana Whitmore</div></div>
+      <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:#93A099;padding:7px 15px 9px;line-height:1.2;"><div>Buyer Team</div><div style="font-family:var(--font-text);font-size:10px;font-weight:500;margin-top:1px;color:#8A6414;">Unassigned</div></div>
+      <div style="margin-left:auto;display:flex;gap:14px;align-items:center;padding:0 2px 11px;font-family:var(--font-data);font-size:11px;color:#93A099;">
+        <span>{{ viewingAs }}</span>
+        <span>GHL synced 6 min ago</span>
+      </div>
+    </div>
+  </div>
+
+  <sc-if value="{{ heroClose }}" hint-placeholder-val="{{ true }}">
+  <div style="background:#FFFFFF;border:1px solid #ECE6DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,46,44,.04),0 8px 24px -18px rgba(0,46,44,.35);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));overflow:hidden;">
+    <div style="padding:22px 26px 24px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:#93A099;white-space:nowrap;">{{ heroEyebrow }}</div>
+        <span style="font-family:var(--font-data);font-size:8.5px;letter-spacing:.08em;padding:3px 6px;border-radius:4px;background:#FBF0D8;color:#8A6414;">STRETCH</span>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-top:8px;">
+        <span style="font-family:var(--font-display);font-size:60px;font-weight:700;line-height:1;color:#002E2C;letter-spacing:-.02em;">{{ heroSigned }}</span>
+        <span style="font-family:var(--font-display);font-size:20px;font-weight:500;color:#5C6B62;white-space:nowrap;">of {{ heroGoal }} signed</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:18px;">
+        <sc-for list="{{ heroTiles }}" as="t" hint-placeholder-count="9">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+            <button onClick="{{ t.onClick }}" title="{{ t.title }}" style="width:38px;height:44px;border-radius:6px;border:{{ t.border }};background:{{ t.bg }};color:#F4EFE7;font-family:var(--font-data);font-size:11px;cursor:{{ t.cursor }};padding:0;" style-hover="transform:translateY(-2px);">{{ t.label }}</button>
+            <span style="font-size:10px;line-height:1;height:10px;color:{{ paceBar }};">{{ t.caret }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap;">
+        <div style="position:relative;width:180px;height:9px;background:#F6F2EB;border-radius:99px;overflow:hidden;">
+          <div style="width:{{ paceW }};height:100%;background:{{ paceBar }};border-radius:99px;"></div>
+          <div style="position:absolute;left:80%;top:0;width:1px;height:100%;background:#5C6B62;opacity:.4;"></div>
+        </div>
+        <div style="flex:1 1 220px;font-size:13px;line-height:1.45;color:#3B4B44;"><b style="font-family:var(--font-data);font-weight:600;color:{{ paceInk }};">On pace for {{ heroPace }} of {{ heroGoal }}.</b> {{ heroNeedLine }}</div>
+      </div>
+      <div style="font-size:12px;color:#5C6B62;margin-top:10px;">{{ heroTeamLine }}</div>
+    </div>
+    <div style="padding:22px 26px 24px;background:#F8F5F2;border-left:1px solid #ECE6DC;">
+      <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:#93A099;">Path to {{ heroGoal }}</div>
+      <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:#002E2C;margin-top:8px;line-height:1.35;text-wrap:pretty;">{{ pathLine }}</div>
+      <div style="display:flex;flex-direction:column;margin-top:14px;border-top:1px solid #ECE6DC;">
+        <sc-for list="{{ pathRows }}" as="p" hint-placeholder-count="5">
+          <button onClick="{{ p.onClick }}" style="display:grid;grid-template-columns:minmax(0,1fr) auto 24px;gap:12px;align-items:center;padding:9px 4px;border:none;border-bottom:1px solid #ECE6DC;background:transparent;text-align:left;cursor:pointer;" style-hover="background:#FFFFFF;">
+            <span style="min-width:0;">
+              <span style="display:block;font-family:var(--font-display);font-size:13px;font-weight:600;color:#002E2C;">{{ p.name }}</span>
+              <span style="display:block;font-family:var(--font-data);font-size:10.5px;color:#93A099;margin-top:1px;">{{ p.meta }}</span>
+            </span>
+            <span style="font-family:var(--font-data);font-size:10px;letter-spacing:.02em;padding:3px 7px;border-radius:4px;background:{{ p.bg }};color:{{ p.ink }};white-space:nowrap;">{{ p.status }}</span>
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:99px;font-family:var(--font-data);font-size:9px;background:#DCE7E9;color:#1F6E72;">{{ p.ini }}</span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ heroBook }}" hint-placeholder-val="{{ false }}">
+  <div style="background:#FFFFFF;border:1px solid #ECE6DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,46,44,.04),0 8px 24px -18px rgba(0,46,44,.35);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));overflow:hidden;">
+    <div style="padding:22px 26px 24px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:#93A099;white-space:nowrap;">Your September · 7 days left</div>
+        <span style="font-family:var(--font-data);font-size:8.5px;letter-spacing:.08em;padding:3px 6px;border-radius:4px;background:{{ sb.verdictBg }};color:{{ sb.verdictInk }};">{{ sb.verdict }}</span>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-top:8px;">
+        <span style="font-family:var(--font-display);font-size:60px;font-weight:700;line-height:1;color:#002E2C;letter-spacing:-.02em;">{{ sb.booked }}</span>
+        <span style="font-family:var(--font-display);font-size:20px;font-weight:500;color:#5C6B62;white-space:nowrap;">of {{ sb.goal }} booked</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:20px;max-width:440px;">
+        <sc-for list="{{ sb.bars }}" as="b" hint-placeholder-count="2">
+          <div>
+            <div style="display:flex;align-items:baseline;gap:8px;font-size:12.5px;color:#3B4B44;">
+              <span style="font-weight:600;color:#002E2C;">{{ b.label }}</span>
+              <span style="font-family:var(--font-data);color:{{ b.ink }};font-weight:600;">{{ b.val }}</span>
+              <span style="margin-left:auto;font-family:var(--font-data);font-size:11px;color:#93A099;white-space:nowrap;">{{ b.note }}</span>
+            </div>
+            <div style="position:relative;height:9px;background:#F6F2EB;border-radius:99px;overflow:hidden;margin-top:6px;">
+              <div style="width:{{ b.w }};height:100%;background:{{ b.bar }};border-radius:99px;"></div>
+              <div style="position:absolute;left:80%;top:0;width:1px;height:100%;background:#5C6B62;opacity:.4;"></div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size:13px;line-height:1.45;color:#3B4B44;margin-top:14px;"><b style="font-family:var(--font-data);font-weight:600;color:{{ sb.paceInk }};">On pace for {{ sb.pace }} of {{ sb.goal }}.</b> {{ sb.needLine }}</div>
+    </div>
+    <div style="padding:22px 26px 24px;background:#F8F5F2;border-left:1px solid #ECE6DC;">
+      <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:#93A099;">Where to book</div>
+      <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:#002E2C;margin-top:8px;line-height:1.35;text-wrap:pretty;">{{ sb.whereLine }}</div>
+      <div style="display:flex;flex-direction:column;margin-top:14px;border-top:1px solid #ECE6DC;">
+        <sc-for list="{{ calRows }}" as="c" hint-placeholder-count="3">
+          <div style="padding:10px 4px;border-bottom:1px solid #ECE6DC;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:99px;font-family:var(--font-data);font-size:9px;background:#DCE7E9;color:#1F6E72;">{{ c.ini }}</span>
+              <span style="font-family:var(--font-display);font-size:13px;font-weight:600;color:#002E2C;">{{ c.name }}</span>
+              <sc-if value="{{ c.next }}" hint-placeholder-val="{{ false }}"><span style="font-family:var(--font-data);font-size:9px;letter-spacing:.08em;padding:3px 6px;border-radius:4px;background:#E7EFE5;color:#4F6A4D;">NEXT UP</span></sc-if>
+              <span style="margin-left:auto;font-family:var(--font-data);font-size:11px;color:#5C6B62;white-space:nowrap;">{{ c.summary }}</span>
+            </div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;padding-left:33px;">
+              <sc-for list="{{ c.slots }}" as="s" hint-placeholder-count="3">
+                <span style="font-family:var(--font-data);font-size:11px;padding:4px 8px;border-radius:6px;background:#FFFFFF;border:1px solid #ECE6DC;color:#002E2C;">{{ s }}</span>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;">
+    <div style="flex:2 1 580px;min-width:0;background:#FFFFFF;border:1px solid #ECE6DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,46,44,.04),0 8px 24px -18px rgba(0,46,44,.35);">
+      <div style="padding:18px 20px 12px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+        <div style="flex:1 1 240px;">
+          <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:#002E2C;">{{ queueTitle }}</div>
+          <div style="font-size:12.5px;color:#5C6B62;margin-top:3px;">Built each morning from the rules in Settings. Texts, calls, emails and bookings sent from here are logged to GHL.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:110px;height:6px;background:#F6F2EB;border-radius:99px;overflow:hidden;"><div style="width:{{ qProgW }};height:100%;background:#5F7D5A;border-radius:99px;"></div></div>
+          <span style="font-family:var(--font-data);font-size:12px;color:#002E2C;">{{ qDone }} of {{ qTotal }} cleared</span>
+        </div>
+      </div>
+      <sc-if value="{{ showOwnerFilter }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;padding:0 20px 12px;">
+          <sc-for list="{{ ownerChips }}" as="o" hint-placeholder-count="5">
+            <button onClick="{{ o.onClick }}" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:5px 10px;border-radius:99px;border:1px solid {{ o.border }};background:{{ o.bg }};color:{{ o.ink }};cursor:pointer;white-space:nowrap;">{{ o.label }}<span style="font-family:var(--font-data);font-size:10.5px;opacity:.75;">{{ o.n }}</span></button>
+          </sc-for>
+        </div>
+      </sc-if>
+      <div style="border-top:1px solid #ECE6DC;">
+        <sc-for list="{{ queueRows }}" as="q" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:92px minmax(0,1fr) auto;gap:14px;align-items:center;padding:13px 20px;border-bottom:1px solid #F6F2EB;cursor:pointer;" style-hover="background:#F8F5F2;" onClick="{{ q.onOpen }}">
+            <div>
+              <span style="display:inline-block;font-family:var(--font-data);font-size:10px;letter-spacing:.03em;padding:3px 7px;border-radius:4px;background:{{ q.dueBg }};color:{{ q.dueInk }};white-space:nowrap;">{{ q.due }}</span>
+            </div>
+            <div style="min-width:0;">
+              <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
+                <span style="font-family:var(--font-display);font-size:14px;font-weight:600;color:#002E2C;">{{ q.name }}</span>
+                <span style="font-family:var(--font-data);font-size:10.5px;color:#93A099;white-space:nowrap;">{{ q.meta }}</span>
+              </div>
+              <div style="font-size:12.5px;color:#3B4B44;margin-top:3px;text-wrap:pretty;">{{ q.why }}</div>
+              <div style="display:flex;align-items:center;gap:4px 8px;margin-top:6px;flex-wrap:wrap;">
+                <span style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:#1F6E72;white-space:nowrap;">{{ q.rule }}</span>
+                <sc-if value="{{ q.showOwner }}" hint-placeholder-val="{{ true }}">
+                  <span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#5C6B62;white-space:nowrap;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:99px;font-family:var(--font-data);font-size:8px;background:{{ q.avBg }};color:{{ q.avInk }};">{{ q.ini }}</span>{{ q.ownerFirst }}</span>
+                </sc-if>
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button onClick="{{ q.onAct }}" style="font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:7px;border:none;background:#002E2C;color:#F4EFE7;cursor:pointer;white-space:nowrap;" style-hover="background:#1F6E72;">{{ q.actLabel }}</button>
+              <button onClick="{{ q.onSnooze }}" title="Snooze to tomorrow" style="font-size:12px;padding:7px 10px;border-radius:7px;border:1px solid #ECE6DC;background:#FFFFFF;color:#5C6B62;cursor:pointer;" style-hover="border-color:#93A099;">Tomorrow</button>
+              <button onClick="{{ q.onDone }}" title="Mark done" style="width:32px;height:32px;border-radius:99px;border:1px solid #ECE6DC;background:#FFFFFF;color:#5F7D5A;cursor:pointer;font-size:14px;line-height:1;" style-hover="background:#E7EFE5;border-color:#5F7D5A;">✓</button>
+            </div>
+          </div>
+        </sc-for>
+        <sc-if value="{{ queueEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:28px 20px;text-align:center;">
+            <div style="font-family:var(--font-display);font-size:15px;font-weight:600;color:#4F6A4D;">Queue cleared.</div>
+            <div style="font-size:12.5px;color:#5C6B62;margin-top:4px;">Tomorrow's list builds at 6:00 am.</div>
+          </div>
+        </sc-if>
+      </div>
+      <sc-if value="{{ hasCleared }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:12px 20px 16px;background:#F8F5F2;border-radius:0 0 14px 14px;">
+          <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#93A099;margin-bottom:6px;">Cleared today</div>
+          <sc-for list="{{ clearedRows }}" as="d" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px;">
+              <span style="color:#5F7D5A;">✓</span>
+              <span style="color:#002E2C;">{{ d.name }}</span>
+              <span style="font-family:var(--font-data);font-size:11px;color:#93A099;">{{ d.how }}</span>
+              <button onClick="{{ d.onUndo }}" style="margin-left:auto;border:none;background:none;color:#1F6E72;font-size:12px;cursor:pointer;padding:0;">Undo</button>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="flex:1 1 340px;display:flex;flex-direction:column;gap:16px;min-width:0;">
+      <div style="background:#FFFFFF;border:1px solid #ECE6DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,46,44,.04),0 8px 24px -18px rgba(0,46,44,.35);padding:18px 20px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:99px;font-family:var(--font-data);font-size:10.5px;background:#FFF8D4;color:#8A6414;">CW</span>
+          <div style="min-width:0;">
+            <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:#002E2C;">{{ sdrTitle }}</div>
+            <div style="font-size:11.5px;color:#5C6B62;">SDR · books for Team Leaders</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;display:flex;flex-direction:column;">
+          <sc-for list="{{ sdrRows }}" as="r" hint-placeholder-count="4">
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:8px 0;border-bottom:1px solid #F6F2EB;">
+              <div style="min-width:0;">
+                <div style="font-size:12.5px;color:#002E2C;">{{ r.label }}</div>
+                <div style="font-family:var(--font-data);font-size:10px;color:#93A099;">{{ r.when }}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;font-family:var(--font-data);font-size:12.5px;color:#002E2C;">
+                <span style="color:{{ r.ink }};font-weight:600;">{{ r.a }}</span><span style="color:#93A099;">/</span>
+                <sc-if value="{{ r.editable }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.down }}" style="width:16px;height:16px;border-radius:4px;border:1px solid #ECE6DC;background:#FFFFFF;color:#5C6B62;font-size:11px;line-height:1;padding:0;cursor:pointer;">−</button></sc-if>
+                <span>{{ r.c }}</span>
+                <sc-if value="{{ r.editable }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.up }}" style="width:16px;height:16px;border-radius:4px;border:1px solid #ECE6DC;background:#FFFFFF;color:#5C6B62;font-size:11px;line-height:1;padding:0;cursor:pointer;">+</button></sc-if>
+              </div>
+              <div style="grid-column:1 / -1;height:4px;background:#F6F2EB;border-radius:99px;overflow:hidden;"><div style="width:{{ r.w }};height:100%;background:{{ r.bar }};"></div></div>
+            </div>
+          </sc-for>
+          <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0 2px;">
+            <span style="font-size:12.5px;color:#002E2C;">Speed to lead</span>
+            <span style="font-family:var(--font-data);font-size:10px;color:#93A099;">median, this month</span>
+            <span style="margin-left:auto;font-family:var(--font-data);font-size:12.5px;font-weight:600;color:#B85434;white-space:nowrap;">1 hr 52 min</span>
+            <span style="font-family:var(--font-data);font-size:11px;color:#93A099;white-space:nowrap;">goal 15 min</span>
+          </div>
+        </div>
+        <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#93A099;margin:16px 0 8px;">Booked this week, by calendar</div>
+        <div style="display:flex;flex-direction:column;gap:7px;">
+          <sc-for list="{{ handoffRows }}" as="h" hint-placeholder-count="3">
+            <div style="display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:10px;align-items:center;">
+              <span style="font-size:12.5px;color:#002E2C;">{{ h.first }}</span>
+              <div style="display:flex;gap:3px;">
+                <sc-for list="{{ h.cells }}" as="x" hint-placeholder-count="6"><span style="flex:1;height:14px;border-radius:3px;background:{{ x.bg }};border:{{ x.border }};"></span></sc-for>
+              </div>
+              <span style="font-family:var(--font-data);font-size:10.5px;color:#5C6B62;white-space:nowrap;">{{ h.summary }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:8px;font-family:var(--font-data);font-size:10px;color:#93A099;">
+          <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:2px;background:#5F7D5A;"></span>held</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:2px;background:#DCE7E9;"></span>coming up</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:2px;background:#FBE7E1;"></span>no-show</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:2px;border:1px dashed #DCD2C2;"></span>open</span>
+        </div>
+      </div>
+
+      <div style="background:#FFFFFF;border:1px solid #ECE6DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,46,44,.04),0 8px 24px -18px rgba(0,46,44,.35);padding:18px 20px;">
+        <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:#002E2C;">Team Leader commitments</div>
+        <div style="font-family:var(--font-data);font-size:11px;color:#93A099;margin-top:3px;">Week of Sep 21 · Wednesday, day 3 of 5</div>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 96px 96px;gap:0 10px;margin-top:14px;align-items:center;">
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding-bottom:6px;border-bottom:1px solid #ECE6DC;">Team Leader</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding-bottom:6px;border-bottom:1px solid #ECE6DC;">Appts held</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding-bottom:6px;border-bottom:1px solid #ECE6DC;">Offers sent</span>
+          <sc-for list="{{ commitRows }}" as="r" hint-placeholder-count="3">
+            <span style="font-size:12.5px;color:#002E2C;padding:9px 0;border-bottom:1px solid #F6F2EB;font-weight:{{ r.weight }};">{{ r.name }}</span>
+            <div style="padding:9px 0;border-bottom:1px solid #F6F2EB;">
+              <div style="display:flex;align-items:center;gap:4px;font-family:var(--font-data);font-size:12px;color:#002E2C;">
+                <span style="color:{{ r.aInk }};font-weight:600;">{{ r.aA }}</span><span style="color:#93A099;">/</span>
+                <sc-if value="{{ r.editable }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.aDown }}" style="width:16px;height:16px;border-radius:4px;border:1px solid #ECE6DC;background:#FFFFFF;color:#5C6B62;font-size:11px;line-height:1;padding:0;cursor:pointer;">−</button></sc-if>
+                <span>{{ r.aC }}</span>
+                <sc-if value="{{ r.editable }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.aUp }}" style="width:16px;height:16px;border-radius:4px;border:1px solid #ECE6DC;background:#FFFFFF;color:#5C6B62;font-size:11px;line-height:1;padding:0;cursor:pointer;">+</button></sc-if>
+              </div>
+              <div style="width:72px;height:4px;background:#F6F2EB;border-radius:99px;margin-top:5px;overflow:hidden;"><div style="width:{{ r.aW }};height:100%;background:{{ r.aBar }};"></div></div>
+            </div>
+            <div style="padding:9px 0;border-bottom:1px solid #F6F2EB;">
+              <div style="display:flex;align-items:center;gap:4px;font-family:var(--font-data);font-size:12px;color:#002E2C;">
+                <span style="color:{{ r.bInk }};font-weight:600;">{{ r.bA }}</span><span style="color:#93A099;">/</span>
+                <sc-if value="{{ r.editable }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.bDown }}" style="width:16px;height:16px;border-radius:4px;border:1px solid #ECE6DC;background:#FFFFFF;color:#5C6B62;font-size:11px;line-height:1;padding:0;cursor:pointer;">−</button></sc-if>
+                <span>{{ r.bC }}</span>
+                <sc-if value="{{ r.editable }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.bUp }}" style="width:16px;height:16px;border-radius:4px;border:1px solid #ECE6DC;background:#FFFFFF;color:#5C6B62;font-size:11px;line-height:1;padding:0;cursor:pointer;">+</button></sc-if>
+              </div>
+              <div style="width:72px;height:4px;background:#F6F2EB;border-radius:99px;margin-top:5px;overflow:hidden;"><div style="width:{{ r.bW }};height:100%;background:{{ r.bBar }};"></div></div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="margin-top:14px;padding:11px 12px;background:#F8F5F2;border-radius:9px;font-size:12px;color:#3B4B44;line-height:1.5;">
+          <b style="font-family:var(--font-data);font-weight:600;color:#002E2C;">{{ teamHeld }} held, {{ teamBooked }} booked this week.</b> Both roll into the L10 Scorecard on Monday as <b style="font-weight:600;color:#002E2C;">Recruiting Appts Met</b> and <b style="font-weight:600;color:#002E2C;">Appts Booked</b>. <a href="#">Open Scorecard</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:16px;align-items:start;">
+    <div style="background:#FFFFFF;border:1px solid #ECE6DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,46,44,.04),0 8px 24px -18px rgba(0,46,44,.35);padding:18px 20px;min-width:0;">
+      <div style="display:flex;align-items:baseline;gap:8px;">
+        <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:#002E2C;">Team Leader leaderboard</div>
+        <span style="font-family:var(--font-data);font-size:11px;color:#93A099;">September to date</span>
+      </div>
+      <div style="overflow-x:auto;margin-top:10px;">
+        <div style="display:grid;grid-template-columns:22px minmax(150px,1fr) 128px 48px 64px 70px;gap:0 10px;align-items:center;min-width:560px;">
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding-bottom:7px;border-bottom:1px solid #ECE6DC;">#</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding-bottom:7px;border-bottom:1px solid #ECE6DC;">Team Leader</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding-bottom:7px;border-bottom:1px solid #ECE6DC;">Signed vs goal</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding-bottom:7px;border-bottom:1px solid #ECE6DC;text-align:right;">Held</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding-bottom:7px;border-bottom:1px solid #ECE6DC;text-align:right;">Close</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding-bottom:7px;border-bottom:1px solid #ECE6DC;text-align:right;">Queue</span>
+          <sc-for list="{{ boardRows }}" as="b" hint-placeholder-count="3">
+            <span style="font-family:var(--font-display);font-size:14px;font-weight:700;color:{{ b.rankInk }};padding:11px 0;border-bottom:1px solid #F6F2EB;background:{{ b.bg }};">{{ b.rank }}</span>
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid #F6F2EB;background:{{ b.bg }};min-width:0;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:99px;font-family:var(--font-data);font-size:10px;background:#DCE7E9;color:#1F6E72;flex:0 0 auto;">{{ b.ini }}</span>
+              <div style="min-width:0;">
+                <div style="font-size:13px;color:#002E2C;font-weight:600;">{{ b.name }}</div>
+                <div style="font-size:11px;color:#93A099;">{{ b.title }}</div>
+              </div>
+            </div>
+            <div style="padding:8px 0;border-bottom:1px solid #F6F2EB;background:{{ b.bg }};">
+              <div style="display:flex;align-items:baseline;gap:6px;font-family:var(--font-data);font-size:12.5px;color:#002E2C;"><b style="font-weight:600;">{{ b.signed }}</b><span style="font-size:10.5px;color:{{ b.paceInk }};white-space:nowrap;">{{ b.pace }}</span></div>
+              <div style="position:relative;width:110px;height:6px;background:#F6F2EB;border-radius:99px;margin-top:5px;overflow:hidden;"><div style="width:{{ b.barW }};height:100%;background:{{ b.bar }};border-radius:99px;"></div><div style="position:absolute;left:80%;top:0;width:1px;height:100%;background:#5C6B62;opacity:.4;"></div></div>
+            </div>
+            <span style="font-family:var(--font-data);font-size:12.5px;color:#3B4B44;text-align:right;padding:11px 0;border-bottom:1px solid #F6F2EB;background:{{ b.bg }};">{{ b.held }}</span>
+            <span style="font-family:var(--font-data);font-size:12.5px;color:{{ b.closeInk }};text-align:right;padding:11px 0;border-bottom:1px solid #F6F2EB;background:{{ b.bg }};">{{ b.close }}</span>
+            <span style="font-family:var(--font-data);font-size:12.5px;color:{{ b.queueInk }};text-align:right;padding:11px 0;border-bottom:1px solid #F6F2EB;background:{{ b.bg }};">{{ b.queue }}</span>
+          </sc-for>
+        </div>
+      </div>
+      <div style="font-size:11.5px;color:#93A099;margin-top:10px;">Close is signed ÷ held, last 90 days. Queue is today's items cleared.</div>
+    </div>
+
+    <div style="background:#FFFFFF;border:1px solid #ECE6DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,46,44,.04),0 8px 24px -18px rgba(0,46,44,.35);padding:18px 20px;min-width:0;">
+      <div style="display:flex;align-items:baseline;gap:8px;">
+        <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:#002E2C;">Pipeline</div>
+        <span style="font-family:var(--font-data);font-size:11px;color:#93A099;">Active now · 22 people · 3 in nurture</span>
+        <a href="#" style="margin-left:auto;font-size:12px;">Open in GHL</a>
+      </div>
+      <div style="margin-top:12px;">
+        <sc-for list="{{ pipeRows }}" as="s" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:120px minmax(0,1fr) 54px 84px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #F6F2EB;">
+            <div>
+              <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:#002E2C;">{{ s.stage }}</div>
+              <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:{{ s.whoInk }};margin-top:1px;">{{ s.who }}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="height:18px;width:{{ s.w }};background:{{ s.fill }};border-radius:4px;min-width:8px;"></div>
+              <span style="font-family:var(--font-data);font-size:12.5px;color:#002E2C;font-weight:600;">{{ s.n }}</span>
+              <span style="font-family:var(--font-data);font-size:10.5px;color:#93A099;">{{ s.gci }}</span>
+            </div>
+            <span style="font-family:var(--font-data);font-size:10.5px;color:#5C6B62;text-align:right;">{{ s.conv }}</span>
+            <span style="font-family:var(--font-data);font-size:10px;text-align:right;color:{{ s.stallInk }};">{{ s.stall }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size:11.5px;color:#93A099;margin-top:10px;">The SDR owns candidates through Appointment set. Team Leaders own them from the meeting on. Arrows show the 90-day rate into the next stage.</div>
+    </div>
+  </div>
+
+  <sc-if value="{{ showSources }}" hint-placeholder-val="{{ true }}">
+    <div style="background:#FFFFFF;border:1px solid #ECE6DC;border-radius:14px;box-shadow:0 1px 2px rgba(0,46,44,.04),0 8px 24px -18px rgba(0,46,44,.35);padding:18px 20px;">
+      <div style="display:flex;align-items:baseline;gap:8px;">
+        <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:#002E2C;">Where signings come from</div>
+        <span style="font-family:var(--font-data);font-size:11px;color:#93A099;">Last 90 days · owners only</span>
+      </div>
+      <div style="overflow-x:auto;margin-top:10px;">
+        <div style="display:grid;grid-template-columns:minmax(170px,1.6fr) repeat(5,minmax(70px,1fr));min-width:640px;">
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding:0 0 7px;border-bottom:1px solid #ECE6DC;">Source</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding:0 0 7px;border-bottom:1px solid #ECE6DC;text-align:right;">Candidates</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding:0 0 7px;border-bottom:1px solid #ECE6DC;text-align:right;">Signed</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding:0 0 7px;border-bottom:1px solid #ECE6DC;text-align:right;">Rate</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding:0 0 7px;border-bottom:1px solid #ECE6DC;text-align:right;">Cost each</span>
+          <span style="font-family:var(--font-data);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:#93A099;padding:0 0 7px;border-bottom:1px solid #ECE6DC;text-align:right;">GCI added</span>
+          <sc-for list="{{ sourceRows }}" as="x" hint-placeholder-count="6">
+            <span style="font-size:12.5px;color:#002E2C;padding:9px 0;border-bottom:1px solid #F6F2EB;">{{ x.name }}</span>
+            <span style="font-family:var(--font-data);font-size:12px;text-align:right;padding:9px 0;border-bottom:1px solid #F6F2EB;">{{ x.c }}</span>
+            <span style="font-family:var(--font-data);font-size:12px;text-align:right;padding:9px 0;border-bottom:1px solid #F6F2EB;">{{ x.s }}</span>
+            <span style="font-family:var(--font-data);font-size:12px;text-align:right;padding:9px 0;border-bottom:1px solid #F6F2EB;display:flex;justify-content:flex-end;align-items:center;gap:6px;"><span style="height:5px;border-radius:99px;background:#5F7D5A;width:{{ x.w }};"></span>{{ x.rate }}</span>
+            <span style="font-family:var(--font-data);font-size:12px;text-align:right;padding:9px 0;border-bottom:1px solid #F6F2EB;color:{{ x.costInk }};">{{ x.cost }}</span>
+            <span style="font-family:var(--font-data);font-size:12px;text-align:right;padding:9px 0;border-bottom:1px solid #F6F2EB;color:#002E2C;">{{ x.gci }}</span>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+
+<sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeDrawer }}" style="position:fixed;inset:0;background:rgba(18,41,31,.35);z-index:60;"></div>
+  <div role="dialog" style="position:fixed;top:0;right:0;bottom:0;width:min(500px,94vw);background:#F2EDE6;z-index:61;display:flex;flex-direction:column;box-shadow:-8px 0 30px -12px rgba(20,35,28,.45);">
+    <div style="padding:18px 22px 16px;background:#FFFFFF;border-bottom:1px solid #ECE6DC;">
+      <div style="display:flex;align-items:flex-start;gap:12px;">
+        <div style="min-width:0;flex:1;">
+          <div style="font-family:var(--font-display);font-size:19px;font-weight:700;color:#002E2C;">{{ d.name }}</div>
+          <div style="font-size:12.5px;color:#5C6B62;margin-top:2px;">{{ d.sub }}</div>
+        </div>
+        <button onClick="{{ closeDrawer }}" aria-label="Close" style="border:none;background:none;cursor:pointer;font-size:24px;color:#93A099;line-height:1;padding:0;">×</button>
+      </div>
+      <div style="display:flex;gap:18px;margin-top:12px;flex-wrap:wrap;">
+        <div><div style="font-family:var(--font-data);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#93A099;">Stage</div><div style="font-size:13px;color:#002E2C;margin-top:2px;">{{ d.stage }} · {{ d.days }}</div></div>
+        <div><div style="font-family:var(--font-data);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#93A099;">Trailing GCI</div><div style="font-family:var(--font-data);font-size:13px;color:#002E2C;margin-top:2px;">{{ d.gci }}</div></div>
+        <div><div style="font-family:var(--font-data);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#93A099;">Owner</div><div style="font-size:13px;color:#002E2C;margin-top:2px;">{{ d.owner }}</div></div>
+        <div><div style="font-family:var(--font-data);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#93A099;">Booked by</div><div style="font-size:13px;color:#002E2C;margin-top:2px;">{{ d.booker }}</div></div>
+        <div><div style="font-family:var(--font-data);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#93A099;">Source</div><div style="font-size:13px;color:#002E2C;margin-top:2px;">{{ d.source }}</div></div>
+      </div>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:16px 22px 28px;display:flex;flex-direction:column;gap:18px;">
+      <sc-if value="{{ d.hasWhy }}" hint-placeholder-val="{{ false }}">
+        <div style="background:#FFF8D4;border:1px solid #F3E39A;border-radius:10px;padding:10px 12px;">
+          <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:#8A6414;">On today's list · {{ d.rule }}</div>
+          <div style="font-size:12.5px;color:#002E2C;margin-top:4px;">{{ d.why }}</div>
+        </div>
+      </sc-if>
+
+      <div>
+        <div style="font-family:var(--font-display);font-size:12.5px;font-weight:600;color:#5C6B62;padding-bottom:6px;border-bottom:1px solid #ECE6DC;margin-bottom:10px;">Next step</div>
+        <input value="{{ d.next }}" onChange="{{ onNext }}" placeholder="What happens next?" style="width:100%;font-family:var(--font-text);font-size:13px;padding:9px 11px;border-radius:8px;border:1px solid #ECE6DC;background:#FFFFFF;color:#002E2C;">
+        <div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+          <span style="font-family:var(--font-data);font-size:10px;color:#93A099;margin-right:2px;">DUE</span>
+          <sc-for list="{{ dueChips }}" as="c" hint-placeholder-count="4">
+            <button onClick="{{ c.onClick }}" style="font-size:12px;padding:4px 10px;border-radius:99px;border:1px solid {{ c.border }};background:{{ c.bg }};color:{{ c.ink }};cursor:pointer;">{{ c.label }}</button>
+          </sc-for>
+          <span style="margin-left:auto;font-family:var(--font-data);font-size:10.5px;color:#4F6A4D;">Saved as a GHL task</span>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-family:var(--font-display);font-size:12.5px;font-weight:600;color:#5C6B62;padding-bottom:6px;border-bottom:1px solid #ECE6DC;margin-bottom:10px;">Reach out</div>
+        <div style="display:flex;gap:2px;background:#ECE6DC;padding:2px;border-radius:8px;width:max-content;">
+          <sc-for list="{{ modeTabs }}" as="m" hint-placeholder-count="4">
+            <button onClick="{{ m.onClick }}" style="font-size:12.5px;font-weight:600;padding:6px 14px;border-radius:6px;border:none;background:{{ m.bg }};color:{{ m.ink }};cursor:pointer;">{{ m.label }}</button>
+          </sc-for>
+        </div>
+        <div style="margin-top:10px;background:#FFFFFF;border:1px solid #ECE6DC;border-radius:10px;padding:12px;">
+          <sc-if value="{{ isEmail }}" hint-placeholder-val="{{ false }}">
+            <input value="{{ subject }}" onChange="{{ onSubject }}" style="width:100%;font-family:var(--font-text);font-size:13px;padding:8px 10px;border-radius:7px;border:1px solid #ECE6DC;color:#002E2C;margin-bottom:8px;">
+          </sc-if>
+          <sc-if value="{{ isWrite }}" hint-placeholder-val="{{ true }}">
+            <div style="font-family:var(--font-data);font-size:10.5px;color:#93A099;margin-bottom:6px;">To {{ toLine }}</div>
+            <textarea rows="5" value="{{ draft }}" onChange="{{ onDraft }}" style="width:100%;font-family:var(--font-text);font-size:13px;line-height:1.5;padding:9px 10px;border-radius:7px;border:1px solid #ECE6DC;color:#002E2C;resize:vertical;"></textarea>
+          </sc-if>
+          <sc-if value="{{ isCall }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-family:var(--font-data);font-size:15px;color:#002E2C;">{{ d.phone }}</span>
+              <span style="font-size:12px;color:#5C6B62;">Calls from your GHL number and records to the contact.</span>
+            </div>
+            <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:#93A099;margin:12px 0 6px;">Outcome</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <sc-for list="{{ outcomes }}" as="o" hint-placeholder-count="3">
+                <button onClick="{{ o.onClick }}" style="font-size:12px;padding:5px 11px;border-radius:99px;border:1px solid {{ o.border }};background:{{ o.bg }};color:{{ o.ink }};cursor:pointer;white-space:nowrap;">{{ o.label }}</button>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isBook }}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{ pickCal }}" hint-placeholder-val="{{ false }}">
+              <div style="font-family:var(--font-data);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:#93A099;margin-bottom:6px;">Team Leader calendar</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+                <sc-for list="{{ calChips }}" as="k" hint-placeholder-count="3">
+                  <button onClick="{{ k.onClick }}" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:5px 11px;border-radius:99px;border:1px solid {{ k.border }};background:{{ k.bg }};color:{{ k.ink }};cursor:pointer;">{{ k.label }}<span style="font-family:var(--font-data);font-size:10px;opacity:.75;">{{ k.note }}</span></button>
+                </sc-for>
+              </div>
+            </sc-if>
+            <div style="font-size:12.5px;color:#3B4B44;">45 min at the Sandy office with {{ calFirst }}. The invite goes out by text and email.</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:6px;margin-top:10px;">
+              <sc-for list="{{ slots }}" as="s" hint-placeholder-count="4">
+                <button onClick="{{ s.onClick }}" style="font-family:var(--font-data);font-size:12px;padding:8px 6px;border-radius:7px;border:1px solid {{ s.border }};background:{{ s.bg }};color:{{ s.ink }};cursor:pointer;">{{ s.label }}</button>
+              </sc-for>
+            </div>
+          </sc-if>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+            <span style="font-size:11.5px;color:#93A099;">{{ sendNote }}</span>
+            <button onClick="{{ onSend }}" style="margin-left:auto;font-size:13px;font-weight:600;padding:8px 16px;border-radius:7px;border:none;background:{{ sendBg }};color:#F4EFE7;cursor:pointer;white-space:nowrap;">{{ sendLabel }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-family:var(--font-display);font-size:12.5px;font-weight:600;color:#5C6B62;padding-bottom:6px;border-bottom:1px solid #ECE6DC;margin-bottom:10px;">Stage</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select value="{{ d.stage }}" onChange="{{ onStage }}" style="font-family:var(--font-text);font-size:13px;padding:7px 9px;border-radius:7px;border:1px solid #ECE6DC;background:#FFFFFF;color:#002E2C;">
+            <sc-for list="{{ stageOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for>
+          </select>
+          <a href="#" style="margin-left:auto;font-size:12.5px;">Open contact in GHL</a>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-family:var(--font-display);font-size:12.5px;font-weight:600;color:#5C6B62;padding-bottom:6px;border-bottom:1px solid #ECE6DC;margin-bottom:4px;">Activity</div>
+        <sc-for list="{{ timeline }}" as="e" hint-placeholder-count="4">
+          <div style="display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:10px;padding:9px 0;border-bottom:1px solid #ECE6DC;">
+            <span style="width:8px;height:8px;border-radius:99px;background:{{ e.dot }};margin-top:5px;"></span>
+            <div style="min-width:0;">
+              <div style="font-size:12.5px;color:#002E2C;font-weight:500;">{{ e.what }}</div>
+              <div style="font-size:12px;color:#5C6B62;margin-top:2px;white-space:pre-line;text-wrap:pretty;">{{ e.detail }}</div>
+            </div>
+            <span style="font-family:var(--font-data);font-size:10.5px;color:#93A099;white-space:nowrap;">{{ e.when }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:80;background:#002E2C;color:#F4EFE7;font-size:13px;padding:10px 16px;border-radius:9px;box-shadow:0 10px 30px -10px rgba(0,46,44,.6);display:flex;gap:10px;align-items:center;">
+    <span style="color:#9FC79A;">✓</span>{{ toast }}
+  </div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;role&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;owner&quot;,&quot;teamLeader&quot;,&quot;sdr&quot;],&quot;default&quot;:&quot;owner&quot;,&quot;tsType&quot;:&quot;'owner'|'teamLeader'|'sdr'&quot;,&quot;section&quot;:&quot;View&quot;},&quot;showSources&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;View&quot;},&quot;autoClear&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;}}">
+class Component extends DCLogic {
+  REC = [
+    { id: 'jr', ini: 'JR', name: 'Jenna Ruiz', title: 'Team Leader · Draper', tl: true, goal: 3, signed: 2, held: 8, close: 38 },
+    { id: 'pn', ini: 'PN', name: 'Priya Nandakumar', title: 'Team Leader · South Valley', tl: true, goal: 3, signed: 2, held: 6, close: 31 },
+    { id: 'mb', ini: 'MB', name: 'Marcus Bell', title: 'Team Leader · Park City', tl: true, goal: 3, signed: 1, held: 5, close: 22 },
+    { id: 'cw', ini: 'CW', name: 'Cole Whittaker', title: 'SDR', tl: false },
+  ];
+  CANDS = [
+    ['c02', 'Brandon Vo', 'Crossroads Realty', 'Lehi', 'Sourced', 1, 'cw', 114, 'Facebook lead form'],
+    ['c04', 'Grant Sissons', 'Alta Property Partners', 'Herriman', 'Sourced', 11, 'cw', 71, 'Cold outreach'],
+    ['c08', 'Tyrell Boone', 'Crossroads Realty', 'Ogden', 'Contacted', 8, 'cw', 109, 'Facebook lead form'],
+    ['c10', 'Deacon Alvarez', 'Independent', 'St. George', 'Contacted', 14, 'cw', 119, 'Cold outreach'],
+    ['c12', 'Rashida Coleman', 'Alta Property Partners', 'Sandy', 'Appointment set', 1, 'jr', 179, 'Wasatch Summit'],
+    ['c15', 'Wes Draper', 'Crossroads Realty', 'Herriman', 'Appointment set', 6, 'cw', 136, 'MLS production list'],
+    ['c16', 'Priscilla Nakamura', 'Wasatch Peak Realty', 'South Jordan', 'Met', 1, 'jr', 233, 'Agent referral'],
+    ['c18', 'Felicity Barnhart', 'Canyon & Co.', 'Bountiful', 'Met', 9, 'pn', 106, 'MLS production list'],
+    ['c19', 'Andre Delacroix', 'Independent', 'Provo', 'Met', 2, 'mb', 184, 'Website'],
+    ['c20', 'Camille Fontenot', 'Alta Property Partners', 'Draper', 'Offer out', 1, 'jr', 265, 'Agent referral'],
+    ['c21', 'Booker Ilunga', 'Crossroads Realty', 'Sandy', 'Offer out', 3, 'pn', 141, 'Facebook lead form'],
+    ['c22', 'Sunny Kaur', 'Summit Ridge Group', 'Park City', 'Offer out', 7, 'mb', 241, 'Agent referral'],
+    ['c23', 'Kara Whitfield', 'Silverline Realty', 'Lehi', 'Signed', 19, 'jr', 219, 'Agent referral'],
+    ['c24', 'Devon Estrada', 'Canyon & Co.', 'South Jordan', 'Signed', 14, 'pn', 157, 'MLS production list'],
+    ['c25', 'Mia Toledo', 'Deseret Home Group', 'Sandy', 'Signed', 11, 'pn', 125, 'Wasatch Summit'],
+    ['c26', 'Russell Ng', 'Wasatch Peak Realty', 'Draper', 'Signed', 6, 'jr', 302, 'Agent referral'],
+    ['c27', 'Aisha Farrow', 'Crossroads Realty', 'Ogden', 'Signed', 1, 'mb', 112, 'Facebook lead form'],
+  ].map(([id, name, brokerage, city, stage, days, owner, gci, source], i) => ({ id, name, brokerage, city, stage, days, owner, gci, source,
+    phone: '801-555-0' + (100 + i * 7), email: name.toLowerCase().replace(/[^a-z]+/g, '.') + '@example.com' }));
+  BOOKED = { c12: 'cw', c16: 'cw', c18: 'cw', c20: 'cw', c21: 'cw', c24: 'cw', c25: 'cw', c26: 'cw', c27: 'cw', c15: 'cw' };
+  SIGNINGS = [['c23', '4 Sep'], ['c24', '9 Sep'], ['c25', '12 Sep'], ['c26', '17 Sep'], ['c27', '22 Sep']];
+  QUEUE = [
+    { id: 'q1', c: 'c22', rule: 'Offer out 5+ days', why: 'ICA sent 7 days ago. No reply since Thursday, when she asked about the cap.', due: '2 days late', tone: 'late', act: 'call' },
+    { id: 'q2', c: 'c02', rule: 'New lead untouched 1 hr', why: 'Came in yesterday at 4:12 pm from the Facebook lead form. No call or text yet.', due: '20 hrs late', tone: 'late', act: 'text',
+      draft: "Hi Brandon, it's Cole with Utah Life. Thanks for reaching out yesterday. Do you have 15 minutes this week to talk through what your split would look like with us?" },
+    { id: 'q3', c: 'c18', rule: 'Met, no next step', why: 'Met 9 days ago and liked the coaching model. No follow-up booked.', due: '1 week late', tone: 'late', act: 'book' },
+    { id: 'q4', c: 'c12', rule: 'Appointment in 24 hrs', why: 'Cole booked her for tomorrow at 10:00, Sandy office. Not confirmed yet.', due: 'Today', tone: 'today', act: 'text',
+      draft: "Hi Rashida, Jenna here. Looking forward to tomorrow at 10:00 at our Sandy office. Reply YES to confirm, or let me know if another time works better." },
+    { id: 'q5', c: 'c16', rule: 'Met, no next step', why: 'Met yesterday. Asked for a side-by-side of her net at ULRG. Offer not sent.', due: 'Today', tone: 'today', act: 'email',
+      subject: 'Your numbers at Utah Life',
+      draft: "Hi Priscilla,\n\nThanks for your time yesterday. Attached is the side-by-side we talked about, using your last 12 months: 23 units and $8.6M in volume.\n\nI can walk you through it Thursday or Friday. What works?\n\nJenna" },
+    { id: 'q6', c: 'c19', rule: 'Met, no next step', why: 'Met Monday. Recap and next meeting not sent.', due: 'Today', tone: 'today', act: 'email' },
+    { id: 'q7', c: 'c10', rule: '14 days in one stage', why: 'In Contacted for 14 days with 3 unanswered texts. Call once, then move to Nurture.', due: 'Today', tone: 'today', act: 'call' },
+    { id: 'q8', c: 'c15', rule: 'Appointment set, no event', why: 'Agreed to meet 6 days ago, but nothing is on a Team Leader calendar.', due: 'Today', tone: 'today', act: 'book' },
+    { id: 'q9', c: 'c08', rule: 'No touch in 7 days', why: 'Last text 8 days ago. He said to check back after his closing on the 20th.', due: 'Tomorrow', tone: 'later', act: 'text',
+      draft: "Hi Tyrell, Cole again. Hope the closing on the 20th went well. Still open to grabbing coffee this week?" },
+  ];
+  TL = {
+    c22: [['Thu', 'Text received', 'Is the $12k cap per year or rolling?'], ['Sep 16', 'Email sent · ICA', 'Independent contractor agreement sent for signature.'], ['Sep 12', 'Meeting held · Park City', 'Met with Marcus. 90 min.']],
+    c16: [['Yesterday', 'Meeting held · South Jordan', 'Wants to see her net at ULRG next to her current split before deciding.'], ['Sep 18', 'Meeting booked by Cole', 'On Jenna\'s calendar.']],
+    c02: [['Yesterday 4:12 pm', 'New lead', 'Facebook lead form: "Curious what my split would be."']],
+    c18: [['Sep 14', 'Meeting held · Bountiful', 'Liked the coaching model. Asked to reconnect after her listing closes.'], ['Sep 9', 'Meeting booked by Cole', 'On Priya\'s calendar.']],
+    c12: [['Sep 22', 'Meeting booked by Cole', 'Thu 10:00 on Jenna\'s calendar, Sandy office.'], ['Sep 21', 'Met at Wasatch Summit', 'Card scanned at the booth.']],
+    c10: [['Sep 19', 'Text sent', 'No reply.'], ['Sep 14', 'Text sent', 'No reply.'], ['Sep 9', 'Call · 4 min', 'Interested, busy until October.']],
+    c15: [['Sep 17', 'Call · 9 min', 'Agreed to meet. Wants a weekday morning.']],
+  };
+  CAL = {
+    jr: { open: ['Thu 1:30', 'Fri 3:00'], week: ['held', 'held', 'held', 'up', 'open', 'open'] },
+    pn: { open: ['Thu 9:00', 'Fri 11:00', 'Mon 10:00'], week: ['held', 'noshow', 'up', 'open', 'open', 'open'] },
+    mb: { open: ['Thu 9:00', 'Thu 1:30', 'Fri 11:00', 'Mon 10:00', 'Mon 2:30'], week: ['held', 'open', 'open', 'open', 'open', 'open'] },
+  };
+  PIPE = [
+    ['Sourced', 6, '$985k', '71% →', 1, 'sdr'], ['Contacted', 5, '$856k', '58% →', 2, 'sdr'], ['Appointment set', 4, '$629k', '78% →', 0, 'sdr'],
+    ['Met', 4, '$675k', '62% →', 1, 'tl'], ['Offer out', 3, '$647k', '70% →', 1, 'tl'], ['Signed · Sep', 5, '$915k', '', 0, 'tl'],
+  ];
+  SOURCES = [
+    ['Agent referral', 14, 4, 8000, '$612k'], ['MLS production list', 22, 3, 1230, '$704k'], ['Facebook lead form', 19, 2, 3680, '$198k'],
+    ['Wasatch Summit', 8, 2, 6300, '$341k'], ['Website', 6, 1, 0, '$121k'], ['Cold outreach', 16, 1, 0, '$96k'],
+  ];
+  SDR_ACT = { booked: 5, held: 4, dials: 38, convos: 9 };
+  TL_ACT = { jr: { held: 3, offers: 1 }, pn: { held: 1, offers: 1 }, mb: { held: 1, offers: 0 } };
+
+  state = {
+    cleared: {}, owner: 'all', openId: null, openQ: null, mode: 'text', drafts: {}, subjects: {}, next: {}, due: {},
+    stages: {}, log: {}, slot: null, outcome: null, cal: null, toast: null, extraBooked: {},
+    tlCommits: { jr: { held: 4, offers: 2 }, pn: { held: 3, offers: 1 }, mb: { held: 3, offers: 1 } },
+    sdrCommits: { booked: 8, held: 6, dials: 60, convos: 15 },
+  };
+
+  band(p) {
+    if (p >= 100) return { bg: '#E7EFE5', ink: '#4F6A4D', bar: '#5F7D5A' };
+    if (p >= 80) return { bg: '#FBF0D8', ink: '#8A6414', bar: '#D9A227' };
+    return { bg: '#FBE7E1', ink: '#B85434', bar: '#E8836A' };
+  }
+  cand(id) { return this.CANDS.find((c) => c.id === id); }
+  rec(id) { return this.REC.find((r) => r.id === id); }
+  first(n) { return n.split(' ')[0]; }
+  stageOf(c) { return this.state.stages[c.id] || c.stage; }
+  calOpen(id) { const b = this.state.extraBooked[id] || []; return this.CAL[id].open.filter((s) => !b.includes(s)); }
+  nextUp() { return ['jr', 'pn', 'mb'].reduce((best, id) => (this.calOpen(id).length > this.calOpen(best).length ? id : best), 'jr'); }
+
+  flash(msg) {
+    clearTimeout(this._t);
+    this.setState({ toast: msg });
+    this._t = setTimeout(() => this.setState({ toast: null }), 2600);
+  }
+  open(cid, qid, mode) {
+    const q = qid && this.QUEUE.find((x) => x.id === qid);
+    this.setState({ openId: cid, openQ: qid || null, mode: mode || (q ? q.act : 'text'), slot: null, outcome: null, cal: null });
+  }
+  clear(qid, how) { this.setState((s) => ({ cleared: { ...s.cleared, [qid]: how } })); }
+  defaultDraft(c, mode) {
+    const q = this.state.openQ && this.QUEUE.find((x) => x.id === this.state.openQ);
+    if (q && q.act === mode && q.draft) return q.draft;
+    const f = this.first(c.name), of = this.first(this.rec(c.owner).name);
+    if (mode === 'email') return `Hi ${f},\n\nThanks again for your time. I'd like to set up a next conversation to go through the numbers together.\n\nDo Thursday or Friday work?\n\n${of}`;
+    return `Hi ${f}, it's ${of} with Utah Life. Do you have 15 minutes this week to pick up where we left off?`;
+  }
+
+  renderVals() {
+    const role = this.props.role ?? 'owner';
+    const me = role === 'teamLeader' ? 'jr' : role === 'sdr' ? 'cw' : null;
+    const autoClear = this.props.autoClear ?? true;
+    const s = this.state;
+    const elapsed = 23 / 30;
+    const TLS = this.REC.filter((r) => r.tl);
+
+    // close hero (owner + team leader)
+    const tlMe = me && me !== 'cw' ? this.rec(me) : null;
+    const hs = tlMe ? tlMe.signed : 5, hg = tlMe ? tlMe.goal : 9;
+    const hpRaw = hs / elapsed, hpPct = hpRaw / hg * 100, hb = this.band(hpPct);
+    const heroPace = Math.round(hpRaw);
+    const sigs = this.SIGNINGS.map(([id, d]) => ({ c: this.cand(id), d })).filter((x) => !tlMe || x.c.owner === me);
+    const heroTiles = Array.from({ length: hg }).map((_, i) => {
+      const x = sigs[i];
+      return x ? { label: x.c.name.split(' ').map((w) => w[0]).join(''), title: `${x.c.name}, signed ${x.d}`, bg: '#002E2C', border: 'none', cursor: 'pointer',
+        caret: i === heroPace - 1 ? '▲' : '', onClick: () => this.open(x.c.id) }
+        : { label: '', title: 'Open', bg: '#F6F2EB', border: '1px dashed #DCD2C2', cursor: 'default', caret: i === heroPace - 1 ? '▲' : '', onClick: () => {} };
+    });
+    const inPath = this.CANDS.filter((c) => ['Offer out', 'Met'].includes(this.stageOf(c)) && (!tlMe || c.owner === me))
+      .sort((a, b) => (this.stageOf(a) === 'Offer out' ? 0 : 1) - (this.stageOf(b) === 'Offer out' ? 0 : 1) || a.days - b.days);
+    const STATUS = {
+      c20: ['Offer sent yesterday', 'ok'], c21: ['Waiting on reply', 'mute'], c22: ['Follow-up overdue', 'late'],
+      c16: ['Send offer today', 'today'], c19: ['Recap due today', 'today'], c18: ['No next step', 'late'],
+    };
+    const tone = { ok: ['#E7EFE5', '#4F6A4D'], mute: ['#F6F2EB', '#5C6B62'], late: ['#FBE7E1', '#B85434'], today: ['#FBF0D8', '#8A6414'] };
+    const pathRows = inPath.map((c) => {
+      const qDone = this.QUEUE.find((q) => q.c === c.id && s.cleared[q.id]);
+      const st = qDone ? ['Handled today', 'ok'] : (STATUS[c.id] || ['In progress', 'mute']);
+      return { name: c.name, meta: `${this.stageOf(c)} · ${c.days} ${c.days === 1 ? 'day' : 'days'} · ${c.brokerage}`, ini: this.rec(c.owner).ini,
+        status: st[0], bg: tone[st[1]][0], ink: tone[st[1]][1], onClick: () => this.open(c.id) };
+    });
+    const need = hg - hs, offers = inPath.filter((c) => this.stageOf(c) === 'Offer out').length, met = inPath.length - offers;
+    let pathLine;
+    if (need <= 0) pathLine = 'Goal reached. Everything past Met is upside.';
+    else if (offers === 0 && met >= need) pathLine = `No offers out yet. ${need} more has to come from your ${met} met.`;
+    else if (offers >= need) pathLine = `Close ${need} of ${offers} offers out and the month is made.`;
+    else if (offers + met >= need) pathLine = `Closing every offer out gets you to ${hs + offers}. ${need - offers} more from Met gets you to ${hg}.`;
+    else pathLine = `Only ${offers + met} people are past Met. Ask Cole to book more onto your calendar.`;
+
+    // SDR hero
+    const extraBookedN = Object.values(s.extraBooked).reduce((a, l) => a + l.length, 0);
+    const mBooked = 17 + extraBookedN, mGoal = 24, mHeld = 12;
+    const mPace = Math.round(mBooked / elapsed), mb = this.band(mPace / mGoal * 100);
+    const showRate = Math.round(mHeld / 17 * 100), srb = this.band(showRate / 75 * 100);
+    const toGo = Math.max(0, mGoal - mBooked);
+    const nu = this.nextUp();
+    const sb = {
+      booked: mBooked, goal: mGoal, pace: Math.min(mPace, 99),
+      verdict: mPace >= mGoal ? 'AHEAD' : 'STRETCH', verdictBg: mPace >= mGoal ? '#E7EFE5' : '#FBF0D8', verdictInk: mPace >= mGoal ? '#4F6A4D' : '#8A6414',
+      paceInk: mb.ink,
+      needLine: toGo ? `${toGo} more to book by Sep 30, about ${Math.ceil(toGo / 5)} a day.` : 'Booking goal reached.',
+      bars: [
+        { label: 'Booked', val: `${mBooked} of ${mGoal}`, note: `pace ${mPace}`, ink: mb.ink, bar: mb.bar, w: Math.min(100, mBooked / mGoal * 100) + '%' },
+        { label: 'Held', val: `${mHeld} of 17`, note: `${showRate}% show · goal 75%`, ink: srb.ink, bar: srb.bar, w: showRate + '%' },
+      ],
+      whereLine: `${['jr', 'pn', 'mb'].reduce((a, id) => a + this.calOpen(id).length, 0)} open slots this week. ${this.first(this.rec(nu).name)} has the most room.`,
+    };
+    const calRows = ['jr', 'pn', 'mb'].map((id) => {
+      const r = this.rec(id), open = this.calOpen(id);
+      return { ini: r.ini, name: r.name, next: id === nu, summary: `${open.length} open`, slots: open };
+    });
+
+    // queue
+    const visibleQ = this.QUEUE.filter((q) => {
+      const c = this.cand(q.c);
+      if (me) return c.owner === me;
+      return s.owner === 'all' || c.owner === s.owner;
+    });
+    const toneStyle = { late: ['#FBE7E1', '#B85434'], today: ['#FBF0D8', '#8A6414'], later: ['#F6F2EB', '#5C6B62'] };
+    const ACT = { text: 'Text', call: 'Call', email: 'Email', book: 'Book' };
+    const queueRows = visibleQ.filter((q) => !s.cleared[q.id]).map((q) => {
+      const c = this.cand(q.c), r = this.rec(c.owner);
+      return { name: c.name, meta: `${this.stageOf(c)} · $${c.gci}k GCI`, why: q.why, rule: q.rule, due: q.due,
+        dueBg: toneStyle[q.tone][0], dueInk: toneStyle[q.tone][1], ini: r.ini, ownerFirst: this.first(r.name) + (r.tl ? '' : ' · SDR'), showOwner: !me,
+        avBg: r.tl ? '#DCE7E9' : '#FFF8D4', avInk: r.tl ? '#1F6E72' : '#8A6414',
+        actLabel: ACT[q.act],
+        onOpen: () => this.open(c.id, q.id),
+        onAct: (e) => { e.stopPropagation(); this.open(c.id, q.id, q.act); },
+        onSnooze: (e) => { e.stopPropagation(); this.clear(q.id, 'Snoozed to tomorrow'); this.flash(`${this.first(c.name)} moved to tomorrow's list`); },
+        onDone: (e) => { e.stopPropagation(); this.clear(q.id, 'Marked done'); },
+      };
+    });
+    const clearedRows = visibleQ.filter((q) => s.cleared[q.id]).map((q) => ({
+      name: this.cand(q.c).name, how: s.cleared[q.id],
+      onUndo: () => this.setState((st) => { const n = { ...st.cleared }; delete n[q.id]; return { cleared: n }; }),
+    }));
+    const qTotal = visibleQ.length, qDone = clearedRows.length;
+    const ownerChips = [{ id: 'all', label: 'Everyone' }, ...this.REC.map((r) => ({ id: r.id, label: this.first(r.name) + (r.tl ? '' : ' · SDR') }))].map((o) => {
+      const on = s.owner === o.id;
+      const n = this.QUEUE.filter((q) => !s.cleared[q.id] && (o.id === 'all' || this.cand(q.c).owner === o.id)).length;
+      return { label: o.label, n, bg: on ? '#002E2C' : '#FFFFFF', ink: on ? '#F4EFE7' : '#3B4B44', border: on ? '#002E2C' : '#ECE6DC',
+        onClick: () => this.setState({ owner: o.id }) };
+    });
+
+    // SDR card
+    const f = 3 / 5;
+    const sdrEdit = role !== 'teamLeader';
+    const booked = this.SDR_ACT.booked + extraBookedN;
+    const sdrDefs = [
+      ['booked', 'Appointments booked', 'this week', booked],
+      ['held', 'Appointments held', 'this week', this.SDR_ACT.held],
+      ['dials', 'Dials', 'today', this.SDR_ACT.dials],
+      ['convos', 'Conversations', 'today', this.SDR_ACT.convos],
+    ];
+    const sdrRows = sdrDefs.map(([k, label, when, a]) => {
+      const c = s.sdrCommits[k], b = this.band(a / (c * f) * 100);
+      const step = (d) => () => this.setState((st) => ({ sdrCommits: { ...st.sdrCommits, [k]: Math.max(1, st.sdrCommits[k] + d * (k === 'dials' ? 5 : 1)) } }));
+      return { label, when, a, c, ink: b.ink, bar: b.bar, w: Math.min(100, a / c * 100) + '%', editable: sdrEdit, up: step(1), down: step(-1) };
+    });
+    const cellC = { held: ['#5F7D5A', 'none'], up: ['#DCE7E9', 'none'], noshow: ['#FBE7E1', 'none'], open: ['transparent', '1px dashed #DCD2C2'] };
+    const handoffRows = ['jr', 'pn', 'mb'].map((id) => {
+      const extra = (s.extraBooked[id] || []).length;
+      let wk = [...this.CAL[id].week];
+      for (let i = 0; i < extra; i++) { const j = wk.indexOf('open'); if (j >= 0) wk[j] = 'up'; }
+      const bookedN = wk.filter((x) => x !== 'open').length, heldN = wk.filter((x) => x === 'held').length;
+      return { first: this.first(this.rec(id).name), cells: wk.map((x) => ({ bg: cellC[x][0], border: cellC[x][1] })), summary: `${heldN} held · ${bookedN} booked` };
+    });
+
+    // TL commitments
+    let teamHeld = 0;
+    const commitRows = TLS.map((r) => {
+      const a = this.TL_ACT[r.id], cm = s.tlCommits[r.id];
+      teamHeld += a.held;
+      const ab = this.band(a.held / (cm.held * f) * 100), bb = this.band(a.offers / (cm.offers * f) * 100);
+      const step = (k, d) => () => this.setState((st) => ({ tlCommits: { ...st.tlCommits, [r.id]: { ...st.tlCommits[r.id], [k]: Math.max(1, st.tlCommits[r.id][k] + d) } } }));
+      return { name: me === r.id ? `${r.name} (you)` : r.name, weight: me === r.id ? 600 : 400,
+        editable: role === 'owner' || me === r.id,
+        aA: a.held, aC: cm.held, aInk: ab.ink, aBar: ab.bar, aW: Math.min(100, a.held / cm.held * 100) + '%',
+        bA: a.offers, bC: cm.offers, bInk: bb.ink, bBar: bb.bar, bW: Math.min(100, a.offers / cm.offers * 100) + '%',
+        aUp: step('held', 1), aDown: step('held', -1), bUp: step('offers', 1), bDown: step('offers', -1) };
+    });
+
+    const boardRows = [...TLS].sort((a, b) => b.signed / b.goal - a.signed / a.goal || b.held - a.held).map((r, i) => {
+      const p = r.signed / elapsed, b = this.band(p / r.goal * 100);
+      const qt = this.QUEUE.filter((q) => this.cand(q.c).owner === r.id);
+      const qd = qt.filter((q) => s.cleared[q.id]).length;
+      return { rank: i + 1, rankInk: i === 0 ? '#002E2C' : '#93A099', ini: r.ini, name: r.name + (me === r.id ? ' (you)' : ''), title: r.title,
+        signed: `${r.signed} of ${r.goal}`, pace: `pace ${p.toFixed(1)}`, paceInk: b.ink, bar: b.bar, barW: Math.min(100, r.signed / r.goal * 100) + '%',
+        held: r.held, close: r.close + '%', closeInk: r.close < 25 ? '#B85434' : '#3B4B44',
+        queue: qt.length ? `${qd} of ${qt.length}` : '—', queueInk: qt.length && qd === qt.length ? '#4F6A4D' : '#3B4B44',
+        bg: me === r.id ? '#FFF8D4' : 'transparent' };
+    });
+
+    const pipeRows = this.PIPE.map(([stage, n, gci, conv, st, who], i) => ({ stage, n, gci, conv,
+      who: who === 'sdr' ? 'SDR' : 'Team Leaders', whoInk: who === 'sdr' ? '#8A6414' : '#1F6E72',
+      w: (n / 6 * 100) + '%', fill: i === 5 ? '#5F7D5A' : who === 'sdr' ? '#FFF8D4' : '#DCE7E9',
+      stall: st ? `${st} stuck` : '', stallInk: st ? '#8A6414' : '#93A099' }));
+
+    const sourceRows = this.SOURCES.map(([name, c, sg, cost, gci]) => ({ name, c, s: sg, rate: Math.round(sg / c * 100) + '%',
+      w: Math.round(sg / c / 0.3 * 28) + 'px', cost: cost ? '$' + Math.round(cost / sg).toLocaleString('en-US') : 'Time only',
+      costInk: cost ? '#3B4B44' : '#93A099', gci }));
+
+    // drawer
+    const oc = s.openId ? this.cand(s.openId) : null;
+    let dv = {};
+    if (oc) {
+      const q = s.openQ && this.QUEUE.find((x) => x.id === s.openQ);
+      const or = this.rec(oc.owner);
+      const key = oc.id + ':' + s.mode;
+      const draft = s.drafts[key] ?? this.defaultDraft(oc, s.mode);
+      const subject = s.subjects[oc.id] ?? (q && q.subject) ?? 'Next steps with Utah Life';
+      const dueSel = s.due[oc.id] ?? (q ? (q.tone === 'later' ? 'Tomorrow' : 'Today') : 'Friday');
+      const nextDefault = q ? { text: 'Get a reply', call: 'Reach by phone', email: 'Send the follow-up', book: 'Book the next meeting' }[q.act] : '';
+      const dueChips = ['Today', 'Tomorrow', 'Friday', 'Next Mon'].map((l) => ({ label: l, bg: l === dueSel ? '#002E2C' : '#FFFFFF', ink: l === dueSel ? '#F4EFE7' : '#3B4B44', border: l === dueSel ? '#002E2C' : '#ECE6DC',
+        onClick: () => this.setState((st) => ({ due: { ...st.due, [oc.id]: l } })) }));
+      const modeTabs = ['text', 'call', 'email', 'book'].map((m) => ({ label: ACT[m], bg: s.mode === m ? '#FFFFFF' : 'transparent', ink: s.mode === m ? '#002E2C' : '#5C6B62',
+        onClick: () => this.setState({ mode: m, slot: null, outcome: null }) }));
+      const pickCal = !or.tl;
+      const calId = pickCal ? (s.cal || nu) : or.id;
+      const calChips = ['jr', 'pn', 'mb'].map((id) => { const on = id === calId; return { label: this.first(this.rec(id).name), note: `${this.calOpen(id).length} open`,
+        bg: on ? '#002E2C' : '#FFFFFF', ink: on ? '#F4EFE7' : '#3B4B44', border: on ? '#002E2C' : '#ECE6DC', onClick: () => this.setState({ cal: id, slot: null }) }; });
+      const slots = this.calOpen(calId).map((l) => ({ label: l,
+        bg: s.slot === l ? '#002E2C' : '#FFFFFF', ink: s.slot === l ? '#F4EFE7' : '#002E2C', border: s.slot === l ? '#002E2C' : '#ECE6DC', onClick: () => this.setState({ slot: l }) }));
+      const outcomes = ['Connected', 'Left voicemail', 'No answer'].map((l) => ({ label: l,
+        bg: s.outcome === l ? '#002E2C' : '#FFFFFF', ink: s.outcome === l ? '#F4EFE7' : '#002E2C', border: s.outcome === l ? '#002E2C' : '#ECE6DC', onClick: () => this.setState({ outcome: l }) }));
+      const ready = s.mode === 'book' ? !!s.slot : s.mode === 'call' ? !!s.outcome : true;
+      const calFirst = this.first(this.rec(calId).name);
+      const sendLabel = { text: 'Send text', email: 'Send email', call: 'Log call', book: s.slot ? `Book ${s.slot}` : 'Pick a time' }[s.mode];
+      const sendNote = s.mode === 'call' ? 'Pick an outcome to log it.' : (q && autoClear ? 'Sending clears it from today\'s list.' : 'Logged to the GHL contact.');
+      const base = (this.TL[oc.id] || [[`${oc.days}d ago`, `Moved to ${oc.stage}`, ''], ['', `Assigned to ${or.name}`, ''], ['', 'Created', `Source: ${oc.source}`]])
+        .map(([when, what, detail]) => ({ when, what, detail, dot: '#DCD2C2' }));
+      const timeline = [...(s.log[oc.id] || []), ...base];
+      const onSend = () => {
+        if (!ready) return;
+        const fn = this.first(oc.name);
+        let entry, msg;
+        if (s.mode === 'text') { entry = { what: 'Text sent', detail: draft }; msg = `Text sent to ${fn} · logged to GHL`; }
+        if (s.mode === 'email') { entry = { what: 'Email sent · ' + subject, detail: draft.split('\n').filter(Boolean).slice(1, 2).join('') }; msg = `Email sent to ${fn} · logged to GHL`; }
+        if (s.mode === 'call') { entry = { what: 'Call · ' + s.outcome, detail: '' }; msg = `Call logged for ${fn}`; }
+        if (s.mode === 'book') { entry = { what: `Meeting booked · ${s.slot} with ${calFirst}`, detail: '45 min, Sandy office. Invite sent by text and email.' }; msg = `${fn} booked on ${calFirst}'s calendar · ${s.slot}`; }
+        entry = { ...entry, when: 'Just now', dot: '#5F7D5A' };
+        const slot = s.slot;
+        this.setState((st) => ({ log: { ...st.log, [oc.id]: [entry, ...(st.log[oc.id] || [])] }, slot: null, outcome: null,
+          next: st.mode === 'book' ? { ...st.next, [oc.id]: `Meet ${calFirst} ${slot}` } : st.next,
+          extraBooked: st.mode === 'book' ? { ...st.extraBooked, [calId]: [...(st.extraBooked[calId] || []), slot] } : st.extraBooked }));
+        if (q && autoClear && !(s.mode === 'call' && s.outcome !== 'Connected')) this.clear(q.id, entry.what);
+        this.flash(msg);
+      };
+      const bk = this.BOOKED[oc.id];
+      dv = {
+        d: { name: oc.name, sub: `${oc.brokerage}, ${oc.city} · ${oc.phone}`, stage: this.stageOf(oc), days: s.stages[oc.id] ? 'moved today' : `${oc.days} ${oc.days === 1 ? 'day' : 'days'}`,
+          gci: `$${oc.gci}k`, owner: or.name + (or.tl ? '' : ' · SDR'), booker: bk ? 'Cole · SDR' : (['Sourced', 'Contacted'].includes(this.stageOf(oc)) ? 'Not booked yet' : 'Self-booked'),
+          source: oc.source, phone: oc.phone, hasWhy: !!q && !s.cleared[q.id], rule: q ? q.rule : '', why: q ? q.why : '',
+          next: s.next[oc.id] ?? nextDefault },
+        dueChips, modeTabs, slots, outcomes, timeline, draft, subject, sendLabel, sendNote, pickCal, calChips, calFirst,
+        sendBg: ready ? '#002E2C' : '#93A099',
+        isEmail: s.mode === 'email', isWrite: s.mode === 'text' || s.mode === 'email', isCall: s.mode === 'call', isBook: s.mode === 'book',
+        toLine: s.mode === 'email' ? oc.email : oc.phone,
+        onDraft: (e) => { const v = e.target.value; this.setState((st) => ({ drafts: { ...st.drafts, [key]: v } })); },
+        onSubject: (e) => { const v = e.target.value; this.setState((st) => ({ subjects: { ...st.subjects, [oc.id]: v } })); },
+        onNext: (e) => { const v = e.target.value; this.setState((st) => ({ next: { ...st.next, [oc.id]: v } })); },
+        onStage: (e) => { const v = e.target.value; this.setState((st) => ({ stages: { ...st.stages, [oc.id]: v },
+          log: { ...st.log, [oc.id]: [{ when: 'Just now', what: `Moved to ${v}`, detail: '', dot: '#1F6E72' }, ...(st.log[oc.id] || [])] } }));
+          this.flash(`${this.first(oc.name)} moved to ${v} in GHL`); },
+        onSend,
+      };
+    }
+
+    return {
+      viewingAs: { owner: 'Viewing as owner', teamLeader: 'Viewing as Jenna Ruiz · Team Leader', sdr: 'Viewing as Cole Whittaker · SDR' }[role],
+      heroClose: role !== 'sdr', heroBook: role === 'sdr', sb, calRows,
+      heroEyebrow: (tlMe ? 'Your September' : 'September · team') + ' · 7 days left',
+      heroSigned: hs, heroGoal: hg, heroPace, heroTiles,
+      paceW: Math.min(125, hpPct) / 125 * 100 + '%', paceBar: hb.bar, paceInk: hb.ink,
+      heroNeedLine: need > 0 ? `${need} more needed by Sep 30.` : 'Goal reached.',
+      heroTeamLine: tlMe ? 'Team is at 5 of 9. Cole has 1 more booked on your calendar this week.' : 'Goal split: Jenna 3, Priya 3, Marcus 3. Cole books, Team Leaders close.',
+      pathLine, pathRows,
+      queueTitle: me ? 'Your list today' : 'Do next',
+      queueRows, clearedRows, hasCleared: clearedRows.length > 0, queueEmpty: queueRows.length === 0,
+      qTotal, qDone, qProgW: (qTotal ? qDone / qTotal * 100 : 0) + '%',
+      showOwnerFilter: !me, ownerChips,
+      sdrTitle: role === 'sdr' ? 'Your week' : 'Cole Whittaker', sdrRows, handoffRows,
+      commitRows, teamHeld, teamBooked: booked,
+      boardRows, pipeRows,
+      showSources: role === 'owner' && (this.props.showSources ?? true), sourceRows,
+      drawerOpen: !!oc, closeDrawer: () => this.setState({ openId: null, openQ: null }),
+      stageOpts: ['Sourced', 'Contacted', 'Appointment set', 'Met', 'Offer out', 'Signed', 'Nurture'],
+      d: {}, dueChips: [], modeTabs: [], slots: [], outcomes: [], timeline: [], calChips: [], pickCal: false, calFirst: '',
+      ...dv,
+      hasToast: !!s.toast, toast: s.toast,
+    };
+  }
+}
+</script>
+</body>
+</html>

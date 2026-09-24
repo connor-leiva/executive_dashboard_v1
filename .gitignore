@@ -57,6 +57,11 @@ work/intranet/unpacked/
 chrome-smoke-profile/
 intranet-*.png
 
+# Recruiting Phase 0 probe output. PII is masked in it, but it still maps a live brokerage's
+# recruiting pipeline, its people and its candidate counts. The ANSWERS belong in
+# docs/recruiting-sourcing.md, by hand; the raw dump does not belong in git.
+backend/ghl_recruiting_probe.json
+
 # Books reason probe (read-only diagnostic, run against prod)
 backend/probe_books_reasons.py
 suite.log
