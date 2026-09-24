@@ -34,9 +34,12 @@ _E164 = re.compile(r"^\+[1-9]\d{7,14}$")
 # The keys Settings owns. Anything else on the config -- location_id, the token's own bookkeeping,
 # the cached ghl_users list the sync writes -- is left exactly as it was found.
 SETTING_KEYS = ("pipeline_id", "recruiting_stage_groups", "gci_field_id", "brokerage_field_id",
-                "quiet_hours", "writeback_enabled", "dry_run", "auto_clear")
+                "quiet_hours", "writeback_enabled", "dry_run", "auto_clear",
+                "rules", "templates")
 
 DEFAULTS = {
+    "rules": {},            # filled by recruiting_rules.clean_rules
+    "templates": {},        # filled by recruiting_rules.clean_templates
     "pipeline_id": None,
     "recruiting_stage_groups": [],
     "gci_field_id": None,
@@ -133,6 +136,12 @@ def clean_settings(raw: dict | None, *, strict: bool = False) -> dict:
     for key in ("writeback_enabled", "dry_run", "auto_clear"):
         if key in raw:
             out[key] = bool(raw.get(key))
+
+    # The rule engine owns its own bounds, so they live beside the rules rather than here. Same
+    # strict/clamp contract, for the same reason.
+    from . import recruiting_rules
+    out["rules"] = recruiting_rules.clean_rules(raw.get("rules"), strict=strict)
+    out["templates"] = recruiting_rules.clean_templates(raw.get("templates"), strict=strict)
     return out
 
 

@@ -25,8 +25,9 @@ from .. import plans
 from ..deps import current_user, require_tab
 from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue,
                       ScorecardGoal, ShareLink, Integration, RecruitingCandidate,
-                      RecruitingSeat)
-from ..services import binder_storage, recruiting, recruiting_settings, scorecard
+                      RecruitingQueueItem, RecruitingSeat)
+from ..services import (binder_storage, recruiting, recruiting_rules,
+                        recruiting_settings, scorecard)
 from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
@@ -569,6 +570,16 @@ async def get_recruiting_settings(user: User = Depends(current_user),
         # press Save for it to mean anything (D2).
         "suggested_groups": (recruiting_settings.suggest_groups(stages)
                              if stages and not cfg.get("recruiting_stage_groups") else None),
+        # The rule SCHEMA, from the engine itself: its labels, its editable fields and their
+        # bounds. Sent rather than duplicated in the browser so a threshold cannot be widened on
+        # the server and silently refused by a form that still remembers the old ceiling.
+        "rule_meta": [
+            {"key": key, "label": recruiting_rules.RULE_LABELS.get(key, key),
+             "fields": [{"name": name, "min": lo, "max": hi}
+                        for name, (lo, hi) in recruiting_rules.BOUNDS.get(key, {}).items()]}
+            for key in recruiting_rules.DEFAULTS
+        ],
+        "merge_fields": list(recruiting_rules.MERGE_FIELDS),
         "seats": [{"id": str(x.id), "role": x.role, "display_name": x.display_name,
                    "title": x.title, "ghl_user_id": x.ghl_user_id, "calendar_id": x.calendar_id,
                    "from_number": x.from_number, "writeback_enabled": x.writeback_enabled,
@@ -671,3 +682,101 @@ async def deactivate_recruiting_seat(seat_id: str, user: User = Depends(current_
           summary=f"Deactivated {seat.display_name}")
     await s.commit()
     return {"ok": True}
+
+
+# ── the queue (RECRUITING-SPEC §9 Phase 3) ───────────────────────────────────────────────────────
+# LOCAL ONLY. Done clears the item here; completing the matching GHL task is Phase 4's outbox, and
+# the payload's `connection.writeback` already says the gate is shut. That split matters: a person
+# can run their day off this list today, and the writes arrive under it later without the list
+# changing shape.
+
+
+async def _own_queue_item(s, user: User, item_id: str) -> RecruitingQueueItem:
+    """The item, if this viewer may act on it. 404 rather than 403 for the same reason the
+    candidate route does it: a 403 confirms the item exists on somebody else's list."""
+    row = (await s.execute(select(RecruitingQueueItem).where(
+        RecruitingQueueItem.tenant_id == user.tenant_id,
+        RecruitingQueueItem.id == item_id))).scalars().first()
+    if row is None:
+        raise HTTPException(404, "No such item")
+    if (user.role or "") in ("owner", "admin"):
+        return row
+    seat = (await s.execute(select(RecruitingSeat).where(
+        RecruitingSeat.tenant_id == user.tenant_id, RecruitingSeat.user_id == user.id,
+        RecruitingSeat.active.is_(True)))).scalars().first()
+    if seat is None or str(row.owner_seat_id or "") != str(seat.id):
+        raise HTTPException(404, "No such item")
+    return row
+
+
+@router.post("/recruiting/queue/{item_id}/done")
+async def queue_done(item_id: str, user: User = Depends(current_user),
+                     s: AsyncSession = Depends(get_session)):
+    """Clear it, by hand.
+
+    `cleared_by="user"` rather than a bare state, because the three ways an item leaves the list
+    mean different things to somebody reading their own day back: they did it, a rule noticed it
+    was done, or a write did it. Only this one can be undone.
+    """
+    row = await _own_queue_item(s, user, item_id)
+    if row.state not in ("open", "snoozed"):
+        raise HTTPException(409, "That item is no longer open.")
+    row.state, row.cleared_by = "done", "user"
+    row.cleared_at = dt.datetime.now(dt.timezone.utc)
+    audit(s, user.tenant_id, user.id, "recruiting.queue.done", category="Recruiting",
+          target_type="recruiting_queue_item", target_id=str(row.id),
+          summary=f"Cleared {row.rule_key}")
+    await s.commit()
+    return {"ok": True, "state": row.state}
+
+
+@router.post("/recruiting/queue/{item_id}/snooze")
+async def queue_snooze(item_id: str, user: User = Depends(current_user),
+                       s: AsyncSession = Depends(get_session)):
+    """"Tomorrow" — the next BUSINESS morning at 06:00 local, when the morning build runs.
+    Friday's snooze lands on Monday, because nobody is recruiting on Saturday."""
+    row = await _own_queue_item(s, user, item_id)
+    if row.state not in ("open", "snoozed"):
+        raise HTTPException(409, "That item is no longer open.")
+    tz = recruiting_rules.business_tz()
+    row.state = "snoozed"
+    row.snoozed_until = recruiting_rules.next_business_morning(
+        dt.datetime.now(dt.timezone.utc), tz)
+    audit(s, user.tenant_id, user.id, "recruiting.queue.snooze", category="Recruiting",
+          target_type="recruiting_queue_item", target_id=str(row.id),
+          summary=f"Snoozed {row.rule_key}")
+    await s.commit()
+    return {"ok": True, "state": row.state, "until": row.snoozed_until.isoformat()}
+
+
+@router.post("/recruiting/queue/{item_id}/undo")
+async def queue_undo(item_id: str, user: User = Depends(current_user),
+                     s: AsyncSession = Depends(get_session)):
+    """Put back something a PERSON cleared.
+
+    Only theirs. An item the rules cleared is not a decision anybody made -- the work happened --
+    and putting it back would re-assert a claim the data says is false. It would also come
+    straight back off the next tick, which is worse than refusing.
+    """
+    row = await _own_queue_item(s, user, item_id)
+    if row.cleared_by != "user" or row.state != "done":
+        raise HTTPException(409, "Only something you cleared can be undone.")
+    row.state, row.cleared_by, row.cleared_at = "open", None, None
+    row.snoozed_until = None
+    audit(s, user.tenant_id, user.id, "recruiting.queue.undo", category="Recruiting",
+          target_type="recruiting_queue_item", target_id=str(row.id),
+          summary=f"Restored {row.rule_key}")
+    await s.commit()
+    return {"ok": True, "state": row.state}
+
+
+@router.post("/recruiting/queue/rebuild")
+async def queue_rebuild(user: User = Depends(current_user),
+                        s: AsyncSession = Depends(get_session)):
+    """Run the rules now instead of waiting up to five minutes for the tick.
+
+    Owner/admin only, and it is the same reconcile the tick performs -- not a second code path.
+    It exists because somebody changing a threshold in Settings should be able to see what it did.
+    """
+    _require_admin(user)
+    return await recruiting_rules.build_queue(s, user.tenant_id)

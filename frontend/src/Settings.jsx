@@ -2394,6 +2394,13 @@ function RecruitingPage() {
         </div>
       </Card>
 
+      <RecruitingRules data={data} draft={draft} setDraft={(d) => { setDraft(d); setSaved(false); }} live={live} />
+      <RecruitingTemplates data={data} draft={draft} setDraft={(d) => { setDraft(d); setSaved(false); }} live={live} />
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <SBtn kind="primary" disabled={!live || busy} onClick={save}>{busy ? "Saving…" : "Save rules and templates"}</SBtn>
+        {saved && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.meadowInk }}>Saved.</span>}
+      </div>
+
       <RecruitingRoster data={data} live={live} onChanged={load} />
     </>
   );
@@ -2401,6 +2408,85 @@ function RecruitingPage() {
 
 /* The roster. Three Team Leaders and an SDR, in this product's first shipping case — but the
    count is a workspace's business, so nothing here assumes it. */
+/* Rules and Templates (RECRUITING-SPEC §6). Both live on the same config as the pipeline map, so
+   they share one draft and one Save.
+
+   THE SCHEMA COMES FROM THE SERVER. Labels, which fields a rule has and what each one's bounds
+   are all arrive in `rule_meta`, because the engine owns them. A form that carried its own copy
+   would keep refusing a value the server had started accepting, and nobody would know which half
+   was wrong. */
+function RecruitingRules({ data, draft, setDraft, live }) {
+  const meta = data.rule_meta || [];
+  const rules = draft.rules || {};
+  const set = (key, patch) => setDraft({ ...draft, rules: { ...rules, [key]: { ...(rules[key] || {}), ...patch } } });
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate };
+
+  return (
+    <Card>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Rules</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4, lineHeight: 1.5 }}>
+        What lands on somebody’s list each morning. A rule that is off produces nothing; the others
+        carry on. Items clear themselves when the work happens — including when it happens in GHL.
+      </div>
+      {meta.map((r) => {
+        const cfg = rules[r.key] || {};
+        const on = cfg.on !== false;
+        return (
+          <div key={r.key} style={{ borderTop: `1px solid ${T.line}`, padding: "12px 0",
+                                    display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0, flex: "1 1 220px" }}>
+              <input type="checkbox" checked={on} disabled={!live}
+                     onChange={(e) => set(r.key, { on: e.target.checked })} />
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, opacity: on ? 1 : 0.55 }}>{r.label}</span>
+            </label>
+            <span style={{ display: "inline-flex", gap: 10, flexWrap: "wrap" }}>
+              {r.fields.map((f) => (
+                <label key={f.name} style={{ ...label, opacity: on ? 1 : 0.45 }}>
+                  <span style={{ fontWeight: 400, fontSize: 11, color: T.muted }}>{f.name.replace(/_/g, " ")}</span>
+                  <input type="number" min={f.min} max={f.max} disabled={!live || !on}
+                         value={cfg[f.name] ?? ""}
+                         onChange={(e) => set(r.key, { [f.name]: e.target.value === "" ? undefined : Number(e.target.value) })}
+                         style={{ display: "block", width: 84, boxSizing: "border-box", marginTop: 3,
+                                  fontFamily: "var(--font-data)", fontSize: 13, color: T.ink,
+                                  background: T.white, border: `1px solid ${T.line}`, borderRadius: 7,
+                                  padding: "6px 8px" }} />
+                  <span style={{ fontWeight: 400, fontSize: 10.5, color: T.muted }}>{f.min}–{f.max}</span>
+                </label>
+              ))}
+            </span>
+          </div>
+        );
+      })}
+    </Card>
+  );
+}
+
+function RecruitingTemplates({ data, draft, setDraft, live }) {
+  const t = draft.templates || {};
+  const fields = data.merge_fields || [];
+  const set = (key) => (e) => setDraft({ ...draft, templates: { ...t, [key]: e.target.value } });
+  const box = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13,
+                color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8,
+                padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <Card>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Templates</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4, lineHeight: 1.5 }}>
+        The drafts the drawer offers. Written by a person, never generated — somebody is about to
+        send this to a stranger and has to be able to check it.
+      </div>
+      <div style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted, marginTop: 8 }}>
+        Merge fields: {fields.map((f) => `{${f}}`).join(" · ")}
+      </div>
+      <label style={label}>Text<textarea rows={3} style={box} value={t.text || ""} disabled={!live} onChange={set("text")} /></label>
+      <label style={label}>Email subject<input style={box} value={t.email_subject || ""} disabled={!live} onChange={set("email_subject")} /></label>
+      <label style={label}>Email body<textarea rows={5} style={box} value={t.email_body || ""} disabled={!live} onChange={set("email_body")} /></label>
+    </Card>
+  );
+}
+
 function RecruitingRoster({ data, live, onChanged }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(null);
@@ -2565,7 +2651,14 @@ const RECRUITING_SAMPLE = {
   connected: true, location_id: "loc_rec",
   settings: { pipeline_id: "pipe_1", recruiting_stage_groups: [["Met", "team_leader", ["st_met"]]],
               gci_field_id: null, brokerage_field_id: null,
-              quiet_hours: { start: 8, end: 21 }, writeback_enabled: false, dry_run: true, auto_clear: true },
+              quiet_hours: { start: 8, end: 21 }, writeback_enabled: false, dry_run: true, auto_clear: true,
+              rules: { new_lead_untouched: { on: true, minutes: 60 }, appt_24h: { on: true, from_hours: 18, to_hours: 30 },
+                       met_no_next_step: { on: true, hours: 48 }, offer_out_stale: { on: true, days: 5 },
+                       no_touch_7d: { on: true, days: 7 }, stage_14d: { on: true, days: 14 },
+                       appt_set_no_event: { on: true, hours: 24 } },
+              templates: { text: "Hi {first} — {owner_first} here. Wanted to check in on where things stand.",
+                           email_subject: "Following up, {first}",
+                           email_body: "Hi {first},\n\nJust following up.\n\n{owner_first}" } },
   options: {
     pipelines: [{ id: "pipe_1", name: "Agent Recruiting", stages: [
       { id: "st_sourced", name: "Sourced" }, { id: "st_appt", name: "Appointment Set" },
@@ -2578,6 +2671,16 @@ const RECRUITING_SAMPLE = {
     errors: {},
   },
   suggested_groups: null,
+  rule_meta: [
+    { key: "new_lead_untouched", label: "New lead, no contact", fields: [{ name: "minutes", min: 5, max: 1440 }] },
+    { key: "appt_24h", label: "Appointment tomorrow", fields: [{ name: "from_hours", min: 2, max: 72 }, { name: "to_hours", min: 4, max: 96 }] },
+    { key: "met_no_next_step", label: "Met, no next step", fields: [{ name: "hours", min: 4, max: 336 }] },
+    { key: "offer_out_stale", label: "Offer out, gone quiet", fields: [{ name: "days", min: 1, max: 60 }] },
+    { key: "no_touch_7d", label: "No contact in a week", fields: [{ name: "days", min: 2, max: 90 }] },
+    { key: "stage_14d", label: "Stuck in stage", fields: [{ name: "days", min: 3, max: 180 }] },
+    { key: "appt_set_no_event", label: "Booked, no appointment", fields: [{ name: "hours", min: 2, max: 336 }] },
+  ],
+  merge_fields: ["first", "owner_first", "calendar_owner"],
   seats: [
     { id: "s1", role: "team_leader", display_name: "Jenna Ruiz", title: "Team Leader · Draper",
       ghl_user_id: "u_j", calendar_id: "cal_j", from_number: null, writeback_enabled: false, active: true, user_id: null },

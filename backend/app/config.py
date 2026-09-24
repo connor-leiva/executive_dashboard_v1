@@ -119,6 +119,10 @@ class Settings(BaseSettings):
     # GHL location timezone — GHL stores UTC but records/displays the location's local
     # date, so GHL transaction dates (createdAt/fulfilledAt) resolve here.
     BILLING_TIMEZONE: str = "America/Denver"
+    # How often the recruiting rules re-evaluate. Five minutes because the queue is what a
+    # person is looking at: a reply that lands at 9:05 should clear its item before they
+    # next glance at the list, not at the next half-hourly sync.
+    RECRUITING_QUEUE_INTERVAL_MINUTES: int = 5
     # Legacy Stripe ACCOUNT timezone — Stripe renders charge dates in the account's tz
     # (Connor's is UTC), so legacy-Stripe `created` resolves here. Matching each source
     # to its own system's tz makes the dashboard agree with both AND lines the two copies

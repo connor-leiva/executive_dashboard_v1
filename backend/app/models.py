@@ -3028,3 +3028,49 @@ class RecruitingActivity(Base):
         Index("ix_recruiting_activity_feed", "tenant_id", "candidate_id", "occurred_at"),
         Index("ix_recruiting_activity_seat_day", "tenant_id", "seat_id", "kind", "occurred_at"),
     )
+
+
+class RecruitingQueueItem(Base):
+    """One thing to do today, built by the rule engine (RECRUITING-SPEC §4.7, §6).
+
+    THE KEY IS THE IDEMPOTENCY. (tenant, rule, candidate, window) -- so a rule that fires every
+    five minutes for the same candidate in the same window produces ONE row, not 288 a day. The
+    `window_key` is what a rule considers "the same occasion": a day for the daily rules, the
+    appointment's id for the reminder, the stage entry for the stale-stage ones.
+
+    NOTHING HERE IS A COPY OF GHL. An item is a claim the rules make about local tables, and it
+    stops being true the moment those tables say otherwise -- which is why `auto_cleared` exists
+    and why clearing it is not the same as somebody pressing Done. A text sent from inside GHL
+    clears the item on the next tick without anybody touching Axcion.
+    """
+    __tablename__ = "recruiting_queue_item"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recruiting_candidate.id", ondelete="CASCADE"), index=True)
+    rule_key: Mapped[str] = mapped_column(String(32), index=True)
+    window_key: Mapped[str] = mapped_column(String(64))
+    owner_seat_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_seat.id", ondelete="SET NULL"), nullable=True, index=True)
+    state: Mapped[str] = mapped_column(String(16), default="open", index=True)   # open|done|snoozed|auto_cleared|expired
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # Rendered server-side from structured facts, never generated (§5.5: no AI drafting). 400 so a
+    # two-sentence reason fits; the renderer truncates rather than letting Postgres refuse it.
+    why: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    primary_action: Mapped[str | None] = mapped_column(String(16), nullable=True)  # text|call|email|book
+    # user  = somebody pressed Done
+    # rule  = the condition stopped holding (the work happened, possibly in GHL)
+    # action= a write through the outbox cleared it (Phase 4)
+    # The three mean different things to a person reading their own history, so they are not one flag.
+    cleared_by: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The outbox row that cleared it. No ForeignKey: recruiting_action is Phase 4 and this column
+    # is declared now because the shape is settled, not because the table exists.
+    action_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "rule_key", "candidate_id", "window_key",
+                         name="uq_recruiting_queue_window"),
+        Index("ix_recruiting_queue_open", "tenant_id", "state", "due_at"),
+        Index("ix_recruiting_queue_seat", "tenant_id", "owner_seat_id", "state"),
+    )
+

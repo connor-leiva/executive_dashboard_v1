@@ -26,8 +26,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..models import (
     Integration, RecruitingActivity, RecruitingAppointment, RecruitingCandidate,
-    RecruitingSeat, RecruitingStageEvent, User,
+    RecruitingQueueItem, RecruitingSeat, RecruitingStageEvent, User,
 )
+from . import recruiting_rules as rules
 from . import roles
 
 SIGNED_GROUP = "Signed"
@@ -38,7 +39,9 @@ PATH_GROUPS = ("Offer out", "Met")
 # Why a block is null. Written once, here, so the tab and the tests agree on the wording and a
 # reader can tell "not built" from "nothing to show".
 WHY = {
-    "queue": "The Do next queue arrives with the rule engine (Phase 3).",
+    "queue_empty": "Nothing is due. Tomorrow's list builds at 6:00 am.",
+    "queue_unconfigured": "No stages are mapped yet, so the rules have nothing to reason about. "
+                          "Finish Settings › Recruiting.",
     "commitments": "Weekly commitments arrive with accountability (Phase 5).",
     "goal": "Monthly goals are set in Settings › Recruiting › Goals (Phase 5). Signings are counted already.",
     "calendars": "Open slots are read live from GHL when booking ships (Phase 4b).",
@@ -199,8 +202,7 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
     leaders = [x for x in seats if x.role == "team_leader"]
     sdr = next((x for x in seats if x.role == "sdr"), None)
 
-    unavailable = {"queue": WHY["queue"], "commitments": WHY["commitments"],
-                   "calendars": WHY["calendars"]}
+    unavailable = {"commitments": WHY["commitments"], "calendars": WHY["calendars"]}
 
     payload: dict = {
         "as_of": now.isoformat(),
@@ -349,6 +351,12 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
         "stages": ordered,
     }
 
+    # ── the queue ───────────────────────────────────────────────────────────────────────────
+    payload["queue"] = await _queue(s, tenant_id, integ, viewer, seats, cand_by_id, now, tz)
+    if not payload["queue"]["items"]:
+        groups_present = bool((integ.config or {}).get("recruiting_stage_groups"))
+        unavailable["queue"] = WHY["queue_empty"] if groups_present else WHY["queue_unconfigured"]
+
     # ── sources: owners only ────────────────────────────────────────────────────────────────
     if viewer["is_admin"]:
         by_source: dict = defaultdict(lambda: {"candidates": 0, "signed": 0, "gci": 0.0})
@@ -369,6 +377,73 @@ async def build_recruiting(s: AsyncSession, tenant_id: uuid.UUID, user: User, *,
             key=lambda r: (-r["signed"], -r["candidates"]))
 
     return payload
+
+
+async def _queue(s: AsyncSession, tenant_id, integ, viewer, seats, cand_by_id, now, tz) -> dict:
+    """Today's list, scoped to the viewer.
+
+    An owner sees everybody's and can filter; a seat sees its OWN. That is not a permission
+    subtlety, it is what the list is for: a Team Leader opening the tab should be looking at the
+    four things they have to do, not at nineteen things four people have to do.
+    """
+    rows = list((await s.execute(select(RecruitingQueueItem).where(
+        RecruitingQueueItem.tenant_id == tenant_id,
+        RecruitingQueueItem.state.in_(("open", "snoozed", "done", "auto_cleared")))
+        .order_by(RecruitingQueueItem.due_at))).scalars().all())
+    by_seat_row = {str(x.id): x for x in seats}
+    templates = rules.clean_templates((integ.config or {}).get("templates"))
+    seat_id = viewer.get("seat_id")
+    mine = viewer["is_admin"] and not viewer.get("previewing")
+
+    def visible(row) -> bool:
+        return mine or (seat_id and str(row.owner_seat_id or "") == str(seat_id))
+
+    today = now.astimezone(tz).date()
+    items, cleared, by_seat_count = [], [], {}
+    for row in rows:
+        if not visible(row):
+            continue
+        cand = cand_by_id.get(str(row.candidate_id))
+        owner = by_seat_row.get(str(row.owner_seat_id or ""))
+        if row.state in ("open",) or (row.state == "snoozed" and _aware(row.snoozed_until)
+                                      and _aware(row.snoozed_until) <= now):
+            key = str(row.owner_seat_id or "unassigned")
+            by_seat_count[key] = by_seat_count.get(key, 0) + 1
+            items.append({
+                "id": str(row.id), "rule": row.rule_key,
+                "rule_label": rules.RULE_LABELS.get(row.rule_key, row.rule_key),
+                "why": row.why,
+                "due": rules.due_label(row.due_at, now, tz),
+                "primary_action": row.primary_action,
+                "candidate": {"id": str(row.candidate_id), "name": cand.name if cand else None,
+                              "stage": cand.stage_group if cand else None,
+                              "gci": float(cand.gci_ttm) if cand and cand.gci_ttm else None},
+                "owner": _seat_public(owner) if owner else None,
+                # Plain templates from Settings, merged. Never generated (§5.5) -- somebody is
+                # about to send this to a stranger and has to be able to check it.
+                "draft": _draft(templates, cand, owner),
+            })
+        elif row.cleared_at and _aware(row.cleared_at).astimezone(tz).date() == today:
+            cleared.append({
+                "id": str(row.id), "name": cand.name if cand else None,
+                "how": "Done" if row.cleared_by == "user" else "Cleared by the rule",
+                "at": _aware(row.cleared_at).isoformat(),
+                # Only a person's Done can be undone. An item the rules cleared is not a decision
+                # somebody made, and "undoing" it would put back a claim that is no longer true.
+                "undoable": row.cleared_by == "user",
+            })
+    items.sort(key=lambda i: (i["due"]["at"] or "9999"))
+    return {"counts": {"total": len(items), "cleared": len(cleared), "by_seat": by_seat_count},
+            "items": items, "cleared": cleared}
+
+
+def _draft(templates: dict, cand, owner) -> dict:
+    first = (cand.name or "").split(" ")[0] if cand and cand.name else ""
+    owner_first = owner.display_name.split(" ")[0] if owner and owner.display_name else ""
+    merge = {"first": first, "owner_first": owner_first, "calendar_owner": owner_first}
+    return {"text": rules.render_template(templates.get("text", ""), **merge),
+            "email": {"subject": rules.render_template(templates.get("email_subject", ""), **merge),
+                      "body": rules.render_template(templates.get("email_body", ""), **merge)}}
 
 
 def _in_period(when: dt.datetime | None, per: dict, tz) -> bool:

@@ -57,6 +57,35 @@ async def syncable_tenant_ids(s) -> list:
             if status != "suspended" and not (cfg or {}).get("syncs_frozen")]
 
 
+async def recruiting_queue_tick():
+    """Every few minutes: re-evaluate the recruiting rules and reconcile the queue.
+
+    Cheap by construction -- pure functions over rows this workspace already has, no GHL call --
+    which is what makes a five-minute cadence reasonable. It RECONCILES rather than rebuilds:
+    items the rules still claim are left alone (including ones already marked Done), and items
+    they have stopped claiming become auto_cleared. That last part is how a text sent from inside
+    GHL clears somebody's Axcion list without them touching Axcion.
+
+    Only for workspaces the scheduler should act on at all: a suspended or frozen one is skipped,
+    like every other tick.
+    """
+    from .models import Integration
+    from .services.recruiting_rules import build_queue
+    async with SessionLocal() as s:
+        tenant_ids = set(await syncable_tenant_ids(s))
+        rows = (await s.execute(select(Integration.tenant_id).where(
+            Integration.provider == "ghl_recruiting",
+            Integration.status == "connected"))).all()
+    for (tid,) in rows:
+        if tid not in tenant_ids:
+            continue
+        try:
+            async with SessionLocal() as s2:
+                await build_queue(s2, tid)
+        except Exception as e:  # noqa: BLE001 - one workspace's rules must not stop the rest
+            print(f"[recruiting_queue] {tid}: {e}", flush=True)
+
+
 async def fub_followups_tick():
     """Every few minutes: the follow-up passes of the Follow Up Boss sync, for Needs You Today.
 
@@ -382,6 +411,12 @@ def build_scheduler() -> AsyncIOScheduler:
     sched.add_job(beat(fub_followups_tick), "interval",
                   minutes=settings.FUB_FOLLOWUPS_INTERVAL_MINUTES)
     _tz = ZoneInfo(settings.BILLING_TIMEZONE)
+    # The recruiting queue, twice over. The interval keeps it current through the day; the 06:00
+    # cron is the MORNING BUILD the tab promises ("Tomorrow's list builds at 6:00 am"), and it is
+    # business-local because that sentence is about somebody's morning, not about UTC.
+    sched.add_job(beat(recruiting_queue_tick), "interval",
+                  minutes=settings.RECRUITING_QUEUE_INTERVAL_MINUTES)
+    sched.add_job(beat(recruiting_queue_tick), "cron", hour=6, minute=0, timezone=_tz)
     sched.add_job(beat(roster_tick), "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
     sched.add_job(beat(scorecard_tick), "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
     # After the syncs have had the night to land: attribution reads registrations the GHL sync

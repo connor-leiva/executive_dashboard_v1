@@ -15,6 +15,7 @@
  * blank card that cannot tell them apart gets read as "we recruited nobody".
  */
 import { useState } from "react";
+import { postJSON } from "../api.js";
 import { Bar, Card, Chip, Eyebrow } from "./Parts.jsx";
 import { C, FB, FD, FM, band, verdictStyle } from "./scorecardMath.js";
 import { useCandidate, useRecruiting } from "./useRecruiting.js";
@@ -248,28 +249,101 @@ function LabelledBar({ label, pct }) {
 
 /* ── 2. Do next ─────────────────────────────────────────────────────────────────────────── */
 
-function DoNext({ data }) {
-  const { queue, viewer, unavailable } = data;
-  const items = queue?.items || [];
-  const mine = viewer.role === "owner" ? "Do next" : "Your list today";
+function DoNext({ data, onChanged }) {
+  const { queue, viewer, unavailable, seats } = data;
+  const [filter, setFilter] = useState("all");
+  const [busy, setBusy] = useState(null);
+  const owner = viewer.role === "owner";
+  const all = queue?.items || [];
+  const items = filter === "all" ? all : all.filter((i) => i.owner?.seat_id === filter);
+  const cleared = queue?.cleared || [];
+  const total = all.length + cleared.length;
+  const donePct = total ? Math.round((cleared.length / total) * 100) : 0;
+
+  async function act(item, verb) {
+    if (!API_LIVE) return;                 // the offline sample has nothing to write to
+    setBusy(item.id);
+    try { await postJSON(`/ulrg/recruiting/queue/${item.id}/${verb}`, {}); onChanged(); }
+    finally { setBusy(null); }
+  }
+
   return (
     <Card>
-      <SectionTitle
-        meta={queue?.counts?.total ? `${queue.counts.cleared} of ${queue.counts.total} cleared` : null}>
-        {mine}
+      <SectionTitle right={total ? (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 110, height: 6, borderRadius: 99, background: C.hairSoft, overflow: "hidden" }}>
+            <span style={{ display: "block", width: `${donePct}%`, height: "100%", background: C.meadow }} />
+          </span>
+          <span style={{ fontFamily: FM, fontSize: 12, color: C.slate, whiteSpace: "nowrap" }}>
+            {cleared.length} of {total} cleared
+          </span>
+        </span>) : null}>
+        {owner ? "Do next" : "Your list today"}
       </SectionTitle>
       <div style={{ fontFamily: FB, fontSize: 12.5, color: C.slate, marginTop: -6, marginBottom: 14, lineHeight: 1.5 }}>
-        Built each morning from the rules in Settings. Texts, calls, emails and bookings sent from
-        here are logged to GHL.
+        Built each morning from the rules in Settings. Sending from here is logged to GHL from
+        Phase 4; today Done clears it on this list only.
       </div>
-      {items.length === 0
-        ? <NotYet>{unavailable?.queue}</NotYet>
-        : items.map((it) => <QueueRow key={it.id} it={it} owner={viewer.role === "owner"} />)}
+
+      {owner && all.length > 0 && (
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
+          <FilterChip on={filter === "all"} onClick={() => setFilter("all")}>Everyone {all.length}</FilterChip>
+          {(seats || []).map((seat) => {
+            const n = all.filter((i) => i.owner?.seat_id === seat.seat_id).length;
+            if (!n) return null;
+            return <FilterChip key={seat.seat_id} on={filter === seat.seat_id}
+                               onClick={() => setFilter(seat.seat_id)}>{seat.first} {n}</FilterChip>;
+          })}
+        </div>
+      )}
+
+      {items.length === 0 ? (
+        all.length === 0
+          ? <NotYet>{unavailable?.queue}</NotYet>
+          : <div style={{ fontFamily: FB, fontSize: 12.5, color: C.muted }}>Nothing on that person&rsquo;s list.</div>
+      ) : items.map((it) => (
+        <QueueRow key={it.id} it={it} owner={owner} busy={busy === it.id}
+                  onAct={(verb) => act(it, verb)} />
+      ))}
+
+      {cleared.length > 0 && (
+        <div style={{ background: C.parchment, borderRadius: 9, marginTop: 14, padding: "10px 14px" }}>
+          <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: ".07em", textTransform: "uppercase",
+                        color: C.muted, marginBottom: 6 }}>Cleared today</div>
+          {cleared.map((row) => (
+            <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+              <span style={{ color: C.meadowInk, fontFamily: FM, fontSize: 12 }}>✓</span>
+              <span style={{ fontFamily: FB, fontSize: 12.5, color: C.body, minWidth: 0, overflow: "hidden",
+                             textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</span>
+              <span style={{ fontFamily: FM, fontSize: 11, color: C.muted, whiteSpace: "nowrap" }}>· {row.how}</span>
+              <span style={{ flex: 1 }} />
+              {/* Only a person's Done can be undone. Putting back something the RULES cleared
+                  would re-assert a claim the data says is false -- and it would come straight
+                  back off the next tick. */}
+              {row.undoable && (
+                <button type="button" disabled={!API_LIVE} onClick={() => act(row, "undo")}
+                        style={{ border: "none", background: "transparent", cursor: "pointer",
+                                 fontFamily: FB, fontSize: 12, color: C.teal, padding: 0 }}>Undo</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
 
-function QueueRow({ it, owner }) {
+function FilterChip({ on, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick}
+            style={{ fontFamily: FB, fontSize: 12, padding: "5px 10px", borderRadius: 99,
+                     whiteSpace: "nowrap", cursor: "pointer",
+                     background: on ? C.ink : C.surface, color: on ? C.onDark : C.body,
+                     border: on ? "1px solid transparent" : `1px solid ${C.hair}` }}>{children}</button>
+  );
+}
+
+function QueueRow({ it, owner, busy, onAct }) {
   const tone = TONE[it.due?.tone || "mute"];
   return (
     <div role="button" tabIndex={0} onClick={() => openDrawer(it.candidate.id)}
@@ -294,15 +368,38 @@ function QueueRow({ it, owner }) {
         <span style={{ display: "block", fontFamily: FM, fontSize: 9.5, letterSpacing: ".06em",
                        textTransform: "uppercase", color: C.teal, marginTop: 4 }}>{it.rule_label}</span>
       </span>
-      {owner && it.owner && (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <Initials t={it.owner.initials} tone={it.owner.role === "sdr" ? "sdr" : "teal"} size={18} />
-          <span style={{ fontFamily: FB, fontSize: 12, color: C.slate }}>{it.owner.first}</span>
-        </span>
-      )}
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                     justifyContent: "flex-end" }}
+            onClick={(e) => e.stopPropagation()}>
+        {owner && it.owner && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Initials t={it.owner.initials} tone={it.owner.role === "sdr" ? "sdr" : "teal"} size={18} />
+            <span style={{ fontFamily: FB, fontSize: 12, color: C.slate }}>{it.owner.first}</span>
+          </span>
+        )}
+        {/* The primary action opens the drawer on the right mode. It cannot SEND yet -- the
+            outbox is Phase 4 -- so the drawer offers the draft and a link into GHL. A button
+            that looked like it sent and did not would be worse than no button. */}
+        <button type="button" onClick={() => openDrawer(it.candidate.id)}
+                style={{ fontFamily: FB, fontSize: 12.5, fontWeight: 600, padding: "7px 13px",
+                         borderRadius: 7, border: "none", cursor: "pointer",
+                         background: C.ink, color: C.onDark }}>
+          {ACTION_LABEL[it.primary_action] || "Open"}
+        </button>
+        <button type="button" disabled={busy} onClick={() => onAct("snooze")}
+                style={{ fontFamily: FB, fontSize: 12.5, padding: "7px 13px", borderRadius: 7,
+                         border: `1px solid ${C.hair}`, background: C.surface, color: C.slate,
+                         cursor: busy ? "default" : "pointer" }}>Tomorrow</button>
+        <button type="button" disabled={busy} aria-label="Done" onClick={() => onAct("done")}
+                style={{ width: 32, height: 32, borderRadius: 99, border: "none",
+                         background: "transparent", color: C.meadowInk, fontSize: 15,
+                         cursor: busy ? "default" : "pointer" }}>✓</button>
+      </span>
     </div>
   );
 }
+
+const ACTION_LABEL = { text: "Text", call: "Call", email: "Email", book: "Book" };
 
 /* ── 3. The SDR card ────────────────────────────────────────────────────────────────────── */
 
@@ -660,7 +757,7 @@ export default function Recruiting() {
   // three roles in a design review as it does against real data. Phase 2 has to be checked in
   // all three (§9) and there is no server here to ask.
   const as = new URLSearchParams(window.location.search).get("as");
-  const { data, error } = useRecruiting({ as: API_LIVE ? as : null });
+  const { data, error, reload } = useRecruiting({ as: API_LIVE ? as : null });
   openDrawer = setOpen;
 
   const view = data || sampleAs(as);
@@ -703,7 +800,7 @@ export default function Recruiting() {
       {isSdr ? <HeroSdr data={view} /> : <Hero data={view} />}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-        <div style={{ flex: "2 1 580px", minWidth: 0 }}><DoNext data={view} /></div>
+        <div style={{ flex: "2 1 580px", minWidth: 0 }}><DoNext data={view} onChanged={reload} /></div>
         <div style={{ flex: "1 1 340px", minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
           <SdrCard data={view} />
           <Commitments data={view} />
@@ -783,7 +880,13 @@ const SAMPLE = {
                 reason: null, writeback: { open: false, reason: "Write-back ships in Phase 4." } },
   viewer: { seat_id: "s1", role: "owner", name: "Owner", previewing: false, is_admin: true },
   period: { key: "2026-09", label: "September", days_left: 7, elapsed: 0.77 },
-  seats: [],
+  // The roster. Empty here meant the owner filter chips could not render offline, so the
+  // preview showed a control that production has and it did not — the same subset-sample trap.
+  seats: [
+    { seat_id: "s1", name: "Jenna Ruiz", first: "Jenna", initials: "JR", role: "team_leader", title: "Team Leader · Draper" },
+    { seat_id: "s2", name: "Marcus Bell", first: "Marcus", initials: "MB", role: "team_leader", title: "Team Leader · Sandy" },
+    { seat_id: "s3", name: "Cole Whittaker", first: "Cole", initials: "CW", role: "sdr", title: "SDR" },
+  ],
   goal: { scope: "team", signed: 5, goal: null, pace: null, pace_pct: null, verdict: null, need: null,
           split: null,
           signings: [
@@ -809,7 +912,35 @@ const SAMPLE = {
            { seat_id: "s2", name: "Marcus Bell", first: "Marcus", initials: "MB", role: "team_leader", title: null,
              cells: ["held", "noshow", "up", "up", "open", "open"], held: 1, booked: 4 }] },
   calendars: null,
-  queue: { counts: { total: 0, cleared: 0, by_seat: {} }, items: [], cleared: [] },
+  queue: {
+    counts: { total: 3, cleared: 1, by_seat: { s1: 1, s2: 1, s3: 1 } },
+    items: [
+      { id: "q1", rule: "offer_out_stale", rule_label: "Offer out, gone quiet",
+        why: "Offer has been out 7 days. No reply since Thursday.",
+        due: { label: "2 days late", tone: "late", at: new Date(Date.now() - 2 * 864e5).toISOString() },
+        primary_action: "call",
+        candidate: { id: "c6", name: "Sunny Kaur", stage: "Offer out", gci: 241000 },
+        owner: { seat_id: "s2", name: "Marcus Bell", first: "Marcus", initials: "MB", role: "team_leader", title: null },
+        draft: { text: "Hi Sunny — Marcus here. Wanted to check in on where things stand.",
+                 email: { subject: "Following up, Sunny", body: "Hi Sunny,\n\nJust following up." } } },
+      { id: "q2", rule: "appt_24h", rule_label: "Appointment tomorrow",
+        why: "Meeting Thursday at 9:00 am and they have not confirmed.",
+        due: { label: "Today", tone: "today", at: new Date().toISOString() },
+        primary_action: "text",
+        candidate: { id: "c7", name: "Trey Molina", stage: "Met", gci: 180000 },
+        owner: { seat_id: "s1", name: "Jenna Ruiz", first: "Jenna", initials: "JR", role: "team_leader", title: null },
+        draft: { text: "Hi Trey — Jenna here. Still good for Thursday?", email: { subject: "", body: "" } } },
+      { id: "q3", rule: "new_lead_untouched", rule_label: "New lead, no contact",
+        why: "Came in 4 hours and nobody has reached out yet.",
+        due: { label: "Today", tone: "today", at: new Date().toISOString() },
+        primary_action: "text",
+        candidate: { id: "c9", name: "Dana Cole", stage: "Sourced", gci: 95000 },
+        owner: { seat_id: "s3", name: "Cole Whittaker", first: "Cole", initials: "CW", role: "sdr", title: "SDR" },
+        draft: { text: "Hi Dana — Cole here.", email: { subject: "", body: "" } } },
+    ],
+    cleared: [{ id: "q0", name: "Priya Raman", how: "Done",
+                at: new Date().toISOString(), undoable: true }],
+  },
   commitments: null,
   leaderboard: [
     { seat_id: "s1", name: "Jenna Ruiz", first: "Jenna", initials: "JR", role: "team_leader",
@@ -829,7 +960,7 @@ const SAMPLE = {
     { name: "Referral", candidates: 6, signed: 2, rate: 33, cost_each: null, gci: 200000 },
     { name: "Unattributed", candidates: 5, signed: 0, rate: 0, cost_each: null, gci: 0 }],
   unavailable: {
-    queue: "The Do next queue arrives with the rule engine (Phase 3).",
+    queue: "Nothing is due. Tomorrow's list builds at 6:00 am.",
     commitments: "Weekly commitments arrive with accountability (Phase 5).",
     goal: "Monthly goals are set in Settings › Recruiting › Goals (Phase 5). Signings are counted already.",
     calendars: "Open slots are read live from GHL when booking ships (Phase 4b).",

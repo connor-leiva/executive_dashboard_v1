@@ -29,6 +29,8 @@ def catalog() -> list[dict]:
     return [
         {"job": "tick", "what": "Syncs every connected source", "every_minutes": settings.SYNC_INTERVAL_MINUTES, "enabled": True},
         {"job": "fub_followups_tick", "what": "Refreshes follow-ups from Follow Up Boss", "every_minutes": settings.FUB_FOLLOWUPS_INTERVAL_MINUTES, "enabled": True},
+        {"job": "recruiting_queue_tick", "what": "Rebuilds the recruiting Do-next queue",
+         "every_minutes": settings.RECRUITING_QUEUE_INTERVAL_MINUTES, "enabled": True},
         {"job": "roster_tick", "what": "Refreshes Sisu agent offices", "every_minutes": DAY, "enabled": True},
         {"job": "scorecard_tick", "what": "Resolves scorecard metrics", "every_minutes": DAY, "enabled": True},
         {"job": "ads_funnel_tick", "what": "Attributes registrations to ads", "every_minutes": DAY, "enabled": True},
