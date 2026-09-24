@@ -21,6 +21,10 @@ AUDIT_CATEGORIES = frozenset({
     "Publish", "Config", "Access", "Read", "Content", "System",
     "AI", "Calendar", "Integrations", "Launchpad", "Marketing", "People",
     "Roles", "SOPs", "Setup", "Sign-in", "Training", "Win the Day", "Workspace",
+    # Recruiting writes to a customer's GHL on a person's behalf -- a text to a recruit, a booked
+    # appointment, a stage move. Every one of those is auditable by design (RECRUITING-SPEC §5.3
+    # step 5), which is the whole reason this category exists rather than folding into Integrations.
+    "Recruiting",
 })
 
 

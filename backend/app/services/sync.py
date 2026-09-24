@@ -1592,6 +1592,12 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
                 print(f"[ghl_edge] skipped: {e}", flush=True)
         elif integ.provider == "ghl_bc":
             records = await sync_becollective_ghl(s, tenant_id, integ)
+        elif integ.provider == "ghl_recruiting":
+            # A SECOND GHL location, the brokerage's own recruiting one. It must not fall through
+            # to sync_ghl: that one is membership-specific -- tags, renewals, sales pipelines --
+            # and running it against a recruiting location produces plausible nonsense.
+            from .recruiting_sync import sync_ghl_recruiting
+            records = await sync_ghl_recruiting(s, tenant_id, integ)
         elif integ.provider == "arive":
             records = await sync_arive(s, tenant_id, integ)
         elif integ.provider == "stripe_legacy":

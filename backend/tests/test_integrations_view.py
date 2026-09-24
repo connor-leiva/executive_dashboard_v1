@@ -128,7 +128,10 @@ async def test_a_vendor_row_stands_for_two_providers_without_merging_them():
     assert len(rows) == 1, "Go High Level should be one row"
     row = rows[0]
     assert row.vendor == "Go High Level"
-    assert row.members == ["ghl", "ghl_bc"]
+    # Three providers now: the two programme locations and the brokerage's recruiting one.
+    # Asserted as a superset rather than a literal list, because the POINT of this test is that
+    # a vendor row spans its members without merging them -- not how many there happen to be.
+    assert set(row.members) >= {"ghl", "ghl_bc"} and "ghl_recruiting" in row.members
     assert underneath == 2, "the integrations themselves must not have been merged"
     assert {e.provider for e in row.entities} == {"ghl", "ghl_bc"}
     # Each connection carries ITS OWN configuration. A summary on the row would describe one
@@ -190,7 +193,7 @@ async def test_a_row_is_held_back_only_when_every_member_is_secondary():
     async with SessionLocal() as s:
         out = await build_integrations_view(s, await _tenant(s))
     by = {x.family: x for x in out.sources}
-    assert by["ghl"].members == ["ghl", "ghl_bc"]
+    assert set(by["ghl"].members) >= {"ghl", "ghl_bc", "ghl_recruiting"}
     assert by["ghl"].secondary is False
     assert by["stripe"].members == ["stripe_legacy", "stripe_bc"]
     assert by["stripe"].secondary is True
@@ -250,8 +253,11 @@ async def test_a_vendor_row_wears_the_worst_state_of_its_connections():
     row = next(x for x in out.sources if x.family == "ghl")
     assert row.status == "attention"          # the healthy sibling does not hide the broken one
     assert {e.state for e in row.entities} == {"error", "ok"}
-    # Nothing left to add: both members have a row.
-    assert row.connect_provider is None and row.multi_entity is False
+    # Something IS left to add -- ghl_recruiting has no row in this fixture -- so the offer
+    # names it. It must never name a member that already has one: that is the whole reason
+    # connect_provider exists instead of the row's own provider.
+    assert row.connect_provider == "ghl_recruiting"
+    assert row.multi_entity is True
 
 
 async def test_a_vendor_row_offers_its_unconnected_member():

@@ -24,8 +24,9 @@ from ..db import get_session
 from .. import plans
 from ..deps import current_user, require_tab
 from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue,
-                      ScorecardGoal, ShareLink)
-from ..services import binder_storage, scorecard
+                      ScorecardGoal, ShareLink, Integration, RecruitingCandidate,
+                      RecruitingSeat)
+from ..services import binder_storage, recruiting, recruiting_settings, scorecard
 from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
@@ -484,3 +485,189 @@ async def set_goals(body: GoalsIn, user: User = Depends(current_user),
               {"period": body.period, "count": n})
         await s.commit()
     return {"ok": True, "count": n}
+
+
+# ── Recruiting (RECRUITING-SPEC §3) ──────────────────────────────────────────────────────────────
+# A fourth sub-tab under the same `ulrg` grant as the Scorecard. Read-only in Phase 1: there is no
+# write endpoint here yet, and the payload's `connection.writeback` says so rather than omitting it,
+# so the UI has the shape it will keep and the button reads "Sending is off" from the first day.
+
+
+@router.get("/recruiting")
+async def get_recruiting(period: str | None = Query(None),
+                         as_seat: str | None = Query(None, alias="as"),
+                         user: User = Depends(current_user),
+                         s: AsyncSession = Depends(get_session)):
+    """The tab's whole payload. Gated on the ULRG scorecard scope -- same tab, same grant.
+
+    `?as=` previews another seat and is owner/admin only; the service enforces that rather than
+    this router, because "what a Team Leader may see" is a property of the data.
+    """
+    await _assert_scope_view(user, s, "ulrg")
+    return await recruiting.build_recruiting(s, user.tenant_id, user,
+                                             period=period, as_seat=as_seat)
+
+
+@router.get("/recruiting/candidates/{candidate_id}")
+async def get_recruiting_candidate(candidate_id: str,
+                                   user: User = Depends(current_user),
+                                   s: AsyncSession = Depends(get_session)):
+    """One candidate and their timeline.
+
+    404 rather than 403 when the viewer may not see this one. A Team Leader probing ids should
+    not be able to learn that a candidate EXISTS on another Team Leader's list -- which a 403
+    tells them precisely.
+    """
+    await _assert_scope_view(user, s, "ulrg")
+    cand = (await s.execute(select(RecruitingCandidate).where(
+        RecruitingCandidate.tenant_id == user.tenant_id,
+        RecruitingCandidate.id == candidate_id))).scalars().first()
+    if cand is None or not await recruiting.may_see_candidate(s, user.tenant_id, user, cand):
+        raise HTTPException(404, "No such candidate")
+    detail = await recruiting.candidate_detail(s, user.tenant_id, user, candidate_id)
+    if detail is None:
+        raise HTTPException(404, "No such candidate")
+    return detail
+
+
+# ── Settings › Recruiting (§9 Phase 1) ───────────────────────────────────────────────────────────
+# Owner/admin only, and separate from the tab's own read: this is where a workspace decides which
+# pipeline it is, which stages mean what, and who the seats are. The tab shows numbers; this
+# decides what the numbers count.
+
+
+async def _recruiting_integration(s, tenant_id) -> Integration | None:
+    return (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id,
+        Integration.provider == "ghl_recruiting"))).scalars().first()
+
+
+@router.get("/recruiting/settings")
+async def get_recruiting_settings(user: User = Depends(current_user),
+                                  s: AsyncSession = Depends(get_session)):
+    """The stored configuration, the roster, and what the location actually offers.
+
+    The options are read LIVE. There is an ordering problem otherwise: the sync stops early until
+    a pipeline is chosen, so nothing has ever cached the pipeline list somebody needs in order to
+    choose one.
+    """
+    _require_admin(user)
+    integ = await _recruiting_integration(s, user.tenant_id)
+    seats = list((await s.execute(select(RecruitingSeat).where(
+        RecruitingSeat.tenant_id == user.tenant_id)
+        .order_by(RecruitingSeat.role, RecruitingSeat.display_name))).scalars().all())
+    options = await recruiting_settings.load_location_options(integ)
+    cfg = recruiting_settings.clean_settings(integ.config if integ else None)
+    stages = next((p["stages"] for p in options["pipelines"]
+                   if p["id"] == cfg.get("pipeline_id")), [])
+    return {
+        "connected": integ is not None,
+        "location_id": (integ.config or {}).get("location_id") if integ else None,
+        "settings": cfg,
+        "options": options,
+        # Offered, never applied. The only name matching in the product, and a person has to
+        # press Save for it to mean anything (D2).
+        "suggested_groups": (recruiting_settings.suggest_groups(stages)
+                             if stages and not cfg.get("recruiting_stage_groups") else None),
+        "seats": [{"id": str(x.id), "role": x.role, "display_name": x.display_name,
+                   "title": x.title, "ghl_user_id": x.ghl_user_id, "calendar_id": x.calendar_id,
+                   "from_number": x.from_number, "writeback_enabled": x.writeback_enabled,
+                   "active": x.active, "user_id": str(x.user_id) if x.user_id else None}
+                  for x in seats],
+    }
+
+
+@router.put("/recruiting/settings")
+async def put_recruiting_settings(body: dict, user: User = Depends(current_user),
+                                  s: AsyncSession = Depends(get_session)):
+    """Replace the Settings-owned keys. Everything else on the config survives untouched -- a PUT
+    that replaced the whole thing would drop `location_id`, and the connection would go on looking
+    connected while syncing nothing."""
+    _require_admin(user)
+    integ = await _recruiting_integration(s, user.tenant_id)
+    if integ is None:
+        raise HTTPException(404, "No recruiting location is connected.")
+    try:
+        integ.config = recruiting_settings.merge_settings(integ.config, body, strict=True)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    audit(s, user.tenant_id, user.id, "recruiting.settings", category="Recruiting",
+          target_type="integration", target_id=str(integ.id),
+          summary="Updated recruiting pipeline settings")
+    await s.commit()
+    return {"settings": recruiting_settings.clean_settings(integ.config)}
+
+
+@router.post("/recruiting/seats")
+async def create_recruiting_seat(body: dict, user: User = Depends(current_user),
+                                 s: AsyncSession = Depends(get_session)):
+    _require_admin(user)
+    biz = await recruiting.default_business(s, user.tenant_id)
+    if biz is None:
+        raise HTTPException(404, "This workspace has no real-estate business to recruit for.")
+    count = (await s.execute(select(func.count(RecruitingSeat.id)).where(
+        RecruitingSeat.tenant_id == user.tenant_id))).scalar() or 0
+    if count >= recruiting_settings.MAX_SEATS:
+        raise HTTPException(422, f"At most {recruiting_settings.MAX_SEATS} seats.")
+    try:
+        clean = recruiting_settings.clean_seat(body)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    seat = RecruitingSeat(tenant_id=user.tenant_id, business_id=biz.id, **clean)
+    # Optional, and decided by a person: linking a seat to a login is a choice, and the GHL
+    # match offered beside it is only ever a suggestion (FUB-SPEC A7).
+    if body.get("user_id"):
+        seat.user_id = body["user_id"]
+    s.add(seat)
+    audit(s, user.tenant_id, user.id, "recruiting.seat.create", category="Recruiting",
+          target_type="recruiting_seat", summary=f"Added {clean['display_name']} ({clean['role']})")
+    await s.commit()
+    return {"id": str(seat.id)}
+
+
+@router.patch("/recruiting/seats/{seat_id}")
+async def update_recruiting_seat(seat_id: str, body: dict, user: User = Depends(current_user),
+                                 s: AsyncSession = Depends(get_session)):
+    _require_admin(user)
+    seat = (await s.execute(select(RecruitingSeat).where(
+        RecruitingSeat.tenant_id == user.tenant_id,
+        RecruitingSeat.id == seat_id))).scalars().first()
+    if seat is None:
+        raise HTTPException(404, "No such seat")
+    try:
+        clean = recruiting_settings.clean_seat({**{
+            "role": seat.role, "display_name": seat.display_name, "title": seat.title,
+            "ghl_user_id": seat.ghl_user_id, "calendar_id": seat.calendar_id,
+            "from_number": seat.from_number, "writeback_enabled": seat.writeback_enabled,
+            "active": seat.active}, **body})
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    for key, value in clean.items():
+        setattr(seat, key, value)
+    if "user_id" in body:
+        seat.user_id = body["user_id"] or None
+    audit(s, user.tenant_id, user.id, "recruiting.seat.update", category="Recruiting",
+          target_type="recruiting_seat", target_id=str(seat.id),
+          summary=f"Updated {seat.display_name}")
+    await s.commit()
+    return {"ok": True}
+
+
+@router.delete("/recruiting/seats/{seat_id}")
+async def deactivate_recruiting_seat(seat_id: str, user: User = Depends(current_user),
+                                     s: AsyncSession = Depends(get_session)):
+    """SOFT delete. A seat is referenced by every stage event and appointment it ever owned, and
+    attribution has to survive somebody leaving -- a signing belongs to whoever closed it."""
+    _require_admin(user)
+    seat = (await s.execute(select(RecruitingSeat).where(
+        RecruitingSeat.tenant_id == user.tenant_id,
+        RecruitingSeat.id == seat_id))).scalars().first()
+    if seat is None:
+        raise HTTPException(404, "No such seat")
+    seat.active = False
+    seat.writeback_enabled = False      # a deactivated seat must not be able to send
+    audit(s, user.tenant_id, user.id, "recruiting.seat.deactivate", category="Recruiting",
+          target_type="recruiting_seat", target_id=str(seat.id),
+          summary=f"Deactivated {seat.display_name}")
+    await s.commit()
+    return {"ok": True}

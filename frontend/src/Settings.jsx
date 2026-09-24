@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Routes, Route, Navigate, NavLink, Link, useLocation } from "react-router-dom";
 import { T, alpha, PROVIDER_NAME, relativeTime } from "./theme.js";
 import { getJSON, postJSON, putJSON, patchJSON, delJSON, tenantHeaders, getToken, logout, getBlob } from "./api.js";
@@ -54,7 +54,7 @@ function ensureProviders(rows) {
 // count and renders only when something is actually wrong -- a badge that is always present is
 // furniture, and the eye stops reading it. Businesses is a plain count, which is what the
 // mockup draws.
-function subnavFor(role, aiOn) {
+function subnavFor(role, aiOn, ulrgOn) {
   if (role === "member") return [{ to: "/settings/security", label: "Security" },
                                  { to: "/settings/account", label: "Account" }];
   const nav = [
@@ -63,14 +63,17 @@ function subnavFor(role, aiOn) {
     { to: "/settings/businesses", label: "Businesses", badge: "businesses" },
     { to: "/settings/appearance", label: "Appearance" },
   ];
+  // Only where the tab it configures exists. A workspace with no ULRG tab has no Recruiting tab
+  // to configure, and an entry that leads to a page about a feature you do not have is noise.
+  if (ulrgOn) nav.push({ to: "/settings/recruiting", label: "Recruiting" });
   if (aiOn) nav.push({ to: "/settings/ai", label: "AI Employees" });
   nav.push({ to: "/settings/security", label: "Security" });
   nav.push({ to: "/settings/account", label: "Account" });
   return nav;
 }
 
-function SettingsShell({ children, role, aiOn, badges }) {
-  const SUBNAV = subnavFor(role, aiOn);
+function SettingsShell({ children, role, aiOn, ulrgOn, badges }) {
+  const SUBNAV = subnavFor(role, aiOn, ulrgOn);
   // The breadcrumb's second half is the route's own nav label, so a page cannot be titled one
   // thing in the rail and another above it.
   const { pathname } = useLocation();
@@ -619,6 +622,74 @@ function StripeBcConnectForm({ row, onClose, onDone }) {
 }
 
 /* ── Old GHL connect form (read-only token + location id) ────── */
+
+/* The recruiting location's connection. Deliberately only two fields.
+ *
+ * A GHL location is not one thing: the membership form beside this one asks for member tags,
+ * event tags and a sales-pipeline match, and a brokerage's recruiting location has none of them.
+ * What it has is a pipeline, a stage map, two custom fields and a set of calendars -- and all of
+ * those are chosen from the location's REAL contents in Settings › Recruiting once the token can
+ * read them. Asking for an id here that the next screen could offer as a list is how somebody
+ * ends up pasting a pipeline id into a field labelled Location.
+ */
+function RecruitingConnectForm({ row, onClose, onDone }) {
+  const editing = row.status === "connected" || row.status === "error";
+  const cfg = row.config || {};
+  const [token, setToken] = useState("");
+  const [locationId, setLocationId] = useState(cfg.location_id || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await postJSON("/integrations", {
+        provider: "ghl_recruiting", business_key: row.business_key,
+        token: token.trim() || undefined,   // blank on edit = keep the current token
+        config: { ...cfg, location_id: locationId.trim() },
+      });
+      onDone();
+    } catch {
+      setErr("Couldn't save — check the token's read scopes and the location id.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 460, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Recruiting" : "Connect Recruiting"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3, lineHeight: 1.5 }}>
+          The GHL location your <b>recruiting</b> pipeline lives in — not the one your membership
+          programmes run on. A Private Integration Token with the <b>read</b> scopes:
+          Contacts, Opportunities, Conversations, Calendars, Users and Locations. Stored encrypted.
+        </div>
+        <label style={label}>Private Integration Token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current token</span>}
+          <input style={field} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : ""} required={!editing} />
+        </label>
+        <label style={label}>Location ID <span style={{ fontWeight: 400, color: T.muted }}>· from the recruiting location's GHL URL</span>
+          <input style={field} value={locationId} onChange={(e) => setLocationId(e.target.value)} required />
+        </label>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, marginTop: 14, background: T.page, border: `1px solid ${T.line}`, borderRadius: 9, padding: "10px 12px", lineHeight: 1.5 }}>
+          Next: pick the pipeline, map its stages and name the seats in <b>Settings › Recruiting</b>.
+          Nothing syncs until a pipeline is chosen, and nothing is ever sent to a candidate until
+          write-back is turned on for the workspace and for that person.
+        </div>
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 function GhlLegacyConnectForm({ row, onClose, onDone }) {
   const editing = row.status === "connected" || row.status === "error";
@@ -1244,13 +1315,14 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
   );
 }
 
-const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", arive: "Ar", stripe_legacy: "St", stripe_bc: "Sb", ghl_legacy: "GL", meta_ads: "Ma" };
+const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", ghl_recruiting: "GR", arive: "Ar", stripe_legacy: "St", stripe_bc: "Sb", ghl_legacy: "GL", meta_ads: "Ma" };
 const DESC = {
   qbo: () => "Financial source of truth · one connection per entity",
   sisu: () => "Real estate production — transactions, agents, GCI",
   fub: () => "CRM — leads and agent activity",
   ghl: () => "The Forum — members, renewals, subscriptions, events",
   ghl_bc: () => "beCollective — its own GHL location; members, cohort onboarding, events",
+  ghl_recruiting: () => "The brokerage's recruiting location — candidates, appointments and stage history. Powers the Recruiting tab",
   arive: () => "Uses your Arive API key · lights up Sympli's pipeline and the referral flywheel",
   stripe_legacy: () => "Original Stripe · read-only. Backfills legacy dues the newer sub-account never sees, and feeds the GHL delta-import file",
   stripe_bc: () => "A program's own Stripe · read-only. Membership payments only (event tickets + other products filtered out) — powers the Cash & Billing view",
@@ -1331,7 +1403,11 @@ const SAMPLE_VIEW = {
        carries that config on its own entity row — which is what makes the row honest. */
     _src({ provider: "ghl", vendor: "Go High Level", family: "ghl", category: "Marketing",
       meta: "Marketing · members, renewals and events", name: "Go High Level",
-      members: ["ghl", "ghl_bc"], connect_provider: null, multi_entity: false,
+      // ghl_recruiting is the third member of this vendor row and is NOT connected in the
+      // sample, which is why connect_provider names it: that is the state a brokerage is in
+      // before it wires its recruiting location.
+      members: ["ghl", "ghl_bc", "ghl_recruiting"], connect_provider: "ghl_recruiting",
+      multi_entity: true,
       status: "ok", fresh: "Synced 1 hour ago", ago: "1 hr", tag: "2 entities",
       feeds: ["forum", "becollective"], provides: ["Members", "Subscriptions", "Events", "Onboarding"],
       last_run: "Last run · 142 members · 38 subscriptions · 2.4s", integration_id: "g1", config: {},
@@ -1668,6 +1744,9 @@ function IntegrationsPage() {
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "meta_ads"
         ? <MetaAdsConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : connecting.provider === "ghl_recruiting"
+        ? <RecruitingConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "ghl" || connecting.provider === "ghl_bc"
         ? <GhlConnectForm row={connecting} onClose={() => setConnecting(null)}
@@ -2140,6 +2219,373 @@ function UsersPage() {
   );
 }
 
+/* ── Settings › Recruiting (RECRUITING-SPEC §9 Phase 1) ──────────────────────────────────────
+ *
+ * Where a workspace decides what the Recruiting tab COUNTS: which pipeline is the recruiting
+ * one, what each stage means, and who the seats are. The tab shows numbers; this decides what
+ * they are numbers of.
+ *
+ * Everything offered here is read live from the location, and everything stored is an ID.
+ * That pairing is the point: the ids are what the product matches on, and the names are what a
+ * person recognises, so the screen shows names and saves ids. A stage map built from names
+ * empties itself the day somebody renames "Offer out" to "ICA sent" (D2).
+ */
+const REC_GROUPS = ["Sourced", "Appointment set", "Met", "Offer out", "Signed", "Nurture"];
+
+function RecruitingPage() {
+  const live = Boolean(API_BASE);
+  const [data, setData] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  const load = useCallback(() => {
+    if (!live) { setData(RECRUITING_SAMPLE); setDraft(RECRUITING_SAMPLE.settings); return; }
+    getJSON("/ulrg/recruiting/settings")
+      .then((d) => { setData(d); setDraft(d.settings); })
+      .catch(() => setErr("Couldn't load the recruiting settings."));
+  }, [live]);
+  useEffect(load, [load]);
+
+  if (err && !data) return <Card><div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText }}>{err}</div></Card>;
+  if (!data) return <Card><div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted }}>Loading…</div></Card>;
+
+  if (!data.connected) {
+    return (
+      <Card>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>No recruiting location yet</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, marginTop: 6, lineHeight: 1.55, maxWidth: 560 }}>
+          Recruiting reads a Go High Level location of its own — the one your candidate pipeline
+          lives in, not the one your membership programmes run on. Connect it under Integrations,
+          then come back here to choose the pipeline.
+        </div>
+        <div style={{ marginTop: 14 }}><Link to="/settings/integrations" style={{ textDecoration: "none" }}><SBtn kind="primary">Go to Integrations</SBtn></Link></div>
+      </Card>
+    );
+  }
+
+  const pipelines = data.options?.pipelines || [];
+  const picked = pipelines.find((x) => x.id === draft.pipeline_id);
+  const stages = picked?.stages || [];
+  const groups = draft.recruiting_stage_groups || [];
+  const groupOf = (stageId) => (groups.find((g) => (g[2] || []).includes(stageId)) || [])[0] || "";
+
+  function setStageGroup(stageId, label) {
+    // A stage belongs to exactly ONE group: dropped from wherever it was, added where it is
+    // going. Two groups claiming a stage would make every count that filters on group depend on
+    // ordering — the server refuses it, and the UI should not be able to ask.
+    //
+    // ALWAYS BUILD THE FULL SET FIRST. A workspace part-way through mapping has only the groups
+    // it has used so far, so `find(label)` came back undefined for every group it had not
+    // reached yet and the dropdown silently did nothing. Found by using it, not by reading it.
+    const have = new Map((groups || []).map((g) => [g[0], g]));
+    const next = REC_GROUPS.map((lbl) => {
+      const row = have.get(lbl)
+        || [lbl, lbl === "Sourced" || lbl === "Appointment set" ? "sdr" : "team_leader", []];
+      return [row[0], row[1], (row[2] || []).filter((x) => x !== stageId)];
+    });
+    // A group a workspace added beyond the six the product reasons about survives untouched.
+    for (const [lbl, row] of have) {
+      if (!REC_GROUPS.includes(lbl)) next.push([row[0], row[1], (row[2] || []).filter((x) => x !== stageId)]);
+    }
+    if (label) {
+      const row = next.find((g) => g[0] === label);
+      if (row) row[2] = [...row[2], stageId];
+    }
+    setDraft({ ...draft, recruiting_stage_groups: next });
+    setSaved(false);
+  }
+
+  async function save() {
+    setBusy(true); setErr(null);
+    try {
+      const out = await putJSON("/ulrg/recruiting/settings", draft);
+      setDraft(out.settings);
+      setSaved(true);
+    } catch (e) {
+      // The server names the field it refused. Showing that verbatim is the difference between
+      // "couldn't save" and "two groups claim the same stage".
+      setErr(String(e?.message || e) || "Couldn't save.");
+    } finally { setBusy(false); }
+  }
+
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const select = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", marginTop: 5 };
+
+  return (
+    <>
+      {Object.entries(data.options?.errors || {}).map(([k, v]) => (
+        <Card key={k} style={{ borderLeft: `3px solid ${T.poppyText}` }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText }}>{v}</div>
+        </Card>
+      ))}
+
+      <Card>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Pipeline</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4 }}>
+          Which pipeline holds candidates, and what each of its stages means. Nothing syncs until a pipeline is chosen.
+        </div>
+        <label style={label}>Recruiting pipeline
+          <select style={select} value={draft.pipeline_id || ""} disabled={!live}
+                  onChange={(e) => { setDraft({ ...draft, pipeline_id: e.target.value || null }); setSaved(false); }}>
+            <option value="">— pick a pipeline —</option>
+            {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+
+        {picked && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate }}>Stage map</div>
+              {data.suggested_groups && (
+                <SBtn onClick={() => { setDraft({ ...draft, recruiting_stage_groups: data.suggested_groups }); setSaved(false); }}>
+                  Use suggested map
+                </SBtn>
+              )}
+              <span style={{ flex: 1 }} />
+              <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted }}>
+                {stages.filter((st) => groupOf(st.id)).length} of {stages.length} mapped
+              </span>
+            </div>
+            {/* Suggestions are matched on stage NAME and are the only place in the product that
+                happens. They do nothing until somebody presses Save. */}
+            <div style={{ marginTop: 10, border: `1px solid ${T.line}`, borderRadius: 10, overflow: "hidden" }}>
+              {stages.map((st, i) => (
+                <div key={st.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 190px", gap: 12, alignItems: "center", padding: "9px 12px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.name}</div>
+                    <div style={{ fontFamily: "var(--font-data)", fontSize: 10.5, color: T.muted }}>{st.id}</div>
+                  </div>
+                  <select style={{ ...select, marginTop: 0 }} value={groupOf(st.id)} disabled={!live}
+                          onChange={(e) => setStageGroup(st.id, e.target.value)}>
+                    <option value="">— not used —</option>
+                    {REC_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
+              <b>Signed</b> is what “signed this month” counts. <b>Met</b> and <b>Offer out</b> are what the path to goal is
+              drawn from. <b>Appointment set</b> is where the SDR hands over. A stage left unmapped is not counted anywhere.
+            </div>
+          </div>
+        )}
+
+        <label style={label}>Trailing GCI field
+          <select style={select} value={draft.gci_field_id || ""} disabled={!live}
+                  onChange={(e) => { setDraft({ ...draft, gci_field_id: e.target.value || null }); setSaved(false); }}>
+            <option value="">— none —</option>
+            {(data.options?.custom_fields || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        </label>
+        <label style={label}>Current brokerage field
+          <select style={select} value={draft.brokerage_field_id || ""} disabled={!live}
+                  onChange={(e) => { setDraft({ ...draft, brokerage_field_id: e.target.value || null }); setSaved(false); }}>
+            <option value="">— none —</option>
+            {(data.options?.custom_fields || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        </label>
+
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
+          <SBtn kind="primary" disabled={!live || busy} onClick={save}>{busy ? "Saving…" : "Save"}</SBtn>
+          {saved && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.meadowInk }}>Saved.</span>}
+        </div>
+      </Card>
+
+      <RecruitingRoster data={data} live={live} onChanged={load} />
+    </>
+  );
+}
+
+/* The roster. Three Team Leaders and an SDR, in this product's first shipping case — but the
+   count is a workspace's business, so nothing here assumes it. */
+function RecruitingRoster({ data, live, onChanged }) {
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState(null);
+  const seats = data.seats || [];
+  const users = data.options?.users || [];
+  const calendars = data.options?.calendars || [];
+
+  async function patch(seat, body) {
+    setBusy(seat.id); setErr(null);
+    try { await patchJSON(`/ulrg/recruiting/seats/${seat.id}`, body); onChanged(); }
+    catch (e) { setErr(String(e?.message || e)); }
+    finally { setBusy(null); }
+  }
+
+  const cell = { fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink };
+  const select = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 7, padding: "6px 8px" };
+
+  return (
+    <Card>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Roster</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4 }}>
+            Who closes and who books. A seat owns candidates, carries a calendar, and is the unit write-back is turned on for.
+          </div>
+        </div>
+        <span style={{ flex: 1 }} />
+        <SBtn kind="primary" disabled={!live} onClick={() => setAdding(true)}>+ Add seat</SBtn>
+      </div>
+
+      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+
+      {seats.length === 0 && (
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 14 }}>
+          No seats yet. Until there is at least one Team Leader, nothing has an owner and the tab has nobody to attribute a signing to.
+        </div>
+      )}
+
+      {seats.map((seat) => (
+        <div key={seat.id} style={{ borderTop: `1px solid ${T.line}`, padding: "13px 0", opacity: seat.active ? 1 : 0.55 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr)", gap: 12, alignItems: "start" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ ...cell, fontWeight: 600, fontSize: 13.5 }}>{seat.display_name}</div>
+              <div style={{ fontFamily: "var(--font-data)", fontSize: 10.5, color: T.muted, textTransform: "uppercase", letterSpacing: ".06em", marginTop: 2 }}>
+                {/* The title supersedes the role rather than joining it: a title is written as
+                    the whole descriptor ("Team Leader · Draper"), so printing both gave
+                    "TEAM LEADER · TEAM LEADER · DRAPER". */}
+                {seat.title || (seat.role === "sdr" ? "SDR" : "Team Leader")}
+              </div>
+              {seat.from_number && <div style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted, marginTop: 3 }}>{seat.from_number}</div>}
+            </div>
+            <label style={{ minWidth: 0 }}>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>GHL user</span>
+              {/* Matched by email as a SUGGESTION and confirmed here. An automatic match that
+                  cannot be corrected from the UI is FUB-SPEC A7. */}
+              <select style={select} value={seat.ghl_user_id || ""} disabled={!live || busy === seat.id}
+                      onChange={(e) => patch(seat, { ghl_user_id: e.target.value || null })}>
+                <option value="">— unmatched —</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+              </select>
+            </label>
+            <label style={{ minWidth: 0 }}>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>Recruiting calendar</span>
+              <select style={select} value={seat.calendar_id || ""} disabled={!live || busy === seat.id}
+                      onChange={(e) => patch(seat, { calendar_id: e.target.value || null })}>
+                <option value="">— none —</option>
+                {calendars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10, flexWrap: "wrap" }}>
+            {/* Gate 3 of 4 (§5.2), and the reason the rollout can go one person at a time. */}
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "var(--font-text)", fontSize: 12, color: T.secondary }}>
+              <input type="checkbox" checked={Boolean(seat.writeback_enabled)} disabled={!live || busy === seat.id}
+                     onChange={(e) => patch(seat, { writeback_enabled: e.target.checked })} />
+              Can send from Axcion
+            </label>
+            <span style={{ flex: 1 }} />
+            {seat.active
+              ? <SBtn disabled={!live || busy === seat.id} onClick={() => patch(seat, { active: false })}>Deactivate</SBtn>
+              : <SBtn disabled={!live || busy === seat.id} onClick={() => patch(seat, { active: true })}>Reactivate</SBtn>}
+          </div>
+        </div>
+      ))}
+
+      {adding && <RecruitingSeatModal users={users} calendars={calendars} live={live}
+        onClose={() => setAdding(false)}
+        onDone={() => { setAdding(false); onChanged(); }} />}
+    </Card>
+  );
+}
+
+function RecruitingSeatModal({ users, calendars, live, onClose, onDone }) {
+  const [form, setForm] = useState({ role: "team_leader", display_name: "", title: "", ghl_user_id: "", calendar_id: "", from_number: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      await postJSON("/ulrg/recruiting/seats", {
+        ...form,
+        ghl_user_id: form.ghl_user_id || null,
+        calendar_id: form.calendar_id || null,
+        from_number: form.from_number.trim() || null,
+      });
+      onDone();
+    } catch (e2) {
+      setErr(String(e2?.message || e2) || "Couldn't add the seat.");
+    } finally { setBusy(false); }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 440, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Add a seat</div>
+        <label style={label}>Role
+          <select style={field} value={form.role} onChange={set("role")}>
+            <option value="team_leader">Team Leader — closes recruits, owns them from the meeting on</option>
+            <option value="sdr">SDR — books appointments onto Team Leader calendars</option>
+          </select>
+        </label>
+        <label style={label}>Name<input style={field} value={form.display_name} onChange={set("display_name")} required /></label>
+        <label style={label}>Title <span style={{ fontWeight: 400, color: T.muted }}>· optional, e.g. “Team Leader · Draper”</span>
+          <input style={field} value={form.title} onChange={set("title")} />
+        </label>
+        <label style={label}>GHL user <span style={{ fontWeight: 400, color: T.muted }}>· so their name lands on what they do</span>
+          <select style={field} value={form.ghl_user_id} onChange={set("ghl_user_id")}>
+            <option value="">— unmatched —</option>
+            {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+          </select>
+        </label>
+        <label style={label}>Recruiting calendar
+          <select style={field} value={form.calendar_id} onChange={set("calendar_id")}>
+            <option value="">— none —</option>
+            {calendars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <label style={label}>Sending number <span style={{ fontWeight: 400, color: T.muted }}>· optional, E.164 e.g. +18015550142</span>
+          <input style={field} value={form.from_number} onChange={set("from_number")} placeholder="+1…" />
+        </label>
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy || !live} style={busy || !live ? btn("disabled") : btn("primary")}>{busy ? "Adding…" : "Add seat"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* The offline payload, field for field with the live one. Same reason the Integrations sample
+   exists: a missing key is a white screen, and the preview must exercise the shape production
+   sends rather than a convenient subset. */
+const RECRUITING_SAMPLE = {
+  connected: true, location_id: "loc_rec",
+  settings: { pipeline_id: "pipe_1", recruiting_stage_groups: [["Met", "team_leader", ["st_met"]]],
+              gci_field_id: null, brokerage_field_id: null,
+              quiet_hours: { start: 8, end: 21 }, writeback_enabled: false, dry_run: true, auto_clear: true },
+  options: {
+    pipelines: [{ id: "pipe_1", name: "Agent Recruiting", stages: [
+      { id: "st_sourced", name: "Sourced" }, { id: "st_appt", name: "Appointment Set" },
+      { id: "st_met", name: "Met" }, { id: "st_offer", name: "Offer Out" },
+      { id: "st_signed", name: "Signed" }, { id: "st_nurture", name: "Nurture" }] }],
+    calendars: [{ id: "cal_j", name: "Jenna · Recruiting" }, { id: "cal_m", name: "Marcus · Recruiting" }],
+    users: [{ id: "u_j", name: "Jenna Ruiz", email: "j***@example.com" },
+            { id: "u_c", name: "Cole Whittaker", email: "c***@example.com" }],
+    custom_fields: [{ id: "cf_gci", name: "Trailing 12 GCI", data_type: "MONETORY", model: "opportunity" }],
+    errors: {},
+  },
+  suggested_groups: null,
+  seats: [
+    { id: "s1", role: "team_leader", display_name: "Jenna Ruiz", title: "Team Leader · Draper",
+      ghl_user_id: "u_j", calendar_id: "cal_j", from_number: null, writeback_enabled: false, active: true, user_id: null },
+    { id: "s2", role: "sdr", display_name: "Cole Whittaker", title: "SDR",
+      ghl_user_id: "u_c", calendar_id: null, from_number: "+18015550142", writeback_enabled: false, active: true, user_id: null },
+  ],
+};
+
 /* ── routes ────────────────────────────────────────────────── */
 
 const SAMPLE_BADGES = { businesses: 5, integrations_attention: 1 };
@@ -2147,6 +2593,7 @@ const SAMPLE_BADGES = { businesses: 5, integrations_attention: 1 };
 export default function Settings() {
   const [role, setRole] = useState(null);
   const [aiOn, setAiOn] = useState(false);
+  const [ulrgOn, setUlrgOn] = useState(!API_BASE);      // offline preview shows every page
   const [badges, setBadges] = useState(null);
   useEffect(() => {
     if (!API_BASE) { setRole("owner"); setBadges(SAMPLE_BADGES); return; }
@@ -2156,6 +2603,7 @@ export default function Settings() {
       // workspace chip read "Workspace". Same shape as the palette not applying on this route.
       if (m.brand) setBrand(m.brand);
       setRole(m.role); setAiOn((m.tabs || []).includes("ai_employees"));
+      setUlrgOn(Boolean(m.all_tabs) || (m.tabs || []).includes("ulrg"));
     }).catch(() => setRole("member"));
     // A badge is decoration: if this fails the nav simply carries no counts.
     getJSON("/settings/badges").then(setBadges).catch(() => {});
@@ -2163,12 +2611,12 @@ export default function Settings() {
   // Wait for the role before mounting routes — else the catch-all redirect fires
   // with isAdmin=false and bounces a deep-link to /settings/users away.
   if (role === null) {
-    return <SettingsShell role={null} badges={badges}><Card><div style={{ color: T.muted, fontSize: 13 }}>Loading…</div></Card></SettingsShell>;
+    return <SettingsShell role={null} ulrgOn={ulrgOn} badges={badges}><Card><div style={{ color: T.muted, fontSize: 13 }}>Loading…</div></Card></SettingsShell>;
   }
   const isAdmin = role === "owner" || role === "admin";
   const home = isAdmin ? "/settings/integrations" : "/settings/account";
   return (
-    <SettingsShell role={role} aiOn={aiOn} badges={badges}>
+    <SettingsShell role={role} aiOn={aiOn} ulrgOn={ulrgOn} badges={badges}>
       <Routes>
         <Route path="account" element={<AccountPage />} />
         <Route path="security" element={<SecuritySettings />} />
@@ -2176,6 +2624,7 @@ export default function Settings() {
         {isAdmin && <Route path="users" element={<UsersPage />} />}
         {isAdmin && <Route path="businesses" element={<BusinessesPage />} />}
         {isAdmin && <Route path="appearance" element={<Appearance />} />}
+        {isAdmin && ulrgOn && <Route path="recruiting" element={<RecruitingPage />} />}
         {isAdmin && aiOn && <Route path="ai" element={<AISettings />} />}
         <Route path="*" element={<Navigate to={home} replace />} />
       </Routes>

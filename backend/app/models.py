@@ -2839,3 +2839,192 @@ class AdCohortCurve(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "business_id", "funnel_key", "day", name="uq_ad_curve_day"),
     )
+
+
+# ── ULRG Recruiting (RECRUITING-SPEC §4) — the brokerage's own recruiting pipeline, out of a
+#    SECOND GoHighLevel location under the `ghl_recruiting` provider.
+#
+#    WHY THESE TABLES EXIST AT ALL. `sync._ghl_snapshot` REPLACES a kind's row set on every run,
+#    because GHL fields are current state and carry no history. Recruiting needs history for
+#    every figure that matters -- stage durations, "signed this month", speed to lead, show rate
+#    -- so it keeps its own append-only spine and upserts its current-state rows instead of
+#    replacing them. Sales Desk reached the same conclusion for the same reason (SalesCall).
+#
+#    It must NOT reuse MetricRecord(kind="recruiting"): the Forum's funnel already uses that kind
+#    as a current-state count, and a snapshot sync would wipe it. ────────────────────────────────
+class RecruitingSeat(Base):
+    """Who does what. The three Team Leaders and the one SDR, editable in Settings › Recruiting.
+
+    `User.role` is owner | admin | member and models none of this, so a seat is its own row.
+    It is also where the GHL identity OVERRIDE lives: seats are matched to GHL users by email
+    (services/member_identity does the same for FUB and Sisu), and FUB-SPEC finding A7 is what
+    happens when a mismatch cannot be corrected from the UI -- so `ghl_user_id` is editable.
+    """
+    __tablename__ = "recruiting_seat"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"), index=True)
+    # Both nullable: a seat can exist before its holder has an Axcion login or a roster profile.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)
+    member_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("intranet_member.id", ondelete="SET NULL"), nullable=True, index=True)
+    role: Mapped[str] = mapped_column(String(16))               # team_leader | sdr
+    display_name: Mapped[str] = mapped_column(String(160))
+    title: Mapped[str | None] = mapped_column(String(160), nullable=True)   # "Team Leader · Draper"
+    ghl_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    calendar_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # E.164, so +1 plus up to 15 digits. String(20) is the column the sync must truncate against:
+    # an over-long value passes SQLite in tests and raises on Postgres in production.
+    from_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Gate 3 of 4 (§5.2). Default CLOSED, so a seat added later cannot start sending because
+    # somebody opened the workspace gate months ago.
+    writeback_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index("ix_recruiting_seat_tenant_role", "tenant_id", "role"),
+    )
+
+
+class RecruitingCandidate(Base):
+    """Current state of one person in the recruiting pipeline, keyed to their GHL opportunity.
+
+    UPSERTED by (tenant_id, opportunity_id) and never delete-and-replaced. The unique constraint
+    is what makes that true rather than aspirational: a sync bug that tried to insert a duplicate
+    fails loudly instead of quietly doubling the pipeline.
+    """
+    __tablename__ = "recruiting_candidate"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"), index=True)
+    opportunity_id: Mapped[str] = mapped_column(String(64), index=True)
+    contact_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    pipeline_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    stage_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # The label from config.recruiting_stage_groups. Denormalised on purpose: every rule and
+    # every metric filters on the GROUP, and re-deriving it per query would make the group map
+    # a hot-path dependency of code that only wants to count.
+    stage_group: Mapped[str | None] = mapped_column(String(48), nullable=True, index=True)
+    status: Mapped[str | None] = mapped_column(String(16), nullable=True)   # open|won|lost|abandoned
+    owner_seat_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_seat.id", ondelete="SET NULL"), nullable=True, index=True)
+    booker_seat_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_seat.id", ondelete="SET NULL"), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    brokerage: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(120), nullable=True)   # attributionSource / source
+    gci_ttm: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    entered_stage_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at_src: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at_src: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_outbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Per-channel do-not-contact, as GHL reports it: {"sms": true, "email": false, "call": false}.
+    # Read before every send (§5.5) and never overridable from the UI.
+    dnd: Mapped[dict] = mapped_column(JSONType, default=dict)
+    # The open "Recruiting next step" task in GHL, so the drawer upserts ONE task per candidate
+    # rather than a new one per keystroke (§5.4).
+    ghl_task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "opportunity_id", name="uq_recruiting_candidate_opp"),
+        Index("ix_recruiting_candidate_group", "tenant_id", "stage_group", "status"),
+    )
+
+
+class RecruitingStageEvent(Base):
+    """APPEND-ONLY. One row each time a candidate's stage changes, whoever changed it.
+
+    "Signed in September" is this table filtered to to_group='Signed' over the period. It is
+    never inferred from current state, because current state cannot tell you WHEN -- and a
+    candidate who signed in August and is still in the Signed stage would count again every month.
+    """
+    __tablename__ = "recruiting_stage_event"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recruiting_candidate.id", ondelete="CASCADE"), index=True)
+    from_stage_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    to_stage_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    to_group: Mapped[str | None] = mapped_column(String(48), nullable=True, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    source: Mapped[str] = mapped_column(String(16))             # sync | axcion | webhook
+    # Who owned the candidate AT THE TIME. Attribution has to survive a later reassignment:
+    # a signing belongs to whoever closed it, not to whoever holds the row today.
+    actor_seat_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_seat.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index("ix_recruiting_stage_event_period", "tenant_id", "to_group", "occurred_at"),
+    )
+
+
+class RecruitingAppointment(Base):
+    """One booked appointment, upserted by its GHL event id.
+
+    Booked, Held, show rate and the "Booked this week, by calendar" strip all read this table,
+    which is why `booked_by_seat_id` is separate from `seat_id`: the SDR books onto a Team
+    Leader's calendar, and the two figures answer different questions about different people.
+    """
+    __tablename__ = "recruiting_appointment"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[str] = mapped_column(String(64), index=True)          # GHL calendar event id
+    calendar_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    seat_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_seat.id", ondelete="SET NULL"), nullable=True, index=True)
+    candidate_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_candidate.id", ondelete="SET NULL"), nullable=True, index=True)
+    contact_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # GHL's own vocabulary, stored verbatim rather than mapped: new|confirmed|showed|noshow|
+    # cancelled|invalid. D8 decides what "Held" means on top of it; normalising here would
+    # destroy the evidence that decision rests on.
+    status: Mapped[str | None] = mapped_column(String(24), nullable=True, index=True)
+    created_at_src: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    booked_by_seat_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_seat.id", ondelete="SET NULL"), nullable=True, index=True)
+    source: Mapped[str] = mapped_column(String(16), default="ghl")         # axcion | ghl
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "event_id", name="uq_recruiting_appt_event"),
+        Index("ix_recruiting_appt_window", "tenant_id", "start_at", "status"),
+    )
+
+
+class RecruitingActivity(Base):
+    """APPEND-ONLY. One row per touch: message, call, note, task, booking or stage move.
+
+    THIS IS ALSO THE DEDUPE SPINE. A text we send through the outbox comes back through the
+    Phase 6 conversations poll carrying the same `ghl_message_id`, so the id columns are what
+    stop one text being counted as two.
+
+    PII (§5.5): `summary` is 280 characters and is a description, not a transcript. The full text
+    of what WE sent is kept in recruiting_action.request for audit and purged at 365 days; the
+    body of what a candidate sent back is never stored at all.
+    """
+    __tablename__ = "recruiting_activity"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    candidate_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_candidate.id", ondelete="CASCADE"), nullable=True, index=True)
+    seat_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recruiting_seat.id", ondelete="SET NULL"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(24), index=True)
+    # sms_out|sms_in|email_out|email_in|call_out|call_in|note|task|booking|stage_move
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ghl_message_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ghl_note_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ghl_task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ghl_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    duration_s: Mapped[int | None] = mapped_column(Integer, nullable=True)   # calls; D9 counts >= 60
+    summary: Mapped[str | None] = mapped_column(String(280), nullable=True)
+    source: Mapped[str] = mapped_column(String(16))             # axcion | ghl_poll | webhook
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        # Partial uniques: the great majority of these ids are NULL (a note has no message id),
+        # and a plain UniqueConstraint over a nullable column behaves differently on SQLite and
+        # Postgres. Partial indexes make the rule "at most one row per GHL id" true on both.
+        Index("uq_recruiting_activity_msg", "tenant_id", "ghl_message_id", unique=True,
+              sqlite_where=text("ghl_message_id IS NOT NULL"),
+              postgresql_where=text("ghl_message_id IS NOT NULL")),
+        Index("uq_recruiting_activity_event", "tenant_id", "ghl_event_id", unique=True,
+              sqlite_where=text("ghl_event_id IS NOT NULL"),
+              postgresql_where=text("ghl_event_id IS NOT NULL")),
+        Index("ix_recruiting_activity_feed", "tenant_id", "candidate_id", "occurred_at"),
+        Index("ix_recruiting_activity_seat_day", "tenant_id", "seat_id", "kind", "occurred_at"),
+    )

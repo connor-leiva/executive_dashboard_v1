@@ -201,8 +201,8 @@ async def create_integration(body: dict, bg: BackgroundTasks,
     """Create/update a token-based integration (Go High Level, Arive). Body:
     {provider, business_key, token, config}. Token is encrypted at rest."""
     provider = (body.get("provider") or "").strip()
-    if provider not in ("ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc", "ghl_legacy",
-                        "sisu", "fub", "meta_ads"):
+    if provider not in ("ghl", "ghl_bc", "ghl_recruiting", "arive", "stripe_legacy", "stripe_bc",
+                        "ghl_legacy", "sisu", "fub", "meta_ads"):
         raise HTTPException(400, "Unsupported provider")
     tenant = await s.get(Tenant, user.tenant_id)
     if not plans.allows_source(tenant, provider):

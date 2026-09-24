@@ -16,8 +16,8 @@ from ..schemas import Alert, EntityRow, SourceOut, IntegrationsOut
 from . import roles
 
 # Provider order + static metadata (matches the settings mockup).
-ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "arive", "stripe_legacy", "stripe_bc",
-         "ghl_legacy", "meta_ads"]
+ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "ghl_recruiting", "arive", "stripe_legacy",
+         "stripe_bc", "ghl_legacy", "meta_ads"]
 META = {
     "qbo": {"name": "QuickBooks", "provides": ["Profit & Loss", "Balance Sheet"], "feeds": ["ulrg", "springb", "sympli"],
             "desc": "Financial source of truth · one connection per entity"},
@@ -29,6 +29,10 @@ META = {
             "desc": "The Forum — members, renewals, subscriptions, events"},
     "ghl_bc": {"name": "Go High Level · beCollective", "provides": ["Members", "Onboarding", "Events"], "feeds": ["becollective"],
                "desc": "beCollective — its own GHL location; members, cohort onboarding, events"},
+    "ghl_recruiting": {"name": "Go High Level · Recruiting",
+                       "provides": ["Candidates", "Appointments", "Stage history"],
+                       "feeds": ["ulrg"],
+                       "desc": "The brokerage's recruiting location — candidates, appointments and stage history"},
     "arive": {"name": "Arive", "provides": ["Loans", "Pipeline"], "feeds": ["sympli"],
               "desc": "Lights up Sympli's pipeline and the referral flywheel"},
     "stripe_legacy": {"name": "Legacy Stripe · The Forum", "provides": ["Legacy charges", "Recurring dues"],
@@ -73,6 +77,10 @@ FAMILY = {
     "fub": ("fub", "Follow Up Boss", "CRM", "CRM · leads and agent activity", False),
     "ghl": ("ghl", "Go High Level", "Marketing", "Marketing · members, renewals and events", False),
     "ghl_bc": ("ghl", "Go High Level", "Marketing", "Marketing · members, renewals and events", True),
+    # Same VENDOR row as the two above, different job entirely. The row is presentation; the
+    # providers keep their own credentials, their own location and their own sync path.
+    "ghl_recruiting": ("ghl", "Go High Level", "Marketing",
+                       "Recruiting · candidates, appointments and stage history", False),
     "ghl_legacy": ("ghl_legacy", "GHL charge labels", "Mapping",
                    "Mapping · labels for legacy charges", True),
     "arive": ("arive", "Arive", "Mortgage", "Mortgage · pipeline and fundings", False),
@@ -93,6 +101,7 @@ CONNECTABLE_KIND = {
     "fub": roles.REAL_ESTATE,           # CRM leads and agent activity
     "ghl": roles.MEMBERSHIP,            # members, renewals, subscriptions
     "ghl_bc": roles.MEMBERSHIP,         # a second GHL location for another programme
+    "ghl_recruiting": roles.REAL_ESTATE,  # the brokerage recruits agents to itself, not to a programme
     "ghl_legacy": roles.MEMBERSHIP,     # read-only charge labels for the same programmes
     "stripe_legacy": roles.MEMBERSHIP,  # legacy dues
     "stripe_bc": roles.MEMBERSHIP,      # cohort payments
@@ -127,6 +136,11 @@ def _by_vendor(members: list[SourceOut], raw: dict[str, dict], now) -> list[Sour
             continue
 
         primary = group[0]                       # first in ORDER
+        # ...but the row DESCRIBES whichever member is actually connected. One vendor can
+        # serve jobs that share nothing -- a membership programme and a recruiting pipeline
+        # are both Go High Level -- so a row keyed to ORDER would describe a workspace's
+        # neighbour rather than the workspace.
+        describes = next((m for m in group if m.status != "disconnected"), primary)
         entities = [e for m in group for e in m.entities]
         live = [m for m in group if m.status != "disconnected"]
         status = max((m.status for m in live), key=lambda s: _RANK[s], default="disconnected")
@@ -147,7 +161,7 @@ def _by_vendor(members: list[SourceOut], raw: dict[str, dict], now) -> list[Sour
 
         out.append(SourceOut(
             provider=primary.provider, name=primary.vendor, vendor=primary.vendor,
-            family=primary.family, category=primary.category, meta=primary.meta,
+            family=primary.family, category=primary.category, meta=describes.meta,
             status=status,
             # The note names one connection, and a vendor row spanning two would not say which.
             status_note=None,
