@@ -95,6 +95,28 @@ def stage_group_for(stage_id: str | None, groups) -> tuple[str | None, str | Non
     return None, None
 
 
+def ghl_id(value) -> str | None:
+    """An id out of a GHL field that is sometimes a string and sometimes an object.
+
+    THIS IS THE `unhashable type: 'dict'` BUG. A calendar event's `createdBy` is not the user id
+    it looks like -- it is `{"contactId": ..., "source": ..., "userId": ...}` -- and feeding that
+    straight into `by_ghl_user.get(...)` uses a dict as a dict key. It took the first production
+    sync down after 1,654 candidates had already been written, which is the worst place for it:
+    far enough in to look like it was working.
+
+    The lesson is not "handle createdBy". It is that ANY id arriving from this API can be an
+    object, so every lookup keyed on one goes through here rather than trusting the field name.
+    """
+    if value is None or isinstance(value, (str, int)):
+        return str(value) if value not in (None, "") else None
+    if isinstance(value, dict):
+        for key in ("userId", "id", "contactId", "user_id"):
+            inner = value.get(key)
+            if isinstance(inner, (str, int)) and str(inner):
+                return str(inner)
+    return None
+
+
 def _custom_value(opp: dict, field_id: str | None):
     """One opportunity custom-field value by FIELD ID."""
     if not field_id:
@@ -169,7 +191,7 @@ async def sync_ghl_recruiting(s: AsyncSession, tenant_id: uuid.UUID, integ: Inte
         stage_id = _trunc(opp.get("pipelineStageId") or opp.get("stageId"), _LEN["stage_id"])
         group, owner_role = stage_group_for(stage_id, groups)
         contact = opp.get("contact") or {}
-        assigned = opp.get("assignedTo") or opp.get("assignedUserId")
+        assigned = ghl_id(opp.get("assignedTo") or opp.get("assignedUserId"))
         owner_seat = by_ghl_user.get(assigned)
 
         row = existing.get(opp_id)
@@ -245,7 +267,7 @@ async def sync_ghl_recruiting(s: AsyncSession, tenant_id: uuid.UUID, integ: Inte
                         tenant_id=tenant_id, event_id=event_id, source="ghl")
                     s.add(appt)
                     known[event_id] = appt
-                contact_id = _trunc(ev.get("contactId"), _LEN["contact_id"])
+                contact_id = _trunc(ghl_id(ev.get("contactId")), _LEN["contact_id"])
                 appt.calendar_id = _trunc(calendar_id, 64)
                 appt.seat_id = seat.id
                 appt.contact_id = contact_id
@@ -258,7 +280,8 @@ async def sync_ghl_recruiting(s: AsyncSession, tenant_id: uuid.UUID, integ: Inte
                 # it; normalising here would destroy the evidence that decision rests on.
                 appt.status = _trunc(ev.get("appointmentStatus"), 24)
                 appt.created_at_src = _dtm(ev.get("dateAdded") or ev.get("createdAt"))
-                booked_by = by_ghl_user.get(ev.get("createdBy") or ev.get("assignedUserId"))
+                booked_by = by_ghl_user.get(
+                    ghl_id(ev.get("createdBy")) or ghl_id(ev.get("assignedUserId")))
                 if booked_by is not None and appt.booked_by_seat_id is None:
                     appt.booked_by_seat_id = booked_by.id
                 touched += 1

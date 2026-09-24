@@ -41,6 +41,7 @@ from ..models import (
     RecruitingCandidate, RecruitingSeat,
 )
 from ..security import dec
+from .recruiting_sync import ghl_id
 
 # How far back a first poll reaches. Not "everything": a location with two years of history would
 # spend an afternoon paging it, and the tab only ever asks about the current month.
@@ -156,7 +157,7 @@ async def poll_activity(s: AsyncSession, tenant_id) -> dict:
                                       "sort": "desc", "sortBy": "last_message_date"})
     conversations = (body.get("conversations") or []) if isinstance(body, dict) else []
     for conv in conversations:
-        contact_id = conv.get("contactId")
+        contact_id = ghl_id(conv.get("contactId"))
         cand = by_contact.get(contact_id)
         if cand is None:
             continue                       # not a recruiting contact; this location has others
@@ -225,7 +226,7 @@ async def _ingest_conversation(s, tenant_id, conv, cand, token, location_id, cur
             await _update_delivery(s, tenant_id, message_id, message)
             continue
 
-        seat = by_ghl_user.get(message.get("userId"))
+        seat = by_ghl_user.get(ghl_id(message.get("userId")))
         duration = message.get("duration") or message.get("callDuration")
         s.add(RecruitingActivity(
             tenant_id=tenant_id, candidate_id=cand.id,
@@ -305,18 +306,19 @@ async def _ingest_events(s, tenant_id, events, calendar_id, seat, by_contact, by
             appt = RecruitingAppointment(tenant_id=tenant_id, event_id=event_id, source="ghl")
             s.add(appt)
             known[event_id] = appt
-        contact_id = event.get("contactId")
+        contact_id = ghl_id(event.get("contactId"))
         cand = by_contact.get(contact_id)
         appt.calendar_id = str(calendar_id)[:64]
         appt.seat_id = seat.id
-        appt.contact_id = str(contact_id)[:64] if contact_id else None
+        appt.contact_id = contact_id[:64] if contact_id else None
         if cand is not None:
             appt.candidate_id = cand.id
         appt.start_at = _dtm(event.get("startTime"))
         appt.end_at = _dtm(event.get("endTime"))
         appt.status = str(event.get("appointmentStatus") or "")[:24] or None
         appt.created_at_src = _dtm(event.get("dateAdded") or event.get("createdAt"))
-        booked_by = by_ghl_user.get(event.get("createdBy") or event.get("assignedUserId"))
+        booked_by = by_ghl_user.get(
+            ghl_id(event.get("createdBy")) or ghl_id(event.get("assignedUserId")))
         if booked_by is not None and appt.booked_by_seat_id is None:
             appt.booked_by_seat_id = booked_by.id
         touched += 1

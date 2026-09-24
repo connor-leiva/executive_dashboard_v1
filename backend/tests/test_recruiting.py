@@ -377,3 +377,52 @@ def test_every_string_is_truncated_against_its_real_column():
     assert _trunc("x" * 500, 200) == "x" * 200
     assert _trunc("  spaced  ", 200) == "spaced"
     assert _trunc("", 10) is None and _trunc(None, 10) is None
+
+
+# ── the production crash of 2026-09-24 ──────────────────────────────────────────────────────
+
+def test_a_ghl_id_field_may_be_an_object_not_a_string():
+    """`unhashable type: 'dict'`, which took the first real sync down.
+
+    A calendar event's `createdBy` is not the user id it looks like -- it is
+    `{"contactId": ..., "source": ..., "userId": ...}` -- and feeding that into a dict lookup
+    uses a dict as a key. It died after 1,654 candidates had already been written, which is the
+    worst place for a failure: far enough in to look like it was working.
+
+    The rule this encodes is not "handle createdBy". It is that ANY id from this API can arrive
+    as an object, so every lookup keyed on one goes through `ghl_id` rather than trusting the
+    field's name.
+    """
+    from app.services.recruiting_sync import ghl_id
+
+    created_by = {"contactId": "c_1", "source": "calendar_page", "userId": "u_jace"}
+    assert ghl_id(created_by) == "u_jace"
+    # It must be USABLE as a key, which is the thing that actually broke.
+    assert {"u_jace": "seat"}.get(ghl_id(created_by)) == "seat"
+
+    assert ghl_id("u_plain") == "u_plain"
+    assert ghl_id({"contactId": "c_1", "source": "x"}) == "c_1"   # no userId: fall back
+    assert ghl_id({"id": "abc"}) == "abc"
+    assert ghl_id(12345) == "12345"
+    for empty in (None, "", {}, {"source": "x"}, {"nested": {"userId": "u"}}, []):
+        assert ghl_id(empty) is None, f"{empty!r} should not produce an id"
+
+
+def test_no_raw_ghl_value_is_used_as_a_dict_key():
+    """The guard, not just the fix. Both sync and poll look seats and candidates up by id; every
+    one of those lookups has to go through `ghl_id`, or the next field GHL decides to return as
+    an object takes the sync down again."""
+    import re
+    from pathlib import Path
+
+    services = Path(__file__).resolve().parents[1] / "app" / "services"
+    offenders = []
+    for name in ("recruiting_sync.py", "recruiting_poll.py"):
+        text = (services / name).read_text(encoding="utf-8")
+        code = "\n".join(l for l in text.splitlines() if not l.strip().startswith("#"))
+        # A lookup whose argument mentions a GHL field but never calls ghl_id().
+        for m in re.finditer(r"by_(?:ghl_user|contact)\.get\(\s*([^)]*(?:\n[^)]*)?)\)", code):
+            arg = m.group(1)
+            if (".get(" in arg or "event." in arg or "conv." in arg) and "ghl_id" not in arg:
+                offenders.append(f"{name}: by_*.get({arg.strip()[:60]})")
+    assert not offenders, f"a raw GHL value used as a dict key: {offenders}"
