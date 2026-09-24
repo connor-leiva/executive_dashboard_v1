@@ -149,7 +149,12 @@ async def sync_ghl_recruiting(s: AsyncSession, tenant_id: uuid.UUID, integ: Inte
     `pipeline_id` is a workspace that has connected the location and not finished Settings, which
     is a normal state during rollout and not a failed sync.
     """
-    cfg = integ.config or {}
+    # A COPY, and the whole sync depends on it. `integ.config` is a plain JSON column, so
+    # SQLAlchemy decides whether to emit an UPDATE by comparing the new value with the one
+    # it loaded -- and if we mutate that loaded dict in place, the "old" value it compares
+    # against is the same object we just changed. The two are equal, no UPDATE is written,
+    # and the reassignment below silently does nothing.
+    cfg = dict(integ.config or {})
     location_id = cfg.get("location_id")
     pipeline_id = cfg.get("pipeline_id")
     if not location_id:
@@ -295,7 +300,11 @@ async def sync_ghl_recruiting(s: AsyncSession, tenant_id: uuid.UUID, integ: Inte
                          "email": (u.get("email") or "").strip().lower()}
                         for u in users if u.get("id")]
     cfg["synced_at"] = now.isoformat()
-    integ.config = dict(cfg)                 # reassign: SQLAlchemy does not see in-place mutation
+    # Reassign, because SQLAlchemy does not see in-place mutation. This line was here all
+    # along and was not enough on its own: it only registers a change when `cfg` is a copy
+    # (see the top of this function). Every sync from the first one ran to "ok" and threw
+    # both of these keys away, so the tab went on saying the first sync had not finished.
+    integ.config = cfg
 
     await s.commit()
     return touched

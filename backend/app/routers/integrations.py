@@ -194,6 +194,38 @@ async def _check_fub_key(key: str, base_url: str = "") -> str | None:
     return None
 
 
+# The key that says WHICH account a config describes. When it changes, the stored mapping points
+# at ids that do not exist in the new account and must not be carried over.
+_ACCOUNT_KEY = {"ghl": "location_id", "ghl_bc": "location_id", "ghl_legacy": "location_id",
+                "ghl_recruiting": "location_id"}
+
+
+def _merge_config(integ, provider: str, incoming: dict) -> dict:
+    """Config after a connect-form save: the form owns the keys it SENDS, and nothing else.
+
+    This used to run the other way round. The form replaced config wholesale, keeping one
+    hardcoded key -- `fub_state` -- added after FUB was bitten by exactly this. Every feature
+    built since inherited the bug silently, because an allow-list of keys to preserve is only
+    ever as current as the last person who remembered to add to it.
+
+    What that cost: re-saving a connection to clear an error wiped the workspace's entire
+    configuration for that source, and said "connected" afterwards. On 2026-09-24 one such click
+    took ULRG Recruiting's pipeline and stage mapping; the same click on the GHL row would have
+    taken the Forum's tags, the beCollective mapping and the Edge with it, and on Sisu the
+    flywheel's vendor lists.
+
+    Keeping everything and letting the form overwrite what it owns cannot rot the same way: a
+    feature that adds a config key needs no change here. FUB keeps working because `fub_state`
+    is simply part of "everything else" -- and a key for a different FUB account still resets it
+    in services/fub_sync, which is where that decision belongs.
+    """
+    current = dict(integ.config or {}) if integ is not None else {}
+    key = _ACCOUNT_KEY.get(provider)
+    if key and current.get(key) and incoming.get(key) and current[key] != incoming[key]:
+        return dict(incoming)       # a different account: start clean
+    return {**current, **incoming}
+
+
 @router.post("/integrations")
 async def create_integration(body: dict, bg: BackgroundTasks,
                              user: User = Depends(require_role("owner", "admin")),
@@ -246,7 +278,7 @@ async def create_integration(body: dict, bg: BackgroundTasks,
             integ = Integration(tenant_id=user.tenant_id, provider="arive", business_id=biz.id)
         integ.access_token_enc = enc(json.dumps(creds))
         if body.get("config") is not None:
-            integ.config = body["config"]
+            integ.config = _merge_config(integ, "arive", body["config"])
         integ.status, integ.last_error = "connected", None
         if integ.id is None:
             s.add(integ)
@@ -274,7 +306,7 @@ async def create_integration(body: dict, bg: BackgroundTasks,
             integ = Integration(tenant_id=user.tenant_id, provider="sisu", business_id=biz.id)
         integ.access_token_enc = enc(json.dumps(creds))
         if body.get("config") is not None:
-            integ.config = body["config"]
+            integ.config = _merge_config(integ, "sisu", body["config"])
         integ.status, integ.last_error = "connected", None
         if integ.id is None:
             s.add(integ)
@@ -307,10 +339,7 @@ async def create_integration(body: dict, bg: BackgroundTasks,
     if body.get("token"):                       # blank on edit = keep the current token
         integ.access_token_enc = enc(body["token"])
     if body.get("config") is not None:
-        # The sync's own bookkeeping is kept: it is not the form's to overwrite. See
-        # services/fub_sync -- a key for a different FUB account resets it there, on purpose.
-        kept = {k: v for k, v in (integ.config or {}).items() if k == "fub_state"}
-        integ.config = {**body["config"], **kept}
+        integ.config = _merge_config(integ, provider, body["config"])
     integ.status = "connected"
     integ.last_error = None
     if integ.id is None:
