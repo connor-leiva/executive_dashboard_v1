@@ -2877,8 +2877,8 @@ class RecruitingSeat(Base):
     from_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Gate 3 of 4 (§5.2). Default CLOSED, so a seat added later cannot start sending because
     # somebody opened the workspace gate months ago.
-    writeback_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
-    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"))
+    writeback_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (
         Index("ix_recruiting_seat_tenant_role", "tenant_id", "role"),

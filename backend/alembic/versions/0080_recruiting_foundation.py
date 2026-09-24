@@ -60,8 +60,12 @@ def upgrade() -> None:
         sa.Column("ghl_user_id", sa.String(64), nullable=True),
         sa.Column("calendar_id", sa.String(64), nullable=True),
         sa.Column("from_number", sa.String(20), nullable=True),
-        sa.Column("writeback_enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
-        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        # sa.false()/sa.true(), NOT text("0")/text("1"). Postgres refuses an integer default on a
+        # boolean column outright -- "column is of type boolean but default expression is of type
+        # integer" -- while SQLite accepts it happily. The suite runs on SQLite, so this crashed
+        # only in production, on the deploy. 0013, 0015 and 0021 all had it right already.
+        sa.Column("writeback_enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
     op.create_index("ix_recruiting_seat_tenant_id", "recruiting_seat", ["tenant_id"])
