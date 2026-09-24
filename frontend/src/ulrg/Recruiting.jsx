@@ -48,6 +48,36 @@ function SectionTitle({ children, meta, right }) {
   );
 }
 
+/* A list that is allowed to be long, held to a fixed height and scrolled inside itself.
+ *
+ * Every list on this tab is a slice of a real pipeline, and a real pipeline does not agree to be
+ * short. ULRG connected with 1,654 candidates already in it, and the counts are not close to the
+ * ones the sample was drawn against: 1,518 candidates past the first meeting in "Path to goal",
+ * 96 distinct lead sources, and 3,209 rows in "Cleared today" on the day the rules first
+ * reconciled. The page became metres long, which pushes every section BELOW a long one off the
+ * bottom of the world -- a tab you cannot scroll past is a tab whose later sections do not exist.
+ *
+ * The count in the corner is the point, not decoration. Once a list scrolls, its length stops
+ * being visible -- and "how many are there" is the first thing anybody asks of a backlog.
+ */
+function Scroller({ children, max = 360, count, noun, style }) {
+  return (
+    <>
+      {count > 0 && (
+        <div style={{ fontFamily: FM, fontSize: 10.5, color: C.muted, textAlign: "right",
+                      marginBottom: 4 }}>
+          {count} {noun}{count === 1 ? "" : "s"}
+        </div>
+      )}
+      {/* paddingRight keeps the rows off the scrollbar rather than under it. */}
+      <div style={{ maxHeight: max, overflowY: "auto", paddingRight: 4, ...style }}>
+        {children}
+      </div>
+    </>
+  );
+}
+
+
 /* A block the server could not fill, and why. Quiet on purpose: this is scaffolding that will
    be replaced by content, not an error the reader has to act on. */
 function NotYet({ children }) {
@@ -152,7 +182,9 @@ function Hero({ data }) {
             {path?.line || "Nothing in flight yet."}
           </div>
           <div style={{ marginTop: 12 }}>
-            {(path?.rows || []).map((r) => <PathRow key={r.candidate_id} r={r} />)}
+            <Scroller max={320} count={(path?.rows || []).length} noun="candidate">
+              {(path?.rows || []).map((r) => <PathRow key={r.candidate_id} r={r} />)}
+            </Scroller>
             {(path?.rows || []).length === 0 && (
               <div style={{ fontFamily: FB, fontSize: 12.5, color: C.muted, marginTop: 6 }}>
                 Nobody is past the first meeting yet.
@@ -301,16 +333,21 @@ function DoNext({ data, onChanged }) {
         all.length === 0
           ? <NotYet>{unavailable?.queue}</NotYet>
           : <div style={{ fontFamily: FB, fontSize: 12.5, color: C.muted }}>Nothing on that person&rsquo;s list.</div>
-      ) : items.map((it) => (
-        <QueueRow key={it.id} it={it} owner={owner} busy={busy === it.id}
-                  onAct={(verb) => act(it, verb)} />
-      ))}
+      ) : (
+        <Scroller max={520} count={items.length} noun="item">
+          {items.map((it) => (
+            <QueueRow key={it.id} it={it} owner={owner} busy={busy === it.id}
+                      onAct={(verb) => act(it, verb)} />
+          ))}
+        </Scroller>
+      )}
 
       {cleared.length > 0 && (
         <div style={{ background: C.parchment, borderRadius: 9, marginTop: 14, padding: "10px 14px" }}>
           <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: ".07em", textTransform: "uppercase",
                         color: C.muted, marginBottom: 6 }}>Cleared today</div>
-          {cleared.map((row) => (
+          <Scroller max={220} count={cleared.length} noun="item">
+            {cleared.map((row) => (
             <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
               <span style={{ color: C.meadowInk, fontFamily: FM, fontSize: 12 }}>✓</span>
               <span style={{ fontFamily: FB, fontSize: 12.5, color: C.body, minWidth: 0, overflow: "hidden",
@@ -325,8 +362,9 @@ function DoNext({ data, onChanged }) {
                         style={{ border: "none", background: "transparent", cursor: "pointer",
                                  fontFamily: FB, fontSize: 12, color: C.teal, padding: 0 }}>Undo</button>
               )}
-            </div>
-          ))}
+              </div>
+            ))}
+          </Scroller>
         </div>
       )}
     </Card>
@@ -759,7 +797,11 @@ function Sources({ data }) {
   if (!rows) return null;
   return (
     <Card>
-      <SectionTitle meta={`${data.period.label} to date`}>Where signings come from</SectionTitle>
+      <SectionTitle meta={`${data.period.label} to date`}
+                    right={rows.length > 1 && (
+                      <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted }}>
+                        {rows.length} sources
+                      </span>)}>Where signings come from</SectionTitle>
       <div style={{ overflowX: "auto" }}>
         <div style={{ minWidth: 560 }}>
           <div style={{ display: "grid", gridTemplateColumns: "minmax(170px,1.6fr) repeat(4,minmax(70px,1fr))",
@@ -767,6 +809,7 @@ function Sources({ data }) {
                         color: C.muted, borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
             <span>Source</span><span>Candidates</span><span>Signed</span><span>Rate</span><span>GCI added</span>
           </div>
+          <Scroller max={380}>
           {rows.map((r) => (
             <div key={r.name} style={{ display: "grid",
                    gridTemplateColumns: "minmax(170px,1.6fr) repeat(4,minmax(70px,1fr))", gap: 8,
@@ -779,6 +822,7 @@ function Sources({ data }) {
               <span style={{ fontFamily: FM, fontSize: 12.5, color: C.body }}>{money(r.gci) || "–"}</span>
             </div>
           ))}
+          </Scroller>
         </div>
       </div>
       <div style={{ fontFamily: FB, fontSize: 11.5, color: C.muted, marginTop: 10 }}>
