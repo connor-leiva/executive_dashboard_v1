@@ -3,6 +3,7 @@
    line. Overview renders the existing ULRG view unchanged. Team Rooms are Step 6. */
 import { useState } from "react";
 import SubTabs from "../SubTabs.jsx";
+import Recruiting from "./Recruiting.jsx";
 import Scorecard from "./Scorecard.jsx";
 import { useScorecard } from "./useScorecard.js";
 import { Card } from "./Parts.jsx";
@@ -16,6 +17,9 @@ export default function UlrgTabs({ overview, role }) {
   const tabs = [
     { k: "overview", label: "Overview" },
     { k: "scorecard", label: "Scorecard" },
+    // Fourth, after Scorecard and before the team rooms (§0). Same `ulrg` grant as the
+    // Scorecard: a workspace that can see one can see the other.
+    { k: "recruiting", label: "Recruiting" },
     ...teams.map((g) => {
       const leader = g.owner && g.owner.name;
       return { k: `team:${g.key}`, label: g.name, sub: leader || "Unassigned", unassigned: !leader };
@@ -28,6 +32,7 @@ export default function UlrgTabs({ overview, role }) {
       <SubTabs tabs={tabs} active={sub} onChange={setSub} />
       {sub === "overview" && overview}
       {sub === "scorecard" && <Scorecard role={role} />}
+      {sub === "recruiting" && <Recruiting />}
       {team && (
         <Card style={{ textAlign: "center", padding: "40px 28px" }}>
           <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: C.ink }}>{team.name} Team Room</div>
