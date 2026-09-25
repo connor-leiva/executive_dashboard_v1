@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getJSON } from "../api";
 import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleCoaMap,
-         sampleStatement, sampleLineDetail } from "./sampleBooks.js";
+         sampleStatement, sampleLineDetail, sampleVendors } from "./sampleBooks.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -70,6 +70,14 @@ export function useBooksQueue({ period = "mtd", state = "needs_approval", basis 
   return useEndpoint(`/books/queue?${q}`, sample,
                      [period, state, basis, autoOnly, weakOnly, includeSignedOff, business]);
 }
+/* Payables · vendor master. `status` filters on the DERIVED status the server computes, not on
+   the stored column — the two can only disagree if something has gone wrong, and the screen
+   should show the rule's answer. */
+export function useVendors(status) {
+  return useEndpoint(`/payables/vendors${status ? `?status=${status}` : ""}`,
+                     sampleVendors, [status]);
+}
+
 export function useBooksIC() {
   return useEndpoint(`/books/ic`, sampleIC, []);
 }

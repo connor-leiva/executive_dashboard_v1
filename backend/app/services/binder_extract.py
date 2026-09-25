@@ -77,31 +77,46 @@ _MIN_TOKEN_OVERLAP = 0.5   # below this (and not near-exact) the match is treate
 _AUTO_LINK = 0.80          # confident enough to attach the document to the entity
 
 
-def match_entity(guess: str | None, entities: list) -> dict:
-    """Fuzzy-match `guess` against LegalEntity.legal_name + nickname. Returns
-    {entity_id, confidence, candidates, ambiguous}. Keeps the top guess even when ambiguous
-    (Part 5 requires the human to pick), but flags it so nothing commits silently."""
+def match_names(guess: str | None, items: list) -> dict:
+    """Fuzzy-match `guess` against `items`, each `(id, display_name, [aliases])`.
+    Returns {id, confidence, candidates, ambiguous}.
+
+    Split out of match_entity so payables can match a vendor on the SAME thresholds. One matcher
+    means one place where "confident enough to link without asking" is decided. Two would drift,
+    and the one that drifted looser would be the one that sends money to the wrong payee.
+    """
     ng = normalize_name(guess)
-    if not ng or not entities:
-        return {"entity_id": None, "confidence": 0.0, "candidates": [], "ambiguous": bool(guess)}
+    if not ng or not items:
+        return {"id": None, "confidence": 0.0, "candidates": [], "ambiguous": bool(guess)}
     scored = []
-    for e in entities:
-        s = _ratio(ng, normalize_name(e.legal_name))
-        if e.nickname:
-            s = max(s, _ratio(ng, normalize_name(e.nickname)))
-        scored.append((s, e))
+    for ident, display, aliases in items:
+        names = [n for n in ([display] + list(aliases or [])) if n]
+        s = max((_ratio(ng, normalize_name(n)) for n in names), default=0.0)
+        scored.append((s, ident, display, names))
     scored.sort(key=lambda x: x[0], reverse=True)
-    top_score, top = scored[0]
-    candidates = [{"entity_id": str(e.id), "name": e.legal_name, "score": round(sc, 3)}
-                  for sc, e in scored[:5]]
-    top_overlap = _token_overlap(ng, normalize_name(top.legal_name))
-    if top.nickname:
-        top_overlap = max(top_overlap, _token_overlap(ng, normalize_name(top.nickname)))
+    top_score, top_id, _top_display, top_names = scored[0]
+    candidates = [{"id": str(i), "name": d, "score": round(sc, 3)}
+                  for sc, i, d, _ in scored[:5]]
+    top_overlap = max((_token_overlap(ng, normalize_name(n)) for n in top_names), default=0.0)
     close = len(scored) > 1 and (scored[0][0] - scored[1][0]) < _AMBIGUOUS_DELTA and scored[1][0] >= _AMBIGUOUS_FLOOR
     weak = top_score < _WEAK_MATCH
     incidental = top_overlap < _MIN_TOKEN_OVERLAP and top_score < _STRONG_MATCH
-    return {"entity_id": str(top.id), "confidence": round(top_score, 3),
+    return {"id": str(top_id), "confidence": round(top_score, 3),
             "candidates": candidates, "ambiguous": close or weak or incidental}
+
+
+def match_entity(guess: str | None, entities: list) -> dict:
+    """Fuzzy-match `guess` against LegalEntity.legal_name + nickname. Returns
+    {entity_id, confidence, candidates, ambiguous}. Keeps the top guess even when ambiguous
+    (Part 5 requires the human to pick), but flags it so nothing commits silently.
+
+    A thin adapter over match_names since payables needed the same scoring. The key names are
+    kept exactly as they were — every existing caller reads `entity_id`."""
+    r = match_names(guess, [(e.id, e.legal_name, [e.nickname]) for e in entities])
+    return {"entity_id": r["id"], "confidence": r["confidence"],
+            "ambiguous": r["ambiguous"],
+            "candidates": [{"entity_id": c["id"], "name": c["name"], "score": c["score"]}
+                           for c in r["candidates"]]}
 
 
 # ── The Claude call (single network seam; tests monkeypatch _claude_call) ──────

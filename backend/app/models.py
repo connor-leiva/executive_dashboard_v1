@@ -3179,3 +3179,81 @@ class RecruitingGoal(Base):
                          name="uq_recruiting_goal"),
         Index("ix_recruiting_goal_period", "tenant_id", "period_key", "metric"),
     )
+
+
+# ── Payables · vendor master (SPEC-payables §2) ───────────────────────────────────────────
+class Vendor(Base):
+    """A payee, and the gate on paying them.
+
+    Books is read-only over QuickBooks: `BookTxn.payee` is free text off the QBO payload, and
+    `first_vendor` / `possible_1099` are string-match guesses over that text. Payables inverts
+    the direction — Acumyn is the system of record for a bill BEFORE money moves — so a payee
+    has to be a real row carrying a W-9, verified banking, and a status nobody can type.
+
+    Deliberately not a `BookTxn` variant. A bill that has not been paid and a transaction that
+    already cleared are opposite things, and one table for both is how somebody approves the
+    wrong one.
+    """
+    __tablename__ = "vendor"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    legal_name: Mapped[str] = mapped_column(String(200))        # exactly as written on the W-9
+    # Stored, not computed at query time: the uniqueness constraint is ON this, so it has to be
+    # a column the database can index. Populated via binder_extract.normalize_name().
+    name_norm: Mapped[str] = mapped_column(String(200))
+    display_name: Mapped[str] = mapped_column(String(200))      # "Last, First" for individuals
+    dba: Mapped[str | None] = mapped_column(String(200), nullable=True)   # never the display name
+    vendor_type: Mapped[str] = mapped_column(String(12), default="business")   # business|individual
+    # LAST FOUR ONLY. A sole proprietor's W-9 carries a Social Security number, and
+    # binder_storage's own docstring says encryption at rest and per-tenant isolation are out of
+    # scope for v1. The full TIN is not stored in Acumyn at all (§2.4) — the W-9 PDF is the record.
+    tin_last4: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    w9_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("binder_document.id", ondelete="SET NULL"), nullable=True)
+    w9_received_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_1099: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_standard_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("standard_account.id", ondelete="SET NULL"), nullable=True)
+    default_business_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("business.id", ondelete="SET NULL"), nullable=True)
+    default_legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("legal_entity.id", ondelete="SET NULL"), nullable=True)
+    terms_days: Mapped[int] = mapped_column(Integer, default=30)
+    # draft | pending_verification | active | inactive. DERIVED, never typed — see
+    # payables_vendor.derive_status. `inactive` is the only value a human sets.
+    status: Mapped[str] = mapped_column(String(24), default="draft")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name_norm", name="uq_vendor_name_norm"),
+        Index("ix_vendor_status", "tenant_id", "status"),
+    )
+
+
+class VendorBankAccount(Base):
+    """Where a vendor's money goes. APPEND-ONLY — never UPDATE a row here.
+
+    A bank change is a new row superseding the prior one. The history of where money was sent
+    IS the control: an UPDATE erases the evidence of a change on exactly the occasion somebody
+    would want it, which is the shape of vendor-impersonation fraud. It is also what the
+    cooldown reads — `created_at` on the active row is how recently banking moved.
+    """
+    __tablename__ = "vendor_bank_account"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    vendor_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("vendor.id", ondelete="CASCADE"), index=True)
+    routing_last4: Mapped[str] = mapped_column(String(4))
+    account_last4: Mapped[str] = mapped_column(String(4))
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verification_method: Mapped[str] = mapped_column(String(16), default="callback")
+    # Who was reached, on what number. Prose on purpose: "called the number on last year's
+    # invoice, not the one in the email" is the detail that makes the control real.
+    verification_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("vendor_bank_account.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

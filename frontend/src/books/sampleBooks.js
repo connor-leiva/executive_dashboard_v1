@@ -144,6 +144,32 @@ export const sampleQueue = {
   ],
 };
 
+/* Payables Phase 1. Shaped as /payables/vendors answers, including the derived `status` —
+   the offline view must not be able to show a state the server cannot produce. */
+export const sampleVendors = {
+  vendors: [
+    { id: "v1", legal_name: "Acme Landscaping, LLC", display_name: "Acme Landscaping LLC",
+      dba: null, vendor_type: "business", tin_last4: "4417", w9: true, is_1099: true,
+      terms_days: 30, status: "active", default_business_name: "ULRG + Team",
+      bank: { account_last4: "2251", verified_at: "2026-08-22T16:10:00Z",
+              verified_by_name: "C. Leiva", verification_method: "callback" } },
+    { id: "v3", legal_name: "Brightpath Creative", display_name: "Brightpath Creative",
+      dba: null, vendor_type: "business", tin_last4: "9012", w9: true, is_1099: true,
+      terms_days: 30, status: "active", default_business_name: "Spring B",
+      bank: { account_last4: "7742", verified_at: "2026-07-03T15:02:00Z",
+              verified_by_name: "K. Shaw", verification_method: "callback" } },
+    { id: "v4", legal_name: "Copperfield Signs", display_name: "Copperfield Signs",
+      dba: null, vendor_type: "business", tin_last4: null, w9: true, is_1099: false,
+      terms_days: 15, status: "pending_verification", default_business_name: "Spring B",
+      bank: { account_last4: "5338", verified_at: null, verified_by_name: null,
+              verification_method: "callback" } },
+    { id: "v5", legal_name: "Rivera, Marcos", display_name: "Rivera, Marcos",
+      dba: null, vendor_type: "individual", tin_last4: null, w9: false, is_1099: true,
+      terms_days: 15, status: "pending_verification", default_business_name: "Sympli Mortgage",
+      bank: null },
+  ],
+};
+
 export const sampleIC = {
   pairs: [
     { id: "p1", from: "ulrg", to: "sympli", amount: 15000, date: "2026-07-07", status: "escalated", characterization: null,

@@ -25,6 +25,11 @@ AUDIT_CATEGORIES = frozenset({
     # appointment, a stage move. Every one of those is auditable by design (RECRUITING-SPEC §5.3
     # step 5), which is the whole reason this category exists rather than folding into Integrations.
     "Recruiting",
+    # Payables is the first module where a mutation decides that money leaves. Vendor banking,
+    # approvals and a released run are the rows an auditor asks for by name, so they get their
+    # own axis rather than dissolving into Config. Adding this REQUIRES the paired migration --
+    # see the note above; the CHECK is Postgres-only and SQLite tests cannot see it.
+    "Payments",
 })
 
 

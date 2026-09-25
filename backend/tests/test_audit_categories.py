@@ -15,7 +15,7 @@ instead, which works on any database and needs no connection at all.
 Adding a category to console.py without adding it to AUDIT_CATEGORIES now fails here, in the
 suite that runs, rather than in production on the customer's Save button.
 """
-import re
+import ast
 from pathlib import Path
 
 import pytest
@@ -30,17 +30,43 @@ MIGRATION = BACKEND / "alembic" / "versions" / "0060_audit_category_vocabulary.p
 SOURCES = sorted((BACKEND / "app").rglob("*.py"))
 
 
+# The functions that actually write an audit row. Anything else taking a `category=` keyword is
+# a different vocabulary and none of this test's business.
+_AUDIT_WRITERS = {"audit", "_record_mutation"}
+
+
 def _categories_written() -> dict[str, set[str]]:
-    """Category literals passed to audit()/_record_mutation(), per file."""
+    """Category literals passed to audit() / _record_mutation(), per file.
+
+    Parsed, not pattern-matched. This read keyword `category="X"` anywhere in a file and assumed
+    it meant the audit log -- true until payables called
+    `binder_ingest.ingest_document(..., category="tax")`, which is the BINDER's document
+    vocabulary (formation|insurance|tax|...) and has nothing to do with audit_log. The heuristic
+    flagged it as a category that would 500 in production, which was simply wrong.
+
+    Reading the call target instead of the surrounding text is strictly narrower AND strictly
+    more complete: it also sees an audit() call whose category sits on a later line, which the
+    regex found only by accident of both being in the same file.
+    """
     found: dict[str, set[str]] = {}
     for path in SOURCES:
         text = path.read_text(encoding="utf-8")
-        # KEYWORD ARGUMENTS ONLY -- `category="X"`, no spaces. PEP 8 puts no spaces around a
-        # keyword argument's `=` and spaces around an assignment's, and this codebase follows
-        # that, so it cleanly separates `audit(..., category="Training")` from
-        # `doc.category = "other"` in binder_extract, which is a DOCUMENT category and has
-        # nothing to do with the audit log. The looser pattern flagged it and was wrong.
-        cats = set(re.findall(r'(?<![\w.])category="([^"]+)"', text))
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:                     # not importable anyway; the suite will say so
+            continue
+        cats: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", None)
+            if name not in _AUDIT_WRITERS:
+                continue
+            for kw in node.keywords:
+                if kw.arg == "category" and isinstance(kw.value, ast.Constant) \
+                        and isinstance(kw.value.value, str):
+                    cats.add(kw.value.value)
         # The definition itself is not a call site.
         if cats and path.name not in ("audit.py",):
             found[str(path.relative_to(BACKEND))] = cats

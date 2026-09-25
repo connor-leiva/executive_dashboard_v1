@@ -11,7 +11,7 @@ from .models import Base
 from .startup_checks import enforce_config
 from .tenancy import resolve_tenant, set_tenant
 from .throttle import enforce
-from .routers import recall as recall_router, ghl_recruiting_webhook, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform, ads, intranet, console
+from .routers import recall as recall_router, ghl_recruiting_webhook, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform, ads, intranet, console, payables
 
 log = logging.getLogger("app")
 
@@ -106,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(users.router, prefix="/api/v1")
     app.include_router(assistant.router, prefix="/api/v1")
     app.include_router(books.router, prefix="/api/v1")
+    app.include_router(payables.router, prefix="/api/v1")
     app.include_router(binder.router, prefix="/api/v1")
     app.include_router(launches.router, prefix="/api/v1")
     app.include_router(ai_employees.router, prefix="/api/v1")
