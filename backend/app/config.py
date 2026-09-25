@@ -157,6 +157,18 @@ class Settings(BaseSettings):
     BOOKS_CONF_THRESHOLD: float = 0.9
     BOOKS_WRITEBACK_ENABLED: bool = False
 
+    # Payables · payment runs (SPEC-payables §4.3, §4.4).
+    # How long a line is held after its vendor's banking changed. The window is the control:
+    # vendor-impersonation fraud works by changing the account and invoicing immediately, so a
+    # payment that waits a day is a payment somebody had a chance to notice.
+    PAYABLES_BANK_COOLDOWN_HOURS: int = 24
+    # Whether the person who approved a bill may also release the run that pays it.
+    # DEFAULT FALSE ON PURPOSE. An unset env var IS live configuration, so the default is what
+    # every future workspace gets silently — and the safe posture is the one that requires two
+    # people. Connor approves and releases both, so this workspace sets it true in Railway; when
+    # it is on, every self-release is audited by name rather than passing quietly.
+    PAYABLES_ALLOW_SELF_RELEASE: bool = False
+
     # Axcion Binder — document-driven entity-compliance engine (SPEC-binder-module Part 15).
     # Extraction reuses ANTHROPIC_API_KEY; BINDER_EXTRACT_MODEL falls back to ASSISTANT_MODEL
     # when blank. The extraction pipeline only ever proposes obligations — a human confirms

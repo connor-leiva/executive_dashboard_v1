@@ -18,7 +18,7 @@ from ..integrations import qbo
 from .audit import audit
 from . import roles
 from .books_scan import (IC_CHARACTERIZATIONS, BASIS_HISTORY, BASIS_OVER_BAND, BASIS_SPLIT,
-                         BASIS_CLAUDE, BASIS_NONE)
+                         BASIS_CLAUDE, BASIS_NONE, BASIS_PAYABLE)
 from .metrics import _pl_period, _period_range, canonical_period, period_label
 
 # What the reviewer reads instead of the tag. The prose in `reason` still carries the detail;
@@ -29,6 +29,7 @@ BASIS_LABELS = {
     BASIS_SPLIT: "Split — never auto-categorized",
     BASIS_CLAUDE: "Claude read it",
     BASIS_NONE: "Not yet reached",
+    BASIS_PAYABLE: "Approved in Payables",
 }
 
 
@@ -81,7 +82,8 @@ QUEUE_FILTERS = RAIL_STATES + ("all", "auto")
 
 # The second axis: what DECIDED the category, as opposed to where the transaction sits.
 # Independent of scan_state — something can be cleared by history or cleared by Claude.
-BASIS_FILTERS = (BASIS_HISTORY, BASIS_CLAUDE, BASIS_OVER_BAND, BASIS_SPLIT, BASIS_NONE, "any")
+BASIS_FILTERS = (BASIS_HISTORY, BASIS_CLAUDE, BASIS_OVER_BAND, BASIS_SPLIT, BASIS_PAYABLE,
+                 BASIS_NONE, "any")
 
 # How much to trust a call. This is policy, not presentation: the filter, the row badge and
 # the drawer's explanation all read it here, so "weak" cannot come to mean three things.
@@ -108,6 +110,8 @@ def strength_rule(suggestion: dict | None) -> str:
     if basis == BASIS_CLAUDE:
         return ("Strong at %d%% confidence or more, thin from %d%%."
                 % (STRENGTH["claude_strong"] * 100, STRENGTH["claude_thin"] * 100))
+    if basis == BASIS_PAYABLE:
+        return "Always strong: a person coded this and an approver signed it before it was paid."
     if basis == BASIS_OVER_BAND:
         return "Capped at thin: a known vendor behaving unusually is never a strong call."
     return ("Strong at %d prior charges or more, thin from %d."
@@ -128,6 +132,12 @@ def strength_of(suggestion: dict | None) -> str:
         c = sug.get("confidence") or 0
         return ("strong" if c >= STRENGTH["claude_strong"]
                 else "thin" if c >= STRENGTH["claude_thin"] else "weak")
+    if basis == BASIS_PAYABLE:
+        # The strongest evidence in the system: not a machine's guess about a payment that
+        # already happened, but a human coding plus an approver's signature from BEFORE the
+        # money moved. Falling through to the priors branch below scored it 0 priors = "weak",
+        # which put every pre-approved payment in the weak-review lens.
+        return "strong"
     # over_band is capped at thin on purpose: a known vendor behaving unusually is never a
     # strong call, however many priors it has. The priors are why we noticed, not reassurance.
     p = sug.get("priors") or 0
@@ -578,7 +588,9 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
                 "came_categorized": bool(t.came_categorized),
                 # A split's "category" is where it already sits, not a proposal. Saying so stops
                 # the UI rendering it as a 0%-confidence suggestion, which reads as a bad guess.
-                "is_proposal": b not in (BASIS_SPLIT, BASIS_NONE),
+                # A split's "category" is where it already sits, and so is a payable's —
+                # it is the coding a person put on the bill, not a guess about it.
+                "is_proposal": b not in (BASIS_SPLIT, BASIS_NONE, BASIS_PAYABLE),
                 "signed_off": t.reviewed_at is not None,
                 "signed_off_at": t.reviewed_at.isoformat() if t.reviewed_at else None,
                 "decision": (t.decision or {}).get("action"),

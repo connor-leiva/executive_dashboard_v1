@@ -1653,6 +1653,11 @@ class BookTxn(Base):
     decision: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
         # {"action": "approve"|"recategorize"|"escalate"|"ic_characterized", "category", ...}
     posted_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # write-back only
+    # The bill this payment settles, when Acumyn approved it before the money moved. A txn
+    # carrying one SKIPS the scan queue — it was coded and approved by a human already, and
+    # re-reviewing it is the duplicated work this module exists to remove. Deliberately NOT in
+    # books_sync._TXN_SOURCE_KEYS: a re-sync must never clear it.
+    payable_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=True)
     __table_args__ = (UniqueConstraint("tenant_id", "realm_id", "qbo_type", "qbo_id", name="uq_booktxn_src"),)
 
 
@@ -3299,6 +3304,12 @@ class Payable(Base):
     status: Mapped[str] = mapped_column(String(24), default="received")   # see payables.LIFECYCLE
     is_exception: Mapped[bool] = mapped_column(Boolean, default=False)
     exception_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # WHICH holds a second person cleared, and on which run: {"keys": [...], "run": "<uuid>"}.
+    # An override is permission to pay past the risks that were on the screen when it was
+    # given — not a standing exemption. Without this, an override granted for "checked, not a
+    # duplicate" would go on to silently clear a bank_cooldown hold raised weeks later by
+    # banking that changed after the override, which is the exact fraud the cooldown exists for.
+    exception_holds: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
     submitted_by: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -3354,6 +3365,40 @@ class ApprovalPolicy(Base):
     requires_second_approver: Mapped[bool] = mapped_column(Boolean, default=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PaymentRun(Base):
+    """A batch of approved bills, closed and exported. RELEASE DOES NOT MOVE MONEY.
+
+    It marks the batch approved, records who released it, and produces a file. Payment is
+    executed by a person in Zions Treasury Internet Banking — Zions publishes no developer API,
+    and pretending otherwise in the schema would invite somebody to build against it.
+
+    One run per business, not one across the portfolio: the five entities have separate QBO
+    realms and separate bank accounts, so a combined run produces an export a human then has to
+    split by hand at the bank. `business_id` is therefore required, not nullable.
+    """
+    __tablename__ = "payment_run"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("business.id", ondelete="CASCADE"), index=True)
+    run_date: Mapped[date] = mapped_column(Date)
+    cutoff_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # draft -> released -> reconciled. The spec listed an `approved` state between draft and
+    # released; nothing writes it, because the bills in a run are ALREADY individually approved
+    # and Connor approves and releases both. A run-level approve step would be a button whose
+    # only effect is to enable the next button — and a state no code produces is how somebody
+    # later writes `if status == "approved"` and gets silence.
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    released_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    item_count: Mapped[int] = mapped_column(Integer, default=0)
+    export_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (Index("ix_payment_run_date", "tenant_id", "business_id", "run_date"),)
 
 
 class PayableEvent(Base):

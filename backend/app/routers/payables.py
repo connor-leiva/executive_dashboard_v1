@@ -1,27 +1,36 @@
-"""Payables API (SPEC-payables §2.3, §3.4). Vendor master, bills, and approvals.
+"""Payables API (SPEC-payables §2.3, §3.4, §4.5). Vendors, bills, approvals and payment runs.
 
 Gated on `require_tab("books")`. Payables is a Books sub-surface, and `tabs.py` already resolves
 any `books_*` grant to the books tab, so a `books_payables` grant works with no resolver change.
 
-Release (Phase 3) is the only route that will carry the step-up variant. Nothing here moves
-money, so nothing here demands a second factor — asking for one on vendor edits would train
-people to type the code without reading why, which is how the factor stops working.
+Release is the ONE route carrying the step-up variant. Nothing else here moves money, and
+asking for a code on vendor edits would train people to type it without reading why — which is
+how a second factor stops being one.
+
+ROUTE ORDER MATTERS in this file. `/policies` and everything under `/runs` are declared before
+`/{payable_id}`, and `/runs/next` before `/runs/{run_id}`; FastAPI matches in order, so a
+literal path declared after its parameterised sibling is a path that never runs.
 """
 import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
-from ..deps import require_tab
+from ..deps import require_tab, require_tab_with_step_up
 from ..models import User
-from ..services import binder_ingest, payables, payables_vendor
+from ..services import binder_ingest, payables, payables_run, payables_vendor
 
 router = APIRouter(prefix="/payables", tags=["payables"])
 
 payables_user = require_tab("books")
+# Release is the one action here that turns a batch into a payment instruction, so it carries
+# the second factor. One symbol, per the docstring on require_tab_with_step_up: no route can be
+# added to this section that quietly forgets it.
+payables_releaser = require_tab_with_step_up("books", "payments")
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024        # matches Binder's limit; these are the same scans
 
@@ -179,8 +188,8 @@ class PayablePatch(BaseModel):
     location_key: str | None = None
     service_period_start: date | None = None
     service_period_end: date | None = None
-    is_exception: bool | None = None
-    exception_reason: str | None = None
+    # No is_exception / exception_reason. Clearing a hold goes through
+    # POST /runs/{id}/override-line, which requires a second person and a written reason.
 
 
 class DecideIn(BaseModel):
@@ -261,6 +270,128 @@ async def put_policies(body: PoliciesIn, user: User = Depends(payables_user),
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"bands": bands}
+
+
+# ── Payment runs (SPEC-payables §4.5) ─────────────────────────────────────────
+# Declared BEFORE /{payable_id} for the same reason /policies is: "runs" is not a UUID.
+
+class RunIn(BaseModel):
+    business_id: uuid.UUID                      # one run per entity — separate realms, separate banks
+    run_date: date | None = None
+
+
+class HoldLineIn(BaseModel):
+    payable_id: uuid.UUID
+    reason: str
+
+
+class OverrideLineIn(BaseModel):
+    payable_id: uuid.UUID
+    note: str
+
+
+@router.get("/runs")
+async def list_runs(business_id: uuid.UUID | None = None,
+                    user: User = Depends(payables_user),
+                    s: AsyncSession = Depends(get_session)):
+    return {"runs": await payables_run.list_runs(s, user.tenant_id, business_id)}
+
+
+@router.get("/runs/next")
+async def next_run(business_id: uuid.UUID, run_date: date | None = None,
+                   user: User = Depends(payables_user),
+                   s: AsyncSession = Depends(get_session)):
+    """Computed live, never stored. A proposal that went stale in a table would be read as
+    fact, and the fact it would be read as is which bills are about to be paid."""
+    return await payables_run.propose_run(s, user.tenant_id, business_id, run_date)
+
+
+@router.post("/runs")
+async def create_run(body: RunIn, user: User = Depends(payables_user),
+                     s: AsyncSession = Depends(get_session)):
+    try:
+        return await payables_run.create_run(s, user.tenant_id, user, body.business_id,
+                                             body.run_date)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/runs/{run_id}")
+async def get_run(run_id: uuid.UUID, user: User = Depends(payables_user),
+                  s: AsyncSession = Depends(get_session)):
+    row = await payables_run.get_run(s, user.tenant_id, run_id)
+    if row is None:
+        raise HTTPException(404, "Run not found")
+    return row
+
+
+@router.post("/runs/{run_id}/hold-line")
+async def hold_line(run_id: uuid.UUID, body: HoldLineIn, user: User = Depends(payables_user),
+                    s: AsyncSession = Depends(get_session)):
+    try:
+        row = await payables_run.hold_line(s, user.tenant_id, user, run_id, body.payable_id,
+                                           body.reason)
+    except ValueError as e:                      # a lifecycle refusal is a 400, not a 500
+        raise HTTPException(400, str(e))
+    if row is None:
+        raise HTTPException(404, "That line is not on this run")
+    return row
+
+
+@router.post("/runs/{run_id}/override-line")
+async def override_line(run_id: uuid.UUID, body: OverrideLineIn,
+                        user: User = Depends(payables_user),
+                        s: AsyncSession = Depends(get_session)):
+    try:
+        row = await payables_run.override_line(s, user.tenant_id, user, run_id,
+                                               body.payable_id, body.note)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if row is None:
+        raise HTTPException(404, "That line is not on this run")
+    return row
+
+
+@router.post("/runs/{run_id}/release")
+async def release_run(run_id: uuid.UUID, user: User = Depends(payables_releaser),
+                      s: AsyncSession = Depends(get_session)):
+    """THE ONLY STEP-UP ROUTE IN BOOKS. Releasing is the moment a batch becomes a payment
+    instruction a person carries to the bank, so it asks for the code — and it is one symbol
+    (require_tab_with_step_up) precisely so no route can be added here that forgets it."""
+    try:
+        row = await payables_run.release_run(s, user.tenant_id, user, run_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if row is None:
+        raise HTTPException(404, "Run not found")
+    return row
+
+
+@router.get("/runs/{run_id}/export")
+async def export_run(run_id: uuid.UUID, user: User = Depends(payables_user),
+                     s: AsyncSession = Depends(get_session)):
+    try:
+        out = await payables_run.export_run(s, user.tenant_id, run_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    if out is None:
+        raise HTTPException(404, "Run not found")
+    filename, body = out
+    return Response(content=body, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.post("/runs/{run_id}/reconcile")
+async def reconcile_run(run_id: uuid.UUID, user: User = Depends(payables_user),
+                        s: AsyncSession = Depends(get_session)):
+    """Marked paid once the bank confirms — the bank is the only thing that knows."""
+    try:
+        row = await payables_run.reconcile_run(s, user.tenant_id, user, run_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if row is None:
+        raise HTTPException(404, "Run not found")
+    return row
 
 
 @router.get("/{payable_id}")

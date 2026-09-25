@@ -20,7 +20,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import BookTxn, PLLine, ICLink, ICRule, Business
+from ..models import BookTxn, PLLine, ICLink, ICRule, Business, PayableApproval
 
 # Why a suggestion exists, as a stable key stored alongside the prose in `reason`.
 # The prose interpolates counts — "Matches 195 prior charges", "Matches 12 prior charges" —
@@ -31,6 +31,7 @@ BASIS_OVER_BAND = "over_band"       # known vendor, amount outside its usual ran
 BASIS_SPLIT = "split"               # multi-line txn: never auto-categorized, always a human
 BASIS_CLAUDE = "claude"             # Pass 3 formed an opinion
 BASIS_NONE = "none"                 # still pending: no pass has reached it yet
+BASIS_PAYABLE = "payable"           # approved in Payables BEFORE the money moved
 
 _HISTORY_STATES = ("cleared", "approved", "posted")
 IC_CHARACTERIZATIONS = {"loan", "distribution", "contribution", "shared_expense", "rent", "payroll_alloc"}
@@ -186,7 +187,38 @@ async def _handle_ic(s, tenant_id, txn, today) -> str:
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
+async def skip_approved_payable(s, tenant_id, txn) -> str:
+    """A transaction that settles an approved bill never enters the review queue.
+
+    THIS IS THE POINT OF THE PAYABLES MODULE. A human coded this, an approver signed it, and a
+    releaser released it — all before the money moved. Reviewing it again afterwards is the
+    duplicated work payables exists to remove, so the module SHRINKS this queue rather than
+    adding a second one beside it.
+
+    Carries the approver through as the reviewer, because `no_unreviewed_approvals` requires an
+    approved row to name one. With no approver on record it settles for `cleared` instead —
+    still out of the queue, without asserting a sign-off nobody can point at.
+    """
+    approver = (await s.execute(select(PayableApproval.approver_user_id).where(
+        PayableApproval.payable_id == txn.payable_id,
+        PayableApproval.decision == "approve")
+        .order_by(PayableApproval.decided_at))).scalars().first()
+    txn.suggestion = {"category": txn.account_label, "confidence": 1.0,
+                      "basis": BASIS_PAYABLE, "priors": None,
+                      "reason": "Approved in Payables before the payment was released."}
+    if approver is None:
+        txn.scan_state = "cleared"
+        return "cleared"
+    txn.decision = {"action": "approved_upstream", "payable_id": str(txn.payable_id)}
+    txn.reviewed_by = approver
+    txn.reviewed_at = dt.datetime.now(dt.timezone.utc)
+    txn.scan_state = "approved"
+    return "approved"
+
+
 async def _scan_one(s, tenant_id, txn, alias_map, history_idx, today) -> str:
+    if txn.payable_id is not None:                      # already approved upstream
+        return await skip_approved_payable(s, tenant_id, txn)
     if (txn.flags or {}).get("multi_line"):             # split txn -> always a human call
         if not txn.suggestion:
             # The category here is where the txn ALREADY sits, not a guess — hence confidence
@@ -225,15 +257,18 @@ async def run_scan(s: AsyncSession, tenant_id, today=None) -> dict:
         BookTxn.tenant_id == tenant_id, BookTxn.scan_state == "pending")
         .order_by(BookTxn.txn_date.asc(), BookTxn.id.asc()))).scalars().all()
 
-    tally = {"cleared": 0, "needs_approval": 0, "escalated": 0, "pending": 0}
+    tally = {"cleared": 0, "needs_approval": 0, "escalated": 0, "pending": 0, "approved": 0}
     for txn in pending:
         if txn.scan_state != "pending":                 # resolved as another txn's IC match
             continue
         tally[await _scan_one(s, tenant_id, txn, alias_map, history_idx, today)] += 1
     await s.commit()
+    # pre_approved is the number worth watching: the share of outflow that arrived already
+    # signed off, which is how much review work payables has actually removed (SPEC 4.7).
+    pre_pct = round(100 * tally["approved"] / len(pending)) if pending else 0
     print(f"books_scan deterministic seen={len(pending)} cleared={tally['cleared']} "
           f"needs_approval={tally['needs_approval']} escalated={tally['escalated']} "
-          f"pending={tally['pending']}", flush=True)
+          f"pending={tally['pending']} pre_approved={tally['approved']} ({pre_pct}%)", flush=True)
 
     if _claude_enabled():                               # Pass 3: the ambiguous remainder
         c = await run_claude_pass(s, tenant_id, today, history_idx=history_idx)

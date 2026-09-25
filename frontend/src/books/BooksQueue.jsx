@@ -383,12 +383,14 @@ const STAGES = [
    and the row's own explanation can never drift apart. */
 const BASES = [
   ["any", "Any"], ["history_match", "History"], ["claude", "Claude"],
-  ["over_band", "Over range"], ["split", "Split"], ["none", "Not analyzed"],
+  ["over_band", "Over range"], ["split", "Split"], ["payable", "Payables"],
+  ["none", "Not analyzed"],
 ];
 const BASIS_SHORT = Object.fromEntries(BASES);   // the row's short labels = the chip vocabulary
 /* Meaning never lives in colour alone — a hard rule here. Every facet carries its word, and
    the basis chips carry a glyph as well, so the axis survives a monochrome screenshot. */
-const BASIS_GLYPH = { history_match: "↻", claude: "◆", over_band: "↕", split: "÷", none: "○" };
+const BASIS_GLYPH = { history_match: "↻", claude: "◆", over_band: "↕", split: "÷",
+                      payable: "✓", none: "○" };
 
 function AxisRow({ label, children }) {
   return (

@@ -323,9 +323,13 @@ async def create_payable(s: AsyncSession, tenant_id, actor, payload: dict) -> di
     return await get_payable(s, tenant_id, p.id)
 
 
+# What a person may edit while coding a bill. `is_exception` / `exception_reason` are NOT
+# here, and must never be: they are the record that a SECOND person cleared a hold, and
+# `payables_run.line_holds` reads them to decide a line may be paid. With them patchable, one
+# person could PATCH {"is_exception": true} on their own invoice and clear every hold on it —
+# no second pair of eyes, no written reason, no audit row. `override_line` is the only writer.
 _CODING = ("business_id", "legal_entity_id", "standard_account_id", "class_key", "location_key",
-           "description", "invoice_date", "service_period_start", "service_period_end",
-           "is_exception", "exception_reason")
+           "description", "invoice_date", "service_period_start", "service_period_end")
 
 
 async def update_coding(s: AsyncSession, tenant_id, actor, payable_id, payload: dict) -> dict | None:

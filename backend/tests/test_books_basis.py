@@ -102,3 +102,51 @@ def test_over_band_is_tagged_differently_from_a_clean_match():
     assert kind == "over_band"
     assert sug["basis"] == BASIS_OVER_BAND
     assert sug["confidence"] < 0.99
+# ── a basis is not just a label ───────────────────────────────────────────────────────────
+
+def test_every_basis_reaches_every_consumer_that_branches_on_one():
+    """BASIS_PAYABLE was added to BASIS_LABELS and BASIS_FILTERS and nowhere else. `strength_of`
+    then fell through to the branch written for over_band, read `priors` (absent), and scored
+    every human-approved payment "weak" - which is the lens the Friday review filters to. The
+    row said a person had approved it and the badge said the evidence was weak.
+
+    So this is DERIVED from the vocabulary rather than listing the bases by hand: a hand-kept
+    list never contains the next one. Adding a BASIS_* constant without teaching these consumers
+    fails here instead of on the review screen.
+    """
+    import inspect
+
+    from app.services import books, books_scan
+
+    vocab = {name: value for name, value in vars(books_scan).items()
+             if name.startswith("BASIS_") and isinstance(value, str)}
+    assert len(vocab) >= 6, f"the vocabulary shrank unexpectedly: {sorted(vocab)}"
+
+    # Each function ends in a fallback written for ONE basis, and it is a different one in
+    # each: strength_of falls through to the over_band rule, strength_rule to the history
+    # sentence. Named per function, because a single shared allowlist would excuse a basis in
+    # the function that does not actually handle it.
+    FALLBACK = {"strength_of": {"BASIS_OVER_BAND"}, "strength_rule": {"BASIS_HISTORY"}}
+
+    for name, value in sorted(vocab.items()):
+        assert value in books.BASIS_LABELS, f"{name} has no reader-facing label"
+        assert value in books.BASIS_FILTERS, f"{name} cannot be filtered to"
+        for fn in (books.strength_of, books.strength_rule):
+            owned = FALLBACK[fn.__name__]
+            named = name in inspect.getsource(fn)
+            assert named or name in owned, (
+                f"{name} is not named in {fn.__name__} - it will land on the fallback branch "
+                f"written for {sorted(owned)}, and score as that instead of as itself")
+
+
+def test_a_payable_backed_category_is_the_strongest_evidence_there_is():
+    """Not a machine's guess about money that already moved: a person's coding plus an
+    approver's signature from before it moved."""
+    from app.services import books
+    from app.services.books_scan import BASIS_PAYABLE
+
+    sug = {"basis": BASIS_PAYABLE, "confidence": 1.0, "priors": None}
+    assert books.strength_of(sug) == "strong"
+    assert books.strength_rule(sug)                       # it explains itself like the others
+    # And its category is what a human wrote on the bill, not a proposal about the payment.
+    assert BASIS_PAYABLE in books.BASIS_LABELS

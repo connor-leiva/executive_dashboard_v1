@@ -231,7 +231,7 @@ def require_tab(tab: str):
 STEP_UP_REQUIRED = 428          # Precondition Required — the client shows the code prompt
 # The sections that demand a second factor, and how long one unlock lasts. Defined HERE (not
 # in the totp router) so both the guards and the router read the same list without a cycle.
-STEP_UP_SCOPES = {"binder": 20}                 # scope -> grant minutes
+STEP_UP_SCOPES = {"binder": 20, "payments": 20}   # scope -> grant minutes
 STEP_UP_SCOPE_NAMES = tuple(STEP_UP_SCOPES)
 
 

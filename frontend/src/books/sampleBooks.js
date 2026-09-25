@@ -390,3 +390,42 @@ export const sampleLineDetail = {
     transactions: 4, multi_line: 1,
     note: "These transactions account for the whole line." },
 };
+
+/* Payment runs (offline). Shaped exactly like payables_run's payloads, holds and all — the
+   sample exists so the screen can be READ without a server, and a sample whose fields differ
+   from the server's is a screen that works until it is connected. */
+export const sampleNextRun = {
+  run_date: "2026-09-30", horizon: "2026-10-06", business_id: "ulrg", lookahead_days: 6,
+  held_count: 1, releasable_count: 2, total: 14850,
+  lines: [
+    { payable_id: "r1", vendor: "Acme Landscaping LLC", vendor_legal_name: "Acme Landscaping LLC",
+      invoice_number: "4471", amount: 2450, due_date: "2026-10-05", terms: "Net 30",
+      status: "approved", holds: [], held: false, overridden: false, override_reason: null },
+    { payable_id: "r2", vendor: "Northline Title Co", vendor_legal_name: "Northline Title Co",
+      invoice_number: "NT-8890", amount: 12400, due_date: "2026-09-30", terms: "Net 30",
+      status: "approved", holds: [], held: false, overridden: false, override_reason: null },
+    { payable_id: "r3", vendor: "Copperfield Signs", vendor_legal_name: "Copperfield Signs LLC",
+      invoice_number: "CS-311", amount: 1875, due_date: "2026-09-29", terms: "Net 15",
+      status: "approved", overridden: false, override_reason: null, held: true,
+      holds: [{ key: "bank_cooldown", label: "Bank changed · 24h hold", hold: true,
+                why: "This vendor's banking changed too recently to pay against." }] },
+  ],
+};
+
+export const sampleRun = {
+  id: "run1", business_id: "ulrg", run_date: "2026-09-30", status: "draft",
+  cutoff_at: null, released_by: null, released_at: null, export_ref: null,
+  held_count: 1, releasable_total: 14850, can_release: false, lines: sampleNextRun.lines,
+};
+
+export const sampleRuns = {
+  runs: [
+    { id: "run1", business_id: "ulrg", business_name: "ULRG + Team", run_date: "2026-09-30",
+      status: "draft", item_count: 3, total_amount: 16725,
+      released_by: null, released_at: null, export_ref: null },
+    { id: "run0", business_id: "ulrg", business_name: "ULRG + Team", run_date: "2026-09-23",
+      status: "reconciled", item_count: 5, total_amount: 28310,
+      released_by: "C. Leiva", released_at: "2026-09-23T17:04:00Z",
+      export_ref: "run-2026-09-23-4f21ab90.csv" },
+  ],
+};

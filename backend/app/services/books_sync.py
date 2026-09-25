@@ -37,8 +37,25 @@ _CATEGORY_DETAIL_KEYS = ("AccountBasedExpenseLineDetail", "DepositLineDetail",
 # Only these source-side columns update on a re-sync. scan_state / suggestion / decision /
 # reviewed_* / flags / posted_back_at are owned by the scan pipeline + human review and
 # MUST survive a re-sync of an already-reviewed row (SPEC 2.3).
+#
+# `payable_id` BELONGS TO THAT SET AND IS DELIBERATELY ABSENT FROM THIS LIST. It is the link
+# saying a human coded and approved this money BEFORE it moved, and it is what lets the txn
+# skip the review queue entirely (books_scan). Adding it here would let the next QuickBooks
+# sync quietly null it out, and the only symptom would be already-approved payments
+# reappearing for review — with nothing pointing at the sync that erased the link.
 _TXN_SOURCE_KEYS = ["sync_token", "txn_date", "amount", "payee", "memo",
                     "account_label", "account_qbo_id", "bank_account_label", "came_categorized"]
+
+
+def txn_upsert(rows: list[dict]):
+    """The re-sync statement. Factored out so a test can assert what a re-sync overwrites
+    against the statement that actually runs, rather than against a copy of it in the test —
+    the `payable_id` rule above is only worth as much as the thing checking it."""
+    stmt = pg_insert(BookTxn).values(rows)
+    return stmt.on_conflict_do_update(
+        index_elements=["tenant_id", "realm_id", "qbo_type", "qbo_id"],
+        set_={k: stmt.excluded[k] for k in _TXN_SOURCE_KEYS},
+    )
 
 
 def _trim(v, n):
@@ -201,13 +218,7 @@ async def sync_qbo_txns(s: AsyncSession, tenant_id, integ: Integration, since=No
             for ent, objs in by_entity.items() for obj in objs if obj.get("Id")]
 
     for i in range(0, len(rows), 500):
-        part = rows[i:i + 500]
-        stmt = pg_insert(BookTxn).values(part)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["tenant_id", "realm_id", "qbo_type", "qbo_id"],
-            set_={k: stmt.excluded[k] for k in _TXN_SOURCE_KEYS},
-        )
-        await s.execute(stmt)
+        await s.execute(txn_upsert(rows[i:i + 500]))
     integ.last_synced_at = now
     await s.commit()
     print(f"[qbo_txns] realm={integ.realm_id} mode={'backfill' if have == 0 else 'cdc'} "

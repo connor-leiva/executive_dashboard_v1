@@ -90,6 +90,35 @@ async def recruiting_activity_tick():
             print(f"[recruiting_activity] {tid}: {e}", flush=True)
 
 
+async def payables_match_tick():
+    """Every half hour: pair synced BillPayments to the bills they settled (SPEC-payables §4.7).
+
+    Runs after the sync rather than inside it, because the payment has to exist as a BookTxn
+    before it can be matched to anything. Only tenants with a connected QuickBooks are visited —
+    without one there are no BillPayments to read, and the pass would be a query per workspace
+    for nothing.
+
+    The pairing is what makes the module worth having: a matched transaction skips the Friday
+    review queue, so approving a bill before paying it replaces reviewing the payment after.
+    """
+    from .models import Integration
+    from .services.payables_match import match_payments
+    async with SessionLocal() as s:
+        tenant_ids = set(await syncable_tenant_ids(s))
+        rows = (await s.execute(select(Integration.tenant_id).where(
+            Integration.provider == "qbo", Integration.status == "connected"))).all()
+    for tid in {t for (t,) in rows if t in tenant_ids}:
+        try:
+            async with SessionLocal() as s2:
+                out = await match_payments(s2, tid)
+            if out["paired"] or out["ambiguous"]:
+                print(f"[payables_match] {tid}: paired={out['paired']} "
+                      f"ambiguous={out['ambiguous']} left_queue={out['queue_skipped']} "
+                      f"open={out['open']}", flush=True)
+        except Exception as e:  # noqa: BLE001 - one workspace must not stop the rest
+            print(f"[payables_match] {tid}: {e}", flush=True)
+
+
 async def recruiting_outbox_tick():
     """Every minute: retry what is queued, fail what is stuck, purge bodies past retention.
 
@@ -485,6 +514,8 @@ def build_scheduler() -> AsyncIOScheduler:
     # a reply that landed a moment after they looked.
     sched.add_job(beat(recruiting_activity_tick), "interval",
                   minutes=settings.RECRUITING_ACTIVITY_INTERVAL_MINUTES)
+    # No next_run_time: it has nothing to match until a sync has pulled the payments in.
+    sched.add_job(beat(payables_match_tick), "interval", minutes=30)
     sched.add_job(beat(roster_tick), "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
     sched.add_job(beat(scorecard_tick), "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
     # After the syncs have had the night to land: attribution reads registrations the GHL sync

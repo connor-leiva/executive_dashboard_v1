@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { getJSON } from "../api";
 import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleCoaMap,
-         sampleStatement, sampleLineDetail, sampleVendors,
-         samplePayables } from "./sampleBooks.js";
+         sampleStatement, sampleLineDetail, sampleVendors, samplePayables,
+         sampleRuns, sampleNextRun, sampleRun } from "./sampleBooks.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -91,6 +91,25 @@ export function usePayables({ status = null, mine = false } = {}) {
     ? { payables: samplePayables.payables.filter((p) => p.status === status) }
     : samplePayables;
   return useEndpoint(`/payables${qs ? `?${qs}` : ""}`, sample, [status, mine]);
+}
+
+/* Payment runs, per entity. Connor's decision: one run per company, because the five have
+   separate QBO realms and separate bank accounts, and a combined export is one somebody splits
+   by hand at the bank. So every one of these hooks is scoped to a business. */
+export function useRuns(businessId) {
+  return useEndpoint(businessId ? `/payables/runs?business_id=${businessId}` : null,
+                     sampleRuns, [businessId]);
+}
+
+/* The PROPOSAL — computed live on every read, never stored. A proposal that went stale in a
+   table would be read as fact, and the fact would be which bills are about to be paid. */
+export function useNextRun(businessId) {
+  return useEndpoint(businessId ? `/payables/runs/next?business_id=${businessId}` : null,
+                     sampleNextRun, [businessId]);
+}
+
+export function useRun(runId) {
+  return useEndpoint(runId ? `/payables/runs/${runId}` : null, sampleRun, [runId]);
 }
 
 export function useBooksIC() {

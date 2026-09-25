@@ -125,6 +125,11 @@ export const STEP_UP_STATUS = 428;
 function scopeForPath(path) {
   if (path.startsWith("/binder")) return "binder";
   if (path.startsWith("/assistant")) return "binder";
+  // Releasing a payment run, and ONLY that. Reading the run, holding a line and overriding one
+  // are ordinary requests; release is the moment a batch becomes a payment instruction somebody
+  // carries to the bank. Scoping this to the whole module instead would ask for a code to look
+  // at a list, and a code asked for too often is a code typed without reading the screen.
+  if (path.startsWith("/payables/runs/") && path.endsWith("/release")) return "payments";
   return null;
 }
 
