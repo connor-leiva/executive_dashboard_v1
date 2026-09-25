@@ -155,10 +155,11 @@ async def match_payments(s: AsyncSession, tenant_id) -> dict:
               summary=f"Payment matched to invoice {p.invoice_number}",
               detail={"txn_id": str(txn.id), "amount": str(p.amount),
                       "txn_date": txn.txn_date.isoformat(), "skipped_review": left_queue},
-              # `actor_label="Axcion"` with no actor_type is how the other machine-written audit
-              # (worker.expire_support_access) marks itself. Nothing reads actor_type today, so a
-              # lone new value for it would be invisible now and a filter's blind spot later.
-              actor_label="Axcion")
+              # No person did this. `actor_type` is not free text: audit_log carries a Postgres
+              # CHECK enumerating user | system | integration, so "system" is the established
+              # word for it — and defaulting to "user" would file a machine's pairing in the
+              # financial audit trail as somebody's decision.
+              actor_label="Axcion", actor_type="system")
 
     if paired:
         await s.commit()
