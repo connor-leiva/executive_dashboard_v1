@@ -3257,3 +3257,116 @@ class VendorBankAccount(Base):
     superseded_by: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("vendor_bank_account.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ── Payables · bills and approvals (SPEC-payables §3) ─────────────────────────────────────
+class Payable(Base):
+    """A bill that has NOT been paid.
+
+    Deliberately parallel to BookTxn.scan_state rather than folded into it. A BookTxn is money
+    that already cleared, reviewed after the fact; a payable is money that has not moved and
+    might not. One table for both is how somebody approves the wrong one — which is also why
+    this module never uses the word "queue".
+    """
+    __tablename__ = "payable"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    vendor_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("vendor.id", ondelete="RESTRICT"), index=True)
+    business_id: Mapped[uuid.UUID | None] = mapped_column(          # which P&L
+        GUID(), ForeignKey("business.id", ondelete="SET NULL"), nullable=True)
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(      # which contracting entity
+        GUID(), ForeignKey("legal_entity.id", ondelete="SET NULL"), nullable=True)
+    invoice_number: Mapped[str] = mapped_column(String(60))
+    invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Derived from vendor.terms_days at creation. An override is a deliberate, audited act —
+    # paying earlier than terms is a real decision about cash, not a typo to be absorbed.
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    service_period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    service_period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("binder_document.id", ondelete="SET NULL"), nullable=True)
+    # Model output plus per-field confidence, kept after coding. What the machine proposed is
+    # part of the record of how a bill came to be approved, not scaffolding to discard.
+    extraction: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    standard_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("standard_account.id", ondelete="SET NULL"), nullable=True)
+    class_key: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    location_key: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="received")   # see payables.LIFECYCLE
+    is_exception: Mapped[bool] = mapped_column(Boolean, default=False)
+    exception_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # No FK until Phase 3 creates payment_run — a forward reference would fail this migration.
+    payment_run_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=True)
+    # Reserved for write-back, which is deferred. Unused columns beat a schema change later on
+    # a table that by then holds every bill the business has approved.
+    qbo_bill_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    qbo_sync_token: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        # THE duplicate-payment control. Enforced in the service too, so the screen can name the
+        # invoice it collided with rather than surfacing a constraint violation.
+        UniqueConstraint("tenant_id", "vendor_id", "invoice_number", name="uq_payable_invoice"),
+        Index("ix_payable_status", "tenant_id", "status"),
+        Index("ix_payable_due", "tenant_id", "due_date"),
+    )
+
+
+class PayableApproval(Base):
+    """One required signature. Several rows per payable, so a two-signature band is a fact in
+    the data rather than a rule somebody has to remember to apply."""
+    __tablename__ = "payable_approval"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    payable_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("payable.id", ondelete="CASCADE"), index=True)
+    approver_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    decision: Mapped[str | None] = mapped_column(String(16), nullable=True)  # approve|reject|request_info
+    threshold_band: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ApprovalPolicy(Base):
+    """The approval matrix, as data. Thresholds change; that must not be a deploy."""
+    __tablename__ = "approval_policy"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(60))          # what the approver is told they are in
+    business_id: Mapped[uuid.UUID | None] = mapped_column(  # null = every business
+        GUID(), ForeignKey("business.id", ondelete="CASCADE"), nullable=True)
+    min_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    # Null means "no ceiling" — the top band has to be open-ended or a large invoice falls
+    # through the matrix entirely and reaches approved with nobody required.
+    max_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    required_role: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    required_user_ids: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    requires_second_approver: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PayableEvent(Base):
+    """Append-only per-invoice timeline. Redundant with audit_log deliberately: this is readable
+    as one bill's history without scanning a tenant-wide table, and it is what an auditor is
+    handed when they ask how this particular payment came to be made."""
+    __tablename__ = "payable_event"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    payable_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("payable.id", ondelete="CASCADE"), index=True)
+    event: Mapped[str] = mapped_column(String(24))
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

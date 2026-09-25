@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { getJSON } from "../api";
 import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleCoaMap,
-         sampleStatement, sampleLineDetail, sampleVendors } from "./sampleBooks.js";
+         sampleStatement, sampleLineDetail, sampleVendors,
+         samplePayables } from "./sampleBooks.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -76,6 +77,20 @@ export function useBooksQueue({ period = "mtd", state = "needs_approval", basis 
 export function useVendors(status) {
   return useEndpoint(`/payables/vendors${status ? `?status=${status}` : ""}`,
                      sampleVendors, [status]);
+}
+
+/* Bills and approvals. `mine` is the Approvals screen's default — an approver who has to read
+   everyone else's list to find their three stops approving. Offline the sample narrows itself,
+   since there is no server to filter. */
+export function usePayables({ status = null, mine = false } = {}) {
+  const q = new URLSearchParams();
+  if (status) q.set("status", status);
+  if (mine) q.set("mine", "1");
+  const qs = q.toString();
+  const sample = status
+    ? { payables: samplePayables.payables.filter((p) => p.status === status) }
+    : samplePayables;
+  return useEndpoint(`/payables${qs ? `?${qs}` : ""}`, sample, [status, mine]);
 }
 
 export function useBooksIC() {

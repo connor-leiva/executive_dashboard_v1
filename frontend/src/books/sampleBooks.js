@@ -170,6 +170,44 @@ export const sampleVendors = {
   ],
 };
 
+/* Payables Phase 2. `holds` and `can_submit` come from the server — the offline view must not
+   be able to show a row as submittable that the API would refuse. */
+export const samplePayables = {
+  payables: [
+    { id: "pb1", vendor: "Acme Landscaping LLC", invoice_number: "4471", amount: 2450,
+      invoice_date: "2026-09-15", due_date: "2026-10-15", status: "coded",
+      business_name: "ULRG + Team", description: "Monthly grounds maintenance - Sept 2026",
+      band: "Up to 2,500", vendor_status: "active", holds: [], can_submit: true,
+      approvals: [], awaiting: 0 },
+    { id: "pb2", vendor: "Rivera, Marcos", invoice_number: "MR-0912", amount: 3800,
+      invoice_date: "2026-09-12", due_date: "2026-09-27", status: "coded",
+      business_name: "Sympli Mortgage", description: "Loan processing support - Sept",
+      band: "2,501 to 15,000", vendor_status: "pending_verification", can_submit: false,
+      holds: [{ key: "vendor_not_ready", label: "Vendor not ready", hold: true,
+                why: "A W-9 and verified banking are required before a first payment." }],
+      approvals: [], awaiting: 0 },
+    { id: "pb3", vendor: "Brightpath Creative", invoice_number: "1182", amount: 7500,
+      invoice_date: "2026-09-18", due_date: "2026-10-18", status: "received",
+      business_name: "Spring B", description: "Q4 campaign assets",
+      band: "2,501 to 15,000", vendor_status: "active", can_submit: false,
+      holds: [{ key: "uncoded", label: "Not coded", hold: true,
+                why: "An expense account is needed before this can go for approval." }],
+      approvals: [], awaiting: 0 },
+    { id: "pb4", vendor: "Northline Title Co", invoice_number: "NT-8890", amount: 12400,
+      invoice_date: "2026-09-02", due_date: "2026-09-30", status: "awaiting_approval",
+      business_name: "Sympli Mortgage", description: "Title services - Aug closings",
+      band: "2,501 to 15,000", vendor_status: "active", holds: [], can_submit: false,
+      awaiting: 1,
+      approvals: [{ id: "ap1", approver: "C. Leiva", decision: null, band: "2,501 to 15,000" }] },
+    { id: "pb5", vendor: "Halcyon Systems LLC", invoice_number: "HS-2211", amount: 48000,
+      invoice_date: "2026-09-01", due_date: "2026-09-26", status: "awaiting_approval",
+      business_name: "ULRG + Team", description: "Platform migration - milestone 2",
+      band: "Over 15,000", vendor_status: "active", holds: [], can_submit: false, awaiting: 2,
+      approvals: [{ id: "ap2", approver: "C. Leiva", decision: "approve", band: "Over 15,000" },
+                  { id: "ap3", approver: "K. Shaw", decision: null, band: "Over 15,000" }] },
+  ],
+};
+
 export const sampleIC = {
   pairs: [
     { id: "p1", from: "ulrg", to: "sympli", amount: 15000, date: "2026-07-07", status: "escalated", characterization: null,
