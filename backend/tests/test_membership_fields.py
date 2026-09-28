@@ -174,18 +174,39 @@ async def test_build_forum_includes_pif_renewal():
         t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
         biz = (await s.execute(select(Business).where(
             Business.tenant_id == t.id, Business.key == "springb"))).scalar_one()
-        base = (await build_forum(s, t.id, "ytd"))["billing"]["forecast"]["rest_of_year"]
+        # The CLOCK is pinned here, not just the fixture. The renewal used to be derived from
+        # the live date:
+        #     dt.date(today.year, 12, 28) if today.month == 12 else dt.date(today.year, today.month + 1, 15)
+        # The December branch hardcoded day 28 only because month + 1 overflows — and
+        # project_renewals rolls any renewal with `d <= today` forward a FULL YEAR, past its
+        # `until = Dec 31`. So from the 28th of December the renewal left the window altogether,
+        # rest_of_year never saw it and the lift vanished: red on four days a year, every year.
+        # build_forum takes `today=` now, so the fixture and the clock it is read against are the
+        # same fixed date and there is no wall clock left to drift away from.
+        #
+        # Pinning it also lets the test CHOOSE the hard date instead of dodging it. The second
+        # case is the tightest in-window pair that exists: the renewal is today + 1 (so `d <=
+        # today` must not roll it) and is Dec 31 exactly (so `d <= until` must still emit it).
+        # Both of project_renewals' off-by-ones live on that pair, and it is now exercised on
+        # every run instead of once every three hundred days.
+        for i, (case, today, renewal) in enumerate([
+                ("a later month", dt.date(2026, 5, 20), dt.date(2026, 6, 15)),
+                ("Dec 31, clock on Dec 30", dt.date(2026, 12, 30), dt.date(2026, 12, 31))]):
+            base = (await build_forum(s, t.id, "ytd", today=today))["billing"]["forecast"]["rest_of_year"]
+            s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="ghl", kind="member",
+                               external_id=f"pif_forecast_{i}", email=f"pifforecast{i}@forum.com",
+                               status="active",
+                               meta={"membership": {"payment": "pif", "renewal_date": renewal.isoformat(),
+                                                    "total_cost": 30000}}))
+            await s.commit()
 
-        today = dt.date.today()
-        renewal = dt.date(today.year, 12, 28) if today.month == 12 else dt.date(today.year, today.month + 1, 15)
-        s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source="ghl", kind="member",
-                           external_id="pif_forecast", email="pifforecast@forum.com", status="active",
-                           meta={"membership": {"payment": "pif", "renewal_date": renewal.isoformat(),
-                                                "total_cost": 30000}}))
-        await s.commit()
-
-        lifted = (await build_forum(s, t.id, "ytd"))["billing"]["forecast"]["rest_of_year"]
-        assert lifted == base + 30000
+            lifted = (await build_forum(s, t.id, "ytd", today=today))["billing"]["forecast"]["rest_of_year"]
+            # Asserted as a DELTA, which is what stops this going quietly vacuous: if the renewal
+            # ever stopped reaching the projection the two numbers would be equal and this fails.
+            # 2026 is the year the seed's own payments are dated in, so `base` is a real figure in
+            # the first case and legitimately 0.0 in the second — by Dec 30 every seeded renewal
+            # is behind the clock and has rolled into 2027. The claim is the +30000, not the base.
+            assert lifted == base + 30000, case
 
 
 async def test_cashflow_current_month_shows_collected_and_scheduled():
@@ -233,6 +254,13 @@ async def test_cashflow_current_month_shows_collected_and_scheduled():
         assert "Paid Member" in names and "Failed Member" not in names   # collected, failed excluded
         assert "collected + scheduled" in d["label"]
         sched = [r for r in d["rows"] if r.get("tone") == "projected"]
+        # This one cannot be pinned the way test_build_forum_includes_pif_renewal now is:
+        # metric_detail reads dt.date.today() directly and takes no `today=`, and the drawer only
+        # labels a month "collected + scheduled" when it IS the real current month. So the branch
+        # stays — but be clear about what it costs: the else-branch is `not any(...)` over a list
+        # that is necessarily empty on the last day of the month, so it cannot fail. It shows the
+        # behaviour isn't wrong; it can't show the scheduled half still works. One day in thirty
+        # this test is weaker than it looks, and only a clock seam on metric_detail fixes that.
         if sched_day > today.day:
             assert any(r["name"] == "PIF Member" and r["r1"] == "$30,000" for r in sched)
         else:

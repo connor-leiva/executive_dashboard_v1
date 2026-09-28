@@ -113,24 +113,54 @@ async def test_config_requires_admin_auth():
         assert bad.status_code == 400
 
 
+def _anchored_periods():
+    """Two contiguous 13-week periods planted around TODAY: the current one starts six weeks back,
+    mid-window, and the prior one covers the rest of the 13-week board. Returns the prior period's
+    last day (the boundary the board straddles) plus the two payload-ready date pairs.
+
+    Pinned to absolute dates (2026-04-13 / 07-27 / 10-30) these rotted twice over, quietly and then
+    loudly, because the scorecard reads the LIVE clock — build_scorecard takes a `today=`, but the
+    HTTP route asks the server for the date, so a test going through HTTP cannot inject one:
+
+      * 2026-10-26, silently: the trailing 13-week window cleared the old Q2 boundary, every shown
+        week fell inside Q3, and the "history isn't recolored" loop stopped reaching its `default`
+        branch — still green, no longer testing the thing its test is named after.
+      * 2026-10-31, loudly: today left Q3 as well, `quarter_of` warned and fell back to the
+        CALENDAR quarter, so `cur_key` became 2026Q4 and NO per-period override resolved at all.
+
+    Anchored, both sides of the boundary are on the board and today is inside the current period on
+    any date this is ever run. Monday-aligned (start Mon, end Sun) to match the L10 cadence, and
+    13 weeks so `round((end - start).days / 7)` gives a whole quarter.
+    """
+    monday = dt.date.today() - dt.timedelta(days=dt.date.today().weekday())
+    boundary = monday - dt.timedelta(weeks=6)
+    prior_end = boundary - dt.timedelta(days=1)
+    return prior_end, {
+        "prior": {"start": (boundary - dt.timedelta(weeks=13)).isoformat(), "end": prior_end.isoformat()},
+        "current": {"start": boundary.isoformat(),
+                    "end": (boundary + dt.timedelta(weeks=13) - dt.timedelta(days=1)).isoformat()}}
+
+
 async def test_per_period_goals_override_and_history():
     tok = await _owner()
+    # ANCHORED TO TODAY, not to July 2026 — see _anchored_periods for what rotted. The period KEYS
+    # are unique to this test so its goal rows can never be confused with another test's: goals are
+    # stored per (metric, period_key) and several tests here share one seeded tenant.
+    prior_end, per = _anchored_periods()
     async with _client() as c:
-        # known periods: seeded weeks end 7/27 (Q2); today (Aug 2026) is in Q3
         await c.put("/api/v1/ulrg/periods", headers=_H(tok), json={"periods": [
-            {"key": "2026Q2", "start": "2026-04-13", "end": "2026-07-27"},
-            {"key": "2026Q3", "start": "2026-07-28", "end": "2026-10-30"}]})
+            {"key": "HIST", **per["prior"]}, {"key": "LIVE", **per["current"]}]})
 
-        g0 = (await c.get("/api/v1/ulrg/goals?period=2026Q3", headers=_H(tok))).json()["goals"]
+        g0 = (await c.get("/api/v1/ulrg/goals?period=LIVE", headers=_H(tok))).json()["goals"]
         appt = next(x for x in g0 if x["name"] == "Appointments Met" and x["group"] == "Davis")
         assert appt["goal"] == appt["default"] and appt["overridden"] is False   # no override yet
         default = appt["default"]
 
-        # override the CURRENT period (Q3) goal
+        # override the CURRENT period's goal
         r = await c.put("/api/v1/ulrg/goals", headers=_H(tok),
-                        json={"period": "2026Q3", "goals": [{"metric_id": appt["metric_id"], "goal": default + 10}]})
+                        json={"period": "LIVE", "goals": [{"metric_id": appt["metric_id"], "goal": default + 10}]})
         assert r.status_code == 200
-        again = next(x for x in (await c.get("/api/v1/ulrg/goals?period=2026Q3", headers=_H(tok))).json()["goals"]
+        again = next(x for x in (await c.get("/api/v1/ulrg/goals?period=LIVE", headers=_H(tok))).json()["goals"]
                      if x["metric_id"] == appt["metric_id"])
         assert again["goal"] == default + 10 and again["overridden"] is True
 
@@ -138,31 +168,40 @@ async def test_per_period_goals_override_and_history():
         row = next(rr for gg in d["groups"] if gg["key"] == "davis"
                    for rr in gg["rows"] if rr["measurable"] == "Appointments Met")
         assert row["goal"] == default + 10                                   # current-period goal
-        # history isn't recolored: each shown week keeps ITS OWN period's goal. The board now shows
-        # through the current week, so Q2 weeks (<= 7/27) stay at the default while the current Q3
-        # weeks carry the new override.
-        q2_end = dt.date(2026, 7, 27)
+        # history isn't recolored: each shown week keeps ITS OWN period's goal. The board shows
+        # through the current week, so weeks inside HIST stay at the default while the LIVE weeks
+        # carry the new override.
         assert row["week_goals"] and len(row["week_goals"]) == len(row["values"])
-        for wg, w in zip(row["week_goals"], d["weeks"]):
-            assert wg == (default if dt.date.fromisoformat(w["start"]) <= q2_end else default + 10)
+        shown = [dt.date.fromisoformat(w["start"]) for w in d["weeks"]]
+        # BOTH branches of the loop have to be reached, or it proves only the current period's half.
+        # This is the check the pinned version lacked: once the window advanced past 7/27 the prior
+        # period's count was 0 and the loop went on passing while asserting one thing, thirteen times.
+        assert sum(1 for w in shown if w <= prior_end) == 6
+        assert sum(1 for w in shown if w > prior_end) == 7
+        for wg, w in zip(row["week_goals"], shown):
+            assert wg == (default if w <= prior_end else default + 10)
 
-        # now override Q2 too → those weeks' goals move, current (Q3) unaffected
+        # now override the prior period too → those weeks' goals move, the current one is unaffected
         await c.put("/api/v1/ulrg/goals", headers=_H(tok),
-                    json={"period": "2026Q2", "goals": [{"metric_id": appt["metric_id"], "goal": default - 5}]})
+                    json={"period": "HIST", "goals": [{"metric_id": appt["metric_id"], "goal": default - 5}]})
         d2 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json()
         row2 = next(rr for gg in d2["groups"] if gg["key"] == "davis"
                     for rr in gg["rows"] if rr["measurable"] == "Appointments Met")
-        for wg, w in zip(row2["week_goals"], d2["weeks"]):                    # each week uses ITS period's goal
-            assert wg == (default - 5 if dt.date.fromisoformat(w["start"]) <= q2_end else default + 10)
-        assert row2["goal"] == default + 10                                  # current (Q3) still its own
+        assert [w["start"] for w in d2["weeks"]] == [w.isoformat() for w in shown]   # same board
+        for wg, w in zip(row2["week_goals"], shown):                          # each week uses ITS period's goal
+            assert wg == (default - 5 if w <= prior_end else default + 10)
+        assert row2["goal"] == default + 10                                  # current still its own
 
 
-async def _homes_weeks(week_values: dict) -> None:
-    """Plant Davis "Total Homes Sold" values at the given week starts, for the shared springb
-    tenant. Idempotent: a week already carrying a value is updated, not duplicated.
+async def _plant_weeks(measurable: str, week_values: dict) -> None:
+    """Plant values for the Davis measurable whose name starts with `measurable`, at the given week
+    starts, for the shared springb tenant. Idempotent: a week already carrying a value is updated,
+    not duplicated.
 
-    Only this group/measurable — `test_rename_measurable` deliberately works on `slc` so that
-    Davis lookups elsewhere stay stable, and the other tests in this file use "Appointments Met".
+    Davis only — `test_rename_measurable` deliberately works on `slc` so that Davis lookups
+    elsewhere stay stable. Plant on MONDAYS INSIDE the trailing window: build_scorecard's week
+    columns are the union of every stored week with that window, so a week off-Monday or in the
+    future would shift the columns out from under the other tests sharing this tenant.
     """
     async with SessionLocal() as s:
         t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
@@ -170,7 +209,7 @@ async def _homes_weeks(week_values: dict) -> None:
             ScorecardGroup.tenant_id == t.id, ScorecardGroup.key == "davis"))).scalars().first()
         m = (await s.execute(select(ScorecardMetric).where(
             ScorecardMetric.tenant_id == t.id, ScorecardMetric.group_id == g.id,
-            ScorecardMetric.name.startswith("Total Homes Sold")))).scalars().first()
+            ScorecardMetric.name.startswith(measurable)))).scalars().first()
         existing = {v.week_start: v for v in (await s.execute(select(ScorecardValue).where(
             ScorecardValue.tenant_id == t.id, ScorecardValue.metric_id == m.id))).scalars()}
         for ws, val in week_values.items():
@@ -181,6 +220,16 @@ async def _homes_weeks(week_values: dict) -> None:
             else:
                 row.value = Decimal(val)
         await s.commit()
+
+
+async def _homes_weeks(week_values: dict) -> None:
+    """Davis "Total Homes Sold" — see _plant_weeks."""
+    await _plant_weeks("Total Homes Sold", week_values)
+
+
+async def _appt_weeks(week_values: dict) -> None:
+    """Davis "Appointments Met" — see _plant_weeks."""
+    await _plant_weeks("Appointments Met", week_values)
 
 
 async def test_cumulative_goal_is_period_scoped_thermometer():
@@ -314,20 +363,43 @@ async def test_current_period_goal_zero_does_not_crash():
     """A goal of 0 is a valid track-only state (e.g. Mastermind RSVPs). Setting the CURRENT period's
     goal to 0 on a metric with a full history must not 500 the whole scorecard (trend_4v4 regression)."""
     tok = await _owner()
+    # ANCHORED TO TODAY — same rot as the history test, see _anchored_periods: pinned to
+    # 2026-07-28/10-30 this asked for an override on a period that stops containing today, the
+    # scorecard fell back to the calendar quarter, and `row["goal"] == 0` never saw the 0.
+    _, per = _anchored_periods()
+    # "a metric with a full history" is the PREMISE of this test, and the seeded weeks (ending 7/27)
+    # were sliding out of the trailing 13. That matters because `cumulative` is also None when the
+    # counted window holds no values at all: from 2026-10-26 the two `is None` assertions below
+    # would have passed against an empty window, proving nothing about a goal of 0. So the history
+    # is planted under today, on closed weeks inside the window, and the before-state is asserted.
+    monday = dt.date.today() - dt.timedelta(days=dt.date.today().weekday())
+    await _appt_weeks({monday - dt.timedelta(weeks=w): 30 + w for w in range(1, 10)})
+
+    def _appt(payload):
+        return next(rr for gg in payload["groups"] if gg["key"] == "davis"
+                    for rr in gg["rows"] if rr["measurable"] == "Appointments Met")
+
     async with _client() as c:
         await c.put("/api/v1/ulrg/periods", headers=_H(tok), json={"periods": [
-            {"key": "2026Q2", "start": "2026-04-13", "end": "2026-07-27"},
-            {"key": "2026Q3", "start": "2026-07-28", "end": "2026-10-30"}]})
-        g = (await c.get("/api/v1/ulrg/goals?period=2026Q3", headers=_H(tok))).json()["goals"]
+            {"key": "GZ_HIST", **per["prior"]}, {"key": "GZ_LIVE", **per["current"]}]})
+        g = (await c.get("/api/v1/ulrg/goals?period=GZ_LIVE", headers=_H(tok))).json()["goals"]
         appt = next(x for x in g if x["name"] == "Appointments Met" and x["group"] == "Davis")
+
+        # the BEFORE state: on its own goal this row HAS a trend and a cumulative block. Asserting
+        # that is what keeps the two `is None` checks below honest — they fail loudly if the data
+        # ever leaves the counted window, instead of going quietly true.
+        before = _appt((await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json())
+        assert before["goal"] == appt["default"] and appt["default"] > 0
+        assert before["trend_4v4"] is not None and before["cumulative"]["w13"] is not None
+
         r = await c.put("/api/v1/ulrg/goals", headers=_H(tok),
-                        json={"period": "2026Q3", "goals": [{"metric_id": appt["metric_id"], "goal": 0}]})
+                        json={"period": "GZ_LIVE", "goals": [{"metric_id": appt["metric_id"], "goal": 0}]})
         assert r.status_code == 200
 
         sc = await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))
         assert sc.status_code == 200                                          # was 500 before the fix
-        row = next(rr for gg in sc.json()["groups"] if gg["key"] == "davis"
-                   for rr in gg["rows"] if rr["measurable"] == "Appointments Met")
+        row = _appt(sc.json())
         assert row["goal"] == 0
+        assert row["values"] == before["values"] and any(v is not None for v in row["values"])
         assert row["trend_4v4"] is None                                       # no scoreable goal → no trend
         assert (row["cumulative"] or {}).get("w13") is None                   # goal 0 → not a cumulative row

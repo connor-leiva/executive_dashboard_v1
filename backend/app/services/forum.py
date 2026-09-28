@@ -34,8 +34,13 @@ def _mon3(s: str) -> str:
     return (s or "")[:3].lower()
 
 
-async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
-    start, end = _period_range(period)
+async def build_forum(s: AsyncSession, tenant_id, period: str,
+                      today: dt.date | None = None) -> dict:
+    """`today` is injectable for the same reason _period_range's is: everything this returns is
+    measured against a clock, and without a seam a test can only pin its fixtures, never the
+    thing they are compared to. Defaults to the real date, so callers are unchanged."""
+    today = today or dt.date.today()
+    start, end = _period_range(period, today)
     # The membership business, by kind — these program views are all segments of ONE
     # membership entity's GHL location, whatever that entity happens to be called.
     biz = await roles.membership(s, tenant_id)
@@ -135,7 +140,6 @@ async def build_forum(s: AsyncSession, tenant_id, period: str) -> dict:
     from .billing import project_renewals
     active_sub_emails = {(x.email or "").lower() for x in subs_all if x.status == "active" and x.email}
     renewal_members = [m for m in member_recs if (m.email or "").lower() not in active_sub_emails]
-    today = dt.date.today()
     extra = project_renewals(renewal_members, today, dt.date(today.year, 12, 31))
     billing = compute_billing(payments, subs_all, arr, start, end, today, extra_projected=extra)
 

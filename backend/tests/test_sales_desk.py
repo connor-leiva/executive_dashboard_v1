@@ -223,10 +223,30 @@ async def test_missing_booking_id_still_counts_with_warning():
         assert len(rows) == 1 and rows[0].booking_id is None and rows[0].outcome == "Showed"
 
 
+def _utc(iso: str) -> dt.datetime:
+    """A payload timestamp as aware UTC. SQLite gives the service naive datetimes back, so the
+    ISO string it renders carries no offset (Postgres does) — same reasoning as sales_desk._aw."""
+    d = dt.datetime.fromisoformat(iso)
+    return d if d.tzinfo else d.replace(tzinfo=U)
+
+
 async def _seed_desk_scenario():
-    """A@x: 1 show + 1 no-show + 1 won (PIF); Z@x: 1 upcoming (unmapped); Unassigned: 1 unscheduled.
-    Plus a deciding opp with no logged call."""
+    """A@x: 1 show (just wrapped, so still on the board) + 1 no-show (26h ago) + 1 won (PIF);
+    Z@x: 1 upcoming (unmapped); Unassigned: 1 unscheduled. Plus a deciding opp with no logged
+    call. Returns (tenant_id, launch_id, NOW).
+
+    The call times hang off the clock at seed time, not an August week, because the Desk reads
+    the LIVE clock in two places: the call board starts at `now - 60min` (no upper bound), and a
+    call with no outcome is "upcoming" or "pending" by which side of `now` it sits. Pinned at
+    2026-08-18/21, every call fell behind the board window on 2026-08-18 11:00 UTC and `calls`
+    came back empty for good — which is how the share-link leak check below sat green and
+    vacuous for six weeks. A time-of-day anchor (noon Denver, as in test_fub_follow_ups) will
+    not do here: the look-back is only an hour wide, so at most hours of the day it would miss.
+
+    NOW is returned so the tests that inject a clock pin it to this same anchor and keep
+    asserting the same relationships; the HTTP tests get the real clock, seconds away from it."""
     tid, lid = await _fresh_launch()
+    NOW = dt.datetime.now(U).replace(microsecond=0)
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
         await s.execute(delete(SalesRep))
@@ -236,12 +256,12 @@ async def _seed_desk_scenario():
             return SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=opp, booking_id=bk,
                              rep_email=rep, outcome=outcome, call_time_utc=ct, payment_type=pay,
                              contact_name=opp, is_current=True,
-                             outcome_at=(dt.datetime(2026, 8, 19, tzinfo=U) if outcome else None))
+                             outcome_at=((ct or NOW) + dt.timedelta(minutes=20) if outcome else None))
         s.add_all([
-            SC("o1", "b1", "a@x.com", "Showed", dt.datetime(2026, 8, 18, 10, tzinfo=U), "PIF"),
-            SC("o2", "b2", "a@x.com", "No Show", dt.datetime(2026, 8, 17, 10, tzinfo=U)),
-            SC("o3", "b3", "z@x.com", None, dt.datetime(2026, 8, 21, 10, tzinfo=U)),   # unmapped rep, upcoming
-            SC("o4", None, None, None, None),                                          # Unassigned, unscheduled
+            SC("o1", "b1", "a@x.com", "Showed", NOW - dt.timedelta(minutes=30), "PIF"),  # inside the look-back
+            SC("o2", "b2", "a@x.com", "No Show", NOW - dt.timedelta(hours=26)),          # past it
+            SC("o3", "b3", "z@x.com", None, NOW + dt.timedelta(hours=3)),   # unmapped rep, upcoming
+            SC("o4", None, None, None, None),                               # Unassigned, unscheduled
         ])
         for opp, grp, stage in (("o1", "enrolled", "Won: Onboarded"),
                                 ("o5", "deciding", "Appointment Complete - Likely Yes")):
@@ -249,7 +269,7 @@ async def _seed_desk_scenario():
                                external_id=opp, name=opp, status="open",
                                meta={"launch_id": str(lid), "group": grp, "stage": stage}))
         await s.commit()
-    return tid, lid
+    return tid, lid, NOW
 
 
 async def test_backfill_reparses_stored_call_times_that_never_resolved():
@@ -320,8 +340,7 @@ async def test_apply_sales_diff_isolates_a_bad_record():
 
 
 async def test_compute_math_and_payload_shape():
-    tid, lid = await _seed_desk_scenario()
-    NOW = dt.datetime(2026, 8, 20, 12, tzinfo=U)
+    tid, lid, NOW = await _seed_desk_scenario()          # the clock the fixtures were built from
     async with SessionLocal() as s:
         L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
         d = await sd.compute_sales_desk(s, tid, L, now=NOW)
@@ -343,8 +362,11 @@ async def test_compute_math_and_payload_shape():
     assert d["priced_arr"] == 12000 and d["upfront_total"] == 12000
 
     assert any(c["unscheduled"] for c in d["calls"])                    # o4 lands under unscheduled
-    assert any(c["call_time_utc"] and "2026-08-21" in c["call_time_utc"] for c in d["calls"])
+    board = [c for c in d["calls"] if not c["unscheduled"]]
+    assert [c["contact_name"] for c in board] == ["O1", "O3"]           # by call time; o2 is past the look-back
+    assert _utc(board[-1]["call_time_utc"]) > NOW                       # the board has no upper bound (§8)
     assert len(d["no_shows"]) == 1 and d["no_shows"][0]["rebooked"] is False
+    assert d["no_shows"][0]["days_since"] == 1                          # 26h ago, chased as yesterday's
 
     labels = [w["label"] for w in d["warnings"]]
     assert "bookings with no rep" in labels and "rep not in the roster" in labels
@@ -477,8 +499,7 @@ async def test_cash_spans_committed_and_enrolled():
 
 async def test_drill_sales_desk_metrics():
     """§8 drills — records for call/opp metrics (rep-scopable), calc for derived figures."""
-    tid, lid = await _seed_desk_scenario()
-    NOW = dt.datetime(2026, 8, 20, 12, tzinfo=U)
+    tid, lid, NOW = await _seed_desk_scenario()
     async with SessionLocal() as s:
         L = (await s.execute(select(Launch).where(Launch.id == lid))).scalar_one()
         booked = await sd.drill_sales_desk(s, tid, L, "kpi.booked", now=NOW)
@@ -553,7 +574,7 @@ async def test_rep_share_link_scopes_and_revokes():
     calls; member can't mint; revoke kills the URL (404)."""
     from httpx import AsyncClient, ASGITransport
     from app.main import app
-    tid, lid = await _seed_desk_scenario()
+    await _seed_desk_scenario()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
         tok = (await c.post("/api/v1/auth/login",
                             json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})).json()["token"]
@@ -564,11 +585,23 @@ async def test_rep_share_link_scopes_and_revokes():
         url = r.json()["url"]
         share_token = url.rstrip("/").split("/")[-1]
 
+        # The same board seen WITHOUT the token carries another rep's call, so the scope check
+        # below is a filter doing work rather than a coincidence of who happens to be booked.
+        full = await c.get("/api/v1/businesses/springb/launches/active/sales-desk", headers=H)
+        assert full.status_code == 200, full.text
+        assert "z@x.com" in [x.get("rep_email") for x in full.json()["calls"]]
+
         pub = await c.get(f"/api/v1/share/{share_token}/desk")         # no auth header
         assert pub.status_code == 200
         j = pub.json()
         assert j["display_name"] == "Rep A" and j["rep"]["booked"] == 2
+        # `all()` over an empty list is True, so the scope check needs the board to be POPULATED
+        # or it proves nothing about leaking. It proved nothing from 2026-08-18 — when the pinned
+        # fixtures fell behind the live 60-minute board window — until they were anchored to the
+        # clock: an empty j["calls"] passed as "only this rep's calls" for six weeks.
+        assert j["calls"], "empty board — the scope assertion below would pass on any data"
         assert all((x.get("rep_email") or "").lower() == "a@x.com" for x in j["calls"])
+        assert {x["contact_name"] for x in j["calls"]} == {"O1"}       # z@x.com's, same window, is not here
         assert "reps" not in j and "payment_mix" not in j              # nobody else's numbers, no money
 
         listing = await c.get("/api/v1/businesses/springb/sales-desk/reps/share", headers=H)

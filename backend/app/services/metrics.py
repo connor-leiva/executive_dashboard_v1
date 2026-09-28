@@ -89,10 +89,16 @@ def _month_end(d: dt.date) -> dt.date:
     return dt.date(d.year, d.month, calendar.monthrange(d.year, d.month)[1])
 
 
-def _period_range(period: str):
+def _period_range(period: str, today: dt.date | None = None):
     """(start, end) of the window a period covers. `end` is 'today' for to-date windows so
-    the Sisu 'so far' queries stay honest; whole/forward windows carry their calendar end."""
-    today = dt.date.today()
+    the Sisu 'so far' queries stay honest; whole/forward windows carry their calendar end.
+
+    `today` is injectable so callers under test can pin the clock. It defaults to the real one,
+    so every existing caller is unchanged — but a test that pins its fixtures to absolute dates
+    now has a way to pin the clock they are read against, instead of quietly rotting once the
+    wall clock drifts past them.
+    """
+    today = today or dt.date.today()
     custom = parse_custom(period)
     if custom:
         return custom

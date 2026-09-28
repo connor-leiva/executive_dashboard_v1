@@ -2,6 +2,8 @@
 (net cash, MRR excludes installments, streams reconcile), and the lineage drills.
 Live-shaped seed: 35 succeeded $141,993 − $10,250 refunded = net $131,743, 2 failed
 $20,000; 12 perpetual subs = $21,800 MRR + 1 "3 pay" installment $8,800."""
+import datetime as dt
+
 import pytest
 from sqlalchemy import select
 
@@ -42,11 +44,25 @@ def test_installment_classifier():
 
 
 # ── billing block (via the live-shaped seed) ────────────────────────
-async def _billing():
+# The seed writes its payment fixtures against TWO clocks, and that split is the whole
+# reason the date assertions below are arranged the way they are. The 35 succeeded charges
+# (Apr–Jul) and the 2 refunds are pinned to absolute 2026 dates; only the 2 failed charges
+# are dated relative to the run (`_failed_on = dt.date.today().replace(day=1)`), so the
+# month-to-date recovery flag stays reachable whenever the seed runs.
+#
+# Cash & Billing is strictly the clock's calendar year, so the pinned rows are only visible
+# to a 2026 clock. 07-14 is that clock: the date the pure tests in this file already use, and
+# it sits after the last seeded charge (07-06) so the whole seeded span is behind it.
+SEEDED_YEAR_DAY = dt.date(2026, 7, 14)
+
+
+async def _billing(today: dt.date | None = None):
+    """`today` is the clock the block is measured against; it defaults to the real one because
+    most of this file's assertions ride fixtures the seed also anchors to the live clock."""
     from app.services.forum import build_forum
     async with SessionLocal() as s:
         t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
-        f = await build_forum(s, t.id, "ytd")     # span covers Apr–Jul
+        f = await build_forum(s, t.id, "ytd", today=today)     # span covers Apr–Jul
     return f
 
 
@@ -92,17 +108,30 @@ async def test_operational_payload_invariants():
 
 
 async def test_cash_math_and_invariants():
-    f = await _billing()
-    b = f["billing"]
+    # The headline figures are read against a PINNED 2026 clock. compute_billing keeps only the
+    # charges whose year matches the clock it is handed, and the charges behind these numbers are
+    # pinned to 2026 in the seed — so under the live clock this was right until 2026-12-31 and
+    # $0 from 2027-01-01, with gross, refunded and net_cash all collapsing together. That is the
+    # nasty part: 0 − 0 == 0 and Σstreams == 0, so both reconciliation invariants below would
+    # have gone on passing over no charges at all.
+    b = (await _billing(today=SEEDED_YEAR_DAY))["billing"]
     assert b["available"] is True
     assert b["gross"] == 141993 and b["refunded"] == 10250 and b["net_cash"] == 131743
-    assert b["failed_count"] == 2 and b["failed_amount"] == 20000    # month-to-date failures
-    assert b["past_due"] == 1 and b["past_due_amount"] == 1800        # separate standing flag
     # net = gross − refunded; failed excluded
     assert round(b["gross"] - b["refunded"], 2) == b["net_cash"]
     # streams reconcile to net cash (the invariant)
     assert round(sum(s["amount"] for s in b["streams"]), 2) == b["net_cash"]
+    # `<=` over an EMPTY set is True, so the classified set has to be shown to exist before the
+    # scoping check means anything — otherwise the check goes quiet instead of going red.
+    assert len(b["streams"]) >= 1
     assert {s["key"] for s in b["streams"]} <= {"memberships", "event_tickets", "sponsorships", "invoices", "other"}
+
+    # The month-to-date flags keep the LIVE clock, because the failed charges behind them are
+    # dated to the run as well: both sides move together, so this pair cannot rot — and pinning
+    # it to 2026 is what would break it, the moment the seed stopped running in 2026.
+    live = (await _billing())["billing"]
+    assert live["failed_count"] == 2 and live["failed_amount"] == 20000   # month-to-date failures
+    assert live["past_due"] == 1 and live["past_due_amount"] == 1800      # separate standing flag
 
 
 async def test_mrr_excludes_installment_and_is_single_source():
