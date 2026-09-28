@@ -11,8 +11,9 @@
    payment; scattering those conditions through JSX is how one screen ends up enforcing a rule
    another screen forgot, and the forgotten one pays somebody nobody verified. */
 import { useState } from "react";
-import { postJSON, setStepUp, STEP_UP_STATUS, getBlob } from "../api";
-import { usePayables, useVendors, useRuns, useNextRun, useRun, useCoaEntities } from "./useBooks.js";
+import { postJSON, setStepUp, STEP_UP_STATUS, getBlob, uploadFile } from "../api";
+import { usePayables, useVendors, useRuns, useNextRun, useRun, useCoaEntities,
+         useCoaMapping } from "./useBooks.js";
 import { Card, Eyebrow, Pill, StatePanel, Field, font, usd, T } from "./ui.jsx";
 
 const VIEWS = [["inbox", "Inbox"], ["approvals", "Approvals"], ["runs", "Runs"],
@@ -166,12 +167,301 @@ function BillRow({ p, open, toggle, children, right }) {
   );
 }
 
+/* ── entry forms ───────────────────────────────────────────────────────────────────────────
+
+   Phase 1's acceptance was "a vendor can be created, a W-9 uploaded, banking added with a
+   logged callback, and status flips to active on its own". The views rendered all of that and
+   offered no way to DO any of it: the module was readable and unusable, and the first person to
+   open Vendors on a real workspace had a table, four zeroes and no button.
+
+   Deliberately inline panels rather than modals. Books has no modal anywhere, and a dialog
+   system introduced for one form is a second set of focus, escape and scroll rules to keep
+   right. */
+
+const input = {
+  width: "100%", boxSizing: "border-box",          // no global border-box reset in this app
+  fontFamily: font.body, fontSize: 12.5, padding: "7px 9px", color: T.ink,
+  background: T.white, border: `1px solid ${T.line}`, borderRadius: 8,
+};
+
+function FieldRow({ label, hint, children, span }) {
+  return (
+    <label style={{ display: "grid", gap: 4, minWidth: 0, gridColumn: span ? "1 / -1" : "auto" }}>
+      <span style={{ fontFamily: font.head, fontSize: 10.5, fontWeight: 700,
+        letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted }}>{label}</span>
+      {children}
+      {hint && <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>{hint}</span>}
+    </label>
+  );
+}
+
+const Grid = ({ children }) => (
+  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))",
+                gap: 12, marginBottom: 12 }}>{children}</div>
+);
+
+function FormPanel({ title, blurb, onCancel, onSave, saving, saveLabel, disabled, err, children }) {
+  return (
+    <Card style={{ padding: "16px 18px", marginBottom: 14 }}>
+      <Eyebrow>{title}</Eyebrow>
+      {blurb && (
+        <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, margin: "6px 0 12px",
+                      lineHeight: 1.6, maxWidth: 620 }}>{blurb}</div>
+      )}
+      {children}
+      {err && (
+        <div style={{ fontFamily: font.body, fontSize: 12, color: T.poppyText, marginBottom: 10 }}>
+          {err}</div>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button disabled={saving || disabled} style={btn(saving || disabled ? "disabled" : "primary")}
+          onClick={onSave}>{saving ? "Saving…" : (saveLabel || "Save")}</button>
+        <button disabled={saving} style={btn()} onClick={onCancel}>Cancel</button>
+      </div>
+    </Card>
+  );
+}
+
+/* A vendor is created in a state that cannot be paid. That is the point: `status` is derived
+   from the W-9 and a verified bank record, never typed, so this form deliberately has no
+   status field to set. */
+function NewVendorForm({ onDone, onCancel }) {
+  const [f, setF] = useState({ legal_name: "", display_name: "", dba: "",
+    vendor_type: "business", terms_days: 30, tin_last4: "", is_1099: false, notes: "" });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+
+  const save = async () => {
+    setSaving(true); setErr(null);
+    try {
+      const body = { ...f, terms_days: Number(f.terms_days) || 30 };
+      for (const k of ["display_name", "dba", "tin_last4", "notes"]) if (!body[k]) body[k] = null;
+      const v = await postJSON(`/payables/vendors`, body);
+      onDone(v);
+    } catch (e) { setErr(e?.detail || e?.message || "That vendor could not be created."); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <FormPanel title="New vendor" onCancel={onCancel} onSave={save} saving={saving}
+      saveLabel="Create vendor" disabled={!f.legal_name.trim()} err={err}
+      blurb="Legal name is what appears on the payment file, so it has to match the W-9 rather
+             than what you call them. Everything else can be filled in later — the vendor cannot
+             be paid until a W-9 and verified banking are on file either way.">
+      <Grid>
+        <FieldRow label="Legal name">
+          <input style={input} value={f.legal_name} onChange={set("legal_name")}
+            placeholder="Acme Landscaping LLC" /></FieldRow>
+        <FieldRow label="Display name" hint="Optional — what you call them">
+          <input style={input} value={f.display_name} onChange={set("display_name")} /></FieldRow>
+        <FieldRow label="DBA"><input style={input} value={f.dba} onChange={set("dba")} /></FieldRow>
+        <FieldRow label="Type">
+          <select style={input} value={f.vendor_type} onChange={set("vendor_type")}>
+            <option value="business">Business</option>
+            <option value="individual">Individual</option>
+          </select></FieldRow>
+        <FieldRow label="Terms (days)" hint="Drives the due date on every bill">
+          <input style={input} type="number" min="0" value={f.terms_days}
+            onChange={set("terms_days")} /></FieldRow>
+        {/* Last four only. Full TINs are never stored here — the W-9 itself is the record. */}
+        <FieldRow label="TIN last 4" hint="Last four only; the full number is never stored">
+          <input style={input} maxLength={4} value={f.tin_last4} onChange={set("tin_last4")} /></FieldRow>
+        <FieldRow label="1099">
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: font.body,
+                          fontSize: 12.5, color: T.ink, padding: "7px 0" }}>
+            <input type="checkbox" checked={f.is_1099} onChange={set("is_1099")} />
+            Issue a 1099 to this vendor
+          </label></FieldRow>
+        <FieldRow label="Notes" span>
+          <input style={input} value={f.notes} onChange={set("notes")} /></FieldRow>
+      </Grid>
+    </FormPanel>
+  );
+}
+
+/* W-9 and banking for one vendor. Both are what turn `pending_verification` into `active`, so
+   they live together on the row rather than behind separate screens. */
+function VendorSetup({ v, onDone }) {
+  const [bank, setBank] = useState({ routing_last4: "", account_last4: "", verified: true,
+    verification_method: "callback", verification_note: "" });
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState(null);
+  const set = (k) => (e) => setBank({ ...bank, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+
+  const upload = async (file) => {
+    if (!file) return;
+    setBusy("w9"); setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await uploadFile(`/payables/vendors/${v.id}/documents`, fd);
+      onDone();
+    } catch (e) { setErr(e?.detail || e?.message || "That file could not be attached."); }
+    finally { setBusy(null); }
+  };
+
+  const saveBank = async () => {
+    setBusy("bank"); setErr(null);
+    try {
+      await postJSON(`/payables/vendors/${v.id}/bank`, {
+        ...bank, verification_note: bank.verification_note || null });
+      onDone();
+    } catch (e) { setErr(e?.detail || e?.message || "That bank record could not be saved."); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <div style={{ padding: "4px 16px 18px", display: "grid", gap: 16 }}>
+      <div>
+        <Eyebrow>W-9</Eyebrow>
+        <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, margin: "5px 0 8px" }}>
+          {v.w9 ? "On file." : "Required before a first payment. Stored with the Binder's documents."}
+        </div>
+        {!v.w9 && (
+          <input type="file" disabled={busy === "w9"} onChange={(e) => upload(e.target.files?.[0])}
+            style={{ fontFamily: font.body, fontSize: 12, color: T.secondary }} />
+        )}
+      </div>
+
+      <div>
+        <Eyebrow>Banking</Eyebrow>
+        {/* The control is the CALLBACK, not the digits. Adding a record never overwrites the
+            previous one — the old row is superseded, so where money used to go stays readable —
+            and a brand-new record holds payment for the cooldown window on purpose. */}
+        <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, margin: "5px 0 10px",
+                      lineHeight: 1.6, maxWidth: 620 }}>
+          {v.bank?.verified_at
+            ? `Verified ${v.bank.verified_by_name ? `by ${v.bank.verified_by_name} ` : ""}on ${fmtDate(v.bank.verified_at)}. Adding a new record supersedes it rather than overwriting it, and holds payment for the cooldown window.`
+            : "Call the vendor back on a number you already had — never one from the invoice — and record it here. The callback is the control; the last four digits are not."}
+        </div>
+        <Grid>
+          <FieldRow label="Routing last 4">
+            <input style={input} maxLength={4} value={bank.routing_last4}
+              onChange={set("routing_last4")} /></FieldRow>
+          <FieldRow label="Account last 4">
+            <input style={input} maxLength={4} value={bank.account_last4}
+              onChange={set("account_last4")} /></FieldRow>
+          <FieldRow label="How it was verified">
+            <select style={input} value={bank.verification_method} onChange={set("verification_method")}>
+              <option value="callback">Callback to a known number</option>
+              <option value="in_person">In person</option>
+              <option value="portal">Vendor portal</option>
+            </select></FieldRow>
+          <FieldRow label="Verified">
+            <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: font.body,
+                            fontSize: 12.5, color: T.ink, padding: "7px 0" }}>
+              <input type="checkbox" checked={bank.verified} onChange={set("verified")} />
+              I confirmed these details with the vendor
+            </label></FieldRow>
+          <FieldRow label="Note" span hint="Who you spoke to, and on what number">
+            <input style={input} value={bank.verification_note}
+              onChange={set("verification_note")} /></FieldRow>
+        </Grid>
+        {err && <div style={{ fontFamily: font.body, fontSize: 12, color: T.poppyText,
+                              marginBottom: 10 }}>{err}</div>}
+        <button disabled={!!busy || !bank.routing_last4 || !bank.account_last4}
+          style={btn(busy || !bank.routing_last4 || !bank.account_last4 ? "disabled" : "primary")}
+          onClick={saveBank}>
+          {busy === "bank" ? "Saving…" : v.bank ? "Replace banking" : "Add banking"}</button>
+      </div>
+    </div>
+  );
+}
+
+/* A bill needs a vendor, an amount, an invoice number and an account before anybody can be
+   asked to approve it — `coded` is the state that submit requires, and the account is what
+   reaches it. Entity first, because it decides which chart of accounts applies. */
+function NewBillForm({ vendors, onDone, onCancel }) {
+  const entities = useCoaEntities();
+  const list = entities.data?.entities || [];
+  const [f, setF] = useState({ vendor_id: "", invoice_number: "", amount: "",
+    invoice_date: "", due_date: "", description: "", business_id: "", standard_account_id: "" });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  const mapping = useCoaMapping(f.business_id || null);
+  const accounts = (mapping.data?.standard || []).filter((a) => a.is_active !== false);
+
+  const save = async () => {
+    setSaving(true); setErr(null);
+    try {
+      await postJSON(`/payables`, {
+        vendor_id: f.vendor_id,
+        invoice_number: f.invoice_number.trim(),
+        amount: Number(f.amount),
+        invoice_date: f.invoice_date || null,
+        due_date: f.due_date || null,
+        description: f.description || null,
+        business_id: f.business_id || null,
+        standard_account_id: f.standard_account_id || null,
+      });
+      onDone();
+    } catch (e) { setErr(e?.detail || e?.message || "That bill could not be entered."); }
+    finally { setSaving(false); }
+  };
+
+  const ready = f.vendor_id && f.invoice_number.trim() && Number(f.amount) > 0;
+  return (
+    <FormPanel title="New bill" onCancel={onCancel} onSave={save} saving={saving}
+      saveLabel="Enter bill" disabled={!ready} err={err}
+      blurb="Leave the due date blank to take it from the vendor's terms — an override is a
+             deliberate decision about cash, and is recorded as one. A bill needs an account
+             before it can go for approval.">
+      <Grid>
+        <FieldRow label="Vendor">
+          <select style={input} value={f.vendor_id} onChange={set("vendor_id")}>
+            <option value="">Choose a vendor…</option>
+            {vendors.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.display_name}{v.status === "active" ? "" : " (not payable yet)"}</option>
+            ))}
+          </select></FieldRow>
+        <FieldRow label="Invoice number">
+          <input style={input} value={f.invoice_number} onChange={set("invoice_number")} /></FieldRow>
+        <FieldRow label="Amount">
+          <input style={input} type="number" step="0.01" min="0" value={f.amount}
+            onChange={set("amount")} /></FieldRow>
+        <FieldRow label="Invoice date">
+          <input style={input} type="date" value={f.invoice_date}
+            onChange={set("invoice_date")} /></FieldRow>
+        <FieldRow label="Due date" hint="Blank = from the vendor's terms">
+          <input style={input} type="date" value={f.due_date} onChange={set("due_date")} /></FieldRow>
+        <FieldRow label="Entity">
+          <select style={input} value={f.business_id}
+            onChange={(e) => setF({ ...f, business_id: e.target.value, standard_account_id: "" })}>
+            <option value="">Choose an entity…</option>
+            {list.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select></FieldRow>
+        <FieldRow label="Account"
+          hint={!f.business_id ? "Choose an entity first" : mapping.loading ? "Loading the chart…" : null}>
+          <select style={input} value={f.standard_account_id} onChange={set("standard_account_id")}
+            disabled={!f.business_id || mapping.loading}>
+            <option value="">{f.business_id ? "Choose an account…" : "—"}</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>
+            ))}
+          </select></FieldRow>
+        <FieldRow label="Description" span>
+          <input style={input} value={f.description} onChange={set("description")}
+            placeholder="What this covers" /></FieldRow>
+      </Grid>
+    </FormPanel>
+  );
+}
+
 /* ── Inbox: bills that have arrived and not yet gone for approval ─────────────────────── */
 function InboxView() {
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState(null);
+  const [adding, setAdding] = useState(false);
   const { data, loading, error, retry, refresh } = usePayables({});
+  // Every vendor, not just the payable ones: a bill can be ENTERED against a vendor who is not
+  // verified yet — it simply cannot be submitted. Hiding them here would make the gate look
+  // like a missing vendor.
+  const vendorList = useVendors(null).data?.vendors || [];
   const rows = (data?.payables || []).filter((p) => OPEN_STATES.includes(p.status));
   const ready = rows.filter((p) => p.can_submit).length;
 
@@ -195,6 +485,12 @@ function InboxView() {
           <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText }}>{err}</span>
         </Card>
       )}
+      {adding
+        ? <NewBillForm vendors={vendorList} onCancel={() => setAdding(false)}
+            onDone={() => { setAdding(false); refresh(); }} />
+        : <div style={{ marginBottom: 12 }}>
+            <button style={btn("primary")} onClick={() => setAdding(true)}>New bill</button>
+          </div>}
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <Header cols={["Due", "Vendor", "Invoice", "Amount", "Status", ""]} />
         {rows.length === 0 && (
@@ -654,7 +950,9 @@ const VEN_COLS = "minmax(170px,1.7fr) 92px 82px minmax(130px,1fr) 78px 150px";
 
 function VendorsView() {
   const [status, setStatus] = useState(null);
-  const { data, loading, error, retry } = useVendors(status);
+  const [adding, setAdding] = useState(false);
+  const [open, setOpen] = useState(null);
+  const { data, loading, error, retry, refresh } = useVendors(status);
   const rows = data?.vendors || [];
   return (
     <StatePanel loading={loading} error={error} retry={retry}>
@@ -665,7 +963,16 @@ function VendorsView() {
         <StatCard label="Missing W-9" color={T.poppyText} value={rows.filter((r) => !r.w9).length} />
         <StatCard label="1099-eligible" value={rows.filter((r) => r.is_1099).length} />
       </Stats>
-      <div style={{ display: "flex", gap: 5, marginBottom: 12, flexWrap: "wrap" }}>
+      {adding && (
+        <NewVendorForm onCancel={() => setAdding(false)}
+          onDone={(v) => { setAdding(false); refresh(); if (v?.id) setOpen(v.id); }} />
+      )}
+      <div style={{ display: "flex", gap: 5, marginBottom: 12, flexWrap: "wrap",
+                    alignItems: "center" }}>
+        {!adding && (
+          <button style={{ ...btn("primary"), marginRight: 6 }}
+            onClick={() => setAdding(true)}>New vendor</button>
+        )}
         {[[null, "All"], ["active", "Active"], ["pending_verification", "Pending"],
           ["inactive", "Inactive"]].map(([k, l]) => (
           <button key={l} onClick={() => setStatus(k)} style={{ fontFamily: font.body, fontSize: 11.5,
@@ -685,15 +992,19 @@ function VendorsView() {
         </div>
         {rows.length === 0 && (
           <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 12.5, color: T.secondary }}>
-            No vendors yet. A vendor needs a W-9 and verified banking before anything can be paid to it.
+            No vendors yet. Add one above — it needs a W-9 and verified banking before anything
+            can be paid to it.
           </div>
         )}
         {rows.map((v, i) => {
           const [tone, label] = STATUS[v.status] || STATUS.draft;
           return (
-            <div key={v.id} style={{ display: "grid", gridTemplateColumns: VEN_COLS, columnGap: 12,
-              alignItems: "center", padding: "12px 16px",
+            <div key={v.id} style={{
               borderBottom: i < rows.length - 1 ? `1px solid ${T.line}` : "none" }}>
+            <div onClick={() => setOpen(open === v.id ? null : v.id)}
+              className="pay-row"
+              style={{ display: "grid", gridTemplateColumns: VEN_COLS, columnGap: 12,
+              alignItems: "center", padding: "12px 16px", cursor: "pointer" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontFamily: font.body, fontSize: 12.5, fontWeight: 600, color: T.ink,
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -718,13 +1029,16 @@ function VendorsView() {
                 Net {v.terms_days}</span>
               <span><Pill tone={tone}>{label}</Pill></span>
             </div>
+            {open === v.id && <VendorSetup v={v} onDone={refresh} />}
+            </div>
           );
         })}
       </Card>
       <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 12,
                     lineHeight: 1.6, maxWidth: 640 }}>
-        Status is derived, never typed. A vendor becomes Active on its own once a W-9 is on file
-        and banking has been verified by callback — and banking changes add a new record rather
+        Open a vendor to attach its W-9 or record its banking. Status is derived, never typed:
+        a vendor becomes Active on its own once a W-9 is on file and banking has been verified
+        by callback — and banking changes add a new record rather
         than overwriting the old one, so where money used to go stays readable.
       </div>
     </StatePanel>
