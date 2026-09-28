@@ -27,7 +27,24 @@ from tests.fub_fake import fake, person, task, user  # noqa: F401 -- `fake` is a
 
 ASGI = httpx.ASGITransport(app=app)
 DENVER = ZoneInfo("America/Denver")
-NOW = dt.datetime(2026, 9, 18, 18, 0, tzinfo=dt.timezone.utc)      # noon in Denver
+# Noon in Denver TODAY, not a fixed calendar date.
+#
+# These fixtures are read back through two different clocks. `follow_ups.queue` takes `today`
+# and `now` as arguments, so the tests that call it directly are deterministic whatever this
+# says. The HTTP endpoint has no such seam — it asks the server for the time. So a hardcoded
+# NOW is only ever correct for about a week: once the wall clock drifts past the rule windows
+# (a new lead is N days old, a task is due within N days), the fixture rows fall outside every
+# window, the queues come back empty, and the four tests that go through HTTP fail. They were
+# red for exactly that reason, and they were not testing anything for a while before that.
+#
+# Noon is load-bearing, not decoration: the due-time ordering test builds tasks at noon+4h and
+# noon-3h and asserts one is still ahead and the other already past, which is only true when
+# the injected `now` sits between them. It also keeps "today" unambiguous in Denver whatever
+# zone the runner is in, and it is computed THROUGH DENVER so it survives the DST change
+# instead of sliding an hour into the previous day each November.
+NOW = (dt.datetime.now(dt.timezone.utc).astimezone(DENVER)
+       .replace(hour=12, minute=0, second=0, microsecond=0)
+       .astimezone(dt.timezone.utc))
 TODAY = NOW.astimezone(DENVER).date()
 
 
@@ -174,7 +191,11 @@ def _ago(**kw) -> str:
 async def _sync(ws):
     async with SessionLocal() as s:
         integ = await s.get(Integration, ws["integration_id"])
-        await _sync_integration(s, ws["tenant_id"], integ, "2026-09-01", "2026-09-30")
+        # The month TODAY falls in. Hardcoded as 2026-09-01/30 this quietly stopped covering
+        # "now" the moment the month rolled over.
+        start = TODAY.replace(day=1)
+        end = (start + dt.timedelta(days=32)).replace(day=1) - dt.timedelta(days=1)
+        await _sync_integration(s, ws["tenant_id"], integ, start.isoformat(), end.isoformat())
     async with SessionLocal() as s:
         return await s.get(Integration, ws["integration_id"])
 
