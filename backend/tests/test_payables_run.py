@@ -643,3 +643,55 @@ async def test_there_is_no_bank_file_until_the_run_is_released():
     assert name.endswith(".csv")
     assert "Exportable LLC" in csv_text
     assert "Held Vendor LLC" not in csv_text      # it never entered the released batch
+async def test_an_approved_bill_that_is_not_due_yet_is_still_visible_somewhere():
+    """Connor approved a $10,000 bill due in ten days and it vanished: gone from the inbox (not
+    an open state), gone from approvals (already decided), and absent from the run (the window
+    reaches six days). Nothing was broken — the money was simply nowhere on screen, which for
+    a payment somebody has just authorised is its own kind of broken.
+
+    So the proposal carries what is approved and WAITING, and the date of the run that will
+    take it.
+    """
+    tid, actor, biz = await _ctx()
+    await _reset(tid)
+    v = await _vendor(tid, actor, "Not Due Yet LLC", bank_age_hours=100)
+    today = dt.date(2026, 9, 28)
+    await _approved(tid, actor, biz, v, "SOON-1", 400, today + dt.timedelta(days=3))   # this run
+    await _approved(tid, actor, biz, v, "LATER-1", 10000, today + dt.timedelta(days=10))
+    await _approved(tid, actor, biz, v, "LATER-2", 250, today + dt.timedelta(days=20))
+
+    async with SessionLocal() as s:
+        proposed = await run.propose_run(s, tid, biz, run_date=today)
+
+    assert [l["invoice_number"] for l in proposed["lines"]] == ["SOON-1"]
+    waiting = {r["invoice_number"]: r for r in proposed["upcoming"]}
+    assert set(waiting) == {"LATER-1", "LATER-2"}, "an approved bill fell off the screen entirely"
+    assert proposed["upcoming_total"] == 10250
+
+    # Asserted as a PROPERTY rather than a hand-counted date, because counting it by hand is
+    # what got this wrong the first time: the run it names must be the EARLIEST weekly run whose
+    # own six-day window reaches the due date. So that run catches it and the week before does
+    # not — which is the promise the screen is making to whoever reads it.
+    for inv in ("LATER-1", "LATER-2"):
+        named = dt.date.fromisoformat(waiting[inv]["picked_up_on"])
+        due = dt.date.fromisoformat(waiting[inv]["due_date"])
+        assert named > today, f"{inv} was promised a run in the past"
+        assert named + dt.timedelta(days=run.RUN_LOOKAHEAD_DAYS) >= due,             f"{inv}: the run on {named} does not reach a bill due {due}"
+        earlier = named - dt.timedelta(weeks=1)
+        assert earlier + dt.timedelta(days=run.RUN_LOOKAHEAD_DAYS) < due,             f"{inv}: the run a week before {named} would already have caught it"
+    # Every upcoming row carries the same shape the run lines do, so one renderer draws both.
+    assert {"vendor", "amount", "due_date", "status"} <= set(waiting["LATER-1"])
+
+
+async def test_a_bill_with_no_due_date_is_named_rather_than_silently_dropped():
+    tid, actor, biz = await _ctx()
+    await _reset(tid)
+    v = await _vendor(tid, actor, "No Due Date LLC", bank_age_hours=100)
+    pid = await _approved(tid, actor, biz, v, "ND-1", 500, dt.date(2026, 10, 20))
+    async with SessionLocal() as s:                       # strip the due date the terms derived
+        (await s.get(Payable, pid)).due_date = None
+        await s.commit()
+        proposed = await run.propose_run(s, tid, biz, run_date=dt.date(2026, 9, 28))
+    assert [r["invoice_number"] for r in proposed["upcoming"]] == ["ND-1"]
+    # No date to work from, so it says so instead of inventing a run that will never come.
+    assert proposed["upcoming"][0]["picked_up_on"] is None

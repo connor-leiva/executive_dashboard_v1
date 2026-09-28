@@ -902,6 +902,14 @@ function RunsView() {
 
   const list = entities.data?.entities || [];
   const active = bizId || list[0]?.id || null;
+  // Approved bills across every entity, so the chips can say which company has money waiting.
+  // Without it you pick an entity, find nothing, and cannot tell whether that means "nothing
+  // approved" or "you are looking at the wrong company".
+  const approved = usePayables({ status: "approved" }).data?.payables || [];
+  const waitingBy = approved.reduce((m, p) => {
+    if (p.business_id) m[p.business_id] = (m[p.business_id] || 0) + 1;
+    return m;
+  }, {});
   const runs = useRuns(active);
   const all = runs.data?.runs || [];
   const draft = all.find((r) => r.status === "draft");
@@ -910,9 +918,17 @@ function RunsView() {
      the screen never shows a live proposal beside a batch that already fixed those lines. */
   const shownId = openId || draft?.id || null;
   const detail = useRun(shownId);
-  const next = useNextRun(shownId ? null : active);
+  // The proposal is fetched for the entity ALWAYS, not only when no run is open. Its LINES are
+  // used only when nothing is open — a live proposal beside a batch that already fixed those
+  // lines would show the same invoice twice with two different fates. But the list of what is
+  // approved and merely waiting is true either way, and hiding it behind "no open run" is how a
+  // bill disappears the moment you create the run it is not in.
+  const next = useNextRun(active);
   const run = shownId ? detail.data : null;
   const proposal = shownId ? null : next.data;
+  const waiting = next.data?.upcoming || [];
+  const waitingTotal = next.data?.upcoming_total || 0;
+  const lookahead = next.data?.lookahead_days ?? 6;
 
   const reload = () => { runs.refresh(); detail.refresh(); next.refresh(); };
 
@@ -970,7 +986,8 @@ function RunsView() {
               padding: "5px 12px", cursor: "pointer",
               color: e.id === active ? T.white : T.secondary,
               background: e.id === active ? T.meadow : T.white,
-              border: `1px solid ${e.id === active ? T.meadow : T.line}` }}>{e.name}</button>
+              border: `1px solid ${e.id === active ? T.meadow : T.line}` }}>
+            {e.name}{waitingBy[e.id] ? ` · ${waitingBy[e.id]}` : ""}</button>
         ))}
       </div>
 
@@ -1043,7 +1060,7 @@ function RunsView() {
           {lines.length === 0 && (
             <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 12.5,
                           color: T.secondary }}>
-              Nothing is approved and due inside this window for this entity.
+              Nothing is due inside this window for this entity.
             </div>
           )}
           {lines.map((l) => (
@@ -1068,6 +1085,38 @@ function RunsView() {
               ) : null} />
           ))}
         </Card>
+
+        {waiting.length > 0 && (
+          <>
+            <div style={{ marginTop: 22 }}><Eyebrow>Approved · not due yet</Eyebrow></div>
+            <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary,
+                          margin: "5px 0 8px", lineHeight: 1.6, maxWidth: 640 }}>
+              Signed off and waiting for the run that covers their due date — {usd(waitingTotal)}{" "}
+              in total. A run pays what is due within {lookahead} days, so these are not late
+              and not missing.
+            </div>
+            <Card style={{ padding: 0, overflow: "hidden" }}>
+              {waiting.map((l, i) => (
+                <div key={l.payable_id} style={{ display: "flex", alignItems: "center", gap: 12,
+                  flexWrap: "wrap", padding: "11px 16px",
+                  borderBottom: i < waiting.length - 1 ? `1px solid ${T.line}` : "none" }}>
+                  <span style={{ flex: 1, minWidth: 140, fontFamily: font.body, fontSize: 12.5,
+                    fontWeight: 600, color: T.ink }}>{l.vendor || l.vendor_legal_name || "—"}</span>
+                  <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary,
+                    minWidth: 70 }}>{l.invoice_number}</span>
+                  <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted,
+                    minWidth: 60 }}>due {fmtDate(l.due_date)}</span>
+                  <span style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
+                    color: T.ink, width: 96, textAlign: "right",
+                    fontVariantNumeric: "tabular-nums" }}>{usd(l.amount)}</span>
+                  <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary,
+                    minWidth: 150 }}>
+                    {l.picked_up_on ? `in the ${fmtDate(l.picked_up_on)} run` : "no due date set"}</span>
+                </div>
+              ))}
+            </Card>
+          </>
+        )}
 
         <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 12,
                       lineHeight: 1.6, maxWidth: 640 }}>

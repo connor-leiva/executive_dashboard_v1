@@ -176,16 +176,25 @@ export const samplePayables = {
   payables: [
     { id: "pb1", vendor: "Acme Landscaping LLC", invoice_number: "4471", amount: 2450,
       invoice_date: "2026-09-15", due_date: "2026-10-15", status: "coded",
-      business_name: "ULRG + Team", description: "Monthly grounds maintenance - Sept 2026",
+      business_id: "b-ulrg", business_name: "ULRG + Team", description: "Monthly grounds maintenance - Sept 2026",
       band: "Up to 2,500", vendor_status: "active", holds: [], can_submit: true,
       approvals: [], awaiting: 0 },
     { id: "pb2", vendor: "Rivera, Marcos", invoice_number: "MR-0912", amount: 3800,
       invoice_date: "2026-09-12", due_date: "2026-09-27", status: "coded",
-      business_name: "Sympli Mortgage", description: "Loan processing support - Sept",
+      business_id: "b-sympli", business_name: "Sympli Mortgage", description: "Loan processing support - Sept",
       band: "2,501 to 15,000", vendor_status: "pending_verification", can_submit: false,
       holds: [{ key: "vendor_not_ready", label: "Vendor not ready", hold: true,
                 why: "A W-9 and verified banking are required before a first payment." }],
       approvals: [], awaiting: 0 },
+    // Approved and waiting for a later run — the state that used to be invisible, and the one
+    // that puts a count on the Spring B chip.
+    { id: "pb0", vendor: "Connor Leiva", invoice_number: "2026005", amount: 10000,
+      invoice_date: "2026-09-23", due_date: "2026-10-08", status: "approved",
+      business_id: "b-springb", business_name: "Spring B", description: "Integrator Services",
+      band: "2,500 to 15,000", vendor_status: "active", holds: [], can_submit: false,
+      approvals: [{ id: "ap0", approver: "C. Leiva", decision: "approve",
+                    band: "2,500 to 15,000", note: null, decided_at: "2026-09-28T17:10:00Z" }],
+      awaiting: 0 },
     { id: "pb3", vendor: "Brightpath Creative", invoice_number: "1182", amount: 7500,
       invoice_date: "2026-09-18", due_date: "2026-10-18", status: "received",
       business_name: "Spring B", description: "Q4 campaign assets",
@@ -397,6 +406,18 @@ export const sampleLineDetail = {
 export const sampleNextRun = {
   run_date: "2026-09-30", horizon: "2026-10-06", business_id: "ulrg", lookahead_days: 6,
   held_count: 1, releasable_count: 2, total: 14850,
+  // Approved and waiting for a later run — the state that used to be invisible everywhere.
+  upcoming_total: 10250,
+  upcoming: [
+    { payable_id: "u1", vendor: "Connor Leiva", vendor_legal_name: "Connor Leiva",
+      invoice_number: "2026005", amount: 10000, due_date: "2026-10-08", terms: "Net 15",
+      status: "approved", holds: [], held: false, overridden: false, override_reason: null,
+      picked_up_on: "2026-10-07" },
+    { payable_id: "u2", vendor: "Halcyon Systems LLC", vendor_legal_name: "Halcyon Systems LLC",
+      invoice_number: "HS-2211", amount: 250, due_date: "2026-10-22", terms: "Net 30",
+      status: "approved", holds: [], held: false, overridden: false, override_reason: null,
+      picked_up_on: "2026-10-21" },
+  ],
   lines: [
     { payable_id: "r1", vendor: "Acme Landscaping LLC", vendor_legal_name: "Acme Landscaping LLC",
       invoice_number: "4471", amount: 2450, due_date: "2026-10-05", terms: "Net 30",

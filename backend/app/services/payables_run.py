@@ -133,19 +133,40 @@ async def propose_run(s: AsyncSession, tenant_id, business_id, run_date=None) ->
     run_date = run_date or dt.date.today()
     horizon = run_date + dt.timedelta(days=RUN_LOOKAHEAD_DAYS)
     vendors, banks, allp = await _context(s, tenant_id)
-    eligible = [p for p in allp
-                if p.status == "approved" and p.business_id == business_id
-                and p.due_date is not None and p.due_date <= horizon]
+    mine = [p for p in allp if p.status == "approved" and p.business_id == business_id]
+    eligible = [p for p in mine if p.due_date is not None and p.due_date <= horizon]
     lines = []
     for p in eligible:
         v = vendors.get(p.vendor_id)
         lines.append(_line(p, v, line_holds(p, v, banks.get(p.vendor_id), allp)))
     payable_total = sum(l["amount"] for l in lines if not l["held"])
+
+    # Approved, and NOT due inside this window. Without this the bill is invisible: it has left
+    # the inbox, it has left the approvals list, and it is not due yet — so somebody approves a
+    # payment and watches it disappear from the product entirely. It is not missing, it is
+    # waiting, and the run that will pick it up is a date we can work out rather than a thing to
+    # be taken on trust.
+    upcoming = []
+    for p in sorted([p for p in mine if p not in eligible],
+                    key=lambda x: (x.due_date or dt.date.max, x.invoice_number)):
+        v = vendors.get(p.vendor_id)
+        row = _line(p, v, [])
+        # Runs are weekly, so the one that catches it is the first whose horizon reaches its due
+        # date. A bill with no due date at all waits for someone to give it one.
+        if p.due_date is not None:
+            weeks = -(-(p.due_date - horizon).days // 7)
+            row["picked_up_on"] = (run_date + dt.timedelta(weeks=max(1, weeks))).isoformat()
+        else:
+            row["picked_up_on"] = None
+        upcoming.append(row)
+
     return {"run_date": run_date.isoformat(), "horizon": horizon.isoformat(),
             "business_id": str(business_id), "lines": lines,
             "held_count": sum(1 for l in lines if l["held"]),
             "releasable_count": sum(1 for l in lines if not l["held"]),
-            "total": round(payable_total, 2), "lookahead_days": RUN_LOOKAHEAD_DAYS}
+            "total": round(payable_total, 2), "lookahead_days": RUN_LOOKAHEAD_DAYS,
+            "upcoming": upcoming,
+            "upcoming_total": round(sum(r["amount"] for r in upcoming), 2)}
 
 
 async def create_run(s: AsyncSession, tenant_id, actor, business_id, run_date=None,
