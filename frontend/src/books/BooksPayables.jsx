@@ -812,6 +812,11 @@ function RunLine({ line, actions, busy }) {
           {line.holds?.length ? <HoldChips holds={line.holds} />
             : <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary }}>
                 {STATUS_LABEL[line.status] || line.status}</span>}
+          {detail && (
+            /* The hold chip alone reads as a label. This says the row does something. */
+            <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>
+              {show ? "▴" : "▾"}</span>
+          )}
         </span>
       </div>
       {show && detail && (
@@ -1033,8 +1038,8 @@ function RunsView() {
             <div style={{ background: T.parchment, borderTop: `1px solid ${T.line}`,
                           padding: "11px 22px", fontFamily: font.body, fontSize: 12,
                           color: T.poppyText }}>
-              Release is blocked while any line is held. Push each one to the next run, or have a
-              second person override it by name. There is no release-anyway.
+              Release is blocked while any line is held. <b>Open a held line</b> to push it to the
+              next run or override it by name. There is no release-anyway.
             </div>
           )}
 

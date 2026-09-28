@@ -291,8 +291,22 @@ async def override_line(s: AsyncSession, tenant_id, actor, run_id, payable_id,
     approvers = {a.approver_user_id for a in (await s.execute(select(PayableApproval).where(
         PayableApproval.payable_id == p.id, PayableApproval.decision == "approve"))).scalars()}
     actor_id = getattr(actor, "id", None)
-    if actor_id in approvers:
-        raise ValueError("an override needs a second pair of eyes — you approved this invoice")
+    self_override = actor_id in approvers
+    if self_override and not settings.PAYABLES_ALLOW_SELF_RELEASE:
+        raise ValueError(
+            "an override needs a second pair of eyes — you approved this invoice. Ask another "
+            "approver to clear it, push it to the next run, or wait for the hold to lapse.")
+    # Gated on the SAME setting as self-release, not on a separate one, because the alternative
+    # was incoherent: a workspace that permits one person to release an entire run was still
+    # refusing that person a single line, so the narrower act was the more restricted of the
+    # two — and a one-person workspace could never clear a hold at all, only push it to next
+    # week forever. Where it is allowed it is never silent: the trace is the control, exactly as
+    # it is for self-release.
+    if self_override:
+        audit(s, tenant_id, actor_id, "payables.self_overridden",
+              target_type="payable", target_id=p.id, category="Payments",
+              summary=f"Hold cleared on invoice {p.invoice_number} by its own approver",
+              detail={"note": note, "holds": blocking})
     p.is_exception = True
     p.exception_reason = note
     # The grant names the holds it clears and the run it clears them on. Anything else that

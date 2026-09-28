@@ -55,7 +55,11 @@ async def _user(tenant_id, email, name):
 
 async def _reset(tenant_id):
     async with SessionLocal() as s:
-        for model in (PayableEvent, PayableApproval):
+        # AuditLog too. Without it every `len(rows) == 1` below counts this test's row PLUS
+        # every earlier test's, so the assertions pass on declaration order rather than on
+        # behaviour — and the one that finally trips is the newest test, which is the one least
+        # likely to be at fault.
+        for model in (PayableEvent, PayableApproval, AuditLog):
             for r in (await s.execute(select(model).where(
                     model.tenant_id == tenant_id))).scalars().all():
                 await s.delete(r)
@@ -246,6 +250,8 @@ async def test_an_override_needs_a_second_person_and_leaves_two_records():
         with pytest.raises(ValueError) as e:                    # the approver cannot clear it
             await run.override_line(s, tid, actor, rid, pid, "I checked the bank myself")
         assert "second pair of eyes" in str(e.value)
+        # and it says what to do instead, rather than only what is refused
+        assert "push it to the next run" in str(e.value)
 
         with pytest.raises(ValueError) as blank:                # and a reason is mandatory
             await run.override_line(s, tid, second, rid, pid, "   ")
@@ -695,3 +701,43 @@ async def test_a_bill_with_no_due_date_is_named_rather_than_silently_dropped():
     assert [r["invoice_number"] for r in proposed["upcoming"]] == ["ND-1"]
     # No date to work from, so it says so instead of inventing a run that will never come.
     assert proposed["upcoming"][0]["picked_up_on"] is None
+async def test_the_approver_may_clear_their_own_hold_where_self_release_is_allowed():
+    """A workspace that permits one person to approve AND release an entire run was still
+    refusing that person a single line — the narrower act more restricted than the broader one,
+    and a one-person team unable to ever clear a hold, only push it to next week forever.
+
+    So it follows the same setting. Allowed, never silent: it writes its own audit action so
+    "the approver cleared their own hold" is a thing somebody can search for, not something
+    buried inside an ordinary override row.
+    """
+    tid, actor, biz = await _ctx()
+    await _reset(tid)
+    v = await _vendor(tid, actor, "Self Override LLC", bank_age_hours=1)   # cooldown holds it
+    pid = await _approved(tid, actor, biz, v, "SO-1", 650, dt.date.today() + dt.timedelta(days=2))
+    was = settings.PAYABLES_ALLOW_SELF_RELEASE
+    try:
+        settings.PAYABLES_ALLOW_SELF_RELEASE = False
+        async with SessionLocal() as s:
+            made = await run.create_run(s, tid, actor, biz)
+            rid = uuid.UUID(made["id"])
+            with pytest.raises(ValueError):
+                await run.override_line(s, tid, actor, rid, pid, "it is my own company")
+
+        settings.PAYABLES_ALLOW_SELF_RELEASE = True
+        async with SessionLocal() as s:
+            after = await run.override_line(s, tid, actor, rid, pid, "it is my own company")
+        assert after["can_release"] is True
+        async with SessionLocal() as s:
+            rows = (await s.execute(select(AuditLog).where(
+                AuditLog.tenant_id == tid, AuditLog.target_id == str(pid),
+                AuditLog.action == "payables.self_overridden"))).scalars().all()
+        assert len(rows) == 1 and rows[0].category == "Payments"
+        assert "bank_cooldown" in rows[0].detail["holds"]
+        # the ordinary override row is still written too — one act, both trails
+        async with SessionLocal() as s:
+            both = (await s.execute(select(AuditLog).where(
+                AuditLog.tenant_id == tid, AuditLog.target_id == str(pid),
+                AuditLog.action == "payables.hold_overridden"))).scalars().all()
+        assert len(both) == 1
+    finally:
+        settings.PAYABLES_ALLOW_SELF_RELEASE = was
