@@ -429,3 +429,16 @@ export const sampleRuns = {
       export_ref: "run-2026-09-23-4f21ab90.csv" },
   ],
 };
+
+/* The approval matrix (offline). Reaches from zero with no gap and an open top band — the
+   shape the editor's own check insists on. */
+export const samplePolicies = {
+  bands: [
+    { id: "b1", label: "Up to 2,500", business_id: null, min_amount: 0, max_amount: 2500,
+      required_role: null, required_user_ids: [], requires_second_approver: false, active: true },
+    { id: "b2", label: "2,501 to 15,000", business_id: null, min_amount: 2501, max_amount: 15000,
+      required_role: null, required_user_ids: [], requires_second_approver: false, active: true },
+    { id: "b3", label: "Over 15,000", business_id: null, min_amount: 15001, max_amount: null,
+      required_role: null, required_user_ids: [], requires_second_approver: true, active: true },
+  ],
+};

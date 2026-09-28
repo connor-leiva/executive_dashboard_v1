@@ -93,7 +93,10 @@ def _holds(p: Payable, vendor_status: str | None, band: str | None) -> list[dict
                     "why": "An expense account is needed before this can go for approval."})
     if band is None:
         out.append({"key": "no_band", "label": "No approval band", "hold": True,
-                    "why": "No policy covers this amount, so nobody would be required to approve it."})
+                    # Says where to go. A hold that states a fact the reader cannot act on sends
+                    # them hunting through four tabs for a screen they have not met yet.
+                    "why": "No policy covers this amount, so nobody would be required to approve "
+                           "it. Set the bands under Approvals → Approval bands."})
     return out
 
 

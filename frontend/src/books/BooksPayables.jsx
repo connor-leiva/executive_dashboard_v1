@@ -11,9 +11,9 @@
    payment; scattering those conditions through JSX is how one screen ends up enforcing a rule
    another screen forgot, and the forgotten one pays somebody nobody verified. */
 import { useState } from "react";
-import { postJSON, setStepUp, STEP_UP_STATUS, getBlob, uploadFile } from "../api";
+import { postJSON, putJSON, setStepUp, STEP_UP_STATUS, getBlob, uploadFile } from "../api";
 import { usePayables, useVendors, useRuns, useNextRun, useRun, useCoaEntities,
-         useCoaMapping } from "./useBooks.js";
+         useCoaMapping, usePolicies } from "./useBooks.js";
 import { Card, Eyebrow, Pill, StatePanel, Field, font, usd, T } from "./ui.jsx";
 
 const VIEWS = [["inbox", "Inbox"], ["approvals", "Approvals"], ["runs", "Runs"],
@@ -516,8 +516,170 @@ function InboxView() {
 }
 
 /* ── Approvals: routed by band. `mine` is the default for a reason. ───────────────────── */
+/* ── the approval matrix ───────────────────────────────────────────────────────────────────
+
+   A bill cannot be submitted until some band covers its amount, and until now there was no way
+   to write one: the server read a matrix that nothing could create, so the first real invoice
+   parked on "No approval band" with nowhere to go.
+
+   Edited as a WHOLE and saved in one call, because that is how the server stores it. Editing
+   bands one at a time invites a moment where two overlap or a gap opens between them, and the
+   gap is precisely what lets an invoice through with nobody required to approve it. */
+
+/* The same question the server asks at submit time — "does a band cover this amount?" — asked
+   of the whole number line before saving, so a gap is caught while it is still being typed
+   rather than by an invoice that cannot move. */
+function bandProblems(bands) {
+  const live = bands.filter((b) => b.active !== false)
+    .map((b) => ({ ...b, min: Number(b.min_amount) || 0,
+                   max: b.max_amount === "" || b.max_amount === null ? null : Number(b.max_amount) }))
+    .sort((a, b) => a.min - b.min);
+  const out = [];
+  if (!live.length) return ["No active bands, so nothing can be submitted for approval."];
+  if (live[0].min > 0) out.push(`Nothing covers amounts under ${usd(live[0].min)}.`);
+  for (let i = 0; i < live.length - 1; i++) {
+    if (live[i].max === null) break;                    // an open band swallows everything above
+    const gap = live[i + 1].min - live[i].max;
+    if (gap <= 0.01) continue;
+    // The "2,500 / 2,501" convention leaves the CENTS between them uncovered, and an invoice
+    // for 2,500.50 hits the same wall as one for a million. It is a real gap, but naming it the
+    // same way as a real hole would teach people to scroll past this box — so it says which it
+    // is, and how to close it. Overlapping is safe: the narrower band wins, by rule.
+    out.push(gap <= 1
+      ? `${usd(live[i].max)} to ${usd(live[i + 1].min)} — the cents between these two bands are uncovered. Start "${live[i + 1].label || "the next band"}" at ${usd(live[i].max)} to close it.`
+      : `Nothing covers ${usd(live[i].max)} to ${usd(live[i + 1].min)}.`);
+  }
+  const top = live[live.length - 1];
+  if (top.max !== null) {
+    out.push(`Nothing covers amounts over ${usd(top.max)} — the largest band should have no ceiling.`);
+  }
+  for (const b of live) if (!String(b.label || "").trim()) out.push("Every band needs a label.");
+  return out;
+}
+
+const BAND_COLS = "minmax(140px,1.6fr) 110px 110px 150px 74px 34px";
+
+function BandEditor({ onClose }) {
+  const { data, loading, error, retry, refresh } = usePolicies();
+  const [rows, setRows] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+
+  // Server state seeds the editor once; after that the draft is the user's, not the server's.
+  const bands = rows ?? (data?.bands || []).map((b) => ({
+    label: b.label, min_amount: b.min_amount,
+    max_amount: b.max_amount === null ? "" : b.max_amount,
+    requires_second_approver: b.requires_second_approver, active: b.active }));
+
+  const set = (i, k, v) => setRows(bands.map((b, j) => (j === i ? { ...b, [k]: v } : b)));
+  const add = () => setRows([...bands, { label: "", min_amount: bands.length ? "" : 0,
+    max_amount: "", requires_second_approver: false, active: true }]);
+  const drop = (i) => setRows(bands.filter((_, j) => j !== i));
+
+  const problems = bandProblems(bands);
+
+  const save = async () => {
+    setSaving(true); setErr(null);
+    try {
+      await putJSON(`/payables/policies`, { bands: bands.map((b) => ({
+        label: String(b.label).trim(),
+        min_amount: Number(b.min_amount) || 0,
+        max_amount: b.max_amount === "" || b.max_amount === null ? null : Number(b.max_amount),
+        requires_second_approver: !!b.requires_second_approver,
+        active: b.active !== false,
+      })) });
+      setRows(null);
+      refresh();
+      onClose();
+    } catch (e) { setErr(e?.detail || e?.message || "The matrix could not be saved."); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <StatePanel loading={loading} error={error} retry={retry}>
+      <Card style={{ padding: "16px 18px", marginBottom: 14 }}>
+        <Eyebrow>Approval bands</Eyebrow>
+        <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary,
+                      margin: "6px 0 12px", lineHeight: 1.6, maxWidth: 640 }}>
+          Which amounts need whose signature. A bill cannot go for approval until one of these
+          covers it, so the bands have to reach from zero upward with no gap — and the largest
+          one needs no ceiling, or the next unusually big invoice has nowhere to sit. Edges are
+          inclusive on both sides; where two overlap, the narrower one wins.
+        </div>
+
+        <div className="band-head" style={{ display: "grid", gridTemplateColumns: BAND_COLS,
+                      columnGap: 10, padding: "0 0 7px" }}>
+          {["Band", "From", "To", "Signatures", "Active", ""].map((h, i) => (
+            <span key={h || i} style={{ fontFamily: font.head, fontSize: 10.5, fontWeight: 700,
+              letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted }}>{h}</span>
+          ))}
+        </div>
+
+        {bands.map((b, i) => (
+          <div key={i} className="band-row" style={{ display: "grid",
+                                gridTemplateColumns: BAND_COLS, columnGap: 10,
+                                alignItems: "center", marginBottom: 8 }}>
+            <input style={input} value={b.label} placeholder="Up to 2,500"
+              onChange={(e) => set(i, "label", e.target.value)} />
+            {/* Placeholders carry the column meaning once the headers are hidden on a phone. */}
+            <input style={input} type="number" step="0.01" min="0" value={b.min_amount}
+              placeholder="from" onChange={(e) => set(i, "min_amount", e.target.value)} />
+            <input style={input} type="number" step="0.01" min="0" value={b.max_amount}
+              placeholder="no ceiling" onChange={(e) => set(i, "max_amount", e.target.value)} />
+            <select style={input} value={b.requires_second_approver ? "2" : "1"}
+              onChange={(e) => set(i, "requires_second_approver", e.target.value === "2")}>
+              <option value="1">One approver</option>
+              <option value="2">Two — different people</option>
+            </select>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: font.body,
+                            fontSize: 12, color: T.secondary }}>
+              <input type="checkbox" checked={b.active !== false}
+                onChange={(e) => set(i, "active", e.target.checked)} />
+            </label>
+            <button title="Remove this band" onClick={() => drop(i)}
+              style={{ ...btn(), padding: "5px 9px", fontSize: 13, lineHeight: 1 }}>×</button>
+          </div>
+        ))}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 4, marginBottom: 12 }}>
+          <button style={btn()} onClick={add}>Add a band</button>
+        </div>
+
+        {/* The gap is the whole risk, so it is named in full rather than flagged. */}
+        {problems.length > 0 && (
+          <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderLeft:
+            `3px solid ${T.poppy}`, borderRadius: 10, padding: "10px 13px", marginBottom: 12 }}>
+            <div style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 700,
+                          color: T.poppyText }}>
+              {problems.length === 1 ? "One amount range is uncovered" : "Some amounts are uncovered"}
+            </div>
+            {problems.map((p, i) => (
+              <div key={i} style={{ fontFamily: font.body, fontSize: 12, color: T.secondary,
+                                    marginTop: 3 }}>{p}</div>
+            ))}
+            <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 6 }}>
+              A bill landing in an uncovered range cannot be submitted at all — it is not that it
+              skips approval, it simply stops.
+            </div>
+          </div>
+        )}
+
+        {err && <div style={{ fontFamily: font.body, fontSize: 12, color: T.poppyText,
+                              marginBottom: 10 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button disabled={saving || !bands.length} style={btn(saving || !bands.length ? "disabled" : "primary")}
+            onClick={save}>{saving ? "Saving…" : "Save the matrix"}</button>
+          <button disabled={saving} style={btn()}
+            onClick={() => { setRows(null); onClose(); }}>Cancel</button>
+        </div>
+      </Card>
+    </StatePanel>
+  );
+}
+
 function ApprovalsView() {
   const [mine, setMine] = useState(true);
+  const [bands, setBands] = useState(false);
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState(null);
@@ -541,7 +703,13 @@ function ApprovalsView() {
         <StatCard label="Value" value={usd(total)} />
         <StatCard label="Two-signature" value={rows.filter((p) => p.approvals?.length > 1).length} />
       </Stats>
-      <div style={{ display: "flex", gap: 5, marginBottom: 12 }}>
+      {bands && <BandEditor onClose={() => setBands(false)} />}
+      <div style={{ display: "flex", gap: 5, marginBottom: 12, alignItems: "center",
+                    flexWrap: "wrap" }}>
+        {!bands && (
+          <button style={{ ...btn(), marginRight: 6 }} onClick={() => setBands(true)}>
+            Approval bands</button>
+        )}
         {[[true, "Mine"], [false, "Everyone"]].map(([k, l]) => (
           <button key={l} onClick={() => setMine(k)} style={{ fontFamily: font.body, fontSize: 11.5,
             fontWeight: 600, borderRadius: 99, padding: "5px 12px", cursor: "pointer",
@@ -1064,6 +1232,13 @@ export default function BooksPayables() {
           .pay-row > * { width: auto !important; min-width: 0; text-align: left !important; }
           .pay-row > :first-child { flex: 1 1 100%; }
           .pay-row > :nth-child(5) { margin-left: auto; text-align: right !important; }
+          /* The band editor is a FORM, so it stacks into two columns rather than wrapping into
+             a line: three unlabelled number boxes in a row tell you nothing about which is
+             which. The headers go, and the placeholders carry their meaning instead. */
+          .band-head { display: none !important; }
+          .band-row { grid-template-columns: 1fr 1fr !important; row-gap: 7px;
+                      padding-bottom: 10px; border-bottom: 1px solid var(--t-line); }
+          .band-row > :first-child { grid-column: 1 / -1; }
         }
       `}</style>
       <SegNav view={view} setView={setView} counts={{}} />
