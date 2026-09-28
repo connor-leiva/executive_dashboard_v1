@@ -157,19 +157,65 @@ async def test_per_period_goals_override_and_history():
         assert row2["goal"] == default + 10                                  # current (Q3) still its own
 
 
+async def _homes_weeks(week_values: dict) -> None:
+    """Plant Davis "Total Homes Sold" values at the given week starts, for the shared springb
+    tenant. Idempotent: a week already carrying a value is updated, not duplicated.
+
+    Only this group/measurable — `test_rename_measurable` deliberately works on `slc` so that
+    Davis lookups elsewhere stay stable, and the other tests in this file use "Appointments Met".
+    """
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        g = (await s.execute(select(ScorecardGroup).where(
+            ScorecardGroup.tenant_id == t.id, ScorecardGroup.key == "davis"))).scalars().first()
+        m = (await s.execute(select(ScorecardMetric).where(
+            ScorecardMetric.tenant_id == t.id, ScorecardMetric.group_id == g.id,
+            ScorecardMetric.name.startswith("Total Homes Sold")))).scalars().first()
+        existing = {v.week_start: v for v in (await s.execute(select(ScorecardValue).where(
+            ScorecardValue.tenant_id == t.id, ScorecardValue.metric_id == m.id))).scalars()}
+        for ws, val in week_values.items():
+            row = existing.get(ws)
+            if row is None:
+                s.add(ScorecardValue(tenant_id=t.id, metric_id=m.id, week_start=ws,
+                                     value=Decimal(val), source="resolver"))
+            else:
+                row.value = Decimal(val)
+        await s.commit()
+
+
 async def test_cumulative_goal_is_period_scoped_thermometer():
     """A flow metric with a period-total (cumulative) goal becomes a quarter thermometer: it counts
     ONLY the weeks within the current period (not a trailing window that bleeds in the prior period)
     and tracks the running total toward the FULL total. Regression for the '96 of 110 after 1 week'
     bug — the actual must be period-to-date, not a rolling 13-week sum."""
     tok = await _owner()
-    async with _client() as c:
-        # current period starts 2026-07-01, so only the JULY data weeks count (the seed ends 7/27).
-        await c.put("/api/v1/ulrg/periods", headers=_H(tok), json={"periods": [
-            {"key": "H1", "start": "2026-01-01", "end": "2026-06-30"},
-            {"key": "H2", "start": "2026-07-01", "end": "2026-12-31"}]})
 
-        g = (await c.get("/api/v1/ulrg/goals?period=H2", headers=_H(tok))).json()["goals"]
+    # ANCHORED TO TODAY, not to July 2026. The scorecard's trailing window is 13 weeks back from
+    # the live clock, and this endpoint has no `today=` seam (build_scorecard takes one, but the
+    # HTTP route asks the server for the date). Pinned to absolute weeks, the seeded July data
+    # slid out of that window one week at a time: this test went red on the Monday the last
+    # pre-period week fell off the end — and before that it had already stopped proving its
+    # point, because `pd` and `trailing` had silently converged on the same set of weeks.
+    #
+    # So the test plants its own data on BOTH sides of the period boundary, inside the window,
+    # relative to today. That relationship is now true on any date it is ever run.
+    monday = dt.date.today() - dt.timedelta(days=dt.date.today().weekday())
+    boundary = monday - dt.timedelta(weeks=6)          # period starts mid-window, always
+    # round((end - start).days / 7) is how the service counts a period's weeks, so 181 days
+    # inclusive == 26 weeks, which keeps the pace assertion below at 260/26.
+    cur_end = boundary + dt.timedelta(days=181)
+    prev_end = boundary - dt.timedelta(days=1)
+    prev_start = prev_end - dt.timedelta(days=181)
+    pre = {monday - dt.timedelta(weeks=w): 4 for w in (11, 10, 9, 8, 7)}   # before the boundary
+    inp = {monday - dt.timedelta(weeks=w): 9 for w in (5, 4, 3, 2, 1)}     # inside the period
+    await _homes_weeks({**pre, **inp})
+
+    async with _client() as c:
+        await c.put("/api/v1/ulrg/periods", headers=_H(tok), json={"periods": [
+            {"key": "PREV", "start": prev_start.isoformat(), "end": prev_end.isoformat()},
+            {"key": "CUR", "start": boundary.isoformat(), "end": cur_end.isoformat()}]})
+
+        g = (await c.get("/api/v1/ulrg/goals?period=CUR", headers=_H(tok))).json()["goals"]
         homes = next(x for x in g if x["name"].startswith("Total Homes Sold") and x["group"] == "Davis")
         assert homes["supports_cumulative"] is True and homes["cumulative_goal"] is None
         assert next(x for x in g if x["type"] == "rate")["supports_cumulative"] is False
@@ -184,7 +230,7 @@ async def test_cumulative_goal_is_period_scoped_thermometer():
         assert row0["cumulative_goal"] is None and c0["target"] == round(8 * c0["n"])
 
         # set the period total to 260 (weekly stays 8)
-        r = await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "H2",
+        r = await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "CUR",
             "goals": [{"metric_id": homes["metric_id"], "goal": 8, "cumulative_goal": 260}]})
         assert r.status_code == 200
 
@@ -193,20 +239,25 @@ async def test_cumulative_goal_is_period_scoped_thermometer():
         row1, c1 = _homes(sc)
         assert row1["goal"] == 8 and row1["cumulative_goal"] == 260   # weekly unchanged, total carried
 
-        # actual counts ONLY weeks whose start is inside the period (>= 2026-07-01)
-        pstart = dt.date(2026, 7, 1)
+        # actual counts ONLY weeks whose start is inside the period
+        pstart = boundary
         pd = [v for v, w in zip(row1["values"], weeks)
               if v is not None and dt.date.fromisoformat(w["start"]) >= pstart]
         trailing = [v for v in row1["values"] if v is not None]
         assert c1["actual"] == round(sum(pd))                 # period-to-date, NOT the rolling sum
+        # The whole point: pre-period weeks are inside the 13-week window and must NOT count.
+        # If these two ever converge the assertion is vacuous rather than false, so the gap is
+        # asserted explicitly instead of relying on `<` alone.
+        assert sum(pd) == sum(inp.values())
+        assert sum(trailing) >= sum(pd) + sum(pre.values())
         assert sum(pd) < sum(trailing)                        # proves pre-period data is excluded
         assert c1["target"] == 260                            # thermometer shows the FULL total
-        assert c1["period"] is True and c1["pace"] == round(260 / 26)   # H2 = 26 weeks → pace 10/wk
+        assert c1["period"] is True and c1["pace"] == round(260 / 26)   # 26-week period → 10/wk
         # every window is the same quarter-to-date block (the toggle is a no-op for a thermometer)
         assert row1["cumulative"]["w4"] == c1 and row1["cumulative"]["qtd"] == c1
 
         # clearing it reverts to the rolling weekly-derived cumulative
-        await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "H2",
+        await c.put("/api/v1/ulrg/goals", headers=_H(tok), json={"period": "CUR",
             "goals": [{"metric_id": homes["metric_id"], "goal": 8, "cumulative_goal": None}]})
         row2, c2 = _homes((await c.get("/api/v1/ulrg/scorecard", headers=_H(tok))).json())
         assert row2["cumulative_goal"] is None and c2["target"] == round(8 * c2["n"])
