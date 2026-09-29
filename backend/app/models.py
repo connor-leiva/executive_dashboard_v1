@@ -2068,7 +2068,10 @@ class AIEmployee(Base):
     name: Mapped[str] = mapped_column(String(60))
     role_title: Mapped[str] = mapped_column(String(80))
     avatar_color: Mapped[str] = mapped_column(String(7), default="#227175")
-    status: Mapped[str] = mapped_column(String(12), default="active")   # active | paused
+    status: Mapped[str] = mapped_column(String(12), default="active")
+        # active | paused | archived. `archived` was missing from this comment while the router
+        # both sets it and filters on it — and a value nobody has written down is one the next
+        # reader has to discover from a bug.
     writeback_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     config: Mapped[dict] = mapped_column(JSONType, default=dict)        # brand_doc_refs, timezone, quiet_hours, budget knobs
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -32,6 +32,7 @@ from ..models import (Business, Payable, PayableApproval, PayableEvent, PaymentR
                       User, Vendor, VendorBankAccount)
 from .audit import audit
 from .payables import transition
+from .payables_actor import require_human
 from .payables_vendor import derive_status
 
 # Pay on the last run on or before the due date. Six days ahead of a weekly run means nothing
@@ -171,6 +172,7 @@ async def propose_run(s: AsyncSession, tenant_id, business_id, run_date=None) ->
 
 async def create_run(s: AsyncSession, tenant_id, actor, business_id, run_date=None,
                      cutoff_at=None) -> dict:
+    require_human(actor, "creating a payment run")
     run_date = run_date or dt.date.today()
     horizon = run_date + dt.timedelta(days=RUN_LOOKAHEAD_DAYS)
     eligible = list((await s.execute(select(Payable).where(
@@ -253,6 +255,7 @@ async def get_run(s: AsyncSession, tenant_id, run_id) -> dict | None:
 async def hold_line(s: AsyncSession, tenant_id, actor, run_id, payable_id, reason: str) -> dict | None:
     """Push a line to the next run. It leaves this batch and becomes eligible again on the next
     one, which is what "held" means operationally — not deleted, just not this week."""
+    require_human(actor, "holding a line")
     p = (await s.execute(select(Payable).where(
         Payable.tenant_id == tenant_id, Payable.id == payable_id,
         Payable.payment_run_id == run_id))).scalar_one_or_none()
@@ -276,6 +279,7 @@ async def override_line(s: AsyncSession, tenant_id, actor, run_id, payable_id,
                         note: str) -> dict | None:
     """A second person clears a hold on one line. Never a switch on the Release button — a
     control that can be turned off for every line at once is not a control."""
+    require_human(actor, "overriding a hold")
     p = (await s.execute(select(Payable).where(
         Payable.tenant_id == tenant_id, Payable.id == payable_id,
         Payable.payment_run_id == run_id))).scalar_one_or_none()
@@ -329,6 +333,7 @@ async def override_line(s: AsyncSession, tenant_id, actor, run_id, payable_id,
 # ── release ───────────────────────────────────────────────────────────────────────────────
 
 async def release_run(s: AsyncSession, tenant_id, actor, run_id) -> dict | None:
+    require_human(actor, "releasing a payment run")
     run = (await s.execute(select(PaymentRun).where(
         PaymentRun.tenant_id == tenant_id, PaymentRun.id == run_id))).scalar_one_or_none()
     if run is None:
@@ -418,6 +423,7 @@ async def export_run(s: AsyncSession, tenant_id, run_id) -> tuple[str, str] | No
 async def reconcile_run(s: AsyncSession, tenant_id, actor, run_id) -> dict | None:
     """Marked paid after the bank confirms. Separate from release because the bank is the only
     thing that knows the money actually left."""
+    require_human(actor, "reconciling a run")
     run = (await s.execute(select(PaymentRun).where(
         PaymentRun.tenant_id == tenant_id, PaymentRun.id == run_id))).scalar_one_or_none()
     if run is None:

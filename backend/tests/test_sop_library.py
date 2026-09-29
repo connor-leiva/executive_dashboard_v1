@@ -369,7 +369,16 @@ async def test_the_library_gives_the_rail_the_card_and_the_owner():
     assert card["owner"]["name"] == "Sasha Lead" and card["owner"]["title"] == "Listing Director"
     assert card["owner"]["profile_url"] == f"/directory/{owner['id']}"
     assert card["has_body"] is True and card["has_document"] is True
-    assert card["updated_on"] == dt.date.today().isoformat()
+    # UTC, because that is what the value IS: updated_on returns version.uploaded_at.date(),
+    # and uploaded_at is a UTC instant. Compared against dt.date.today() — a LOCAL date — this
+    # assertion was red every evening from about 18:00 Mountain until midnight, which reads as a
+    # flake and is not one: it is two different calendars being compared for six hours a day.
+    #
+    # Asserted against the same clock the value comes from, so it does not prejudge the separate
+    # product question of which calendar a member should SEE. A procedure uploaded at 19:00
+    # Denver currently shows tomorrow's date to a Denver reader, and that is worth deciding on
+    # its own rather than by way of a test.
+    assert card["updated_on"] == dt.datetime.now(dt.timezone.utc).date().isoformat()
     assert card["steps"] == ["Log the appointment", "Send the packet"]
     # The rail: every department the workspace has, with its count, All Procedures first.
     rail = content["sop_departments"]

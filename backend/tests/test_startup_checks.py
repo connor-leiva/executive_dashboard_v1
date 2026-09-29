@@ -310,8 +310,14 @@ async def test_the_gates_count_the_thing_the_limit_actually_means():
         plan = "portfolio"
 
     # Unlimited means unlimited, not a large number.
-    for key in ("max_users", "max_share_links", "max_ai_employees", "max_businesses"):
+    for key in ("max_users", "max_share_links", "max_businesses"):
         assert not plans.over_limit(_P(), key, 10_000), key
+
+    # AI employees are the exception on Portfolio, and deliberately so: they all draw on one
+    # per-tenant monthly token budget, so an unlimited count is an unbounded bill rather than a
+    # generous feature. Three, and the fourth is refused.
+    assert not plans.over_limit(_P(), "max_ai_employees", 2)
+    assert plans.over_limit(_P(), "max_ai_employees", 3)
 
 
 def test_the_history_window_is_a_reach_limit_not_a_deletion():

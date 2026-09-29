@@ -208,8 +208,13 @@ async def list_employees(user: User = Depends(current_user), s: AsyncSession = D
 async def create_employee(body: EmployeeCreate, user: User = Depends(manager),
                           s: AsyncSession = Depends(get_session)):
     tenant = await s.get(Tenant, user.tenant_id)
+    # Archived employees do not count. They do not run, they do not spend a token of the shared
+    # monthly budget, and the list endpoint above already hides them — so counting them here
+    # meant the roster showed one employee while the plan insisted you had two, and the only way
+    # to add another was to hunt down something you had already retired.
     have = (await s.execute(select(func.count()).select_from(AIEmployee).where(
-        AIEmployee.tenant_id == user.tenant_id))).scalar_one()
+        AIEmployee.tenant_id == user.tenant_id,
+        AIEmployee.status != "archived"))).scalar_one()
     if plans.over_limit(tenant, "max_ai_employees", have):
         lim = plans.limits(tenant)
         cap = lim["max_ai_employees"]

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Business, User, Vendor, VendorBankAccount
 from .audit import audit
 from .binder_extract import match_names, normalize_name
+from .payables_actor import require_human
 
 VENDOR_TYPES = ("business", "individual")
 # draft is the column default for a row that has not been derived yet; derive_status never
@@ -153,6 +154,7 @@ _EDITABLE = ("display_name", "dba", "vendor_type", "tin_last4", "w9_document_id"
 
 
 async def create_vendor(s: AsyncSession, tenant_id, actor, payload: dict) -> dict:
+    require_human(actor, "creating a vendor")
     legal_name = (payload.get("legal_name") or "").strip()
     if not legal_name:
         raise ValueError("legal_name is required — it must read exactly as on the W-9")
@@ -184,6 +186,7 @@ async def create_vendor(s: AsyncSession, tenant_id, actor, payload: dict) -> dic
 
 
 async def update_vendor(s: AsyncSession, tenant_id, actor, vendor_id, payload: dict) -> dict | None:
+    require_human(actor, "editing a vendor")
     v = (await s.execute(select(Vendor).where(
         Vendor.tenant_id == tenant_id, Vendor.id == vendor_id))).scalar_one_or_none()
     if v is None:
@@ -225,6 +228,7 @@ async def update_vendor(s: AsyncSession, tenant_id, actor, vendor_id, payload: d
 
 async def add_bank_account(s: AsyncSession, tenant_id, actor, vendor_id, payload: dict) -> dict | None:
     """A new row that supersedes the prior one. NEVER an UPDATE — see the module docstring."""
+    require_human(actor, "adding vendor banking")
     v = (await s.execute(select(Vendor).where(
         Vendor.tenant_id == tenant_id, Vendor.id == vendor_id))).scalar_one_or_none()
     if v is None:

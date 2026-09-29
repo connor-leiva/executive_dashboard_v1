@@ -26,6 +26,26 @@ async def _seeded_enabled():
     settings.AI_EMPLOYEES_ENABLED = prev
 
 
+@pytest.fixture(autouse=True)
+async def _one_workspace_one_test():
+    """Each test below creates its own employee on the SAME seeded tenant, and fifteen of them
+    accumulate. That was invisible while Portfolio was uncapped; the moment the plan gained a
+    real ceiling the fourth test got a 402 and every assertion after it failed on a response
+    body that had no id in it.
+
+    The cap is right — several employees share one monthly token budget, so "as many as you
+    like" is an unbounded bill. It is the hoarding that was wrong. Each test starts from an
+    empty roster, which is also a truer starting point than inheriting fourteen strangers.
+    """
+    from sqlalchemy import delete
+    from app.models import AIEmployeeSkill
+    async with SessionLocal() as s:
+        for model in (AIArtifact, AIRun, AIEmployeeSkill, AIEmployee):
+            await s.execute(delete(model))
+        await s.commit()
+    yield
+
+
 def _client():
     return AsyncClient(transport=TRANSPORT, base_url="http://testserver")
 
@@ -354,3 +374,36 @@ async def test_create_seeds_six_skills_and_awaiting_badge():
         lst = (await c.get("/api/v1/ai/employees", headers=_H(owner))).json()
         mine = next(e for e in lst["employees"] if e["id"] == emp["id"])
         assert mine["awaiting_approval"] == 1 and lst["awaiting_total"] >= 1
+async def test_the_plan_counts_what_runs_not_what_was_retired():
+    """Portfolio allows three AI employees, and they share one monthly token budget — which is
+    why there is a ceiling at all. An ARCHIVED employee spends none of it, does not run, and is
+    already hidden from the roster endpoint. Counting it against the cap meant the screen showed
+    two employees while the plan insisted on three, and the only way to hire again was to go
+    find something you had already retired.
+    """
+    owner = await _owner_token()
+    async with _client() as c:
+        made = []
+        for n in ("One", "Two", "Three"):
+            r = await c.post("/api/v1/ai/employees", headers=_H(owner),
+                             json={"name": n, "role_title": "Social Media Manager"})
+            assert r.status_code == 201, r.text
+            made.append(r.json()["id"])
+
+        # the fourth is refused, and says why
+        full = await c.post("/api/v1/ai/employees", headers=_H(owner),
+                            json={"name": "Four", "role_title": "Social Media Manager"})
+        assert full.status_code == 402
+        assert "3 AI employees" in full.json()["detail"]
+
+        # retire one, and the seat comes back
+        assert (await c.delete(f"/api/v1/ai/employees/{made[0]}", headers=_H(owner))
+                ).status_code in (200, 204)
+        again = await c.post("/api/v1/ai/employees", headers=_H(owner),
+                             json={"name": "Four", "role_title": "Social Media Manager"})
+        assert again.status_code == 201, again.text
+
+        # and the roster shows three, never the retired one
+        listed = (await c.get("/api/v1/ai/employees", headers=_H(owner))).json()
+        names = {e["name"] for e in (listed if isinstance(listed, list) else listed["employees"])}
+        assert names == {"Two", "Three", "Four"}, names

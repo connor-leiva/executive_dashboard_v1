@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import (ApprovalPolicy, Business, Payable, PayableApproval, PayableEvent,
                       User, Vendor, VendorBankAccount)
 from .audit import audit
+from .payables_actor import require_human
 from .payables_vendor import derive_status
 
 # received → extracted → needs_info
@@ -274,6 +275,7 @@ async def _vendor_status(s: AsyncSession, tenant_id, vendor: Vendor) -> str:
 
 
 async def create_payable(s: AsyncSession, tenant_id, actor, payload: dict) -> dict:
+    require_human(actor, "entering a bill")
     vendor = await _vendor_or_raise(s, tenant_id, payload.get("vendor_id"))
     invoice_number = (payload.get("invoice_number") or "").strip()
     if not invoice_number:
@@ -344,6 +346,7 @@ _CODING = ("business_id", "legal_entity_id", "standard_account_id", "class_key",
 
 
 async def update_coding(s: AsyncSession, tenant_id, actor, payable_id, payload: dict) -> dict | None:
+    require_human(actor, "coding a bill")
     p = (await s.execute(select(Payable).where(
         Payable.tenant_id == tenant_id, Payable.id == payable_id))).scalar_one_or_none()
     if p is None:
@@ -374,6 +377,7 @@ async def update_coding(s: AsyncSession, tenant_id, actor, payable_id, payload: 
 
 
 async def submit_for_approval(s: AsyncSession, tenant_id, actor, payable_id) -> dict | None:
+    require_human(actor, "sending a bill for approval")
     p = (await s.execute(select(Payable).where(
         Payable.tenant_id == tenant_id, Payable.id == payable_id))).scalar_one_or_none()
     if p is None:
@@ -425,6 +429,7 @@ async def submit_for_approval(s: AsyncSession, tenant_id, actor, payable_id) -> 
 
 async def decide(s: AsyncSession, tenant_id, actor, payable_id, decision: str,
                  note: str | None = None) -> dict | None:
+    require_human(actor, "approving or rejecting a bill")
     if decision not in DECISIONS:
         raise ValueError(f"decision must be one of {', '.join(DECISIONS)}")
     p = (await s.execute(select(Payable).where(
@@ -488,6 +493,7 @@ async def list_policies(s: AsyncSession, tenant_id) -> list[dict]:
 async def replace_policies(s: AsyncSession, tenant_id, actor, bands: list[dict]) -> list[dict]:
     """The matrix is edited as a whole. Editing bands one at a time invites a moment where two
     overlap or a gap opens, and the gap is what lets an invoice through unapproved."""
+    require_human(actor, "changing the approval matrix")
     for p in (await s.execute(select(ApprovalPolicy).where(
             ApprovalPolicy.tenant_id == tenant_id))).scalars().all():
         await s.delete(p)

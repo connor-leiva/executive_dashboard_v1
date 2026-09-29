@@ -79,7 +79,11 @@ PLANS: dict[str, dict] = {
         "max_share_links": None,
         "history_months": None,
         "custom_branding": True,
-        "max_ai_employees": None,
+        # 3, not unlimited. Every AI employee draws on the same per-tenant monthly token budget,
+        # so "as many as you like" is a bill nobody agreed to rather than a feature. Counted
+        # across ALL employees including archived ones — see create_employee, which does not
+        # filter on status.
+        "max_ai_employees": 3,
         "intranet": True,
         # The assistant reads a workspace's own documents and answers from them, which costs real
         # money per question and is the reason it sits a tier above the portal itself.
