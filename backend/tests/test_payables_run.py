@@ -24,6 +24,7 @@ from app.services import payables as pay
 from app.services import payables_run as run
 from app.services import payables_vendor as pv
 from app.services import books_scan, books_sync
+from app.services import payables_match
 from app.services.payables_match import match_payments
 
 
@@ -285,7 +286,13 @@ async def _released_bill(tid, actor, biz, vendor, invoice, amount, due):
         await run.release_run(s, tid, releaser, uuid.UUID(made["id"]))
         p = await s.get(Payable, pid)
         assert p.status == "released"
-        return pid, (await s.get(PaymentRun, uuid.UUID(made["id"]))).run_date
+        r = await s.get(PaymentRun, uuid.UUID(made["id"]))
+        # The RELEASE day, which is what the matcher anchors its window on — not run_date, the
+        # day the run was planned for. The two differ whenever a run waits on a held line, and
+        # they can differ by a day anyway because released_at is UTC while run_date is local.
+        # A test that placed its transactions against run_date would be measuring the boundary
+        # from somewhere the matcher is not standing.
+        return pid, r.released_at.date()
 
 
 async def _txn(tenant_id, business_id, *, payee, amount, on, qbo_id, qbo_type="BillPayment",
@@ -305,19 +312,19 @@ async def test_the_matcher_pairs_on_amount_and_window_and_never_across_tenants()
     await _reset(tid)
     v = await _vendor(tid, actor, "Brightpath Creative LLC", bank_age_hours=100)
     due = dt.date.today() + dt.timedelta(days=2)
-    pid, run_date = await _released_bill(tid, actor, biz, v, "M-1", 1250, due)
+    pid, anchor = await _released_bill(tid, actor, biz, v, "M-1", 1250, due)
 
     # Same amount, five days out: inside the window.
     inside = await _txn(tid, biz, payee="Brightpath Creative LLC", amount=1250,
-                        on=run_date + dt.timedelta(days=5), qbo_id="pay-inside")
+                        on=anchor + dt.timedelta(days=payables_match.MATCH_AFTER_DAYS), qbo_id="pay-inside")
     # Same amount, six days out: outside it.
     outside = await _txn(tid, biz, payee="Brightpath Creative LLC", amount=1250,
-                         on=run_date + dt.timedelta(days=6), qbo_id="pay-outside")
+                         on=anchor + dt.timedelta(days=payables_match.MATCH_AFTER_DAYS + 1), qbo_id="pay-outside")
     # Right window, wrong amount.
     wrong = await _txn(tid, biz, payee="Brightpath Creative LLC", amount=1249,
-                       on=run_date, qbo_id="pay-wrong-amount")
+                       on=anchor, qbo_id="pay-wrong-amount")
     # Right everything, wrong kind of transaction — a bill is settled by a BillPayment.
-    kind = await _txn(tid, biz, payee="Brightpath Creative LLC", amount=1250, on=run_date,
+    kind = await _txn(tid, biz, payee="Brightpath Creative LLC", amount=1250, on=anchor,
                       qbo_id="pay-wrong-type", qbo_type="Purchase")
 
     async with SessionLocal() as s:
@@ -352,15 +359,15 @@ async def test_the_matcher_pairs_on_amount_and_window_and_never_across_tenants()
         oid = other_t.id
     await _reset(tid)
     v2 = await _vendor(tid, actor, "Brightpath Creative LLC", bank_age_hours=100)
-    pid2, run_date2 = await _released_bill(tid, actor, biz, v2, "M-2", 1250, due)
+    pid2, anchor2 = await _released_bill(tid, actor, biz, v2, "M-2", 1250, due)
     stranger = await _txn(oid, other_biz.id, payee="Brightpath Creative LLC", amount=1250,
-                          on=run_date2, qbo_id="pay-other-tenant")
+                          on=anchor2, qbo_id="pay-other-tenant")
     # A second stranger, deliberately mis-parented onto THIS tenant's business. No sync would
     # ever write that row — it exists so that the tenant scope is the only thing left standing
     # between the two workspaces. Without it this assertion passes on the business filter alone,
     # and the tenant filter it claims to test could be deleted unnoticed.
     twin = await _txn(oid, biz, payee="Brightpath Creative LLC", amount=1250,
-                      on=run_date2, qbo_id="pay-other-tenant-twin")
+                      on=anchor2, qbo_id="pay-other-tenant-twin")
     async with SessionLocal() as s:
         assert (await match_payments(s, tid))["paired"] == 0
         assert (await s.get(BookTxn, stranger)).payable_id is None
@@ -406,11 +413,11 @@ async def test_a_transaction_carrying_a_payable_skips_the_review_queue():
     await _reset(tid)
     v = await _vendor(tid, actor, "Skip The Queue LLC", bank_age_hours=100)
     due = dt.date.today() + dt.timedelta(days=2)
-    pid, run_date = await _released_bill(tid, actor, biz, v, "SQ-1", 3200, due)
+    pid, anchor = await _released_bill(tid, actor, biz, v, "SQ-1", 3200, due)
 
-    linked = await _txn(tid, biz, payee="Skip The Queue LLC", amount=3200, on=run_date,
+    linked = await _txn(tid, biz, payee="Skip The Queue LLC", amount=3200, on=anchor,
                         qbo_id="pay-linked", payable_id=pid)
-    stray = await _txn(tid, biz, payee="Nobody Approved This", amount=77, on=run_date,
+    stray = await _txn(tid, biz, payee="Nobody Approved This", amount=77, on=anchor,
                        qbo_id="pay-stray", qbo_type="Purchase")
     async with SessionLocal() as s:
         tally = await books_scan.run_scan(s, tid)
@@ -435,8 +442,8 @@ async def test_a_match_landing_after_the_scan_still_pulls_the_row_out_of_the_que
     await _reset(tid)
     v = await _vendor(tid, actor, "Late Match LLC", bank_age_hours=100)
     due = dt.date.today() + dt.timedelta(days=2)
-    pid, run_date = await _released_bill(tid, actor, biz, v, "LM-1", 880, due)
-    txn = await _txn(tid, biz, payee="Late Match LLC", amount=880, on=run_date, qbo_id="pay-late")
+    pid, anchor = await _released_bill(tid, actor, biz, v, "LM-1", 880, due)
+    txn = await _txn(tid, biz, payee="Late Match LLC", amount=880, on=anchor, qbo_id="pay-late")
     async with SessionLocal() as s:                       # the scan gets there first
         await books_scan.run_scan(s, tid)
     async with SessionLocal() as s:
@@ -741,3 +748,68 @@ async def test_the_approver_may_clear_their_own_hold_where_self_release_is_allow
         assert len(both) == 1
     finally:
         settings.PAYABLES_ALLOW_SELF_RELEASE = was
+async def test_a_run_released_late_still_matches_its_payments():
+    """The window used to centre on run_date — the day the run was PLANNED for. A run that waits
+    on a held line is released days later, and the payment follows the release, not the plan, so
+    the longer a run was held up the more certainly it stopped matching its own payments. The
+    anchor is released_at now, and this pins that: the run is back-dated a week while its
+    release stays today, and the payment lands beside the release.
+    """
+    tid, actor, biz = await _ctx()
+    await _reset(tid)
+    v = await _vendor(tid, actor, "Held Up LLC", bank_age_hours=100)
+    due = dt.date.today() + dt.timedelta(days=2)
+    pid = await _approved(tid, actor, biz, v, "LATE-1", 1500, due)
+    releaser = await _user(tid, "late@payables.test", "Late Releaser")
+    async with SessionLocal() as s:
+        made = await run.create_run(s, tid, actor, biz)
+        rid = uuid.UUID(made["id"])
+        r = await s.get(PaymentRun, rid)
+        r.run_date = dt.date.today() - dt.timedelta(days=9)   # planned well over a week ago
+        await s.commit()
+        await run.release_run(s, tid, releaser, rid)
+        anchor = (await s.get(PaymentRun, rid)).released_at.date()
+
+    # Paid the day after release — far outside any window centred on that stale run_date.
+    txn = await _txn(tid, biz, payee="Held Up LLC", amount=1500,
+                     on=anchor + dt.timedelta(days=1), qbo_id="pay-late-release")
+    async with SessionLocal() as s:
+        out = await match_payments(s, tid)
+    assert out["paired"] == 1, out
+    async with SessionLocal() as s:
+        assert (await s.get(BookTxn, txn)).payable_id == pid
+
+
+async def test_a_payment_well_before_the_release_is_not_that_run_s_settlement():
+    """The window is asymmetric. Money leaves on or after a release, so reaching backwards only
+    buys the chance to claim an earlier unrelated payment. One day back is kept deliberately —
+    released_at is UTC while a BookTxn's date is QuickBooks' local calendar day, so they
+    genuinely disagree by a day when a run is released in the evening.
+    """
+    # Pinned by VALUE, not just by relationship. The assertions below are written in terms of
+    # the constant, so they move with it — widen the reach backwards to five days and they would
+    # all still pass while the matcher quietly started claiming week-old payments. The narrow
+    # reach IS the policy, so the number is asserted.
+    assert payables_match.MATCH_BEFORE_DAYS == 1
+    assert payables_match.MATCH_AFTER_DAYS == 5
+
+    tid, actor, biz = await _ctx()
+    await _reset(tid)
+    v = await _vendor(tid, actor, "Early Bird LLC", bank_age_hours=100)
+    due = dt.date.today() + dt.timedelta(days=2)
+    pid, anchor = await _released_bill(tid, actor, biz, v, "EB-1", 990, due)
+
+    early = await _txn(tid, biz, payee="Early Bird LLC", amount=990,
+                       on=anchor - dt.timedelta(days=payables_match.MATCH_BEFORE_DAYS + 1),
+                       qbo_id="pay-too-early")
+    async with SessionLocal() as s:
+        assert (await match_payments(s, tid))["paired"] == 0
+        assert (await s.get(BookTxn, early)).payable_id is None
+
+    # …but the one-day skew itself must still pair, or every evening release stops matching.
+    skewed = await _txn(tid, biz, payee="Early Bird LLC", amount=990,
+                        on=anchor - dt.timedelta(days=payables_match.MATCH_BEFORE_DAYS),
+                        qbo_id="pay-utc-skew")
+    async with SessionLocal() as s:
+        assert (await match_payments(s, tid))["paired"] == 1
+        assert (await s.get(BookTxn, skewed)).payable_id == pid

@@ -91,6 +91,14 @@ def _holds(p: Payable, vendor_status: str | None, band: str | None) -> list[dict
     if p.standard_account_id is None:
         out.append({"key": "uncoded", "label": "Not coded", "hold": True,
                     "why": "An expense account is needed before this can go for approval."})
+    if p.business_id is None:
+        # NOT a blocking hold: a bill with no entity can be coded, submitted and approved, and
+        # this deliberately does not stand in the way of any of that. But create_run selects on
+        # business_id, so it can never enter a run — it would sit approved forever, invisible,
+        # with nothing anywhere saying why. Warned about at the first screen that can show it.
+        out.append({"key": "no_entity", "label": "No entity", "hold": False,
+                    "why": "A run is per company, so a bill with no entity can be approved but "
+                           "never paid. Set one before it is approved."})
     if band is None:
         out.append({"key": "no_band", "label": "No approval band", "hold": True,
                     # Says where to go. A hold that states a fact the reader cannot act on sends

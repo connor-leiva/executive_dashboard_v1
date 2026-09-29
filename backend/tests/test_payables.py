@@ -331,7 +331,12 @@ async def test_a_ready_payable_says_so_and_a_held_one_says_why():
             "vendor_id": uuid.UUID(bad_vendor["id"]), "invoice_number": "UV-1", "amount": 100,
             "standard_account_id": uuid.uuid4()})
 
-    assert ready["can_submit"] is True and ready["holds"] == []
+    # Submittable, and still carrying one non-blocking note: these fixtures set no entity, and
+    # a bill with no entity can be approved but never enters a run. It does not block — it is
+    # said out loud, which is the whole complaint it answers.
+    assert ready["can_submit"] is True
+    assert [h["key"] for h in ready["holds"]] == ["no_entity"]
+    assert all(h["hold"] is False for h in ready["holds"])
     assert uncoded["can_submit"] is False
     assert "uncoded" in {h["key"] for h in uncoded["holds"]}
     assert "vendor_not_ready" in {h["key"] for h in unverified["holds"]}

@@ -32,7 +32,17 @@ from .audit import audit
 from .books_scan import skip_approved_payable
 from .payables_vendor import match_vendor
 
-MATCH_WINDOW_DAYS = 5
+# Asymmetric on purpose. Money leaves on or AFTER the run is released — never meaningfully
+# before it — so a wide window on the early side only buys the chance to claim some earlier,
+# unrelated payment as this run's settlement. The reach forward is where real settlement lag
+# lives.
+#
+# The one day back is not padding, it is a known skew: released_at is a UTC instant while a
+# BookTxn's txn_date is the calendar date QuickBooks recorded locally. Release a run at 19:00
+# Mountain and the two disagree by a day, every time, in the direction of the payment looking
+# like it happened "before" the release.
+MATCH_BEFORE_DAYS = 1
+MATCH_AFTER_DAYS = 5
 # Only BillPayment. A Purchase or a Check that happens to sit near a bill for the same amount is
 # how a payable gets marked settled by an unrelated payment; QBO records the settlement of a
 # bill as a BillPayment, and anything else is a guess dressed up as a match.
@@ -40,13 +50,22 @@ PAYMENT_TYPE = "BillPayment"
 
 
 def _anchor(payable: Payable, run: PaymentRun | None) -> dt.date | None:
-    """The date the window centres on: when the run said to pay, not when the bill was due.
+    """The date the window centres on: when the money was RELEASED.
 
-    Terms can put a due date weeks from the payment — a window around it would either miss the
-    payment entirely or stretch wide enough to catch the next month's.
+    Not the due date — terms can put that weeks from the payment, so a window around it would
+    either miss the settlement or stretch wide enough to swallow next month's.
+
+    And not the planned run_date either, which is what this used to use. A run that sits waiting
+    on a held line gets released days after the date it was planned for, and the payment follows
+    the release, not the plan — so the window drifted off the very payments it existed to catch,
+    and the longer a run was held up the more certainly it stopped matching. released_at is the
+    fact; run_date is the intention.
     """
-    if run is not None and run.run_date is not None:
-        return run.run_date
+    if run is not None:
+        if run.released_at is not None:
+            return run.released_at.date()
+        if run.run_date is not None:
+            return run.run_date
     return payable.due_date
 
 
@@ -88,8 +107,8 @@ async def match_payments(s: AsyncSession, tenant_id) -> dict:
             anchors[p.id] = a
     if not anchors:
         return {"open": len(open_payables), "paired": 0, "ambiguous": 0, "queue_skipped": 0}
-    window = dt.timedelta(days=MATCH_WINDOW_DAYS)
-    lo, hi = min(anchors.values()) - window, max(anchors.values()) + window
+    back, fwd = dt.timedelta(days=MATCH_BEFORE_DAYS), dt.timedelta(days=MATCH_AFTER_DAYS)
+    lo, hi = min(anchors.values()) - back, max(anchors.values()) + fwd
 
     # EVERY query is tenant-scoped, including this one. A BillPayment in another workspace for
     # the same round number is otherwise a perfect match on amount and date.
@@ -111,7 +130,7 @@ async def match_payments(s: AsyncSession, tenant_id) -> dict:
         anchor = anchors.get(p.id)
         if anchor is None:
             continue
-        first, last = anchor - window, anchor + window
+        first, last = anchor - back, anchor + fwd
         for t in free_txns:
             if t.amount != p.amount or not (first <= t.txn_date <= last):
                 continue
