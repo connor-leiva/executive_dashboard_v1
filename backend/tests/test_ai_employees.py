@@ -15,7 +15,7 @@ from app.config import settings
 from app.models import (Tenant, Business, Launch, AISkill, AIEmployee, AIRun, AIArtifact,
                         AIEmployeeSkill)
 from app.services import ai_employees
-from app.services.ai_skills import SKILL_KEYS, SKILLS
+from app.services.ai_skills import SKILL_KEYS, SOCIAL, AP, skills_for, SKILLS
 from app.services.launch import DEFAULT_SHIFT_CURVE
 
 
@@ -27,8 +27,17 @@ async def _seeded():
 async def test_skill_catalog_seeded():
     async with SessionLocal() as s:
         skills = {sk.key: sk for sk in (await s.execute(select(AISkill))).scalars().all()}
-    assert set(skills) == set(SKILL_KEYS) == {
+    # Per FAMILY, and still exact. The catalog is one global list read by every employee, so
+    # the thing worth asserting is not "how many skills exist" but "which ones belong to whom" —
+    # a finance skill leaking into the social set is how a social-media manager starts filing
+    # accounts-payable exception scans. Relaxing this to a subset check would delete the only
+    # place that is checked.
+    assert set(skills) == set(SKILL_KEYS)
+    assert {sk["key"] for sk in skills_for(SOCIAL)} == {
         "audit", "trend_brief", "strategy", "design_carousel", "reel_script", "measure"}
+    assert {sk["key"] for sk in skills_for(AP)} == {
+        "ap_intake", "ap_exception_scan", "ap_run_prep", "ap_aging_digest", "ap_1099_check"}
+    assert not ({s["key"] for s in skills_for(SOCIAL)} & {s["key"] for s in skills_for(AP)}),         "a skill belongs to one family, or the filter that keeps them apart means nothing"
     # each skill carries a prompt, an artifact-kind list, and a run output_contract
     for sk in skills.values():
         assert sk.default_prompt and sk.artifact_kinds
@@ -54,7 +63,9 @@ async def test_demo_fixture_loads_summer_shipped_run():
         emp = (await s.execute(select(AIEmployee).where(AIEmployee.id == eid))).scalar_one()
         assert emp.name == "Summer" and emp.role_title == "Social Media Manager"
         skills = (await s.execute(select(AIEmployeeSkill).where(AIEmployeeSkill.employee_id == eid))).scalars().all()
-        assert len(skills) == 6
+        # Summer is a social employee, so she gets the SOCIAL six and none of the AP five.
+        assert len(skills) == len(skills_for(SOCIAL)) == 6
+        assert not {sk.skill_key for sk in skills} & {s["key"] for s in skills_for(AP)}
         runs = (await s.execute(select(AIRun).where(AIRun.employee_id == eid))).scalars().all()
         assert len(runs) == 1 and runs[0].status == "shipped" and runs[0].trigger == "condition"
         arts = (await s.execute(select(AIArtifact).where(AIArtifact.run_id == runs[0].id))).scalars().all()

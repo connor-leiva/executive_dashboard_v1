@@ -27,7 +27,8 @@ from ..config import settings
 from ..models import (Tenant, Launch, AISkill, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact,
                       AIRosterAccount, AIIntelEntry)
 from .audit import audit
-from .ai_skills import SKILLS, KIND_META
+from .ai_skills import (SKILLS, KIND_META, SOCIAL, skills_for,
+                        family_of as skill_family)          # employees have one too — see below
 from .launch import compute_shift
 
 log = logging.getLogger("app")
@@ -87,6 +88,13 @@ def enabled() -> bool:
 
 def _now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
+
+
+def employee_family(employee: AIEmployee) -> str:
+    """Which catalog this employee draws from. Stored in config rather than a column because it
+    is a product fact about the employee, not tenant configuration, and adding a column for it
+    would mean a migration to answer a question the config already holds."""
+    return (employee.config or {}).get("family") or SOCIAL
 
 
 def _tz(employee: AIEmployee) -> ZoneInfo:
@@ -375,6 +383,12 @@ async def dispatch_tenant(s, tenant_id, now: dt.datetime) -> None:
             skill_def = SKILL_BY_KEY.get(es.skill_key)
             if not skill_def:
                 continue
+            # Attached rows are already family-filtered at seeding, so this is redundant for any
+            # employee created after families existed. It is here for the ones created before,
+            # and for any path that attaches a skill row without going through the seeder: an
+            # employee should never RUN a skill belonging to somebody else's job.
+            if skill_family(skill_def) != employee_family(emp):
+                continue
             cron = es.schedule_override or skill_def.get("default_schedule")
             if cron == "manual":                 # explicit "no schedule" override (§7.2)
                 cron = None
@@ -640,9 +654,12 @@ def roster_priority(acc: AIRosterAccount, weights: dict | None = None) -> float:
 
 
 async def seed_employee_skills(s, employee: AIEmployee) -> None:
-    """Give a new employee the six product skills (enabled), pinning each seed_version so a
-    later seed upgrade can flag a stale override. Caller commits."""
+    """Give a new employee the skills OF ITS OWN FAMILY (enabled), pinning each seed_version so
+    a later seed upgrade can flag a stale override. Caller commits.
+
+    Family-filtered, or a social-media manager is handed the accounts-payable skills and starts
+    filing nightly exception scans over somebody's bills."""
     vers = {k: v for k, v in (await s.execute(select(AISkill.key, AISkill.version))).all()}
-    for d in SKILLS:
+    for d in skills_for(employee_family(employee)):
         s.add(AIEmployeeSkill(tenant_id=employee.tenant_id, employee_id=employee.id,
                               skill_key=d["key"], enabled=True, seed_version=vers.get(d["key"], 1)))

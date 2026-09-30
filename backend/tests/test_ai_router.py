@@ -11,7 +11,7 @@ from app.main import app
 from app.seed import seed
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Tenant, User, AIEmployee, AIRun, AIArtifact
+from app.models import Tenant, User, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact
 from app.security import hash_pw, make_token
 
 TRANSPORT = ASGITransport(app=app)
@@ -38,7 +38,6 @@ async def _one_workspace_one_test():
     empty roster, which is also a truer starting point than inheriting fourteen strangers.
     """
     from sqlalchemy import delete
-    from app.models import AIEmployeeSkill
     async with SessionLocal() as s:
         for model in (AIArtifact, AIRun, AIEmployeeSkill, AIEmployee):
             await s.execute(delete(model))
@@ -407,3 +406,54 @@ async def test_the_plan_counts_what_runs_not_what_was_retired():
         listed = (await c.get("/api/v1/ai/employees", headers=_H(owner))).json()
         names = {e["name"] for e in (listed if isinstance(listed, list) else listed["employees"])}
         assert names == {"Two", "Three", "Four"}, names
+async def test_a_social_employee_cannot_be_given_a_finance_skill():
+    """The skill catalog is ONE global list read by every employee, so the family filter is the
+    only thing keeping the accounts-payable skills off the social-media manager. It has to hold
+    at every door, not just the one that seeds a new hire: the settings list, the attach/patch
+    endpoint, and run-it-now. The last is the sharpest — it would run ap_intake against somebody
+    else's bills on demand.
+    """
+    owner = await _owner_token()
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner),
+                            json={"name": "Summer", "role_title": "Social Media Manager"})).json()
+        eid = emp["id"]
+
+        listed = (await c.get(f"/api/v1/ai/employees/{eid}/skills", headers=_H(owner))).json()
+        keys = {sk["key"] for sk in (listed["skills"] if isinstance(listed, dict) else listed)}
+        assert keys == {"audit", "trend_brief", "strategy", "design_carousel", "reel_script",
+                        "measure"}, keys
+        assert not any(k.startswith("ap_") for k in keys)
+
+        # attaching one is not an option…
+        patched = await c.patch(f"/api/v1/ai/employees/{eid}/skills/ap_intake",
+                                headers=_H(owner), json={"enabled": True})
+        assert patched.status_code == 404, patched.text
+
+        # …and neither is running one on demand
+        ran = await c.post(f"/api/v1/ai/employees/{eid}/skills/ap_exception_scan/run",
+                           headers=_H(owner), json={})
+        assert ran.status_code == 404, ran.text
+
+        # her own skills still work through the same doors
+        mine = await c.patch(f"/api/v1/ai/employees/{eid}/skills/audit",
+                             headers=_H(owner), json={"enabled": False})
+        assert mine.status_code == 200, mine.text
+
+
+async def test_an_ap_employee_gets_the_finance_skills_and_none_of_summers():
+    owner = await _owner_token()
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner),
+                            json={"name": "AP Clerk", "role_title": "Accounts Payable",
+                                  "config": {"family": "ap"}})).json()
+        eid = emp["id"]
+        listed = (await c.get(f"/api/v1/ai/employees/{eid}/skills", headers=_H(owner))).json()
+        keys = {sk["key"] for sk in (listed["skills"] if isinstance(listed, dict) else listed)}
+    assert keys == {"ap_intake", "ap_exception_scan", "ap_run_prep", "ap_aging_digest",
+                    "ap_1099_check"}, keys
+    # and the seeded rows match, so the DISPATCHER sees the same five the screen does
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(AIEmployeeSkill).where(
+            AIEmployeeSkill.employee_id == uuid.UUID(eid)))).scalars().all()
+    assert {r.skill_key for r in rows} == keys

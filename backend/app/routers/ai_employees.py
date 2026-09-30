@@ -30,7 +30,7 @@ from ..security import make_capability, read_capability
 from ..services.audit import audit
 from ..services import ai_employees as eng
 from ..services import ai_media
-from ..services.ai_skills import SKILLS, SKILL_KEYS, KIND_META
+from ..services.ai_skills import SKILLS, SKILL_KEYS, KIND_META, skills_for
 
 MAX_MEDIA_BYTES = 25 * 1024 * 1024      # 25 MB per asset
 
@@ -455,7 +455,9 @@ async def list_skills(emp_id: str, user: User = Depends(current_user),
         AIEmployeeSkill.employee_id == e.id))).scalars().all()}
     catalog = {sk.key: sk for sk in (await s.execute(select(AISkill))).scalars().all()}
     out = []
-    for d in SKILLS:
+    # This employee's own family. The whole catalog would offer a social-media manager the
+    # accounts-payable skills on her settings screen, each with an enabled toggle beside it.
+    for d in skills_for(eng.employee_family(e)):
         es = overrides.get(d["key"])
         cat = catalog.get(d["key"])
         cur_ver = cat.version if cat else 1
@@ -475,12 +477,25 @@ async def list_skills(emp_id: str, user: User = Depends(current_user),
     return {"skills": out}
 
 
+def _assert_own_skill(e: AIEmployee, key: str) -> None:
+    """This employee's own family, or 404.
+
+    SKILL_KEYS is the GLOBAL catalog, so validating against it alone lets the API round the
+    family filter entirely: attach or run `ap_intake` on the social-media manager and she is
+    scanning somebody's bills. 404 rather than 403 because for THIS employee the skill genuinely
+    does not exist — there is nothing to be forbidden from.
+    """
+    if key not in {d["key"] for d in skills_for(eng.employee_family(e))}:
+        raise HTTPException(404, "Unknown skill")
+
+
 @router.patch("/employees/{emp_id}/skills/{key}")
 async def patch_skill(emp_id: str, key: str, body: SkillPatch, user: User = Depends(manager),
                       s: AsyncSession = Depends(get_session)):
     if key not in SKILL_KEYS:
         raise HTTPException(404, "Unknown skill")
     e = await _emp(s, user.tenant_id, emp_id)
+    _assert_own_skill(e, key)
     es = (await s.execute(select(AIEmployeeSkill).where(
         AIEmployeeSkill.employee_id == e.id, AIEmployeeSkill.skill_key == key))).scalar_one_or_none()
     if not es:
@@ -502,6 +517,7 @@ async def run_skill(emp_id: str, key: str, body: RunCreate, user: User = Depends
     if key not in SKILL_KEYS:
         raise HTTPException(404, "Unknown skill")
     e = await _emp(s, user.tenant_id, emp_id)
+    _assert_own_skill(e, key)
     ctx = dict(body.context or {})
     if body.material:
         ctx["material"] = body.material

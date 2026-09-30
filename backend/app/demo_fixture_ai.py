@@ -20,7 +20,7 @@ from sqlalchemy import select, delete
 
 from .db import SessionLocal
 from .models import Tenant, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact
-from .services.ai_skills import SKILLS, KIND_META
+from .services.ai_skills import SKILLS, SOCIAL, skills_for, KIND_META
 
 _EVENT = {"source": "GoHighLevel", "label": "Daily pace check, 6:00 AM",
           "title": "The launch is trailing the registration curve",
@@ -98,7 +98,10 @@ async def load_demo_ai(s, tenant_id) -> AIEmployee:
                      config={"timezone": "America/Denver"})
     s.add(emp)
     await s.flush()
-    for sk in SKILLS:
+    # Her OWN family's skills. This used to attach the whole catalog, which was harmless while
+    # the catalog was six social skills and wrong the moment it was not: Summer would have
+    # picked up the accounts-payable cron jobs and started scanning somebody's bills nightly.
+    for sk in skills_for(SOCIAL):
         s.add(AIEmployeeSkill(tenant_id=tenant_id, employee_id=emp.id, skill_key=sk["key"], enabled=True))
 
     run = AIRun(tenant_id=tenant_id, employee_id=emp.id, skill_key="pace_response", trigger="condition",
