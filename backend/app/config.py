@@ -191,6 +191,19 @@ class Settings(BaseSettings):
     # forwarding-address channel is DISABLED (the endpoint 404s). The email provider's
     # inbound-parse routing to the webhook is external infra to configure separately.
     BINDER_INGEST_SECRET: str = ""
+    # The same idea for Payables, and deliberately a SEPARATE secret rather than a reuse of the
+    # one above. They are different channels carrying different things to different audiences: a
+    # supplier invoice forwarded by whoever happens to bill you, and the legal record of the
+    # entities. Sharing a secret means rotating one forces the other, and a leak of either opens
+    # both. Empty = the payables forwarding address is DISABLED (the endpoint 404s).
+    PAYABLES_INGEST_SECRET: str = ""
+    # The mail domain the forwarding address is BUILT from, for display: the address a workspace
+    # forwards to is {local}@{slug}.{this}. Empty falls back to PLATFORM_DOMAIN, which is what it
+    # would have been hardwired to anyway. It is separate because receiving mail needs MX records
+    # and an inbound-parse route at a provider, and that is rarely the same host the app is
+    # served from -- showing somebody an address on a domain with no MX is showing them an
+    # address that silently swallows every invoice they forward to it.
+    PAYABLES_INGEST_DOMAIN: str = ""
 
     # AI Employees — agentic employees (v1 archetype: Social Media Manager). OFF by default:
     # AI_EMPLOYEES_ENABLED guards the routers, the two worker jobs, and the rail item.

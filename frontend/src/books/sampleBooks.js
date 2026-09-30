@@ -453,6 +453,14 @@ export const sampleRuns = {
 
 /* The approval matrix (offline). Reaches from zero with no gap and an open top band — the
    shape the editor's own check insists on. */
+/* The AP forwarding address. `channel_open` false is the interesting state, and the one the
+   sample shows: a workspace can switch this on and forward its mail, and if the platform's own
+   ingest secret is unset every message is answered with a 404 and nobody is told. */
+export const samplePayablesEmail = {
+  enabled: false, local_part: "ap", address: "ap@springb.axcion.io",
+  channel_open: false, can_manage: true,
+};
+
 export const samplePolicies = {
   bands: [
     { id: "b1", label: "Up to 2,500", business_id: null, min_amount: 0, max_amount: 2500,

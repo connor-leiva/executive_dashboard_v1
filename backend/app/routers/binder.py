@@ -244,6 +244,9 @@ async def document_raw(doc_id: uuid.UUID, user: User = Depends(binder_user),
     Tenant-scoped + binder-tab gated; 404 if the blob isn't on this process's storage."""
     doc = (await s.execute(select(BinderDocument).where(
         BinderDocument.tenant_id == user.tenant_id,
+        # Binder serves Binder documents. A supplier invoice is served by the Payables route,
+        # gated on the books tab -- not by the section somebody unlocked to read a lease.
+        binder_ingest.binder_scope(),
         BinderDocument.id == doc_id))).scalar_one_or_none()
     if doc is None:
         raise HTTPException(404, "Document not found")

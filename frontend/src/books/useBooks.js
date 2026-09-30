@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { getJSON } from "../api";
 import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleCoaMap,
          sampleStatement, sampleLineDetail, sampleVendors, samplePayables,
-         sampleRuns, sampleNextRun, sampleRun, samplePolicies } from "./sampleBooks.js";
+         sampleRuns, sampleNextRun, sampleRun, samplePolicies,
+         samplePayablesEmail } from "./sampleBooks.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -116,6 +117,12 @@ export function useRun(runId) {
    server replaces it wholesale, and a partial edit is how a gap opens between two bands. */
 export function usePolicies() {
   return useEndpoint(`/payables/policies`, samplePolicies, []);
+}
+
+/* The workspace's AP forwarding address: what it is, whether it is open, and whether the
+   platform side of the channel exists at all. */
+export function usePayablesEmail() {
+  return useEndpoint(`/payables/email`, samplePayablesEmail, []);
 }
 
 export function useBooksIC() {

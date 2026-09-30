@@ -443,8 +443,12 @@ async def run_binder_extraction(s: AsyncSession, tenant_id, *, limit: int = 50, 
     today = today or dt.date.today()
     entities = (await s.execute(select(LegalEntity).where(
         LegalEntity.tenant_id == tenant_id, LegalEntity.active.is_(True)))).scalars().all()
+    # Payables' documents are excluded: a supplier invoice read by THIS extractor would come
+    # back classified as an "other" Binder document with no obligations, at the cost of a Claude
+    # call each -- and it would be the AP Clerk's job it was doing badly. ap_intake reads those.
+    from .binder_ingest import binder_scope
     docs = (await s.execute(select(BinderDocument).where(
-        BinderDocument.tenant_id == tenant_id, BinderDocument.extracted.is_(None))
+        BinderDocument.tenant_id == tenant_id, BinderDocument.extracted.is_(None), binder_scope())
         .order_by(BinderDocument.created_at.asc()).limit(limit))).scalars().all()
     summaries = []
     for doc in docs:

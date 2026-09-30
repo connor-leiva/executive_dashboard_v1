@@ -27,7 +27,32 @@ log = logging.getLogger("app")
 # The document categories the extractor classifies into (SPEC Part 3.1). At ingest time the
 # category is unknown unless the caller passed one; it defaults to "other" until extraction
 # (Step 4) proposes a real one.
-CATEGORIES = {"formation", "insurance", "tax", "lease", "registered_agent", "estate", "other"}
+# "payable" is a supplier invoice, and it is here rather than in a store of its own because the
+# blob handling, hashing, dedup and extraction are all worth sharing. It is NOT a binder
+# document: the Binder is the legal record of the entities — formation papers, insurance,
+# filings — read behind a second factor, and a month of supplier invoices filed alongside those
+# buries them. So it shares the plumbing and is excluded from the Binder's own views.
+CATEGORIES = {"formation", "insurance", "tax", "lease", "registered_agent", "estate", "other",
+              "payable", "vendor_tax"}
+# The two that belong to PAYABLES rather than to the Binder. A supplier invoice, and a vendor's
+# W-9 -- which is a tax document, but the VENDOR's, not the entity's, and filing it as "tax" put
+# somebody's W-9 in the middle of the entity's own tax filings.
+PAYABLES_CATEGORIES = {"payable", "vendor_tax"}
+# What the Binder shows. A category absent from here is stored and served by id, and simply does
+# not appear in the Binder's lists.
+BINDER_CATEGORIES = CATEGORIES - PAYABLES_CATEGORIES
+
+
+def binder_scope():
+    """The one predicate every Binder read adds: Payables' documents are not Binder documents.
+
+    A function rather than a rule to remember, because the rule has to hold in six places -- the
+    document list, the review queue, the entity document tree, the extraction pass, the raw-file
+    route and delete -- and a seventh query written later. Miss one and a month of supplier
+    invoices surfaces in the middle of somebody's formation papers, or the Binder's extractor
+    spends a Claude call per invoice deciding an invoice is not an insurance policy.
+    """
+    return BinderDocument.category.notin_(sorted(PAYABLES_CATEGORIES))
 
 
 def document_out(doc: BinderDocument, *, deduped: bool = False) -> dict:
@@ -55,7 +80,11 @@ def enqueue_extraction(doc: BinderDocument) -> None:
 async def list_documents(s: AsyncSession, tenant_id, entity_id=None) -> dict:
     """Ingested documents for a tenant (optionally one entity), newest first. Interim
     observability surface; the entity-detail document tree lands with a later step."""
-    q = select(BinderDocument).where(BinderDocument.tenant_id == tenant_id)
+    q = select(BinderDocument).where(
+        BinderDocument.tenant_id == tenant_id,
+        # Payables' documents share this table for the blob handling and the dedup, and they do
+        # not belong in a list of somebody's formation papers.
+        binder_scope())
     if entity_id is not None:
         q = q.where(BinderDocument.entity_id == entity_id)
     docs = (await s.execute(q.order_by(BinderDocument.created_at.desc()))).scalars().all()

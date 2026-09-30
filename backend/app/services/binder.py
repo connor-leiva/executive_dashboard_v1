@@ -25,7 +25,7 @@ from ..config import settings
 from ..models import (LegalEntity, Business, BinderDocument, Obligation, ProposedObligation,
                       ClosePeriod, Integration, JurisdictionRule)
 from .audit import audit
-from . import binder_storage, binder_extract
+from . import binder_storage, binder_extract, binder_ingest
 from .binder_status import compute_status, roll_forward, TAX_KINDS, _add_months
 
 # The three fields the rules engine needs before it can derive any obligation (Part 5.0).
@@ -331,7 +331,7 @@ async def build_review(s: AsyncSession, tenant_id) -> dict:
     ent_map = {e.id: e for e in (await s.execute(select(LegalEntity).where(
         LegalEntity.tenant_id == tenant_id))).scalars().all()}
     docs = (await s.execute(select(BinderDocument).where(
-        BinderDocument.tenant_id == tenant_id))).scalars().all()
+        BinderDocument.tenant_id == tenant_id, binder_ingest.binder_scope()))).scalars().all()
     doc_map = {d.id: d for d in docs}
 
     today = dt.date.today()
@@ -531,7 +531,8 @@ async def delete_document(s: AsyncSession, tenant_id, user, doc_id) -> bool:
     False if the document isn't this tenant's. (Replace = the caller uploads a new file, then
     deletes the old one via this.)"""
     doc = (await s.execute(select(BinderDocument).where(
-        BinderDocument.tenant_id == tenant_id, BinderDocument.id == doc_id))).scalar_one_or_none()
+        BinderDocument.tenant_id == tenant_id, BinderDocument.id == doc_id,
+        binder_ingest.binder_scope()))).scalar_one_or_none()
     if doc is None:
         return False
     did, filename, storage_ref = doc.id, doc.filename, doc.storage_ref
@@ -810,7 +811,8 @@ async def build_entity_binder(s: AsyncSession, tenant_id, entity_id, today: dt.d
     obs = (await s.execute(select(Obligation).where(
         Obligation.tenant_id == tenant_id, Obligation.entity_id == entity_id))).scalars().all()
     docs = (await s.execute(select(BinderDocument).where(
-        BinderDocument.tenant_id == tenant_id, BinderDocument.entity_id == entity_id)
+        BinderDocument.tenant_id == tenant_id, BinderDocument.entity_id == entity_id,
+        binder_ingest.binder_scope())
         .order_by(BinderDocument.created_at.desc()))).scalars().all()
     doc_by_id = {d.id: d for d in docs}
     ob_by_kind = {ob.kind: ob for ob in obs}

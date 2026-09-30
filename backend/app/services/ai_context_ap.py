@@ -166,6 +166,8 @@ async def build_ap_context(s: AsyncSession, tenant_id, skill_key: str, *,
     if live:
         ctx["truncated"] = live
     return ctx
+
+
 async def document_blocks(s: AsyncSession, tenant_id, run) -> list | None:
     """The bill itself, as a content block, for a run that names one in its context.
 
@@ -173,19 +175,28 @@ async def document_blocks(s: AsyncSession, tenant_id, run) -> list | None:
     Binder already decides PDF vs image vs text by extension, and two answers to "how do we hand
     Claude a file" is how one of them quietly stops handling a format the other learned.
 
-    Returns None when there is no document, when the row belongs to another tenant, or when the
-    blob cannot be read. None is a legitimate answer — ap_intake then has vendors and a chart and
-    no bill, and its own prompt tells it to say so rather than invent one. A run that fails
-    loudly here would be a worse outcome than a run that reports an unreadable attachment.
+    Returns None when there is no document, when the row belongs to another tenant, when it is
+    not one of Payables' own documents, or when the blob cannot be read. None is a legitimate
+    answer — ap_intake then has vendors and a chart and no bill, and its own prompt tells it to
+    say so rather than invent one. A run that fails loudly here would be a worse outcome than a
+    run that reports an unreadable attachment.
+
+    The category check is a SECOND FACTOR, not tidiness. `document_id` arrives in a run's
+    context, and a run can be queued by hand by anyone who manages AI employees — so without it,
+    naming a Binder document's id in the context of an ap_intake run would have the clerk read a
+    lease, an insurance policy or a formation filing back out in its summary. The Binder is
+    behind a TOTP step-up; this would have been a way around it that never asked for a code.
     """
     ref = (run.context or {}).get("document_id")
     if not ref:
         return None
     from ..models import BinderDocument
     from . import binder_extract, binder_storage
+    from .binder_ingest import PAYABLES_CATEGORIES
     try:
         doc = (await s.execute(select(BinderDocument).where(
             BinderDocument.tenant_id == tenant_id,          # tenant-scoped, like every read here
+            BinderDocument.category.in_(sorted(PAYABLES_CATEGORIES)),
             BinderDocument.id == ref))).scalar_one_or_none()
         if doc is None or not doc.storage_ref:
             return None

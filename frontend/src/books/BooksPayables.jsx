@@ -13,7 +13,7 @@
 import { useState } from "react";
 import { postJSON, putJSON, setStepUp, STEP_UP_STATUS, getBlob, uploadFile } from "../api";
 import { usePayables, useVendors, useRuns, useNextRun, useRun, useCoaEntities,
-         useCoaMapping, usePolicies } from "./useBooks.js";
+         useCoaMapping, usePolicies, usePayablesEmail } from "./useBooks.js";
 import { Card, Eyebrow, Pill, StatePanel, Field, font, usd, T } from "./ui.jsx";
 
 const VIEWS = [["inbox", "Inbox"], ["approvals", "Approvals"], ["runs", "Runs"],
@@ -316,7 +316,7 @@ function VendorSetup({ v, onDone }) {
       <div>
         <Eyebrow>W-9</Eyebrow>
         <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, margin: "5px 0 8px" }}>
-          {v.w9 ? "On file." : "Required before a first payment. Stored with the Binder's documents."}
+          {v.w9 ? "On file." : "Required before a first payment. Filed with Payables, not in the Binder."}
         </div>
         {!v.w9 && (
           <input type="file" disabled={busy === "w9"} onChange={(e) => upload(e.target.files?.[0])}
@@ -452,11 +452,134 @@ function NewBillForm({ vendors, onDone, onCancel }) {
 }
 
 /* ── Inbox: bills that have arrived and not yet gone for approval ─────────────────────── */
+/* ── how an invoice gets in ─────────────────────────────────────────────────────────────────
+
+   Two doors onto the same pipeline: drop a PDF here, or forward one to the workspace's own AP
+   address. Either way what lands is a DOCUMENT and a queued reading — never a bill. The clerk
+   proposes and a person accepts, so nothing on this panel can move money.
+
+   Payables has its own address rather than sharing the Binder's. They carry different things to
+   different people: a supplier invoice, forwarded by whoever happens to bill you, and the legal
+   record of the entities, read behind a second factor. */
+
+/* What happened to the thing you just dropped, in a sentence. Every branch says "Filed" first,
+   because it was — the reasons below are about the READING, and none of them lose the document. */
+const INTAKE_SAID = {
+  duplicate: "Already on file — the same document came in before.",
+  ai_disabled: "Filed. AI Employees is switched off for this workspace, so nothing read it.",
+  no_clerk: "Filed. Nobody here does accounts payable yet — add an AP Clerk under AI Employees.",
+  skill_off: "Filed. The clerk's invoice-reading skill is switched off.",
+  daily_cap: "Filed. Today's reading limit is reached — it can still be read by hand.",
+};
+
+function intakeSaid(r) {
+  if (!r) return null;
+  const i = r.intake || {};
+  if (i.queued) {
+    return i.status === "skipped_budget"
+      ? "Filed. This month's AI budget is spent, so the reading is queued but will not run."
+      : `Filed. ${i.employee || "The clerk"} is reading it — the proposal appears under AI Employees.`;
+  }
+  return INTAKE_SAID[i.reason] || "Filed.";
+}
+
+function ForwardingAddress({ onClose }) {
+  const { data, loading, error, retry, refresh } = usePayablesEmail();
+  const [local, setLocal] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const cfg = data || {};
+  const draft = local === null ? (cfg.local_part || "") : local;
+  const dirty = local !== null && local !== cfg.local_part;
+
+  const save = async (patch) => {
+    setBusy(true); setErr(null);
+    try {
+      await putJSON(`/payables/email`, patch);
+      setLocal(null);
+      refresh();
+    } catch (e) { setErr(e?.detail || e?.message || "That could not be saved."); }
+    finally { setBusy(false); }
+  };
+
+  const copy = () => {
+    navigator.clipboard?.writeText(cfg.address || "").then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }).catch(() => {});
+  };
+
+  return (
+    <Card style={{ padding: "15px 16px", marginBottom: 12 }}>
+      <StatePanel loading={loading} error={error} retry={retry}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <Eyebrow>Forwarding address</Eyebrow>
+          <Pill tone={cfg.enabled ? "good" : "muted"}>{cfg.enabled ? "Open" : "Closed"}</Pill>
+          <button style={{ ...btn(), marginLeft: "auto" }} onClick={onClose}>Done</button>
+        </div>
+        <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.secondary,
+                      margin: "7px 0 11px", maxWidth: 620, lineHeight: 1.5 }}>
+          Forward supplier invoices here and each attachment is filed and read. Point your existing
+          AP inbox at this address — you do not have to change what your vendors send to.
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                      marginBottom: 11 }}>
+          <code style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                         fontSize: 12.5, background: T.parchment, padding: "6px 9px",
+                         borderRadius: 6, wordBreak: "break-all" }}>{cfg.address}</code>
+          <button style={btn()} onClick={copy}>{copied ? "Copied" : "Copy"}</button>
+        </div>
+        {!cfg.channel_open && (
+          <div style={{ fontFamily: font.body, fontSize: 12, color: T.poppyText,
+                        marginBottom: 11, maxWidth: 620, lineHeight: 1.5 }}>
+            The platform side of this channel is not set up yet: mail sent to the address above is
+            turned away, and the sender is not told. It needs an inbound route at the mail provider
+            and an ingest secret on the API before anything forwarded here arrives.
+          </div>
+        )}
+        {cfg.can_manage ? (
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            <label style={{ display: "grid", gap: 4 }}>
+              <span style={{ fontFamily: font.body, fontSize: 11, color: T.secondary }}>
+                Name before the @</span>
+              <input value={draft} onChange={(e) => setLocal(e.target.value)}
+                style={{ ...input, width: 190 }} spellCheck={false} />
+            </label>
+            <button disabled={busy || !dirty}
+              style={btn(busy || !dirty ? "disabled" : "primary")}
+              onClick={() => save({ local_part: draft })}>
+              {busy ? "Saving…" : "Rename"}</button>
+            <button disabled={busy} style={btn(busy ? "disabled" : undefined)}
+              onClick={() => save({ enabled: !cfg.enabled })}>
+              {cfg.enabled ? "Close the address" : "Open the address"}</button>
+          </div>
+        ) : (
+          <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>
+            An owner or an admin can change this.
+          </div>
+        )}
+        {err && (
+          <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText, marginTop: 9 }}>
+            {err}</div>
+        )}
+        <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 11,
+                      maxWidth: 620, lineHeight: 1.5 }}>
+          Anyone can email an address they know, so what arrives is only ever a filed document and
+          a draft. A bill exists when a person accepts one.
+        </div>
+      </StatePanel>
+    </Card>
+  );
+}
+
 function InboxView() {
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [channel, setChannel] = useState(false);
+  const [dropped, setDropped] = useState(null);
   const { data, loading, error, retry, refresh } = usePayables({});
   // Every vendor, not just the payable ones: a bill can be ENTERED against a vendor who is not
   // verified yet — it simply cannot be submitted. Hiding them here would make the gate look
@@ -469,6 +592,17 @@ function InboxView() {
     setBusy(p.id); setErr(null);
     try { await mutate(`/payables/${p.id}/submit`); refresh(); }
     catch (e) { setErr(e?.message || "Could not submit that invoice."); }
+    finally { setBusy(null); }
+  };
+
+  const drop = async (file) => {
+    if (!file) return;
+    setBusy("upload"); setErr(null); setDropped(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      setDropped(await uploadFile(`/payables/upload`, fd));
+    } catch (e) { setErr(e?.detail || e?.message || "That file could not be filed."); }
     finally { setBusy(null); }
   };
 
@@ -485,11 +619,31 @@ function InboxView() {
           <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText }}>{err}</span>
         </Card>
       )}
+      {channel && <ForwardingAddress onClose={() => setChannel(false)} />}
+      {dropped && (
+        <Card style={{ padding: "11px 15px", marginBottom: 12 }}>
+          <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.secondary }}>
+            <strong style={{ color: T.ink }}>{dropped.filename}</strong> — {intakeSaid(dropped)}
+          </span>
+        </Card>
+      )}
       {adding
         ? <NewBillForm vendors={vendorList} onCancel={() => setAdding(false)}
             onDone={() => { setAdding(false); refresh(); }} />
-        : <div style={{ marginBottom: 12 }}>
+        : <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap",
+                        alignItems: "center" }}>
             <button style={btn("primary")} onClick={() => setAdding(true)}>New bill</button>
+            {/* A label, not a button: the file input itself is the control, and hiding it behind
+                a styled label is the only way to make it look like the buttons beside it. */}
+            <label style={{ ...btn(), cursor: busy === "upload" ? "default" : "pointer" }}>
+              {busy === "upload" ? "Filing…" : "Upload an invoice"}
+              <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt"
+                disabled={busy === "upload"} style={{ display: "none" }}
+                onChange={(e) => { drop(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
+            {!channel && (
+              <button style={btn()} onClick={() => setChannel(true)}>Forwarding address</button>
+            )}
           </div>}
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <Header cols={["Due", "Vendor", "Invoice", "Amount", "Status", ""]} />
