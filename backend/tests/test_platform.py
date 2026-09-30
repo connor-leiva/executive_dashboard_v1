@@ -63,8 +63,12 @@ async def test_seeded_owner_logs_in_and_me():
     async with _client() as c:
         me = (await c.get("/api/v1/me", headers=_H(tok))).json()
     assert me["role"] == "owner" and me["status"] == "active"
+    # The exact list, in nav order, because the ORDER is what the rail renders and a set would
+    # not catch a module landing in the wrong place. Adding a platform tab means editing this
+    # line -- which is the point: a new tab reaching every workspace's rail should be a decision
+    # somebody wrote down, not a diff nobody read.
     assert me["tabs"] == ["portfolio", "ulrg", "forum", "becollective", "edge", "sympli",
-                          "flywheel", "books", "binder", "ads"]
+                          "flywheel", "books", "binder", "ads", "onboarding"]
 
 
 # ── authz matrix (test 1) ───────────────────────────────────────────
