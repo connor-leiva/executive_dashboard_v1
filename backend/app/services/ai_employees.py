@@ -27,6 +27,7 @@ from ..config import settings
 from ..models import (Tenant, Launch, AISkill, AIEmployee, AIEmployeeSkill, AIRun, AIArtifact,
                       AIRosterAccount, AIIntelEntry)
 from .audit import audit
+from .ai_context_ap import AP_SKILLS
 from .ai_skills import (SKILLS, KIND_META, SOCIAL, skills_for,
                         family_of as skill_family)          # employees have one too — see below
 from .launch import compute_shift
@@ -230,6 +231,20 @@ async def build_context(s, tenant_id, employee: AIEmployee, es: AIEmployeeSkill 
         "handle": rc.get("handle") or "the target account",
     }
     context: dict = {}
+
+    # Finance takes its own path and returns early. Everything below this point — the roster,
+    # the intel log, the media library, the pacing block — is about social media, and for an
+    # accounts-payable clerk it is not merely irrelevant: it is spent out of the same 12000
+    # characters the bills have to fit into.
+    if sk in AP_SKILLS:
+        from .ai_context_ap import build_ap_context
+        context = await build_ap_context(s, tenant_id, sk)
+        if rc.get("material"):
+            context["source_material"] = str(rc["material"])[:8000]
+        if prior:
+            context["prior_work"] = prior
+        return scalars, context
+
     if sk in ("audit", "trend_brief", "_diagnose"):
         roster = (await s.execute(select(AIRosterAccount).where(
             AIRosterAccount.employee_id == employee.id, AIRosterAccount.status != "archived")
