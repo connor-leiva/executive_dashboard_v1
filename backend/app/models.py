@@ -3465,6 +3465,38 @@ class OnboardingPlan(Base):
     )
 
 
+class OnboardingReader(Base):
+    """Somebody who may READ a plan without it being theirs — the person running it.
+
+    The scoping rule without this is "your own plan, unless you are an owner or admin", which is
+    the right default: a tab grant must not hand out a colleague's day-by-day account of a month
+    that went badly. It is also wrong for the one person the plan is built around. The seeded
+    plan has its subject in a huddle with Justin at 8:30 on day one, being trained by him at
+    nine, debriefing with him at 4:45, and reviewing the whole month with him on day thirty --
+    and Justin, as a member, could not see any of it.
+
+    READ ONLY, and that is the point of a separate row rather than a second `user_id` on the
+    plan. `may_write` does not consult this table: a coach reads the month, and ticking somebody
+    else's blocks off for them would make the record of what happened less true, not more.
+    Owners and admins keep their own write access, which is how a correction gets made.
+
+    CASCADE on both sides. Unlike the plan's subject -- SET NULL, because the record of what
+    somebody was asked to do outlives their account -- a reader row means nothing once either
+    end of it is gone.
+    """
+    __tablename__ = "onboarding_reader"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("onboarding_plan.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        # One row per person per plan. Adding a coach twice is a no-op rather than a duplicate
+        # that makes them appear twice in every list that names them.
+        UniqueConstraint("plan_id", "user_id", name="uq_onboarding_reader"),
+    )
+
+
 class OnboardingWeek(Base):
     """A week of the plan, and the prose that frames it."""
     __tablename__ = "onboarding_week"

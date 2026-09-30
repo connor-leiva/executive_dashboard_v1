@@ -20,11 +20,11 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (OnboardingBlock, OnboardingConversation, OnboardingDay, OnboardingPlan,
-                      OnboardingScript, OnboardingTarget, OnboardingWeek, User)
+                      OnboardingReader, OnboardingScript, OnboardingTarget, OnboardingWeek, User)
 
 
 def _today() -> dt.date:
@@ -58,20 +58,47 @@ def _relative(due: dt.date, today: dt.date) -> str:
     return {1: "tomorrow", 0: "today"}.get(diff, "passed")
 
 
-async def plan_summaries(s: AsyncSession, tenant_id, user: User) -> list[dict]:
-    """Every plan this user may open, newest start first.
+async def _readable_ids(s: AsyncSession, user: User) -> set:
+    """Plan ids this user coaches. Empty for owners and admins, who see everything anyway."""
+    if user.role in ("owner", "admin"):
+        return set()
+    return set((await s.execute(select(OnboardingReader.plan_id).where(
+        OnboardingReader.user_id == user.id))).scalars().all())
 
-    A member sees only their own. That is not a tab grant question -- the grant is what puts
+
+def _visible(q, user: User, coached: set):
+    """Narrow a plan query to what this user may read: their own, plus the ones they coach.
+
+    A member sees neither by default. That is not a tab grant question -- the grant is what puts
     Onboarding in their rail at all -- it is that a colleague's day-by-day debrief of a month
-    they found hard is not something a tab grant should hand out.
+    they found hard is not something a tab grant should hand out. Coaching is the exception, and
+    it is named per plan rather than inferred from a role.
     """
-    q = select(OnboardingPlan).where(OnboardingPlan.tenant_id == tenant_id)
-    if user.role not in ("owner", "admin"):
-        q = q.where(OnboardingPlan.user_id == user.id)
+    if user.role in ("owner", "admin"):
+        return q
+    if coached:
+        return q.where(or_(OnboardingPlan.user_id == user.id, OnboardingPlan.id.in_(coached)))
+    return q.where(OnboardingPlan.user_id == user.id)
+
+
+def _relationship(user: User, plan: OnboardingPlan, coached: set) -> str:
+    """How this person comes to be looking at this plan: subject | coach | manager."""
+    if plan.user_id == user.id:
+        return "subject"
+    if plan.id in coached:
+        return "coach"
+    return "manager"
+
+
+async def plan_summaries(s: AsyncSession, tenant_id, user: User) -> list[dict]:
+    """Every plan this user may open, newest start first."""
+    coached = await _readable_ids(s, user)
+    q = _visible(select(OnboardingPlan).where(OnboardingPlan.tenant_id == tenant_id), user, coached)
     rows = (await s.execute(q.order_by(OnboardingPlan.starts_on.desc()))).scalars().all()
     return [{"id": str(p.id), "subject_name": p.subject_name, "title": p.title,
              "starts_on": _iso(p.starts_on), "ends_on": _iso(p.ends_on), "status": p.status,
-             "is_mine": p.user_id == user.id} for p in rows]
+             "is_mine": p.user_id == user.id,
+             "relationship": _relationship(user, p, coached)} for p in rows]
 
 
 async def readable_plan(s: AsyncSession, tenant_id, user: User,
@@ -81,9 +108,8 @@ async def readable_plan(s: AsyncSession, tenant_id, user: User,
     Returns None rather than raising when there is nothing -- an empty Onboarding tab is a real
     state (a workspace that has not written a plan yet), not an error.
     """
-    q = select(OnboardingPlan).where(OnboardingPlan.tenant_id == tenant_id)
-    if user.role not in ("owner", "admin"):
-        q = q.where(OnboardingPlan.user_id == user.id)
+    coached = await _readable_ids(s, user)
+    q = _visible(select(OnboardingPlan).where(OnboardingPlan.tenant_id == tenant_id), user, coached)
     if plan_id is not None:
         return (await s.execute(q.where(OnboardingPlan.id == plan_id))).scalar_one_or_none()
     mine = (await s.execute(q.where(OnboardingPlan.user_id == user.id)
@@ -99,6 +125,11 @@ def may_write(user: User, plan: OnboardingPlan) -> bool:
     The subject, plus owners and admins. Admins are included because a plan is run WITH somebody
     -- the seeded one ends in a review with two of them -- and because a plan whose subject has
     not been given a login yet would otherwise be unwritable by anyone.
+
+    A COACH IS NOT HERE, deliberately, and this function does not consult OnboardingReader at
+    all. Coaching is read access: somebody ticking off another person's blocks for them makes the
+    record of what happened less true rather than more, and the whole value of the month is that
+    the record is true. An owner or admin can still make a correction.
     """
     return user.role in ("owner", "admin") or plan.user_id == user.id
 
@@ -107,6 +138,7 @@ async def plan_payload(s: AsyncSession, plan: OnboardingPlan, user: User,
                        today: dt.date | None = None) -> dict:
     """Everything the tab draws, for one plan."""
     today = today or _today()
+    coached = await _readable_ids(s, user)
     weeks = (await s.execute(select(OnboardingWeek)
                              .where(OnboardingWeek.plan_id == plan.id)
                              .order_by(OnboardingWeek.sort_order))).scalars().all()
@@ -180,6 +212,9 @@ async def plan_payload(s: AsyncSession, plan: OnboardingPlan, user: User,
         "starts_on": _iso(plan.starts_on), "ends_on": _iso(plan.ends_on), "status": plan.status,
         "motions": list(plan.motions or []), "rules": list(plan.rules or []),
         "can_write": may_write(user, plan),
+        # subject | coach | manager. A coach sees every control disabled, and without being told
+        # which of the three they are, a read-only page is indistinguishable from a broken one.
+        "relationship": _relationship(user, plan, coached),
         # Before the first day, the tab says so rather than opening on a day that has not
         # happened: the plan is a thing somebody is about to start, and pretending otherwise
         # makes every counter read as a failure.

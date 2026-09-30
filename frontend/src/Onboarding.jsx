@@ -717,6 +717,18 @@ export default function Onboarding({ data, loading, error, reload, apply, onPick
         </div>
       </div>
 
+      {/* A coach sees every control disabled. Without being told which of the three they are, a
+          read-only page is indistinguishable from a broken one — which is the whole reason the
+          payload carries `relationship`. */}
+      {!plan.can_write && (
+        <Card style={{ padding: "13px 18px", background: T.page }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate }}>
+            You are reading {plan.subject_name}&rsquo;s plan. Only {plan.subject_name.split(" ")[0]}
+            {" "}and an admin can tick it off &mdash; the record of the month is theirs.
+          </div>
+        </Card>
+      )}
+
       {plan.not_started && (
         <Card style={{ padding: "13px 18px", background: T.daffodilBg,
                        borderColor: alpha(T.daffodilText, 0.3) }}>

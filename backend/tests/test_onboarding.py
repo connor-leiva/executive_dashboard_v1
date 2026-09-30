@@ -22,8 +22,8 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import (OnboardingBlock, OnboardingDay, OnboardingPlan, OnboardingScript,
-                        OnboardingTarget, Tenant, User)
+from app.models import (OnboardingBlock, OnboardingDay, OnboardingPlan, OnboardingReader,
+                        OnboardingScript, OnboardingTarget, Tenant, User)
 from app.security import hash_pw, make_token
 from app.services import onboarding as eng
 
@@ -63,7 +63,10 @@ async def ctx():
         owner = mk("owner@onbco.test", "owner")
         subject = mk("matt@onbco.test", "member", ["onboarding"])
         colleague = mk("other@onbco.test", "member", ["onboarding"])
-        s.add_all([owner, subject, colleague])
+        # The person who RUNS the month. A member like any other, which is the whole problem
+        # this fixture exists to pin.
+        coach = mk("coach@onbco.test", "member", ["onboarding"])
+        s.add_all([owner, subject, colleague, coach])
         await s.flush()
 
         plan = await eng.seed_plan(s, tenant.id, _spec(), user_id=subject.id)
@@ -71,6 +74,7 @@ async def ctx():
         # to actually exclude rather than passing on an empty set.
         other_spec = {**_spec(), "subject_name": "Someone Else"}
         other = await eng.seed_plan(s, tenant.id, other_spec, user_id=colleague.id)
+        s.add(OnboardingReader(tenant_id=tenant.id, plan_id=plan.id, user_id=coach.id))
         await s.commit()
 
         return {
@@ -78,7 +82,8 @@ async def ctx():
             "owner": make_token(owner.id, tenant.id, 0),
             "subject": make_token(subject.id, tenant.id, 0),
             "colleague": make_token(colleague.id, tenant.id, 0),
-            "subject_id": subject.id,
+            "coach": make_token(coach.id, tenant.id, 0),
+            "subject_id": subject.id, "coach_id": coach.id,
         }
 
 
@@ -374,3 +379,89 @@ async def test_the_nav_descriptor_carries_the_tab(ctx):
     assert "onboarding" in keys
     # After the other platform modules, which is where Connor asked for it.
     assert keys.index("onboarding") > keys.index("binder")
+
+
+# ── coaching: read without write ──────────────────────────────────────────────────────────
+
+async def test_a_coach_reads_the_plan_they_run(ctx):
+    """The rule without this is "your own plan, unless you are an owner or admin", which is the
+    right default and wrong for the one person the plan is built around. The seeded plan has its
+    subject in a huddle with Justin at 8:30 on day one, trained by him at nine, debriefing with
+    him at 4:45 and reviewing the month with him on day thirty -- and Justin, a member, could see
+    none of it. He was granted the tab and got an empty page. That is how this was found."""
+    async with _client() as c:
+        r = await c.get("/api/v1/onboarding", headers=_H(ctx["coach"], ctx["host"]))
+    body = r.json()
+    assert r.status_code == 200, r.text
+    assert [p["subject_name"] for p in body["plans"]] == ["Matt Griner"]
+    assert body["plan"]["subject_name"] == "Matt Griner"
+    assert body["plan"]["relationship"] == "coach"
+    assert body["plan"]["can_write"] is False
+
+
+async def test_a_coach_cannot_write_anything(ctx):
+    """Read access, and only read access. Somebody ticking off another person's blocks for them
+    makes the record of what happened less true rather than more, and the record being true is
+    the whole value of the month. Every write route is checked, not a sample -- a permission that
+    holds on four endpoints and leaks on the fifth is not a permission."""
+    async with SessionLocal() as s:
+        day = (await s.execute(select(OnboardingDay).where(
+            OnboardingDay.plan_id == ctx["plan"]).order_by(OnboardingDay.sort_order))).scalars().first()
+        block = (await s.execute(select(OnboardingBlock).where(
+            OnboardingBlock.day_id == day.id))).scalars().first()
+        target = (await s.execute(select(OnboardingTarget).where(
+            OnboardingTarget.plan_id == ctx["plan"]))).scalars().first()
+        script = (await s.execute(select(OnboardingScript).where(
+            OnboardingScript.plan_id == ctx["plan"]))).scalars().first()
+        day_id, block_id, target_id = day.id, block.id, target.id
+        script_id = script.id if script else None
+        # Captured BEFORE, and compared to after. Earlier tests in this module legitimately tick
+        # blocks off on this plan, so asserting a literal False here would be asserting their
+        # state rather than the coach's lack of effect.
+        before = (block.done, block.outcome_state, day.debrief, target.actual, target.done)
+
+    h = _H(ctx["coach"], ctx["host"])
+    async with _client() as c:
+        calls = [
+            await c.patch(f"/api/v1/onboarding/blocks/{block_id}", json={"done": True}, headers=h),
+            await c.patch(f"/api/v1/onboarding/days/{day_id}/debrief",
+                          json={"debrief": "not mine to write"}, headers=h),
+            await c.patch(f"/api/v1/onboarding/targets/{target_id}", json={"actual": 99}, headers=h),
+            await c.post(f"/api/v1/onboarding/plans/{ctx['plan']}/scripts",
+                         json={"motion": "Recruiting", "text": "no"}, headers=h),
+            await c.post(f"/api/v1/onboarding/plans/{ctx['plan']}/conversations",
+                         json={"name": "no"}, headers=h),
+        ]
+        if script_id:
+            calls.append(await c.delete(f"/api/v1/onboarding/scripts/{script_id}", headers=h))
+
+    assert all(r.status_code == 403 for r in calls), [r.status_code for r in calls]
+
+    # And nothing moved.
+    async with SessionLocal() as s:
+        b = await s.get(OnboardingBlock, block_id)
+        d = await s.get(OnboardingDay, day_id)
+        t = await s.get(OnboardingTarget, target_id)
+        assert (b.done, b.outcome_state, d.debrief, t.actual, t.done) == before
+
+
+async def test_coaching_one_plan_does_not_open_another(ctx):
+    """The grant is per plan, not a role. A coach on one person's month must not acquire a view
+    of everybody's -- which is what a `coach` ROLE would have quietly meant."""
+    async with _client() as c:
+        r = await c.get(f"/api/v1/onboarding?plan_id={ctx['other']}",
+                        headers=_H(ctx["coach"], ctx["host"]))
+    assert r.status_code == 404, r.text
+
+
+async def test_the_payload_says_which_of_the_three_you_are(ctx):
+    """A read-only page is indistinguishable from a broken one unless it says why."""
+    async with _client() as c:
+        h = {"subject": ctx["subject"], "coach": ctx["coach"], "owner": ctx["owner"]}
+        got = {}
+        for who, tok in h.items():
+            body = (await c.get(f"/api/v1/onboarding?plan_id={ctx['plan']}",
+                                headers=_H(tok, ctx["host"]))).json()
+            got[who] = (body["plan"]["relationship"], body["plan"]["can_write"])
+    assert got == {"subject": ("subject", True), "coach": ("coach", False),
+                   "owner": ("manager", True)}

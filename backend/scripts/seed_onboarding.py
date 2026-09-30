@@ -8,6 +8,10 @@
 their own Onboarding tab and may write to it. Without it the plan is readable by owners and
 admins only, and can be linked later.
 
+`--coach` names somebody who may READ the plan without it being theirs -- the person running the
+month. Repeatable. Read only: a coach never writes, because ticking off another person's blocks
+for them makes the record of what happened less true rather than more.
+
 REFUSES A DUPLICATE by default. Running a seed twice is how a person ends up with two copies of
 their month and half their ticks on each; `--replace` deletes the earlier plan (and everything
 under it, by cascade) and says how many rows went.
@@ -25,7 +29,7 @@ from sqlalchemy import select
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from app.db import SessionLocal                                        # noqa: E402
-from app.models import OnboardingPlan, Tenant, User                    # noqa: E402
+from app.models import OnboardingPlan, OnboardingReader, Tenant, User  # noqa: E402
 from app.services.onboarding import seed_plan                          # noqa: E402
 
 
@@ -34,6 +38,8 @@ async def main() -> int:
     ap.add_argument("--tenant", required=True, help="workspace slug")
     ap.add_argument("--spec", required=True, help="path to the plan JSON")
     ap.add_argument("--email", help="link the plan to this user")
+    ap.add_argument("--coach", action="append", default=[], metavar="EMAIL",
+                    help="someone who may READ this plan without owning it; repeatable")
     ap.add_argument("--replace", action="store_true",
                     help="delete an existing plan with the same subject and dates first")
     args = ap.parse_args()
@@ -74,6 +80,20 @@ async def main() -> int:
             print(f"replaced {len(existing)} existing plan(s)")
 
         plan = await seed_plan(s, tenant.id, spec, user_id=user_id)
+
+        # Coaches: read access, named per plan. The person running somebody's month is usually a
+        # member, and a member sees only their own plan -- which is how the first plan shipped
+        # with its coach looking at an empty tab.
+        coaches = []
+        for email in args.coach:
+            u = (await s.execute(select(User).where(
+                User.tenant_id == tenant.id,
+                User.email == email.lower()))).scalar_one_or_none()
+            if u is None:
+                print(f"No user {email!r} in {args.tenant} -- nothing was written")
+                return 2
+            s.add(OnboardingReader(tenant_id=tenant.id, plan_id=plan.id, user_id=u.id))
+            coaches.append(email)
         await s.commit()
 
     weeks = len(spec.get("weeks") or [])
@@ -82,7 +102,8 @@ async def main() -> int:
                  for d in w.get("days") or [])
     print(f"seeded {plan.id} -- {spec['subject_name']}, {weeks} weeks, {days} days, "
           f"{blocks} blocks, {len(spec.get('targets') or [])} targets"
-          + (f", linked to {args.email}" if args.email else ", not linked to a user yet"))
+          + (f", linked to {args.email}" if args.email else ", not linked to a user yet")
+          + (f", read by {', '.join(coaches)}" if coaches else ""))
     return 0
 
 

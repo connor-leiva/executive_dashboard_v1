@@ -117,6 +117,29 @@ Every route requires the `onboarding` tab. Beyond that:
 DELETEs return `{"ok": true}` rather than 204: the SPA's `delJSON` parses the response, and an
 empty body throws in the client rather than anywhere a server log would show it.
 
+### 6.1 Coaching — migration `0089_onboarding_reader`
+
+**Added after the first plan shipped, because granting the tab exposed the gap.** The rule in
+§6 — your own plan, unless you are an owner or admin — is the right default and is wrong for the
+one person the plan is built around. Matt's plan has him in a huddle with Justin at 8:30 on day
+one, trained by him at nine, debriefing with him at 4:45, and reviewing the month with him on day
+thirty. Justin is a member. He was granted the tab and got an empty page.
+
+`onboarding_reader` names, per plan, who may read it: one row per person per plan, CASCADE on
+both sides, unique on `(plan_id, user_id)`. Seeded with `--coach EMAIL`, repeatable.
+
+**Read only, and `may_write` does not consult the table at all.** Somebody ticking off another
+person's blocks for them makes the record of what happened less true rather than more, and the
+record being true is the whole value of the month. Owners and admins keep write access, which is
+how a correction gets made.
+
+**Per plan, not a role.** A coach on one person's month does not acquire a view of everybody's —
+which is what a `coach` role would have quietly meant. Asserted.
+
+The payload carries `relationship`: `subject` | `coach` | `manager`. A coach sees every control
+disabled, and without being told which of the three they are, a read-only page is
+indistinguishable from a broken one.
+
 ## 7. Frontend — `Onboarding.jsx`, `useOnboarding.js`
 
 The five views, rebuilt in the app's own system. The bundle's palette, type and left sidebar did
@@ -154,7 +177,8 @@ offline fallback.
 
 1. **A plan editor** (D4). Creating and assigning plans, editing days and blocks. Until then a
    plan is a JSON file and a seed command.
-2. **Linking a plan to a user from the UI.** Today it is `--email` at seed time.
+2. **Linking a plan to a user, or naming a coach, from the UI.** Today both are flags at seed
+   time (`--email`, `--coach`).
 3. **Reminders.** The plan says to log a conversation the same day; nothing nudges.
 4. **Anything written back to recruiting.** A logged conversation stays inside the plan; the
    pipeline is somebody else's system of record.
