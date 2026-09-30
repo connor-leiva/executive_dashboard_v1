@@ -284,14 +284,19 @@ def test_every_platform_module_has_a_mark():
     looks like one of the customer's businesses instead of one of our products -- the failure is
     a missing dictionary entry again, and again nothing complains.
 
-    The modules are named on the server: plans.py gates them, so plans.py is the source. `ads` is
-    the exception -- it is a rail module but not plan-gated -- and is listed rather than derived,
-    because a test that silently skipped it would be no test at all.
+    The modules are named on the server, and the source is services/tabs.py `PLATFORM_TABS` --
+    the registry that actually decides which tabs exist -- minus `portfolio`, which is the
+    overview and wears its accent rather than a mark.
+
+    This used to derive from plans.py `_FEATURE_TABS` and carry `ads` as a hand-listed exception,
+    because ads is a rail module that no plan gates. `onboarding` then became the second such
+    module, which is the moment a list of exceptions stops being a list and becomes the thing it
+    was approximating. Gating is a pricing question; having a mark is a question about the rail.
     """
     import re
     from pathlib import Path
 
-    from app.plans import _FEATURE_TABS
+    from app.services.tabs import PLATFORM_TABS
 
     src = Path(__file__).resolve().parents[2] / "frontend" / "src" / "brand" / "productIcons.jsx"
     if not src.exists():
@@ -302,7 +307,7 @@ def test_every_platform_module_has_a_mark():
     block = block[: block.index("}")]
     has_mark = set(re.findall(r"^\s*([a-z_]+)\s*:", block, re.M))
 
-    expected = set(_FEATURE_TABS) | {"ads"}
+    expected = set(PLATFORM_TABS) - {"portfolio"}
     missing = sorted(expected - has_mark)
     assert not missing, f"platform module(s) with no mark, will render as a business dot: {missing}"
 

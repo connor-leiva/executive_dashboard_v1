@@ -3418,3 +3418,194 @@ class PayableEvent(Base):
         GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
     payload: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ── Onboarding ────────────────────────────────────────────────────────────────────────────
+# A dated plan for one person's first thirty days, and that person's progress through it.
+#
+# THE PLAN IS DATA, NOT A PAGE. It arrived as a hand-built HTML page for one new hire, with the
+# days written into the bundle and every check-off in that browser's localStorage -- which is why
+# the original had a "Copy report for Connor & Justin" button: the numbers could not be seen any
+# other way. Both halves are rows here instead, so the second hire is an insert rather than a
+# deploy, and so the people running the review read the same progress the person is ticking off.
+#
+# ONE PLAN, ONE PERSON. Progress lives on the plan's own rows rather than in a join table keyed
+# by user, because a plan is issued TO somebody: two hires starting the same programme get two
+# plans. That keeps every read a single scoped query and makes "what did this person actually
+# do" answerable without reconstructing it from an event log.
+
+
+class OnboardingPlan(Base):
+    """One person's dated programme. The row everything else hangs off."""
+    __tablename__ = "onboarding_plan"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    # Nullable: a plan is written before the person starts, and often before they have a login.
+    # SET NULL rather than CASCADE -- deleting a user must not delete the record of what they
+    # were asked to do, which is the half that matters after they leave.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Their name as the plan addresses them, kept even once user_id resolves: the plan says
+    # "Matt Griner" on its cover and should keep saying it if the account is renamed or removed.
+    subject_name: Mapped[str] = mapped_column(String(160))
+    title: Mapped[str] = mapped_column(String(200))
+    starts_on: Mapped[date] = mapped_column(Date)
+    ends_on: Mapped[date] = mapped_column(Date)
+    # draft | active | complete. `draft` exists so a plan can be written and reviewed before the
+    # person can see it; nothing shows a draft to its subject.
+    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
+    # The named motions the script library is organised by, e.g. ["Recruiting", "The Forum"].
+    # A list rather than a table: they are labels on a plan, never referenced from elsewhere.
+    motions: Mapped[list] = mapped_column(JSONType, default=list)
+    # Standing rules shown beside the week that introduces them: [{"h": ..., "p": ...}].
+    rules: Mapped[list] = mapped_column(JSONType, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index("ix_onboarding_plan_tenant_status", "tenant_id", "status"),
+    )
+
+
+class OnboardingWeek(Base):
+    """A week of the plan, and the prose that frames it."""
+    __tablename__ = "onboarding_week"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("onboarding_plan.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(48))                      # "Week 2"
+    date_range: Mapped[str] = mapped_column(String(64))                 # "October 5 to 9"
+    # An optional qualifier on the week -- "eXpcon week". Distinct from the range so the two can
+    # be shown apart, which the narrow layout does.
+    subtitle: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    intro: Mapped[list] = mapped_column(JSONType, default=list)         # paragraphs, before
+    outro: Mapped[list] = mapped_column(JSONType, default=list)         # paragraphs, after
+    # Whether this week is where the standing rules are introduced. A flag rather than a copy of
+    # the rules, so editing them in one place changes every week that shows them.
+    show_rules: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    __table_args__ = (
+        Index("ix_onboarding_week_plan", "plan_id", "sort_order"),
+    )
+
+
+class OnboardingDay(Base):
+    """One day of the plan -- or one weekend, which is why `end_date` exists.
+
+    Carries BOTH the authored notes (written with the plan) and the subject's own debrief
+    (written on the day). They are different things by different authors and are never merged:
+    the first is instruction, the second is what actually happened.
+    """
+    __tablename__ = "onboarding_day"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("onboarding_plan.id", ondelete="CASCADE"), index=True)
+    week_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("onboarding_week.id", ondelete="CASCADE"), index=True)
+    day_date: Mapped[date] = mapped_column(Date)
+    # Set only for a span -- a weekend shown as one card. Null for an ordinary day.
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    dow: Mapped[str] = mapped_column(String(16))                        # "Thursday" | "Weekend"
+    location: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # A short badge: "deadline day", "eXpcon", "day 30". Free text on purpose -- it is a label a
+    # plan's author writes, and an enum here would mean a migration per new plan.
+    tag: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    # A day spent somewhere other than the normal place of work, which the UI draws differently.
+    offsite: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    notes: Mapped[list] = mapped_column(JSONType, default=list)         # authored paragraphs
+    # Written by the subject at the end of the day. Text, not String: it is prose with no length
+    # a plan's author could sensibly cap.
+    debrief: Mapped[str | None] = mapped_column(Text, nullable=True)
+    debrief_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    __table_args__ = (
+        Index("ix_onboarding_day_plan", "plan_id", "sort_order"),
+    )
+
+
+class OnboardingBlock(Base):
+    """A timed block within a day, and whether it was done and its outcome met.
+
+    `done` and `outcome` are separate answers to separate questions. A block can be worked
+    through and still miss its outcome -- "five appointments set" either happened or it did not,
+    and a plan that could only record attendance would hide exactly the thing a thirty-day review
+    is for. The original page drew them as three controls for that reason.
+    """
+    __tablename__ = "onboarding_block"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    day_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("onboarding_day.id", ondelete="CASCADE"), index=True)
+    time_label: Mapped[str] = mapped_column(String(32))                 # "9:00-11:00", "8:30"
+    task: Mapped[str] = mapped_column(Text)
+    outcome: Mapped[str] = mapped_column(Text)
+    done: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # hit | miss | NULL. Null is "not answered yet" and is NOT the same as a miss -- a day that
+    # has not happened would otherwise read as a day that went wrong.
+    outcome_state: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    __table_args__ = (
+        Index("ix_onboarding_block_day", "day_id", "sort_order"),
+    )
+
+
+class OnboardingTarget(Base):
+    """A scoreboard row: a number to reach, or a thing to complete, by a date."""
+    __tablename__ = "onboarding_target"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("onboarding_plan.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(200))
+    # NULL target means the row is a yes/no -- "all members contacted" -- and `done` answers it.
+    # A number means `actual` is counted against it. One table rather than two because they are
+    # one scoreboard to the person reading it, and the difference is a column.
+    target: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    done: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    due_on: Mapped[date] = mapped_column(Date)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    __table_args__ = (
+        Index("ix_onboarding_target_plan", "plan_id", "due_on"),
+    )
+
+
+class OnboardingScript(Base):
+    """A line that worked, saved under the motion it belongs to.
+
+    The plan's own instruction is to write the words down in the speaker's actual language rather
+    than paraphrase them, so this is the artefact the first week is meant to produce.
+    """
+    __tablename__ = "onboarding_script"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("onboarding_plan.id", ondelete="CASCADE"), index=True)
+    # One of the plan's `motions`. Not a foreign key: motions are labels on a plan, and a plan
+    # whose author renames one should not have its saved lines deleted by a cascade.
+    motion: Mapped[str] = mapped_column(String(64))
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index("ix_onboarding_script_plan", "plan_id", "motion"),
+    )
+
+
+class OnboardingConversation(Base):
+    """One logged conversation: who, where they are, what was said, what happens next.
+
+    Deliberately NOT a CRM record. It is the plan's own instruction -- log the conversation the
+    same day, because by Monday the names blur -- and it stays inside the plan rather than
+    writing into the recruiting pipeline, which is somebody else's system of record.
+    """
+    __tablename__ = "onboarding_conversation"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("onboarding_plan.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    team: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_step: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # hot | warm | no | NULL. Null is unrated, which is the honest state for a name written down
+    # in a hurry and not yet judged.
+    heat: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    appointment_set: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index("ix_onboarding_conversation_plan", "plan_id", "created_at"),
+    )

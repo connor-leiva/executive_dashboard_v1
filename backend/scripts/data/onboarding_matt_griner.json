@@ -1,0 +1,850 @@
+{
+ "subject_name": "Matt Griner",
+ "title": "30-Day Checklist",
+ "starts_on": "2026-10-01",
+ "ends_on": "2026-10-30",
+ "status": "active",
+ "motions": [
+  "Recruiting",
+  "VIP tickets",
+  "The Edge",
+  "The Forum"
+ ],
+ "rules": [
+  {
+   "h": "Log every conversation the same day, not on Monday.",
+   "p": "By Monday the names blur and the context is gone."
+  },
+  {
+   "h": "Set the next meeting while you are standing there.",
+   "p": "\"Can I get thirty minutes with you and one of our team leaders next week?\" converts far better than a follow-up message three days later."
+  },
+  {
+   "h": "Do not discuss sponsorship.",
+   "p": "If an agent raises eXp sponsor or revenue share, hand it to Justin or the relevant team leader. That conversation is not yours, and staying out of it protects you."
+  }
+ ],
+ "weeks": [
+  {
+   "label": "Week 1",
+   "date_range": "October 1 to 2",
+   "intro": [
+    "Two days. Get trained, then get on the phone."
+   ],
+   "outro": [],
+   "days": [
+    {
+     "date": "2026-10-01",
+     "dow": "Thursday",
+     "location": "SLC office",
+     "notes": [
+      "The training block is the most valuable two hours of your month. Record it if Justin is willing. Write the exact language for each of the four motions — what he opens with, what he says when they hesitate, how he asks for the meeting. You are building the script library that does not exist."
+     ],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle with Justin",
+       "outcome": "Day agreed"
+      },
+      {
+       "time": "9:00–11:00",
+       "task": "Two-hour training block with Justin — recruiting, VIP tickets, The Edge, The Forum",
+       "outcome": "Four scripts written in Justin's actual words, not paraphrased"
+      },
+      {
+       "time": "11:00–12:00",
+       "task": "Build your call list: every Forum member, plus Justin's recruiting names",
+       "outcome": "A named list you can dial from tomorrow"
+      },
+      {
+       "time": "1:00–4:00",
+       "task": "Start Forum member introductions and registration reminders",
+       "outcome": "Half the member list contacted"
+      },
+      {
+       "time": "4:00–4:30",
+       "task": "Recruiting dials from Justin's names",
+       "outcome": "2 appointments set"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief with Justin",
+       "outcome": "Tomorrow's list set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-02",
+     "dow": "Friday",
+     "location": "SLC office",
+     "tag": "deadline day",
+     "notes": [
+      "Report the misses yourself. If you set three instead of five, say three and say what you learned about why. Numbers reported honestly in week one buy you enormous credibility for week four."
+     ],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle with Justin",
+       "outcome": "Gaps against the scoreboard named"
+      },
+      {
+       "time": "9:00–12:00",
+       "task": "Finish Forum member introductions and registration reminders",
+       "outcome": "All members contacted"
+      },
+      {
+       "time": "1:00–3:30",
+       "task": "Recruiting dials",
+       "outcome": "5 appointments set for the week"
+      },
+      {
+       "time": "3:30–4:00",
+       "task": "Hold or confirm your booked recruiting appointments",
+       "outcome": "2 met"
+      },
+      {
+       "time": "4:00–4:30",
+       "task": "Log everything in GHL with true lead sources",
+       "outcome": "Clean record, no guessed attribution"
+      },
+      {
+       "time": "4:30",
+       "task": "Week one numbers to Connor and Justin",
+       "outcome": "Reported against the scoreboard, including misses"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-03",
+     "end_date": "2026-10-04",
+     "dow": "Weekend",
+     "location": "Anywhere",
+     "notes": [
+      "One task, and it is worth the hour: build your eXpcon target list. Names of agents you want to find at the Salt Palace next week — who they are, what team, why they might move. Aim for 25. Bring it to Monday's huddle."
+     ],
+     "blocks": [
+      {
+       "time": "Weekend",
+       "task": "Build your eXpcon target list",
+       "outcome": "Aim for 25. Bring it to Monday's huddle."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "Week 2",
+   "date_range": "October 5 to 9",
+   "subtitle": "eXpcon week",
+   "intro": [
+    "eXpcon 2026 runs October 7 to 9 at the Salt Palace Convention Center in Salt Lake City, with Gary Vaynerchuk giving the opening keynote. Thousands of eXp agents, three days, in your city.",
+    "This is the highest-leverage week of your first quarter and it happens in week two. Treat Monday and Tuesday as preparation for it, not as ordinary days."
+   ],
+   "outro": [],
+   "show_rules": true,
+   "days": [
+    {
+     "date": "2026-10-05",
+     "dow": "Monday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle. Walk your 25-name target list with Justin",
+       "outcome": "Justin adds names and flags who he knows"
+      },
+      {
+       "time": "9:00–11:00",
+       "task": "Research the list: current team, production, tenure, why they might move",
+       "outcome": "One line of context per name"
+      },
+      {
+       "time": "11:00–12:00",
+       "task": "Rehearse the conference opener with Justin — 30 seconds, not a pitch",
+       "outcome": "Opener you can say cold"
+      },
+      {
+       "time": "1:00–3:00",
+       "task": "Recruiting dials. Book anything you can before the conference",
+       "outcome": "Appointments on the calendar"
+      },
+      {
+       "time": "3:00–4:30",
+       "task": "Forum and Edge follow-up from last week's outreach",
+       "outcome": "Pipeline current"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Tuesday agreed"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-06",
+     "dow": "Tuesday",
+     "location": "SLC office",
+     "tag": "final prep",
+     "notes": [
+      "Get your badge situation confirmed today. You are not yet licensed or affiliated with eXp, so check with Justin what credential you need to be in the building and in the rooms that matter."
+     ],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle",
+       "outcome": "Conference plan confirmed"
+      },
+      {
+       "time": "9:00–10:30",
+       "task": "Build your three-day conference plan with Justin: which sessions, which parties, where he will introduce you",
+       "outcome": "An hour-by-hour plan for Wed–Fri"
+      },
+      {
+       "time": "10:30–11:00",
+       "task": "Confirm your registration, badge and any ticket requirements",
+       "outcome": "No surprises at the door"
+      },
+      {
+       "time": "11:00–12:00",
+       "task": "Set up a fast capture method — one note per conversation, name, context, next step",
+       "outcome": "Something you can use standing up"
+      },
+      {
+       "time": "1:00–4:00",
+       "task": "Recruiting dials and Forum follow-up",
+       "outcome": "Week's pipeline moved"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Ready"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-07",
+     "dow": "Wednesday",
+     "location": "Salt Palace Convention Center",
+     "tag": "eXpcon",
+     "offsite": true,
+     "notes": [],
+     "blocks": [
+      {
+       "time": "All day",
+       "task": "Keynote, then the floor. Stay with Justin — his introductions are worth more than any approach you make cold",
+       "outcome": "15 real conversations logged, 2 appointments set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-08",
+     "dow": "Thursday",
+     "location": "Salt Palace Convention Center",
+     "tag": "eXpcon",
+     "offsite": true,
+     "notes": [],
+     "blocks": [
+      {
+       "time": "All day",
+       "task": "Work your target list deliberately. Sessions where your named agents will be",
+       "outcome": "15 conversations, 2 appointments set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-09",
+     "dow": "Friday",
+     "location": "Salt Palace Convention Center",
+     "tag": "eXpcon",
+     "offsite": true,
+     "notes": [],
+     "blocks": [
+      {
+       "time": "All day",
+       "task": "Close-out day. Chase the names you have not found. Confirm every appointment in writing before you leave the building",
+       "outcome": "5 set for the week. Every conversation logged same day"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "Week 3",
+   "date_range": "October 12 to 16",
+   "intro": [
+    "Two jobs this week. Convert the conference, and hit the VIP guest numbers."
+   ],
+   "outro": [
+    "By Friday the Axcion Recruiting tab should be live. Once it is, your daily and weekly recruiting accountability moves there. Ask Connor to walk you through it rather than working it out alone."
+   ],
+   "days": [
+    {
+     "date": "2026-10-12",
+     "dow": "Monday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle. Rank every conference conversation: hot, warm, no",
+       "outcome": "Ranked list"
+      },
+      {
+       "time": "9:00–12:00",
+       "task": "Call every hot name from eXpcon. Three days is the outer edge of warm",
+       "outcome": "Appointments booked"
+      },
+      {
+       "time": "1:00–3:00",
+       "task": "Call every warm name",
+       "outcome": "Follow-ups scheduled"
+      },
+      {
+       "time": "3:00–4:30",
+       "task": "Hold recruiting appointments carried over from Friday",
+       "outcome": "2 met"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Conference converted or honestly written off"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-13",
+     "dow": "Tuesday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "9:00–12:00",
+       "task": "Referral VIP guest push. Work the Forum member list for referrals — members refer the best guests",
+       "outcome": "8 registered"
+      },
+      {
+       "time": "1:00–3:00",
+       "task": "Recruiting dials",
+       "outcome": "2 appointments set"
+      },
+      {
+       "time": "3:00–4:30",
+       "task": "Forum and Edge pipeline",
+       "outcome": "Current"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-14",
+     "dow": "Wednesday",
+     "location": "SLC office",
+     "tag": "deadline",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "9:00–12:00",
+       "task": "Finish referral VIP registrations",
+       "outcome": "15 referral VIP guests registered"
+      },
+      {
+       "time": "1:00–4:30",
+       "task": "Recruiting dials and appointment holding",
+       "outcome": "Pipeline moved"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-15",
+     "dow": "Thursday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "9:00–11:00",
+       "task": "Ad VIP guest follow-up — these are colder, so expect more attempts per registration",
+       "outcome": "3 registered"
+      },
+      {
+       "time": "11:00–12:00",
+       "task": "Script library review with Justin. What is working, what is not",
+       "outcome": "Scripts revised from real calls"
+      },
+      {
+       "time": "1:00–4:30",
+       "task": "Recruiting dials",
+       "outcome": "Appointments set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-16",
+     "dow": "Friday",
+     "location": "SLC office",
+     "tag": "deadline day",
+     "notes": [
+      "By Friday the Axcion Recruiting tab should be live. Once it is, your daily and weekly recruiting accountability moves there. Ask Connor to walk you through it rather than working it out alone."
+     ],
+     "blocks": [
+      {
+       "time": "9:00–11:00",
+       "task": "Close out ad VIP registrations",
+       "outcome": "5 ad VIP guests registered"
+      },
+      {
+       "time": "11:00–1:00",
+       "task": "Recruiting appointments",
+       "outcome": "5 set, 2 met for the week"
+      },
+      {
+       "time": "1:00–4:00",
+       "task": "Forum and Edge pipeline, plus GHL clean-up",
+       "outcome": "Every record current and correctly sourced"
+      },
+      {
+       "time": "4:30",
+       "task": "Week numbers to Connor and Justin",
+       "outcome": "Reported against the scoreboard"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "Week 4",
+   "date_range": "October 19 to 23",
+   "intro": [
+    "First week with no event and no deadline cluster. This is what the job actually looks like, and it is the week that tells us whether the rhythm holds.",
+    "The shape repeats daily: recruiting in the mornings, Forum and Edge in the afternoons. Recruiting goes first because it loses every time it goes second."
+   ],
+   "outro": [
+    "Two things to build this week, both yours to own.",
+    "The objection playbook. You have been on enough calls now to know the five objections you actually hear — on the $25,000 Forum decision and on the recruiting conversation. Write your answer to each. Ninety minutes, once, on Thursday.",
+    "The ideal profile. One page on who the right Forum member looks like and who the right recruit looks like. This is what stops you spending a week on people who were never going to say yes.",
+    "If the mornings are slipping, say so at Thursday's debrief rather than at the month-end review. A blocked calendar that quietly erodes is the most common way this role goes wrong, and it is fixable the week it starts."
+   ],
+   "days": [
+    {
+     "date": "2026-10-19",
+     "dow": "Monday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle with Justin",
+       "outcome": "Week's targets agreed"
+      },
+      {
+       "time": "9:00–12:00",
+       "task": "Recruiting dials from the Axcion list",
+       "outcome": "2 appointments set"
+      },
+      {
+       "time": "1:00–2:30",
+       "task": "Forum pipeline review with Justin",
+       "outcome": "Every open opportunity has a next step and a date"
+      },
+      {
+       "time": "2:30–4:30",
+       "task": "Forum follow-up calls",
+       "outcome": "Pipeline moved"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Tuesday set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-20",
+     "dow": "Tuesday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle",
+       "outcome": "Day agreed"
+      },
+      {
+       "time": "9:00–11:00",
+       "task": "Recruiting dials",
+       "outcome": "1 appointment set"
+      },
+      {
+       "time": "11:00–12:00",
+       "task": "Hold recruiting appointment",
+       "outcome": "1 met"
+      },
+      {
+       "time": "1:00–3:00",
+       "task": "Edge outreach — the accounts Justin hands you",
+       "outcome": "3 Edge conversations"
+      },
+      {
+       "time": "3:00–4:30",
+       "task": "Web lead follow-up",
+       "outcome": "Nothing in the queue older than 24 hours"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Wednesday set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-21",
+     "dow": "Wednesday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle",
+       "outcome": "Day agreed"
+      },
+      {
+       "time": "9:00–12:00",
+       "task": "Recruiting dials",
+       "outcome": "2 appointments set"
+      },
+      {
+       "time": "1:00–3:00",
+       "task": "Forum proposals and follow-up",
+       "outcome": "Proposals out same day"
+      },
+      {
+       "time": "3:00–4:30",
+       "task": "Referral asks to existing Forum members",
+       "outcome": "Named referrals, not \"I'll think about it\""
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Thursday set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-22",
+     "dow": "Thursday",
+     "location": "SLC office",
+     "notes": [
+      "The objection playbook. You have been on enough calls now to know the five objections you actually hear — on the $25,000 Forum decision and on the recruiting conversation. Write your answer to each. Ninety minutes, once, on Thursday.",
+      "If the mornings are slipping, say so at Thursday's debrief rather than at the month-end review. A blocked calendar that quietly erodes is the most common way this role goes wrong, and it is fixable the week it starts."
+     ],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle",
+       "outcome": "Day agreed"
+      },
+      {
+       "time": "9:00–11:00",
+       "task": "Recruiting dials",
+       "outcome": "Pipeline moved"
+      },
+      {
+       "time": "11:00–12:00",
+       "task": "Hold recruiting appointment",
+       "outcome": "1 met"
+      },
+      {
+       "time": "1:00–2:30",
+       "task": "Objection playbook build, with Justin",
+       "outcome": "Five real objections written with your answers"
+      },
+      {
+       "time": "2:30–4:30",
+       "task": "Forum and Edge follow-up",
+       "outcome": "Current"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief — flag anything that slipped this week",
+       "outcome": "Named, not carried quietly"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-23",
+     "dow": "Friday",
+     "location": "SLC office",
+     "notes": [
+      "The ideal profile. One page on who the right Forum member looks like and who the right recruit looks like. This is what stops you spending a week on people who were never going to say yes."
+     ],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle",
+       "outcome": "Gaps against the scoreboard named"
+      },
+      {
+       "time": "9:00–11:00",
+       "task": "Close the week's recruiting appointments",
+       "outcome": "5 set, 2 met"
+      },
+      {
+       "time": "11:00–12:00",
+       "task": "Write the ideal-profile page",
+       "outcome": "One page: right Forum member, right recruit"
+      },
+      {
+       "time": "1:00–3:00",
+       "task": "Forum and Edge pipeline",
+       "outcome": "Current"
+      },
+      {
+       "time": "3:00–4:00",
+       "task": "GHL clean-up with true lead sources",
+       "outcome": "Clean records"
+      },
+      {
+       "time": "4:30",
+       "task": "Week numbers to Connor and Justin",
+       "outcome": "Reported against the scoreboard"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "Week 5",
+   "date_range": "October 26 to 30",
+   "intro": [
+    "Same rhythm as week 4, plus closing out the thirty days and setting up November."
+   ],
+   "outro": [],
+   "days": [
+    {
+     "date": "2026-10-26",
+     "dow": "Monday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle with Justin",
+       "outcome": "Week's targets agreed"
+      },
+      {
+       "time": "9:00–12:00",
+       "task": "Recruiting dials",
+       "outcome": "2 appointments set"
+      },
+      {
+       "time": "1:00–2:30",
+       "task": "Forum pipeline review with Justin",
+       "outcome": "Next step and date on every opportunity"
+      },
+      {
+       "time": "2:30–4:30",
+       "task": "Forum follow-up calls",
+       "outcome": "Pipeline moved"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Tuesday set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-27",
+     "dow": "Tuesday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle",
+       "outcome": "Day agreed"
+      },
+      {
+       "time": "9:00–11:00",
+       "task": "Recruiting dials",
+       "outcome": "Pipeline moved"
+      },
+      {
+       "time": "11:00–12:00",
+       "task": "Hold recruiting appointment",
+       "outcome": "1 met"
+      },
+      {
+       "time": "1:00–3:00",
+       "task": "Edge outreach",
+       "outcome": "3 Edge conversations"
+      },
+      {
+       "time": "3:00–4:30",
+       "task": "Web lead follow-up",
+       "outcome": "Queue clear"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Wednesday set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-28",
+     "dow": "Wednesday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle",
+       "outcome": "Day agreed"
+      },
+      {
+       "time": "9:00–12:00",
+       "task": "Recruiting dials",
+       "outcome": "2 appointments set"
+      },
+      {
+       "time": "1:00–3:00",
+       "task": "Forum proposals and follow-up",
+       "outcome": "Proposals out"
+      },
+      {
+       "time": "3:00–4:30",
+       "task": "Script library revision — what actually worked this month, in your words now rather than Justin's",
+       "outcome": "Scripts rewritten from real calls"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Thursday set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-29",
+     "dow": "Thursday",
+     "location": "SLC office",
+     "notes": [],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle",
+       "outcome": "Day agreed"
+      },
+      {
+       "time": "9:00–11:00",
+       "task": "Recruiting dials",
+       "outcome": "Pipeline moved"
+      },
+      {
+       "time": "11:00–12:00",
+       "task": "Hold recruiting appointment",
+       "outcome": "1 met"
+      },
+      {
+       "time": "1:00–3:00",
+       "task": "Write your 30-day self-assessment",
+       "outcome": "Numbers, what you built, what you need"
+      },
+      {
+       "time": "3:00–4:30",
+       "task": "Forum and Edge follow-up",
+       "outcome": "Current"
+      },
+      {
+       "time": "4:45",
+       "task": "Debrief",
+       "outcome": "Friday set"
+      }
+     ]
+    },
+    {
+     "date": "2026-10-30",
+     "dow": "Friday",
+     "location": "SLC office",
+     "tag": "day 30",
+     "notes": [
+      "Bring three things to the review: your numbers, including the misses; what you built; and what you need. The full notes are on the Rules tab."
+     ],
+     "blocks": [
+      {
+       "time": "8:30",
+       "task": "Huddle",
+       "outcome": "Day agreed"
+      },
+      {
+       "time": "9:00–10:30",
+       "task": "Close the week's appointments",
+       "outcome": "5 set, 2 met"
+      },
+      {
+       "time": "10:30–12:00",
+       "task": "GHL and Axcion clean-up",
+       "outcome": "Every record current and correctly sourced"
+      },
+      {
+       "time": "1:00–2:30",
+       "task": "30-day review with Connor and Justin",
+       "outcome": "Reviewed, next 30 days agreed"
+      },
+      {
+       "time": "2:30–4:30",
+       "task": "Book November week one off the back of the review",
+       "outcome": "First week of November on the calendar before you leave"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "targets": [
+  {
+   "label": "Forum member introductions and registration reminders, all members",
+   "target": null,
+   "due_on": "2026-10-02"
+  },
+  {
+   "label": "Recruiting appointments set",
+   "target": 5,
+   "due_on": "2026-10-02"
+  },
+  {
+   "label": "Recruiting appointments met",
+   "target": 2,
+   "due_on": "2026-10-02"
+  },
+  {
+   "label": "Recruiting appointments set",
+   "target": 5,
+   "due_on": "2026-10-09"
+  },
+  {
+   "label": "Recruiting appointments met",
+   "target": 2,
+   "due_on": "2026-10-09"
+  },
+  {
+   "label": "Referral VIP guests registered",
+   "target": 15,
+   "due_on": "2026-10-14"
+  },
+  {
+   "label": "Recruiting appointments set",
+   "target": 5,
+   "due_on": "2026-10-16"
+  },
+  {
+   "label": "Recruiting appointments met",
+   "target": 2,
+   "due_on": "2026-10-16"
+  },
+  {
+   "label": "Ad VIP guests registered",
+   "target": 5,
+   "due_on": "2026-10-16"
+  }
+ ]
+}

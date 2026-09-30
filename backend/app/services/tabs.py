@@ -33,6 +33,16 @@ PLATFORM_TABS = {
     # placement.
     "ads": {"label": "Ads", "accent": "#B26248"},
     "ai_employees": {"label": "AI Employees", "accent": "#61835E"},
+    # A person's first thirty days. Portfolio-level like Books and Binder rather than filed under
+    # a business: a new hire is hired by the workspace, and the plan routinely spans several of
+    # its programmes -- the seeded one covers recruiting, The Forum, The Edge and VIP tickets in
+    # the same week. Filing it under one of them would be picking arbitrarily.
+    #
+    # NOT PLAN-GATED. It is absent from plans._PORTFOLIO_TABS, which is the set plan_tabs()
+    # filters against, so every tier has it. That is a decision by default rather than a pricing
+    # judgement: onboarding is how somebody's second week goes, and a workspace discovering it is
+    # behind a tier on the Monday a new hire starts is a bad way to learn what they bought.
+    "onboarding": {"label": "Onboarding", "accent": "#618E88"},
 }
 
 # Presentation for named PROGRAM tabs — several views run off one membership entity's GHL
@@ -83,28 +93,18 @@ def _business_tabs(b) -> list[str]:
 
 
 async def tenant_tabs(s, tenant_id) -> list[str]:
-    """Ordered nav-tab keys for a tenant, derived from its businesses (sort_order).
-    Each business contributes its operational program tabs plus — for a financial
-    entity routed to a brand-new page — its `display_tab`."""
-    biz = (await s.execute(select(Business).where(
-        Business.tenant_id == tenant_id).order_by(Business.sort_order))).scalars().all()
-    out = ["portfolio"]
-    for b in biz:
-        out.extend(_business_tabs(b))
-        if b.display_tab:                               # a new-page routing target is a tab too
-            out.append(b.display_tab)
-    out.append("flywheel")
-    out.append("books")                                 # portfolio-level bookkeeping module
-    out.append("binder")                                # portfolio-level entity-compliance module
-    out.append("ads")                                   # portfolio-level paid-media module
-    if settings.AI_EMPLOYEES_ENABLED:                   # flag-gated top-level rail item
-        out.append("ai_employees")
-    # de-dupe while preserving order (defensive against config quirks)
-    seen, ordered = set(), []
-    for t in out:
-        if t not in seen:
-            seen.add(t); ordered.append(t)
-    return ordered
+    """Ordered nav-tab keys for a tenant — the AUTHORIZATION vocabulary.
+
+    Derived from tenant_tab_descriptors rather than rebuilt, because it was rebuilt once and the
+    two drifted the first time a module was added: `onboarding` reached the nav and never reached
+    this list, so the rail offered a tab and `assert_tab` refused it with "No access to this
+    view" for every member who had been granted it. Owners never saw it -- they pass the grant
+    check implicitly -- which is the worst shape for a bug of this kind.
+
+    The two lists were the same computation written twice. Now there is one, and adding a module
+    to PLATFORM_TABS reaches both.
+    """
+    return [d["key"] for d in await tenant_tab_descriptors(s, tenant_id)]
 
 
 async def tenant_tab_descriptors(s, tenant_id) -> list[dict]:
@@ -124,7 +124,7 @@ async def tenant_tab_descriptors(s, tenant_id) -> list[dict]:
         if b.display_tab and b.display_tab not in {e["key"] for e in entries}:
             # A financial entity routed onto a brand-new page contributes that page too.
             entries.append({"key": b.display_tab, "label": b.name, "accent": b.accent})
-    for key in ("flywheel", "books", "binder", "ads"):
+    for key in ("flywheel", "books", "binder", "ads", "onboarding"):
         entries.append({"key": key, **PLATFORM_TABS[key]})
     if settings.AI_EMPLOYEES_ENABLED:
         entries.append({"key": "ai_employees", **PLATFORM_TABS["ai_employees"]})

@@ -21,6 +21,8 @@ import StepUpGate from "./StepUpGate.jsx";
 import PeriodNav, { periodKey, fromPeriodKey } from "./PeriodNav.jsx";
 import AIEmployees from "./AIEmployees.jsx";
 import { useAiEmployees } from "./useAiEmployees.js";
+import Onboarding from "./Onboarding.jsx";
+import { useOnboarding } from "./useOnboarding.js";
 import Assistant from "./Assistant.jsx";
 import { SpringSignature, setBrand, ribbedHero, Icon , HeroMark} from "./Brand.jsx";
 import { ProductIcon, iconFor } from "./brand/productIcons.jsx";
@@ -1155,6 +1157,9 @@ const NAV = [
   // routinely runs campaigns for several programmes at once, which is what grouping untangles.
   { k: "ads", label: "Ads", dot: T.edge },
   { k: "ai_employees", label: "AI Employees", dot: T.meadow },
+  // Portfolio-level like Books and Binder: a new hire is hired by the workspace, and the plan
+  // routinely spans several of its programmes in the same week.
+  { k: "onboarding", label: "Onboarding", dot: T.petalDeep },
 ];
 // nav key → permission tab (the Portfolio nav item is keyed "overview")
 const navTab = (k) => (k === "overview" ? "portfolio" : k);
@@ -1186,6 +1191,10 @@ export default function CommandCenter() {
   // AI Employees list — fetched at the shell so the rail badge has the awaiting count even
   // when the tab isn't the active view. Only when the flag+grant put the tab in myTabs.
   const ai = useAiEmployees(Boolean(user && user.tabs && user.tabs.includes("ai_employees")));
+  // Onboarding. `planId` is null until somebody picks another person's plan from the header,
+  // which only owners and admins ever see more than one of.
+  const [onbPlanId, setOnbPlanId] = useState(null);
+  const onb = useOnboarding(hasTab("onboarding"), onbPlanId);
 
   // Tab-permission gating: the rail renders only the user's granted tabs, and a
   // deep-link / stale view to an ungranted tab redirects to the first one they have.
@@ -1279,6 +1288,7 @@ export default function CommandCenter() {
     </StepUpGate>
   );
   else if (activeView === "ai_employees") content = <AIEmployees data={ai.data} loading={ai.loading} error={ai.error} reload={ai.reload} role={user?.role} />;
+  else if (activeView === "onboarding") content = <Onboarding data={onb.data} loading={onb.loading} error={onb.error} reload={onb.reload} apply={onb.apply} onPickPlan={setOnbPlanId} />;
   else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
 
   return (

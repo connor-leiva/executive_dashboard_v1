@@ -78,6 +78,19 @@ const GLYPHS = {
     </>
   ),
 
+  // A calendar with one day filled. Onboarding is the only module whose subject is a DATE --
+  // the plan runs from a Thursday to a Friday four weeks later and every part of it is anchored
+  // to a day -- so the mark says so. Deliberately not a checkbox, which is what the source
+  // design used: `books` and `agents` already carry checks, and a third would stop meaning
+  // anything.
+  onboarding: (tone) => (
+    <>
+      <rect x="5" y="9" width="22" height="18" rx="2" />
+      <path d="M11 5v7M21 5v7M5 15h22" />
+      <rect x="9" y="19" width="5" height="5" rx="1" fill={tone} stroke="none" />
+    </>
+  ),
+
   // The fallback, and the Axcion mark's own motif reduced to two blades: a loop that has not
   // closed. It is what an unrecognised module gets, and it is right for a flywheel.
   loop: () => (
@@ -88,8 +101,9 @@ const GLYPHS = {
   ),
 };
 
-/* Rail key -> glyph. The keys are the platform's own module keys (app/plans.py `_FEATURE_TABS`
- * plus `ads`), never a tenant's.
+/* Rail key -> glyph. The keys are the platform's own module keys -- every entry in
+ * app/services/tabs.py `PLATFORM_TABS` except `portfolio`, which is the overview and wears its
+ * accent rather than a mark -- never a tenant's.
  *
  * THAT IS WHAT MAKES THIS SAFE TO LOOK UP BY KEY. A business tab is named by the customer —
  * "The Forum", "Sympli Mortgage" — and its key is tenant data, so it will never collide with one
@@ -103,6 +117,7 @@ const BY_MODULE = {
   ai_employees: "agents",
   ads: "campaigns",
   flywheel: "loop",
+  onboarding: "onboarding",
 };
 
 /** The glyph name for a rail/module key, or null if the key is not a platform module. */
