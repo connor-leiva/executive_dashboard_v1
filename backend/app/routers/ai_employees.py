@@ -30,6 +30,7 @@ from ..security import make_capability, read_capability
 from ..services.audit import audit
 from ..services import ai_employees as eng
 from ..services import ai_media
+from ..services import payables_intake
 from ..services.ai_skills import SKILLS, SKILL_KEYS, KIND_META, skills_for
 
 MAX_MEDIA_BYTES = 25 * 1024 * 1024      # 25 MB per asset
@@ -767,10 +768,30 @@ async def ship_artifact(art_id: str, user: User = Depends(manager),
     e = await _emp(s, user.tenant_id, r.employee_id)
     if not eng.writeback_open(e):
         raise HTTPException(409, "Writeback is disabled (env flag or employee toggle is off)")
+
+    # A bill proposal is the one artifact kind that becomes a ROW rather than an export. It runs
+    # under `user` — the person shipping — so create_payable's require_human is satisfied by who
+    # asked, not by an exemption for this path. Shipping is already idempotent above, so a
+    # second click cannot make a second bill.
+    proposed = None
+    if a.kind == payables_intake.PROPOSAL_KIND:
+        try:
+            proposed = await payables_intake.accept_proposal(s, user.tenant_id, user, a)
+        except payables_intake.ProposalIncomplete as ex:
+            # 409, not 500: the extraction is legitimately not enough to make a bill from, and
+            # the message names every reason at once so somebody can fix it in one pass.
+            raise HTTPException(409, str(ex))
+        except ValueError as ex:                 # duplicate invoice, unknown vendor, bad amount
+            raise HTTPException(409, str(ex))
+
     a.state, a.shipped_at = "shipped", eng._now()
-    audit(s, user.tenant_id, user.id, "ai.artifact_ship", "ai_artifact", a.id, {"kind": a.kind})
+    audit(s, user.tenant_id, user.id, "ai.artifact_ship", "ai_artifact", a.id,
+          {"kind": a.kind, **({"payable_id": proposed["id"]} if proposed else {})})
     await s.commit()
-    return _artifact_out(a)
+    out = _artifact_out(a)
+    if proposed:
+        out["payable"] = proposed               # so the screen can link straight to the bill
+    return out
 
 
 @router.post("/artifacts/{art_id}/dismiss")

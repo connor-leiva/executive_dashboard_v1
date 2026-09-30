@@ -23,11 +23,14 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Business, Payable, Vendor
+
+log = logging.getLogger(__name__)
 from . import payables, payables_run, payables_vendor
 
 # Budgeted by SERIALISED SIZE, not by row count. Counting rows was the obvious thing and it was
@@ -163,3 +166,33 @@ async def build_ap_context(s: AsyncSession, tenant_id, skill_key: str, *,
     if live:
         ctx["truncated"] = live
     return ctx
+async def document_blocks(s: AsyncSession, tenant_id, run) -> list | None:
+    """The bill itself, as a content block, for a run that names one in its context.
+
+    Reuses Binder's storage and its `_content_block` rather than growing a second extractor:
+    Binder already decides PDF vs image vs text by extension, and two answers to "how do we hand
+    Claude a file" is how one of them quietly stops handling a format the other learned.
+
+    Returns None when there is no document, when the row belongs to another tenant, or when the
+    blob cannot be read. None is a legitimate answer — ap_intake then has vendors and a chart and
+    no bill, and its own prompt tells it to say so rather than invent one. A run that fails
+    loudly here would be a worse outcome than a run that reports an unreadable attachment.
+    """
+    ref = (run.context or {}).get("document_id")
+    if not ref:
+        return None
+    from ..models import BinderDocument
+    from . import binder_extract, binder_storage
+    try:
+        doc = (await s.execute(select(BinderDocument).where(
+            BinderDocument.tenant_id == tenant_id,          # tenant-scoped, like every read here
+            BinderDocument.id == ref))).scalar_one_or_none()
+        if doc is None or not doc.storage_ref:
+            return None
+        data = binder_storage.read(doc.storage_ref)
+        if not data:
+            return None
+        return [binder_extract._content_block(doc.filename, data)]
+    except Exception as e:                    # a missing blob is a run that says so, not a crash
+        log.warning("ap_intake doc=%s: could not attach (%s)", ref, e)
+        return None

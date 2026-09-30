@@ -457,3 +457,111 @@ async def test_an_ap_employee_gets_the_finance_skills_and_none_of_summers():
         rows = (await s.execute(select(AIEmployeeSkill).where(
             AIEmployeeSkill.employee_id == uuid.UUID(eid)))).scalars().all()
     assert {r.skill_key for r in rows} == keys
+async def test_shipping_a_bill_proposal_creates_one_bill_and_only_one():
+    """The door, through the endpoint that opens it. Shipping is already idempotent, which is
+    what stops a second click becoming a second bill — and a second bill is the failure this
+    whole module exists to prevent, so it is asserted rather than assumed."""
+    from app.models import Payable, Vendor
+    from app.services import payables_vendor as pv
+    from app.services.ai_employees import _now
+
+    owner = await _owner_token()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        u = (await s.execute(select(User).where(User.tenant_id == t.id))).scalars().first()
+        tid = t.id
+        v = await pv.create_vendor(s, tid, u, {"legal_name": "Ship Door LLC", "terms_days": 30})
+        vid = v["id"]
+
+    inv = f"SD-{uuid.uuid4().hex[:6]}"
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner),
+                            json={"name": "AP Clerk", "role_title": "Accounts Payable",
+                                  "config": {"family": "ap"}})).json()
+        eid = emp["id"]
+
+    async with SessionLocal() as s:
+        e = await s.get(AIEmployee, uuid.UUID(eid))
+        e.writeback_enabled = True                       # the per-employee half of the gate
+        run = AIRun(tenant_id=tid, employee_id=e.id, skill_key="ap_intake", trigger="manual",
+                    status="awaiting_approval", context={})
+        s.add(run)
+        await s.flush()
+        art = AIArtifact(tenant_id=tid, run_id=run.id, kind="ap_bill", lane="Payables",
+                         title="Proposed bill", state="draft",
+                         payload={"kind": "ap_bill", "vendor": "Ship Door LLC",
+                                  "vendor_match": vid, "invoice_number": inv, "amount": 900.0,
+                                  "invoice_date": "2026-09-20", "due_date": None,
+                                  "currency": "USD", "description": "Door test",
+                                  "confidence": {"vendor": 1, "amount": 1, "invoice_number": 1},
+                                  "unreadable": [], "note": ""})
+        s.add(art)
+        await s.commit()
+        aid = str(art.id)
+
+    prev = settings.AI_EMPLOYEES_WRITEBACK_ENABLED
+    settings.AI_EMPLOYEES_WRITEBACK_ENABLED = True
+    try:
+        async with _client() as c:
+            # unapproved ships are refused, so a draft cannot become a bill
+            early = await c.post(f"/api/v1/ai/artifacts/{aid}/ship", headers=_H(owner))
+            assert early.status_code == 409, early.text
+
+            assert (await c.post(f"/api/v1/ai/artifacts/{aid}/approve",
+                                 headers=_H(owner))).status_code == 200
+            shipped = await c.post(f"/api/v1/ai/artifacts/{aid}/ship", headers=_H(owner))
+            assert shipped.status_code == 200, shipped.text
+            assert shipped.json()["payable"]["status"] == "extracted"
+
+            again = await c.post(f"/api/v1/ai/artifacts/{aid}/ship", headers=_H(owner))
+            assert again.status_code == 200          # idempotent, not an error
+    finally:
+        settings.AI_EMPLOYEES_WRITEBACK_ENABLED = prev
+
+    async with SessionLocal() as s:
+        bills = (await s.execute(select(Payable).where(
+            Payable.tenant_id == tid, Payable.invoice_number == inv))).scalars().all()
+    assert len(bills) == 1, f"shipping twice made {len(bills)} bills"
+    assert bills[0].status == "extracted"
+
+
+async def test_writeback_closed_means_no_bill():
+    """The gate is the env flag AND the employee's own toggle. With either shut, an approved
+    proposal stays an artifact."""
+    from app.models import Payable
+    from app.services import payables_vendor as pv
+
+    owner = await _owner_token()
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        u = (await s.execute(select(User).where(User.tenant_id == t.id))).scalars().first()
+        tid = t.id
+        v = await pv.create_vendor(s, tid, u, {"legal_name": "Closed Gate LLC"})
+        vid = v["id"]
+
+    inv = f"CG-{uuid.uuid4().hex[:6]}"
+    async with _client() as c:
+        emp = (await c.post("/api/v1/ai/employees", headers=_H(owner),
+                            json={"name": "AP Clerk", "role_title": "Accounts Payable",
+                                  "config": {"family": "ap"}})).json()
+    async with SessionLocal() as s:
+        run = AIRun(tenant_id=tid, employee_id=uuid.UUID(emp["id"]), skill_key="ap_intake",
+                    trigger="manual", status="awaiting_approval", context={})
+        s.add(run)
+        await s.flush()
+        art = AIArtifact(tenant_id=tid, run_id=run.id, kind="ap_bill", lane="Payables",
+                         title="Proposed", state="approved",
+                         payload={"kind": "ap_bill", "vendor": "Closed Gate LLC",
+                                  "vendor_match": vid, "invoice_number": inv, "amount": 10.0,
+                                  "confidence": {"vendor": 1, "amount": 1, "invoice_number": 1}})
+        s.add(art)
+        await s.commit()
+        aid = str(art.id)
+
+    async with _client() as c:                    # employee toggle is off by default
+        r = await c.post(f"/api/v1/ai/artifacts/{aid}/ship", headers=_H(owner))
+    assert r.status_code == 409 and "Writeback is disabled" in r.text
+
+    async with SessionLocal() as s:
+        assert not (await s.execute(select(Payable).where(
+            Payable.tenant_id == tid, Payable.invoice_number == inv))).scalars().all()

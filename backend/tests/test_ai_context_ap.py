@@ -128,3 +128,101 @@ async def test_a_long_list_is_capped_and_says_so():
     assert any("vendors" in n for n in ctx["truncated"])
     # and it still fits, which is the point of capping in the first place
     assert len(json.dumps(ctx, default=str)) < 12000
+# ── the bill itself ───────────────────────────────────────────────────────────────────────
+
+async def test_ap_intake_is_handed_the_document_and_everything_else_is_not():
+    """A bill arrives as a PDF, not as text in a context slice. The seam carries it as a content
+    block ahead of the prompt — material first, then what to do with it.
+
+    The conditional matters as much as the block: five existing test doubles take
+    (client, model, system, user) positionally with no **kwargs, so a `blocks=` passed
+    unconditionally would break every one of them. It is forwarded only when there is something
+    to send.
+    """
+    from app.services import ai_employees
+    from app.services.ai_skills import skills_for, AP
+
+    seen = {}
+
+    async def old_style(client, model, system, user):        # the shape every double uses today
+        seen["called"] = True
+        return '{"reads":[],"summary":"s","artifacts":[{"title":"t","payload":{"kind":"ap_exceptions","items":[],"note":"n"}}]}', 1, 1
+
+    scan = next(sk for sk in skills_for(AP) if sk["key"] == "ap_exception_scan")
+    ai_employees._claude_call, real = old_style, ai_employees._claude_call
+    try:
+        out, _i, _o, err = await ai_employees.call_skill(scan, "prompt")
+    finally:
+        ai_employees._claude_call = real
+    assert err is None and seen.get("called"), "a no-document skill broke the old-style double"
+
+    # and with blocks, the seam passes them through in front of the text
+    captured = {}
+
+    async def block_aware(client, model, system, user, *, blocks=None):
+        captured["blocks"] = blocks
+        return '{"reads":[],"summary":"s","artifacts":[{"title":"t","payload":{"kind":"ap_exceptions","items":[],"note":"n"}}]}', 1, 1
+
+    ai_employees._claude_call, real = block_aware, ai_employees._claude_call
+    try:
+        await ai_employees.call_skill(scan, "prompt",
+                                      blocks=[{"type": "document", "source": {"data": "x"}}])
+    finally:
+        ai_employees._claude_call = real
+    assert captured["blocks"], "the document never reached the seam"
+
+
+async def test_a_missing_document_is_a_run_that_says_so_not_a_crash():
+    """None is a legitimate answer. ap_intake then has vendors and a chart and no bill, and its
+    prompt tells it to say so — which is a better outcome than a run that dies because an
+    attachment went missing."""
+    tid, _actor, _biz = await _ctx()
+
+    class _Run:
+        context = {"document_id": str(uuid.uuid4())}         # a real-looking id for nothing
+
+    async with SessionLocal() as s:
+        assert await ai_context_ap.document_blocks(s, tid, _Run()) is None
+
+    class _NoDoc:
+        context = {}
+
+    async with SessionLocal() as s:
+        assert await ai_context_ap.document_blocks(s, tid, _NoDoc()) is None
+async def test_the_seam_puts_the_document_ahead_of_the_prompt():
+    """The test above stops at the seam: it replaces _claude_call wholesale, so it proves the
+    blocks REACH it and nothing about what it does with them. Deleting the blocks from the
+    message body left that test green, which is exactly the hole this closes.
+
+    So this one drives the REAL _claude_call with a fake client and reads the message it built.
+    Order matters: material first, instruction second — a model told what to do before it is
+    shown the thing answers from the instruction.
+    """
+    from app.services import ai_employees
+
+    built = {}
+
+    class _Messages:
+        async def create(self, **kw):
+            built.update(kw)
+
+            class _R:
+                content = [type("B", (), {"type": "text", "text": "{}"})()]
+                usage = type("U", (), {"input_tokens": 1, "output_tokens": 1})()
+            return _R()
+
+    class _Client:
+        messages = _Messages()
+
+    doc = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf",
+                                          "data": "JVBERi0="}}
+    await ai_employees._claude_call(_Client(), "m", "sys", "read this bill", blocks=[doc])
+    content = built["messages"][0]["content"]
+    assert [c["type"] for c in content] == ["document", "text"], content
+    assert content[0] == doc
+    assert content[1]["text"] == "read this bill"
+
+    # and with no document the message is exactly what it always was
+    built.clear()
+    await ai_employees._claude_call(_Client(), "m", "sys", "just text")
+    assert [c["type"] for c in built["messages"][0]["content"]] == ["text"]

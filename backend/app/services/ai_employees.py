@@ -122,12 +122,20 @@ def _text_of(resp) -> str:
     return "".join(b.text for b in (getattr(resp, "content", None) or []) if getattr(b, "type", None) == "text")
 
 
-async def _claude_call(client, model, system, user_text):
-    """The single network seam (tests monkeypatch this). Returns (text, tokens_in, tokens_out)."""
+async def _claude_call(client, model, system, user_text, *, blocks=None):
+    """The single network seam (tests monkeypatch this). Returns (text, tokens_in, tokens_out).
+
+    `blocks` carries document or image content — a bill's PDF for ap_intake — ahead of the text,
+    which is the order the model wants: the material first, then what to do with it. It is
+    keyword-only and callers pass it ONLY when there is something to send, because the existing
+    test doubles take (client, model, system, user) positionally with no **kwargs and would all
+    break on an unconditional keyword.
+    """
+    content = list(blocks or []) + [{"type": "text", "text": user_text}]
     resp = await client.messages.create(
         model=model, max_tokens=settings.AI_EMPLOYEES_MAX_TOKENS, system=system,
         thinking={"type": "disabled"},
-        messages=[{"role": "user", "content": [{"type": "text", "text": user_text}]}])
+        messages=[{"role": "user", "content": content}])
     u = getattr(resp, "usage", None)
     return _text_of(resp), int(getattr(u, "input_tokens", 0) or 0), int(getattr(u, "output_tokens", 0) or 0)
 
@@ -157,9 +165,12 @@ def _validate(obj: dict, contract: dict) -> str | None:
         return f"schema error: {e}"
 
 
-async def call_skill(skill_def: dict, prompt: str, *, client=None, model=None):
+async def call_skill(skill_def: dict, prompt: str, *, client=None, model=None, blocks=None):
     """Call the model, parse, validate against the skill's output_contract, one retry on
-    invalid JSON. Returns (result|None, tokens_in, tokens_out, error)."""
+    invalid JSON. Returns (result|None, tokens_in, tokens_out, error).
+
+    `blocks` is forwarded only when present — see _claude_call for why an unconditional keyword
+    would break every existing test double."""
     client = client or _client()
     model = model or _model()
     contract = skill_def["output_contract"]
@@ -169,7 +180,8 @@ async def call_skill(skill_def: dict, prompt: str, *, client=None, model=None):
         user = prompt if attempt == 0 else (
             prompt + "\n\nYour previous reply was not valid JSON matching the required shape. "
             "Return STRICT JSON only, no fences.")
-        text, a_in, a_out = await _claude_call(client, model, _SYSTEM, user)
+        kw = {"blocks": blocks} if blocks else {}
+        text, a_in, a_out = await _claude_call(client, model, _SYSTEM, user, **kw)
         tin += a_in
         tout += a_out
         obj = _parse_json(text)
@@ -457,7 +469,14 @@ async def execute_one(s, tenant_id) -> bool:
         scalars, context = await build_context(s, tenant_id, emp, es, run)
         template = (es.prompt_override if es and es.prompt_override else skill_def["default_prompt"])
         prompt = _fill_prompt(template, scalars, context)
-        result, tin, tout, err = await call_skill(skill_def, prompt)
+        # A bill arrives as a document, not as text in a context slice. Only ap_intake reads one,
+        # and only when its run names one — everything else passes None and the seam behaves
+        # exactly as it did before.
+        blocks = None
+        if run.skill_key == "ap_intake":
+            from .ai_context_ap import document_blocks
+            blocks = await document_blocks(s, tenant_id, run)
+        result, tin, tout, err = await call_skill(skill_def, prompt, blocks=blocks)
     except Exception as e:                                   # a live-API failure is a failed run, not a crash
         log.warning("ai_execute run %s errored: %s", run.id, e)
         result, tin, tout, err = None, run.tokens_in, run.tokens_out, f"{type(e).__name__}"
