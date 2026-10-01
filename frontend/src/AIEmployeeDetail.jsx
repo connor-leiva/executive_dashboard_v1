@@ -299,8 +299,63 @@ function MeasurePreview({ p }) {
     </div>
   );
 }
+/* A proposed bill, laid out to be CHECKED rather than admired. The order is the order somebody
+   reads an invoice in — who, which invoice, how much, when — and the two rows that matter most
+   are the last two: what the model was unsure of, and what it could not read at all. A
+   confidence number next to an amount is the difference between accepting a bill and rubber
+   stamping one. */
+function ApBillPreview({ p }) {
+  const money = (n) => (n === null || n === undefined || n === "" ? "—"
+    : Number(n).toLocaleString(undefined, { style: "currency", currency: p.currency || "USD" }));
+  const pct = (v) => (typeof v === "number" ? `${Math.round(v * 100)}%` : null);
+  const conf = p.confidence || {};
+  const rows = [
+    ["Payee", p.vendor || "—", pct(conf.vendor)],
+    ["Matched to", p.vendor_match ? (p.vendor_match_reason || "a vendor on file")
+      : "no vendor matched", null],
+    ["Invoice", p.invoice_number || "—", pct(conf.invoice_number)],
+    ["Invoice date", p.invoice_date || "—", null],
+    ["Due date", p.due_date || "from the vendor's terms", null],
+    ["Amount", money(p.amount), pct(conf.amount)],
+    ["Suggested account", p.suggested_account || "—", null],
+    ["Description", p.description || "—", null],
+  ];
+  return (
+    <div>
+      {rows.map(([label, value, c], i) => (
+        <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 0",
+                              borderBottom: i < rows.length - 1 ? `1px solid ${T.line}` : "none" }}>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted,
+                         minWidth: 118, flexShrink: 0 }}>{label}</span>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink,
+                         flex: 1, minWidth: 0 }}>{value}</span>
+          {c && (
+            <span title="How sure the clerk was about this field"
+              style={{ fontFamily: MONO, fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{c}</span>
+          )}
+        </div>
+      ))}
+      {!p.vendor_match && (
+        <Note>No vendor on file matched this payee, so no bill can be created from it yet. Add
+          the vendor in Books · Payables first — a vendor is created by a person who has seen a
+          W-9, never by the clerk.</Note>
+      )}
+      {(p.unreadable || []).length > 0 && (
+        <Note>Could not read: {(p.unreadable || []).join(", ")}</Note>
+      )}
+      {p.note && <Note>{p.note}</Note>}
+    </div>
+  );
+}
+
 const PREVIEWS = { audit: AuditPreview, trend: TrendPreview, strategy: StrategyPreview,
-  design: DesignPreview, script: ScriptPreview, measure: MeasurePreview };
+  design: DesignPreview, script: ScriptPreview, measure: MeasurePreview,
+  ap_bill: ApBillPreview };
+
+/* The kinds whose shipping CREATES something, mirroring ai_skills.SIDE_EFFECT_KINDS. They stay
+   expandable after approval, because for these the interesting act happens AFTER it: everything
+   else is finished when it is approved, and this one is waiting for a person to make the bill. */
+const CREATES_A_ROW = ["ap_bill"];
 function Preview({ kind, payload, mediaById }) {
   const C = PREVIEWS[kind];
   if (!C) return <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>No preview for “{kind}”.</div>;
@@ -308,9 +363,15 @@ function Preview({ kind, payload, mediaById }) {
 }
 
 /* ── artifact row (expand) ────────────────────────────────────── */
-function ArtifactRow({ a, open, onToggle, onDismiss, canManage, pending, mediaById }) {
-  const expandable = a.state === "draft";     // approved/shipped rows are read-only (§ Open Item 4)
+function ArtifactRow({ a, open, onToggle, onDismiss, onShip, canManage, pending, mediaById,
+                      wbOn, shipErr }) {
+  const makesRow = CREATES_A_ROW.includes(a.kind);
+  // Approved/shipped rows are read-only (§ Open Item 4) — except the ones that still have an
+  // act left in them. An approved proposal that cannot be opened is a proposal nobody can turn
+  // into a bill, which is where this screen was until now.
+  const expandable = a.state === "draft" || (makesRow && a.state === "approved");
   const shipped = a.state === "shipped", approved = a.state === "approved" || shipped;
+  const canShip = makesRow && a.state === "approved" && canManage && wbOn;
   return (
     <div style={{ borderTop: `1px solid ${T.line}` }}>
       <div role="button" tabIndex={expandable ? 0 : -1} aria-expanded={expandable ? open : undefined}
@@ -334,10 +395,31 @@ function ArtifactRow({ a, open, onToggle, onDismiss, canManage, pending, mediaBy
           <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14 }}>
             <Preview kind={a.kind} payload={a.payload} mediaById={mediaById} />
           </div>
+          {shipErr && (
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText,
+                          marginTop: 8, lineHeight: 1.5 }}>{shipErr}</div>
+          )}
           {canManage && (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 8,
+                          flexWrap: "wrap", alignItems: "center" }}>
+              {makesRow && a.state === "approved" && !wbOn && (
+                <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted,
+                               marginRight: "auto" }}>
+                  Writeback is off, so this cannot become a bill yet.</span>
+              )}
               <button onClick={onDismiss} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600,
                 color: T.muted, background: "transparent", border: `1px solid ${T.line}`, borderRadius: 8, padding: "5px 12px", cursor: "pointer" }}>Dismiss</button>
+              {canShip && (
+                /* The ONE door that runs accept_proposal. Batch approve deliberately leaves
+                   this kind alone, so without this button an approved proposal has nowhere
+                   to go. */
+                <button onClick={onShip} disabled={pending} className="cc-nav"
+                  style={{ fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 700,
+                    color: "#fff", background: pending ? T.muted : T.evergreen, border: "none",
+                    borderRadius: 8, padding: "6px 13px",
+                    cursor: pending ? "default" : "pointer" }}>
+                  {pending ? "Creating…" : "Create the bill"}</button>
+              )}
             </div>
           )}
         </div>
@@ -577,6 +659,9 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
   const [pendingIds, setPendingIds] = useState([]);
   const [busy, setBusy] = useState(false);
   const [approveErr, setApproveErr] = useState(null);
+  // Per-artifact, not one banner: the useful failures here are about ONE proposal ("no vendor
+  // matched", "invoice 4471 already exists"), and a shared error line cannot say which.
+  const [shipErrs, setShipErrs] = useState({});
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditHandle, setAuditHandle] = useState("");
   const [respOpen, setRespOpen] = useState(false);
@@ -601,6 +686,18 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
     setPendingIds((p) => [...p, id]);
     try { await postJSON(`/ai/artifacts/${id}/dismiss`); reload(); }
     catch { setPendingIds((p) => p.filter((x) => x !== id)); }
+  }
+  /* Turning a proposal into a bill. The server's 409s are the useful part of this — "no vendor
+     matched", "invoice 4471 already exists for Acme" — so they are shown verbatim against the
+     row rather than flattened into "something went wrong". */
+  async function ship(id) {
+    setShipErrs((e) => ({ ...e, [id]: null }));
+    setPendingIds((p) => [...p, id]);
+    try { await postJSON(`/ai/artifacts/${id}/ship`); reload(); }
+    catch (e) {
+      setShipErrs((x) => ({ ...x, [id]: e.detail || e.message || "That could not be created." }));
+      setPendingIds((p) => p.filter((x) => x !== id));
+    }
   }
   async function dismissRun(id) {
     try { await postJSON(`/ai/runs/${id}/dismiss`); reload(); } catch { /* reload shows truth */ }
@@ -701,7 +798,9 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
               </div>
               {artifacts.map((a) => (
                 <ArtifactRow key={a.id} a={a} open={openId === a.id} onToggle={() => setOpenId(openId === a.id ? null : a.id)}
-                  onDismiss={() => dismiss(a.id)} canManage={canManage} pending={pendingIds.includes(a.id)} mediaById={mediaById} />
+                  onDismiss={() => dismiss(a.id)} onShip={() => ship(a.id)} canManage={canManage}
+                  pending={pendingIds.includes(a.id)} mediaById={mediaById} wbOn={wbOn}
+                  shipErr={shipErrs[a.id]} />
               ))}
             </Card>
           )}

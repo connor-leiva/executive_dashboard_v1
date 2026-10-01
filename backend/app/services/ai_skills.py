@@ -34,6 +34,20 @@ KIND_META: dict[str, dict] = {
     "ap_1099":       {"lane": "Payables", "dest_label": "Books · Vendors"},
 }
 
+# Kinds whose "ship" does something in the WORLD rather than flipping a state.
+#
+# For every other kind, shipping IS the state change -- the artifact is a brief or a script, and
+# "shipped" records that somebody sent it. `ap_bill` is the first one where shipping runs code:
+# it calls payables_intake.accept_proposal and a bill appears in the Payables inbox with a
+# person's name against it.
+#
+# That difference is why these are excluded from any BATCH action. "Approve all" on a run
+# carrying fifteen drafts must never be fifteen bills, and a loop that stamps `shipped` without
+# calling the code behind it would mark the proposal done while creating nothing at all.
+#
+# Read by the batch approve route; the single-artifact ship route does the real work per kind.
+SIDE_EFFECT_KINDS = frozenset({"ap_bill"})
+
 # Every run returns this envelope: diagnosis `reads`, a one-line `summary`, and one or
 # more `artifacts` (each a {title, payload}). Per-skill contracts below set the payload
 # schema for their artifact kind(s).

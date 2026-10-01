@@ -31,7 +31,7 @@ from ..services.audit import audit
 from ..services import ai_employees as eng
 from ..services import ai_media
 from ..services import payables_intake
-from ..services.ai_skills import SKILLS, SKILL_KEYS, KIND_META, skills_for
+from ..services.ai_skills import SKILLS, SKILL_KEYS, KIND_META, skills_for, SIDE_EFFECT_KINDS
 
 MAX_MEDIA_BYTES = 25 * 1024 * 1024      # 25 MB per asset
 
@@ -722,8 +722,20 @@ async def _approve_artifact(a: AIArtifact, user: User) -> None:
 @router.post("/runs/{run_id}/approve")
 async def approve_run(run_id: str, user: User = Depends(manager),
                       s: AsyncSession = Depends(get_session)):
-    """Batch: approve every draft artifact on the run. Ships those whose gates are open;
-    the rest stay `approved` with writeback disabled (§2)."""
+    """Batch: approve every draft artifact on the run. Ships those whose gates are open, EXCEPT
+    the kinds whose shipping creates something; the rest stay `approved` (§2).
+
+    That exception is not a nicety. This loop ships by stamping the state -- which is the whole
+    job for a brief or a script, and is NOT the job for an `ap_bill`, whose shipping runs
+    accept_proposal and puts a bill in the Payables inbox. Stamping one here marked the proposal
+    done while creating nothing, and because the real ship route returns early on an artifact
+    that is already `shipped`, that proposal could never become a bill afterwards. One click,
+    no error, and the invoice quietly ceased to exist.
+
+    The fix is not to make the batch DO the work either: "approve all" on a run with fifteen
+    proposals must not be fifteen bills. A bill is a row somebody answers for, so it is created
+    one at a time, deliberately, through /artifacts/{id}/ship.
+    """
     r = await _run(s, user.tenant_id, run_id)
     e = await _emp(s, user.tenant_id, r.employee_id)
     arts = (await s.execute(select(AIArtifact).where(AIArtifact.run_id == r.id))).scalars().all()
@@ -733,15 +745,19 @@ async def approve_run(run_id: str, user: User = Depends(manager),
         if a.state == "draft":
             await _approve_artifact(a, user)
             approved += 1
-        if gate and a.state == "approved":
+        if gate and a.state == "approved" and a.kind not in SIDE_EFFECT_KINDS:
             a.state, a.shipped_at = "shipped", eng._now()
             shipped += 1
+    # What is approved and waiting for a person to do the irreversible half. Returned so the
+    # screen can say so rather than leaving a proposal looking finished.
+    held = [_artifact_out(a) for a in arts
+            if a.state == "approved" and a.kind in SIDE_EFFECT_KINDS]
     r.status = "shipped" if (arts and all(a.state == "shipped" for a in arts)) else "approved"
     audit(s, user.tenant_id, user.id, "ai.run_approve", "ai_run", r.id,
-          {"approved": approved, "shipped": shipped, "writeback": gate})
+          {"approved": approved, "shipped": shipped, "writeback": gate, "held": len(held)})
     await s.commit()
     return {"approved": approved, "shipped": shipped, "writeback_open": gate,
-            "run_status": r.status}
+            "run_status": r.status, "held": held}
 
 
 @router.post("/artifacts/{art_id}/approve")
