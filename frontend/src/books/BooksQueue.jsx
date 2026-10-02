@@ -308,11 +308,39 @@ function QueueHeader({ allShown, onToggleAll }) {
   );
 }
 
+/* Two kinds of thing wait on the CFO, and they want different decisions.
+
+   An INTERCOMPANY item needs a characterization — loan, distribution, contribution — which moves
+   basis and tax. A hand-escalated TRANSACTION needs an answer to a much smaller question: what is
+   this, and what should it be coded as.
+
+   One list because from this seat it is one job; two badges and two sets of buttons because
+   answering the wrong question is worse than scrolling. */
+const ESC_KIND = {
+  ic: { badge: "Intercompany · off-policy", tone: "poppy" },
+  txn: { badge: "Escalated for you", tone: "daffodil" },
+};
+
 function EscRow({ e, open, onToggle, onDone, isCFO }) {
   const [busy, setBusy] = useState(false);
+  const [cat, setCat] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [err, setErr] = useState(null);
+  const isTxn = e.kind === "txn";
+  const meta = ESC_KIND[e.kind] || ESC_KIND.ic;
+  const dot = meta.tone === "daffodil" ? T.daffodilText : T.poppy;
+
   const resolve = async (label) => {
     setBusy(true);
     try { await mutate(`/books/ic/${e.id}/characterize`, { characterization: CHAR_BY_LABEL[label] || "loan" }); onDone(e.id); }
+    finally { setBusy(false); }
+  };
+  /* The same two endpoints the review list uses. A transaction that was escalated is still just
+     a transaction; what it needed was somebody senior to look at it, and that has now happened. */
+  const decide = async (fn) => {
+    setBusy(true); setErr(null);
+    try { await fn(); onDone(e.id); }
+    catch (ex) { setErr(ex?.detail || ex?.message || "That could not be saved."); }
     finally { setBusy(false); }
   };
   return (
@@ -320,10 +348,11 @@ function EscRow({ e, open, onToggle, onDone, isCFO }) {
       <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14,
         padding: "13px 4px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
         <span style={{ width: 44, fontFamily: font.body, fontSize: 11.5, color: T.muted, flexShrink: 0 }}>{e.date}</span>
-        <span style={{ width: 9, height: 9, borderRadius: 99, background: T.poppy, flexShrink: 0 }} />
+        <span style={{ width: 9, height: 9, borderRadius: 99, background: dot, flexShrink: 0 }} />
         <span style={{ flex: 1, fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink }}>{e.label}</span>
         <span style={{ fontFamily: font.body, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
-          textTransform: "uppercase", color: T.poppyText, flexShrink: 0 }}>Intercompany · off-policy</span>
+          textTransform: "uppercase", color: isTxn ? T.daffodilText : T.poppyText,
+          flexShrink: 0 }}>{meta.badge}</span>
         <span style={{ width: 82, textAlign: "right", fontFamily: font.head, fontSize: 13.5, fontWeight: 600,
           color: T.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{usd(e.amount)}</span>
         <span style={{ color: T.muted, fontSize: 12, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
@@ -350,9 +379,46 @@ function EscRow({ e, open, onToggle, onDone, isCFO }) {
               {t.qbo_url && <div style={{ marginTop: 8 }}><QboLink url={t.qbo_url} entity={t.entity} /></div>}
             </div>
           ))}
-          {e.tax_note && <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.daffodilText, background: T.daffodilBg,
+          {!isTxn && e.tax_note && <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.daffodilText, background: T.daffodilBg,
             borderRadius: 7, padding: "7px 11px", marginTop: 10, lineHeight: 1.5 }}>{e.tax_note}</div>}
-          {isCFO ? (
+          {err && (
+            <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText, marginTop: 10 }}>{err}</div>
+          )}
+          {isTxn ? (
+            /* No isCFO gate on this kind. Somebody already decided it needed a second pair of
+               eyes; making those eyes a different PERSON is not what the escalation was for, and
+               a list only Connor can clear is a list that stays full while he is travelling. */
+            editing ? (
+              <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap", alignItems: "center" }}>
+                <input autoFocus value={cat} onChange={(ev) => setCat(ev.target.value)}
+                  placeholder="Account name as it reads in QuickBooks"
+                  style={{ flex: "1 1 240px", minWidth: 0, fontFamily: font.body, fontSize: 12.5,
+                    padding: "8px 11px", border: `1px solid ${T.line}`, borderRadius: 8 }} />
+                <button disabled={busy || !cat.trim()} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                  color: T.white, background: cat.trim() ? T.evergreen : T.muted, border: "none",
+                  borderRadius: 8, padding: "8px 16px", cursor: cat.trim() ? "pointer" : "default" }}
+                  onClick={() => decide(() => mutate(`/books/txn/${e.id}/recategorize`, { category: cat.trim() }))}>Save</button>
+                <button disabled={busy} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                  color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8,
+                  padding: "8px 16px", cursor: "pointer" }} onClick={() => setEditing(false)}>Cancel</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap", alignItems: "center" }}>
+                <button disabled={busy} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                  color: T.white, background: T.evergreen, border: "none", borderRadius: 8,
+                  padding: "8px 16px", cursor: "pointer" }}
+                  onClick={() => decide(() => mutate(`/books/txn/${e.id}/approve`))}>
+                  Approve{e.suggest ? ` as ${e.suggest}` : e.current_category ? ` as ${e.current_category}` : ""}</button>
+                <button disabled={busy} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                  color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8,
+                  padding: "8px 16px", cursor: "pointer" }} onClick={() => setEditing(true)}>Change category</button>
+                {e.escalated_by && (
+                  <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>
+                    Escalated by {e.escalated_by}{e.escalated_at ? ` · ${e.escalated_at}` : ""}</span>
+                )}
+              </div>
+            )
+          ) : isCFO ? (
             <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap" }}>
               {(e.options || []).map((o, i) => (
                 <button key={i} disabled={busy} onClick={() => resolve(o)} style={{ fontFamily: font.head, fontSize: 12.5,
@@ -552,7 +618,8 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
 
           <Card style={{ padding: "18px 22px 10px" }}>
             <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
-              {[["queue", `Review · ${rows.length}`], ["esc", `Escalations · ${escalations.length}`]].map(([k, l]) => (
+              {[["queue", `Review · ${rows.length}`],
+                ["esc", `Escalations · ${escalations.length}`]].map(([k, l]) => (
                 <button key={k} onClick={() => setTab(k)} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
                   color: tab === k ? T.ink : T.muted, background: tab === k ? T.parchment : "transparent", border: "none",
                   borderBottom: tab === k ? `2px solid ${k === "esc" ? T.poppy : T.daffodilText}` : "2px solid transparent",
@@ -666,7 +733,7 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
                 onToggle={() => setOpenId(openId === e.id ? null : e.id)} onDone={mark} />
             )) : (
               <div style={{ fontFamily: font.body, fontSize: 13, color: T.meadowInk, fontWeight: 600, padding: "26px 4px", borderTop: `1px solid ${T.line}` }}>
-                ✓ No escalations — intercompany is clean.</div>
+                ✓ Nothing waiting on you — intercompany is tied and nothing has been escalated.</div>
             ))}
           </Card>
         </div>

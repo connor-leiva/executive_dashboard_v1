@@ -39,6 +39,11 @@ def _fmt_date(d) -> str | None:
 HOLDINGS_COUNT = 12                                     # ULRG holding entities (SPEC 2.6)
 _OPEN_IC = ("unmatched", "matched", "escalated", "characterized")   # not yet tied
 _REVIEW_STATES = ("needs_approval", "escalated")
+# The stages where asking for the stage IS asking to see work that carries a reviewed_at stamp.
+# Both of these stamp it: approving because the work is done, escalating because somebody handed
+# it on. Named once because the row query and the facet counter both have to agree -- when they
+# disagreed, a chip read a number above a list that did not contain those rows.
+SIGNED_OFF_VISIBLE = ("approved", "escalated")
 
 
 def _month_bounds(today: dt.date) -> tuple[dt.date, dt.date]:
@@ -480,7 +485,7 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
         # All hid them: after a Friday's approvals the All chip read that many rows higher than
         # the list under it. The same failure as the entity one, on a different axis.
         if (skip != "signed_off" and not include_signed_off and rev is not None
-                and in_effect != "approved"):
+                and in_effect not in SIGNED_OFF_VISIBLE):
             return False
         return True
 
@@ -520,7 +525,13 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
     # Asking for the Approved stage IS asking to see signed-off work — approving stamps
     # reviewed_at, so hiding signed-off rows there leaves the chip reading 9 above an empty
     # list. Every other stage still hides what has been signed off, which is the point.
-    if not include_signed_off and state != "approved":
+    #
+    # Escalated belongs in that same exception, and for a sharper reason. Escalating stamps
+    # reviewed_at too, but escalating is not a RESOLUTION — it is a handoff, the one decision
+    # whose whole meaning is "this is not finished". Treating it as signed-off work hid every
+    # hand-escalated transaction from the stage named after it: the funnel tile said 72 and the
+    # Escalated chip opened an empty list.
+    if not include_signed_off and state not in SIGNED_OFF_VISIBLE:
         conds.append(BookTxn.reviewed_at.is_(None))
     rows = (await s.execute(select(BookTxn).where(*conds)
                             .order_by(BookTxn.txn_date.asc()))).scalars().all()
@@ -541,10 +552,39 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
     # list a reviewer works from is `rows`, which is windowed and faceted.
     awaiting = (await s.execute(select(func.count(BookTxn.id)).where(
         BookTxn.tenant_id == tenant_id, BookTxn.scan_state == "needs_approval"))).scalar_one()
-    # IC escalations (link-level, the CFO seat)
+    # ── what is waiting on the CFO ────────────────────────────────────────────────────────
+    # ONE list with two kinds in it, because from this seat it is one job: things somebody else
+    # stopped and handed over. They arrive by different routes and have to stay distinguishable,
+    # since the decision each one needs is different.
+    #
+    #   ic   — an intercompany link the scanner could not tie: no covering rule, over the monthly
+    #          cap, or one-sided. The call is a CHARACTERIZATION, and it moves basis and tax.
+    #   txn  — a single transaction somebody escalated by hand off the review list. The call is
+    #          simply what it should be coded as.
+    #
+    # The second kind used to be invisible. This payload listed links only, so every transaction
+    # a person escalated went into a state nothing displayed: on the live books that was 33 of
+    # them, roughly $205k, the oldest from March. The button worked, the row vanished, and there
+    # was nowhere for it to land.
     esc_links = (await s.execute(select(ICLink).where(
         ICLink.tenant_id == tenant_id, ICLink.status.in_(("escalated", "unmatched")))
         .order_by(ICLink.occurred_on.asc()))).scalars().all()
+
+    # Transactions an IC link already speaks for are NOT listed again -- the scanner escalates
+    # both sides of a link as well as creating it, so without this every tied-up pair would
+    # appear twice: once as the link, once as each of its sides.
+    #
+    # Both halves of the union filter out NULLs, and that is load-bearing rather than tidy:
+    # `to_txn_id` is null on every one-sided link, and SQL's NOT IN returns NO ROWS AT ALL when
+    # the subquery yields a single NULL. Drop these and the list silently comes back empty.
+    spoken_for = select(ICLink.from_txn_id).where(
+        ICLink.tenant_id == tenant_id, ICLink.from_txn_id.is_not(None)).union(
+        select(ICLink.to_txn_id).where(
+            ICLink.tenant_id == tenant_id, ICLink.to_txn_id.is_not(None)))
+    esc_txns = (await s.execute(select(BookTxn).where(
+        BookTxn.tenant_id == tenant_id, BookTxn.scan_state == "escalated",
+        BookTxn.id.not_in(spoken_for))
+        .order_by(BookTxn.txn_date.asc()))).scalars().all()
 
     approved_7d = (await s.execute(select(func.count(BookTxn.id)).where(
         BookTxn.tenant_id == tenant_id, BookTxn.scan_state.in_(("approved", "posted")),
@@ -619,9 +659,65 @@ async def build_books_queue(s, tenant_id, period: str = "mtd", state: str = "nee
                 "options": _IC_OPTIONS,
                 "tax_note": "Characterization affects basis and taxes; the CFO decides."}
 
+    def _esc_txn(t):
+        """A hand-escalated transaction, in the same shape as a link so one list can hold both.
+
+        `kind` is what the screen reads to tell them apart. Everything else is deliberately the
+        same shape -- a label, an amount, a date, a reason, and the transaction detail under it --
+        so the row component renders either without branching on anything but the badge and the
+        buttons.
+        """
+        d = t.decision or {}
+        sug = t.suggestion or {}
+        who = umap.get(t.reviewed_by)
+        orphan = not d and t.reviewed_by is None
+        if d.get("note"):
+            reason = d["note"]
+        elif orphan and (t.flags or {}).get("intercompany"):
+            # Escalated by the scanner's intercompany path, which always writes a link too --
+            # so if there is no link, the link was removed afterwards and this was left behind.
+            # It is real work either way, and hiding it because its paperwork went missing is
+            # how a $50,000 transfer sits untouched since April.
+            reason = ("Flagged intercompany by the scan, but the link behind it is gone. "
+                      "Decide it here, or re-run the scan to rebuild the pairing.")
+        elif who:
+            reason = f"Escalated from the review list by {who}."
+        else:
+            reason = "Escalated from the review list."
+        return {
+            "id": str(t.id), "kind": "txn", "date": _fmt_date(t.txn_date),
+            "amount": float(t.amount),
+            "label": (t.payee or t.account_label
+                      or f"{t.qbo_type} · {t.bank_account_label or 'no account'}"),
+            "txns": [_detail(t)],
+            "reason": reason,
+            "escalated_by": who,
+            "escalated_at": (t.reviewed_at.date().isoformat() if t.reviewed_at else None),
+            "entity": bmap.get(t.business_id),
+            # What the queue would have suggested, so the CFO can take the suggestion in one
+            # click rather than going to find it.
+            "suggest": sug.get("category"),
+            "current_category": t.account_label,
+        }
+
+    # Oldest first, mixed together: the date is what makes one of these urgent, not its kind.
+    #
+    # Sorted on the REAL date, not the rendered one. _fmt_date produces "Mar 4", and sorting a
+    # list of those sorts it alphabetically -- Apr, Jun, Mar -- which looks sorted, passes a test
+    # that checks the rendered strings are in order, and puts an April item above a March one.
+    _dated = ([(l.occurred_on, _esc(l)) for l in esc_links]
+              + [(t.txn_date, _esc_txn(t)) for t in esc_txns])
+    escalations = [e for _d, e in sorted(_dated, key=lambda p: p[0] or dt.date.min)]
+
     return {
-        "stats": {"awaiting": awaiting, "escalated": len(esc_links), "approved_7d": approved_7d},
-        "escalations": [_esc(l) for l in esc_links],
+        "stats": {"awaiting": awaiting,
+                  # Both kinds. This tile and the Books home rail tile both say "escalated" and
+                  # used to disagree -- 39 here against 72 there -- because one counted links and
+                  # the other counted transactions.
+                  "escalated": len(esc_links) + len(esc_txns),
+                  "escalated_ic": len(esc_links), "escalated_txn": len(esc_txns),
+                  "approved_7d": approved_7d},
+        "escalations": escalations,
         # The line-by-line review: every transaction in the window, whatever happened to it.
         "period": {"key": canonical_period(period), "label": period_label(period),
                    "start": start.isoformat(), "end": end.isoformat()},

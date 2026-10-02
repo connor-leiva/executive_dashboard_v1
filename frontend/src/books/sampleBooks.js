@@ -89,7 +89,7 @@ const _WORST_CASE_ROW = _q({ id: "s9", entity: "springb", date: "Sep 3",
   source: "Bank feed", flags: { anomaly: true }, qbo_url: QBO("transfer", "2099") });
 
 export const sampleQueue = {
-  stats: { awaiting: 14, escalated: 2, approved_7d: 61 },
+  stats: { awaiting: 14, escalated: 2, escalated_ic: 1, escalated_txn: 1, approved_7d: 61 },
   period: { key: "last_7", label: "Last 7 days", start: "2026-08-14", end: "2026-08-20" },
   filter: { state: "needs_approval", basis: "any", auto_only: false, weak_only: false,
             include_signed_off: false },
@@ -141,6 +141,19 @@ export const sampleQueue = {
       txns: [{ entity: "springb", qbo_type: "Transfer", date: "Jun 2", amount: 42712, payee: null,
         memo: "Owner draw to holding acct", account: null, bank_account: "Zions Operating *3251",
         source: "Bank feed", qbo_url: QBO("transfer", "2087") }] },
+    /* The other kind: a transaction somebody escalated off the review list. Same shape, different
+       `kind` — the offline view has to be able to show both, because a sample that only has the
+       intercompany one is how the transaction kind went unnoticed in the first place. */
+    { id: "e2", kind: "txn", date: "Sep 21", amount: 525.04,
+      label: "UserWay", entity: "springb",
+      reason: "Escalated from the review list by S. Bengtzen.",
+      escalated_by: "S. Bengtzen", escalated_at: "2026-09-25",
+      suggest: "Communication/Technology:Subscription Software",
+      current_category: "Uncategorized Expense",
+      txns: [{ entity: "springb", qbo_type: "Purchase", date: "Sep 21", amount: -525.04,
+        payee: "UserWay", memo: "Annual accessibility plan", account: "Uncategorized Expense",
+        bank_account: "SB Coaching LLC - Amex Platinum *5005", source: "Card feed",
+        qbo_url: QBO("purchase", "5512") }] },
   ],
 };
 
