@@ -31,7 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ForumEvent, ForumEventGuest, ForumEventWeekly
-from .launch import curve_expected, days_between
+from .launch import classify_shift_source, curve_expected, days_between
 
 # The vocabulary, declared ONCE. The launch equivalent is spread across five places that have
 # to change together — GROUPS, DEFAULT_STAGE_MAP's keys, _GROUP_ORDER, the frontend's
@@ -237,7 +237,10 @@ async def compute_event(s: AsyncSession, tenant_id, event: ForumEvent,
 
     without_opp = [g for g in guests if not g.opportunity_id]
     conflict = [g for g in guests if g.group in _CONFLICT_GROUPS]
-    both = [g for g in guests if g.kind == "guest" and g.contact_id in {m.contact_id for m in members}]
+    # NO both_tags here. A contact carrying both tag sets is written ONCE, as a guest, so it can
+    # never also appear as a member row - any count derived from the stored rows is structurally
+    # zero and would report a lie. The sync knows the overlap because it sees the tags; it logs
+    # the number. Putting it on the tab needs a column, not a derivation.
 
     warnings = []
     if without_opp:
@@ -246,9 +249,11 @@ async def compute_event(s: AsyncSession, tenant_id, event: ForumEvent,
     if conflict:
         warnings.append(f"{len(conflict)} guest{'' if len(conflict) == 1 else 's'} "
                         f"tagged as RSVP'd but parked or lost in the funnel")
-    if by_group.get("uncategorized"):
-        warnings.append(f"{by_group['uncategorized']} unmapped stage"
-                        f"{'' if by_group['uncategorized'] == 1 else 's'}")
+    # Only a row that HAS a stage can have an unmapped one. A guest with no opportunity is
+    # already reported above; counting them here too warned about the same five people twice.
+    unmapped = sum(1 for g in guests if g.group == "uncategorized" and g.stage)
+    if unmapped:
+        warnings.append(f"{unmapped} unmapped stage{'' if unmapped == 1 else 's'}")
     rev = _revenue(event, guests, converted, blended)
     if rev["unpriced_members"]:
         warnings.append(f"{rev['unpriced_members']} member"
@@ -275,7 +280,6 @@ async def compute_event(s: AsyncSession, tenant_id, event: ForumEvent,
             "room": len(guests) + len(members),
             "guests_without_opp": len(without_opp),
             "guests_stage_conflict": len(conflict),
-            "both_tags": len(both),
         },
         "funnel": funnel,
         "aside": [{"key": k, "label": GROUP_LABELS.get(k, (k.title(), None))[0],
@@ -322,3 +326,294 @@ def config_out(ev: ForumEvent) -> dict:
         "pace_tolerance": float(ev.pace_tolerance) if ev.pace_tolerance is not None else None,
         "is_active": ev.is_active,
     }
+
+
+# ── sync (FORUM-EVENT-SPEC.md Phase 3) ──────────────────────────────────────────────────────
+# Opportunity custom fields, resolved BY NAME so no field id is hardcoded. Spring's Forum
+# location calls them "Sales Rep" and "Referred By"; another workspace will call them something
+# else and configure it, which is the point.
+_OPP_FIELDS = {
+    "sales_rep": ("sales rep",),
+    "referred_by": ("referred by", "invited by"),
+}
+# Contact field naming the member who brought this guest. Spring's is "Guest Invited By".
+_CONTACT_FIELDS = {
+    "invited_by": ("guest invited by", "invited by", "referred by"),
+}
+# The Forum encodes the payment type IN THE STAGE - "Sent Contract: Dual - Monthly" - rather
+# than in a Payment Type field the way beCollective does. So the price_map is keyed by what
+# comes after the colon, and no inference is needed.
+_CONTRACT_PREFIX = "sent contract:"
+
+
+def field_ids(fields: list[dict], wanted: dict) -> dict:
+    """{semantic: field_id} from GHL's custom-field list, matched on NAME."""
+    out: dict = {}
+    for f in fields or []:
+        nm = (f.get("name") or "").strip().lower()
+        for sem, names in wanted.items():
+            if sem in out:
+                continue
+            if nm in names or any(n in nm for n in names):
+                out[sem] = f.get("id")
+    return out
+
+
+def payment_type_from_stage(stage: str | None) -> str | None:
+    """"Sent Contract: Dual - Monthly" -> "Dual - Monthly". None for every other stage.
+
+    A converted member whose contract stage we never saw has no payment type, which is correct
+    rather than a gap: compute_event prices them at the blended rate and says how many.
+    """
+    low = (stage or "").strip().lower()
+    if not low.startswith(_CONTRACT_PREFIX):
+        return None
+    tail = (stage or "").strip()[len(_CONTRACT_PREFIX):].strip()
+    return tail or None
+
+
+def _iso_week_start(d: dt.date) -> dt.date:
+    return d - dt.timedelta(days=d.weekday())
+
+
+async def sync_forum_event(s: AsyncSession, tenant_id, event: ForumEvent, token: str,
+                           location_id: str, today: dt.date | None = None) -> dict:
+    """Pull one event's guests and registered members from GHL and UPSERT them.
+
+    Upsert, never snapshot-delete. `_metric_snapshot` clears by (tenant, business, source, kind)
+    before inserting, which is why the Forum can only hold one event at a time - syncing Q4
+    destroys Q3's registrations. Nothing here deletes a row it did not match.
+
+    Read-only against GHL: contacts, pipelines, opportunities, custom-field names. No writes.
+    """
+    from ..integrations import ghl
+
+    today = today or dt.date.today()
+    guest_tags = event.guest_tags or []
+    member_tags = event.member_tags or []
+    declined_tags = event.declined_tags or []
+    if not (guest_tags or member_tags):
+        return {"skipped": "no tags configured"}
+
+    contacts = await ghl.get_contacts(token, location_id)
+    pipelines = await ghl.get_pipelines(token, location_id)
+    match = [m.strip().lower() for m in (event.pipeline_match or []) if str(m).strip()]
+    pipe_name = {p["id"]: (p.get("name") or "") for p in pipelines}
+    stage_name = {st["id"]: (st.get("name") or "")
+                  for p in pipelines for st in (p.get("stages") or [])}
+    opps = await ghl.get_opportunities(token, location_id)
+    if match:
+        opps = [o for o in opps
+                if any(m in (pipe_name.get(o.get("pipelineId")) or "").lower() for m in match)]
+    # One opportunity per contact: the most recently updated, because a contact who was in the
+    # funnel last quarter and is back this quarter should read as where they are NOW.
+    by_contact: dict = {}
+    for o in opps:
+        cid = str(o.get("contactId") or "")
+        if not cid:
+            continue
+        cur = by_contact.get(cid)
+        if cur is None or str(o.get("updatedAt") or "") > str(cur.get("updatedAt") or ""):
+            by_contact[cid] = o
+
+    ofields = field_ids(await ghl.get_custom_fields(token, location_id, model="opportunity"),
+                        _OPP_FIELDS)
+    cfields = field_ids(await ghl.get_custom_fields(token, location_id, model="contact"),
+                        _CONTACT_FIELDS)
+
+    existing = {g.contact_id: g for g in (await s.execute(select(ForumEventGuest).where(
+        ForumEventGuest.event_id == event.id))).scalars()}
+
+    seen, stat = set(), Counter()
+    for c in contacts:
+        cid = str(c.get("id") or "")
+        if not cid:
+            continue
+        tags = ghl.contact_tags(c)
+        # Precedence: a contact carrying both tag sets is a GUEST, counted once. The sales
+        # population is the one with money attached, and a member being sold a guest seat is a
+        # sale. Spring has exactly one of these in Q4.
+        if match_guest_tag(tags, guest_tags):
+            if match_member_tag(tags, member_tags):
+                stat["both_tags"] += 1      # counted once, as a guest; logged so it is visible
+            kind = "guest"
+        elif match_member_tag(tags, member_tags):
+            kind = "member"
+        elif declined_tags and match_member_tag(tags, declined_tags):
+            kind = "declined"
+        else:
+            continue
+        seen.add(cid)
+        stat[kind] += 1
+
+        o = by_contact.get(cid)
+        stage = stage_name.get(o.get("pipelineStageId")) if o else None
+        cvals = ghl.contact_custom_values(c) if hasattr(ghl, "contact_custom_values") else {}
+        ovals = ghl.opp_custom_values(o) if o else {}
+        row = existing.get(cid)
+        if row is None:
+            row = ForumEventGuest(tenant_id=tenant_id, event_id=event.id, contact_id=cid)
+            s.add(row)
+            existing[cid] = row
+            stat["new"] += 1
+        row.kind = kind
+        row.name = (ghl.contact_name(c) or None)
+        row.opportunity_id = str(o.get("id")) if o else None
+        row.stage = (stage or None)
+        row.group = classify_stage(stage, event.stage_map) if stage else "uncategorized"
+        row.is_comped = is_comped(tags, event.comp_tag_match)
+        row.channel = classify_shift_source({}, row.is_comped)
+        row.invited_by = (cvals.get(cfields.get("invited_by"))
+                          or ovals.get(ofields.get("referred_by")) or None)
+        row.rep_email = ovals.get(ofields.get("sales_rep")) or None
+        row.payment_type = payment_type_from_stage(stage)
+        # dateAdded is when the IDENTITY first appeared, not when they RSVP'd - GHL exposes no
+        # per-tag timestamp. Same deliberate trade bc_shift_reg makes, documented in the spec.
+        added = c.get("dateAdded") or c.get("createdAt")
+        if added and not row.registered_on:
+            try:
+                row.registered_on = dt.datetime.fromisoformat(
+                    str(added).replace("Z", "+00:00")).date()
+            except (ValueError, TypeError):
+                pass
+        if row.group == "converted" and not row.converted_on:
+            row.converted_on = today
+        row.last_seen_at = dt.datetime.now(dt.timezone.utc)
+
+    # A person who lost the tag is no longer registered for THIS event. Removed from this
+    # event only - never a blanket delete, which is the whole difference from the snapshot.
+    for cid, row in list(existing.items()):
+        if cid not in seen:
+            await s.delete(row)
+            stat["untagged"] += 1
+
+    await s.flush()
+    await _upsert_week(s, tenant_id, event, today)
+    await s.commit()
+    return {"guests": stat["guest"], "members": stat["member"], "declined": stat["declined"],
+            "new": stat["new"], "untagged": stat["untagged"], "both_tags": stat["both_tags"]}
+
+
+async def _upsert_week(s: AsyncSession, tenant_id, event: ForumEvent, today: dt.date) -> None:
+    """One row per ISO week per event. metric_record cannot hold this - it is current state by
+    construction, and momentum is a question about last week."""
+    rows = (await s.execute(select(ForumEventGuest).where(
+        ForumEventGuest.event_id == event.id))).scalars().all()
+    guests = [r for r in rows if r.kind == "guest"]
+    wk = _iso_week_start(today)
+    week = (await s.execute(select(ForumEventWeekly).where(
+        ForumEventWeekly.event_id == event.id,
+        ForumEventWeekly.week_start == wk))).scalar_one_or_none()
+    if week is None:
+        week = ForumEventWeekly(tenant_id=tenant_id, event_id=event.id, week_start=wk)
+        s.add(week)
+    week.guests = len(guests)
+    week.members_registered = sum(1 for r in rows if r.kind == "member")
+    week.converted = sum(1 for g in guests if g.group == "converted")
+    week.guests_cum = len(guests)
+    week.captured_at = dt.datetime.now(dt.timezone.utc)
+
+
+async def sync_events_for_integration(s: AsyncSession, tenant_id, integ) -> int:
+    """Every active event on this integration's business. Inert when none is configured, so a
+    workspace that has never made an event pays nothing for this.
+
+    Isolated per event: one event's bad tag set must not stop the next one syncing, and none of
+    them may break the Forum sync they hang off.
+    """
+    from ..crypto import dec
+
+    cfg = integ.config or {}
+    location_id = cfg.get("location_id")
+    token = dec(integ.access_token_enc) if integ.access_token_enc else None
+    if not (location_id and token):
+        return 0
+    events = (await s.execute(select(ForumEvent).where(
+        ForumEvent.tenant_id == tenant_id,
+        ForumEvent.business_id == integ.business_id,
+        ForumEvent.is_active.is_(True)))).scalars().all()
+    n = 0
+    for ev in events:
+        try:
+            stat = await sync_forum_event(s, tenant_id, ev, token, location_id)
+            n += (stat.get("guests") or 0) + (stat.get("members") or 0)
+            print(f"[forum_event] {ev.slug}: {stat}", flush=True)
+        except Exception as e:  # noqa: BLE001 - never let one event break the Forum sync
+            print(f"[forum_event] {ev.slug} skipped: {type(e).__name__}: {e}", flush=True)
+    return n
+
+
+# ── drill (FORUM-EVENT-SPEC.md §5) ──────────────────────────────────────────────────────────
+# Every figure on the tab opens the people behind it. A number nobody can open is a number
+# nobody can act on - and the five RSVPs with no sale open are the whole reason this exists.
+_DRILL_TITLES = {
+    "event_guests": "VIP guests",
+    "event_paid": "VIP guests who paid",
+    "event_comped": "Comped guests",
+    "event_members_registered": "Members registered",
+    "event_declined": "Members not attending",
+    "event_room": "In the room",
+    "event_converted": "Guests who became members",
+    "event_without_opp": "RSVPs with no sale open",
+    "event_stage_conflict": "RSVP'd, but parked or lost in the funnel",
+}
+
+
+def _row(g: ForumEventGuest) -> dict:
+    return {
+        "name": g.name or "—",
+        "kind": g.kind,
+        "stage": g.stage or "—",
+        "group": g.group,
+        "comped": g.is_comped,
+        "rep": g.rep_email or "—",
+        "invited_by": g.invited_by or "—",
+        "payment": g.payment_type or "—",
+    }
+
+
+_COLUMNS = ["name", "kind", "stage", "group", "comped", "rep", "invited_by", "payment"]
+
+
+async def drill_event(s: AsyncSession, tenant_id, event: ForumEvent, metric: str) -> dict:
+    """The people behind one figure. Two shapes only - `records` and `calc` - so the existing
+    drawer renders it with no new component."""
+    rows = (await s.execute(select(ForumEventGuest).where(
+        ForumEventGuest.tenant_id == tenant_id,
+        ForumEventGuest.event_id == event.id))).scalars().all()
+    guests = [r for r in rows if r.kind == "guest"]
+
+    def records(title, subset):
+        return {"metric": metric, "type": "records", "title": title,
+                "subtitle": f"{len(subset)} | {event.name}",
+                "count": len(subset), "columns": _COLUMNS,
+                "rows": [_row(g) for g in sorted(subset, key=lambda x: (x.name or "").lower())]}
+
+    title = _DRILL_TITLES.get(metric)
+    if metric == "event_guests":
+        return records(title, guests)
+    if metric == "event_paid":
+        return records(title, [g for g in guests if not g.is_comped])
+    if metric == "event_comped":
+        return records(title, [g for g in guests if g.is_comped])
+    if metric == "event_members_registered":
+        return records(title, [r for r in rows if r.kind == "member"])
+    if metric == "event_declined":
+        return records(title, [r for r in rows if r.kind == "declined"])
+    if metric == "event_room":
+        return records(title, [r for r in rows if r.kind in ("guest", "member")])
+    if metric == "event_converted":
+        return records(title, [g for g in guests if g.group == "converted"])
+    if metric == "event_without_opp":
+        return records(title, [g for g in guests if not g.opportunity_id])
+    if metric == "event_stage_conflict":
+        return records(title, [g for g in guests if g.group in _CONFLICT_GROUPS])
+    # A funnel row: `event_group_registered`, `event_group_deciding`, ...
+    if metric.startswith("event_group_"):
+        g = metric[len("event_group_"):]
+        if g in GROUPS:
+            label = GROUP_LABELS.get(g, (g.title(), None))[0]
+            return records(label, [x for x in guests if x.group == g])
+    # Unknown, and SAID so. launch.py's drill falls through to a soft "no drill-down defined
+    # yet", which turns a typo into a silently empty drawer.
+    raise KeyError(metric)

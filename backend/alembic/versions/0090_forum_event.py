@@ -104,7 +104,7 @@ def upgrade() -> None:
             sa.Column("event_id", GUID(), sa.ForeignKey("forum_event.id", ondelete="CASCADE"),
                       nullable=False),
             sa.Column("contact_id", sa.String(64), nullable=False),
-            sa.Column("kind", sa.String(8), nullable=False, server_default="guest"),
+            sa.Column("kind", sa.String(12), nullable=False, server_default="guest"),
             sa.Column("opportunity_id", sa.String(64), nullable=True),
             sa.Column("name", sa.String(160), nullable=True),
             sa.Column("stage", sa.String(120), nullable=True),

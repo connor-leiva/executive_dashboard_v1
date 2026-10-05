@@ -3725,7 +3725,10 @@ class ForumEventGuest(Base):
     event_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("forum_event.id", ondelete="CASCADE"), index=True, nullable=False)
     contact_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    kind: Mapped[str] = mapped_column(String(8), default="guest", nullable=False)   # guest|member
+    # guest | member | declined. "declined" is 8 characters, so String(8) would fit it with
+    # ZERO headroom - which is the exact shape of the goal_basis String(8) trap this spec
+    # calls out. 12 leaves room for the next word.
+    kind: Mapped[str] = mapped_column(String(12), default="guest", nullable=False)
     opportunity_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     stage: Mapped[str | None] = mapped_column(String(120), nullable=True)   # raw GHL text, verbatim

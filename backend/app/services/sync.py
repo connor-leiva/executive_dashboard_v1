@@ -1590,6 +1590,14 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
                 records = (records or 0) + await sync_edge_ghl(s, tenant_id, integ)
             except Exception as e:  # noqa: BLE001 — never let Edge break the Forum sync
                 print(f"[ghl_edge] skipped: {e}", flush=True)
+            try:
+                # The Forum's quarterly events (FORUM-EVENT-SPEC.md). Inert until a workspace
+                # creates one, and isolated for the same reason Edge is: an event's tag set is
+                # tenant-entered, and a bad one must not take the Forum sync down with it.
+                from .forum_event import sync_events_for_integration
+                records = (records or 0) + await sync_events_for_integration(s, tenant_id, integ)
+            except Exception as e:  # noqa: BLE001 — never let an event break the Forum sync
+                print(f"[forum_event] skipped: {e}", flush=True)
         elif integ.provider == "ghl_bc":
             records = await sync_becollective_ghl(s, tenant_id, integ)
         elif integ.provider == "ghl_recruiting":
