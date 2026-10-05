@@ -616,3 +616,37 @@ class LaunchUpsert(BaseModel):
     stage_map: dict | None = None
     payment_plan_map: dict | None = None
     is_active: bool | None = None
+
+
+class ForumEventUpsert(BaseModel):
+    """Create/edit a Forum event. All optional so PUT is a partial patch; POST validates the
+    required set in the route.
+
+    EVERY field here must also be emitted by `forum_event.config_out` and have a control in the
+    settings drawer. A field that is accepted but not emitted is one a future editor silently
+    blanks on save - thirteen launch columns are in exactly that state today, and two of them
+    (payment_plan_map, won_grace_days) are accepted and never returned. A test asserts the three
+    lists agree.
+    """
+    name: str | None = None
+    slug: str | None = None
+    status: str | None = None
+    starts_on: str | None = None
+    ends_on: str | None = None
+    window_start: str | None = None
+    window_end: str | None = None
+    venue: str | None = None
+    default_tz: str | None = None
+    pipeline_match: list | None = None
+    stage_map: dict | None = None
+    guest_tags: list | None = None
+    member_tags: list | None = None
+    declined_tags: list | None = None
+    comp_tag_match: str | None = None
+    guest_goal: int | None = None
+    member_goal: int | None = None
+    vip_price: float | None = None
+    price_map: dict | None = None
+    pace_curve: dict | None = None
+    pace_tolerance: float | None = None
+    is_active: bool | None = None
