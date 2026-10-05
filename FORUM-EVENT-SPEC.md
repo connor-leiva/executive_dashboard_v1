@@ -62,7 +62,7 @@ Two different populations are in the room, and they are tagged differently:
 |---|---|---:|---|
 | **VIP guests** | `the forum q4 2026 guest rsvp` | 23 | prospects at $2,500 — the sales funnel and the upsell target |
 | VIP guests, paid flag | `the forum q4 2026 guest rsvp paid` | 1 | a sub-tag of the above |
-| **Members registered** | `the forum q4 2026 rsvp` | 35 | existing members attending — no sale attached |
+| **Members registered** | `the forum q4 2026 rsvp` | 35 tagged, **34 counted** | existing members attending — no sale attached. One of the 35 also carries the guest tag and is counted as a guest (D10), so the room is 24 + 34 = **58** |
 | Members declining | `q4 not registered - member` | 14 | an explicit "not coming" signal |
 | Sponsor guests | `forum vip guest sisu nov 2026`, `forum vip guest realty.com nov 2026` | 3, 1 | partner-provided seats; only 2 of the 4 also carry the guest RSVP tag |
 
@@ -383,10 +383,13 @@ All routes live in a new `app/routers/forum_events.py`, mounted at `/api/v1` bes
   "registration": {                // server-computed, §7 — real Spring Q4 figures at 2026-10-05
     "goal": 60, "guests": 24, "paid": 23, "comped": 1,
     "pct_to_goal": 0.4,
-    "members_registered": 35, "members_declined": 14,
-    "room": 59,                    // guests + members; never labelled "registered"
+    "members_registered": 34, "members_declined": 14,
+    "room": 58,                    // guests + members; never labelled "registered"
     "guests_without_opp": 5,       // drillable - RSVPs with no sale open
     "guests_stage_conflict": 1,
+    // NO both_tags field. A contact carrying both tag sets is stored ONCE as a guest, so any
+    // count derived from the stored rows is structurally zero - it would report a lie. The
+    // SYNC sees the tags and logs the overlap; putting it on the tab needs a column.
     "days_to_event": 39,
     "expected": 27, "expected_pct": 0.45, "gap": -3, "state": "onpace",
     "curve": [{"d": 38, "pct": 0.45, "count": 27}, /* … */],
@@ -635,11 +638,24 @@ who converts still counts in `guests`.
   `guest` (D10).
 - Upsert `forum_event_weekly` once per ISO week.
 - Register it in the GHL branch of `_sync_integration` for the membership business, gated on at
-  least one `forum_event` row existing — inert otherwise.
+  least one `forum_event` row existing — inert otherwise, and isolated in its own `try` for the
+  same reason The Edge is: an event's tag set is tenant-entered, and a bad one must not take the
+  Forum sync down with it.
+- A contact who LOSES the tag is removed from **that event only**. Never a blanket delete; that
+  distinction is the whole difference from the snapshot this replaces.
+- `kind` is `String(12)`, not `String(8)`. "declined" is exactly 8 characters, and shipping a
+  column that fits its longest value with zero headroom is the `goal_basis` trap (F16) being
+  walked into deliberately.
 
-**Done when** a sync against the live Forum location populates **24 guests and 35 members** for
-the Q4 tags — the numbers in §1.2, which are the acceptance figures — and a second sync of a
-*different* event leaves those rows intact (the F1 regression, asserted).
+**Done when** a sync against the live Forum location populates **24 guests and 34 members** for
+the Q4 tags — and a second sync of a *different* event leaves those rows intact (the F1
+regression, asserted).
+
+> **Measured 2026-10-05, and it corrected two numbers in this document.** The gate was written
+> as "35 members" from the raw tag census, before precedence: one of the 35 member-tagged
+> contacts also carries the guest tag, so 24 + 35 − 1 = **58** in the room, not 59. Run with
+> `scripts/forum_event_live.py`, which also proves the regression — Q4's 72 rows survived a
+> full Q3 sync, and Q3 found its own 45.
 
 ### Phase 4 — The API
 
@@ -663,7 +679,7 @@ returns the §5 payload on one with an event, and the authz tests pass.
 - Update `tests/test_platform.py:68-69` (exact nav list) in the same commit if the nav changes.
 
 **Done when** the Event sub-tab appears on the Forum for a workspace with an event and is absent
-for one without, the hero reads **24 of 60 guests, 59 in the room, 39 days out**, every figure
+for one without, the hero reads **24 of 60 guests, 58 in the room, 39 days out**, every figure
 opens a drill drawer, and the page is clean at 375px with no horizontal scroll.
 
 ### Phase 6 — Assistant and lineage
@@ -681,7 +697,7 @@ Done in Connor's own signed-in session, not a deploy:
 - Create the Q4 2026 event: guest tag `the forum q4 2026 guest rsvp`, member tag
   `the forum q4 2026 rsvp`, declined tag `q4 not registered - member`, pipeline
   `forum main sales funnel`, goal **60**, **13–15 November 2026**. Leave pricing empty.
-- Confirm 24 guests and 35 members against what Spring believes, person by person if they differ.
+- Confirm 24 guests and 34 members against what Spring believes, person by person if they differ.
 - Work the 5 RSVPs with no opportunity (§11).
 - Set the pace curve, or accept linear for the first event and capture the real curve after.
 
@@ -781,5 +797,69 @@ What is left for Connor is one question this audit raised rather than answered:
 
 ## 12. Build record
 
-*Empty until Phase 1 ships. Each phase appends: what landed, the commit, what was verified
-against production, and anything that failed or could not be reproduced.*
+### Phase 0 — Fixture hygiene (`1bb8bc7`)
+
+Scoping the 16 unscoped fixture `delete()`s by tenant broke two recall tests immediately, which
+is what the phase was for. The cause was upstream: `seed._wipe` deletes a hand-kept tuple of
+**nine** models against a schema with **125** tenant-scoped tables, and SQLite does not enforce
+foreign keys — so the 116 it missed were orphaned, not cascaded. `seed()` then built a tenant
+with a fresh uuid and left them behind forever. The unscoped `delete(SalesCall)` in the fixtures
+was the only thing sweeping them up. `_wipe` is now derived from `Base.metadata.sorted_tables`.
+
+Gate met: the four affected suites pass 86/86 forward **and** reversed. Full suite 2219.
+
+### Phase 1 — Retire the dead event machinery (`61169b0`)
+
+Removed the unreachable "Next Event" members card (gated on `!data.renewals`, and the Forum
+always has renewals), made the Recruiting Pipeline tile inert rather than opening the event
+registration list, and injected the clock into **four** live reads — the audit found two.
+
+Two corrections to this document, both made while building:
+
+- The event deck card could not be removed from `_deck`: it is shared with beCollective and The
+  Edge, and beCollective has **no renewals card**, so its event card does render. Removing it
+  from the helper took a live card off another tab; the test caught it. Suppressed at the
+  Forum's call site instead.
+- The Done-when read "renders with no event tile" and following it would have caused a
+  regression (see the note in Phase 1 above).
+
+Full suite 2219.
+
+### Phase 2 — Data foundation (`11fb605`)
+
+Three tables, `compute_event`, and the `event_` branch in `tab_for_metric`. Migration verified on
+the path prod will take (0089 → 0090 with the tables absent), re-run idempotently with them
+present, and checked column-for-column against `create_all`.
+
+Three controls mutated to prove the tests bite. Two died. The third — members matched by
+substring — **survived all twenty**, because `…q4 2026 rsvp` happens not to be a substring of
+`…q4 2026 guest rsvp`: the assertion was right and proved nothing. The case that discriminates is
+a member tag that is a prefix of a longer tag, which Spring already has the guest-side version
+of. Added; the mutant now dies.
+
+Full suite 2239.
+
+### Phase 3 — The sync (pending push)
+
+Live gate passed against the real Forum location: **24 guests, 34 members, 58 in the room**, and
+Q4's 72 rows survived a complete Q3 sync — the regression this table exists for. Run it with
+`scripts/forum_event_live.py`.
+
+It corrected two numbers in this document (35 → 34 members, 59 → 58 room: one contact carries
+both tags and precedence makes them a guest) and found two bugs: `both_tags` was structurally
+always zero when derived from stored rows, and the five no-opportunity guests were being warned
+about twice, once wrongly as "unmapped stages".
+
+### Phases 4–6 — API, tab, assistant (pending push)
+
+Six endpoints; `_event_tab` resolves the membership tab by `Business.kind` rather than copying
+`_launch_tab`, which hardcodes beCollective. An unknown drill metric is a **404**, not the soft
+empty drawer `drill_launch` returns. Four authz controls mutated, all caught.
+
+`ForumShell` clones `BecollectiveView` rather than extending `BrandScorecardTabs`, which is
+shared with The Edge. Browser-verified on the preview build: hero reads 24 of 60, on pace, 58 in
+the room; ticket revenue renders as an em dash with "no price set"; 14 drill targets; clean at
+375px with no horizontal scroll.
+
+The Ask panel now packs the event, and its legend states the two rules it would otherwise get
+wrong — guests come from the tag, and ticket revenue is never MRR.

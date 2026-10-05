@@ -28,7 +28,7 @@ log = logging.getLogger("app")
 TAB_LEGEND = {
     "portfolio": "Portfolio — the roll-up across all businesses (combined revenue, NOI, margin, cash).",
     "ulrg": "ULRG — the real-estate team (units closed, GCI, volume, pipeline, listings, agents) plus three-lens Financials: Live (closed) vs Projection (pending expected to close) vs Booked (QuickBooks) — with Projected profit, Projected GCI, commissions, net GCI, and est. expenses.",
-    "forum": "The Forum — mastermind membership: members, recruiting funnel, renewals, events, and Cash & Billing (net cash, MRR, ARR, streams, failed payments).",
+    "forum": "The Forum — mastermind membership: members, recruiting funnel, renewals, and Cash & Billing (net cash, MRR, ARR, streams, failed payments). Its Event sub-tab tracks the quarterly in-person event: VIP guests registered against a goal (counted from the RSVP tag, so a guest with no opportunity still counts), members registered beside them, who is in the room, pace against the event date, and how many guests converted to memberships. Ticket revenue is NOT membership revenue and is never added to MRR.",
     "becollective": "beCollective — cohort community program: members, recruiting funnel, events.",
     "sympli": "Sympli Mortgage — the loan business: funded loans, volume, commission, and financials (Live vs Booked).",
     "flywheel": "Referral Flywheel — ULRG → Sympli referral attach-rate and captured revenue.",
@@ -132,6 +132,19 @@ async def _build_context(s, user: User, period: str, step_up: set | None = None)
 
     if "forum" in tabs:
         data["forum_detail"] = await build_forum(s, user.tenant_id, period)
+        # The Forum's quarterly event, when one is configured. Without this, "how many VIP
+        # guests do we have for Q4" is unanswerable in the Ask panel even though the number is
+        # on the tab the user is looking at - the assistant packed the Forum payload and the
+        # Event sub-tab was simply invisible to it.
+        try:
+            from .forum_event import active_event, compute_event
+            from . import roles as _roles
+            _biz = await _roles.membership(s, user.tenant_id)
+            _ev = await active_event(s, user.tenant_id, _biz.id) if _biz else None
+            if _ev is not None:
+                data["forum_event_detail"] = await compute_event(s, user.tenant_id, _ev)
+        except Exception:        # noqa: BLE001 - an event must never break the Ask panel
+            log.debug("assistant: no forum event for %s", user.tenant_id)
     if "becollective" in tabs:
         data["becollective_detail"] = await build_becollective(s, user.tenant_id, period)
     if "binder" in tabs and "binder" in (step_up or set()):

@@ -304,3 +304,426 @@ def test_an_unknown_event_key_does_not_fall_through_to_portfolio():
     # The point of the test: a key nobody has added to the set yet still lands on the Forum.
     assert tab_for_metric("event_some_metric_added_next_year") == "forum"
     assert tab_for_metric("genuinely_unknown") == "portfolio", "the fallthrough still exists"
+
+
+# ── the sync (Phase 3) ────────────────────────────────────────────────────────────────────
+class _FakeGHL:
+    """Stands in for app.integrations.ghl. Read-only in the real thing, so there is nothing to
+    assert about writes - what matters is that the sync UPSERTS and never sweeps."""
+
+    def __init__(self, contacts, opps=(), stages=None):
+        self._contacts, self._opps = contacts, list(opps)
+        self._stages = stages or {"s_conf": "VIP Guest: Confirmed",
+                                  "s_cold": "Cold Nurture: Upcoming VIP Event (Unresponsive)",
+                                  "s_dual": "Sent Contract: Dual - Monthly",
+                                  "s_won": "Won: Onboarded"}
+
+    async def get_contacts(self, *a, **k):
+        return self._contacts
+
+    async def get_opportunities(self, *a, **k):
+        return self._opps
+
+    async def get_pipelines(self, *a, **k):
+        return [{"id": "p1", "name": "01.1 - Forum Main Sales Funnel",
+                 "stages": [{"id": k, "name": v} for k, v in self._stages.items()]}]
+
+    async def get_custom_fields(self, *a, **k):
+        return [{"id": "f_rep", "name": "Sales Rep"}, {"id": "f_ref", "name": "Referred By"},
+                {"id": "f_inv", "name": "Guest Invited By"}]
+
+    @staticmethod
+    def contact_tags(c):
+        return c.get("tags") or []
+
+    @staticmethod
+    def contact_name(c):
+        return c.get("name")
+
+    @staticmethod
+    def contact_custom_values(c):
+        return c.get("cvals") or {}
+
+    @staticmethod
+    def opp_custom_values(o):
+        return (o or {}).get("cvals") or {}
+
+
+def _contact(cid, *tags, **kw):
+    return {"id": cid, "name": kw.pop("name", f"Person {cid}"), "tags": list(tags), **kw}
+
+
+def _opp(oid, cid, stage="s_conf", **kw):
+    return {"id": oid, "contactId": cid, "pipelineId": "p1", "pipelineStageId": stage,
+            "updatedAt": kw.pop("updatedAt", "2026-10-01T00:00:00Z"), **kw}
+
+
+async def _sync(monkeypatch, eid, tid, contacts, opps=(), today=ASOF):
+    import app.integrations.ghl as real
+    fake = _FakeGHL(contacts, opps)
+    for name in ("get_contacts", "get_opportunities", "get_pipelines", "get_custom_fields",
+                 "contact_tags", "contact_name", "contact_custom_values", "opp_custom_values"):
+        monkeypatch.setattr(real, name, getattr(fake, name))
+    async with SessionLocal() as s:
+        ev = (await s.execute(select(ForumEvent).where(ForumEvent.id == eid))).scalar_one()
+        return await FE.sync_forum_event(s, tid, ev, "tok", "loc", today=today)
+
+
+GUEST = "the forum q4 2026 guest rsvp"
+MEMBER = "the forum q4 2026 rsvp"
+
+
+async def test_sync_upserts_and_a_second_run_does_not_duplicate(monkeypatch):
+    tid, eid = await _event()
+    async with SessionLocal() as s:                       # start from empty
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        await s.commit()
+    contacts = [_contact("c1", GUEST), _contact("c2", GUEST), _contact("c3", MEMBER)]
+    opps = [_opp("o1", "c1")]
+    first = await _sync(monkeypatch, eid, tid, contacts, opps)
+    assert (first["guests"], first["members"], first["new"]) == (2, 1, 3)
+    second = await _sync(monkeypatch, eid, tid, contacts, opps)
+    assert second["new"] == 0, "the second run must update, not insert"
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(ForumEventGuest).where(
+            ForumEventGuest.event_id == eid))).scalars().all()
+    assert len(rows) == 3
+
+
+async def test_a_contact_carrying_both_tags_is_one_guest_and_is_counted_as_such(monkeypatch):
+    """D10. Stored once, as a guest - which is why `room` cannot double-count, and why a
+    both-tags figure derived from the stored rows would be structurally zero."""
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        await s.commit()
+    stat = await _sync(monkeypatch, eid, tid, [_contact("c1", GUEST, MEMBER)])
+    assert (stat["guests"], stat["members"], stat["both_tags"]) == (1, 0, 1)
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(ForumEventGuest).where(
+            ForumEventGuest.event_id == eid))).scalars().all()
+    assert len(rows) == 1 and rows[0].kind == "guest"
+
+
+async def test_losing_the_tag_removes_the_person_from_THIS_event_only(monkeypatch):
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        other = ForumEvent(tenant_id=tid, business_id=biz.id, name="Q3", slug="q3",
+                           guest_tags=["q3 guest"], stage_map=FE.DEFAULT_STAGE_MAP)
+        s.add(other)
+        await s.flush()
+        oid = other.id
+        s.add(ForumEventGuest(tenant_id=tid, event_id=oid, contact_id="c1", kind="guest"))
+        await s.commit()
+    await _sync(monkeypatch, eid, tid, [_contact("c1", GUEST)])
+    stat = await _sync(monkeypatch, eid, tid, [])          # c1 lost the Q4 tag
+    assert stat["untagged"] == 1
+    async with SessionLocal() as s:
+        q4 = (await s.execute(select(ForumEventGuest).where(
+            ForumEventGuest.event_id == eid))).scalars().all()
+        q3 = (await s.execute(select(ForumEventGuest).where(
+            ForumEventGuest.event_id == oid))).scalars().all()
+    assert len(q4) == 0, "removed from the event whose tag they lost"
+    assert len(q3) == 1, "and NOT from any other event - that is the whole bug being avoided"
+
+
+async def test_the_payment_type_comes_out_of_the_contract_stage(monkeypatch):
+    """The Forum encodes Single/Dual x Monthly/PIF in the stage name rather than in a Payment
+    Type field, so price_map is keyed by what follows the colon and nothing is inferred."""
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        await s.commit()
+    await _sync(monkeypatch, eid, tid,
+                [_contact("c1", GUEST), _contact("c2", GUEST)],
+                [_opp("o1", "c1", "s_dual"), _opp("o2", "c2", "s_won")])
+    async with SessionLocal() as s:
+        rows = {r.contact_id: r for r in (await s.execute(select(ForumEventGuest).where(
+            ForumEventGuest.event_id == eid))).scalars()}
+    assert rows["c1"].payment_type == "Dual - Monthly" and rows["c1"].group == "deciding"
+    # A member whose contract stage we never saw has no type. That is honest, not a gap - they
+    # are priced at the blended rate and counted in the warning.
+    assert rows["c2"].payment_type is None and rows["c2"].group == "converted"
+
+
+async def test_a_tagged_rsvp_with_no_opportunity_is_still_a_guest(monkeypatch):
+    """Five of Spring's twenty-four are exactly this. Requiring an opportunity would drop the
+    people the tab exists to surface."""
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        await s.commit()
+    stat = await _sync(monkeypatch, eid, tid, [_contact("c1", GUEST)])      # no opps at all
+    assert stat["guests"] == 1
+    async with SessionLocal() as s:
+        ev = (await s.execute(select(ForumEvent).where(ForumEvent.id == eid))).scalar_one()
+        d = await FE.compute_event(s, tid, ev, today=ASOF)
+    assert d["registration"]["guests"] == 1
+    assert d["registration"]["guests_without_opp"] == 1
+    # ...and it must NOT also be reported as an unmapped stage. It has no stage to map.
+    assert not any("unmapped" in w for w in d["warnings"])
+
+
+async def test_declined_members_are_captured_without_joining_the_room(monkeypatch):
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        ev = (await s.execute(select(ForumEvent).where(ForumEvent.id == eid))).scalar_one()
+        ev.declined_tags = ["q4 not registered - member"]
+        await s.commit()
+    stat = await _sync(monkeypatch, eid, tid, [
+        _contact("c1", GUEST), _contact("c2", MEMBER),
+        _contact("c3", "q4 not registered - member")])
+    assert stat["declined"] == 1
+    async with SessionLocal() as s:
+        ev = (await s.execute(select(ForumEvent).where(ForumEvent.id == eid))).scalar_one()
+        d = await FE.compute_event(s, tid, ev, today=ASOF)
+    assert d["registration"]["room"] == 2, "a decliner is not in the room"
+
+
+async def test_the_weekly_row_is_one_per_iso_week_and_is_updated_in_place(monkeypatch):
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        await s.execute(delete(ForumEventWeekly).where(ForumEventWeekly.event_id == eid))
+        await s.commit()
+    mon = dt.date(2026, 10, 5)                       # a Monday
+    await _sync(monkeypatch, eid, tid, [_contact("c1", GUEST)], today=mon)
+    await _sync(monkeypatch, eid, tid, [_contact("c1", GUEST), _contact("c2", GUEST)],
+                today=mon + dt.timedelta(days=3))    # same ISO week
+    await _sync(monkeypatch, eid, tid, [_contact("c1", GUEST), _contact("c2", GUEST),
+                                        _contact("c3", GUEST)],
+                today=mon + dt.timedelta(days=8))    # the next week
+    async with SessionLocal() as s:
+        weeks = (await s.execute(select(ForumEventWeekly).where(
+            ForumEventWeekly.event_id == eid).order_by(ForumEventWeekly.week_start))).scalars().all()
+    assert [w.week_start for w in weeks] == [mon, mon + dt.timedelta(days=7)]
+    assert [w.guests for w in weeks] == [2, 3], "updated in place, then a new week"
+
+
+# ── the API (Phase 4) ─────────────────────────────────────────────────────────────────────
+async def _token(email=None, password=None):
+    """The login response key is `token`, not `access_token`, and the seeded owner's
+    credentials are constants - never literals, because the seed rotates them."""
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.seed import OWNER_EMAIL, OWNER_PASSWORD
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        r = await c.post("/api/v1/auth/login", json={"email": email or OWNER_EMAIL,
+                                                     "password": password or OWNER_PASSWORD})
+        body = r.json()
+        assert "token" in body, f"login failed: {r.status_code} {body}"
+        return body["token"]
+
+
+async def _api(method, path, token=None, **kw):
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        return await getattr(c, method)(path, headers=headers, **kw)
+
+
+async def test_current_404s_when_no_event_is_configured_and_that_is_the_tab_being_absent():
+    """A 404 is the designed signal that the sub-tab is ABSENT. Returning an empty shell would
+    render a tab full of zeroes on a workspace that has never run an event."""
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.tenant_id == biz.tenant_id))
+        await s.execute(delete(ForumEvent).where(ForumEvent.tenant_id == biz.tenant_id))
+        await s.commit()
+    r = await _api("get", "/api/v1/businesses/springb/events/current", await _token())
+    assert r.status_code == 404
+
+
+async def test_current_serves_the_payload_once_an_event_exists():
+    tid, eid = await _event()
+    r = await _api("get", "/api/v1/businesses/springb/events/current", await _token())
+    assert r.status_code == 200, r.text
+    d = r.json()
+    # The FIXTURE has no both-tags overlap, so 24 + 35 = 59. Live Spring data has one,
+    # which is why the live gate expects 34 members and 58 in the room.
+    assert d["registration"]["guests"] == 24 and d["registration"]["room"] == 59
+    assert set(d) >= {"event", "registration", "funnel", "revenue", "momentum", "warnings"}
+
+
+async def test_reads_need_the_forum_tab_not_becollective():
+    """_launch_tab hardcodes "becollective" and gates every launch route behind it. Copying that
+    would put Forum events behind the wrong grant for any workspace holding both."""
+    from app.models import User
+    from app.security import hash_pw
+    await _event()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(User).where(User.email == "evtab@x.com"))
+        s.add(User(tenant_id=biz.tenant_id, email="evtab@x.com", name="No Forum",
+                   password_hash=hash_pw("pw12345678"), role="member",
+                   tab_access=["becollective"]))      # beCollective but NOT forum
+        await s.commit()
+    tok = await _token("evtab@x.com", "pw12345678")
+    r = await _api("get", "/api/v1/businesses/springb/events/current", tok)
+    assert r.status_code == 403, "the beCollective grant must not open the Forum's events"
+
+    async with SessionLocal() as s:
+        u = (await s.execute(select(User).where(User.email == "evtab@x.com"))).scalar_one()
+        u.tab_access = ["forum"]
+        await s.commit()
+    r = await _api("get", "/api/v1/businesses/springb/events/current",
+                   await _token("evtab@x.com", "pw12345678"))
+    assert r.status_code == 200, "the forum grant is the one that opens them"
+
+
+async def test_an_unknown_business_key_is_404_not_someone_elses_event():
+    await _event()
+    r = await _api("get", "/api/v1/businesses/not-a-business/events/current", await _token())
+    assert r.status_code == 404
+
+
+async def test_an_event_cannot_be_read_through_another_businesss_path():
+    """Checking the tab on one business and then reading a child row by id alone is how a tab
+    grant on one business reached another's recordings once already."""
+    tid, eid = await _event()
+    r = await _api("get", f"/api/v1/businesses/ulrg/events/{eid}", await _token())
+    assert r.status_code in (403, 404), "never serve it through a business that does not own it"
+
+
+async def test_writes_are_owner_admin_only_and_audited():
+    from app.models import User, AuditLog
+    from app.security import hash_pw
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(ForumEvent).where(ForumEvent.tenant_id == biz.tenant_id))
+        await s.execute(delete(User).where(User.email == "evmem@x.com"))
+        s.add(User(tenant_id=biz.tenant_id, email="evmem@x.com", name="Member",
+                   password_hash=hash_pw("pw12345678"), role="member", tab_access=["forum"]))
+        await s.commit()
+        tid = biz.tenant_id
+
+    body = {"name": "Q1 2027", "slug": "q1-2027", "guest_goal": 40}
+    r = await _api("post", "/api/v1/businesses/springb/events",
+                   await _token("evmem@x.com", "pw12345678"), json=body)
+    assert r.status_code == 403, "a member with the tab may READ, never create"
+
+    r = await _api("post", "/api/v1/businesses/springb/events", await _token(), json=body)
+    assert r.status_code == 201, r.text
+    assert r.json()["event"]["slug"] == "q1-2027"
+
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(AuditLog).where(
+            AuditLog.tenant_id == tid, AuditLog.action == "forum_event.create"))).scalars().all()
+    assert rows, "every write leaves an audit row"
+
+
+async def test_post_requires_the_required_set_and_put_is_a_partial_patch():
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(ForumEvent).where(ForumEvent.tenant_id == biz.tenant_id))
+        await s.commit()
+    tok = await _token()
+    r = await _api("post", "/api/v1/businesses/springb/events", tok, json={"guest_goal": 10})
+    assert r.status_code == 400 and "name" in r.text
+
+    r = await _api("post", "/api/v1/businesses/springb/events", tok,
+                   json={"name": "Q2 2027", "slug": "q2-2027", "guest_goal": 50,
+                         "starts_on": "2027-05-10"})
+    assert r.status_code == 201
+    eid = r.json()["event"]["id"]
+
+    # A partial patch leaves everything it does not name alone.
+    r = await _api("put", f"/api/v1/businesses/springb/events/{eid}", tok,
+                   json={"guest_goal": 55})
+    assert r.status_code == 200
+    cfg = r.json()["event"]
+    assert cfg["guest_goal"] == 55 and cfg["slug"] == "q2-2027" and cfg["starts_on"] == "2027-05-10"
+
+
+async def test_a_bad_date_is_a_400_not_a_string_in_the_column():
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(ForumEvent).where(ForumEvent.tenant_id == biz.tenant_id))
+        await s.commit()
+    r = await _api("post", "/api/v1/businesses/springb/events", await _token(),
+                   json={"name": "X", "slug": "x", "starts_on": "not-a-date"})
+    assert r.status_code == 400 and "Bad date" in r.text
+
+
+async def test_the_upsert_schema_the_config_and_the_model_all_agree():
+    """F17. Thirteen launch columns are PUT-able with no UI field, and two are accepted by the
+    schema and never returned by config_out - a future editor reading config and saving it back
+    silently blanks them. These three lists must not drift."""
+    from app.schemas import ForumEventUpsert
+    from app.models import ForumEvent as FEModel
+    accepted = set(ForumEventUpsert.model_fields)
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        ev = FEModel(tenant_id=biz.tenant_id, business_id=biz.id, name="n", slug="s")
+        emitted = set(FE.config_out(ev)) - {"id"}
+    columns = {c.name for c in FEModel.__table__.c}
+    assert accepted == emitted, f"accepted-but-not-emitted: {accepted - emitted}; " \
+                                f"emitted-but-not-accepted: {emitted - accepted}"
+    assert accepted <= columns, f"schema accepts fields with no column: {accepted - columns}"
+
+
+async def test_the_drill_opens_the_people_behind_a_figure():
+    tid, eid = await _event()
+    tok = await _token()
+    r = await _api("get", f"/api/v1/businesses/springb/events/{eid}/drill/event_without_opp", tok)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["type"] == "records" and d["count"] == 5, "the five RSVPs with no sale open"
+    assert set(d["rows"][0]) >= {"name", "kind", "stage", "group", "rep"}
+
+    r = await _api("get", f"/api/v1/businesses/springb/events/{eid}/drill/event_guests", tok)
+    assert r.json()["count"] == 24
+
+
+async def test_an_unknown_drill_metric_is_a_404_not_an_empty_drawer():
+    """drill_launch falls through to a soft "no drill-down defined for this value yet", which
+    turns a typo in the frontend into a figure that opens onto nothing and reads as missing
+    data. A 404 says which key was wrong."""
+    tid, eid = await _event()
+    r = await _api("get", f"/api/v1/businesses/springb/events/{eid}/drill/event_nonsense",
+                   await _token())
+    assert r.status_code == 404 and "event_nonsense" in r.text
+
+
+# ── assistant + lineage (Phase 6) ─────────────────────────────────────────────────────────
+def test_every_drill_metric_is_in_the_lineage_set_so_none_can_fall_through():
+    """Two hand-kept lists that must agree: the metrics the drill serves, and the keys
+    tab_for_metric knows. A drill key missing from the set still lands on the Forum via the
+    `event_` prefix branch - but the set is what documents the family, and letting them drift
+    is how _wipe ended up 116 tables behind. Assert rather than remember."""
+    from app.services.tabs import _EVENT, tab_for_metric
+    from app.services.forum_event import _DRILL_TITLES, GROUPS
+    assert set(_DRILL_TITLES) <= _EVENT, f"drill metrics not in _EVENT: {set(_DRILL_TITLES) - _EVENT}"
+    for k in _DRILL_TITLES:
+        assert tab_for_metric(k) == "forum"
+    # the per-group keys the funnel rows emit
+    for g in GROUPS:
+        assert tab_for_metric(f"event_group_{g}") == "forum"
+
+
+def test_the_assistant_legend_tells_it_the_two_rules_that_are_easy_to_get_wrong():
+    """The Ask panel will happily add ticket revenue to MRR, or report the funnel's 18 as the
+    guest count, unless the legend says otherwise. Both are stated."""
+    from app.services.assistant import TAB_LEGEND
+    forum = TAB_LEGEND["forum"].lower()
+    assert "rsvp tag" in forum and "no opportunity still counts" in forum
+    assert "never added to mrr" in forum
+
+
+async def test_the_assistant_packs_the_event_when_one_exists():
+    """Without this the Ask panel can see the Forum payload and not the Event sub-tab sitting
+    on top of it - the number is on screen and unanswerable."""
+    tid, eid = await _event()
+    from app.services import assistant
+    from app.models import User
+    async with SessionLocal() as s:
+        user = (await s.execute(select(User).where(
+            User.tenant_id == tid, User.role == "owner"))).scalars().first()
+        ctx = await assistant._build_context(s, user, "mtd")
+    blob = ctx if isinstance(ctx, str) else str(ctx)
+    assert "forum_event_detail" in blob, "the event must reach the assistant's context"
+    assert "24" in blob
