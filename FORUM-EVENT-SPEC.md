@@ -747,10 +747,11 @@ What is left for Connor is one question this audit raised rather than answered:
    RSVP'd for an event five weeks away and nobody has a sale open on them. The tab will surface
    these from day one — but whether they are a data-entry gap or genuinely unworked is a question
    for whoever runs the funnel, not for the schema.
-2. **Whether the sponsor seats are comped.** `forum vip guest sisu nov 2026` (3) and
-   `forum vip guest realty.com nov 2026` (1) do not contain `"comp"`, so the default
-   `comp_tag_match` will count them as **paid**. May's equivalents (`forum vip guest comp sisu
-   may 2026`) did. If Nov's are partner-provided, add them to `comp_tag_match` or retag.
+2. ~~**Whether the sponsor seats are comped.**~~ **Parked** (Connor, 2026-10-05). The Nov sponsor
+   tags — `forum vip guest sisu nov 2026` (3), `forum vip guest realty.com nov 2026` (1) — do not
+   contain `"comp"` where May's equivalents did, so the default matcher will count them as paid.
+   This costs nothing until pricing is turned on (D8), at which point `ticket_booked` would be
+   overstated by those seats. Revisit with pricing, not before; it is one config string.
 
 ---
 
