@@ -50,12 +50,54 @@ grouping engine transfers rather than being rewritten.
 beCollective's `payment_plan_map` is one-dimensional (`{"pif": [...], "plan": [...]}`,
 `launch.py:38-39`). See §9 D4.
 
-### 1.2 Events are identified by TAG, not by a field
+### 1.2 Events are identified by TAG, and TWO populations attend
 
-All 18 contacts in `VIP Guest: Confirmed` carry the contact tag **`the forum q4 2026 guest rsvp`**.
-Prior events used `q3 august 2026 guest vip comped`, `inner circle oct 2025`, `ic october 2025
-guest`, `spring break 2025 vip`. There is no event field on the opportunity and no per-event
-pipeline — one rolling funnel is reused every quarter, and the tag is what separates Q3 from Q4.
+There is no event field on the opportunity and no per-event pipeline — one rolling funnel is
+reused every quarter, and contact tags are what separate Q3 from Q4. Confirmed by Connor
+2026-10-05 and by a tag census over all 16,098 Forum contacts.
+
+Two different populations are in the room, and they are tagged differently:
+
+| Population | Tag | Count | What it is |
+|---|---|---:|---|
+| **VIP guests** | `the forum q4 2026 guest rsvp` | 23 | prospects at $2,500 — the sales funnel and the upsell target |
+| VIP guests, paid flag | `the forum q4 2026 guest rsvp paid` | 1 | a sub-tag of the above |
+| **Members registered** | `the forum q4 2026 rsvp` | 35 | existing members attending — no sale attached |
+| Members declining | `q4 not registered - member` | 14 | an explicit "not coming" signal |
+| Sponsor guests | `forum vip guest sisu nov 2026`, `forum vip guest realty.com nov 2026` | 3, 1 | partner-provided seats; only 2 of the 4 also carry the guest RSVP tag |
+
+**The member tag is not a substring of the guest tag** (`…q4 2026 rsvp` vs `…q4 2026 guest rsvp`),
+so substring matching separates them cleanly in both directions. The guest tag *is* a substring of
+the `… paid` variant, which is correct — a paid guest is a guest.
+
+Prior events follow the same convention: `q3 august 2026 guest vip comped`, `forum q3 2026 vip
+guest`, `forum q3 member - not attending`, `spring break 2026 vip` / `spring break 2026 comp vip`.
+
+**This is the number the Forum tab already gets wrong** (F11): it computes `member_regs =
+len(all_regs) - guests` from one undifferentiated pool. The Event tab counts the two populations
+separately, from their own tag sets, and never derives one by subtracting the other.
+
+### 1.3 The tag and the funnel stage disagree, and both are right
+
+A census of the 24 guest-tagged contacts against the funnel:
+
+| Where the tagged guest sits | Count |
+|---|---:|
+| `VIP Guest: Confirmed` | 18 |
+| **no opportunity in the funnel at all** | **5** |
+| `Cold Nurture: Upcoming VIP Event (Unresponsive)` | 1 |
+
+So "how many VIP guests do we have" is 24 by tag and 18 by stage. Neither is a bug:
+
+- the 5 with no opportunity are real RSVPs nobody has opened a sale for — **exactly the people a
+  tab like this exists to surface**;
+- the 1 in Cold Nurture RSVP'd after being marked unresponsive, and the stage is stale.
+
+> **Therefore: the tag is the registration record; the stage is the sales state.** `guests` counts
+> tags. The funnel counts stages. The tab reports both and warns where they disagree, instead of
+> picking one and quietly losing six people. See §9 D9.
+
+One contact carries **both** the guest and the member tag. §7 gives the precedence rule.
 
 This matters because the `Launch` model **already has** `shift_reg_tag`, `shift_reg_tags`,
 `shift_event_date`, `shift_goal` and `shift_pace_curve` (`models.py:1897-1902`), and
@@ -64,7 +106,7 @@ days-to-event, expected, gap and a `behind|onpace|ahead|done` state, plus comped
 (`is_comp = any("comp" in t for t in matched)`, `sync.py:878`) and channel attribution. **The VIP
 registration tracker is largely built. It is wearing a Shift-shaped name.**
 
-### 1.3 VIP ticket revenue is not recoverable from payments
+### 1.4 VIP ticket revenue is not recoverable from payments
 
 The Forum location has 395 transactions and 23 subscriptions. `$2,500` is ambiguous: of 50
 succeeded `$2,500` charges, the sampled ones are *monthly membership dues* (recurring
@@ -80,7 +122,7 @@ This is pinned by an existing test: `classify_stream("The Forum VIP Guest Ticket
 "event_tickets"` (`tests/test_billing.py:25`) — ticket money is deliberately **excluded** from
 membership revenue. The Event tab must not double-count it into the Forum's MRR.
 
-### 1.4 One live funnel, and one campaign that fed it
+### 1.5 One live funnel, and one campaign that fed it
 
 | Pipeline | Opps | Status |
 |---|---:|---|
@@ -201,9 +243,11 @@ adding a table. If Connor prefers the merge, §9 D1 is where to say so.
 | `default_tz` | `String(40)` | default `"America/Denver"` |
 | `pipeline_match` | `JSONType` | list of substrings, e.g. `["forum main sales funnel", "direct mailer"]` |
 | `stage_map` | `JSONType` | `{group: [substring, …]}` — see §4.3 |
-| `reg_tags` | `JSONType` | list of contact tags, e.g. `["the forum q4 2026 guest rsvp"]` |
-| `comp_tag_match` | `String(32)` | default `"comp"` |
-| `guest_goal` | `Integer` | the VIP-guest target |
+| `guest_tags` | `JSONType` | VIP-guest tags, e.g. `["the forum q4 2026 guest rsvp"]`. Matched as substrings, so `… rsvp paid` is caught too (§1.2) |
+| `member_tags` | `JSONType` | member-registration tags, e.g. `["the forum q4 2026 rsvp"]`. Matched **exactly**, not as substrings — see the gotcha below |
+| `declined_tags` | `JSONType`, nullable | e.g. `["q4 not registered - member"]`. Optional; drives the "declined" figure only |
+| `comp_tag_match` | `String(32)` | default `"comp"`, matching `sync.py:878` |
+| `guest_goal` | `Integer` | the VIP-guest target. Spring Q4 2026: **60** |
 | `vip_price` | `Numeric(12,2)` | $2,500 |
 | `price_map` | `JSONType`, nullable | membership conversion pricing, keyed by §4.4 |
 | `member_goal` | `Integer`, nullable | optional conversion target |
@@ -211,6 +255,12 @@ adding a table. If Connor prefers the merge, §9 D1 is where to say so.
 | `pace_tolerance` | `Numeric(5,4)` | default `0.08` |
 | `is_active` | `Boolean` | default `True` |
 | `created_at` / `updated_at` | `DateTime(timezone=True)` | server defaults |
+
+> **Match members exactly, guests by substring.** `the forum q4 2026 rsvp` is *not* a substring of
+> `the forum q4 2026 guest rsvp`, so substring-matching members would be safe here by luck — but
+> `spring break 2026 vip` **is** a substring of nothing while `forum vip guest sisu nov 2026` and
+> `forum vip guest comp sisu may 2026` differ by one word. Exact-match the member set and
+> substring-match the guest set, and a test pins both against the real Q4 tags.
 
 Indexes: `ix_forum_event_tenant_id`, `ix_forum_event_business_id`, and composite
 `ix_forum_event_scope` on `(tenant_id, business_id, status, starts_on)`. Unique constraint
@@ -276,7 +326,8 @@ snapshot-deleted**, so Q3's guests survive Q4's sync.
 | `tenant_id` | `GUID()` FK CASCADE, indexed, `nullable=False` | |
 | `event_id` | `GUID()` FK `forum_event.id` CASCADE, indexed, `nullable=False` | |
 | `contact_id` | `String(64)`, indexed | GHL contact id |
-| `opportunity_id` | `String(64)`, nullable, indexed | may be absent — a tagged contact with no opp is still a guest |
+| `kind` | `String(8)` | `guest` \| `member`. Longest value 6; this is the two-population split from §1.2 and it is a column, not a derived flag |
+| `opportunity_id` | `String(64)`, nullable, indexed | may be absent — **5 of 24 Q4 guests have no opportunity at all** (§1.3), and they are the ones worth surfacing |
 | `name` | `String(160)`, nullable | |
 | `stage` | `String(120)`, nullable | raw GHL stage text, kept verbatim |
 | `group` | `String(16)` | resolved via `stage_map`; longest value `uncategorized` = 13 |
@@ -290,8 +341,13 @@ snapshot-deleted**, so Q3's guests survive Q4's sync.
 | `first_seen_at` | `DateTime(timezone=True)` | server default |
 | `last_seen_at` | `DateTime(timezone=True)` | bumped every sync |
 
-Unique constraint `uq_forum_event_guest` on `(event_id, contact_id)`.
-Composite index `ix_forum_event_guest_group` on `(event_id, group)`.
+Unique constraint `uq_forum_event_guest` on `(event_id, contact_id)` — one row per person per
+event, so a contact carrying both tags cannot produce two rows (§7 gives the precedence rule).
+Composite index `ix_forum_event_guest_kind` on `(event_id, kind, group)`.
+
+The table is named for the majority case; members live in it too, under `kind = "member"`. A
+separate `forum_event_member` table was considered and rejected — every query would union them,
+and the one genuinely shared fact (who is in the room on the day) would be the hard one.
 
 ### 4.6 `forum_event_weekly` — the history store (formalises F8)
 
@@ -312,21 +368,27 @@ All routes live in a new `app/routers/forum_events.py`, mounted at `/api/v1` bes
   "event": {                       // echo of the editable config (one `config_out` function)
     "id": "…", "name": "The Forum Q4 2026", "slug": "q4-2026",
     "status": "selling",
-    "starts_on": "2026-11-12", "ends_on": "2026-11-14",
-    "window_start": "2026-08-01", "window_end": "2026-11-12",
-    "venue": "Scottsdale, AZ",
-    "guest_goal": 60, "vip_price": 2500,
-    "reg_tags": ["the forum q4 2026 guest rsvp"],
+    "starts_on": "2026-11-13", "ends_on": "2026-11-15",   // Connor, 2026-10-05
+    "window_start": "2026-08-01", "window_end": "2026-11-13",
+    "venue": null,
+    "guest_goal": 60, "vip_price": null,                  // goal set; pricing left unset (D8)
+    "guest_tags": ["the forum q4 2026 guest rsvp"],
+    "member_tags": ["the forum q4 2026 rsvp"],
+    "declined_tags": ["q4 not registered - member"],
     "pipeline_match": ["forum main sales funnel"],
     "stage_map": { /* … */ }, "price_map": { /* … */ },
     "pace_curve": { /* … */ }, "pace_tolerance": 0.08,
     "default_tz": "America/Denver"
   },
-  "registration": {                // server-computed, §7
-    "goal": 60, "guests": 18, "paid": 16, "comped": 2,
-    "pct_to_goal": 0.3,
-    "days_to_event": 38,
-    "expected": 27, "expected_pct": 0.45, "gap": -9, "state": "behind",
+  "registration": {                // server-computed, §7 — real Spring Q4 figures at 2026-10-05
+    "goal": 60, "guests": 24, "paid": 23, "comped": 1,
+    "pct_to_goal": 0.4,
+    "members_registered": 35, "members_declined": 14,
+    "room": 59,                    // guests + members; never labelled "registered"
+    "guests_without_opp": 5,       // drillable - RSVPs with no sale open
+    "guests_stage_conflict": 1,
+    "days_to_event": 39,
+    "expected": 27, "expected_pct": 0.45, "gap": -3, "state": "onpace",
     "curve": [{"d": 38, "pct": 0.45, "count": 27}, /* … */],
     "sources": {"total": 18, "paid": 4, "organic": 12, "comped": 2,
                 "channels": [{"key": "meta", "label": "Meta", "count": 4, "pct": 22}]}
@@ -342,7 +404,7 @@ All routes live in a new `app/routers/forum_events.py`, mounted at `/api/v1` bes
   // Shown here for an event somebody has PRICED. With vip_price and price_map unset - the
   // shipping default - "revenue" is {"ticket_booked": null, "member_arr": null, ...} and the
   // "deciding" funnel tag above is null. Nothing else in this payload changes. See §9 D8.
-  "revenue": {                     // ticket money and membership money, kept APART (see §1.3)
+  "revenue": {                     // ticket money and membership money, kept APART (see §1.4)
     "ticket_booked": 40000,        // paid guests x vip_price — never added to Forum MRR
     "member_arr": 143000,
     "member_goal": 20, "members": 11,
@@ -425,7 +487,7 @@ this spec — the Launch brief and `sampleLaunch.js` disagree today, and that co
 2. **VIP guests** — total, split paid vs comped, and the acquisition-channel breakdown.
 3. **The funnel** — one row per group, each count a drill target.
 4. **Conversion** — guests → members, the rate, and membership ARR. Ticket money is shown
-   **beside** it, never summed into it (§1.3).
+   **beside** it, never summed into it (§1.4).
 5. **Momentum** — this week vs last, from `forum_event_weekly`.
 6. **Settings drawer** — the gear button, cloned from `LaunchSection.jsx:449-633`: a local
    editable copy, one `putJSON` of the whole patch, `onSaved()`, `onClose()`. Save is gated on
@@ -450,20 +512,31 @@ Each takes an injected clock (F21). No metric is computed in the browser.
 
 | Metric | Definition |
 |---|---|
-| `guests` | count of `forum_event_guest` for the event whose `group` is in `("registered","attending","deciding","committed","converted")` — i.e. once confirmed, always a guest, even after converting |
+| `guests` | distinct `forum_event_guest` rows with `kind == "guest"`. **Counted from the tag, not the stage** (§1.3) — a tagged RSVP with no opportunity is a guest, and so is one whose opp went to Won |
 | `paid` | `guests` where `is_comped is False` |
 | `comped` | `guests` where `is_comped is True` |
-| `pct_to_goal` | `guests / guest_goal`, 4dp, `0.0` when goal is 0 |
+| `pct_to_goal` | `guests / guest_goal`, 4dp, `None` when `guest_goal` is 0 or unset |
+| `members_registered` | rows with `kind == "member"`, counted from `member_tags` by **exact** match. Never `total - guests` — that subtraction is F11 |
+| `members_declined` | rows matching `declined_tags`; `None` when the tenant has not configured one |
+| `room` | `guests + members_registered`. The only figure that adds the two populations, and it is labelled "in the room", never "registered" |
+| `guests_without_opp` | `guests` where `opportunity_id is None` — **5 for Spring Q4**. Surfaced as a warning and drillable; these are RSVPs with no sale open |
+| `guests_stage_conflict` | `guests` whose `group` is `lost` or `nurture` while the tag says RSVP'd — **1 for Spring Q4**. Also a warning, also drillable |
 | `days_to_event` | `days_between(today, starts_on)`; `None` before the event is dated |
 | `expected` | `round(curve_expected(pace_curve, days_to_event) * guest_goal)` — reuse `launch.py:126-148` verbatim, including `int(k)` on the string keys |
 | `gap` | `guests - expected` |
 | `state` | `pending` if no date, `done` if `days_to_event < 0`, else `behind` / `ahead` when `abs(gap) > pace_tolerance * guest_goal`, else `onpace` |
-| `ticket_booked` | `paid * vip_price`, or `None` when `vip_price` is unset. **Never** added to membership revenue (§1.3) |
+| `ticket_booked` | `paid * vip_price`, or `None` when `vip_price` is unset. **Never** added to membership revenue (§1.4) |
 | `converted` | guests whose `group == "converted"` |
 | `conversion_rate` | `converted / guests`, `None` (dash, never 0) on an empty denominator — §7 convention at `sales_desk.py:430-431` |
 | `member_arr` | `None` when `price_map` is unset. Otherwise `sum(price_map[t].acv * count(t))` over `converted` guests by `payment_type`; guests whose type we cannot price still count as **seats** and are priced at the blended rate, with a warning naming how many |
-| `funnel[group].count` | `count(forum_event_guest where group == g)` |
+| `funnel[group].count` | `count(forum_event_guest where kind == "guest" and group == g)`. Members have no funnel stage; the funnel is the sales funnel |
 | `momentum.*` | this ISO week's `forum_event_weekly` row vs the prior week's |
+
+**Precedence when one contact carries both tags.** One Q4 contact does. The guest tag wins — the
+row is `kind = "guest"` — because the sales population is the one with money attached, and a
+member who is also being sold a guest seat is a sale. The contact appears once, `room` does not
+double-count, and a warning names how many were resolved this way. If Spring's convention turns
+out to be the opposite, it is one constant.
 
 **Every money metric is optional; no count metric depends on one.** `guests`, `paid`, `comped`,
 `pct_to_goal`, `expected`, `gap`, `state`, `converted`, `conversion_rate` and the whole funnel are
@@ -531,15 +604,18 @@ who converts still counts in `guests`.
 ### Phase 3 — The sync (backend only)
 
 - `sync_forum_event(s, tenant_id, event)`: read opportunities in the configured pipelines and
-  contacts carrying `reg_tags`, **upsert** `forum_event_guest` by `(event_id, contact_id)`,
-  resolve `group` through `stage_map`, set `is_comped` from `comp_tag_match`, `channel` from
-  `classify_shift_source`, `invited_by`, `rep_email`, `payment_type`.
+  contacts carrying `guest_tags` (substring) or `member_tags` (exact), **upsert**
+  `forum_event_guest` by `(event_id, contact_id)` with `kind`, resolve `group` through
+  `stage_map`, set `is_comped` from `comp_tag_match`, `channel` from `classify_shift_source`,
+  `invited_by`, `rep_email`, `payment_type`. A contact matching both tag sets is written once as
+  `guest` (D10).
 - Upsert `forum_event_weekly` once per ISO week.
 - Register it in the GHL branch of `_sync_integration` for the membership business, gated on at
   least one `forum_event` row existing — inert otherwise.
 
-**Done when** a sync against the live Forum location populates 18 guests for the Q4 tag, and a
-second sync of a *different* event leaves those 18 rows intact (the F1 regression, asserted).
+**Done when** a sync against the live Forum location populates **24 guests and 35 members** for
+the Q4 tags — the numbers in §1.2, which are the acceptance figures — and a second sync of a
+*different* event leaves those rows intact (the F1 regression, asserted).
 
 ### Phase 4 — The API
 
@@ -563,8 +639,8 @@ returns the §5 payload on one with an event, and the authz tests pass.
 - Update `tests/test_platform.py:68-69` (exact nav list) in the same commit if the nav changes.
 
 **Done when** the Event sub-tab appears on the Forum for a workspace with an event and is absent
-for one without, the hero reads the real Q4 numbers, every figure opens a drill drawer, and the
-page is clean at 375px with no horizontal scroll.
+for one without, the hero reads **24 of 60 guests, 59 in the room, 39 days out**, every figure
+opens a drill drawer, and the page is clean at 375px with no horizontal scroll.
 
 ### Phase 6 — Assistant and lineage
 
@@ -578,8 +654,11 @@ page is clean at 375px with no horizontal scroll.
 
 Done in Connor's own signed-in session, not a deploy:
 
-- Create the Q4 2026 event with the real tag, pipeline, goal and dates. Leave pricing empty.
-- Confirm the guest count matches what Spring believes it is, guest by guest if it does not.
+- Create the Q4 2026 event: guest tag `the forum q4 2026 guest rsvp`, member tag
+  `the forum q4 2026 rsvp`, declined tag `q4 not registered - member`, pipeline
+  `forum main sales funnel`, goal **60**, **13–15 November 2026**. Leave pricing empty.
+- Confirm 24 guests and 35 members against what Spring believes, person by person if they differ.
+- Work the 5 RSVPs with no opportunity (§11).
 - Set the pace curve, or accept linear for the first event and capture the real curve after.
 
 **Done when** Connor confirms the Q4 number against his own count, and the first weekly history
@@ -593,7 +672,7 @@ row is captured.
 The cost is a second config surface that looks a lot like the launch one. The alternative —
 making `Launch` program-aware — touches a shipped revenue surface with four silent callers.
 
-**D2. Guests are counted from the tag and priced from config, not from payments.** §1.3. The
+**D2. Guests are counted from the tag and priced from config, not from payments.** §1.4. The
 consequence is that a guest who pays outside GHL, or whose charge is a membership renewal,
 cannot be distinguished by amount. Ticket revenue is therefore *booked*, not *collected*.
 
@@ -614,7 +693,7 @@ field at RSVP time — that is a GHL change, not a code change.
 rather than an empty state. A 404 is the signal.
 
 **D7. Ticket money stays out of membership revenue**, matching the existing and tested
-`classify_stream` behaviour (§1.3).
+`classify_stream` behaviour (§1.4).
 
 **D8. The tab ships with no prices and is fully useful that way.** Connor's ask is *"are we
 filling the room"*; that is a count against a goal and needs no money at all. So `vip_price` and
@@ -622,11 +701,21 @@ filling the room"*; that is a count against a goal and needs no money at all. So
 pricing is something somebody turns on later in the drawer. The cost is that the Event tab shows
 no revenue until it is configured — which is the honest state, not a gap.
 
+**D9. The tag is the registration record; the funnel stage is the sales state.** §1.3. `guests`
+counts tags, so the 5 Q4 RSVPs with no opportunity are counted and surfaced rather than lost, and
+the 1 whose stage contradicts the tag is flagged rather than silently dropped. The cost is that
+the hero number (24) will not match the funnel's `registered` row (18); the tab says why, in
+place, and both are drillable. The alternative — counting stages — is a number that is wrong by
+six and looks right.
+
+**D10. A contact carrying both tags is a guest**, counted once, with a warning naming how many
+were resolved that way (§7). One Q4 contact is.
+
 ---
 
 ## 10. Not built, designed for
 
-- **Cash collected per guest.** The schema has no `paid_amount` because §1.3 cannot source it
+- **Cash collected per guest.** The schema has no `paid_amount` because §1.4 cannot source it
   honestly. If a dedicated VIP payment link or product name is introduced in GHL, matching on
   `entitySourceName` is a column and a sync line, not a redesign.
 - **Multiple events running at once.** The tables support it (no unique on active); only
@@ -635,7 +724,7 @@ no revenue until it is configured — which is the honest state, not a gap.
   check-in would set a `attended_on` column.
 - **Per-rep event commissions.** `rep_email` is captured on every guest for exactly this, but no
   commission math is specified here.
-- **The Inner Circle funnel.** Retired (§1.4). If it is ever revived it is a `forum_event` row
+- **The Inner Circle funnel.** Retired (§1.5). If it is ever revived it is a `forum_event` row
   with its own `pipeline_match` and tags — no code change, no new table.
 - **Member guests vs net-new guests.** `invited_by` is captured; the "which member brought the
   most guests" leaderboard is a drill, not a new table.
@@ -644,15 +733,24 @@ no revenue until it is configured — which is the honest state, not a gap.
 
 ## 11. Only Connor can do
 
-1. **Confirm the Q4 tag is the only one.** This spec assumes `the forum q4 2026 guest rsvp`
-   identifies every Q4 VIP guest. If marketing used a second tag, it goes in `reg_tags`.
-2. **Set the guest goal** for Q4 and the event dates. These are the only two values the tab needs
-   to be useful — everything else has a default or degrades to a dash.
-3. **Confirm ticket revenue should stay out of Forum MRR** (D7) — it is currently tested that
-   way, but it is a business decision, not a technical one.
+All three questions were answered on 2026-10-05 and are now configuration, not blockers:
 
-Prices are deliberately **not** on this list. They are configuration with no defaults (D8), and
-the tab works without them.
+| Question | Answer | Where it lands |
+|---|---|---|
+| Is `the forum q4 2026 guest rsvp` the only guest tag? | **Yes** — and there are separate tags for MEMBERS who registered | `guest_tags` / `member_tags`; this is what §1.2 was rewritten around |
+| Guest goal and event dates | **60**; **13–15 November 2026** | `guest_goal`, `starts_on`, `ends_on` — all configurable, nothing hardcoded |
+| Does ticket revenue stay out of Forum MRR? | **Yes, confirmed** | D7; already how `classify_stream` is tested |
+
+What is left for Connor is one question this audit raised rather than answered:
+
+1. **The 5 guests with no opportunity, and the 1 in Cold Nurture** (§1.3). They are tagged as
+   RSVP'd for an event five weeks away and nobody has a sale open on them. The tab will surface
+   these from day one — but whether they are a data-entry gap or genuinely unworked is a question
+   for whoever runs the funnel, not for the schema.
+2. **Whether the sponsor seats are comped.** `forum vip guest sisu nov 2026` (3) and
+   `forum vip guest realty.com nov 2026` (1) do not contain `"comp"`, so the default
+   `comp_tag_match` will count them as **paid**. May's equivalents (`forum vip guest comp sisu
+   may 2026`) did. If Nov's are partner-provided, add them to `comp_tag_match` or retag.
 
 ---
 
