@@ -56,6 +56,10 @@ def _have(bind):
 def upgrade() -> None:
     bind = op.get_bind()
     have = _have(bind)
+    # Boolean server defaults are "true"/"false", NOT 1/0. SQLite accepts the integers and
+    # Postgres rejects them outright, so 1/0 passes the whole local suite and then crash-loops
+    # the deploy on boot - which is exactly what it did. Every other migration in this repo
+    # spells them out; this one now does too.
 
     if "forum_event" not in have:
         op.create_table(
@@ -89,7 +93,7 @@ def upgrade() -> None:
             sa.Column("price_map", JSONType, nullable=True),
             sa.Column("pace_curve", JSONType, nullable=True),
             sa.Column("pace_tolerance", sa.Numeric(5, 4), nullable=False, server_default="0.08"),
-            sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+            sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
             sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
             sa.UniqueConstraint("tenant_id", "business_id", "slug", name="uq_forum_event_slug"),
@@ -109,7 +113,7 @@ def upgrade() -> None:
             sa.Column("name", sa.String(160), nullable=True),
             sa.Column("stage", sa.String(120), nullable=True),
             sa.Column("group", sa.String(16), nullable=False, server_default="uncategorized"),
-            sa.Column("is_comped", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("is_comped", sa.Boolean(), nullable=False, server_default=sa.text("false")),
             sa.Column("channel", sa.String(32), nullable=True),
             sa.Column("invited_by", sa.String(160), nullable=True),
             sa.Column("rep_email", sa.String(160), nullable=True),
