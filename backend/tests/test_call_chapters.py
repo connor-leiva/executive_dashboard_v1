@@ -93,8 +93,8 @@ async def test_generator_is_off_without_a_key(monkeypatch):
 async def _transcript(**kw):
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(CallTranscript))
-        await s.execute(delete(SalesCall))
+        await s.execute(delete(CallTranscript).where(CallTranscript.tenant_id == biz.tenant_id))
+        await s.execute(delete(SalesCall).where(SalesCall.tenant_id == biz.tenant_id))
         await s.execute(delete(Launch).where(Launch.business_id == biz.id))
         L = Launch(tenant_id=biz.tenant_id, business_id=biz.id, name="C", program="beCollective",
                    window_start=dt.date(2026, 8, 11), window_end=dt.date(2026, 9, 12),

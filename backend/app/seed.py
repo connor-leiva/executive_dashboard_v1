@@ -134,9 +134,24 @@ BOOKS_CLOSED = {"sympli"}
 
 
 async def _wipe(s, tid):
-    for model in (Transaction, Lead, Agent, PLSnapshot, CashSnapshot, Integration,
-                  Business, User, Domain):
-        await s.execute(delete(model).where(model.tenant_id == tid))
+    """Delete everything belonging to one tenant, DERIVED from the schema rather than listed.
+
+    This was a hand-kept tuple of nine models. The schema now has 125 tenant-scoped tables, so
+    it was missing 116 of them - and SQLite does not enforce foreign keys by default, so the
+    rows it missed were not cascaded, they were ORPHANED. `seed()` then built a tenant with a
+    fresh uuid and left the old rows behind forever.
+
+    That was invisible because every test fixture happened to run an unscoped `delete(SalesCall)`
+    which swept them up as a side effect. Scoping those deletes by tenant - the correct thing to
+    do, and the thing a second tenant's tests would need - immediately failed two recall tests,
+    because a stale call from a previous tenant was adopted instead of the one under test.
+
+    Children before parents (reverse FK order) so this also holds on Postgres, where the
+    constraints are real.
+    """
+    for table in reversed(Base.metadata.sorted_tables):
+        if "tenant_id" in table.c:
+            await s.execute(delete(table).where(table.c.tenant_id == tid))
     await s.execute(delete(Tenant).where(Tenant.id == tid))
     await s.commit()
 

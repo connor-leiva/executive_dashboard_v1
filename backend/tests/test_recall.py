@@ -30,8 +30,10 @@ async def _seeded():
 async def _launch():
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(CallTranscript))     # bulk delete does not cascade on SQLite
-        await s.execute(delete(SalesCall))
+        # bulk delete does not cascade on SQLite, so transcripts go first - and both are
+        # scoped by tenant, because this file shares one database with every other module.
+        await s.execute(delete(CallTranscript).where(CallTranscript.tenant_id == biz.tenant_id))
+        await s.execute(delete(SalesCall).where(SalesCall.tenant_id == biz.tenant_id))
         await s.execute(delete(Launch).where(Launch.business_id == biz.id))
         # Recording is opt-in per tenant and fails closed, so the fixture has to opt in.
         # `recall_legacy_adopt_before` is far future here on purpose: several tests below cover

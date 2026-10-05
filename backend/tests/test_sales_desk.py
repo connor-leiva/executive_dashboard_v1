@@ -33,9 +33,10 @@ PRICE_MAP = {
 async def _fresh_launch():
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(SalesCallChange))
-        await s.execute(delete(SalesCall))
-        await s.execute(delete(MetricRecord).where(MetricRecord.kind == "bc_launch_opp"))
+        await s.execute(delete(SalesCallChange).where(SalesCallChange.tenant_id == biz.tenant_id))
+        await s.execute(delete(SalesCall).where(SalesCall.tenant_id == biz.tenant_id))
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.tenant_id == biz.tenant_id, MetricRecord.kind == "bc_launch_opp"))
         await s.execute(delete(Launch).where(Launch.business_id == biz.id))
         L = Launch(tenant_id=biz.tenant_id, business_id=biz.id, name="SD", program="beCollective",
                    window_start=dt.date(2026, 8, 11), window_end=dt.date(2026, 9, 12),
@@ -249,7 +250,7 @@ async def _seed_desk_scenario():
     NOW = dt.datetime.now(U).replace(microsecond=0)
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(SalesRep))
+        await s.execute(delete(SalesRep).where(SalesRep.tenant_id == tid))
         s.add(SalesRep(tenant_id=tid, email="a@x.com", display_name="Rep A", is_active=True))
 
         def SC(opp, bk, rep, outcome, ct, pay=None):
@@ -404,7 +405,7 @@ async def test_won_without_payment_is_a_seat_but_unpriced_and_repricing_never_re
     tid, lid = await _fresh_launch()
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(SalesRep))
+        await s.execute(delete(SalesRep).where(SalesRep.tenant_id == tid))
         s.add(SalesRep(tenant_id=tid, email="a@x.com", display_name="Rep A", is_active=True))
 
         def SC(opp, pay):
@@ -530,7 +531,7 @@ async def test_leaderboard_dispositions_paid_and_deactivated():
     NOW = dt.datetime(2026, 8, 20, 12, tzinfo=U)
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(SalesRep))
+        await s.execute(delete(SalesRep).where(SalesRep.tenant_id == tid))
         s.add(SalesRep(tenant_id=tid, email="a@x.com", display_name="Rep A", is_active=True))
         s.add(SalesRep(tenant_id=tid, email="test@x.com", display_name="TEST", is_active=False))
 
@@ -670,7 +671,7 @@ async def test_rep_roster_edit_is_owner_admin_only_and_audited():
     await _fresh_launch()
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(SalesRep))
+        await s.execute(delete(SalesRep).where(SalesRep.tenant_id == biz.tenant_id))
         await s.execute(delete(User).where(User.email == "sdmember@x.com"))
         s.add(SalesRep(tenant_id=biz.tenant_id, email="rep1@x.com", display_name="rep1@x.com", is_active=True))
         s.add(User(tenant_id=biz.tenant_id, email="sdmember@x.com", name="M",
@@ -701,7 +702,7 @@ async def test_roster_surfaces_call_reps_outside_the_directory_and_naming_maps_t
     from app.main import app
     tid, lid = await _fresh_launch()
     async with SessionLocal() as s:
-        await s.execute(delete(SalesRep))
+        await s.execute(delete(SalesRep).where(SalesRep.tenant_id == tid))
         s.add(SalesRep(tenant_id=tid, email="dir@springb.com", display_name="Dir Member", is_active=True))
         for opp, rep in (("o1", "jplove1978@gmail.com"), ("o2", "ikwillsey@gmail.com")):
             s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id=opp, booking_id="b" + opp,
@@ -746,7 +747,7 @@ async def test_roster_case_insensitive_collapse_blank_preserve_and_dup_safe():
     from app.main import app
     tid, lid = await _fresh_launch()
     async with SessionLocal() as s:
-        await s.execute(delete(SalesRep))
+        await s.execute(delete(SalesRep).where(SalesRep.tenant_id == tid))
         s.add(SalesRep(tenant_id=tid, email="Rep@X.com", display_name="Rep Case", is_active=True))
         s.add(SalesCall(tenant_id=tid, launch_id=lid, opportunity_id="o1", booking_id="b1",
                         rep_email="rep@x.com", outcome=None, is_current=True, contact_name="o1",
@@ -783,7 +784,7 @@ async def test_roster_case_insensitive_collapse_blank_preserve_and_dup_safe():
 async def test_seed_reps_from_users_upserts_display_names():
     tid, _ = await _fresh_launch()
     async with SessionLocal() as s:
-        await s.execute(delete(SalesRep))
+        await s.execute(delete(SalesRep).where(SalesRep.tenant_id == tid))
         await s.commit()
     users = [{"id": "u1", "email": "aimee@purposeledperformance.com", "name": "Aimee Stephens"},
              {"id": "u2", "email": "blake@springb.com", "name": "Blake Jacobsen"},
@@ -809,7 +810,7 @@ async def test_stage_implies_the_outcome_when_the_field_is_blank():
     old = dt.datetime(2026, 8, 18, 10, tzinfo=U)          # >24h before NOW
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(SalesRep))
+        await s.execute(delete(SalesRep).where(SalesRep.tenant_id == tid))
         s.add(SalesRep(tenant_id=tid, email="a@x.com", display_name="Rep A", is_active=True))
 
         def SC(opp, bk, outcome=None, current=True):

@@ -37,7 +37,7 @@ async def _make_launch():
 
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(LaunchWeekly))
+        await s.execute(delete(LaunchWeekly).where(LaunchWeekly.tenant_id == biz.tenant_id))
         await s.execute(delete(Launch).where(Launch.business_id == biz.id))
         await s.execute(delete(MetricRecord).where(
             MetricRecord.business_id == biz.id, MetricRecord.kind == "bc_launch_opp"))
@@ -333,7 +333,7 @@ async def _make_launch_only():
     from sqlalchemy import select, delete
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(LaunchWeekly))
+        await s.execute(delete(LaunchWeekly).where(LaunchWeekly.tenant_id == biz.tenant_id))
         await s.execute(delete(Launch).where(Launch.business_id == biz.id))
         await s.execute(delete(MetricRecord).where(
             MetricRecord.business_id == biz.id, MetricRecord.kind == "bc_launch_opp"))
@@ -444,7 +444,7 @@ async def test_a_member_who_enrolled_without_a_booked_call_still_counts_as_a_sea
 
     async with SessionLocal() as s:
         biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
-        await s.execute(delete(SalesCall))
+        await s.execute(delete(SalesCall).where(SalesCall.tenant_id == biz.tenant_id))
         await s.execute(delete(Launch).where(Launch.business_id == biz.id))
         await s.execute(delete(MetricRecord).where(
             MetricRecord.business_id == biz.id, MetricRecord.kind == "bc_launch_opp"))
