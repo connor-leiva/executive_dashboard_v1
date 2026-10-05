@@ -3641,3 +3641,128 @@ class OnboardingConversation(Base):
     __table_args__ = (
         Index("ix_onboarding_conversation_plan", "plan_id", "created_at"),
     )
+
+
+# ── Forum events (FORUM-EVENT-SPEC.md) ──────────────────────────────────────────────────────
+class ForumEvent(Base):
+    """One quarterly in-person event, and the whole of its configuration.
+
+    Deliberately NOT a `Launch` row. Launch has the right shape — window, event date, goal,
+    pipeline match, stage map, registration tags, pace curve — but `active_launch_for` filters
+    on (tenant_id, business_id, is_active) with no program discriminator, and four callers bind
+    to whatever it returns: the public rep-desk share link, the Sales Desk, the opportunity sync
+    and the Shift registrant sync. An Event stored as a Launch on the membership business would
+    be served to all four AS the beCollective cohort. Events also recur quarterly and have to be
+    comparable across quarters, which the one-active-row assumption does not allow.
+
+    Pricing is nullable on purpose and seeded with nothing. "Are we filling the room" is a count
+    against a goal and needs no money in it; every revenue figure degrades to null rather than
+    zero until somebody configures a price (spec §9 D8).
+    """
+    __tablename__ = "forum_event"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), index=True, nullable=False)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("business.id", ondelete="CASCADE"), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    slug: Mapped[str] = mapped_column(String(64), nullable=False)
+    # draft | selling | running | closed — longest is 7, width 16 for headroom. `goal_basis`
+    # being String(8) on Launch is why this is spelled out: "vip_seats" is 9 characters, and it
+    # would pass SQLite and the whole suite before truncation-erroring on Postgres.
+    status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False)
+    starts_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    window_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    window_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    venue: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    default_tz: Mapped[str] = mapped_column(String(40), default="America/Denver", nullable=False)
+    # Matched as substrings against the GHL pipeline name. A LIST because a campaign pipeline
+    # can feed the same event alongside the main funnel — Q3 Direct Mailer did exactly that.
+    pipeline_match: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    stage_map: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    # Two populations attend and they are tagged differently. Guests match as SUBSTRINGS (so
+    # "...guest rsvp paid" is caught by "...guest rsvp"); members match EXACTLY. Deriving one by
+    # subtracting the other is the bug this replaces.
+    guest_tags: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    member_tags: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    declined_tags: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    comp_tag_match: Mapped[str] = mapped_column(String(32), default="comp", nullable=False)
+    guest_goal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    member_goal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vip_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    price_map: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    pace_curve: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    pace_tolerance: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=0.08, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_id", "slug", name="uq_forum_event_slug"),
+        # NO unique index on (business_id, is_active): many events coexist by design. Quarterly
+        # means four a year and a history worth comparing.
+        Index("ix_forum_event_scope", "tenant_id", "business_id", "status", "starts_on"),
+    )
+
+
+class ForumEventGuest(Base):
+    """One person at one event — VIP guest or registered member, distinguished by `kind`.
+
+    UPSERTED by (event_id, contact_id), never snapshot-deleted. That is the whole reason this is
+    a table rather than `metric_record`: `_metric_snapshot` deletes by
+    (tenant, business, source, kind) before inserting, so syncing a second event would destroy
+    the first one's registrations, and quarterly events would be unbuildable.
+
+    `opportunity_id` is nullable because the TAG is the registration record and the funnel stage
+    is only the sales state. Five of Spring's twenty-four Q4 guests have no opportunity at all —
+    RSVPs nobody has opened a sale for, which is exactly what a tab like this exists to surface.
+    """
+    __tablename__ = "forum_event_guest"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), index=True, nullable=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("forum_event.id", ondelete="CASCADE"), index=True, nullable=False)
+    contact_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), default="guest", nullable=False)   # guest|member
+    opportunity_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    stage: Mapped[str | None] = mapped_column(String(120), nullable=True)   # raw GHL text, verbatim
+    group: Mapped[str] = mapped_column(String(16), default="uncategorized", nullable=False)
+    is_comped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    invited_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    rep_email: Mapped[str | None] = mapped_column(String(160), index=True, nullable=True)
+    payment_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    registered_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    converted_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("event_id", "contact_id", name="uq_forum_event_guest"),
+        Index("ix_forum_event_guest_kind", "event_id", "kind", "group"),
+    )
+
+
+class ForumEventWeekly(Base):
+    """One row per ISO week per event — the only history store, upserted like launch_weekly.
+
+    metric_record cannot hold this: it is current state by construction (delete-then-insert),
+    and momentum is a question about last week.
+    """
+    __tablename__ = "forum_event_weekly"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), index=True, nullable=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("forum_event.id", ondelete="CASCADE"), index=True, nullable=False)
+    week_start: Mapped[date] = mapped_column(Date, nullable=False)
+    guests: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    members_registered: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    converted: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    guests_cum: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("event_id", "week_start", name="uq_forum_event_week"),
+    )

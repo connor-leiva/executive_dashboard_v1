@@ -158,6 +158,12 @@ _FORUM = {"active_members", "forum_roster", "forum_arr", "renewals_due", "new_me
           "registered", "mrr", "renewal_book", "monthly", "pastdue", "unregistered",
           "forum_payments", "forum_failed_payments", "forum_mrr_subs",
           "forum_installments", "forum_next30", "forum_streams"}
+# The Forum's Event sub-tab. These keys belong to the MEMBERSHIP tab, not a tab of their own -
+# the Event tab lives inside the Forum and is gated on the same grant. Without this branch an
+# `event_*` key falls through to the `return "portfolio"` at the bottom, which would make the
+# event drill-downs readable by anyone granted Portfolio.
+_EVENT = {"event_guests", "event_members_registered", "event_room", "event_converted",
+          "event_without_opp", "event_stage_conflict", "event_ticket_booked", "event_member_arr"}
 _BC = {"bc_members", "bc_arr", "bc_registered", "bc_financed", "bc_monthly"}
 _EDGE = {"edge_members", "edge_arr", "edge_registered", "edge_financed", "edge_monthly",
          "edge_roster", "edge_new_members", "edge_pipeline", "edge_payments"}
@@ -236,6 +242,9 @@ def tab_for_metric(key: str, business: str | None = None, biz_tab: dict | None =
     # order does not decide anything today. Keep them separate regardless: they are per-PROGRAMME
     # keys, and for a tenant that emits one, the literal IS that tenant's own declared tab.
     if key.startswith("forum_") or key in _FORUM:
+        return (kind_tab or {}).get(roles.MEMBERSHIP, "forum")
+    # Same tab as the Forum, deliberately: the Event sub-tab is inside it.
+    if key.startswith("event_") or key in _EVENT:
         return (kind_tab or {}).get(roles.MEMBERSHIP, "forum")
     if key.startswith("bc_") or key in _BC:
         return "becollective"
