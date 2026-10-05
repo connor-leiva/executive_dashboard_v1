@@ -521,7 +521,7 @@ async def sync_events_for_integration(s: AsyncSession, tenant_id, integ) -> int:
     Isolated per event: one event's bad tag set must not stop the next one syncing, and none of
     them may break the Forum sync they hang off.
     """
-    from ..crypto import dec
+    from ..security import dec
 
     cfg = integ.config or {}
     location_id = cfg.get("location_id")

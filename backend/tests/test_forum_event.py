@@ -727,3 +727,48 @@ async def test_the_assistant_packs_the_event_when_one_exists():
     blob = ctx if isinstance(ctx, str) else str(ctx)
     assert "forum_event_detail" in blob, "the event must reach the assistant's context"
     assert "24" in blob
+
+
+async def test_the_integration_entrypoint_actually_runs(monkeypatch):
+    """The function the WORKER calls, not just the one the other tests call.
+
+    sync_events_for_integration shipped with `from ..crypto import dec` - a module that does not
+    exist; it is app.security. Every unit test above calls sync_forum_event directly with a
+    token, so none of them ever reached the import, and the caller in sync.py wraps this in a
+    try/except that would have printed "[forum_event] skipped" every tick, forever, while the
+    tab stayed empty and nothing looked broken.
+
+    Caught by running it against production. This test is the cheaper way.
+    """
+    import app.integrations.ghl as real
+    from app.models import Integration
+    from app.security import enc
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == tid, Integration.business_id == biz.id,
+            Integration.provider == "ghl"))).scalar_one_or_none()
+        if integ is None:
+            integ = Integration(tenant_id=tid, business_id=biz.id, provider="ghl",
+                                status="connected")
+            s.add(integ)
+        integ.config = {**(integ.config or {}), "location_id": "loc"}
+        integ.access_token_enc = enc("tok")
+        await s.commit()
+        iid = integ.id
+
+    fake = _FakeGHL([_contact("c1", GUEST), _contact("c2", MEMBER)], [_opp("o1", "c1")])
+    for name in ("get_contacts", "get_opportunities", "get_pipelines", "get_custom_fields",
+                 "contact_tags", "contact_name", "contact_custom_values", "opp_custom_values"):
+        monkeypatch.setattr(real, name, getattr(fake, name))
+
+    async with SessionLocal() as s:
+        integ = (await s.execute(select(Integration).where(Integration.id == iid))).scalar_one()
+        n = await FE.sync_events_for_integration(s, tid, integ)
+    assert n == 2, "the entrypoint must actually pull, not swallow an ImportError"
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(ForumEventGuest).where(
+            ForumEventGuest.event_id == eid))).scalars().all()
+    assert {r.kind for r in rows} == {"guest", "member"}
