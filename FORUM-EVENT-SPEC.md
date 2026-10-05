@@ -80,17 +80,18 @@ This is pinned by an existing test: `classify_stream("The Forum VIP Guest Ticket
 "event_tickets"` (`tests/test_billing.py:25`) — ticket money is deliberately **excluded** from
 membership revenue. The Event tab must not double-count it into the Forum's MRR.
 
-### 1.4 There is more than one event funnel
+### 1.4 One live funnel, and one campaign that fed it
 
-| Pipeline | Opps | Note |
+| Pipeline | Opps | Status |
 |---|---:|---|
-| `01.1 - Forum Main Sales Funnel` | 308 | the quarterly VIP funnel |
-| `Inner Circle Pipeline` | 128 | a second live event funnel — "Inner Circle Dallas $2500", "Guest Ticket Dallas Comped" |
-| `Q3 Direct Mailer - Guest Ticket` | 15 | a campaign-specific guest-ticket funnel |
-| `(Renewals) Current Forum Members` | 47 | the member roster, staged by renewal month |
+| `01.1 - Forum Main Sales Funnel` | 308 | **the live quarterly VIP funnel** — the only one this tab reads by default |
+| `Q3 Direct Mailer - Guest Ticket` | 15 | a campaign-specific guest-ticket funnel that fed Q3 (created 2026-06-19 → 2026-07-28) |
+| `Inner Circle Pipeline` | 128 | **retired** (Connor, 2026-10-05). Last opportunity created 2026-08-04; its "Dallas $2500 / Guest Ticket Comped" stages are history, not a second product |
+| `(Renewals) Current Forum Members` | 47 | the member roster, staged by renewal month — not an event |
 
-So the configuration cannot be one pipeline and one stage map for "the Forum". It must be
-per-event, and an event must be able to draw from **more than one** source pipeline.
+So `pipeline_match` is a **list**, not a string: the Direct Mailer precedent shows a campaign can
+feed the same event alongside the main funnel. It is not a list because of Inner Circle, and
+nothing in this build reads Inner Circle.
 
 ---
 
@@ -258,7 +259,11 @@ The frontend reads the group list from the payload. It is never re-declared in J
 ```
 
 `party_size` is derivable from the key prefix for reporting ("how many seats did Dual sell?") and
-is **not** a column. Prices above are placeholders; §11 is where Connor supplies the real ones.
+is **not** a column.
+
+**These ship unset.** `price_map` is nullable and `vip_price` has no default — the numbers above
+are illustrative only, and no migration seeds them. Pricing is configuration, entered in the
+drawer when somebody cares. The tab must be fully useful before anyone does; see §9 D8.
 
 ### 4.5 `forum_event_guest` — one row per guest, upserted (fixes F1, F9)
 
@@ -334,6 +339,9 @@ All routes live in a new `app/routers/forum_events.py`, mounted at `/api/v1` bes
      "tag": "$24K on the table"},
     {"key": "converted", "label": "Members", "owner": "onboarding", "count": 11, "tag": null}
   ],
+  // Shown here for an event somebody has PRICED. With vip_price and price_map unset - the
+  // shipping default - "revenue" is {"ticket_booked": null, "member_arr": null, ...} and the
+  // "deciding" funnel tag above is null. Nothing else in this payload changes. See §9 D8.
   "revenue": {                     // ticket money and membership money, kept APART (see §1.3)
     "ticket_booked": 40000,        // paid guests x vip_price — never added to Forum MRR
     "member_arr": 143000,
@@ -450,12 +458,19 @@ Each takes an injected clock (F21). No metric is computed in the browser.
 | `expected` | `round(curve_expected(pace_curve, days_to_event) * guest_goal)` — reuse `launch.py:126-148` verbatim, including `int(k)` on the string keys |
 | `gap` | `guests - expected` |
 | `state` | `pending` if no date, `done` if `days_to_event < 0`, else `behind` / `ahead` when `abs(gap) > pace_tolerance * guest_goal`, else `onpace` |
-| `ticket_booked` | `paid * vip_price`. **Never** added to membership revenue (§1.3) |
+| `ticket_booked` | `paid * vip_price`, or `None` when `vip_price` is unset. **Never** added to membership revenue (§1.3) |
 | `converted` | guests whose `group == "converted"` |
 | `conversion_rate` | `converted / guests`, `None` (dash, never 0) on an empty denominator — §7 convention at `sales_desk.py:430-431` |
-| `member_arr` | `sum(price_map[t].acv * count(t))` over `converted` guests by `payment_type`; guests with a payment type we cannot price count as **seats** and are priced at the blended rate, with a warning naming how many |
+| `member_arr` | `None` when `price_map` is unset. Otherwise `sum(price_map[t].acv * count(t))` over `converted` guests by `payment_type`; guests whose type we cannot price still count as **seats** and are priced at the blended rate, with a warning naming how many |
 | `funnel[group].count` | `count(forum_event_guest where group == g)` |
 | `momentum.*` | this ISO week's `forum_event_weekly` row vs the prior week's |
+
+**Every money metric is optional; no count metric depends on one.** `guests`, `paid`, `comped`,
+`pct_to_goal`, `expected`, `gap`, `state`, `converted`, `conversion_rate` and the whole funnel are
+computed with `vip_price` and `price_map` null. A revenue figure with no price renders as an em
+dash with a "not priced yet" title — never `$0`, which reads as a result rather than an absence.
+This is the same convention as `_rate` returning `None` on an empty denominator
+(`sales_desk.py:430-431`).
 
 **A note on dating a registration.** `registered_on` is set from the contact's `dateAdded`, which
 is when the *identity* first appeared, not when they registered — GHL exposes no per-tag
@@ -563,7 +578,7 @@ page is clean at 375px with no horizontal scroll.
 
 Done in Connor's own signed-in session, not a deploy:
 
-- Create the Q4 2026 event with the real tag, pipelines, prices, goal and dates.
+- Create the Q4 2026 event with the real tag, pipeline, goal and dates. Leave pricing empty.
 - Confirm the guest count matches what Spring believes it is, guest by guest if it does not.
 - Set the pace curve, or accept linear for the first event and capture the real curve after.
 
@@ -601,6 +616,12 @@ rather than an empty state. A 404 is the signal.
 **D7. Ticket money stays out of membership revenue**, matching the existing and tested
 `classify_stream` behaviour (§1.3).
 
+**D8. The tab ships with no prices and is fully useful that way.** Connor's ask is *"are we
+filling the room"*; that is a count against a goal and needs no money at all. So `vip_price` and
+`price_map` are nullable with no seeded defaults, every revenue figure degrades to a dash, and
+pricing is something somebody turns on later in the drawer. The cost is that the Event tab shows
+no revenue until it is configured — which is the honest state, not a gap.
+
 ---
 
 ## 10. Not built, designed for
@@ -614,6 +635,8 @@ rather than an empty state. A 404 is the signal.
   check-in would set a `attended_on` column.
 - **Per-rep event commissions.** `rep_email` is captured on every guest for exactly this, but no
   commission math is specified here.
+- **The Inner Circle funnel.** Retired (§1.4). If it is ever revived it is a `forum_event` row
+  with its own `pipeline_match` and tags — no code change, no new table.
 - **Member guests vs net-new guests.** `invited_by` is captured; the "which member brought the
   most guests" leaderboard is a drill, not a new table.
 
@@ -623,14 +646,13 @@ rather than an empty state. A 404 is the signal.
 
 1. **Confirm the Q4 tag is the only one.** This spec assumes `the forum q4 2026 guest rsvp`
    identifies every Q4 VIP guest. If marketing used a second tag, it goes in `reg_tags`.
-2. **Supply the real prices** for the four contract types in §4.4, and the VIP ticket price if it
-   is ever not $2,500.
-3. **Set the guest goal** for Q4 and the event dates.
-4. **Decide whether Inner Circle is a separate event or a separate tab.** It is a live funnel of
-   128 opportunities with its own "$2500 / Comped" stages (§1.4). This spec can model it as
-   another `forum_event` row; whether that is the right product answer is Connor's call.
-5. **Confirm ticket revenue should stay out of Forum MRR** (D7) — it is currently tested that
+2. **Set the guest goal** for Q4 and the event dates. These are the only two values the tab needs
+   to be useful — everything else has a default or degrades to a dash.
+3. **Confirm ticket revenue should stay out of Forum MRR** (D7) — it is currently tested that
    way, but it is a business decision, not a technical one.
+
+Prices are deliberately **not** on this list. They are configuration with no defaults (D8), and
+the tab works without them.
 
 ---
 
