@@ -568,6 +568,13 @@ Event bugs.
 
 - Scope every `delete()` in the launch and sales-desk fixtures by `tenant_id`.
 - Add the `forum_event*` tables to the same discipline before writing a row.
+- **Fix `seed._wipe`, which is the actual root cause.** It deletes a hand-kept tuple of nine
+  models; the schema has 125 tenant-scoped tables, so it misses 116 — and SQLite does not
+  enforce foreign keys, so those rows are ORPHANED, not cascaded. `seed()` then builds a tenant
+  with a fresh uuid and leaves them behind forever. Scoping the fixture deletes correctly is
+  what exposes this: two recall tests fail immediately, because a stale call from a previous
+  tenant is adopted instead of the one under test. Derive the wipe from
+  `Base.metadata.sorted_tables` instead of listing it.
 
 **Done when** the launch and sales-desk suites pass when run in isolation *and* in reverse order
 (`pytest -p no:randomly` vs `--reverse`), proving no cross-fixture dependency.
@@ -579,14 +586,31 @@ scoped (F9) and wired to the wrong drill (F13). Leaving it in place means two "R
 numbers forever.
 
 - Remove the dead `event` deck card and its exact-set assertion (`tests/test_forum.py:158`).
-- Fix the Recruiting Pipeline tile's drill target.
+  **Suppress it at the Forum's call site, not inside `_deck`** — `_deck` is shared with
+  beCollective and The Edge, and beCollective has no renewals card, so *its* event card does
+  render. Removing it from the helper took a live card off another tab.
+- Remove the unreachable `membersItems` event card in `ForumView.jsx` — the deck card's only
+  consumer.
+- Fix the Recruiting Pipeline tile's drill target. There is no pipeline drill on the server
+  (`_FORUM` in `lineage.py` has no such key), so the fix is to make the tile inert rather than
+  invent one.
 - Keep `data.event` in the payload for one release, marked deprecated in its docstring, so a
   stale cached bundle does not crash.
-- Fix `_renewals` / `_event` to use the injected clock (F21).
+- Fix the live-clock reads (F21). The audit named two; there are **four** — the KPI deck's month
+  label, `_renewals`, `_event` and `_revq` (which is dead code, fixed anyway so reviving it does
+  not revive the bug). `_renewals` and `_event` are shared, so `becollective.py` and `edge.py`
+  are updated in the same commit.
 
-**Done when** the Forum tab renders with no event tile, `GET /forum` still returns 200 for a
-workspace with no event configured, and `tests/test_forum.py` asserts the deck-card set without
+**Done when** the Forum tab renders with no event *deck card*, `GET /forum` still returns 200 for
+a workspace with no event configured, and `tests/test_forum.py` asserts the deck-card set without
 `event`.
+
+> **Corrected while building (2026-10-05).** This Done-when originally read "no event tile", and
+> following it would have caused a regression. The audit flattened two different tiles into one:
+> the operational pulse tile is the dead end it reported, but the KPI tile at `ForumView.jsx:256`
+> drills to `unregistered` and works. Removing working event visibility weeks before Phase 5
+> replaces it is a self-inflicted gap, so Phase 1 removes only what is **dead or wrong** and
+> leaves what works until its replacement ships.
 
 ### Phase 2 — Data foundation (backend only, no UI)
 

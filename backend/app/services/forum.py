@@ -90,7 +90,7 @@ async def build_forum(s: AsyncSession, tenant_id, period: str,
         {"key": "new_members", "label": "New Members", "value": str(k["new_members"]),
          "sub": _period_label(period)},
         {"key": "renewals_due", "label": "Renewals Due", "value": str(k["renewals_due"]),
-         "sub": _MONTHS[dt.date.today().month - 1], "drill": "renewal_book"},
+         "sub": _MONTHS[today.month - 1], "drill": "renewal_book"},
         {"key": "registered", "label": "Registered", "value": str(member_regs),
          "sub": cfg.get("event_name") or "next event", "drill": "registered"},
         {"key": "mrr", "label": "MRR", "value": _usd(k["mrr"]) if k["mrr"] else "—",
@@ -102,8 +102,8 @@ async def build_forum(s: AsyncSession, tenant_id, period: str,
     # recover it by joining to the member roster on contact id.
     seg_by_contact = {m.external_id: m.segment for m in member_recs}
     funnel = await _funnel(s, base, cfg)
-    renewals = _renewals(memberships, seg_by_contact)
-    event = _event(cfg, members_total, member_regs, guests)
+    renewals = _renewals(memberships, today, seg_by_contact)
+    event = _event(cfg, members_total, member_regs, guests, today)
 
     # ── Cash & Billing (GHL Payments, Stripe-fed) — supersedes Revenue Quality ──
     from .billing import compute_billing, merge_payment_sources
@@ -151,7 +151,11 @@ async def build_forum(s: AsyncSession, tenant_id, period: str,
         watch_items.append("behind_pace")
 
     # ── deep-dive deck (Recruiting · Renewals · Event readiness — revq retired) ──
-    deck = _deck(funnel, renewals, event, members_total, k["registered"])
+    # event=None: the Forum's event deck card had exactly one consumer, a ForumView card gated
+    # on `!data.renewals` - and the Forum always has renewals, so it never rendered. Suppressed
+    # HERE rather than inside _deck, because beCollective has no renewals card and its event
+    # card does render. The Event sub-tab (FORUM-EVENT-SPEC.md) replaces the Forum's.
+    deck = _deck(funnel, renewals, None, members_total, k["registered"])
 
     # ── Operational Refinement payload (v9) — everything below is aggregation over
     # records already synced. Each block degrades to None/[] when its inputs are missing.
@@ -466,14 +470,13 @@ async def _funnel(s, base, cfg) -> dict | None:
     return {"stages": [{"label": g["label"], "v": g["v"]} for g in stages], "footer": footer}
 
 
-def _renewals(memberships, seg_by_contact=None) -> dict | None:
+def _renewals(memberships, today, seg_by_contact=None) -> dict | None:
     """Members due to renew in the next 90 days, by month + contract value.
     (Renewal *health* isn't tracked in GHL — the renewals pipeline is filed by
     month — so there are no committed/talking/risk statuses.)"""
     if not memberships:
         return None
     seg_by_contact = seg_by_contact or {}
-    today = dt.date.today()
     window = {_MONTHS[(today.month - 1 + i) % 12] for i in range(3)}   # this + next 2 months
     rows = []
     segments = {"F": 0, "IC": 0}
@@ -499,7 +502,11 @@ def _renewals(memberships, seg_by_contact=None) -> dict | None:
                         "segments": segments, "retention": None}}
 
 
-def _event(cfg, members_total, member_regs, guests) -> dict | None:
+def _event(cfg, members_total, member_regs, guests, today) -> dict | None:
+    """DEPRECATED. Superseded by the Event sub-tab (FORUM-EVENT-SPEC.md), which counts guests
+    and members from their OWN tag sets instead of deriving one by subtracting the other - the
+    `member_regs = len(all_regs) - guests` here is the bug that motivated it. Kept in the
+    payload for one release so a cached bundle does not crash; remove when the tab ships."""
     # Render whenever a next event is configured (name / tag / title / date).
     # The date only powers the countdown — without it days_out is None but the
     # registration progress + call list still show.
@@ -509,7 +516,7 @@ def _event(cfg, members_total, member_regs, guests) -> dict | None:
     days_out = None
     if cfg.get("event_date"):
         try:
-            days_out = (dt.date.fromisoformat(str(cfg["event_date"])) - dt.date.today()).days
+            days_out = (dt.date.fromisoformat(str(cfg["event_date"])) - today).days
         except (ValueError, TypeError):
             days_out = None
     unregistered = max(0, members_total - member_regs)
@@ -524,7 +531,7 @@ def _event(cfg, members_total, member_regs, guests) -> dict | None:
             "unregistered": unregistered, "behind_pace": behind, "pace_note": pace_note}
 
 
-async def _revq(s, base, memberships, arr, tenant_id, business_id) -> dict | None:
+async def _revq(s, base, memberships, arr, tenant_id, business_id, today) -> dict | None:
     subs = (await s.execute(select(MetricRecord).where(*base("subscription")))).scalars().all()
     if not subs and not memberships:
         return None
@@ -545,7 +552,7 @@ async def _revq(s, base, memberships, arr, tenant_id, business_id) -> dict | Non
     # ARR bridge (YTD). Onboarded opps carry no $ (they live in the sales funnel),
     # so New = the membership contract value of contacts who onboarded this year.
     # Churn = lost renewals opps this year (those DO carry monetaryValue).
-    year_start = dt.date(dt.date.today().year, 1, 1)
+    year_start = dt.date(today.year, 1, 1)
     onb = (await s.execute(select(MetricRecord).where(
         *base("onboarded"), MetricRecord.occurred_on >= year_start))).scalars().all()
     onb_contacts = {(o.meta or {}).get("contact_id") for o in onb if (o.meta or {}).get("contact_id")}
@@ -572,6 +579,8 @@ async def _revq(s, base, memberships, arr, tenant_id, business_id) -> dict | Non
 
 
 def _deck(funnel, renewals, event, members_total, registered) -> list[dict]:
+    """The members deck. SHARED by the Forum, beCollective and The Edge - pass event=None to
+    suppress the event card for one of them rather than removing it here."""
     deck = []
     if funnel:
         last = funnel["stages"][-1] if funnel["stages"] else {"v": 0, "label": "pipeline"}

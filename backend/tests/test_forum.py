@@ -154,8 +154,9 @@ async def test_forum_payload_shape():
     assert kpis["Registered"]["value"] == "3"          # members only, guest excluded
     assert kpis["MRR"]["value"] == "$750"
 
-    # deck has one card per available deep dive (Revenue Quality retired → 3 cards)
-    assert {c["k"] for c in d["deck"]} == {"pipeline", "renewals", "event"}
+    # One card per available deep dive. The "event" card went with the unreachable ForumView
+    # card that was its only consumer; the Event sub-tab replaces both (FORUM-EVENT-SPEC.md).
+    assert {c["k"] for c in d["deck"]} == {"pipeline", "renewals"}
 
 
 async def test_forum_invariants():
@@ -274,7 +275,9 @@ async def test_event_renders_without_date():
     d = await _get_forum()
     assert d["event"] is not None and d["event"]["days_out"] is None
     assert d["event"]["where"] == "Park City, UT"
-    assert "event" in {c["k"] for c in d["deck"]}
+    # `event` stays in the PAYLOAD (the two Event Readiness tiles still read it) but no
+    # longer produces a deck card.
+    assert "event" not in {c["k"] for c in d["deck"]}
 
 
 async def test_forum_period_scoping():

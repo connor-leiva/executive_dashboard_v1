@@ -456,22 +456,11 @@ function membersItems(data, open, onOpen, deckSlots, rosterKey = "forum_roster")
         <div style={{ marginTop: 10 }}><Drill onClick={() => onOpen("renewal_book")}>View the {s.count} renewals</Drill></div>
       </div>) });
   }
-  if (has("event") && data.event && !data.renewals) {
-    const e = data.event;
-    const pct = e.members ? Math.round((e.registered / e.members) * 100) : 0;
-    items.push({ key: "event", icon: A.pin, name: "Next Event", stat: e.days_out != null ? `${e.days_out}d` : (e.where || "—"), line: "readiness", accent: C.mistDeep, render: () => (
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <Ring pct={pct} size={56} stroke={5} color={C.meadow}>{pct}%</Ring>
-          <div>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: C.ink }}>{e.where}</div>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}>{e.title}{e.when ? ` · ${e.when}` : ""}</div>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.body, marginTop: 4 }}>{e.registered} of {e.members} registered{e.guests > 0 ? ` · +${e.guests} guests` : ""}</div>
-          </div>
-        </div>
-        {e.unregistered > 0 && <div style={{ marginTop: 12 }}><Drill onClick={() => onOpen("unregistered")}>{e.unregistered} not yet registered</Drill></div>}
-      </div>) });
-  }
+  // The "Next Event" members card used to live here, gated on `!data.renewals`. The Forum
+  // always has renewals, so it was unreachable from the day it was written - and the Event
+  // sub-tab (FORUM-EVENT-SPEC.md) is what actually replaces it. Removed rather than fixed:
+  // resurrecting a card nobody has ever seen, weeks before the tab that supersedes it, would
+  // be two event surfaces disagreeing instead of one.
   return items.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
 }
 
@@ -891,7 +880,12 @@ function PulseStrip({ pulse, onOpen, rosterKey = "forum_roster" }) {
         </div>
       </PulseTile>
 
-      <PulseTile onClick={pp ? () => onOpen("registered") : undefined}>
+      {/* No onClick: this tile used to open the EVENT REGISTRATION list, which is a different
+          number entirely - clicking a recruiting-pipeline count and getting a list of people
+          who RSVP'd to an event is worse than it not being clickable. There is no pipeline
+          drill on the server to point it at (`_FORUM` in lineage.py has no such key), so it
+          stays inert until something real exists to open. */}
+      <PulseTile>
         <TileHead icon="growth" tint={C.evergreen} label="Recruiting Pipeline" />
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12 }}>
           <span style={{ ...opBig, fontSize: 34 }}>{pp ? pp.value : "—"}</span>

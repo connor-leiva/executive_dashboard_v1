@@ -90,12 +90,16 @@ async def build_becollective(s: AsyncSession, tenant_id, period: str) -> dict:
     fcfg = dict(cfg)
     fcfg["recruiting_stage_groups"] = cfg.get("recruiting_stage_groups") or BC_FUNNEL_GROUPS
     funnel = await F._funnel(s, base, fcfg)
-    renewals = F._renewals(memberships, seg_by_contact)
+    # Hoisted above the two calls that now take it. beCollective shares the Forum's helpers,
+    # so the Forum's clock injection (FORUM-EVENT-SPEC.md Phase 1, F21) reaches here too.
+    # build_becollective itself still reads the live clock rather than accepting one - the same
+    # gap, on the beCollective tab, and out of scope for a Forum phase.
+    today = dt.date.today()
+    renewals = F._renewals(memberships, today, seg_by_contact)
     ecfg = {"event_date": cfg.get("event_date"), "event_name": cfg.get("event_name"),
             "event_title": cfg.get("event_title"), "event_dates": cfg.get("event_dates"),
             "event_tag": cfg.get("event_tag"), "prior_event_pace": cfg.get("prior_event_pace")}
-    event = F._event(ecfg, members_total, member_regs, guests)
-    today = dt.date.today()
+    event = F._event(ecfg, members_total, member_regs, guests, today)
 
     # ── Cash & Billing — beCollective's OWN dedicated Stripe account (membership payments
     # only, source='stripe_bc'). No GHL Payments feed here, so no merge/dedupe like the

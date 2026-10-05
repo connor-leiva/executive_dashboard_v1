@@ -86,12 +86,14 @@ async def build_edge(s: AsyncSession, tenant_id, period: str) -> dict:
     fcfg = dict(cfg)
     fcfg["recruiting_stage_groups"] = cfg.get("edge_recruiting_stage_groups") or EDGE_FUNNEL_GROUPS
     funnel = await F._funnel(s, base, fcfg)
-    renewals = F._renewals(memberships, seg_by_contact)
+    # Hoisted above the two calls that now take it - same change as becollective.py, because
+    # all three program views share the Forum's helpers.
+    today = dt.date.today()
+    renewals = F._renewals(memberships, today, seg_by_contact)
     ecfg = {"event_date": cfg.get("edge_event_date"), "event_name": cfg.get("edge_event_name"),
             "event_title": cfg.get("edge_event_title"), "event_dates": cfg.get("edge_event_dates"),
             "event_tag": cfg.get("edge_event_tag"), "prior_event_pace": cfg.get("edge_prior_event_pace")}
-    event = F._event(ecfg, members_total, member_regs, guests)
-    today = dt.date.today()
+    event = F._event(ecfg, members_total, member_regs, guests, today)
 
     # ── Cash & Billing — The Edge's charges live on the SAME legacy Stripe account as the
     # Forum (source='stripe_legacy'), classified out to kind='edge_payment' by product name.
