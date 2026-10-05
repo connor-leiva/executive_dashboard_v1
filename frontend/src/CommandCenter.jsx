@@ -11,6 +11,7 @@ import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
 import UlrgTabs from "./ulrg/UlrgTabs.jsx";
 import BrandScorecardTabs from "./BrandScorecardTabs.jsx";
+import ForumShell from "./ForumShell.jsx";
 import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
 import BecollectiveView from "./BecollectiveView.jsx";
 import EdgeView from "./EdgeView.jsx";
@@ -1262,8 +1263,12 @@ export default function CommandCenter() {
   else if (error && !data) content = <ErrorState onRetry={retry} />;
   else if (activeView === "overview") content = <Overview data={data} onOpen={goTo} onDrill={onDrill} />;
   else if (activeView === "forum") content = forum.data
-    ? <BrandScorecardTabs role={user?.role}
-        overview={<ForumView key="forum" data={forum.data} area={areas?.forum} onDrill={onDrill} />} />
+    // ForumShell, not BrandScorecardTabs: the Event sub-tab belongs to the Forum only, and
+    // BrandScorecardTabs is shared with The Edge (below), which does not run these events.
+    // The props ForumView was never passed here - role, drillBusiness, rosterKey - are passed
+    // now; without them it silently rode on its hardcoded defaults.
+    ? <ForumShell data={forum.data} area={areas?.forum} onDrill={onDrill}
+        drillBusiness="springb" rosterKey="forum_roster" role={user?.role} />
     : <SkeletonDashboard />;
   else if (activeView === "becollective") content = becollective.data
     ? <BecollectiveView data={becollective.data} area={areas?.becollective} onDrill={onDrill}

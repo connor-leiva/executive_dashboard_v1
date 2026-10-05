@@ -1,0 +1,88 @@
+/* Offline/sample payload for the Forum's Event sub-tab.
+   Mirrors GET /businesses/{key}/events/current exactly.
+
+   The scenario is Spring's real Q4 2026 at 2026-10-05: 24 VIP guests against a goal of 60,
+   39 days out, 34 members registered beside them, and the five RSVPs nobody has opened a sale
+   for. The numbers are the ones the live sync actually returns — a sample that disagrees with
+   production is how a reviewer ends up debugging the sample. */
+export default {
+  event: {
+    id: "sample",
+    name: "The Forum Q4 2026",
+    slug: "q4-2026",
+    status: "selling",
+    starts_on: "2026-11-13",
+    ends_on: "2026-11-15",
+    window_start: "2026-08-01",
+    window_end: "2026-11-13",
+    venue: null,
+    default_tz: "America/Denver",
+    pipeline_match: ["forum main sales funnel"],
+    stage_map: {},
+    guest_tags: ["the forum q4 2026 guest rsvp"],
+    member_tags: ["the forum q4 2026 rsvp"],
+    declined_tags: ["q4 not registered - member"],
+    comp_tag_match: "comp",
+    guest_goal: 60,
+    member_goal: null,
+    // Unset on purpose: the tab is fully useful with no pricing, and every money figure
+    // degrades to a dash rather than a zero.
+    vip_price: null,
+    price_map: {},
+    pace_curve: { 60: 0.1, 39: 0.45, 14: 0.8, 0: 1 },
+    pace_tolerance: 0.08,
+    is_active: true,
+  },
+  registration: {
+    goal: 60,
+    guests: 24,
+    paid: 23,
+    comped: 1,
+    pct_to_goal: 0.4,
+    members_registered: 34,
+    members_declined: 14,
+    room: 58,
+    guests_without_opp: 5,
+    guests_stage_conflict: 1,
+    days_to_event: 39,
+    expected: 27,
+    expected_pct: 0.45,
+    gap: -3,
+    state: "onpace",
+    curve: [
+      { d: 60, pct: 0.1, count: 6 },
+      { d: 39, pct: 0.45, count: 27 },
+      { d: 14, pct: 0.8, count: 48 },
+      { d: 0, pct: 1, count: 60 },
+    ],
+    channels: [{ label: "Organic / Existing", count: 23 }, { label: "Comped", count: 1 }],
+  },
+  funnel: [
+    { key: "optin", label: "Opt-in", owner: "marketing", count: 23 },
+    { key: "registered", label: "VIP guests", owner: "setters", count: 18 },
+    { key: "attending", label: "Attending", owner: "setters", count: 0 },
+    { key: "deciding", label: "Contract sent", owner: "closers", count: 1 },
+    { key: "committed", label: "Payment received", owner: "payment ops", count: 0 },
+    { key: "converted", label: "Members", owner: "onboarding", count: 0 },
+  ],
+  aside: [{ key: "nurture", label: "Nurture", count: 1 }],
+  revenue: {
+    ticket_booked: null,
+    member_arr: null,
+    member_goal: null,
+    members: 0,
+    unpriced_members: 0,
+    conversion: { guests: 24, converted: 0, rate: 0 },
+  },
+  momentum: {
+    guests: { now: 24, was: 19 },
+    converted: { now: 0, was: 0 },
+  },
+  groups: ["leads", "optin", "registered", "attending", "deciding", "committed", "converted",
+           "nurture", "lost", "uncategorized"],
+  warnings: [
+    "5 guests with no opportunity in the funnel",
+    "1 guest tagged as RSVP'd but parked or lost in the funnel",
+  ],
+  as_of: "2026-10-05T17:00:00+00:00",
+};
