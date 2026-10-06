@@ -829,3 +829,62 @@ async def test_the_shares_are_none_not_zero_with_no_roster():
     r = (await _compute(tid, eid))["registration"]
     assert r["members_total"] is None and r["members_registered_pct"] is None, \
         "a dash reads as 'we do not know'; a zero reads as 'none of them'"
+
+
+async def test_members_who_have_not_answered_are_counted_and_nameable():
+    """The chase list: on the roster, no registration, no decline. It was only ever visible by
+    subtracting two tiles from a third, which is not visible at all.
+
+    These people have no forum_event_guest row BY DEFINITION - not registering generates no
+    event - so the count and the drill both come off the member roster.
+    """
+    from app.models import MetricRecord
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.tenant_id == tid, MetricRecord.kind == "member"))
+        ev = (await s.execute(select(ForumEvent).where(ForumEvent.id == eid))).scalar_one()
+        ev.declined_tags = ["q4 not registered - member"]
+        # 10 on the roster: 3 registered, 2 declined, 5 silent.
+        for i in range(10):
+            s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="member",
+                               external_id=f"c{i}", name=f"Member {i}", status="active"))
+        for i in range(3):
+            s.add(ForumEventGuest(tenant_id=tid, event_id=eid, contact_id=f"c{i}", kind="member"))
+        for i in range(3, 5):
+            s.add(ForumEventGuest(tenant_id=tid, event_id=eid, contact_id=f"c{i}", kind="declined"))
+        await s.commit()
+
+    d = await _compute(tid, eid)
+    r = d["registration"]
+    assert (r["members_total"], r["members_registered"], r["members_declined"]) == (10, 3, 2)
+    assert r["members_unanswered"] == 5
+    assert r["members_unanswered_pct"] == 0.5
+
+    async with SessionLocal() as s:
+        ev = (await s.execute(select(ForumEvent).where(ForumEvent.id == eid))).scalar_one()
+        drill = await FE.drill_event(s, tid, ev, "event_unanswered")
+    assert drill["count"] == 5
+    names = {row["name"] for row in drill["rows"]}
+    assert names == {f"Member {i}" for i in range(5, 10)}, "the silent ones, by name"
+
+
+async def test_a_guest_is_not_counted_as_an_unanswered_member():
+    """A VIP guest who also happens to be on the member roster has answered - by being a guest.
+    Counting them as silent would pad the chase list with people already coming."""
+    from app.models import MetricRecord
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.tenant_id == tid, MetricRecord.kind == "member"))
+        for i in range(2):
+            s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="member",
+                               external_id=f"c{i}", name=f"Member {i}", status="active"))
+        s.add(ForumEventGuest(tenant_id=tid, event_id=eid, contact_id="c0", kind="member"))
+        await s.commit()
+    r = (await _compute(tid, eid))["registration"]
+    assert r["members_unanswered"] == 1, "c1 is silent; c0 answered"

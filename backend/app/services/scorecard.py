@@ -234,7 +234,8 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
         return default
 
     groups = (await s.execute(select(ScorecardGroup).where(
-        ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.business_id == business_id)
+        ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.business_id == business_id,
+        ScorecardGroup.active.is_(True))
         .order_by(ScorecardGroup.sort_order))).scalars().all()
     metrics = (await s.execute(select(ScorecardMetric).where(
         ScorecardMetric.tenant_id == tenant_id, ScorecardMetric.active.is_(True))
@@ -319,6 +320,7 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
         constraint, free_win = move(move_rows)
         groups_out.append({
             "id": str(g.id), "key": g.key, "name": g.name, "is_team_room": g.is_team_room,
+            "sort_order": g.sort_order,
             "owner": ({"name": g.owner_name,
                        "photo_url": (f"/ulrg/group/{g.id}/photo?v={str(g.owner_photo_ref)[-8:]}"
                                      if g.owner_photo_ref else None)}

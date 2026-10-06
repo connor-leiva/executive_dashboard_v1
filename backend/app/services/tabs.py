@@ -164,7 +164,8 @@ _FORUM = {"active_members", "forum_roster", "forum_arr", "renewals_due", "new_me
 # event drill-downs readable by anyone granted Portfolio.
 _EVENT = {"event_guests", "event_paid", "event_comped", "event_members_registered",
           "event_declined", "event_room", "event_converted", "event_without_opp",
-          "event_stage_conflict", "event_ticket_booked", "event_member_arr"}
+          "event_stage_conflict", "event_ticket_booked", "event_member_arr",
+          "event_unanswered"}
 _BC = {"bc_members", "bc_arr", "bc_registered", "bc_financed", "bc_monthly"}
 _EDGE = {"edge_members", "edge_arr", "edge_registered", "edge_financed", "edge_monthly",
          "edge_roster", "edge_new_members", "edge_pipeline", "edge_payments"}

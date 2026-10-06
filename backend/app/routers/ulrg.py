@@ -257,9 +257,17 @@ async def revoke_share(share_id: str, user: User = Depends(current_user),
         await s.commit()
 
 
-# ── self-service office config (Step: scorecard settings) — owner name + headshot ──────────────
+# ── self-service office config (Step: scorecard settings) — full CRUD on offices ─────────────────
 class GroupPatch(BaseModel):
     owner_name: str | None = None
+    name: str | None = None          # rename the office itself
+    sort_order: int | None = None    # reorder
+    active: bool | None = None        # False hides the office (soft remove; metrics/history kept)
+
+
+class GroupCreate(BaseModel):
+    name: str
+    scope: str = "ulrg"
 
 
 async def _group(s: AsyncSession, tenant_id, group_id: str) -> ScorecardGroup:
@@ -270,18 +278,67 @@ async def _group(s: AsyncSession, tenant_id, group_id: str) -> ScorecardGroup:
     return g
 
 
+def _slug_key(name: str, taken: set[str]) -> str:
+    """A stable, collision-free group key from a display name — fits String(40)."""
+    import re
+    base = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:36] or "office"
+    key, n = base, 2
+    while key in taken:
+        key = f"{base[:34]}_{n}"
+        n += 1
+    return key
+
+
+@router.post("/group", status_code=201)
+async def create_group(body: GroupCreate, user: User = Depends(current_user),
+                       s: AsyncSession = Depends(get_session)):
+    """Add an office to a board (owner/admin), self-service. Appended after the existing offices; its
+    key is slugged from the name and kept unique within the board. Starts with no owner and no
+    measurables — add those next."""
+    _require_admin(user)
+    b = await _scope_business(s, user.tenant_id, body.scope)
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Name required")
+    siblings = (await s.execute(select(ScorecardGroup).where(
+        ScorecardGroup.tenant_id == user.tenant_id, ScorecardGroup.business_id == b.id))).scalars().all()
+    # Inherit the board's convention: ULRG offices are team rooms (Move card + team sub-tab), Spring B's
+    # are not. A new office matches its board instead of forcing one (a spurious Move card on a Spring B
+    # office was what lingered on remove).
+    team_room = any(x.is_team_room for x in siblings)
+    g = ScorecardGroup(tenant_id=user.tenant_id, business_id=b.id, name=name[:120],
+                       key=_slug_key(name, {x.key for x in siblings}), is_team_room=team_room,
+                       sort_order=max((x.sort_order for x in siblings), default=-1) + 1, active=True)
+    s.add(g)
+    audit(s, user.tenant_id, user.id, "scorecard.group_create", "scorecard_group", g.id, {"name": name})
+    await s.commit()
+    return {"ok": True, "id": str(g.id), "key": g.key, "name": g.name}
+
+
 @router.patch("/group/{group_id}")
 async def edit_group(group_id: str, body: GroupPatch, user: User = Depends(current_user),
                      s: AsyncSession = Depends(get_session)):
-    """Rename a team's owner (owner/admin) — e.g. first name → full name, self-service."""
+    """Edit an office (owner/admin), self-service: its owner name, the office name, its order, or
+    `active=false` to hide it. A hidden office drops off the board (build_scorecard filters active)
+    but keeps its measurables + history and can be restored with active=true."""
     _require_admin(user)
     g = await _group(s, user.tenant_id, group_id)
     if body.owner_name is not None:
         g.owner_name = body.owner_name.strip() or None
+    if body.name is not None:
+        nm = body.name.strip()
+        if not nm:
+            raise HTTPException(400, "Name required")
+        g.name = nm[:120]
+    if body.sort_order is not None:
+        g.sort_order = body.sort_order
+    if body.active is not None:
+        g.active = body.active
     audit(s, user.tenant_id, user.id, "scorecard.group_edit", "scorecard_group", g.id,
-          {"owner_name": g.owner_name})
+          {"owner_name": g.owner_name, "name": g.name, "sort_order": g.sort_order, "active": g.active})
     await s.commit()
-    return {"ok": True, "owner_name": g.owner_name}
+    return {"ok": True, "id": str(g.id), "name": g.name, "owner_name": g.owner_name,
+            "sort_order": g.sort_order, "active": g.active}
 
 
 @router.post("/group/{group_id}/photo", status_code=201)
@@ -359,6 +416,43 @@ async def edit_metric(metric_id: str, body: MetricPatch, user: User = Depends(cu
     return {"ok": True, "name": m.name, "active": m.active}
 
 
+class MetricCreate(BaseModel):
+    group_id: str
+    name: str
+    type: str = "flow"               # flow | rate | snapshot
+    direction: str = "gte"           # gte | lte
+    note: str | None = None
+
+
+@router.post("/metric", status_code=201)
+async def create_metric(body: MetricCreate, user: User = Depends(current_user),
+                        s: AsyncSession = Depends(get_session)):
+    """Add a measurable to an office (owner/admin), self-service. Starts manual (hand-entered) with a
+    0 / track-only goal — set its goal per period in Goals, and (once routing lands) point it at a data
+    source. Appended after the office's existing rows."""
+    _require_admin(user)
+    g = await _group(s, user.tenant_id, body.group_id)       # validates the office is this tenant's
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Name required")
+    if body.type not in ("flow", "rate", "snapshot"):
+        raise HTTPException(400, "type must be flow, rate or snapshot")
+    if body.direction not in ("gte", "lte"):
+        raise HTTPException(400, "direction must be gte or lte")
+    siblings = (await s.execute(select(ScorecardMetric.sort_order).where(
+        ScorecardMetric.group_id == g.id))).scalars().all()
+    m = ScorecardMetric(
+        tenant_id=user.tenant_id, group_id=g.id, name=name[:160], type=body.type,
+        direction=body.direction, goal=Decimal("0"), source="manual",
+        note=(body.note.strip()[:160] if body.note and body.note.strip() else None),
+        sort_order=max(siblings, default=-1) + 1, active=True)
+    s.add(m)
+    audit(s, user.tenant_id, user.id, "scorecard.metric_create", "scorecard_metric", m.id,
+          {"name": name, "group_id": str(g.id), "type": body.type})
+    await s.commit()
+    return {"ok": True, "id": str(m.id), "name": m.name, "type": m.type}
+
+
 # ── measurement periods (Phase B) — the fiscal quarters live on tenant.config ──────────────────
 class PeriodIn(BaseModel):
     key: str
@@ -434,7 +528,7 @@ async def get_goals(period: str, scope: str = "ulrg", user: User = Depends(curre
         select(ScorecardMetric, ScorecardGroup.name, ScorecardGroup.sort_order)
         .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
         .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardGroup.business_id == b.id,
-               ScorecardMetric.active.is_(True))
+               ScorecardGroup.active.is_(True), ScorecardMetric.active.is_(True))
         .order_by(ScorecardGroup.sort_order, ScorecardMetric.sort_order))).all()
     over = {str(mid): (float(gv), None if cg is None else float(cg))
             for mid, gv, cg in (await s.execute(select(

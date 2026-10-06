@@ -353,6 +353,14 @@ export default function EventSection({ data, usingSample, role, businessKey = "s
                     ? `${r.members_declined} said no${r.members_declined_pct != null ? ` (${pct(r.members_declined_pct)})` : ""}`
                     : null,
                 ].filter(Boolean).join(" · ")} />
+          {/* The chase list. Neither registered nor declined - people who have not been asked,
+              or were asked and never answered. It was only ever visible by subtracting two
+              other tiles, which is not visible at all. */}
+          {r.members_unanswered != null && (
+            <Stat label="No answer yet" value={r.members_unanswered} metric="event_unanswered"
+                  sub={[r.members_unanswered_pct != null ? `${pct(r.members_unanswered_pct)} of members` : null,
+                        "not registered, not declined"].filter(Boolean).join(" · ")} />
+          )}
           <Stat label="Paid / comped" value={`${r.paid ?? 0} / ${r.comped ?? 0}`} metric="event_paid" />
           <Stat label="Ticket revenue" value={money(rev.ticket_booked)} metric="event_paid"
                 sub={ev.vip_price == null ? "no price set" : `${r.paid ?? 0} × ${usd(ev.vip_price)}`} />

@@ -228,13 +228,20 @@ async def compute_event(s: AsyncSession, tenant_id, event: ForumEvent,
     # Forum tab counts its own member KPI - kind='member', status='active', scoped to this
     # business (metrics.py:265) - because two different member totals on one screen is the
     # exact failure this build has been avoiding since F11.
-    roster = int((await s.execute(
-        select(func.count()).select_from(MetricRecord).where(
+    roster_rows = (await s.execute(
+        select(MetricRecord).where(
             MetricRecord.tenant_id == tenant_id,
             MetricRecord.business_id == event.business_id,
             MetricRecord.source == "ghl",
             MetricRecord.kind == "member",
-            MetricRecord.status == "active"))).scalar() or 0)
+            MetricRecord.status == "active"))).scalars().all()
+    roster = len(roster_rows)
+    # THE CHASE LIST. A member who has neither registered nor declined has not been asked, or
+    # was asked and never answered - and until this existed the only way to see them was to
+    # subtract two numbers on the tile and wonder. metric_record.external_id IS the contact id
+    # (forum.py:103), which is what makes these people nameable rather than merely countable.
+    answered = {g.contact_id for g in rows if g.kind in ("member", "declined")}
+    unanswered = [m for m in roster_rows if m.external_id not in answered]
 
     # Blended from what we CAN price, so an unpriced member is charged the going rate rather
     # than nothing. None when nothing is priced at all.
@@ -294,6 +301,8 @@ async def compute_event(s: AsyncSession, tenant_id, event: ForumEvent,
             # Shares of the membership. None rather than 0 on an empty roster - a dash reads as
             # "we do not know how many members there are", a zero reads as "none of them".
             "members_total": roster or None,
+            "members_unanswered": len(unanswered) if roster else None,
+            "members_unanswered_pct": round(len(unanswered) / roster, 4) if roster else None,
             "members_registered_pct": round(len(members) / roster, 4) if roster else None,
             "members_declined_pct": (round(len(declined) / roster, 4)
                                      if roster and event.declined_tags else None),
@@ -578,6 +587,7 @@ _DRILL_TITLES = {
     "event_converted": "Guests who became members",
     "event_without_opp": "RSVPs with no sale open",
     "event_stage_conflict": "RSVP'd, but parked or lost in the funnel",
+    "event_unanswered": "Members who have not answered",
 }
 
 
@@ -630,6 +640,26 @@ async def drill_event(s: AsyncSession, tenant_id, event: ForumEvent, metric: str
         return records(title, [g for g in guests if not g.opportunity_id])
     if metric == "event_stage_conflict":
         return records(title, [g for g in guests if g.group in _CONFLICT_GROUPS])
+    if metric == "event_unanswered":
+        # These people have no forum_event_guest row BY DEFINITION - not registering is not an
+        # event they generate. They come from the member roster instead, minus everyone who
+        # answered either way, which is why this branch does its own query.
+        answered = {r.contact_id for r in rows if r.kind in ("member", "declined")}
+        roster = (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id,
+            MetricRecord.business_id == event.business_id,
+            MetricRecord.source == "ghl",
+            MetricRecord.kind == "member",
+            MetricRecord.status == "active"))).scalars().all()
+        people = [m for m in roster if m.external_id not in answered]
+        return {"metric": metric, "type": "records", "title": title,
+                "subtitle": f"{len(people)} | neither registered nor declined",
+                "count": len(people),
+                "columns": ["name", "segment", "email"],
+                "rows": [{"name": (m.name or "").title() or m.external_id,
+                          "segment": (m.segment or "member").replace("_", " ").title(),
+                          "email": m.email or "-"}
+                         for m in sorted(people, key=lambda x: (x.name or "").lower())]}
     # A funnel row: `event_group_registered`, `event_group_deciding`, ...
     if metric.startswith("event_group_"):
         g = metric[len("event_group_"):]

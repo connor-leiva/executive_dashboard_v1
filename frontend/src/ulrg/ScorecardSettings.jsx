@@ -1,7 +1,7 @@
 /* Scorecard settings (owner/admin) — self-service office config. Phase A: edit each office owner's
    full name and upload a headshot. Periods + per-period goals land here next. */
 import { useState, useEffect } from "react";
-import { patchJSON, putJSON, getJSON, uploadFile, fileUrl } from "../api.js";
+import { patchJSON, putJSON, postJSON, getJSON, uploadFile, fileUrl } from "../api.js";
 import { C, FD, FB, FM } from "./scorecardMath.js";
 
 const _label = { fontFamily: FM, fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.muted, marginBottom: 8 };
@@ -10,6 +10,17 @@ const _btn = { fontFamily: FM, fontSize: 11.5, borderRadius: 8, padding: "6px 12
 const _colHdr = { width: 92, textAlign: "right", fontFamily: FM, fontSize: 9.5, letterSpacing: ".08em", textTransform: "uppercase", color: C.muted };
 
 export default function ScorecardSettings({ groups, scope = "ulrg", onClose, onChanged }) {
+  const gs = groups || [];
+  async function move(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= gs.length) return;
+    const a = gs[i], b = gs[j];                       // swap the two offices' sort_order
+    try {
+      await patchJSON(`/ulrg/group/${a.id}`, { sort_order: b.sort_order ?? j });
+      await patchJSON(`/ulrg/group/${b.id}`, { sort_order: a.sort_order ?? i });
+      onChanged && onChanged();
+    } catch (e) { /* leave order as-is on failure */ }
+  }
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.hair}`, borderRadius: 12, padding: "16px 18px", marginBottom: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
@@ -18,22 +29,70 @@ export default function ScorecardSettings({ groups, scope = "ulrg", onClose, onC
       </div>
       <div style={_label}>Offices</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {(groups || []).map((g) => <OfficeRow key={g.id} g={g} onChanged={onChanged} />)}
+        {gs.map((g, i) => <OfficeRow key={g.id} g={g} canUp={i > 0} canDown={i < gs.length - 1}
+                                     onMove={(d) => move(i, d)} onChanged={onChanged} />)}
       </div>
-      <MeasurablesEditor scope={scope} onChanged={onChanged} />
+      <AddOffice scope={scope} onChanged={onChanged} />
+      <MeasurablesEditor scope={scope} groups={gs} onChanged={onChanged} />
       <PeriodsEditor onChanged={onChanged} />
       <GoalsEditor scope={scope} onChanged={onChanged} />
     </div>
   );
 }
 
+function AddOffice({ scope, onChanged }) {
+  const [name, setName] = useState("");
+  const [state, setState] = useState("idle");
+  async function add() {
+    if (!name.trim()) return;
+    setState("saving");
+    try { await postJSON("/ulrg/group", { name: name.trim(), scope }); setName(""); setState("idle"); onChanged && onChanged(); }
+    catch (e) { setState("error"); }
+  }
+  return (
+    <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New office name" aria-label="New office name"
+             onKeyDown={(e) => { if (e.key === "Enter") add(); }} style={{ ..._field, flex: "1 1 200px" }} />
+      <button onClick={add} disabled={state === "saving" || !name.trim()}
+              style={{ ..._btn, color: state === "error" ? C.poppy : C.ink, borderColor: state === "error" ? C.poppy : C.hair }}>
+        {state === "saving" ? "Adding…" : state === "error" ? "Retry" : "+ Add office"}
+      </button>
+    </div>
+  );
+}
+
 /* Rename measurables (owner/admin), self-service — so a static number ("130 Homes Sold Q2") never
    goes stale in the label. Names are global (not per-period); auto-sourcing is unaffected. */
-function MeasurablesEditor({ scope = "ulrg", onChanged }) {
+function MeasurablesEditor({ scope = "ulrg", groups = [], onChanged }) {
   const [rows, setRows] = useState(null);       // [{metric_id, name, group, dirty}]
   const [state, setState] = useState("idle");
   const [confirmId, setConfirmId] = useState(null);   // row awaiting a remove confirm
   const [busy, setBusy] = useState(null);             // row currently removing
+  const [add, setAdd] = useState({ group_id: "", name: "", type: "flow" });
+  const [addState, setAddState] = useState("idle");
+
+  // reuse the goals endpoint for the metric list (any period works — names aren't period-scoped)
+  async function load() {
+    try {
+      const d = await getJSON("/ulrg/periods");
+      const p = (d.periods || [])[0];
+      const q = p ? `?period=${encodeURIComponent(p.key)}` : "?period=_";
+      const g = await getJSON(`/ulrg/goals${q}&scope=${scope}`);
+      setRows((g.goals || []).map((x) => ({ metric_id: x.metric_id, name: x.name, group: x.group })));
+    } catch (e) { setRows([]); }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function addMetric() {
+    if (!add.group_id || !add.name.trim()) return;
+    setAddState("saving");
+    try {
+      await postJSON("/ulrg/metric", { group_id: add.group_id, name: add.name.trim(), type: add.type });
+      setAdd({ ...add, name: "" }); setAddState("idle");
+      await load();                 // the new row appears in the rename list
+      onChanged && onChanged();     // and on the grid
+    } catch (e) { setAddState("error"); }
+  }
 
   async function remove(metric_id) {
     setBusy(metric_id);
@@ -44,16 +103,6 @@ function MeasurablesEditor({ scope = "ulrg", onChanged }) {
       onChanged && onChanged();                                          // refresh the scorecard grid
     } catch (e) { setBusy(null); setState("error"); }
   }
-
-  useEffect(() => {
-    // reuse the goals endpoint for the metric list (any period works — names aren't period-scoped)
-    getJSON("/ulrg/periods").then((d) => {
-      const p = (d.periods || [])[0];
-      const q = p ? `?period=${encodeURIComponent(p.key)}` : "?period=_";
-      return getJSON(`/ulrg/goals${q}&scope=${scope}`);
-    }).then((d) => setRows((d.goals || []).map((g) => ({ metric_id: g.metric_id, name: g.name, group: g.group }))))
-      .catch(() => setRows([]));
-  }, []);
 
   async function save() {
     setState("saving");
@@ -68,9 +117,29 @@ function MeasurablesEditor({ scope = "ulrg", onChanged }) {
   if (rows === null) return <div style={{ ..._label, marginTop: 18 }}>Loading measurables…</div>;
   return (
     <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
-      <div style={_label}>Measurables · rename or remove</div>
+      <div style={_label}>Measurables · add, rename or remove</div>
       <div style={{ fontFamily: FB, fontSize: 11, color: C.muted, marginBottom: 8 }}>
-        Removing hides a row from the scorecard and keeps its history — an admin can restore it.
+        Add a measurable to an office (starts manual — set its goal in Goals). Removing hides a row and keeps its history.
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={add.group_id} onChange={(e) => setAdd({ ...add, group_id: e.target.value })}
+                aria-label="Office for new measurable" style={{ ..._field, flex: "0 0 132px" }}>
+          <option value="">Office…</option>
+          {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </select>
+        <input value={add.name} onChange={(e) => setAdd({ ...add, name: e.target.value })} placeholder="New measurable"
+               aria-label="New measurable name" onKeyDown={(e) => { if (e.key === "Enter") addMetric(); }}
+               style={{ ..._field, flex: "1 1 150px" }} />
+        <select value={add.type} onChange={(e) => setAdd({ ...add, type: e.target.value })}
+                aria-label="Measurable type" style={{ ..._field, flex: "0 0 104px" }}>
+          <option value="flow">flow</option>
+          <option value="rate">rate (%)</option>
+          <option value="snapshot">snapshot</option>
+        </select>
+        <button onClick={addMetric} disabled={addState === "saving" || !add.group_id || !add.name.trim()}
+                style={{ ..._btn, color: addState === "error" ? C.poppy : C.ink, borderColor: addState === "error" ? C.poppy : C.hair }}>
+          {addState === "saving" ? "Adding…" : addState === "error" ? "Retry" : "+ Add"}
+        </button>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
         {rows.map((r, i) => (
@@ -239,14 +308,18 @@ function PeriodsEditor({ onChanged }) {
   );
 }
 
-function OfficeRow({ g, onChanged }) {
-  const [name, setName] = useState((g.owner && g.owner.name) || "");
+const _icon = { border: "none", background: "none", cursor: "pointer", color: C.slate, fontSize: 15, lineHeight: 1, padding: "2px 5px" };
+
+function OfficeRow({ g, canUp, canDown, onMove, onChanged }) {
+  const [name, setName] = useState(g.name || "");
+  const [owner, setOwner] = useState((g.owner && g.owner.name) || "");
   const [state, setState] = useState("idle");   // idle | saving | saved | error
+  const [confirm, setConfirm] = useState(false);
   const src = g.owner && g.owner.photo_url ? fileUrl(g.owner.photo_url) : null;
 
-  async function saveName() {
+  async function save() {
     setState("saving");
-    try { await patchJSON(`/ulrg/group/${g.id}`, { owner_name: name }); setState("saved"); onChanged && onChanged(); setTimeout(() => setState("idle"), 1400); }
+    try { await patchJSON(`/ulrg/group/${g.id}`, { name: name.trim(), owner_name: owner }); setState("saved"); onChanged && onChanged(); setTimeout(() => setState("idle"), 1400); }
     catch (e) { setState("error"); }
   }
   async function upload(e) {
@@ -257,24 +330,36 @@ function OfficeRow({ g, onChanged }) {
     try { await uploadFile(`/ulrg/group/${g.id}/photo`, fd); setState("saved"); onChanged && onChanged(); setTimeout(() => setState("idle"), 1400); }
     catch (err) { setState("error"); }
   }
+  async function remove() {
+    try { await patchJSON(`/ulrg/group/${g.id}`, { active: false }); onChanged && onChanged(); }
+    catch (e) { setState("error"); }
+  }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
       <label style={{ cursor: "pointer", flex: "0 0 auto" }} title="Upload a headshot">
         {src
           ? <img src={src} alt="" style={{ width: 40, height: 40, borderRadius: 99, objectFit: "cover", border: `1px solid ${C.hair}` }} />
-          : <span style={{ width: 40, height: 40, borderRadius: 99, display: "inline-flex", alignItems: "center", justifyContent: "center", background: C.mist, color: C.muted, fontFamily: FM, fontSize: 16 }}>{(name[0] || g.name[0] || "·").toUpperCase()}</span>}
+          : <span style={{ width: 40, height: 40, borderRadius: 99, display: "inline-flex", alignItems: "center", justifyContent: "center", background: C.mist, color: C.muted, fontFamily: FM, fontSize: 16 }}>{(owner[0] || name[0] || "·").toUpperCase()}</span>}
         <input type="file" accept="image/*" onChange={upload} style={{ display: "none" }} />
       </label>
-      <span style={{ fontFamily: FM, fontSize: 11, letterSpacing: ".05em", textTransform: "uppercase", color: C.slate, flex: "0 0 92px" }}>{g.name}</span>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Owner full name"
-             style={{ fontFamily: FB, fontSize: 13, color: C.ink, background: C.parchment, border: `1px solid ${C.hair}`, borderRadius: 8, padding: "6px 10px", flex: "1 1 200px", minWidth: 160 }} />
-      <button onClick={saveName} disabled={state === "saving"} style={{
-        fontFamily: FM, fontSize: 11.5, borderRadius: 8, padding: "6px 12px", cursor: "pointer",
-        border: `1px solid ${state === "error" ? C.poppy : C.hair}`,
-        color: state === "saved" ? C.meadowInk : state === "error" ? C.poppy : C.slate, background: "none" }}>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Office name" aria-label="Office name"
+             style={{ ..._field, flex: "0 0 148px" }} />
+      <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="Owner full name" aria-label="Owner name"
+             style={{ ..._field, flex: "1 1 180px", minWidth: 140 }} />
+      <button onClick={save} disabled={state === "saving"} style={{ ..._btn,
+        borderColor: state === "error" ? C.poppy : C.hair,
+        color: state === "saved" ? C.meadowInk : state === "error" ? C.poppy : C.slate }}>
         {state === "saving" ? "Saving…" : state === "saved" ? "Saved ✓" : state === "error" ? "Retry" : "Save"}
       </button>
+      <button onClick={() => onMove(-1)} disabled={!canUp} title="Move up" aria-label={`Move ${g.name} up`} style={{ ..._icon, opacity: canUp ? 1 : .3 }}>↑</button>
+      <button onClick={() => onMove(1)} disabled={!canDown} title="Move down" aria-label={`Move ${g.name} down`} style={{ ..._icon, opacity: canDown ? 1 : .3 }}>↓</button>
+      {confirm
+        ? <span style={{ display: "flex", gap: 4 }}>
+            <button onClick={remove} aria-label={`Confirm remove ${g.name}`} style={{ ..._btn, padding: "4px 9px", fontSize: 11, color: C.poppy, borderColor: C.poppy }}>Remove</button>
+            <button onClick={() => setConfirm(false)} style={{ ..._btn, padding: "4px 9px", fontSize: 11, color: C.muted }}>Cancel</button>
+          </span>
+        : <button onClick={() => setConfirm(true)} title="Remove office" aria-label={`Remove office ${g.name}`} style={{ ..._icon, fontSize: 17 }}>×</button>}
     </div>
   );
 }

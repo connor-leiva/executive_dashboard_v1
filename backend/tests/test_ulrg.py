@@ -277,3 +277,47 @@ async def test_remove_measurable_soft_deletes_and_is_admin_only():
         ids = {row["id"] for g in (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()["groups"]
                for row in g["rows"]}
         assert mid in ids
+
+
+async def test_add_rename_reorder_remove_office_and_add_measurable():
+    """Full office CRUD + add-measurable, self-service. The two gaps Connor named: 'can't add offices'
+    and 'can remove but not add measurables'. Admin-only; soft-remove keeps history."""
+    owner = await _owner_token()
+    member = await _mk_user("cfg-member@x.com", tabs=["ulrg"])
+    async with _client() as c:
+        base = len((await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()["groups"])
+
+        # add office: admin only
+        assert (await c.post("/api/v1/ulrg/group", headers=_H(member),
+                             json={"name": "New Office", "scope": "ulrg"})).status_code == 403
+        r = await c.post("/api/v1/ulrg/group", headers=_H(owner), json={"name": "New Office", "scope": "ulrg"})
+        assert r.status_code == 201
+        gid = r.json()["id"]
+        d1 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()
+        assert len(d1["groups"]) == base + 1
+        newg = next(g for g in d1["groups"] if g["id"] == gid)
+        assert newg["name"] == "New Office" and newg["rows"] == []        # no measurables yet
+
+        # add a measurable under it (admin only), then it shows on the board
+        assert (await c.post("/api/v1/ulrg/metric", headers=_H(member),
+                             json={"group_id": gid, "name": "Calls Made", "type": "flow"})).status_code == 403
+        assert (await c.post("/api/v1/ulrg/metric", headers=_H(owner),
+                             json={"group_id": gid, "name": "Calls Made", "type": "flow"})).status_code == 201
+        d2 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()
+        assert [row["measurable"] for row in next(g for g in d2["groups"] if g["id"] == gid)["rows"]] == ["Calls Made"]
+
+        # rename the office
+        assert (await c.patch(f"/api/v1/ulrg/group/{gid}", headers=_H(owner), json={"name": "Renamed Office"})).status_code == 200
+        d3 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()
+        assert next(g for g in d3["groups"] if g["id"] == gid)["name"] == "Renamed Office"
+
+        # remove it → drops off the board (its measurable with it); base count restored
+        assert (await c.patch(f"/api/v1/ulrg/group/{gid}", headers=_H(owner), json={"active": False})).status_code == 200
+        d4 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()
+        assert gid not in {g["id"] for g in d4["groups"]} and len(d4["groups"]) == base
+        # it's a soft delete — restore brings the office (and its measurable) back
+        assert (await c.patch(f"/api/v1/ulrg/group/{gid}", headers=_H(owner), json={"active": True})).status_code == 200
+        d5 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()
+        restored = next(g for g in d5["groups"] if g["id"] == gid)
+        assert [row["measurable"] for row in restored["rows"]] == ["Calls Made"]
+        await c.patch(f"/api/v1/ulrg/group/{gid}", headers=_H(owner), json={"active": False})  # leave clean for other tests

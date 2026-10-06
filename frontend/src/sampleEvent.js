@@ -42,6 +42,8 @@ export default {
     members_registered: 34,
     members_declined: 14,
     members_total: 182,
+    members_unanswered: 134,
+    members_unanswered_pct: 0.7363,
     members_registered_pct: 0.1868,
     members_declined_pct: 0.0769,
     room: 58,
