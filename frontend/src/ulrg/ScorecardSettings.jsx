@@ -34,6 +34,7 @@ export default function ScorecardSettings({ groups, scope = "ulrg", onClose, onC
       </div>
       <AddOffice scope={scope} onChanged={onChanged} />
       <MeasurablesEditor scope={scope} groups={gs} onChanged={onChanged} />
+      <RoutingEditor scope={scope} onChanged={onChanged} />
       <PeriodsEditor onChanged={onChanged} />
       <GoalsEditor scope={scope} onChanged={onChanged} />
     </div>
@@ -168,6 +169,212 @@ function MeasurablesEditor({ scope = "ulrg", groups = [], onChanged }) {
         borderColor: state === "error" ? C.poppy : C.hair }}>
         {state === "saving" ? "Saving…" : state === "saved" ? "Saved ✓" : state === "error" ? "Retry" : "Save names"}
       </button>
+    </div>
+  );
+}
+
+/* Auto-sync routing (owner/admin) — point a measurable at a data source + filters (Phase 3). The
+   dropdowns are built from the engine's whitelist (/routing/catalog), so nothing here can produce a
+   spec the engine would reject; a live preview shows the spec's numbers next to the current resolver's
+   before you save. */
+function _blankSpec(ds) {
+  return { source: ds.source, dataset: ds.dataset, date_field: ds.date_fields[0],
+           filters: [], aggregate: { fn: "count" }, attribution: ds.attribution[0] };
+}
+const _specSummary = (s) => `${s.source}.${s.dataset} · by ${s.date_field} · ${s.filters?.length || 0} filter(s) · ${s.aggregate?.fn || "count"}${s.attribution === "office" ? " · per office" : ""}`;
+const _pill = (bg, fg) => ({ fontFamily: FM, fontSize: 9.5, letterSpacing: ".06em", textTransform: "uppercase", padding: "2px 7px", borderRadius: 99, background: bg, color: fg });
+
+function RoutingEditor({ scope = "ulrg", onChanged }) {
+  const [catalog, setCatalog] = useState(null);
+  const [metrics, setMetrics] = useState(null);
+  const [openId, setOpenId] = useState(null);
+
+  async function reload() {
+    try { const rt = await getJSON(`/ulrg/routing?scope=${scope}`); setMetrics(rt.metrics || []); } catch (e) { /* keep */ }
+  }
+  useEffect(() => {
+    Promise.all([getJSON("/ulrg/routing/catalog"), getJSON(`/ulrg/routing?scope=${scope}`)])
+      .then(([cat, rt]) => { setCatalog(cat); setMetrics(rt.metrics || []); })
+      .catch(() => { setCatalog({ datasets: [], ops: [], aggregates: [] }); setMetrics([]); });
+  }, [scope]);
+
+  if (metrics === null) return <div style={{ ..._label, marginTop: 18 }}>Loading routing…</div>;
+  return (
+    <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
+      <div style={_label}>Auto-sync routing · what feeds each measurable</div>
+      <div style={{ fontFamily: FB, fontSize: 11, color: C.muted, marginBottom: 10 }}>
+        Point a measurable at a data source and filters. The number doesn’t change until the next sync; preview first to see it matches.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {metrics.map((m) => {
+          const open = openId === m.metric_id;
+          const tag = m.routed ? _pill(C.meadow, C.meadowInk) : (m.resolver_key ? _pill(C.mist, C.slate) : _pill(C.parchment, C.muted));
+          const label = m.routed ? "Routed" : (m.resolver_key ? "Standard" : "Manual");
+          return (
+            <div key={m.metric_id} style={{ border: `1px solid ${C.hair}`, borderRadius: 8, background: open ? C.parchment : "none" }}>
+              <div onClick={() => setOpenId(open ? null : m.metric_id)} role="button" aria-expanded={open}
+                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", cursor: "pointer" }}>
+                <span style={{ color: C.muted, fontFamily: FM, fontSize: 11, width: 12 }}>{open ? "▾" : "▸"}</span>
+                <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 12.5, color: C.body }}>
+                  <span style={{ color: C.muted, fontSize: 11 }}>{m.group} · </span>{m.name}
+                </span>
+                <span style={tag}>{label}</span>
+              </div>
+              {open && catalog && <MetricRouting catalog={catalog} m={m} onSaved={() => { reload(); onChanged && onChanged(); }} />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MetricRouting({ catalog, m, onSaved }) {
+  const datasets = catalog.datasets || [];
+  const [spec, setSpec] = useState(() => m.source_spec || m.default_spec || _blankSpec(datasets[0] || { source: "", dataset: "", date_fields: [""], attribution: ["none"] }));
+  const [preview, setPreview] = useState(null);
+  const [state, setState] = useState("idle");       // idle | previewing | saving | saved | error
+  const ds = datasets.find((d) => d.source === spec.source && d.dataset === spec.dataset) || datasets[0];
+  const fieldType = (name) => (ds.fields.find((f) => f.name === name) || {}).type;
+  const arity = (op) => (catalog.ops.find((o) => o.op === op) || {}).arity;
+  const numFields = ds.fields.filter((f) => f.type === "num").map((f) => f.name);
+  const set = (patch) => { setSpec({ ...spec, ...patch }); setPreview(null); };
+
+  function changeDataset(key) {
+    const nd = datasets.find((d) => `${d.source}.${d.dataset}` === key);
+    if (nd) { setSpec(_blankSpec(nd)); setPreview(null); }
+  }
+  const setFilter = (i, patch) => set({ filters: spec.filters.map((f, j) => (j === i ? { ...f, ...patch } : f)) });
+  const addFilter = () => set({ filters: [...(spec.filters || []), { field: ds.fields[0].name, op: "eq", value: "" }] });
+  const rmFilter = (i) => set({ filters: spec.filters.filter((_, j) => j !== i) });
+
+  function cleanSpec() {
+    const filters = (spec.filters || []).map((f) => {
+      const a = arity(f.op), t = fieldType(f.field);
+      if (a === "none") return { field: f.field, op: f.op };
+      if (a === "list") {
+        const parts = String(f.value ?? "").split(",").map((x) => x.trim()).filter((x) => x !== "");
+        return { field: f.field, op: f.op, value: t === "num" ? parts.map(Number) : parts };
+      }
+      return { field: f.field, op: f.op, value: t === "num" ? Number(f.value) : f.value };
+    });
+    const agg = spec.aggregate.fn === "count"
+      ? { fn: "count" }
+      : { fn: spec.aggregate.fn, field: spec.aggregate.field || numFields[0] };
+    return { source: spec.source, dataset: spec.dataset, date_field: spec.date_field,
+             filters, aggregate: agg, attribution: spec.attribution };
+  }
+
+  async function doPreview() {
+    setState("previewing"); setPreview(null);
+    try { setPreview(await postJSON("/ulrg/routing/preview", { metric_id: m.metric_id, spec: cleanSpec(), weeks: 8 })); setState("idle"); }
+    catch (e) { setState("error"); }
+  }
+  async function save() {
+    setState("saving");
+    try { await putJSON(`/ulrg/metric/${m.metric_id}/routing`, { spec: cleanSpec() }); setState("saved"); onSaved && onSaved(); setTimeout(() => setState("idle"), 1500); }
+    catch (e) { setState("error"); }
+  }
+  async function turnOff() {
+    setState("saving");
+    try { await putJSON(`/ulrg/metric/${m.metric_id}/routing`, { spec: null }); setState("saved"); onSaved && onSaved(); setTimeout(() => setState("idle"), 1500); }
+    catch (e) { setState("error"); }
+  }
+
+  const cell = (v) => (v === null || v === undefined ? "—" : v === "unavailable" ? "n/a" : v);
+  const allMatch = preview && preview.valid && preview.has_current && preview.weeks.length && preview.weeks.every((w) => w.match);
+
+  return (
+    <div style={{ padding: "4px 12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <select aria-label="Source" value={`${spec.source}.${spec.dataset}`} onChange={(e) => changeDataset(e.target.value)} style={{ ..._field, flex: "1 1 190px" }}>
+          {datasets.map((d) => <option key={`${d.source}.${d.dataset}`} value={`${d.source}.${d.dataset}`}>{d.label}</option>)}
+        </select>
+        <label style={{ ..._label, margin: 0, alignSelf: "center" }}>by</label>
+        <select aria-label="Date field" value={spec.date_field} onChange={(e) => set({ date_field: e.target.value })} style={{ ..._field, flex: "0 0 150px" }}>
+          {ds.date_fields.map((f) => <option key={f} value={f}>{f}</option>)}
+        </select>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ ..._label, margin: 0 }}>Filters</div>
+        {(spec.filters || []).map((f, i) => (
+          <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <select aria-label="Field" value={f.field} onChange={(e) => setFilter(i, { field: e.target.value })} style={{ ..._field, flex: "0 0 140px" }}>
+              {ds.fields.map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}
+            </select>
+            <select aria-label="Operator" value={f.op} onChange={(e) => setFilter(i, { op: e.target.value })} style={{ ..._field, flex: "0 0 92px" }}>
+              {catalog.ops.map((o) => <option key={o.op} value={o.op}>{o.op}</option>)}
+            </select>
+            {arity(f.op) === "none"
+              ? <span style={{ flex: "1 1 120px", color: C.muted, fontFamily: FB, fontSize: 12 }}>—</span>
+              : <input aria-label="Value" value={f.value ?? ""} placeholder={arity(f.op) === "list" ? "a, b, c" : "value"}
+                       onChange={(e) => setFilter(i, { value: e.target.value })} style={{ ..._field, flex: "1 1 120px" }} />}
+            <button onClick={() => rmFilter(i)} aria-label="Remove filter" style={{ ..._icon, fontSize: 16 }}>×</button>
+          </div>
+        ))}
+        <button onClick={addFilter} style={{ ..._btn, alignSelf: "flex-start", padding: "4px 10px", fontSize: 11 }}>+ Add filter</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <label style={{ ..._label, margin: 0, alignSelf: "center" }}>Aggregate</label>
+        <select aria-label="Aggregate" value={spec.aggregate.fn} onChange={(e) => set({ aggregate: e.target.value === "count" ? { fn: "count" } : { fn: e.target.value, field: spec.aggregate.field || numFields[0] } })} style={{ ..._field, flex: "0 0 128px" }}>
+          {catalog.aggregates.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        {spec.aggregate.fn !== "count" && (
+          <select aria-label="Aggregate field" value={spec.aggregate.field || numFields[0] || ""} onChange={(e) => set({ aggregate: { fn: spec.aggregate.fn, field: e.target.value } })} style={{ ..._field, flex: "0 0 140px" }}>
+            {(spec.aggregate.fn === "sum" ? numFields : ds.fields.map((f) => f.name)).map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        )}
+        {ds.attribution.length > 1 && <>
+          <label style={{ ..._label, margin: 0, alignSelf: "center" }}>Scope</label>
+          <select aria-label="Attribution" value={spec.attribution} onChange={(e) => set({ attribution: e.target.value })} style={{ ..._field, flex: "0 0 128px" }}>
+            {ds.attribution.map((a) => <option key={a} value={a}>{a === "office" ? "per office" : "whole business"}</option>)}
+          </select>
+        </>}
+      </div>
+
+      <div style={{ fontFamily: FM, fontSize: 10.5, color: C.muted }}>{_specSummary(spec)}</div>
+
+      {preview && (
+        <div style={{ background: C.surface, border: `1px solid ${C.hair}`, borderRadius: 8, padding: "8px 10px" }}>
+          {!preview.valid
+            ? <div style={{ fontFamily: FB, fontSize: 12, color: C.poppy }}>Can’t run this: {preview.errors.join("; ")}</div>
+            : <>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ ..._label, margin: 0 }}>Preview · last {preview.weeks.length} weeks</span>
+                  {preview.has_current && <span style={allMatch ? _pill(C.meadow, C.meadowInk) : _pill("#fbe3df", C.poppy)}>{allMatch ? "matches current ✓" : "differs from current"}</span>}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, fontFamily: FM, fontSize: 11.5 }}>
+                  <div style={{ display: "flex", color: C.muted }}>
+                    <span style={{ flex: "1 1 auto" }}>week</span>
+                    <span style={{ width: 70, textAlign: "right" }}>this spec</span>
+                    {preview.has_current && <span style={{ width: 70, textAlign: "right" }}>current</span>}
+                  </div>
+                  {preview.weeks.map((w) => (
+                    <div key={w.week_start} style={{ display: "flex", color: C.body }}>
+                      <span style={{ flex: "1 1 auto", color: C.slate }}>{w.week_start}</span>
+                      <span style={{ width: 70, textAlign: "right" }}>{cell(w.spec)}</span>
+                      {preview.has_current && <span style={{ width: 70, textAlign: "right", color: w.match ? C.body : C.poppy }}>{cell(w.current)}</span>}
+                    </div>
+                  ))}
+                </div>
+              </>}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={doPreview} disabled={state === "previewing"} style={{ ..._btn, color: C.ink }}>
+          {state === "previewing" ? "Previewing…" : "Preview"}
+        </button>
+        <button onClick={save} disabled={state === "saving"} style={{ ..._btn,
+          color: state === "saved" ? C.meadowInk : state === "error" ? C.poppy : C.ink,
+          borderColor: state === "error" ? C.poppy : C.hair }}>
+          {state === "saving" ? "Saving…" : state === "saved" ? "Saved ✓" : state === "error" ? "Retry" : "Save routing"}
+        </button>
+        {m.has_twin && <button onClick={() => { setSpec(m.default_spec); setPreview(null); }} style={{ ..._btn, color: C.slate }}>Load standard</button>}
+        {m.routed && <button onClick={turnOff} style={{ ..._btn, color: C.poppy, borderColor: C.hair }}>Turn off routing</button>}
+      </div>
     </div>
   );
 }

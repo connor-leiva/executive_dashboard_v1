@@ -34,7 +34,9 @@ from ..services import (binder_storage, recruiting, recruiting_accountability,
 from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
-from ..services.scorecard_resolvers import resolver_records
+from ..services.scorecard_resolvers import resolver_records, RESOLVERS, UNAVAILABLE
+from ..services.scorecard_routing import (run_spec, validate_spec, RESOLVER_SPECS,
+                                          catalog as routing_catalog)
 from ..services.tabs import effective_tabs, tenant_tabs
 
 router = APIRouter(prefix="/ulrg", tags=["ulrg"])
@@ -451,6 +453,125 @@ async def create_metric(body: MetricCreate, user: User = Depends(current_user),
           {"name": name, "group_id": str(g.id), "type": body.type})
     await s.commit()
     return {"ok": True, "id": str(m.id), "name": m.name, "type": m.type}
+
+
+# ── routing (SCORECARD-CONFIG-SPEC Phase 3): configure a measurable's auto-sync from the UI ─────────
+# A measurable auto-syncs either via a legacy `resolver_key` (a hardcoded function) or a declarative
+# `source_spec` the engine interprets. These endpoints let an admin build/preview/save a spec from
+# Settings — source + dataset + date field + filters + aggregation — all drawn from the engine's
+# whitelist, so the UI can never save a spec the engine would reject.
+
+def _routing_cell(v):
+    """A resolver/spec outcome as JSON: a number, null (looked, empty), or the string 'unavailable'
+    (could not look). Keeps the three-outcome contract legible in the preview."""
+    return "unavailable" if v is UNAVAILABLE else v
+
+
+def _routing_same(a, b) -> bool:
+    return (a is UNAVAILABLE and b is UNAVAILABLE) or a == b
+
+
+@router.get("/routing/catalog")
+async def get_routing_catalog(user: User = Depends(current_user),
+                              s: AsyncSession = Depends(get_session)):
+    """The whitelist the routing editor builds its dropdowns from (datasets + their date-fields and
+    filterable fields, the operators and their arity, the aggregations). Admin-only, like all settings."""
+    _require_admin(user)
+    return routing_catalog()
+
+
+@router.get("/routing")
+async def get_routing(scope: str = "ulrg", user: User = Depends(current_user),
+                      s: AsyncSession = Depends(get_session)):
+    """Each active measurable on a board with its current auto-sync — the live `source_spec` (if routed),
+    the legacy `resolver_key`, the standard twin available to start from, and whether the metric's office
+    can be attributed. Drives the routing editor list."""
+    _require_admin(user)
+    b = await _scope_business(s, user.tenant_id, scope)
+    rows = (await s.execute(
+        select(ScorecardMetric.id, ScorecardMetric.name, ScorecardMetric.type,
+               ScorecardMetric.resolver_key, ScorecardMetric.source_spec,
+               ScorecardGroup.name, ScorecardGroup.sisu_group_id)
+        .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
+        .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardGroup.business_id == b.id,
+               ScorecardGroup.active.is_(True), ScorecardMetric.active.is_(True))
+        .order_by(ScorecardGroup.sort_order, ScorecardMetric.sort_order))).all()
+    return {"metrics": [
+        {"metric_id": str(mid), "name": name, "type": mtype, "group": gname,
+         "resolver_key": rkey, "source_spec": spec, "routed": spec is not None,
+         "default_spec": RESOLVER_SPECS.get(rkey), "has_twin": rkey in RESOLVER_SPECS,
+         "attributable": sgid is not None}
+        for (mid, name, mtype, rkey, spec, gname, sgid) in rows]}
+
+
+class RoutingPreviewIn(BaseModel):
+    metric_id: str
+    spec: dict
+    weeks: int = 8
+
+
+@router.post("/routing/preview")
+async def preview_routing(body: RoutingPreviewIn, user: User = Depends(current_user),
+                          s: AsyncSession = Depends(get_session)):
+    """Dry-run a spec for one measurable: validate it, then run BOTH the spec and the metric's current
+    resolver over the last N weeks for that metric's office, so the editor shows the two side by side
+    (and whether they agree) BEFORE anything is saved. Read-only — writes nothing."""
+    _require_admin(user)
+    row = (await s.execute(
+        select(ScorecardMetric, ScorecardGroup.business_id, ScorecardGroup.key, ScorecardGroup.sisu_group_id)
+        .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
+        .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.id == body.metric_id))).first()
+    if not row:
+        raise HTTPException(404, "Unknown metric")
+    m, business_id, gkey, sgid = row
+    errs = validate_spec(body.spec)
+    if errs:
+        return {"valid": False, "errors": errs, "weeks": []}
+    group = {"key": gkey, "sisu_group_id": sgid}
+    fn = RESOLVERS.get(m.resolver_key)
+    n = max(1, min(body.weeks, 26))
+    today = dt.date.today()
+    monday = today - dt.timedelta(days=today.weekday())
+    out = []
+    for i in range(n):
+        ws = monday - dt.timedelta(days=7 * i)
+        we = ws + dt.timedelta(days=6)
+        sv = await run_spec(body.spec, s, user.tenant_id, business_id, ws, we, group=group)
+        cv = await fn(s, user.tenant_id, business_id, ws, we, group=group) if fn else None
+        out.append({"week_start": ws.isoformat(), "spec": _routing_cell(sv),
+                    "current": _routing_cell(cv) if fn else None,
+                    "match": _routing_same(sv, cv) if fn else None})
+    return {"valid": True, "errors": [], "has_current": fn is not None, "weeks": out}
+
+
+class RoutingIn(BaseModel):
+    spec: dict | None = None        # null clears source_spec → back to the resolver_key path
+
+
+@router.put("/metric/{metric_id}/routing")
+async def set_routing(metric_id: str, body: RoutingIn, user: User = Depends(current_user),
+                      s: AsyncSession = Depends(get_session)):
+    """Point a measurable at a declarative `source_spec` (the engine resolves it from now on), or clear
+    it (back to its `resolver_key`). owner/admin, gated on the metric's own board. The spec is validated
+    against the registry before it is stored, so an unroutable spec can never be saved. The number does
+    not change until the worker next resolves — flip deliberately, after previewing the parity."""
+    _require_admin(user)
+    m = (await s.execute(select(ScorecardMetric).where(
+        ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.id == metric_id))).scalar_one_or_none()
+    if m is None:
+        raise HTTPException(404, "Unknown metric")
+    if await _metric_scope(s, m) is None:
+        raise HTTPException(404, "Unknown metric")
+    if body.spec is not None:
+        errs = validate_spec(body.spec)
+        if errs:
+            raise HTTPException(400, "; ".join(errs))
+    m.source_spec = body.spec                   # fresh value from the request, not a mutated load
+    audit(s, user.tenant_id, user.id, "scorecard.metric_routing", "scorecard_metric", m.id,
+          {"routed": body.spec is not None, "source": (body.spec or {}).get("source"),
+           "dataset": (body.spec or {}).get("dataset")})
+    await s.commit()
+    return {"ok": True, "routed": m.source_spec is not None, "source_spec": m.source_spec}
 
 
 # ── measurement periods (Phase B) — the fiscal quarters live on tenant.config ──────────────────

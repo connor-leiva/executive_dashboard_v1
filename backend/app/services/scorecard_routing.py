@@ -82,6 +82,28 @@ DATASETS: dict[str, Dataset] = {f"{d.source}.{d.key}": d for d in (_TXN, _METRIC
 _OPS = {"eq", "ne", "gt", "gte", "lt", "lte", "in", "is_null", "not_null"}
 _AGG_FNS = {"count", "sum", "count_distinct"}
 
+# UI metadata: a stable display order and how many values each op takes (so the editor knows whether to
+# render no value box, one, or a list). Kept beside _OPS so the two can't drift.
+_OP_ORDER = ["eq", "ne", "gt", "gte", "lt", "lte", "in", "is_null", "not_null"]
+_OP_ARITY = {"eq": "one", "ne": "one", "gt": "one", "gte": "one", "lt": "one", "lte": "one",
+             "in": "list", "is_null": "none", "not_null": "none"}
+
+
+def catalog() -> dict:
+    """The whitelist, JSON-serialised — exactly what the Settings routing UI may offer. Everything here
+    is what `validate_spec`/`run_spec` accept, so the UI can never build a spec the engine would reject."""
+    return {
+        "datasets": [
+            {"source": d.source, "dataset": d.key, "label": d.label,
+             "date_fields": list(d.date_fields.keys()),
+             "fields": [{"name": n, "type": t} for n, (_col, t) in d.fields.items()],
+             "attribution": list(d.attribution)}
+            for d in DATASETS.values()
+        ],
+        "ops": [{"op": op, "arity": _OP_ARITY[op]} for op in _OP_ORDER],
+        "aggregates": ["count", "count_distinct", "sum"],
+    }
+
 
 def _coerce(value, typ):
     if typ == "num":

@@ -321,3 +321,64 @@ async def test_add_rename_reorder_remove_office_and_add_measurable():
         restored = next(g for g in d5["groups"] if g["id"] == gid)
         assert [row["measurable"] for row in restored["rows"]] == ["Calls Made"]
         await c.patch(f"/api/v1/ulrg/group/{gid}", headers=_H(owner), json={"active": False})  # leave clean for other tests
+
+
+async def test_routing_catalog_preview_flip_and_rollback():
+    """Phase 3 routing API: the catalog the UI builds from, the per-metric routing list with its twin,
+    a read-only preview (spec vs the current resolver), the validated flip onto source_spec, and the
+    rollback — all owner/admin."""
+    owner = await _owner_token()
+    async with _client() as c:
+        # the catalog — the whitelist the editor offers
+        cat = (await c.get("/api/v1/ulrg/routing/catalog", headers=_H(owner))).json()
+        sources = {f"{d['source']}.{d['dataset']}" for d in cat["datasets"]}
+        assert {"sisu.transaction", "ghl.metric_record"} <= sources
+        assert any(o["op"] == "in" and o["arity"] == "list" for o in cat["ops"])
+        assert any(o["op"] == "is_null" and o["arity"] == "none" for o in cat["ops"])
+        assert "count" in cat["aggregates"]
+        txn = next(d for d in cat["datasets"] if d["dataset"] == "transaction")
+        assert "close_date" in txn["date_fields"] and "office" in txn["attribution"]
+
+        # the routing list — measurables with their current auto-sync + the twin to start from
+        rt = (await c.get("/api/v1/ulrg/routing?scope=ulrg", headers=_H(owner))).json()
+        twinned = [m for m in rt["metrics"] if m["has_twin"]]
+        assert twinned, "the seeded ULRG board should carry count metrics with declarative twins"
+        m = twinned[0]
+        assert m["default_spec"] and m["routed"] is False     # not flipped yet
+
+        # preview the twin — spec must agree with the current resolver every week (same logic)
+        pv = (await c.post("/api/v1/ulrg/routing/preview", headers=_H(owner),
+                           json={"metric_id": m["metric_id"], "spec": m["default_spec"], "weeks": 6})).json()
+        assert pv["valid"] and pv["has_current"]
+        assert pv["weeks"] and all(w["match"] for w in pv["weeks"])
+
+        # an invalid spec is reported, never thrown
+        bad = (await c.post("/api/v1/ulrg/routing/preview", headers=_H(owner),
+                            json={"metric_id": m["metric_id"],
+                                  "spec": {"source": "sisu", "dataset": "transaction", "date_field": "nope"}})).json()
+        assert bad["valid"] is False and bad["errors"]
+
+        # flip it on → routed; the list then reflects it; then roll back → not routed
+        r = await c.put(f"/api/v1/ulrg/metric/{m['metric_id']}/routing", headers=_H(owner),
+                        json={"spec": m["default_spec"]})
+        assert r.status_code == 200 and r.json()["routed"] is True
+        rt2 = (await c.get("/api/v1/ulrg/routing?scope=ulrg", headers=_H(owner))).json()
+        assert next(x for x in rt2["metrics"] if x["metric_id"] == m["metric_id"])["routed"] is True
+
+        # an invalid spec cannot be SAVED
+        r = await c.put(f"/api/v1/ulrg/metric/{m['metric_id']}/routing", headers=_H(owner),
+                        json={"spec": {"source": "sisu", "dataset": "transaction"}})
+        assert r.status_code == 400
+
+        r = await c.put(f"/api/v1/ulrg/metric/{m['metric_id']}/routing", headers=_H(owner), json={"spec": None})
+        assert r.status_code == 200 and r.json()["routed"] is False   # left clean for other tests
+
+    # role gate — a member (even with the ulrg tab) cannot touch routing
+    member = await _mk_user("routing-member@x.com", tabs=["ulrg"])
+    async with _client() as c:
+        assert (await c.get("/api/v1/ulrg/routing/catalog", headers=_H(member))).status_code == 403
+        assert (await c.get("/api/v1/ulrg/routing?scope=ulrg", headers=_H(member))).status_code == 403
+        assert (await c.post("/api/v1/ulrg/routing/preview", headers=_H(member),
+                             json={"metric_id": m["metric_id"], "spec": m["default_spec"]})).status_code == 403
+        assert (await c.put(f"/api/v1/ulrg/metric/{m['metric_id']}/routing", headers=_H(member),
+                            json={"spec": None})).status_code == 403

@@ -222,6 +222,8 @@ registry + sync to grow together.
    **SHIPPED — see §8b** (engine + registry + the 5 count-resolver twins behind a passing parity gate;
    attach-rate/recruiting twins and the live flip still to come).
 3. **Phase 3 — Routing UI:** source/dataset/date/filter/aggregation builder + live preview.
+   **SHIPPED — see §8c** (Settings editor per measurable: catalog-driven builder + preview vs the
+   current resolver + save/rollback; the engine's whitelist is the only thing the UI can offer).
 4. **Phase 4 — Sync coverage:** extend each dataset's stored fields as routing demand surfaces
    (starting with the GHL fields Forum/beCollective actually filter on).
 5. **Phase 5 — Boards per tenant:** `scorecard_board` table replacing `SCORECARD_SCOPES`.
@@ -293,6 +295,35 @@ Not yet (deliberately): **flipping** any live metric onto its spec (that is a va
 step, not this change); declarative twins for the attach-rate / recruiting resolvers; and the
 builder **UI (Phase 3)**. The two headline metrics (Forum Members Added ← GHL, Activated UCs ← Sisu)
 light up at the end of Phase 3 with no new sync.
+
+## 8c. Shipped (Phase 3 — the routing UI)
+
+The configure-it-in-the-dashboard experience, in Scorecard Settings (owner/admin), browser-verified
+end to end on the prod build:
+- **Backend** (`routers/ulrg.py`): `GET /ulrg/routing/catalog` (the whitelist the editor builds from —
+  datasets, their date-fields + filterable fields with types, the ops and their arity, the aggregates),
+  `GET /ulrg/routing?scope=` (each active measurable with its current `source_spec`, `resolver_key`, the
+  standard twin to start from, and whether its office is attributable), `POST /ulrg/routing/preview`
+  (validate + run the spec AND the current resolver over the last N weeks, read-only, so the editor
+  shows them side by side), and `PUT /ulrg/metric/{id}/routing` (validate-then-save a spec, or clear it
+  to roll back). The catalog comes from `scorecard_routing.catalog()`, so the UI can never offer — and
+  the save-guard never accepts — a field/op/aggregate the engine doesn't support.
+- **Frontend** (`ulrg/ScorecardSettings.jsx`): an "Auto-sync routing" section listing every measurable
+  tagged Routed / Standard / Manual; expanding one opens a builder (source + dataset, date field, filter
+  rows of field/op/value, aggregation, and — where the dataset supports it — per-office vs whole-business
+  scope), with a **live Preview** that shows this spec's weekly numbers next to the current resolver's
+  and whether they match, then **Save routing**, **Load standard** (start from the twin), and **Turn off
+  routing** (rollback). Switching the source repopulates the fields and clears the filters.
+- **Tests**: `test_routing_catalog_preview_flip_and_rollback` (catalog shape, the routing list + twin,
+  preview valid + invalid, the validated flip + rollback, owner/admin gate). Browser-verified on the
+  prod build: render → builder pre-filled from the twin → preview "matches current ✓" → save → Routed →
+  turn off → Standard, zero console errors, plus the Sisu→GHL dataset switch.
+
+The two headline metrics (Forum Members Added ← GHL, Activated UCs ← Sisu) are now configurable from
+here with no new sync. The CLI tools (`scorecard_parity.py`, `scorecard_route.py`) remain the path for a
+bulk/scripted flip; the UI is the per-metric one. Still open: declarative twins for the attach-rate /
+recruiting resolvers (so those rows can be previewed against their current value); §3.5 per-board
+periods; §3.8 data-driven boards.
 
 ## 8. Bottom line
 - **Structure (offices, measurables add, labels, periods, goals):** already data-driven; these are
