@@ -2228,6 +2228,7 @@ class ScorecardMetric(Base):
     lever: Mapped[str | None] = mapped_column(String(12), nullable=True)         # volume | behavior
     source: Mapped[str] = mapped_column(String(12), default="manual")            # sisu | fub | ghl | manual
     resolver_key: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    source_spec: Mapped[dict | None] = mapped_column(JSONType, nullable=True)     # declarative auto-sync (Phase 2); wins over resolver_key
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
     owner_initials: Mapped[str | None] = mapped_column(String(4), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)

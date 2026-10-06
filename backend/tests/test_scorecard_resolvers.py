@@ -593,3 +593,117 @@ async def test_recovery_fills_gaps_without_redoing_settled_history(env):
     await R.run_resolvers(SessionLocal, tid, WED, weeks=4, fill_only=False)
     async with SessionLocal() as s:
         assert (await _val(s, tid, mid, MON)).value == Decimal("1.0000")
+
+
+# ── Phase 2 routing engine: the PARITY GATE ───────────────────────────────────────────────────────
+# The declarative source_spec engine must reproduce every hardcoded count resolver EXACTLY — same
+# number, same real-0, same UNAVAILABLE — before any live metric is flipped from resolver_key to a
+# spec. These tests are what make that flip safe (SCORECARD-CONFIG-SPEC Phase 2).
+from app.services.scorecard_routing import (run_spec, validate_spec,          # noqa: E402
+                                            RESOLVER_SPECS, DATASETS)
+
+# (resolver_key, hardcoded fn) for the five count resolvers that have a declarative twin.
+_PARITY = [
+    ("ulrg_homes_closed", R.homes_closed),
+    ("ulrg_team_homes_closed", R.team_homes_closed),
+    ("ulrg_team_under_contract", R.team_under_contract),
+    ("ulrg_team_appts_met", R.team_appts_met),
+    ("ulrg_team_signed", R.team_signed),
+]
+EMPTY_MON, EMPTY_SUN = dt.date(2026, 7, 6), dt.date(2026, 7, 12)   # a live week with nothing in it
+
+
+async def _seed_parity_rows(s, e):
+    """A spread touching every clause the five resolvers care about: closed vs pending, real vs $0
+    sale, this-office vs other-office vs out-of-office, this week vs a prior week, and the appt/
+    signed dated-event rows that carry no sale_price."""
+    d1, d2, slc, nomad = e["d"][0], e["d"][1], e["s"], e["n"]
+    # closings (close_date) — real sales and the $0 referral the real-sale rule drops
+    await _txn_agent(s, e["tid"], e["bid"], d1,    "closed", "c1", close_date=WED, sale_price=350000)
+    await _txn_agent(s, e["tid"], e["bid"], d2,    "closed", "c2", close_date=SUN, sale_price=500000)
+    await _txn_agent(s, e["tid"], e["bid"], d1,    "closed", "c0", close_date=WED, sale_price=0)       # $0 → dropped
+    await _txn_agent(s, e["tid"], e["bid"], slc,   "closed", "cs", close_date=WED, sale_price=400000)  # other office
+    await _txn_agent(s, e["tid"], e["bid"], nomad, "closed", "cn", close_date=WED, sale_price=250000)  # out-of-office
+    # under contract (contract_date) — real + a $0 that the UC rule drops
+    await _txn_agent(s, e["tid"], e["bid"], d1, "pending", "u1", contract_date=WED, sale_price=300000)
+    await _txn_agent(s, e["tid"], e["bid"], d2, "pending", "u0", contract_date=WED, sale_price=0)      # $0 → dropped
+    await _txn_agent(s, e["tid"], e["bid"], slc, "pending", "us", contract_date=WED, sale_price=300000)  # other office
+    # appts met + signed (their own dates, no sale_price gate)
+    await _txn_agent(s, e["tid"], e["bid"], d1, "active", "a1", appt_met_date=WED, sale_price=None)
+    await _txn_agent(s, e["tid"], e["bid"], d2, "active", "a2", appt_met_date=MON)
+    await _txn_agent(s, e["tid"], e["bid"], d1, "active", "g1", signed_date=WED)
+    await s.commit()
+
+
+async def test_every_resolver_spec_validates_against_the_registry(team_env):
+    # A malformed spec would be a wrong number waiting to happen; the UI save-guard uses this too.
+    for key, spec in RESOLVER_SPECS.items():
+        assert validate_spec(spec) == [], (key, validate_spec(spec))
+    # and the registry really does expose both datasets the specs name
+    assert set(DATASETS) >= {"sisu.transaction", "ghl.metric_record"}
+
+
+async def test_source_spec_engine_matches_the_hardcoded_resolvers(team_env):
+    """The headline gate: run_spec(RESOLVER_SPECS[key]) == RESOLVERS[key] over a populated week AND
+    a live-but-empty week — proving both the number and the real-0 (not UNAVAILABLE) match."""
+    e = team_env
+    async with SessionLocal() as s:
+        await _seed_parity_rows(s, e)
+        for wk, we in ((MON, SUN), (EMPTY_MON, EMPTY_SUN)):
+            for key, fn in _PARITY:
+                hard = await fn(s, e["tid"], e["bid"], wk, we, group=DAVIS)
+                spec = await run_spec(RESOLVER_SPECS[key], s, e["tid"], e["bid"], wk, we, group=DAVIS)
+                assert spec == hard, (key, wk, "spec=", spec, "hard=", hard)
+        # sanity: the populated week is actually exercising non-zero, office-scoped counts
+        assert await run_spec(RESOLVER_SPECS["ulrg_homes_closed"], s, e["tid"], e["bid"],
+                              MON, SUN, group=DAVIS) == 4.0     # c1,c2,cs,cn (c0 $0 dropped) — business-wide
+        assert await run_spec(RESOLVER_SPECS["ulrg_team_homes_closed"], s, e["tid"], e["bid"],
+                              MON, SUN, group=DAVIS) == 2.0     # only the two Davis-office sales
+        # and the empty week is a real 0 on both sides, never UNAVAILABLE
+        assert await run_spec(RESOLVER_SPECS["ulrg_team_signed"], s, e["tid"], e["bid"],
+                              EMPTY_MON, EMPTY_SUN, group=DAVIS) == 0.0
+
+
+async def test_source_spec_unavailable_parity(team_env):
+    """Both sides return UNAVAILABLE (never a wrong 0) for the same reasons: a per-office metric with
+    no office, and a feed that isn't live."""
+    e = team_env
+    overall = {"key": "overall", "sisu_group_id": None}
+    async with SessionLocal() as s:
+        await _seed_parity_rows(s, e)
+        # a per-office spec asked for 'Overall' (no sisu_group_id) → couldn't attribute → UNAVAILABLE
+        for key, fn in _PARITY[1:]:    # the four office-attributed resolvers
+            assert (await fn(s, e["tid"], e["bid"], MON, SUN, group=overall)) is R.UNAVAILABLE
+            assert (await run_spec(RESOLVER_SPECS[key], s, e["tid"], e["bid"],
+                                   MON, SUN, group=overall)) is R.UNAVAILABLE
+
+        # feed not live → ALL five (business-wide included) go UNAVAILABLE on both sides
+        integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == e["tid"], Integration.provider == "sisu"))).scalar_one()
+        integ.status = "error"
+        await s.commit()
+        for key, fn in _PARITY:
+            assert (await fn(s, e["tid"], e["bid"], MON, SUN, group=DAVIS)) is R.UNAVAILABLE
+            assert (await run_spec(RESOLVER_SPECS[key], s, e["tid"], e["bid"],
+                                   MON, SUN, group=DAVIS)) is R.UNAVAILABLE
+
+
+async def test_source_spec_wins_over_resolver_key_in_the_runner(team_env):
+    """End-to-end: a metric carrying BOTH a (wrong) resolver_key and a source_spec resolves via the
+    spec. This is the switch the Phase 3 UI will throw."""
+    e = team_env
+    async with SessionLocal() as s:
+        await _seed_parity_rows(s, e)
+        # a fresh Davis metric wired to the UNDER-CONTRACT resolver_key but SPEC'd to homes-closed
+        m = ScorecardMetric(tenant_id=e["tid"], group_id=(await s.execute(select(ScorecardGroup.id).where(
+                                ScorecardGroup.tenant_id == e["tid"]))).scalar_one(),
+                            name="Routed by spec", goal=Decimal("1"), direction="gte", type="flow",
+                            resolver_key="ulrg_team_under_contract",
+                            source_spec=RESOLVER_SPECS["ulrg_team_homes_closed"], active=True, sort_order=9)
+        s.add(m); await s.commit()
+    await R.run_resolvers(SessionLocal, e["tid"], WED, weeks=1, fill_only=False)
+    async with SessionLocal() as s:
+        v = (await s.execute(select(ScorecardValue).where(
+            ScorecardValue.tenant_id == e["tid"], ScorecardValue.metric_id == m.id,
+            ScorecardValue.week_start == MON))).scalar_one()
+        assert v.value == Decimal("2.0000")   # homes-closed (spec) = 2, NOT under-contract (key) = 1

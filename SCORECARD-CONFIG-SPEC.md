@@ -219,6 +219,8 @@ registry + sync to grow together.
    everything structural" without touching routing.
 2. **Phase 2 — Routing engine (large):** dataset registry + `source_spec` column + generic engine +
    migrate the 11 resolvers onto specs behind the parity gate. No UI yet; specs seeded/validated.
+   **SHIPPED — see §8b** (engine + registry + the 5 count-resolver twins behind a passing parity gate;
+   attach-rate/recruiting twins and the live flip still to come).
 3. **Phase 3 — Routing UI:** source/dataset/date/filter/aggregation builder + live preview.
 4. **Phase 4 — Sync coverage:** extend each dataset's stored fields as routing demand surfaces
    (starting with the GHL fields Forum/beCollective actually filter on).
@@ -260,6 +262,37 @@ Live + browser-proven on the prod build (migration `0091_scorecard_group_active`
   both reorder; remove → office + its measurable gone, cleanly. ULRG board unaffected (scope-isolated).
 
 Still to do: §3.5 per-board periods (periods remain tenant-wide); §3.7 routing (below); §3.8 boards.
+
+## 8b. Shipped (Phase 2 — routing engine, behind the parity gate)
+
+The declarative auto-sync subsystem, dormant until a metric is deliberately routed (migration
+`0092_scorecard_metric_src_spec`, additive + nullable; revision id kept ≤32 chars — a 33-char id
+stamp-fails on Postgres only, the 0046 crash-loop shape):
+- **`scorecard_metric.source_spec`** (JSON) — a declarative spec `{source, dataset, date_field,
+  filters[], aggregate, attribution}`. When present it **wins over `resolver_key`**, so flipping a
+  metric's auto-sync is a *data* change, not a code change. Null everywhere today → every live metric
+  still resolves exactly as before (zero behaviour change on deploy).
+- **`services/scorecard_routing.py`** — the engine:
+  - A **dataset registry** (`DATASETS`) the UI can route at: `sisu.transaction` (date anchors +
+    status/side/price/gci/vids…, office attribution, Sisu-liveness gate) and `ghl.metric_record`
+    (member/revenue records; segment/kind/status/source/amount). Every field, date-anchor, op and
+    aggregate is **whitelisted** — a spec can never reach an undeclared column or operator, so nothing
+    interpolates user input into SQL.
+  - **`run_spec(...)`** interprets a spec and returns the SAME three outcomes the hardcoded resolvers
+    do — a number, a real `None`, or `UNAVAILABLE` — preserving the contract that once erased history.
+  - **`validate_spec(...)`** for the Phase 3 UI + a save-time guard; **`RESOLVER_SPECS`** holds the
+    declarative twin of each count resolver.
+- **`run_resolvers` dispatch** runs the spec when present (lazy import breaks the module cycle), else
+  the legacy resolver; provenance logged as `spec:{source}.{dataset}`.
+- **The parity gate** (`test_scorecard_resolvers.py`): `run_spec(RESOLVER_SPECS[k])` reproduces every
+  hardcoded count resolver **exactly** — number, real-0, and `UNAVAILABLE` (no office / feed down) —
+  plus spec validation and an end-to-end test that a `source_spec` overrides a (wrong) `resolver_key`
+  in the runner. Full backend suite green (2271 passed) on a clean run.
+
+Not yet (deliberately): **flipping** any live metric onto its spec (that is a validate-then-`--wire`
+step, not this change); declarative twins for the attach-rate / recruiting resolvers; and the
+builder **UI (Phase 3)**. The two headline metrics (Forum Members Added ← GHL, Activated UCs ← Sisu)
+light up at the end of Phase 3 with no new sync.
 
 ## 8. Bottom line
 - **Structure (offices, measurables add, labels, periods, goals):** already data-driven; these are

@@ -534,28 +534,37 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int =
 
     async with session_factory() as s:                  # read the work list up front, read-only
         metrics = (await s.execute(
-            select(ScorecardMetric.id, ScorecardMetric.resolver_key, ScorecardGroup.business_id,
-                   ScorecardGroup.key, ScorecardGroup.sisu_group_id)
+            select(ScorecardMetric.id, ScorecardMetric.resolver_key, ScorecardMetric.source_spec,
+                   ScorecardGroup.business_id, ScorecardGroup.key, ScorecardGroup.sisu_group_id)
             .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
             .where(ScorecardMetric.tenant_id == tenant_id,
                    ScorecardMetric.active.is_(True),
-                   ScorecardMetric.resolver_key.is_not(None)))).all()
+                   or_(ScorecardMetric.resolver_key.is_not(None),
+                       ScorecardMetric.source_spec.is_not(None))))).all()
+
+    from .scorecard_routing import run_spec              # lazy import — breaks the module cycle
 
     written = 0
-    for metric_id, key, business_id, group_key, sisu_group_id in metrics:
-        fn = RESOLVERS.get(key)
-        if fn is None:
-            log.warning("scorecard: metric %s names resolver %r, which isn't registered", metric_id, key)
-            continue
-        group = {"key": group_key, "sisu_group_id": sisu_group_id}   # context for per-team resolvers
+    for metric_id, key, source_spec, business_id, group_key, sisu_group_id in metrics:
+        # A declarative source_spec WINS over a legacy resolver_key (SCORECARD-CONFIG-SPEC Phase 2),
+        # so flipping a metric onto a spec is a data change, not a code change.
+        if not source_spec:
+            fn = RESOLVERS.get(key)
+            if fn is None:
+                log.warning("scorecard: metric %s names resolver %r, which isn't registered", metric_id, key)
+                continue
+        label = f"spec:{source_spec.get('source')}.{source_spec.get('dataset')}" if source_spec else key
+        group = {"key": group_key, "sisu_group_id": sisu_group_id}   # context for per-team resolvers/specs
         for ws, we in week_windows:
             async with session_factory() as s:
                 try:
-                    val = await fn(s, tenant_id, business_id, ws, we, group=group)
-                    await _write(s, tenant_id, metric_id, ws, val, key, fill_only=fill_only)
+                    val = (await run_spec(source_spec, s, tenant_id, business_id, ws, we, group=group)
+                           if source_spec else
+                           await fn(s, tenant_id, business_id, ws, we, group=group))
+                    await _write(s, tenant_id, metric_id, ws, val, label, fill_only=fill_only)
                     await s.commit()
                     written += 1
                 except Exception:                       # isolated: this value is left untouched
                     await s.rollback()
-                    log.exception("scorecard: resolver %s failed for metric %s week %s", key, metric_id, ws)
+                    log.exception("scorecard: resolver %s failed for metric %s week %s", label, metric_id, ws)
     return written
