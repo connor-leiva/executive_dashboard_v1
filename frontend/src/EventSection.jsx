@@ -345,7 +345,14 @@ export default function EventSection({ data, usingSample, role, businessKey = "s
                 sub={`${r.guests ?? 0} guests + ${r.members_registered ?? 0} members`} />
           <Stat label="Members registered" value={r.members_registered ?? 0}
                 metric="event_members_registered"
-                sub={r.members_declined != null ? `${r.members_declined} said no` : null} />
+                sub={[
+                  // Share of the membership, not of the room - "36 of 182" is the question
+                  // somebody actually asks about member turnout.
+                  r.members_total ? `${pct(r.members_registered_pct)} of ${r.members_total} members` : null,
+                  r.members_declined != null
+                    ? `${r.members_declined} said no${r.members_declined_pct != null ? ` (${pct(r.members_declined_pct)})` : ""}`
+                    : null,
+                ].filter(Boolean).join(" · ")} />
           <Stat label="Paid / comped" value={`${r.paid ?? 0} / ${r.comped ?? 0}`} metric="event_paid" />
           <Stat label="Ticket revenue" value={money(rev.ticket_booked)} metric="event_paid"
                 sub={ev.vip_price == null ? "no price set" : `${r.paid ?? 0} × ${usd(ev.vip_price)}`} />

@@ -27,10 +27,10 @@ from __future__ import annotations
 import datetime as dt
 from collections import Counter
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import ForumEvent, ForumEventGuest, ForumEventWeekly
+from ..models import ForumEvent, ForumEventGuest, ForumEventWeekly, MetricRecord
 from .launch import classify_shift_source, curve_expected, days_between
 
 # The vocabulary, declared ONCE. The launch equivalent is spread across five places that have
@@ -221,7 +221,20 @@ async def compute_event(s: AsyncSession, tenant_id, event: ForumEvent,
 
     guests = [r for r in rows if r.kind == "guest"]
     members = [r for r in rows if r.kind == "member"]
+    declined = [r for r in rows if r.kind == "declined"]
     converted = [g for g in guests if g.group == "converted"]
+
+    # The denominator for "how much of the membership is coming". Counted the SAME way the
+    # Forum tab counts its own member KPI - kind='member', status='active', scoped to this
+    # business (metrics.py:265) - because two different member totals on one screen is the
+    # exact failure this build has been avoiding since F11.
+    roster = int((await s.execute(
+        select(func.count()).select_from(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id,
+            MetricRecord.business_id == event.business_id,
+            MetricRecord.source == "ghl",
+            MetricRecord.kind == "member",
+            MetricRecord.status == "active"))).scalar() or 0)
 
     # Blended from what we CAN price, so an unpriced member is charged the going rate rather
     # than nothing. None when nothing is priced at all.
@@ -274,7 +287,16 @@ async def compute_event(s: AsyncSession, tenant_id, event: ForumEvent,
         "registration": {
             **_registration(event, guests, today),
             "members_registered": len(members),
-            "members_declined": None,       # set by the sync when declined_tags is configured
+            # Counted, not None. The sync has been storing these rows all along (kind =
+            # "declined"); this field was hardcoded to None, so a tenant who HAD configured the
+            # not-attending tag saw the setting take and the figure never appear.
+            "members_declined": len(declined) if event.declined_tags else None,
+            # Shares of the membership. None rather than 0 on an empty roster - a dash reads as
+            # "we do not know how many members there are", a zero reads as "none of them".
+            "members_total": roster or None,
+            "members_registered_pct": round(len(members) / roster, 4) if roster else None,
+            "members_declined_pct": (round(len(declined) / roster, 4)
+                                     if roster and event.declined_tags else None),
             # The only figure allowed to add the two populations. A contact carrying both tags
             # is written once as a guest, so this cannot double-count.
             "room": len(guests) + len(members),

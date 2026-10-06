@@ -772,3 +772,60 @@ async def test_the_integration_entrypoint_actually_runs(monkeypatch):
         rows = (await s.execute(select(ForumEventGuest).where(
             ForumEventGuest.event_id == eid))).scalars().all()
     assert {r.kind for r in rows} == {"guest", "member"}
+
+
+async def test_declined_members_are_counted_not_promised(monkeypatch):
+    """members_declined was hardcoded to None with a comment saying the sync would set it.
+    It never did. The sync stored the rows all along, so a tenant who configured the
+    not-attending tag watched the setting take and the figure never appear - which is exactly
+    how Connor found it. A comment is not an implementation."""
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        await s.execute(delete(ForumEventGuest).where(ForumEventGuest.event_id == eid))
+        ev = (await s.execute(select(ForumEvent).where(ForumEvent.id == eid))).scalar_one()
+        ev.declined_tags = ["q4 not registered - member"]
+        for i in range(3):
+            s.add(ForumEventGuest(tenant_id=tid, event_id=eid, contact_id=f"d{i}", kind="declined"))
+        for i in range(2):
+            s.add(ForumEventGuest(tenant_id=tid, event_id=eid, contact_id=f"m{i}", kind="member"))
+        await s.commit()
+    d = await _compute(tid, eid)
+    r = d["registration"]
+    assert r["members_declined"] == 3, "stored and counted, not promised"
+    assert r["members_registered"] == 2
+    assert r["room"] == 2, "a decliner is not in the room"
+
+
+async def test_the_member_shares_use_the_forums_own_roster_count():
+    """One member total per screen. The denominator is counted the same way metrics.py counts
+    the Forum's member KPI - kind='member', status='active' - so the Event tab and the Forum
+    tab cannot disagree about how many members there are."""
+    from app.models import MetricRecord
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(Business.key == "springb"))).scalar_one()
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.tenant_id == tid, MetricRecord.kind == "member"))
+        for i in range(50):
+            s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="member",
+                               external_id=f"mem{i}", status="active"))
+        # an inactive member is NOT in the denominator, matching metrics.py
+        s.add(MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="member",
+                           external_id="gone", status="inactive"))
+        await s.commit()
+    r = (await _compute(tid, eid))["registration"]
+    assert r["members_total"] == 50, "active only"
+    assert r["members_registered"] == 35
+    assert r["members_registered_pct"] == 0.7
+
+
+async def test_the_shares_are_none_not_zero_with_no_roster():
+    from app.models import MetricRecord
+    tid, eid = await _event()
+    async with SessionLocal() as s:
+        await s.execute(delete(MetricRecord).where(
+            MetricRecord.tenant_id == tid, MetricRecord.kind == "member"))
+        await s.commit()
+    r = (await _compute(tid, eid))["registration"]
+    assert r["members_total"] is None and r["members_registered_pct"] is None, \
+        "a dash reads as 'we do not know'; a zero reads as 'none of them'"
