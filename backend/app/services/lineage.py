@@ -441,6 +441,29 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             recs = sorted(recs, key=lambda m: (0 if m.status == "active" else 1, m.name or ""))
             reg_ids = {(r.meta or {}).get("contact_id") for r in (await s.execute(eq("registration"))).scalars().all()
                        if not (r.meta or {}).get("guest") and (r.meta or {}).get("contact_id")}
+
+            # The money, joined by email the way the Forum's roster does it. The Edge's charges
+            # and subscriptions live on the legacy Stripe account under kind edge_payment /
+            # edge_subscription, so they are read from there rather than from the `ghl` source
+            # the membership rows come from.
+            async def _stripe(kind):
+                return (await s.execute(select(MetricRecord).where(
+                    MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz.id,
+                    MetricRecord.source == "stripe_legacy",
+                    MetricRecord.kind == f"edge_{kind}"))).scalars().all()
+
+            last_by_email: dict = {}
+            for pay in await _stripe("payment"):
+                em = (pay.email or "").strip().lower()
+                if (pay.status or "") != "succeeded" or not pay.occurred_on or not em:
+                    continue
+                if em not in last_by_email or pay.occurred_on > last_by_email[em].occurred_on:
+                    last_by_email[em] = pay
+            sub_by_email: dict = {}
+            for sub in await _stripe("subscription"):
+                em = (sub.email or "").strip().lower()
+                if em and sub.status == "active":
+                    sub_by_email.setdefault(em, sub)
             rows, mix = [], {"monthly": 0, "quarterly": 0, "pif": 0, "installments": 0}
             comp = {"primary": 0, "add_on": 0, "admin": 0, "unspecified": 0}
             for m in recs:
@@ -449,22 +472,51 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 comp[kind if kind in comp else "unspecified"] += 1
                 if kind != "admin" and mem.get("payment") in mix:
                     mix[mem["payment"]] += 1
+                em = (m.email or "").strip().lower()
+                last, sub = last_by_email.get(em), sub_by_email.get(em)
+                # COMPED is the normal case here, not a billing failure: most Edge members are
+                # comped, so a member with no subscription and no charge must not read as a
+                # missed payment. Said once, in the data, rather than left for whoever is
+                # looking at the roster to infer from two empty columns.
+                comped = sub is None and last is None
                 rows.append({
                     "id": str(m.id), "name": ename(m), "seg": "EDGE", "kind": kind,
                     "member_type": mem.get("member_type"), "tier": mem.get("member_tier"),
                     "status": mem.get("status") or "Active", "payment": mem.get("payment"),
-                    "amount": mem.get("total_cost"), "last_payment": None, "next_payment": None,
+                    "amount": (float(sub.amount) if sub is not None and sub.amount is not None
+                               else mem.get("total_cost")),
+                    # {date, amount, url} -- the shape RosterDrawer's PayCell renders, the same
+                    # one the Forum's roster emits. A bare ISO string renders as an empty cell:
+                    # PayCell reads p.amount and p.date off it and finds neither.
+                    "last_payment": ({"date": last.occurred_on.isoformat(),
+                                      "amount": float(last.amount or 0),
+                                      "url": last.source_url} if last is not None else None),
+                    "next_payment": ({"date": (sub.meta or {})["next_payment_date"],
+                                      "amount": (float((sub.meta or {}).get("next_payment_amount"))
+                                                 if (sub.meta or {}).get("next_payment_amount") is not None
+                                                 else (float(sub.amount) if sub.amount is not None else None)),
+                                      "url": sub.source_url}
+                                     if sub is not None and (sub.meta or {}).get("next_payment_date") else None),
+                    "comped": comped,
                     "enrolled": mem.get("enrollment_date"), "renews": mem.get("renewal_date"),
                     "brokerage": mem.get("brokerage"), "stripe_account": mem.get("stripe_account"),
                     "event": m.external_id in reg_ids, "source_url": m.source_url})
             mrows = [r for r in rows if r["kind"] != "admin"]
+            paying = sum(1 for r in mrows if not r["comped"])
             summary = {"total": len(mrows), "forum": 0, "inner_circle": 0,
                        "primary": comp["primary"], "add_on": comp["add_on"], "admin": comp["admin"],
                        "unspecified": comp["unspecified"], "payment_mix": mix,
-                       "book": round(sum(float(r["amount"] or 0) for r in mrows), 2)}
+                       "paying": paying, "comped": len(mrows) - paying,
+                       # The book is what is actually BILLED, so comped members contribute
+                       # nothing to it. Summing the membership price across every member would
+                       # state a number this programme has never invoiced.
+                       "book": round(sum(float(r["amount"] or 0) for r in mrows if not r["comped"]), 2)}
             return {"label": "The Edge · Roster", "source": "Go High Level", "view": "roster",
                     "computed_as": ("Every Edge member with their CRM membership detail (from 'The Edge - "
-                                    "Status' = Active). Admins are staff, listed separately."),
+                                    "Status' = Active), with the legacy-Stripe charge and subscription "
+                                    "joined by email. Most members are comped: no subscription and no "
+                                    "charge is the normal state, not a missed payment. Admins are staff, "
+                                    "listed separately."),
                     "count": len(rows), "rows": rows, "summary": summary}
         if key == "edge_members":
             recs = (await s.execute(eq("member").where(MetricRecord.status == "active")

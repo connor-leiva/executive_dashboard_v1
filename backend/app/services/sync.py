@@ -1379,44 +1379,91 @@ async def sync_qbo_pl(s: AsyncSession, tenant_id, integ: Integration):
     return len(_QBO_PERIODS)
 
 
-async def sync_edge_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
-    """The Edge — a SEGMENT of the Forum's GHL location (reuses the `ghl` integration's location
-    + token). A contact is an Edge member when its custom field 'The Edge - Status' reads 'Active'.
-    Writes edge_* records; wholly separate from the Forum sync (never mutates its records/logic).
-    No-op if the Edge status field isn't present. Config: edge_status_field (name/id override),
-    edge_active_value (default 'active'), edge_event_tag, edge_pipeline_match."""
-    cfg = integ.config or {}
-    location_id = cfg.get("location_id")
-    token = dec(integ.access_token_enc) if integ.access_token_enc else None
-    if not (location_id and token):
-        return 0
-    biz = integ.business_id
-    try:
-        defs = await ghl.get_custom_fields(token, location_id)
-    except Exception as e:  # noqa: BLE001 — custom fields optional
-        print(f"[ghl_edge] custom fields unavailable: {e}", flush=True)
-        return 0
-    # Find the Edge status field by NAME or fieldKey (GHL often returns the key, e.g.
-    # 'contact.the_edge_status', not the UI label). Matches "edge" + "status" in either.
-    override = str(cfg.get("edge_status_field") or "").strip().lower()
-    edge_field_id, edge_field_name = None, None
+def _find_edge_status_field(defs: list[dict], override: str = "") -> dict | None:
+    """The Edge status field among a location's custom-field definitions, or None.
+
+    Matched on "edge" AND "status" appearing in the name or the fieldKey — the real field is
+    name='The Edge - Status', fieldKey='contact.the_edge__status'. The conjunction matters: the
+    Forum's location has its own field called plain 'Status' with an IDENTICAL picklist, sitting
+    beside Member Type and 'Stripe Account: The Forum Account'. Matching "status" alone there
+    resolves 52 Inner Circle members as Edge members, none of whom pay for the Edge.
+    """
     for d in defs:
         nm = (d.get("name") or "").strip().lower()
         fk = (d.get("fieldKey") or "").lower()
-        hay = f"{nm} {fk}"
-        if (override and (nm == override or fk == override or d.get("id") == cfg.get("edge_status_field"))) \
-           or ("edge" in hay and "status" in hay):
-            edge_field_id, edge_field_name = d.get("id"), d.get("name")
-            break
-    active_val = str(cfg.get("edge_active_value") or "active").strip().lower()
-    # Tag fallback: the contacts also carry a 'the edge - active' tag, so a member is identified
-    # by EITHER the status field reading active OR one of these tags. Robust to either setup.
-    edge_tags = {t.lower() for t in (cfg.get("edge_member_tags") or ["the edge - active", "the edge active"])}
-    if not edge_field_id and not edge_tags:
-        print("[ghl_edge] no Edge status field found and no edge tags configured; skipping", flush=True)
+        if override and (nm == override or fk == override or d.get("id") == override):
+            return d
+        if "edge" in f"{nm} {fk}" and "status" in f"{nm} {fk}":
+            return d
+    return None
+
+
+async def _edge_ghl_source(s: AsyncSession, tenant_id: uuid.UUID, cfg: dict):
+    """Which connected GHL location holds the Edge status field — FOUND, not assumed.
+
+    This shipped assuming the Edge lived in the Forum's location, "a segment of the same GHL".
+    It does not: the field is in the ghl_legacy location, and the sync spent two rounds of
+    cleverer and cleverer name-matching looking for it somewhere it had never been, reporting
+    zero members the whole time while the Stripe side quietly worked.
+
+    So the location is resolved by asking each connected GHL integration whether it actually has
+    the field. Four small calls once per sync, and the answer stays right if the field moves or
+    a workspace keeps its Edge somewhere else entirely. `edge_ghl_provider` pins it if anybody
+    ever needs to.
+    """
+    pinned = str(cfg.get("edge_ghl_provider") or "").strip()
+    rows = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id,
+        Integration.provider.like("ghl%"),
+        Integration.status == "connected"))).scalars().all()
+    if pinned:
+        rows = [i for i in rows if i.provider == pinned] or rows
+    for i in rows:
+        loc = (i.config or {}).get("location_id")
+        if not (loc and i.access_token_enc):
+            continue
+        try:
+            defs = await ghl.get_custom_fields(dec(i.access_token_enc), loc)
+        except Exception as e:  # noqa: BLE001 — a location we cannot read is not the answer
+            print(f"[ghl_edge] {i.provider}: custom fields unavailable: {e}", flush=True)
+            continue
+        fld = _find_edge_status_field(defs, str((i.config or {}).get("edge_status_field") or "").lower())
+        if fld:
+            return i, defs, fld
+    return None, [], None
+
+
+async def sync_edge_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
+    """The Edge — members from whichever GHL location carries 'The Edge - Status' == 'Active'.
+
+    Writes edge_* records; wholly separate from the Forum sync (never mutates its records/logic).
+    No-op if no connected location has the field. Config: edge_ghl_provider (pin the location),
+    edge_status_field (name/id override), edge_active_value (default 'active'), edge_event_tag,
+    edge_pipeline_match.
+
+    `integ` is the integration that triggered the dispatch (the Forum's `ghl`). Its BUSINESS is
+    kept -- the Edge is a programme tab of that business -- while the token and location come
+    from wherever the field actually lives, which is not the same place.
+    """
+    cfg = integ.config or {}
+    biz = integ.business_id
+    src, defs, fld = await _edge_ghl_source(s, tenant_id, cfg)
+    if src is None:
+        print("[ghl_edge] no connected GHL location carries an Edge status field; skipping",
+              flush=True)
         return 0
-    print(f"[ghl_edge] status field={edge_field_name or 'NOT FOUND'} active≈'{active_val}' "
-          f"tags={sorted(edge_tags)}", flush=True)
+    cfg = {**(src.config or {}), **{k: v for k, v in cfg.items() if k.startswith("edge_")}}
+    location_id = (src.config or {})["location_id"]
+    token = dec(src.access_token_enc)
+    edge_field_id, edge_field_name = fld.get("id"), fld.get("name")
+    active_val = str(cfg.get("edge_active_value") or "active").strip().lower()
+    # Optional tag fallback, OFF unless a workspace configures it. It used to default to
+    # 'the edge - active'/'the edge active'; no tag containing "edge" exists anywhere in this
+    # account, so the default was dead weight that made the sync look like it had a second
+    # chance it never had.
+    edge_tags = {str(t).lower() for t in (cfg.get("edge_member_tags") or [])}
+    print(f"[ghl_edge] location={src.provider} field={edge_field_name!r} active=={active_val!r}"
+          + (f" tags={sorted(edge_tags)}" if edge_tags else ""), flush=True)
     event_tag = (cfg.get("edge_event_tag") or "").lower().strip()
     field_ids = _membership_field_ids(defs, cfg)             # reuse the shared roster fields for enrichment
 
@@ -1426,8 +1473,12 @@ async def sync_edge_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integratio
     for c in contacts:
         vals = ghl.contact_custom_values(c)
         tset = {str(t).lower() for t in ghl.contact_tags(c)}
-        status = (_clean_str(vals.get(edge_field_id)) or "").lower() if edge_field_id else ""
-        by_field = bool(status) and active_val in status   # lenient (contains), not exact
+        status = (_clean_str(vals.get(edge_field_id)) or "").strip().lower() if edge_field_id else ""
+        # EXACT. The picklist is New / Prospective / Committed / Onboarding / Active / Inactive /
+        # Nurture / Lost -- and "Inactive" CONTAINS "active", so a lenient match counts every
+        # cancelled member as a current one. Nothing is Inactive today, which is the only reason
+        # that is not already wrong.
+        by_field = bool(status) and status == active_val
         by_tag = bool(edge_tags & tset)
         if not (by_field or by_tag):
             continue

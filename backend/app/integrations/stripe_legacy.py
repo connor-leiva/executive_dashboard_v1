@@ -67,13 +67,51 @@ async def ping(key: str) -> bool:
         return True
 
 
+async def _product_names(key: str) -> dict[str, str]:
+    """{product_id: name} for the account. One or two calls, cached by the caller's scope."""
+    names: dict[str, str] = {}
+    starting_after: str | None = None
+    async with httpx.AsyncClient(timeout=45) as c:
+        while True:
+            params = [("limit", "100")] + ([("starting_after", starting_after)] if starting_after else [])
+            r = await c.get(f"{STRIPE_BASE}/products", headers=_headers(key), params=params)
+            r.raise_for_status()
+            data = r.json()
+            rows = data.get("data") or []
+            for pr in rows:
+                if pr.get("id"):
+                    names[str(pr["id"])] = pr.get("name") or ""
+            if not data.get("has_more") or not rows:
+                return names
+            starting_after = rows[-1].get("id")
+
+
+def _graft_product_names(subs: list[dict], names: dict[str, str]) -> None:
+    """Replace each price's product id with {id, name}, which is the shape the five-level expand
+    would have produced. Done here so nothing downstream has to know the expand was shortened."""
+    for sub in subs:
+        for it in _sub_items(sub):
+            price = it.get("price") or {}
+            prod = price.get("product")
+            if isinstance(prod, str):
+                price["product"] = {"id": prod, "name": names.get(prod, "")}
+
+
 async def list_subscriptions(key: str, max_pages: int | None = None) -> list[dict]:
     """All subscriptions (any status) with customer + price + product expanded — the
     legacy recurring dues that never reached the new sub-account, so MRR and the cash
     projection can include them. Read-only (Subscriptions: read)."""
     out: list[dict] = []
+    # FOUR levels, not five. `data.items.data.price.product` is five and Stripe refuses the whole
+    # request with 400 "You cannot expand more than 4 levels of a property" -- so this call had
+    # been returning nothing at all since it was written, and the caller swallowed the error and
+    # carried on with an empty list. No legacy subscription has ever reached the database: no
+    # Edge next-payment dates, and no legacy MRR for the Forum either.
+    #
+    # The product NAME is what classifies a subscription, so it is fetched separately below and
+    # grafted onto each price. That keeps sub_plan_name and every call site unchanged.
     base = [("limit", "100"), ("status", "all"), ("expand[]", "data.customer"),
-            ("expand[]", "data.items.data.price.product")]
+            ("expand[]", "data.items.data.price")]
     starting_after: str | None = None
     page = 0
     async with httpx.AsyncClient(timeout=45) as c:
@@ -92,6 +130,14 @@ async def list_subscriptions(key: str, max_pages: int | None = None) -> list[dic
             starting_after = rows[-1].get("id")
             if not starting_after:
                 break
+    # The name the five-level expand would have carried, fetched in its own call. Best effort:
+    # a subscription with no product name still classifies on price.nickname, and losing the
+    # names is better than losing every subscription, which is what the 400 did.
+    if out:
+        try:
+            _graft_product_names(out, await _product_names(key))
+        except Exception as e:  # noqa: BLE001
+            print(f"[stripe_legacy] product names unavailable: {e}", flush=True)
     return out
 
 
