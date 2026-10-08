@@ -229,3 +229,58 @@ async def test_a_comped_member_is_not_a_missed_payment():
                 if rec is not None:
                     await s.delete(rec)
             await s.commit()
+
+
+async def test_a_member_who_pays_from_another_address_is_not_comped():
+    """Ronda White is ronda.white@exprealty.com in GHL and pays Stripe as ronda@whitecres.com --
+    an address GHL already holds under additionalEmails. Joining on the primary alone showed her
+    as comped while she had paid $3,666 three times.
+
+    It looked like a missing status and it was not: her status was already Active. The CRM was
+    right and the join was wrong, which is the reason to check a record before editing one.
+    """
+    import datetime as dt
+
+    from app.models import Business, MetricRecord
+    from app.services.lineage import metric_detail
+
+    async with SessionLocal() as s:
+        tid = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one().id
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tid, Business.key == "springb"))).scalar_one()
+        s.add_all([
+            MetricRecord(tenant_id=tid, business_id=biz.id, source="ghl", kind="edge_member",
+                         external_id="etwo1", name="Two Address", status="active", segment="edge",
+                         email="crm@example.com",
+                         meta={"membership": {"member_kind": "primary"},
+                               "emails": ["crm@example.com", "billing@example.com"]}),
+            MetricRecord(tenant_id=tid, business_id=biz.id, source="stripe_legacy",
+                         kind="edge_payment", external_id="ech2", name="Two Address",
+                         email="billing@example.com", amount=3666, status="succeeded",
+                         occurred_on=dt.date(2026, 8, 18), segment="edge"),
+        ])
+        await s.commit()
+        try:
+            d = await metric_detail(s, tid, "edge_roster", "mtd")
+            row = next(r for r in d["rows"] if r["name"] == "Two Address")
+            assert row["comped"] is False, "paid from the second address and still read as comped"
+            assert row["last_payment"]["date"] == "2026-08-18"
+            assert float(row["last_payment"]["amount"]) == 3666.0
+        finally:
+            for ext in ("etwo1", "ech2"):
+                rec = (await s.execute(select(MetricRecord).where(
+                    MetricRecord.external_id == ext))).scalar_one_or_none()
+                if rec is not None:
+                    await s.delete(rec)
+            await s.commit()
+
+
+def test_the_sync_records_every_address_a_contact_has():
+    """The join can only use what the sync stored, so the capture is held too."""
+    import inspect
+
+    from app.services import sync
+
+    src = inspect.getsource(sync.sync_edge_ghl)
+    assert "additionalEmails" in src, "the sync no longer reads a contact's other addresses"
+    assert '"emails": emails' in src, "the member record no longer carries them"

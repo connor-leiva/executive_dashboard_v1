@@ -472,8 +472,15 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 comp[kind if kind in comp else "unspecified"] += 1
                 if kind != "admin" and mem.get("payment") in mix:
                     mix[mem["payment"]] += 1
-                em = (m.email or "").strip().lower()
-                last, sub = last_by_email.get(em), sub_by_email.get(em)
+                # Any address this person is known by, newest-payment wins across them. A
+                # member whose CRM address and billing address differ is otherwise invisible to
+                # the join and reads as comped while they are paying.
+                addrs = [a for a in ((m.meta or {}).get("emails") or []) if a]
+                if not addrs and m.email:
+                    addrs = [m.email.strip().lower()]
+                last = max((last_by_email[a] for a in addrs if a in last_by_email),
+                           key=lambda p: p.occurred_on, default=None)
+                sub = next((sub_by_email[a] for a in addrs if a in sub_by_email), None)
                 # COMPED is the normal case here, not a billing failure: most Edge members are
                 # comped, so a member with no subscription and no charge must not read as a
                 # missed payment. Said once, in the data, rather than left for whoever is

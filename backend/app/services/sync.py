@@ -1490,9 +1490,18 @@ async def sync_edge_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integratio
                     name=ghl.contact_name(c)[:200], email=(c.get("email") or None),
                     source_url=ghl.contact_url(location_id, c.get("id")))
         kind = detail.get("member_kind")
+        # EVERY address this person has, not just the primary one. People pay from a different
+        # address than the CRM holds: Ronda White is ronda.white@exprealty.com in GHL and pays
+        # Stripe as ronda@whitecres.com, which GHL already knows as an additionalEmail. Joining
+        # on the primary alone showed her as comped while she was paying $3,666 a quarter.
+        emails = [e for e in [(c.get("email") or "").strip().lower()] if e]
+        for extra in (c.get("additionalEmails") or []):
+            addr = ((extra or {}).get("email") if isinstance(extra, dict) else str(extra or "")).strip().lower()
+            if addr and addr not in emails:
+                emails.append(addr)
         members.append({**base, "kind": "edge_member",
                         "status": "admin" if kind == "admin" else "active",
-                        "segment": "edge", "meta": {"membership": detail}})
+                        "segment": "edge", "meta": {"membership": detail, "emails": emails}})
         if event_tag and event_tag in tset:
             regs.append({**base, "kind": "edge_registration", "status": "registered",
                          "meta": {"event_tag": event_tag, "guest": False, "contact_id": cid}})
