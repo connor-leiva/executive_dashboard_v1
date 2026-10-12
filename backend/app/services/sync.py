@@ -509,40 +509,56 @@ async def _record_forum_stage_changes(s: AsyncSession, tenant_id, biz, opps: lis
 
 
 async def sync_forum_calendar(s: AsyncSession, tenant_id, biz, token: str, location_id: str,
-                              calendar_id: str, tz, *, now: dt.datetime | None = None) -> int:
-    """The Forum calendar → two upserted kinds per appointment: `forum_appt` dated by its START and
-    carrying GHL's appointmentStatus ('showed' = Met), and `forum_appt_set` dated by when it was
-    BOOKED (= Set). Upserted by event id, not snapshotted: each sync reads only a window, and a
-    snapshot would forget everything older. The first sync backfills _FORUM_CAL_BACKFILL_DAYS; later
-    syncs re-read the recent past so an appointment later marked 'showed' moves into Met."""
+                              calendar_ids: list[str], tz, *, now: dt.datetime | None = None) -> int:
+    """The Forum's appointment calendar(s) → two upserted kinds per appointment: `forum_appt` dated
+    by its START and carrying GHL's appointmentStatus ('showed' = Met), and `forum_appt_set` dated by
+    when it was BOOKED (= Set). Upserted by event id, not snapshotted: each sync reads only a window,
+    and a snapshot would forget everything older.
+
+    Per calendar: the first sync of a calendar backfills _FORUM_CAL_BACKFILL_DAYS (a `forum_appt_cal`
+    marker records that it has been done, so a calendar added later still gets its history); later
+    syncs re-read the recent past so an appointment later marked 'showed' moves into Met.
+
+    A non-200 RAISES. ghl_json turns any error into {} — which read as "0 appointments" for a calendar
+    the token couldn't see, a deleted calendar, or a bad id. One bad calendar doesn't stop the others:
+    the good ones are written, then every failure is raised together so the sync log names it."""
     now = now or dt.datetime.now(dt.timezone.utc)
-    have_any = await s.scalar(select(MetricRecord.id).where(
-        MetricRecord.tenant_id == tenant_id, MetricRecord.source == "ghl",
-        MetricRecord.kind == "forum_appt").limit(1))
-    back = _FORUM_CAL_LOOKBACK_DAYS if have_any else _FORUM_CAL_BACKFILL_DAYS
-    lo, hi = now - dt.timedelta(days=back), now + dt.timedelta(days=_FORUM_CAL_LOOKAHEAD_DAYS)
-    events: dict[str, dict] = {}
-    cur = lo
-    while cur < hi:
-        nxt = min(cur + dt.timedelta(days=_FORUM_CAL_CHUNK_DAYS), hi)
-        body = await ghl.ghl_json("GET", "/calendars/events", token=token, location_id=location_id,
-                                  params={"locationId": location_id, "calendarId": calendar_id,
-                                          "startTime": int(cur.timestamp() * 1000),
-                                          "endTime": int(nxt.timestamp() * 1000)})
-        for ev in (body or {}).get("events") or []:
-            if ev.get("id"):
-                events[str(ev["id"])[:64]] = ev          # by id: a boundary event is kept once
-        cur = nxt
-    if not events:
-        return 0
+    done = set((await s.execute(select(MetricRecord.external_id).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_appt_cal"))).scalars().all())
+    events: dict[str, tuple[str, dict]] = {}             # event id → (calendar id, event)
+    failures, fresh_cals = [], []
+    for cal in calendar_ids:
+        back = _FORUM_CAL_LOOKBACK_DAYS if cal in done else _FORUM_CAL_BACKFILL_DAYS
+        lo, hi = now - dt.timedelta(days=back), now + dt.timedelta(days=_FORUM_CAL_LOOKAHEAD_DAYS)
+        got: dict[str, tuple[str, dict]] = {}
+        cur, ok = lo, True
+        while cur < hi:
+            nxt = min(cur + dt.timedelta(days=_FORUM_CAL_CHUNK_DAYS), hi)
+            r = await ghl.ghl_request("GET", "/calendars/events", token=token, location_id=location_id,
+                                      params={"locationId": location_id, "calendarId": cal,
+                                              "startTime": int(cur.timestamp() * 1000),
+                                              "endTime": int(nxt.timestamp() * 1000)})
+            if r.status_code != 200:
+                failures.append(f"calendar {cal}: HTTP {r.status_code} {r.text[:160]}")
+                ok = False
+                break
+            for ev in (r.json() or {}).get("events") or []:
+                if ev.get("id"):
+                    got[str(ev["id"])[:64]] = (cal, ev)  # by id: a boundary event is kept once
+            cur = nxt
+        if ok:
+            events.update(got)
+            if cal not in done:
+                fresh_cals.append(cal)
     existing = {(r.kind, r.external_id): r for r in (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.source == "ghl",
         MetricRecord.kind.in_(("forum_appt", "forum_appt_set")),
-        MetricRecord.external_id.in_(list(events))))).scalars().all()}
-    for eid, ev in events.items():
+        MetricRecord.external_id.in_(list(events) or [""])))).scalars().all()}
+    for eid, (cal, ev) in events.items():
         status = (ev.get("appointmentStatus") or "").strip().lower()[:32] or None
         booked = ev.get("dateAdded") or ev.get("createdAt")
-        meta = {"calendar_id": calendar_id, "contact_id": str(ev.get("contactId") or "") or None,
+        meta = {"calendar_id": cal, "contact_id": str(ev.get("contactId") or "") or None,
                 "start": ev.get("startTime"), "booked": booked}
         name = (ev.get("title") or "")[:200] or None
         for kind, on in (("forum_appt", _local_date(ev.get("startTime"), tz)),
@@ -554,7 +570,13 @@ async def sync_forum_calendar(s: AsyncSession, tenant_id, biz, token: str, locat
                                    meta=dict(meta)))
             else:                                        # fresh dict, never the loaded one
                 row.status, row.occurred_on, row.name, row.meta = status, on, name, dict(meta)
-    await s.commit()
+    for cal in fresh_cals:                               # backfilled → later syncs only re-read recent
+        s.add(MetricRecord(tenant_id=tenant_id, business_id=biz, source="ghl", kind="forum_appt_cal",
+                           external_id=str(cal)[:64], occurred_on=now.astimezone(tz).date(),
+                           status="backfilled"))
+    await s.commit()                                     # keep what the good calendars returned...
+    if failures:
+        raise RuntimeError("; ".join(failures))          # ...then make the bad ones visible
     return len(events)
 
 
@@ -715,12 +737,15 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     except Exception as e:  # noqa: BLE001 — opportunities scope optional
         print(f"[ghl] opportunities skipped: {e}", flush=True)
 
-    # 2b) The Forum calendar → appointments set / met for the Spring B scorecard. Optional (only
-    #     when a calendar is configured) and isolated: a calendar failure must not cost payments.
-    if cfg.get("forum_calendar_id"):
+    # 2b) The Forum's appointment calendar(s) → appointments set / met for the Spring B scorecard.
+    #     Its own key, deliberately NOT cfg.forum_calendar_id: that one points at "The Forum Events"
+    #     (the quarterly-event calendar), which holds no prospect appointments. Optional and isolated:
+    #     a calendar failure must not cost payments.
+    appt_cals = [str(c) for c in (cfg.get("forum_appointment_calendar_ids") or []) if c]
+    if appt_cals:
         try:
             n_appts = await sync_forum_calendar(s, tenant_id, biz, token, location_id,
-                                                str(cfg["forum_calendar_id"]), _biz_tz())
+                                                appt_cals, _biz_tz())
             n_records += n_appts
             print(f"[ghl] {n_appts} forum calendar appointment(s)", flush=True)
         except Exception as e:  # noqa: BLE001

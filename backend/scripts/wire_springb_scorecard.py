@@ -7,8 +7,10 @@ manual. Four Forum lines now have a feed:
                                                        'joined' definition, so the two reconcile
   VIP Guests Added  → resolver forum_vip_guests_added  funnel stage-change events, tracked from deploy;
                                                        weeks before tracking began read UNAVAILABLE
-  Appointments Set  → source_spec (editable in the UI)  Forum calendar, booked that week
-  Appointments Met  → source_spec (editable in the UI)  Forum calendar, GHL 'showed', by start date
+  Appointments Set  → source_spec (editable in the UI)  "Forum VIP Guest Application" calendar,
+                                                       booked that week
+  Appointments Met  → source_spec (editable in the UI)  same calendar, GHL 'showed' only, by start
+                                                       date (reads low until attendance is marked)
 
 Every other line stays manual — no data source exists for it yet.
 
@@ -19,9 +21,10 @@ auto-sourced from now on). A line someone already routed to something ELSE is le
   railway ssh --service executive_dashboard_v1 "python -m scripts.wire_springb_scorecard"
   railway ssh --service executive_dashboard_v1 "python -m scripts.wire_springb_scorecard --apply --backfill 13"
 
-ORDER: the appointment lines' data arrives with the first Forum sync after deploy (the calendar backfills
-120 days on that run). Until then the dry-run shows them reading 0, and --backfill skips them rather than
-writing zeros that would stick — run it again once that sync has happened.
+ORDER: --apply also sets WHICH GHL calendar feeds the appointment lines (forum_appointment_calendar_ids on
+the Forum GHL integration). Its bookings arrive with the NEXT Forum sync (~30 min; that run backfills 120
+days). Until then --backfill skips the appointment lines rather than writing zeros that would stick — run
+--backfill again after that sync.
 """
 from __future__ import annotations
 
@@ -35,9 +38,14 @@ from sqlalchemy import select, update
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Business, MetricRecord, ScorecardGroup, ScorecardMetric, Tenant
+from app.models import Business, Integration, MetricRecord, ScorecardGroup, ScorecardMetric, Tenant
 from app.services import scorecard_resolvers as R
 from app.services.scorecard_routing import FORUM_APPOINTMENT_SPECS, run_spec, validate_spec
+
+# The GHL calendar(s) whose bookings are Forum "appointments" — Connor's pick, 2026-10-12. NOT the
+# configured `forum_calendar_id`, which is "The Forum Events" (the quarterly-event calendar: no
+# prospect appointments). Written to the Forum GHL integration as `forum_appointment_calendar_ids`.
+FORUM_APPOINTMENT_CALENDARS = ["6q9ga2aGN28ryW990aR9"]      # "Forum VIP Guest Application"
 
 # (group key, measurable name as it is on the board, wiring)
 WIRING = [
@@ -129,6 +137,19 @@ async def main() -> int:
             return 2
         bid, tid = row
 
+        # Which calendar(s) feed the appointment lines — set on the Forum GHL integration.
+        integ = (await s.execute(select(Integration).where(
+            Integration.tenant_id == tid, Integration.business_id == bid,
+            Integration.provider == "ghl"))).scalar_one_or_none()
+        cal_change = None
+        if integ is None:
+            print("  WARNING   no Forum GHL integration on this business — the appointment lines will stay empty")
+        else:
+            have_cals = list((integ.config or {}).get("forum_appointment_calendar_ids") or [])
+            cal_change = None if have_cals == FORUM_APPOINTMENT_CALENDARS else list(FORUM_APPOINTMENT_CALENDARS)
+            print(f"  {'TODO' if cal_change else 'DONE':9} {'forum GHL appointment calendars':34} "
+                  f"{have_cals or None} -> {FORUM_APPOINTMENT_CALENDARS}")
+
         plan = []        # (metric_id, label, group_ctx, want)
         for gkey, name, want in WIRING:
             hit = (await s.execute(
@@ -159,8 +180,16 @@ async def main() -> int:
                 plan.append((mid, label, group, want))     # already wired: still backfill on request
 
         if not args.apply:
-            print(f"\nDRY-RUN: {sum(1 for p in plan)} line(s) would be wired. Re-run with --apply.")
+            print(f"\nDRY-RUN: {len(plan)} line(s) would be wired"
+                  f"{' and the appointment calendar set' if cal_change else ''}. Re-run with --apply.")
             return 0
+
+        if cal_change:
+            cfg = dict(integ.config or {})     # a COPY: mutating the loaded dict makes SQLAlchemy skip the UPDATE
+            cfg["forum_appointment_calendar_ids"] = cal_change
+            await s.execute(update(Integration).where(Integration.id == integ.id).values(config=cfg))
+            print("SET the Forum appointment calendar — its bookings arrive with the NEXT Forum sync "
+                  "(~30 min); then re-run --backfill to fill the appointment history.")
 
         for mid, label, group, want in plan:
             if "resolver_key" in want:

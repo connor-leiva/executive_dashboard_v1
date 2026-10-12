@@ -156,6 +156,15 @@ async def test_vip_guests_added_is_unavailable_before_tracking_began(forum_env):
 
 
 # ── Forum calendar → Appointments Set / Met ───────────────────────────────────────────────────
+class _Resp:
+    """The bits of an httpx.Response the calendar sync reads."""
+    def __init__(self, status, body):
+        self.status_code, self._body, self.text = status, body, str(body)
+
+    def json(self):
+        return self._body
+
+
 async def test_forum_calendar_feeds_appointments_set_and_met(forum_env, monkeypatch):
     e = forum_env
     calls = []
@@ -166,15 +175,15 @@ async def test_forum_calendar_feeds_appointments_set_and_met(forum_env, monkeypa
          "appointmentStatus": "showed", "contactId": "c2"},
     ]}
 
-    async def fake_json(method, path, **kw):
+    async def fake_request(method, path, **kw):
         assert path == "/calendars/events" and kw["params"]["calendarId"] == "cal"
         calls.append(kw["params"])
-        return payload
+        return _Resp(200, payload)
 
-    monkeypatch.setattr(S.ghl, "ghl_json", fake_json)
+    monkeypatch.setattr(S.ghl, "ghl_request", fake_request)
     now = dt.datetime(2026, 8, 1, 12, tzinfo=dt.timezone.utc)
     async with SessionLocal() as s:
-        assert await S.sync_forum_calendar(s, e["tid"], e["bid"], "tok", "loc", "cal", TZ, now=now) == 2
+        assert await S.sync_forum_calendar(s, e["tid"], e["bid"], "tok", "loc", ["cal"], TZ, now=now) == 2
         backfill_calls = len(calls)
         assert backfill_calls >= 4, "the first sync backfills 120 days in month-sized chunks"
         rows = {(r.kind, r.external_id): r for r in (await s.execute(select(MetricRecord).where(
@@ -187,8 +196,8 @@ async def test_forum_calendar_feeds_appointments_set_and_met(forum_env, monkeypa
         # GHL later marks ev1 'showed': an update in place, and only the recent window is re-read
         payload["events"][0]["appointmentStatus"] = "showed"
         calls.clear()
-        await S.sync_forum_calendar(s, e["tid"], e["bid"], "tok", "loc", "cal", TZ, now=now)
-        assert len(calls) < backfill_calls
+        await S.sync_forum_calendar(s, e["tid"], e["bid"], "tok", "loc", ["cal"], TZ, now=now)
+        assert len(calls) < backfill_calls, "a backfilled calendar only re-reads the recent window"
         appts = (await s.execute(select(MetricRecord).where(
             MetricRecord.tenant_id == e["tid"], MetricRecord.kind == "forum_appt"))).scalars().all()
         assert len(appts) == 2 and all(a.status == "showed" for a in appts)
@@ -201,3 +210,28 @@ async def test_forum_calendar_feeds_appointments_set_and_met(forum_env, monkeypa
                                 s, e["tid"], e["bid"], MON, SUN)
         assert met == 2.0          # both showed, both started this week
         assert booked == 1.0       # only ev2 was BOOKED this week; ev1 was booked the week before
+
+
+async def test_a_calendar_the_token_cannot_read_raises_instead_of_reading_zero(forum_env, monkeypatch):
+    """ghl_json turns any non-200 into {} — which a first version read as "0 appointments" for a
+    calendar it could not see. A bad calendar now raises (so the sync log names it), while a good
+    calendar in the same run is still written and marked backfilled; the bad one is NOT marked, so it
+    backfills once it works."""
+    e = forum_env
+
+    async def fake_request(method, path, **kw):
+        if kw["params"]["calendarId"] == "bad":
+            return _Resp(403, {"message": "The token is not authorized for this scope."})
+        return _Resp(200, {"events": [{"id": "ok1", "startTime": "2026-07-29T17:00:00Z",
+                                       "dateAdded": "2026-07-28T15:00:00Z", "appointmentStatus": "showed"}]})
+
+    monkeypatch.setattr(S.ghl, "ghl_request", fake_request)
+    now = dt.datetime(2026, 8, 1, 12, tzinfo=dt.timezone.utc)
+    async with SessionLocal() as s:
+        with pytest.raises(RuntimeError, match="calendar bad: HTTP 403"):
+            await S.sync_forum_calendar(s, e["tid"], e["bid"], "tok", "loc", ["good", "bad"], TZ, now=now)
+        got = {(r.kind, r.external_id) for r in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == e["tid"],
+            MetricRecord.kind.in_(("forum_appt", "forum_appt_cal"))))).scalars()}
+    assert ("forum_appt", "ok1") in got, "the good calendar's appointments were lost"
+    assert ("forum_appt_cal", "good") in got and ("forum_appt_cal", "bad") not in got
