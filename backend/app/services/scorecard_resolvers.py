@@ -474,6 +474,68 @@ async def recruiting_signed_qtd(s, tenant_id, business_id, week_start: dt.date, 
     return float(rows or 0)
 
 
+# ── Spring B board (Forum lines) ────────────────────────────────────────────────────────────────
+
+async def _ghl_live(s, tenant_id, business_id) -> bool:
+    """The null≠zero gate for lines fed by the Forum's GHL location: connected and synced at least
+    once, for THIS business (or tenant-wide). Same contract as _sisu_live."""
+    row = await s.scalar(select(Integration.id).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "ghl",
+        Integration.status == "connected", Integration.last_synced_at.is_not(None),
+        or_(Integration.business_id == business_id, Integration.business_id.is_(None))).limit(1))
+    return row is not None
+
+
+@resolver("forum_members_added")
+async def forum_members_added(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                              group=None):
+    """Forum · Members Added — active members whose GHL enrollment date falls in the week.
+
+    The SAME member set (ghl `member` records, status active: Forum + Inner Circle, primary + add-on)
+    and the SAME date reading (forum._pdate of meta.membership.enrollment_date) as the Forum tab's
+    growth chart, so a week here reconciles with that chart's 'joined'. A member with no enrollment
+    date can't be placed in a week — the Forum tab skips them the same way."""
+    from ..models import MetricRecord
+    from .forum import _pdate
+    if not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    metas = (await s.execute(select(MetricRecord.meta).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member",
+        MetricRecord.status == "active"))).scalars().all()
+    n = 0
+    for meta in metas:
+        d = _pdate(((meta or {}).get("membership") or {}).get("enrollment_date"))
+        if d and week_start <= d <= week_end:
+            n += 1
+    return float(n)
+
+
+@resolver("forum_vip_guests_added")
+async def forum_vip_guests_added(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                 group=None):
+    """Forum · VIP Guests Added — sales-funnel opportunities that ENTERED the VIP Guest stage group in
+    the week (sync._record_forum_stage_changes; group-level, so Opt-In → Confirmed counts once).
+
+    GHL keeps no stage history, so these events exist only from the day tracking began. A week that
+    ended before then was never observed → UNAVAILABLE, never a 0 that would read as "nobody came".
+    Until the first sync after deploy has run, there is no marker and every week is UNAVAILABLE."""
+    from ..models import MetricRecord
+    if not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    since = await s.scalar(select(func.min(MetricRecord.occurred_on)).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_tracking"))
+    if since is None or week_end < since:
+        return UNAVAILABLE
+    n = await s.scalar(select(func.count()).select_from(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_event",
+        MetricRecord.segment == "vip_guest",
+        MetricRecord.occurred_on >= week_start, MetricRecord.occurred_on <= week_end))
+    return float(n or 0)
+
+
 def _recent_weeks(today: dt.date, n: int = LOOKBACK_WEEKS) -> list[tuple[dt.date, dt.date]]:
     """The `n` most recent Monday…Sunday weeks (newest first): the open week and the n-1 before it.
     Weeks are keyed by their Monday (SPEC 2.3)."""

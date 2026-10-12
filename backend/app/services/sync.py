@@ -4,6 +4,7 @@ call. Upserts target Postgres (prod); the worker does not run against SQLite.
 """
 import datetime as dt
 import json
+import re
 import uuid
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -436,6 +437,127 @@ async def _ghl_snapshot(s: AsyncSession, tenant_id, business_id, kind: str, rows
     await _metric_snapshot(s, tenant_id, business_id, "ghl", kind, rows)
 
 
+# ── Forum feeds for the Spring B L10 scorecard ──────────────────────────────────────────────────
+# Two things the board needs that the Forum snapshot never kept: WHEN a sales-funnel opportunity
+# changed stage (the 'recruiting' snapshot holds only its CURRENT stage, so "VIP Guests Added this
+# week" was unanswerable), and the Forum calendar's appointments (cfg.forum_calendar_id was set but
+# nothing read it). Both are append/upsert kinds, never snapshotted, because each holds history.
+
+_FORUM_CAL_LOOKBACK_DAYS = 14        # every sync: re-read the recent past so confirmed → showed lands
+_FORUM_CAL_BACKFILL_DAYS = 120       # first sync only: this quarter + last, so the board has history
+_FORUM_CAL_LOOKAHEAD_DAYS = 30
+_FORUM_CAL_CHUNK_DAYS = 30           # ask GHL's calendar endpoint one month at a time
+
+
+def _forum_stage_group(stage: str | None) -> str:
+    """A funnel stage → its group, from the name's prefix: 'VIP Guest: Opt-In' → 'vip_guest'.
+    Data-driven, so a new stage under an existing prefix needs no code. Fits MetricRecord.segment."""
+    head = (stage or "").split(":", 1)[0]
+    slug = re.sub(r"[^a-z0-9]+", "_", head.lower()).strip("_")
+    return (slug or "other")[:32]
+
+
+async def _record_forum_stage_changes(s: AsyncSession, tenant_id, biz, opps: list[dict], tz) -> int:
+    """Append a `forum_stage_event` for each open sales-funnel opportunity whose stage GROUP changed
+    since the last sync, or that is new to the funnel. Must run BEFORE the 'recruiting' snapshot is
+    replaced — that snapshot IS the previous state. Group-level on purpose: VIP Guest: Opt-In →
+    Confirmed is one VIP guest, not two. With no prior snapshot at all, this sync is the baseline and
+    nothing is emitted, so counts are accurate from the first real diff forward — never a backfill
+    guess. Dated by GHL's lastStageChangeAt (business-local), falling back to today."""
+    prior = {ext: (meta or {}).get("stage") for ext, meta in (await s.execute(
+        select(MetricRecord.external_id, MetricRecord.meta).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
+            MetricRecord.source == "ghl", MetricRecord.kind == "recruiting"))).all()}
+    if not prior:
+        return 0
+    today = dt.datetime.now(tz).date()
+    # The day tracking began. GHL keeps no stage history, so any week that ended before this was
+    # never observed: the VIP Guests resolver reads this marker to answer UNAVAILABLE for those weeks
+    # rather than a misleading 0. Written once, on the first real diff.
+    marked = await s.scalar(select(MetricRecord.id).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_tracking").limit(1))
+    if marked is None:
+        s.add(MetricRecord(tenant_id=tenant_id, business_id=biz, source="ghl",
+                           kind="forum_stage_tracking", external_id="since", occurred_on=today,
+                           status="tracking"))
+    events = []
+    for o in opps:
+        meta = o.get("meta") or {}
+        stage = meta.get("stage") or ""
+        group = _forum_stage_group(stage)
+        before = prior.get(o["external_id"])
+        if before is not None and _forum_stage_group(before) == group:
+            continue                                     # same group as last sync → not an entry
+        on = _local_date(meta.get("last_stage_change_at"), tz) or today
+        events.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="ghl", kind="forum_stage_event",
+            external_id=f"{o['external_id']}:{group}:{on.isoformat()}"[:64], name=o.get("name"),
+            status="entered", segment=group, occurred_on=on,
+            meta={"opp_id": o["external_id"], "from_stage": before, "to_stage": stage,
+                  "opp_source": meta.get("opp_source")}))
+    if not events:
+        return 0
+    seen = set((await s.execute(select(MetricRecord.external_id).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.source == "ghl",
+        MetricRecord.kind == "forum_stage_event",
+        MetricRecord.external_id.in_([e["external_id"] for e in events])))).scalars().all())
+    fresh = [e for e in events if e["external_id"] not in seen]
+    if fresh:
+        await s.execute(insert(MetricRecord).values(fresh))
+    return len(fresh)
+
+
+async def sync_forum_calendar(s: AsyncSession, tenant_id, biz, token: str, location_id: str,
+                              calendar_id: str, tz, *, now: dt.datetime | None = None) -> int:
+    """The Forum calendar → two upserted kinds per appointment: `forum_appt` dated by its START and
+    carrying GHL's appointmentStatus ('showed' = Met), and `forum_appt_set` dated by when it was
+    BOOKED (= Set). Upserted by event id, not snapshotted: each sync reads only a window, and a
+    snapshot would forget everything older. The first sync backfills _FORUM_CAL_BACKFILL_DAYS; later
+    syncs re-read the recent past so an appointment later marked 'showed' moves into Met."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    have_any = await s.scalar(select(MetricRecord.id).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.source == "ghl",
+        MetricRecord.kind == "forum_appt").limit(1))
+    back = _FORUM_CAL_LOOKBACK_DAYS if have_any else _FORUM_CAL_BACKFILL_DAYS
+    lo, hi = now - dt.timedelta(days=back), now + dt.timedelta(days=_FORUM_CAL_LOOKAHEAD_DAYS)
+    events: dict[str, dict] = {}
+    cur = lo
+    while cur < hi:
+        nxt = min(cur + dt.timedelta(days=_FORUM_CAL_CHUNK_DAYS), hi)
+        body = await ghl.ghl_json("GET", "/calendars/events", token=token, location_id=location_id,
+                                  params={"locationId": location_id, "calendarId": calendar_id,
+                                          "startTime": int(cur.timestamp() * 1000),
+                                          "endTime": int(nxt.timestamp() * 1000)})
+        for ev in (body or {}).get("events") or []:
+            if ev.get("id"):
+                events[str(ev["id"])[:64]] = ev          # by id: a boundary event is kept once
+        cur = nxt
+    if not events:
+        return 0
+    existing = {(r.kind, r.external_id): r for r in (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.source == "ghl",
+        MetricRecord.kind.in_(("forum_appt", "forum_appt_set")),
+        MetricRecord.external_id.in_(list(events))))).scalars().all()}
+    for eid, ev in events.items():
+        status = (ev.get("appointmentStatus") or "").strip().lower()[:32] or None
+        booked = ev.get("dateAdded") or ev.get("createdAt")
+        meta = {"calendar_id": calendar_id, "contact_id": str(ev.get("contactId") or "") or None,
+                "start": ev.get("startTime"), "booked": booked}
+        name = (ev.get("title") or "")[:200] or None
+        for kind, on in (("forum_appt", _local_date(ev.get("startTime"), tz)),
+                         ("forum_appt_set", _local_date(booked, tz))):
+            row = existing.get((kind, eid))
+            if row is None:
+                s.add(MetricRecord(tenant_id=tenant_id, business_id=biz, source="ghl", kind=kind,
+                                   external_id=eid, name=name, status=status, occurred_on=on,
+                                   meta=dict(meta)))
+            else:                                        # fresh dict, never the loaded one
+                row.status, row.occurred_on, row.name, row.meta = status, on, name, dict(meta)
+    await s.commit()
+    return len(events)
+
+
 async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     """Snapshot The Forum from Go High Level into metric_record, across the three
     surfaces the team actually uses (see the reference audit):
@@ -563,7 +685,25 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                 recruiting.append({**base, "kind": "recruiting", "status": "open",
                                    "amount": float(o.get("monetaryValue") or 0) or None,
                                    "meta": {"stage": stage,
-                                            "stage_position": stage_pos.get(o.get("pipelineStageId"), 99)}})
+                                            "stage_position": stage_pos.get(o.get("pipelineStageId"), 99),
+                                            # for the scorecard's stage-change events (below)
+                                            "last_stage_change_at": o.get("lastStageChangeAt"),
+                                            "opp_source": o.get("source")}})
+        # Stage-change events for the Spring B scorecard, read against the PRIOR 'recruiting'
+        # snapshot — so this must run before that snapshot is replaced just below. Isolated: a
+        # failure here must never cost the Forum its own snapshot.
+        try:
+            n_moves = await _record_forum_stage_changes(s, tenant_id, biz, recruiting, _biz_tz())
+            if n_moves:
+                print(f"[ghl] {n_moves} forum funnel stage change(s) recorded", flush=True)
+        except Exception as e:  # noqa: BLE001
+            # Nothing else is pending here (every snapshot so far committed), so a rollback only
+            # discards the events. But a rollback EXPIRES `integ`, and the Edge / event syncs that
+            # run after this read integ.config — on an async session that lazy reload raises
+            # MissingGreenlet and they'd silently skip. Reload it explicitly.
+            await s.rollback()
+            await s.refresh(integ)
+            print(f"[ghl] forum stage tracking skipped: {e}", flush=True)
         await _ghl_snapshot(s, tenant_id, biz, "membership", memberships)
         await _ghl_snapshot(s, tenant_id, biz, "onboarded", onboarded)
         await _ghl_snapshot(s, tenant_id, biz, "recruiting", recruiting)
@@ -574,6 +714,19 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
               f"{len(recruiting)} recruiting, {len(lost)} lost", flush=True)
     except Exception as e:  # noqa: BLE001 — opportunities scope optional
         print(f"[ghl] opportunities skipped: {e}", flush=True)
+
+    # 2b) The Forum calendar → appointments set / met for the Spring B scorecard. Optional (only
+    #     when a calendar is configured) and isolated: a calendar failure must not cost payments.
+    if cfg.get("forum_calendar_id"):
+        try:
+            n_appts = await sync_forum_calendar(s, tenant_id, biz, token, location_id,
+                                                str(cfg["forum_calendar_id"]), _biz_tz())
+            n_records += n_appts
+            print(f"[ghl] {n_appts} forum calendar appointment(s)", flush=True)
+        except Exception as e:  # noqa: BLE001
+            await s.rollback()
+            await s.refresh(integ)                  # see the stage-tracking note above
+            print(f"[ghl] forum calendar skipped: {e}", flush=True)
 
     # 3) Payments (Stripe via GHL) → cash / failures / MRR. Best effort; needs the
     #    payments scope. Transactions first (they feed installment counts), then the

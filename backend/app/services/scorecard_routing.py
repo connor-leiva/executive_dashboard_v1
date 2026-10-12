@@ -214,6 +214,24 @@ async def run_spec(spec, s, tenant_id, business_id, week_start: dt.date, week_en
     return UNAVAILABLE
 
 
+# ── Spring B board: the Forum's appointment lines ─────────────────────────────────────────────────
+# Fed by sync.sync_forum_calendar (the Forum calendar, upserted by event id). Specs rather than
+# resolvers so they stay editable in the routing UI — e.g. add {"field": "status", "op": "ne",
+# "value": "cancelled"} to Set if a cancelled booking shouldn't count. Set = booked that week (all
+# bookings, matching ULRG's recruiting 'booked'); Met = GHL marked it 'showed', by its start date.
+FORUM_APPOINTMENT_SPECS: dict[str, dict] = {
+    "forum_appointments_set": {
+        "source": "ghl", "dataset": "metric_record", "date_field": "occurred_on",
+        "filters": [{"field": "kind", "op": "eq", "value": "forum_appt_set"}],
+        "aggregate": {"fn": "count"}, "attribution": "none"},
+    "forum_appointments_met": {
+        "source": "ghl", "dataset": "metric_record", "date_field": "occurred_on",
+        "filters": [{"field": "kind", "op": "eq", "value": "forum_appt"},
+                    {"field": "status", "op": "eq", "value": "showed"}],
+        "aggregate": {"fn": "count"}, "attribution": "none"},
+}
+
+
 # ── declarative twins of the hardcoded count resolvers (parity-proven) ────────────────────────────
 # Flipping a metric from resolver_key to one of these is safe once the parity test passes for it.
 RESOLVER_SPECS: dict[str, dict] = {
