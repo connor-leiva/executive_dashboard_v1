@@ -5,6 +5,7 @@ a mis-adopted Recall bot produces no error, just one customer's client conversat
 behind another customer's Watch link. So each test here sets up TWO tenants and asserts on
 tenant B while acting as tenant A.
 """
+import asyncio
 import datetime as dt
 import uuid
 
@@ -367,3 +368,36 @@ async def test_one_tenants_sync_failure_does_not_starve_the_rest(monkeypatch):
     await worker.tick()
     assert len(seen) == total, \
         f"one tenant's failure stopped the loop: {len(seen)} of {total} were attempted"
+
+
+async def test_one_tenants_sync_hang_does_not_block_every_later_sync(monkeypatch):
+    """The 2026-10-10 prod incident. run_all for one tenant HUNG — an external call with no timeout,
+    not an exception — so the try/except above did nothing, tick() never finished, and the tick's
+    max_instances=1 skipped every 30-min sync for ~2.5 days (Justin's SLC Appointments Met froze at
+    13 while Sisu had 22). A per-tenant asyncio.wait_for turns the hang into a caught TimeoutError, so
+    the loop finishes and every other tenant still syncs. The sibling test above only covers a RAISE;
+    a raise was always caught — it was the hang that took prod down."""
+    from app import worker
+
+    await _two_tenants()
+    seen, first = [], {"tid": None}
+
+    async def fake_run_all(s, tenant_id, start, end):
+        if first["tid"] is None:                    # the first tenant hangs forever
+            first["tid"] = tenant_id
+            await asyncio.sleep(30)                  # >> the per-tenant timeout below
+        seen.append(tenant_id)
+
+    monkeypatch.setattr(worker, "run_all", fake_run_all)
+    monkeypatch.setattr(worker.settings, "SYNC_TENANT_TIMEOUT_SECONDS", 0.2)
+
+    async with SessionLocal() as s:
+        total = len(await worker.syncable_tenant_ids(s))
+    assert total >= 2
+
+    # The whole tick must COMPLETE despite the first tenant hanging. Without the per-tenant timeout
+    # this await would itself time out at 10s (the bug); with it, tick returns in well under a second.
+    await asyncio.wait_for(worker.tick(), timeout=10)
+    assert first["tid"] not in seen, "the hung tenant should have timed out, not completed"
+    assert len(seen) == total - 1, \
+        f"the hang blocked later tenants: only {len(seen)} of the {total - 1} non-hung tenants synced"

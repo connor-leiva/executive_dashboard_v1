@@ -37,8 +37,13 @@ async def tick():
     for tid in tenant_ids:
         try:
             async with SessionLocal() as s2:
-                await run_all(s2, tid, start, end)
-        except Exception as e:  # noqa: BLE001 — one tenant's failure must not stop the rest
+                # Bounded: a tenant whose sync HANGS (not raises) would otherwise block the whole
+                # tick forever — the tick is max_instances=1, so every later sync is skipped (see
+                # SYNC_TENANT_TIMEOUT_SECONDS). wait_for cancels the hung await and raises
+                # TimeoutError (caught below), so the loop moves on and the tick still finishes.
+                await asyncio.wait_for(run_all(s2, tid, start, end),
+                                       timeout=settings.SYNC_TENANT_TIMEOUT_SECONDS)
+        except Exception as e:  # noqa: BLE001 — one tenant's failure OR hang must not stop the rest
             print(f"[tick] tenant {tid}: {type(e).__name__}: {e}", flush=True)
 
 

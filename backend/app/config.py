@@ -110,6 +110,13 @@ class Settings(BaseSettings):
 
     # worker
     SYNC_INTERVAL_MINUTES: int = 30
+    # Hard cap on ONE tenant's sync inside the sync tick. A tenant whose sync hangs — an external
+    # API call with no timeout, say — must not block the tick: the tick has max_instances=1, so a
+    # hung run never finishes and every later 30-min sync is skipped forever (prod incident 2026-10-10:
+    # the Sisu scorecard froze for ~2.5 days this way). asyncio.wait_for turns a hang into a caught
+    # TimeoutError, the tenant is skipped, and the tick still completes. Generous (a real full sync is
+    # seconds to a couple of minutes); it only ever fires on a genuine hang.
+    SYNC_TENANT_TIMEOUT_SECONDS: int = 600
     # Run the background scheduler (syncs + the AI Employees dispatch/execute jobs) INSIDE the
     # API process instead of a separate `python -m app.worker` service. For single-service
     # deployments that don't run a dedicated worker. Keep the API to ONE process when on
