@@ -1153,6 +1153,23 @@ def test_the_scheduler_registers_every_job_through_a_heartbeat():
     assert registered == {e["job"] for e in jobs.catalog() if e["enabled"]}
 
 
+def test_scorecard_recompute_runs_on_its_own_interval_not_coupled_to_the_sync():
+    """The 2026-10-10 incident: the 30-min scorecard update rode inside run_all (recompute after the
+    Sisu sync), so a source whose sync HUNG (ghl_recruiting) stopped the board from moving all day —
+    only the then-daily scorecard_tick updated it. It now runs on its own interval, standalone, so a
+    hung sync can't freeze it. Pinned at both the scheduler and the catalog so they can't drift back."""
+    from apscheduler.triggers.interval import IntervalTrigger
+    from app.config import settings
+    from app.services import jobs
+    from app.worker import build_scheduler
+
+    job = next(j for j in build_scheduler().get_jobs() if j.func.__name__ == "scorecard_tick")
+    assert isinstance(job.trigger, IntervalTrigger), "scorecard_tick must be interval-scheduled, not a daily cron"
+    assert job.trigger.interval.total_seconds() == settings.SYNC_INTERVAL_MINUTES * 60
+    entry = next(e for e in jobs.catalog() if e["job"] == "scorecard_tick")
+    assert entry["every_minutes"] == settings.SYNC_INTERVAL_MINUTES    # so the System view flags a stall
+
+
 async def test_a_heartbeat_records_starts_clean_runs_and_failures():
     from app.models import JobHeartbeat
     from app.services.jobs import heartbeat

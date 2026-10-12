@@ -226,10 +226,12 @@ async def roster_tick():
 
 
 async def scorecard_tick():
-    """ULRG L10 Scorecard resolvers (SPEC 3.1): daily, resolving the open week plus a trailing
-    look-back so late syncs self-heal. `today` is the business-local date — the server runs UTC, so
-    a naive date would flip the Monday-keyed week a day early and drop late closings. No-op until a
-    metric sets a resolver_key. One tenant's failure is isolated so it can't stop the rest."""
+    """ULRG L10 Scorecard resolvers (SPEC 3.1): runs every sync interval, resolving the open week plus
+    a trailing look-back so late syncs self-heal. Deliberately standalone — NOT coupled to the full
+    sync — so a slow/hung source can't freeze the board (see build_scheduler). `today` is the
+    business-local date — the server runs UTC, so a naive date would flip the Monday-keyed week a day
+    early and drop late closings. No-op until a metric sets a resolver_key or source_spec. One tenant's
+    failure is isolated so it can't stop the rest."""
     from .services.scorecard_resolvers import run_resolvers
     today = dt.datetime.now(ZoneInfo(settings.BILLING_TIMEZONE)).date()
     async with SessionLocal() as s:
@@ -522,7 +524,15 @@ def build_scheduler() -> AsyncIOScheduler:
     # No next_run_time: it has nothing to match until a sync has pulled the payments in.
     sched.add_job(beat(payables_match_tick), "interval", minutes=30)
     sched.add_job(beat(roster_tick), "cron", hour=4, minute=45, timezone=_tz)   # refresh agent→office first
-    sched.add_job(beat(scorecard_tick), "cron", hour=5, minute=15, timezone=_tz)  # then resolve, business-local
+    # Every sync interval, NOT daily. The 30-min scorecard update used to ride inside run_all (recompute
+    # after the Sisu sync), which made it hostage to the SLOWEST source: when ghl_recruiting's sync hung
+    # (2026-10-10), run_all never reached the recompute, so the board only moved at this daily tick while
+    # Sisu kept growing — Justin's SLC Appointments Met read 13 against 22. run_resolvers is standalone
+    # and isolated (its own sessions, per-(metric,week) try/except), reads Transactions the Sisu sync
+    # keeps fresh, and touches no external source — so a hung sync can't starve it. Fires immediately on
+    # start so a deploy recovers the board at once; roster_tick (4:45am) keeps agent→office fresh.
+    sched.add_job(beat(scorecard_tick), "interval", minutes=settings.SYNC_INTERVAL_MINUTES,
+                  next_run_time=dt.datetime.now())
     # After the syncs have had the night to land: attribution reads registrations the GHL sync
     # wrote, so running it earlier would freeze cohort days against yesterday's data.
     sched.add_job(beat(ads_funnel_tick), "cron", hour=5, minute=45, timezone=_tz)
