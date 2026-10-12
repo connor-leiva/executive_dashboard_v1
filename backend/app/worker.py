@@ -3,12 +3,12 @@ import datetime as dt
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from .db import SessionLocal
 from .config import settings
 from .startup_checks import enforce_config
-from .models import Tenant
+from .models import Tenant, SyncRun
 from .services.jobs import heartbeat
 from .services.sync import run_all
 
@@ -16,6 +16,27 @@ from .services.sync import run_all
 def _mtd_range():
     today = dt.date.today()
     return today.replace(day=1).isoformat(), today.isoformat()
+
+
+async def _sweep_interrupted_runs():
+    """Close out SyncRun rows orphaned in 'running'. A run is marked 'running' before its sync starts
+    and updated on finish; a worker restart or a per-tenant sync timeout cancels the sync WITHOUT that
+    finish, so the row stays 'running' forever and the operator console shows a sync that never ends.
+    Anything older than the per-tenant timeout (plus a margin) is definitely not still running. Runs at
+    the top of each tick, which (max_instances=1) never overlaps a live run."""
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+        seconds=settings.SYNC_TENANT_TIMEOUT_SECONDS + 300)
+    try:
+        async with SessionLocal() as s:
+            res = await s.execute(update(SyncRun)
+                                  .where(SyncRun.status == "running", SyncRun.started_at < cutoff)
+                                  .values(status="error", finished_at=dt.datetime.now(dt.timezone.utc),
+                                          detail="interrupted (worker restart or sync timeout)"))
+            await s.commit()
+            if res.rowcount:
+                print(f"[sweep] closed {res.rowcount} interrupted sync run(s)", flush=True)
+    except Exception as e:  # noqa: BLE001 — housekeeping must never break the sync
+        print(f"[sweep] skipped: {type(e).__name__}: {e}", flush=True)
 
 
 async def tick():
@@ -31,6 +52,7 @@ async def tick():
     shared with request handling when RUN_WORKER_IN_API is set — a gather() here would exhaust
     it at around seven concurrent tenants.
     """
+    await _sweep_interrupted_runs()
     start, end = _mtd_range()
     async with SessionLocal() as s:
         tenant_ids = await syncable_tenant_ids(s)

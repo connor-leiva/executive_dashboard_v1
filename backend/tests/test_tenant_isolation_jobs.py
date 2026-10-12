@@ -401,3 +401,32 @@ async def test_one_tenants_sync_hang_does_not_block_every_later_sync(monkeypatch
     assert first["tid"] not in seen, "the hung tenant should have timed out, not completed"
     assert len(seen) == total - 1, \
         f"the hang blocked later tenants: only {len(seen)} of the {total - 1} non-hung tenants synced"
+
+
+async def test_sweep_closes_orphaned_running_sync_runs():
+    """A worker restart or the per-tenant sync timeout cancels a sync without the finish that marks its
+    SyncRun ok/error, orphaning the row as 'running' forever (the operator console then shows a sync
+    that never ends). The sweep at tick start closes rows older than the tenant timeout and leaves a
+    genuinely in-progress one alone."""
+    from app import worker
+    from app.models import SyncRun
+    from sqlalchemy import select
+
+    async with SessionLocal() as s:
+        tid = (await s.execute(select(Tenant.id).where(Tenant.slug == "springb"))).scalar_one()
+        old = SyncRun(tenant_id=tid, provider="ghl_recruiting", status="running",
+                      started_at=dt.datetime.now(U) - dt.timedelta(hours=2))      # orphaned
+        fresh = SyncRun(tenant_id=tid, provider="sisu", status="running",
+                        started_at=dt.datetime.now(U))                            # genuinely running
+        s.add_all([old, fresh])
+        await s.commit()
+        old_id, fresh_id = old.id, fresh.id
+
+    await worker._sweep_interrupted_runs()
+
+    async with SessionLocal() as s:
+        closed = await s.get(SyncRun, old_id)
+        live = await s.get(SyncRun, fresh_id)
+    assert closed.status == "error" and closed.finished_at is not None, "the orphan was not closed"
+    assert "interrupted" in (closed.detail or "")
+    assert live.status == "running", "a live run must be left alone"

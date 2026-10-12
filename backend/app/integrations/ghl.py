@@ -13,12 +13,22 @@ Confirm endpoint shape against highlevel.stoplight.io if a pull returns nothing.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 import httpx
 
+log = logging.getLogger(__name__)
+
 GHL_BASE = "https://services.leadconnectorhq.com"
 GHL_VERSION = "2021-07-28"
+
+# Hard backstop on cursor pagination. A search loop follows startAfterId until the API stops handing
+# one back; if the API ever returns rows with a cursor that does NOT advance (a stuck/looping cursor),
+# or a location is pathologically large, the loop would run until the per-tenant sync timeout cancels
+# it — which once wedged the whole sync. Every paginator below also breaks the moment the cursor stops
+# advancing; this cap is the belt to that suspenders. ~200k rows at 100/page, far above any real list.
+_MAX_SEARCH_PAGES = 2000
 
 
 def _headers(token: str) -> dict:
@@ -199,7 +209,7 @@ async def get_contacts(token: str, location_id: str, max_pages: int | None = Non
     """All contacts for the location, following cursor pagination."""
     out: list[dict] = []
     params: dict = {"locationId": location_id, "limit": 100}
-    page = 0
+    page, cap, seen = 0, (max_pages or _MAX_SEARCH_PAGES), None
     async with httpx.AsyncClient(timeout=45) as c:
         while True:
             r = await ghl_request("GET", "/contacts/", token=token, location_id=location_id,
@@ -211,8 +221,17 @@ async def get_contacts(token: str, location_id: str, max_pages: int | None = Non
             start_after_id = meta.get("startAfterId")
             start_after = meta.get("startAfter")
             page += 1
-            if not rows or not start_after_id or (max_pages and page >= max_pages):
+            if not rows or not start_after_id:
                 break
+            if page >= cap:
+                log.warning("ghl get_contacts hit the %d-page cap for location %s (%d rows) — truncating",
+                            cap, location_id, len(out))
+                break
+            if start_after_id == seen:          # cursor not advancing → would loop forever
+                log.warning("ghl get_contacts cursor stalled at %r for location %s — stopping at %d rows",
+                            start_after_id, location_id, len(out))
+                break
+            seen = start_after_id
             params["startAfterId"] = start_after_id
             if start_after:
                 params["startAfter"] = start_after
@@ -328,7 +347,7 @@ async def get_opportunities(token: str, location_id: str, max_pages: int | None 
     """All opportunities, following the search cursor (startAfterId/startAfter)."""
     out: list[dict] = []
     params: dict = {"location_id": location_id, "limit": 100}
-    page = 0
+    page, cap, seen = 0, (max_pages or _MAX_SEARCH_PAGES), None
     async with httpx.AsyncClient(timeout=60) as c:
         while True:
             r = await ghl_request("GET", "/opportunities/search", token=token,
@@ -340,8 +359,17 @@ async def get_opportunities(token: str, location_id: str, max_pages: int | None 
             meta = data.get("meta") or {}
             sai = meta.get("startAfterId")
             page += 1
-            if not rows or not sai or (max_pages and page >= max_pages):
+            if not rows or not sai:
                 break
+            if page >= cap:
+                log.warning("ghl get_opportunities hit the %d-page cap for location %s (%d rows) — truncating",
+                            cap, location_id, len(out))
+                break
+            if sai == seen:                     # the cursor is not advancing → the API would loop us forever
+                log.warning("ghl get_opportunities cursor stalled at %r for location %s — stopping at %d rows",
+                            sai, location_id, len(out))
+                break
+            seen = sai
             params["startAfterId"] = sai
             if meta.get("startAfter"):
                 params["startAfter"] = meta["startAfter"]
