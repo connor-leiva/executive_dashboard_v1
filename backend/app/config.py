@@ -114,9 +114,13 @@ class Settings(BaseSettings):
     # API call with no timeout, say — must not block the tick: the tick has max_instances=1, so a
     # hung run never finishes and every later 30-min sync is skipped forever (prod incident 2026-10-10:
     # the Sisu scorecard froze for ~2.5 days this way). asyncio.wait_for turns a hang into a caught
-    # TimeoutError, the tenant is skipped, and the tick still completes. Generous (a real full sync is
-    # seconds to a couple of minutes); it only ever fires on a genuine hang.
-    SYNC_TENANT_TIMEOUT_SECONDS: int = 600
+    # TimeoutError, the tenant is skipped, and the tick still completes.
+    # It must sit ABOVE the slowest tenant's LEGITIMATE sync, or it cancels real work. It was 600s,
+    # and Spring B's full sync is ~12-13 min (15 integrations, run serially; Stripe legacy alone is up
+    # to ~220s): its LAST integration — the Forum's own GHL sync — started ~533s in and was cancelled
+    # ~67s later on 4 of 6 cycles, starving the Forum tab. 25 min keeps ~2x headroom, stays under the
+    # 30-min interval, and still turns an infinite hang into a skipped tenant.
+    SYNC_TENANT_TIMEOUT_SECONDS: int = 1500
     # Run the background scheduler (syncs + the AI Employees dispatch/execute jobs) INSIDE the
     # API process instead of a separate `python -m app.worker` service. For single-service
     # deployments that don't run a dedicated worker. Keep the API to ONE process when on
