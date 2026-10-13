@@ -1,4 +1,4 @@
-"""ULRG L10 Scorecard — read-only public share for ClickUp embeds (SPEC Part 5.3 / Step 8).
+"""L10 Scorecards (ULRG + Spring B) — read-only public share for ClickUp embeds (SPEC Part 5.3 / Step 8).
 
 The web app serves the embed PAGE at /share/{token} (it renders the real read-only Scorecard —
 identical look, collapsible cumulative panel — reading from the JSON below), and it carries the
@@ -29,6 +29,7 @@ from ..models import Business, ShareLink
 from ..services import scorecard
 from ..services import roles
 from ..tenancy import tenant_app_url
+from .ulrg import SCORECARD_SCOPES, SHARE_SCOPES
 
 router = APIRouter(prefix="/share", tags=["share"])          # JSON, mounted under /api/v1
 page_router = APIRouter(tags=["share"])                       # /share/{token} at the root
@@ -54,8 +55,9 @@ async def _resolve(s: AsyncSession, token: str, *scopes: str) -> ShareLink:
     return link
 
 
-async def _ulrg_business(s: AsyncSession, tenant_id) -> Business:
-    b = await roles.real_estate(s, tenant_id)
+async def _board_business(s: AsyncSession, link: ShareLink) -> Business:
+    """The business whose board this link shares — from the LINK's scope, never the request."""
+    b = await roles.primary(s, link.tenant_id, SCORECARD_SCOPES[SHARE_SCOPES[link.scope]]["kind"])
     if not b:
         raise HTTPException(404, "Not found")
     return b
@@ -64,8 +66,8 @@ async def _ulrg_business(s: AsyncSession, tenant_id) -> Business:
 @router.get("/{token}/scorecard")
 async def shared_scorecard(token: str, response: Response, weeks: int = 13,
                            s: AsyncSession = Depends(get_session)):
-    link = await _resolve(s, token, "ulrg_scorecard")
-    b = await _ulrg_business(s, link.tenant_id)
+    link = await _resolve(s, token, *SHARE_SCOPES)        # a ULRG or a Spring B board link
+    b = await _board_business(s, link)
     weeks = max(1, min(52, weeks))
     # never cache the payload: the token is in the URL, and a cached copy could outlive a revoke
     response.headers["Cache-Control"] = "no-store"

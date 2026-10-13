@@ -1,11 +1,12 @@
 /* Owner/admin control to mint a read-only ClickUp share link (SPEC 5.3 / Step 8). POSTs
    /ulrg/share and reveals the embeddable URL with a copy button. Read-only link — anyone with it
-   sees the scorecard, so it's owner/admin only (also enforced server-side). */
+   sees the scorecard, so it's owner/admin only (also enforced server-side). `scope` = which board
+   (ulrg | springb); the link opens that board only. */
 import { useState } from "react";
 import { postJSON } from "../api.js";
 import { C, FB, FM } from "./scorecardMath.js";
 
-export default function ShareButton() {
+export default function ShareButton({ scope = "ulrg" }) {
   const [url, setUrl] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(false);
@@ -14,7 +15,7 @@ export default function ShareButton() {
   async function make() {
     setBusy(true); setErr(false);
     try {
-      const r = await postJSON("/ulrg/share", { scope: "ulrg_scorecard" });
+      const r = await postJSON("/ulrg/share", { scope: `${scope}_scorecard` });
       setUrl(r.url);
     } catch (e) { setErr(true); }
     setBusy(false);

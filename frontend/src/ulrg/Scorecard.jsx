@@ -199,7 +199,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                   Settings
                 </button>
               )}
-              {isAdmin && scope === "ulrg" && <ShareButton />}
+              {isAdmin && <ShareButton scope={scope} />}
             </div>
           </div>
 

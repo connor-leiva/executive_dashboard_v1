@@ -5,7 +5,7 @@ import { Btn, Card, Chip, Confirm, Empty, Loading, LoadError, Mono, Notice, Row,
 import { A, TYPE } from "../tokens.js";
 import SupportCard from "./SupportCard.jsx";
 
-const SCOPES = { ulrg_scorecard: "Scorecard", ulrg_team: "Team room", sd_rep: "Rep desk" };
+const SCOPES = { ulrg_scorecard: "Brokerage scorecard", springb_scorecard: "Membership scorecard", ulrg_team: "Team room", sd_rep: "Rep desk" };
 
 export function ShareLinksCard({ w, reload }) {
   const data = useApi(() => api.shareLinks(w.slug), [w.slug]);

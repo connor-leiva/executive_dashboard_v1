@@ -82,6 +82,32 @@ async def test_create_requires_auth_and_team_scope_deferred():
         assert r.status_code == 400                                  # team-room sharing is Step 6
 
 
+async def test_springb_link_opens_the_springb_board_only():
+    from app.seed_springb_scorecard import load_springb_scorecard
+    async with SessionLocal() as s:
+        t = (await s.execute(select(Tenant).where(Tenant.slug == "springb"))).scalar_one()
+        await load_springb_scorecard(s, t.id)                        # idempotent: other modules may have run it
+
+    springb_groups = {"Spring B", "beCollective", "Forum", "Activated Agent"}
+    owner = await _owner_token()
+    async with _client() as c:
+        r = await c.post("/api/v1/ulrg/share", headers=_H(owner), json={"scope": "springb_scorecard"})
+        assert r.status_code == 201
+        sb_tok = r.json()["token"]
+        ulrg_tok = (await c.post("/api/v1/ulrg/share", headers=_H(owner),
+                                 json={"scope": "ulrg_scorecard"})).json()["token"]
+
+        sb = await c.get(f"/api/v1/share/{sb_tok}/scorecard")       # no auth header — token is the auth
+        assert sb.status_code == 200 and sb.headers.get("cache-control") == "no-store"
+        assert {g["name"] for g in sb.json()["groups"]} == springb_groups
+        # the ULRG link still opens ULRG — the board comes from the LINK's scope, not a shared default
+        ulrg = (await c.get(f"/api/v1/share/{ulrg_tok}/scorecard")).json()
+        assert not {g["name"] for g in ulrg["groups"]} & springb_groups
+
+        assert (await c.post("/api/v1/ulrg/share", headers=_H(owner),
+                             json={"scope": "nope_scorecard"})).status_code == 400
+
+
 async def test_room_endpoint_not_yet_available():
     owner = await _owner_token()
     async with _client() as c:

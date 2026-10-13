@@ -52,6 +52,9 @@ SCORECARD_SCOPES = {
     "ulrg":    {"kind": roles.REAL_ESTATE, "tabs": ("ulrg",)},
     "springb": {"kind": roles.MEMBERSHIP,  "tabs": ("forum", "becollective", "edge")},
 }
+# Each board's read-only share-link scope ("ulrg_scorecard", "springb_scorecard") → its board. The
+# public read (share.py) resolves the business from the LINK's scope, so a token opens one board only.
+SHARE_SCOPES = {f"{k}_scorecard": k for k in SCORECARD_SCOPES}
 
 
 async def _ulrg_business(s, tenant_id):
@@ -214,11 +217,12 @@ async def _share_url(s, tenant_id, token: str) -> str:
 @router.post("/share", status_code=201)
 async def create_share(body: ShareIn, user: User = Depends(current_user),
                        s: AsyncSession = Depends(get_session)):
-    """Mint a read-only share token for the scorecard (owner/admin). Returns {token, url}; the url is
-    the web-app embed page ClickUp iframes."""
+    """Mint a read-only share token for a scorecard (owner/admin). Returns {token, url}; the url is
+    the web-app embed page ClickUp iframes. `scope` picks the board: ulrg_scorecard | springb_scorecard."""
     _require_admin(user)
-    if body.scope != "ulrg_scorecard":                   # team-room sharing arrives with Step 6
-        raise HTTPException(400, "Only the full scorecard can be shared yet")
+    if body.scope not in SHARE_SCOPES:                   # team-room sharing arrives with Step 6
+        raise HTTPException(400, "Only a full scorecard can be shared yet")
+    await _scope_business(s, user.tenant_id, SHARE_SCOPES[body.scope])   # 404 if this tenant has no such board
     tenant = await s.get(Tenant, user.tenant_id)
     # Counts only LIVE links. A revoked one is not occupying anything, and making somebody delete
     # history to mint a new share would be a limit that punishes tidiness.
