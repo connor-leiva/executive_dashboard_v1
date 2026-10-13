@@ -29,7 +29,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 
 from ..models import MetricRecord, Transaction
-from .scorecard_resolvers import UNAVAILABLE, _office_agent_ids, _sisu_live
+from .scorecard_resolvers import UNAVAILABLE, _agent_names, _office_agent_ids, _sisu_live
 
 
 @dataclass(frozen=True)
@@ -163,9 +163,11 @@ def validate_spec(spec) -> list[str]:
     return errs
 
 
-async def run_spec(spec, s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
-    """Interpret a source_spec → number | None | UNAVAILABLE. Mirrors the hardcoded resolvers'
-    contract exactly (that is what the parity test locks in)."""
+async def _spec_query(spec, s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                      group=None):
+    """(dataset, date column, WHERE clauses) for a spec over one window — or UNAVAILABLE when it
+    can't look. The ONE place run_spec and spec_records build their query, so a drill-down always
+    lists exactly the rows its figure counted."""
     ds = DATASETS.get(f"{(spec or {}).get('source')}.{(spec or {}).get('dataset')}") if isinstance(spec, dict) else None
     if ds is None:
         return UNAVAILABLE                                  # unknown dataset → cannot look
@@ -196,6 +198,42 @@ async def run_spec(spec, s, tenant_id, business_id, week_start: dt.date, week_en
         if ids is None:                                     # roster not synced → could not look
             return UNAVAILABLE
         clauses.append(model.agent_id.in_(ids))             # empty office → IN () → a real 0
+    return ds, date_col, clauses
+
+
+async def spec_records(spec, s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                       group=None, limit: int = 500) -> list[dict] | None:
+    """The rows behind a spec's figure — the grid drill-down — in the drawer's record shape. Same
+    WHERE as run_spec, so the list reads back as the count. None when the spec can't look."""
+    q = await _spec_query(spec, s, tenant_id, business_id, week_start, week_end, group)
+    if q is UNAVAILABLE:
+        return None
+    ds, date_col, clauses = q
+    rows = (await s.execute(select(ds.model).where(*clauses)
+                            .order_by(date_col.desc()).limit(limit))).scalars().all()
+
+    def _iso(d):
+        return d.isoformat() if d else None
+
+    if ds.model is Transaction:
+        names = await _agent_names(s, tenant_id, {t.agent_id for t in rows if t.agent_id})
+        return [{"id": t.external_id, "client": t.buyer_name, "agent": names.get(t.agent_id),
+                 "date": _iso(getattr(t, date_col.key)), "address": t.address, "side": t.side,
+                 "sale_price": float(t.sale_price) if t.sale_price is not None else None} for t in rows]
+    return [{"id": r.external_id, "client": r.name, "agent": None, "date": _iso(getattr(r, date_col.key)),
+             "address": None, "side": None,
+             "sale_price": float(r.amount) if r.amount is not None else None,
+             "detail": r.status} for r in rows]
+
+
+async def run_spec(spec, s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Interpret a source_spec → number | None | UNAVAILABLE. Mirrors the hardcoded resolvers'
+    contract exactly (that is what the parity test locks in)."""
+    q = await _spec_query(spec, s, tenant_id, business_id, week_start, week_end, group)
+    if q is UNAVAILABLE:
+        return UNAVAILABLE
+    ds, _date_col, clauses = q
+    model = ds.model
 
     agg = spec.get("aggregate") or {"fn": "count"}
     fn = agg.get("fn", "count")

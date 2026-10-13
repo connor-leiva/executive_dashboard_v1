@@ -35,7 +35,7 @@ from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
 from ..services.scorecard_resolvers import resolver_records, RESOLVERS, UNAVAILABLE
-from ..services.scorecard_routing import (run_spec, validate_spec, RESOLVER_SPECS,
+from ..services.scorecard_routing import (run_spec, spec_records, validate_spec, RESOLVER_SPECS,
                                           catalog as routing_catalog)
 from ..services.tabs import effective_tabs, tenant_tabs
 
@@ -123,15 +123,20 @@ async def metric_records(metric_id: str, week_start: str, week_end: str,
     if scope is None:
         raise HTTPException(404, "Unknown metric")
     await _assert_scope_view(user, s, scope)
-    if not m.resolver_key:
+    if not m.resolver_key and not m.source_spec:
         return {"source": "manual", "measurable": m.name, "records": []}
     try:
         ws, we = dt.date.fromisoformat(week_start), dt.date.fromisoformat(week_end)
     except ValueError:
         raise HTTPException(400, "week_start / week_end must be ISO dates")
-    recs = await resolver_records(s, user.tenant_id, business_id, m.resolver_key, ws, we,
-                                  group={"sisu_group_id": sisu_group_id})
-    return {"source": "resolver", "measurable": m.name, "records": recs or []}
+    group = {"sisu_group_id": sisu_group_id}
+    if m.source_spec:                           # a routing spec wins over a resolver_key, as in the runner
+        recs = await spec_records(m.source_spec, s, user.tenant_id, business_id, ws, we, group=group)
+        label = {"sisu": "Sisu", "ghl": "GHL"}.get(m.source_spec.get("source"), m.source_spec.get("source"))
+        return {"source": "spec", "source_label": label, "measurable": m.name, "records": recs or []}
+    recs = await resolver_records(s, user.tenant_id, business_id, m.resolver_key, ws, we, group=group)
+    label = "GHL" if m.resolver_key.startswith(("forum_", "ghl_")) else "Sisu"
+    return {"source": "resolver", "source_label": label, "measurable": m.name, "records": recs or []}
 
 
 class ValueIn(BaseModel):

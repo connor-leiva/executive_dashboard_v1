@@ -382,3 +382,28 @@ async def test_routing_catalog_preview_flip_and_rollback():
                              json={"metric_id": m["metric_id"], "spec": m["default_spec"]})).status_code == 403
         assert (await c.put(f"/api/v1/ulrg/metric/{m['metric_id']}/routing", headers=_H(member),
                             json={"spec": None})).status_code == 403
+
+
+async def test_a_spec_only_line_is_auto_and_drills_its_spec():
+    """A measurable fed ONLY by a routing spec (no resolver_key) is auto-sourced on the board: a click
+    drills its records instead of opening a value editor whose edits the next resolve would silently
+    overwrite — and the drill names its real source."""
+    from app.services.scorecard_routing import RESOLVER_SPECS
+    owner = await _owner_token()
+    async with _client() as c:
+        sc = (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()
+        davis = next(g for g in sc["groups"] if g["key"] == "davis")
+        mid = (await c.post("/api/v1/ulrg/metric", headers=_H(owner),
+                            json={"group_id": davis["id"], "name": "Spec Only Line"})).json()["id"]
+        try:
+            r = await c.put(f"/api/v1/ulrg/metric/{mid}/routing", headers=_H(owner),
+                            json={"spec": RESOLVER_SPECS["ulrg_team_homes_closed"]})
+            assert r.status_code == 200
+            sc2 = (await c.get("/api/v1/ulrg/scorecard", headers=_H(owner))).json()
+            row = next(x for g in sc2["groups"] for x in g["rows"] if x["id"] == mid)
+            assert row["auto"] is True, "a spec-fed line read as hand-entered"
+            d = (await c.get(f"/api/v1/ulrg/metric/{mid}/records?week_start=2026-07-27&week_end=2026-08-02",
+                             headers=_H(owner))).json()
+            assert d["source"] == "spec" and d["source_label"] == "Sisu" and isinstance(d["records"], list)
+        finally:
+            await c.patch(f"/api/v1/ulrg/metric/{mid}", headers=_H(owner), json={"active": False})

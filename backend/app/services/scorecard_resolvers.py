@@ -254,6 +254,37 @@ async def _meraki_records(s, tenant_id, business_id, week_start, week_end, group
              "captured": t.title_vid in meraki} for t, nm in rows]
 
 
+async def _forum_member_records(s, tenant_id, business_id, week_start, week_end, limit):
+    """Drill for Forum · Members Added — exactly the members forum_members_added counted."""
+    from ..models import MetricRecord
+    from .forum import _pdate
+    rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member",
+        MetricRecord.status == "active"))).scalars().all()
+    out = []
+    for r in rows:
+        d = _pdate(((r.meta or {}).get("membership") or {}).get("enrollment_date"))
+        if d and week_start <= d <= week_end:
+            out.append({"id": r.external_id, "client": r.name, "agent": None, "date": d.isoformat(),
+                        "address": None, "side": None, "sale_price": None, "detail": r.segment})
+    return sorted(out, key=lambda x: x["date"], reverse=True)[:limit]
+
+
+async def _forum_vip_records(s, tenant_id, business_id, week_start, week_end, limit):
+    """Drill for Forum · VIP Guests Added — the stage-change events into the VIP Guest group."""
+    from ..models import MetricRecord
+    rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_event",
+        MetricRecord.segment == "vip_guest",
+        MetricRecord.occurred_on >= week_start, MetricRecord.occurred_on <= week_end)
+        .order_by(MetricRecord.occurred_on.desc()).limit(limit))).scalars().all()
+    return [{"id": r.external_id, "client": r.name, "agent": None,
+             "date": r.occurred_on.isoformat() if r.occurred_on else None, "address": None,
+             "side": None, "sale_price": None, "detail": (r.meta or {}).get("to_stage")} for r in rows]
+
+
 async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.date, week_end: dt.date,
                            group=None, limit: int = 500):
     """The underlying Sisu deals behind a resolver's figure for a (metric, window) — powers the grid
@@ -261,6 +292,10 @@ async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.d
     office restriction, so the list is exactly what was counted. For the two RATE keys (attach rates)
     it's the denominator deals, each flagged `captured` (numerator subset). Returns [] for an office
     that maps to no agents (or an unmapped/overall-only key with no records), None for an unknown key."""
+    if key == "forum_members_added":
+        return await _forum_member_records(s, tenant_id, business_id, week_start, week_end, limit)
+    if key == "forum_vip_guests_added":
+        return await _forum_vip_records(s, tenant_id, business_id, week_start, week_end, limit)
     if key == "ulrg_team_sympli_attach":
         return await _sympli_records(s, tenant_id, week_start, week_end, group, limit)
     if key == "ulrg_team_meraki_attach":

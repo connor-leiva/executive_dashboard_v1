@@ -89,7 +89,11 @@ def trend_4v4(values, goal: float, type_: str, direction: str):
 
 
 def miss_streak(values, goal: float, direction: str) -> int:
-    """Consecutive weeks from the NEWEST end failing the goal test. Nulls skipped, not misses."""
+    """Consecutive weeks from the NEWEST end failing the goal test. Nulls skipped, not misses.
+    No goal (0 = track-only) → nothing can be missed: the cell isn't colored (l10tokens), so an IDS
+    badge would be the only judgement on the row — and on an `lte` line every week above 0 'missed'."""
+    if not goal:
+        return 0
     streak = 0
     for v in reversed(values):                              # newest end = end of chronological array
         if v is None:
@@ -306,7 +310,10 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                 "direction": d, "type": m.type, "stage": m.stage, "lever": m.lever,
                 "owner": {"initials": m.owner_initials} if m.owner_initials else None,
                 "source": m.source, "source_synced_at": None,
-                "auto": m.resolver_key is not None,     # auto-sourced (no HAND chip); else hand-entered
+                # auto-sourced (no HAND chip; a click drills the records instead of editing values) —
+                # by a resolver OR a routing spec. Spec-only lines read as hand-entered before, so a
+                # click opened a value editor whose edits the next resolve silently overwrote.
+                "auto": m.resolver_key is not None or m.source_spec is not None,
                 "values": [vmap.get(m.id, {}).get(w) for w in weeks],
                 # each week keeps its OWN period's goal, so past periods don't recolor when a new
                 # period's goal changes (Phase C history)

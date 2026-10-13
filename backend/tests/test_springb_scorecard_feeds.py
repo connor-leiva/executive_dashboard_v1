@@ -40,7 +40,7 @@ async def forum_env():
         s.add(Integration(tenant_id=t.id, provider="ghl", business_id=b.id, status="connected",
                           last_synced_at=dt.datetime.now(dt.timezone.utc)))
         await s.commit()
-        yield {"tid": t.id, "bid": b.id}
+        yield {"tid": t.id, "bid": b.id, "slug": t.slug, "bkey": b.key}
 
 
 def _rec(e, kind, ext, **kw):
@@ -235,3 +235,96 @@ async def test_a_calendar_the_token_cannot_read_raises_instead_of_reading_zero(f
             MetricRecord.kind.in_(("forum_appt", "forum_appt_cal"))))).scalars()}
     assert ("forum_appt", "ok1") in got, "the good calendar's appointments were lost"
     assert ("forum_appt_cal", "good") in got and ("forum_appt_cal", "bad") not in got
+
+
+# ── drill-downs: each list reads back as its number ───────────────────────────────────────────
+async def test_forum_line_drills_list_what_was_counted(forum_env):
+    from app.services.scorecard_routing import spec_records
+    e = forum_env
+    async with SessionLocal() as s:
+        s.add_all([
+            _rec(e, "member", "m1", name="Ann", status="active", segment="forum",
+                 meta={"membership": {"enrollment_date": "2026-07-28"}}),
+            _rec(e, "member", "m3", name="Old", status="active", segment="forum",
+                 meta={"membership": {"enrollment_date": "2026-07-26"}}),                # prior week
+            _rec(e, "forum_stage_tracking", "since", occurred_on=MON, status="tracking"),
+            _rec(e, "forum_stage_event", "v1", name="Vi", segment="vip_guest", occurred_on=WED,
+                 status="entered", meta={"to_stage": "VIP Guest: Opt-In"}),
+            _rec(e, "forum_appt", "a1", name="Appt", occurred_on=WED, status="showed"),
+            _rec(e, "forum_appt", "a2", name="Appt2", occurred_on=WED, status="confirmed"),
+        ])
+        await s.commit()
+        mem = await R.resolver_records(s, e["tid"], e["bid"], "forum_members_added", MON, SUN)
+        assert [x["client"] for x in mem] == ["Ann"]
+        assert len(mem) == await R.forum_members_added(s, e["tid"], e["bid"], MON, SUN)
+        vip = await R.resolver_records(s, e["tid"], e["bid"], "forum_vip_guests_added", MON, SUN)
+        assert [x["detail"] for x in vip] == ["VIP Guest: Opt-In"]
+        met_spec = FORUM_APPOINTMENT_SPECS["forum_appointments_met"]
+        met = await spec_records(met_spec, s, e["tid"], e["bid"], MON, SUN)
+        assert [x["client"] for x in met] == ["Appt"] and met[0]["detail"] == "showed"
+        assert len(met) == await run_spec(met_spec, s, e["tid"], e["bid"], MON, SUN)
+
+
+# ── goals: track-only is never "missed" ────────────────────────────────────────────────────────
+def test_a_line_without_a_goal_never_builds_a_missed_streak():
+    """Goal 0 = track-only: the cell isn't colored, so an IDS badge would be the row's only verdict —
+    and on a lower-is-better line every week above 0 used to count as a miss."""
+    from app.services.scorecard import miss_streak
+    assert miss_streak([1, 2, 3, 4], 0, "lte") == 0
+    assert miss_streak([1, 2, 3, 4], None, "lte") == 0
+    assert miss_streak([5, 6, 7], 3, "lte") == 3            # with a real goal it still streaks
+
+
+# ── the Q4 goal seed ───────────────────────────────────────────────────────────────────────────
+async def test_seed_springb_goals_applies_the_agreed_set_once(forum_env, monkeypatch):
+    import sys
+    from decimal import Decimal
+    from sqlalchemy import func
+    from app.models import ScorecardGoal, ScorecardGroup, ScorecardMetric
+    from scripts import seed_springb_goals as SG
+    e = forum_env
+    async with SessionLocal() as s:
+        gid = {}
+        for i, key in enumerate(("spring_b", "becollective", "forum", "activated")):
+            g = ScorecardGroup(tenant_id=e["tid"], business_id=e["bid"], key=key, name=key, sort_order=i)
+            s.add(g)
+            await s.flush()
+            gid[key] = g.id
+        for gk, name, typ in [
+                ("forum", "Members Added", "flow"), ("forum", "VIP Guests Added", "flow"),
+                ("forum", "Appointments Set", "flow"), ("forum", "Appointments Met", "flow"),
+                ("forum", "Member Referrals Generated", "flow"), ("forum", "Members at Risk", "snapshot"),
+                ("spring_b", "Email Open Rate Floor", "rate"),
+                ("spring_b", "Content Assets Shipped vs. Planned", "flow"),
+                ("becollective", "Mighty Network Growth", "flow"), ("activated", "Agents at 0", "snapshot")]:
+            s.add(ScorecardMetric(tenant_id=e["tid"], group_id=gid[gk], name=name, type=typ,
+                                  direction="gte", goal=Decimal("0"), active=True))
+        t = await s.get(Tenant, e["tid"])
+        t.config = {"fiscal_quarters": [{"key": "2026Q3", "start": "2026-07-27", "end": "2026-10-30"}]}
+        await s.commit()
+
+    monkeypatch.setattr(sys, "argv", ["seed", "--tenant", e["slug"], "--business", e["bkey"], "--apply"])
+    assert await SG.main() == 0
+    async with SessionLocal() as s:
+        t = await s.get(Tenant, e["tid"])
+        assert {"key": "2026Q4", "start": "2026-10-31", "end": "2027-01-31"} in t.config["fiscal_quarters"]
+        mets = {m.name: m for m in (await s.execute(select(ScorecardMetric).where(
+            ScorecardMetric.tenant_id == e["tid"]))).scalars()}
+        assert mets["Members at Risk"].direction == "lte" and mets["Agents at 0"].direction == "lte"
+        assert mets["Content Assets Shipped vs. Planned"].type == "rate"
+        goals = {mid: (float(g), None if c is None else float(c)) for mid, g, c in (await s.execute(
+            select(ScorecardGoal.metric_id, ScorecardGoal.goal, ScorecardGoal.cumulative_goal).where(
+                ScorecardGoal.tenant_id == e["tid"], ScorecardGoal.period_key == "2026Q4"))).all()}
+        assert goals[mets["Members Added"].id] == (0.0, 8.0)
+        assert goals[mets["Appointments Met"].id] == (1.5, 20.0)
+        assert goals[mets["Members at Risk"].id] == (3.0, None)
+        assert goals[mets["Content Assets Shipped vs. Planned"].id] == (80.0, None)
+        assert goals[mets["Mighty Network Growth"].id] == (3.0, 40.0)
+        assert mets["Agents at 0"].id not in goals                         # track-only stays track-only
+
+    assert await SG.main() == 0                                              # idempotent: a re-run
+    async with SessionLocal() as s:
+        assert await s.scalar(select(func.count()).select_from(ScorecardGoal).where(
+            ScorecardGoal.tenant_id == e["tid"])) == 9
+        t = await s.get(Tenant, e["tid"])
+        assert sum(1 for p in t.config["fiscal_quarters"] if p["key"] == "2026Q4") == 1

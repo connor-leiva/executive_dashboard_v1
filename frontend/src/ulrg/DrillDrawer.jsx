@@ -32,18 +32,19 @@ export default function DrillDrawer({ drill, canEdit, onClose, onSaved }) {
 
 function Records({ r, ws, we }) {
   const [recs, setRecs] = useState(null);
+  const [src, setSrc] = useState("Sisu");      // where the rows came from — the server says (Sisu / GHL)
   const [sort, setSort] = useState("name");   // alphabetical by default; toggle to date
   useEffect(() => {
     let ok = true;
     setRecs(null);
     getJSON(`/ulrg/metric/${r.id}/records?week_start=${ws}&week_end=${we}`)
-      .then((d) => { if (ok) setRecs(d.records || []); })
+      .then((d) => { if (ok) { setRecs(d.records || []); setSrc(d.source_label || "Sisu"); } })
       .catch(() => { if (ok) setRecs([]); });
     return () => { ok = false; };
   }, [r.id, ws, we]);
 
   if (recs === null) return <div style={muted}>Loading records…</div>;
-  if (!recs.length) return <div style={muted}>No records from Sisu in this window.</div>;
+  if (!recs.length) return <div style={muted}>No records from {src} in this window.</div>;
   // attach-rate drill → the denominator deals, each flagged `captured` (the numerator subset), so the
   // list reads back as the rate. Count metrics have no `captured` field → plain "N records".
   const attach = "captured" in recs[0];
@@ -65,7 +66,7 @@ function Records({ r, ws, we }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
         <div style={LBL}>{attach
           ? `${capped} of ${recs.length} used ${vendor} · ${pct}%`
-          : `${recs.length} record${recs.length === 1 ? "" : "s"} · from Sisu`}</div>
+          : `${recs.length} record${recs.length === 1 ? "" : "s"} · from ${src}`}</div>
         <div style={{ display: "flex", gap: 2, background: T.shell, borderRadius: 6, padding: 2, flexShrink: 0 }}>
           {["name", "date"].map((k) => (
             <button key={k} onClick={() => setSort(k)} style={{
@@ -86,7 +87,7 @@ function Records({ r, ws, we }) {
           <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {attach && <Tag on={x.captured} label={x.captured ? vendor : "Other"} />}
             {x.side === "sell" && <Tag on={false} label="Listing" />}
-            <span>{x.agent || "—"}{x.address ? ` · ${x.address}` : ""}{x.sale_price ? ` · $${Math.round(x.sale_price).toLocaleString()}` : ""}</span>
+            <span>{x.agent || x.detail || "—"}{x.address ? ` · ${x.address}` : ""}{x.sale_price ? ` · $${Math.round(x.sale_price).toLocaleString()}` : ""}</span>
           </div>
         </div>
       ))}
