@@ -97,6 +97,48 @@ def test_the_constraint_is_built_from_that_same_set():
         "the migration hardcodes its own list instead of using AUDIT_CATEGORIES")
 
 
+# The vocabulary as 0060 built it. History, so fixed: every category after these reached
+# production only through a later migration that rebuilt the constraint.
+AT_0060 = frozenset({"Publish", "Config", "Access", "Read", "Content", "System", "AI", "Calendar",
+                     "Integrations", "Launchpad", "Marketing", "People", "Roles", "SOPs", "Setup",
+                     "Sign-in", "Training", "Win the Day", "Workspace"})
+
+
+def test_every_category_added_since_0060_has_a_migration_that_widens_the_constraint():
+    """The two tests above compare the code with ITSELF. Both pass the moment a category is added
+    to AUDIT_CATEGORIES -- and production's constraint is whatever the migrations it RAN built.
+    0060 builds from the current set, so a fresh database looks fine too; only a database that ran
+    0060 before the category existed (production) rejects it.
+
+    Found the third time round: Books Cleanup added "Books" with no migration, every test green,
+    and every save on the tab would have been a 500 in production. Recruiting (0080) and Payments
+    (0084) each shipped with the rebuild; this says the next one has to as well.
+
+    Read from the code, not the prose: a migration counts when its upgrade() rebuilds the
+    constraint from AUDIT_CATEGORIES, and the category it adds is the one its downgrade subtracts
+    (`AUDIT_CATEGORIES - {"Payments"}`). A docstring that merely names the category proves nothing.
+    """
+    versions = BACKEND / "alembic" / "versions"
+    added = set()
+    for path in sorted(versions.glob("*.py")):
+        if path.name <= "0061":
+            continue
+        text = path.read_text(encoding="utf-8")
+        tree = ast.parse(text)
+        up = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "upgrade"), None)
+        body = ast.get_source_segment(text, up) if up else ""
+        if not ("create_check_constraint" in body and "ck_audit_log_category" in body
+                and "_sql_in(AUDIT_CATEGORIES)" in body):
+            continue
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub) and isinstance(node.right, ast.Set)
+                    and "AUDIT_CATEGORIES" in ast.get_source_segment(text, node.left)):
+                added |= {e.value for e in node.right.elts if isinstance(e, ast.Constant)}
+    missing = sorted(AUDIT_CATEGORIES - AT_0060 - added)
+    assert not missing, (f"{missing} would be rejected by ck_audit_log_category in production: add a migration "
+                         "that rebuilds it (see 0084_payables_vendor.py)")
+
+
 @pytest.mark.parametrize("category", sorted(AUDIT_CATEGORIES))
 def test_each_category_survives_a_round_trip(category):
     """Cheap, but it pins the shape: a category with a quote or a stray character would break the

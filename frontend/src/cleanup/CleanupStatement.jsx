@@ -1,0 +1,403 @@
+/* Books Cleanup · Statement -- the audited year's P&L, in the Books Statement's form
+   (books/BooksStatement.jsx): the entity bar, the controls strip, the summary band, the collapsible
+   ledger, and a drawer under every line that shows how its number is made.
+
+   NO ARITHMETIC LIVES HERE. Every figure is the server's (services/books_cleanup.py): QuickBooks'
+   figure, the change the cleanup makes and the corrected one, per line and per total. The only
+   derived value is percent of revenue, a ratio of two numbers the server sent.
+
+   A FLAGGED LINE is one the cleanup changes by a dollar or more. It carries the Statement's gold
+   wash, a solid left edge and a ringed marker, and its change is in its own column, so the meaning
+   never lives in colour alone. */
+import { useState } from "react";
+import { StatePanel } from "../books/ui.jsx";
+import { useCleanupStatement, useCleanupLine } from "./useCleanup.js";
+import { Bar, Chip, Controls, EYEBROW, Foot, L, F, NUM, OkPill, Panel, Toggle, cents, change, money,
+         pctOf, periodLabel, shortOf } from "./kit.jsx";
+
+const KIND = { tx: "Transaction", dues: "Dues earned", share: "Share", charge: "Owner's charge",
+               timing: "Timing", partner: "Partner share" };
+
+/* ── the drawer: how the number is made, then what's in it ─────────────────────────────── */
+
+function HowMade({ d, monthLabel }) {
+  const why = d.why || [];
+  const named = why.reduce((n, w) => n + w.amount, 0);
+  const rest = (d.corrections || 0) - named;            // parts under 50 cents, summed rather than dropped
+  const row = (label, value, opts = {}) => (
+    <div style={{ display: "flex", gap: 12, alignItems: "baseline", fontFamily: F.body, fontSize: 12.5,
+                  ...(opts.total ? { borderTop: `1px solid ${L.ruleInner}`, paddingTop: 6 } : {}) }}>
+      <span style={{ flex: 1, minWidth: 0, color: opts.total ? L.deep : L.bodyDim,
+                     fontWeight: opts.total ? 600 : 400 }}>{label}</span>
+      <span style={{ ...NUM, minWidth: 110, color: opts.flag ? L.flagInk : L.deep,
+                     fontWeight: opts.total ? 700 : 400 }}>{value}</span>
+    </div>
+  );
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={EYEBROW}>How this number is made{monthLabel ? ` · ${monthLabel}` : ""}</div>
+      <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+        {row("QuickBooks has", money(d.qbo))}
+        {why.length === 0 && Math.abs(d.corrections || 0) < 0.5 && (
+          <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>The cleanup doesn&rsquo;t change
+            this line: QuickBooks has it right.</div>
+        )}
+        {why.map((w) => <div key={w.component}>{row(w.label, change(w.amount), { flag: true })}</div>)}
+        {Math.abs(rest) >= 0.5 && row("Smaller items", change(rest), { flag: true })}
+        {row(<>Corrected<span style={{ fontWeight: 600, color: L.flagInk }}> · shown above</span></>,
+             money(d.corrected), { total: true })}
+      </div>
+    </div>
+  );
+}
+
+function LineDetail({ view, line, month, monthLabel, rev, brandView, monthNames }) {
+  const { data, error, loading, retry } = useCleanupLine(view, line, month, rev);
+  if (loading) return <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+    Loading the dollars behind this line…</div>;
+  if (error) {
+    return (
+      <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
+        Couldn&rsquo;t load the detail.{" "}
+        <button onClick={retry} style={{ height: 24, padding: "0 10px", borderRadius: 8, cursor: "pointer",
+          fontFamily: F.body, fontSize: 12, border: `1px solid ${L.pillEdge}`, background: L.paper,
+          color: L.bodyDim }}>Retry</button>
+      </div>
+    );
+  }
+  if (!data) return null;
+  const off = (data.rows_total || 0) - (data.corrected || 0);
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {!brandView && <HowMade d={data} monthLabel={monthLabel} />}
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12,
+                      flexWrap: "wrap" }}>
+          <span style={EYEBROW}>What&rsquo;s in it</span>
+          <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.ghost }}>
+            {data.count} {data.count === 1 ? "item" : "items"}, biggest first
+            {data.truncated ? ` · ${data.truncated} more not shown` : ""}</span>
+        </div>
+        <div style={{ marginTop: 6, maxHeight: 340, overflowY: "auto" }}>
+          {data.rows.length === 0 && (
+            <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted, padding: "6px 0" }}>
+              Nothing on this line{monthLabel ? ` in ${monthLabel}` : ""}.</div>
+          )}
+          {data.rows.map((r, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "5px 0",
+                                  borderTop: `1px solid ${L.ruleLine}`, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: F.num, fontSize: 11.5, color: L.ghost, width: 76, flexShrink: 0,
+                             fontVariantNumeric: "tabular-nums" }}>{r.date || monthNames[r.month] || `month ${r.month}`}</span>
+              <span style={{ flex: 1, minWidth: 180, fontFamily: F.body, fontSize: 12.5, color: L.body,
+                             overflowWrap: "anywhere" }}>
+                <span style={{ fontFamily: F.num, fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase",
+                               color: r.kind === "tx" ? L.faint : L.flagInk, marginRight: 7 }}>{KIND[r.kind] || r.kind}</span>
+                {r.who && r.kind !== "share" ? <strong style={{ fontWeight: 600, color: L.deep }}>{r.who} </strong> : null}
+                {r.label}
+                <span style={{ color: L.muted }}>
+                  {r.brand && !brandView && r.kind !== "share" ? ` · ${r.brand}` : ""}
+                  {r.booked_as ? ` · booked as ${r.booked_as}` : ""}
+                  {r.paid_by && r.kind === "tx" && r.paid_by !== view ? ` · paid by ${r.paid_by}` : ""}
+                  {r.ref ? ` · ${r.ref}` : ""}
+                </span>
+              </span>
+              <span style={{ ...NUM, fontSize: 12.5, color: L.deep, minWidth: 100 }}>{cents(r.amount)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ borderTop: `1px solid ${L.ruleInner}`, paddingTop: 8, display: "flex", gap: 12,
+                    alignItems: "baseline", flexWrap: "wrap" }}>
+        <OkPill ok={Math.abs(off) < 0.5}>
+          {Math.abs(off) < 0.5 ? "These add up to the line"
+            : off < 0 ? `Short of the line by ${money(-off)}` : `Over the line by ${money(off)}`}</OkPill>
+        <span style={{ ...NUM, fontSize: 12, color: L.ghost }}>{money(data.rows_total)} of {money(data.corrected)}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ── ledger rows ─────────────────────────────────────────────────────────────────────────── */
+
+function Nums({ v, revenue, one, strong, big, flag, hide }) {
+  const col = big ? L.paper : strong ? L.deep : L.body;
+  const size = big ? 20 : strong ? 16 : 13.5;
+  return one ? (
+    <>
+      <span style={{ ...NUM, fontSize: size, fontWeight: big || strong || flag ? 700 : 400, color: col }}>
+        {hide ? "" : money(v.corrected)}</span>
+      <span className="cu-pct" style={{ ...NUM, fontSize: 12, color: big ? L.onDeepPct : L.muted }}>
+        {hide ? "" : pctOf(v.corrected, revenue)}</span>
+    </>
+  ) : (
+    <>
+      <span className="cu-qbo" style={{ ...NUM, fontSize: big ? 15 : 13, color: big ? L.onDeepPct : L.muted }}>
+        {hide ? "" : money(v.qbo)}</span>
+      <span className="cu-chg" style={{ ...NUM, fontSize: big ? 15 : 13,
+        color: big ? L.onDeepPct : Math.abs(v.corrections || 0) >= 1 ? L.flagInk : L.ghost }}>
+        {hide ? "" : Math.abs(v.corrections || 0) < 0.5 ? "–" : change(v.corrections)}</span>
+      <span style={{ ...NUM, fontSize: size, fontWeight: big || strong || flag ? 700 : 400, color: col,
+                     letterSpacing: big ? "-.02em" : 0 }}>{hide ? "" : money(v.corrected)}</span>
+      <span className="cu-pct" style={{ ...NUM, fontSize: 12, color: big ? L.onDeepPct : L.muted }}>
+        {hide ? "" : pctOf(v.corrected, revenue)}</span>
+    </>
+  );
+}
+
+function SectionRow({ sec, open, onToggle, revenue, one }) {
+  const n = sec.lines.length;
+  return (
+    <button className={`cu-row${one ? " cu-one" : ""}`} onClick={onToggle} aria-expanded={open} style={{
+      width: "100%", border: 0, borderTop: `1px solid ${L.ruleSection}`, borderBottom: `1px solid ${L.ruleInner}`,
+      background: L.sectionBand, padding: "12px 20px 12px 18px", cursor: "pointer", textAlign: "left",
+      fontFamily: F.body, alignItems: "center" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+        <span aria-hidden="true" style={{ width: 0, height: 0, flex: "none", marginRight: 1,
+          borderTop: "4.5px solid transparent", borderBottom: "4.5px solid transparent",
+          borderLeft: `6px solid ${L.faint}`, transform: open ? "rotate(90deg)" : "none",
+          transformOrigin: "35% 50%" }} />
+        <span style={{ fontFamily: F.num, fontSize: 15.5, fontWeight: 700, letterSpacing: ".02em", color: L.deep }}>
+          {sec.label}</span>
+        <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.ghost, whiteSpace: "nowrap" }}>
+          {n} {n === 1 ? "line" : "lines"}</span>
+      </span>
+      {/* A collapsed section still shows what it's worth, or collapsing hides the number. */}
+      <Nums v={sec.total} revenue={revenue} one={one} strong hide={open} />
+    </button>
+  );
+}
+
+function LineRow({ line, open, onToggle, revenue, one, children }) {
+  const on = line.flagged;
+  return (
+    <>
+      <div className={`cu-row${one ? " cu-one" : ""} cu-line${on ? " cu-flagged" : ""}`} role="button" tabIndex={0}
+        aria-expanded={open} onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
+        style={{ alignItems: "center", padding: "8px 20px 8px 32px", borderBottom: `1px solid ${L.ruleLine}`,
+                 boxShadow: on ? `inset 3px 0 0 ${L.flagEdge}` : "none", cursor: "pointer" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          <span aria-hidden="true" style={on
+            ? { width: 7, height: 7, borderRadius: "50%", border: `2px solid ${L.flagRing}`, flex: "none",
+                boxSizing: "border-box" }
+            : { width: 7, height: 7, flex: "none" }} />
+          <span style={{ fontFamily: F.body, fontSize: 13.5, color: L.body, whiteSpace: "nowrap", overflow: "hidden",
+                         textOverflow: "ellipsis", minWidth: 0 }}>
+            {line.line}
+            {on && <span style={{ color: L.flagInk }}> · changed by the cleanup</span>}
+          </span>
+          <span aria-hidden="true" style={{ width: 0, height: 0, flex: "none",
+            borderTop: "3.5px solid transparent", borderBottom: "3.5px solid transparent",
+            borderLeft: `5px solid ${L.code}`, transform: open ? "rotate(90deg)" : "none",
+            transformOrigin: "35% 50%" }} />
+        </span>
+        <Nums v={line} revenue={revenue} one={one} flag={on} />
+      </div>
+      {open && (
+        <div className="cu-drawer" style={{ background: L.totalBand, borderBottom: `1px solid ${L.ruleInner}`,
+          boxShadow: `inset 3px 0 0 ${on ? L.flagEdge : L.ruleSection}`, padding: "14px 20px 16px 32px" }}>
+          {children}
+        </div>
+      )}
+    </>
+  );
+}
+
+function TotalRow({ label, v, revenue, one, tone }) {
+  const big = tone === "big", strong = tone === "strong";
+  return (
+    <div className={`cu-row${one ? " cu-one" : ""}`} style={{ alignItems: "center",
+      padding: big ? "16px 20px 16px 18px" : "12px 20px 12px 18px", background: big ? L.deep : L.totalBand,
+      borderTop: big ? "none" : strong ? `1.5px solid ${L.deep}` : `1px solid ${L.ruleInner}`,
+      borderBottom: big ? "none" : `1px solid ${L.ruleInner}` }}>
+      <span style={{ fontFamily: F.body, fontSize: big ? 16 : strong ? 15 : 14, fontWeight: big || strong ? 700 : 600,
+                     letterSpacing: "-.01em", color: big ? L.onDeep : strong ? L.deep : L.bodyDim }}>{label}</span>
+      <Nums v={v} revenue={revenue} one={one} strong={strong} big={big} />
+    </div>
+  );
+}
+
+/* ── the screen ─────────────────────────────────────────────────────────────────────────── */
+
+export default function CleanupStatement({ ov, rev }) {
+  // The workbook's order: each company, with the brand run inside the hub right after it.
+  const views = [];
+  ov.companies.forEach((c) => {
+    views.push(c);
+    if (ov.inside_brand && c === ov.hub) views.push(ov.inside_brand);
+  });
+  views.push("all");
+
+  const [view, setView] = useState(views[0]);
+  const [month, setMonth] = useState(null);            // null = the year so far
+  const [expanded, setExpanded] = useState(null);
+  const [closed, setClosed] = useState({});
+  const st = useCleanupStatement(view, month, rev);
+  const d = st.data;
+  const one = d?.kind === "brand";
+  const months = ov.period.months;
+  const monthLabel = month ? months.find((m) => m.m === month)?.label : null;
+  const monthNames = Object.fromEntries(months.map((m) => [m.m, m.label]));
+
+  const keys = d ? d.sections.map((s) => s.key) : [];
+  const allClosed = keys.length > 0 && keys.every((k) => closed[k]);
+  const t = d?.totals;
+  const revenue = t?.total_revenue?.corrected ?? 0;
+  const flagged = d ? d.sections.reduce((n, s) => n + s.lines.filter((l) => l.flagged).length, 0) : 0;
+
+  const CLOSERS = {
+    revenue: [["Total revenue", "total_revenue", "strong"]],
+    costs: [["Total costs", "total_costs", null], ["Net operating income", "net_operating_income", "strong"]],
+    below: [["Net income", "net_income", "big"]],
+  };
+
+  const rows = [];
+  if (d) {
+    d.sections.forEach((sec) => {
+      const open = !closed[sec.key];
+      // A brand has nothing below the line (no partner share of its own): no empty section, but its
+      // net income still closes the statement.
+      if (sec.lines.length) {
+        rows.push(<SectionRow key={`s-${sec.key}`} sec={sec} open={open} revenue={revenue} one={one}
+                              onToggle={() => setClosed((p) => ({ ...p, [sec.key]: open }))} />);
+      }
+      if (open) {
+        sec.lines.forEach((l) => {
+          const id = `${sec.key}|${l.line}`;
+          rows.push(
+            <LineRow key={id} line={l} revenue={revenue} one={one} open={expanded === id}
+                     onToggle={() => setExpanded(expanded === id ? null : id)}>
+              <LineDetail view={view} line={l.line} month={month} monthLabel={monthLabel} rev={rev}
+                          brandView={one} monthNames={monthNames} />
+            </LineRow>);
+        });
+      }
+      (CLOSERS[sec.key] || []).forEach(([label, k, tone]) => {
+        if (tone === null && closed[sec.key]) return;    // a section's own sum, under a shut section, echoes it
+        rows.push(<TotalRow key={`t-${k}`} label={label} v={t[k]} revenue={revenue} one={one} tone={tone} />);
+      });
+    });
+  }
+
+  const tiles = t ? [
+    ["Revenue", t.total_revenue, L.deep, revenue > 0 ? 1 : 0],
+    ["Costs", t.total_costs, L.accentMuted, revenue > 0 ? t.total_costs.corrected / revenue : 0],
+    ["Net operating income", t.net_operating_income, L.accentInk,
+     revenue > 0 ? Math.max(t.net_operating_income.corrected / revenue, 0) : 0],
+    ["Net income", t.net_income, L.accent, revenue > 0 ? Math.max(t.net_income.corrected / revenue, 0) : 0],
+  ] : [];
+  const tie = d?.ties_to_quickbooks;
+
+  return (
+    <Panel>
+      <Bar label="Entity" right={periodLabel(ov.period)}>
+        {views.map((v) => (
+          <Chip key={v} dark on={v === view} title={v === ov.inside_brand ? `A brand inside ${ov.hub}` : undefined}
+                onClick={() => { setView(v); setExpanded(null); }}>{shortOf(ov, v)}</Chip>
+        ))}
+      </Bar>
+      <Controls>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+          <Toggle on={month === null} onClick={() => { setMonth(null); setExpanded(null); }}>Year so far</Toggle>
+          {months.map((m) => (
+            <Toggle key={m.m} on={month === m.m} onClick={() => { setMonth(m.m); setExpanded(null); }}>{m.label}</Toggle>
+          ))}
+        </div>
+        <button onClick={() => setClosed(allClosed ? {} : Object.fromEntries(keys.map((k) => [k, true])))} style={{
+          height: 28, padding: "0 12px", borderRadius: 8, cursor: "pointer", fontFamily: F.body, fontSize: 12.5,
+          fontWeight: 500, whiteSpace: "nowrap", border: `1px solid ${L.pillEdge}`, background: L.paper,
+          color: L.bodyDim }}>{allClosed ? "Expand all" : "Collapse all"}</button>
+        <div style={{ flex: 1 }} />
+        {tie && (
+          <OkPill ok={Math.abs(tie.delta) < 0.01}
+                  title="QuickBooks' own P&L report, against the lines this statement starts from">
+            Starts from QuickBooks&rsquo; P&amp;L · delta {cents(tie.delta)}</OkPill>
+        )}
+        {d && !one && (
+          <span style={{ fontFamily: F.num, fontSize: 11, color: L.ghost, whiteSpace: "nowrap" }}>
+            {flagged} {flagged === 1 ? "line" : "lines"} changed</span>
+        )}
+      </Controls>
+
+      <StatePanel loading={st.loading} error={st.error} retry={st.retry}>
+        {d && (
+          <div style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
+            <div className="cu-summary" style={{ display: "grid", gap: 12 }}>
+              {tiles.map(([label, v, tone, ratio]) => (
+                <div key={label} style={{ border: `1px solid ${L.ruleInner}`, borderRadius: 12, background: L.paper,
+                  padding: "13px 15px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ ...EYEBROW, color: L.ghost }}>{label}</div>
+                  <div style={{ fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize: 23, fontWeight: 500,
+                                color: L.deep, letterSpacing: "-.02em" }}>{money(v.corrected)}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <div style={{ flex: 1, height: 5, borderRadius: 999, background: L.track, overflow: "hidden" }}>
+                      <div style={{ width: `${Math.min(Math.max(ratio, 0), 1) * 100}%`, height: "100%",
+                                    borderRadius: 999, background: tone }} />
+                    </div>
+                    <span style={{ fontFamily: F.num, fontSize: 11, color: L.faint, flex: "none" }}>
+                      {pctOf(v.corrected, revenue)}</span>
+                  </div>
+                  {!one && (
+                    <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+                      QuickBooks {money(v.qbo)}
+                      {Math.abs(v.corrections) >= 1 && <span style={{ color: L.flagInk }}> · {change(v.corrections)}</span>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ border: `1px solid ${L.ruleInner}`, borderRadius: 13, background: L.paper, overflow: "hidden" }}>
+              <div className={`cu-row${one ? " cu-one" : ""}`} style={{ alignItems: "center", padding: "9px 20px 9px 18px",
+                background: L.colHead, borderBottom: `1px solid ${L.ruleHeader}` }}>
+                <span style={EYEBROW}>Line</span>
+                {one ? (
+                  <span style={{ ...EYEBROW, textAlign: "right" }}>Amount</span>
+                ) : (
+                  <>
+                    <span className="cu-qbo" style={{ ...EYEBROW, textAlign: "right" }}>QuickBooks</span>
+                    <span className="cu-chg" style={{ ...EYEBROW, textAlign: "right" }}>Cleanup</span>
+                    <span style={{ ...EYEBROW, textAlign: "right" }}>Corrected</span>
+                  </>
+                )}
+                <span className="cu-pct" style={{ ...EYEBROW, textAlign: "right" }}>% rev</span>
+              </div>
+              {rows}
+            </div>
+
+            <Foot>
+              {one
+                ? `${shortOf(ov, view)} is a brand inside ${ov.hub}, so it has no QuickBooks of its own. This is its year on a cash basis: what came in and went out for it, with its share of the shared costs, and no timing or partner shares.`
+                : `Corrected is QuickBooks plus the cleanup's entries${month ? ` for ${monthLabel}` : ""}. Open any line to see how its number is made and every dollar in it.`}
+              {(d.memo || []).map((m) => ` ${m.label}: ${money(m.amount)}.`)}
+            </Foot>
+          </div>
+        )}
+      </StatePanel>
+
+      <style>{`
+        .cu-row { display:grid; grid-template-columns: minmax(0,1fr) 112px 104px 124px 62px; gap:12px; }
+        .cu-row.cu-one { grid-template-columns: minmax(0,1fr) 160px 82px; }
+        .cu-line { background:${L.paper}; }
+        .cu-flagged { background:${L.flagBg}; }
+        .cu-line:hover { background:${L.totalBand}; }
+        .cu-flagged:hover { background:${L.flagBgHover}; }
+        .cu-summary { grid-template-columns: repeat(4, minmax(0,1fr)); }
+        .cu-drawer { animation: cuOpen 130ms ease-out; }
+        @keyframes cuOpen { from { opacity:0; transform:translateY(-3px); } }
+        @media (max-width: 1080px) { .cu-summary { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+        @media (max-width: 900px) {
+          .cu-row { grid-template-columns: minmax(0,1fr) 100px 112px; gap:10px; }
+          .cu-row.cu-one { grid-template-columns: minmax(0,1fr) 116px; }
+          .cu-qbo, .cu-pct { display:none; }
+        }
+        @media (max-width: 560px) {
+          .cu-row, .cu-row.cu-one { grid-template-columns: minmax(0,1fr) 104px; }
+          .cu-chg { display:none; }
+          .cu-summary { grid-template-columns: minmax(0,1fr); }
+        }
+        @media (prefers-reduced-motion: reduce) { .cu-drawer { animation: none; } }
+      `}</style>
+    </Panel>
+  );
+}

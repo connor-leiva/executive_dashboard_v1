@@ -8,7 +8,7 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from ..config import settings
-from ..models import Business
+from ..models import Business, CleanupDataset
 from . import roles
 from .. import plans
 
@@ -43,6 +43,11 @@ PLATFORM_TABS = {
     # judgement: onboarding is how somebody's second week goes, and a workspace discovering it is
     # behind a tier on the Monday a new hire starts is a bad way to learn what they bought.
     "onboarding": {"label": "Onboarding", "accent": "#618E88"},
+    # A one-off rather than a module: the tab a workspace gets while it is cleaning up an audited
+    # year (services/books_cleanup.py). It exists exactly when the workspace has a loaded file --
+    # no flag to forget, and no empty tab in every other workspace's rail. Not plan-gated (absent
+    # from plans._PORTFOLIO_TABS): it carries the workspace's own books, which no tier withholds.
+    "cleanup": {"label": "Books Cleanup", "accent": "#C9D3CE"},
 }
 
 # Presentation for named PROGRAM tabs — several views run off one membership entity's GHL
@@ -126,6 +131,8 @@ async def tenant_tab_descriptors(s, tenant_id) -> list[dict]:
             entries.append({"key": b.display_tab, "label": b.name, "accent": b.accent})
     for key in ("flywheel", "books", "binder", "ads", "onboarding"):
         entries.append({"key": key, **PLATFORM_TABS[key]})
+        if key == "books" and await _has_cleanup(s, tenant_id):
+            entries.append({"key": "cleanup", **PLATFORM_TABS["cleanup"]})
     if settings.AI_EMPLOYEES_ENABLED:
         entries.append({"key": "ai_employees", **PLATFORM_TABS["ai_employees"]})
     seen, ordered = set(), []
@@ -133,6 +140,11 @@ async def tenant_tab_descriptors(s, tenant_id) -> list[dict]:
         if e["key"] not in seen:
             seen.add(e["key"]); ordered.append(e)
     return ordered
+
+
+async def _has_cleanup(s, tenant_id) -> bool:
+    return (await s.execute(select(CleanupDataset.id).where(
+        CleanupDataset.tenant_id == tenant_id).limit(1))).first() is not None
 
 
 def effective_tabs(user, all_tabs: list[str], tenant=None) -> list[str]:

@@ -16,6 +16,7 @@ import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.j
 import BecollectiveView from "./BecollectiveView.jsx";
 import EdgeView from "./EdgeView.jsx";
 import Books from "./books/Books.jsx";
+import Cleanup from "./cleanup/Cleanup.jsx";
 import AdsView from "./ads/AdsView.jsx";
 import Binder from "./Binder.jsx";
 import StepUpGate from "./StepUpGate.jsx";
@@ -1284,6 +1285,8 @@ export default function CommandCenter() {
   else if (activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
   else if (activeView === "books") content = <Books period={periodKeyStr} role={user?.role} />;
+  // A one-off, present only where the server says a cleanup file is loaded (it is in /me nav, never in NAV).
+  else if (activeView === "cleanup") content = <Cleanup role={user?.role} />;
   else if (activeView === "ads") content = <AdsView />;
   else if (activeView === "binder") content = (
     // Binder holds entity/compliance records — gated by a second factor, not just tab access.

@@ -9,7 +9,8 @@ import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleC
 
 const API = import.meta.env.VITE_API_BASE;
 
-function useEndpoint(path, sample, deps) {
+// Exported for Books Cleanup (cleanup/useCleanup.js), which reads the same way.
+export function useEndpoint(path, sample, deps) {
   // The payload is stored WITH the path it came from. Without that pairing, switching entity
   // (or mode, or period) leaves the previous entity's figures on screen — fully rendered, with
   // no loading state — until the new request lands. On a financial statement that is not a

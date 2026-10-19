@@ -3771,3 +3771,49 @@ class ForumEventWeekly(Base):
     __table_args__ = (
         UniqueConstraint("event_id", "week_start", name="uq_forum_event_week"),
     )
+
+
+class CleanupDataset(Base):
+    """One uploaded Books Cleanup file (services/books_cleanup.py, schema axcion.books_cleanup/1).
+
+    The audit of a year's books ran outside the app; this is its result: every reviewed ledger line,
+    QuickBooks' own P&L and trial balances, the review's part of the correcting entries, the timing
+    and the words. KEPT, NOT REPLACED: an upload adds a row and the newest is the one in force, so
+    "what did the tab say before the card statements came in" stays answerable. The decisions people
+    make on the tab live apart, in cleanup_state, and survive every new upload.
+    """
+    __tablename__ = "cleanup_dataset"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), index=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    schema_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONType, nullable=False)
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    # Stamped by Python as well: the newest upload is the one in force, and SQLite's CURRENT_TIMESTAMP
+    # has one-second resolution, so two uploads in the same second would tie and either could win.
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                  default=lambda: datetime.now(timezone.utc),
+                                                  server_default=func.now())
+    __table_args__ = (Index("ix_cleanup_dataset_tenant_uploaded", "tenant_id", "uploaded_at"),)
+
+
+class CleanupState(Base):
+    """The decisions made on the Books Cleanup tab, one row per workspace.
+
+    Holds ONLY what somebody changed -- a split, a rate, a charge's treatment, an answer, a posted
+    entry number -- as a sparse document laid over the uploaded file's own values
+    (books_cleanup.merged_inputs). So a new upload that adds a person or a subscription brings it in
+    at the file's value without disturbing anybody's edits. `version` moves on every write, which is
+    what the computed books are cached against.
+    """
+    __tablename__ = "cleanup_state"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    inputs: Mapped[dict] = mapped_column(JSONType, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now())

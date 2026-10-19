@@ -30,6 +30,9 @@ AUDIT_CATEGORIES = frozenset({
     # own axis rather than dissolving into Config. Adding this REQUIRES the paired migration --
     # see the note above; the CHECK is Postgres-only and SQLite tests cannot see it.
     "Payments",
+    # Books Cleanup: each decision moves money between a workspace's companies in the entries its
+    # bookkeeper posts, and "who moved this split" is asked by name. Paired with migration 0093.
+    "Books",
 })
 
 

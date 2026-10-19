@@ -113,6 +113,8 @@ const GLYPHS = {
  */
 const BY_MODULE = {
   books: "books",
+  // Books Cleanup is the books, being put right: the same mark, not a sixth one.
+  cleanup: "books",
   binder: "binder",
   ai_employees: "agents",
   ads: "campaigns",

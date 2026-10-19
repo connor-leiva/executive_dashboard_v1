@@ -39,6 +39,9 @@ backend/scripts/*.csv
 
 # COA discovery output — per-entity account names and balances, never commit
 backend/coa_discovery_out/
+# The Spring B 2026 books reconstruction: raw QuickBooks extracts, line-level ledgers and the
+# working files behind the Sheets workbook. Real financials for real companies -- never commit.
+books_cleanup_out/
 backend/coa_report.txt
 # The mapping worksheet carries real account names, including people's. Generated on
 # demand by coa_worksheet.py; never a repo artefact.
