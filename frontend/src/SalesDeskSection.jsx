@@ -4,7 +4,7 @@
    pre-computed server-side from the SalesCall event log; this component only renders it. */
 import { createContext, useContext, useEffect, useState } from "react";
 import { T, alpha } from "./theme.js";
-import { getJSON, putJSON, postJSON, delJSON } from "./api";
+import { getJSON, putJSON, postJSON, delJSON, getBlob } from "./api";
 import { DrillRecords, DrillCalc, WatchLink, recordingTitle } from "./LaunchSection.jsx";
 
 const kM = (n) => {
@@ -281,6 +281,36 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
 
         .sd-tblwrap { overflow-x:auto; }
         .sd-cards { display:none; }
+        /* Commissions */
+        .sd-comm .sd-sel { font:inherit; font-size:12px; color:${T.ink}; border:1px solid ${T.line};
+          border-radius:8px; padding:5px 8px; background:${T.white}; }
+        .sd-closed { margin-left:8px; font-size:10.5px; font-weight:700; letter-spacing:.06em;
+          text-transform:uppercase; color:${T.meadowInk}; background:${T.meadowBg};
+          border-radius:999px; padding:2px 8px; }
+        .sd-ctot { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:12px 0 14px; }
+        .sd-ctot > div { border:1px solid ${T.line}; border-radius:12px; padding:10px 12px;
+          display:flex; flex-direction:column; gap:3px; min-width:0; }
+        .sd-ctot .l { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:${T.muted}; }
+        .sd-ctot .v { font-family:var(--font-display); font-size:18px; font-weight:700; color:${T.ink};
+          font-variant-numeric:tabular-nums; }
+        /* NOT .sd-tblwrap - that one is display:none on phones, which would hide the whole
+           commission table rather than let it scroll. */
+        .sd-cscroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+        .sd-ctbl td, .sd-ctbl th { white-space:nowrap; }
+        .sd-ctbl .r { text-align:right; }
+        .sd-warnt { color:${T.poppyText}; }
+        .sd-lockt { color:${T.meadowInk}; font-weight:600; }
+        .sd-unres { margin:12px 0; font-size:12px; line-height:1.5; color:${T.amber};
+          background:${T.amberBg}; border:1px solid ${alpha(T.amber, .28)}; border-radius:10px; padding:10px 12px; }
+        .sd-unres ul { margin:6px 0 0; padding-left:18px; }
+        .sd-cdet { margin-top:12px; }
+        .sd-cdet > summary { font-size:12px; color:${T.teal}; cursor:pointer; }
+        .sd-cact { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:14px;
+          padding-top:12px; border-top:1px solid ${T.line}; }
+        .sd-confirm { display:flex; align-items:center; gap:9px; flex-wrap:wrap; font-size:12.5px; color:${T.slate}; }
+        .sd-cerr { margin-top:10px; font-size:12px; color:${T.poppyText}; }
+        .sd-cnote { margin-top:12px; font-size:11px; color:${T.muted}; line-height:1.5; }
+        @media (max-width:760px) { .sd-ctot { grid-template-columns:repeat(2, minmax(0,1fr)); } }
         .sd-c { border:1px solid ${T.line}; border-radius:12px; padding:11px 12px; margin-bottom:9px; }
         .sd-c.sel { border-color:${T.petalDeep}; background:${alpha(T.petal, .07)}; }
         .sd-c-top { display:flex; align-items:center; gap:8px; margin-bottom:9px; }
@@ -617,6 +647,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
           </>
         )}
 
+        <CommissionsCard businessKey={businessKey} isEditor={isEditor} usingSample={usingSample} />
+
         <div className="sd-foot">
           <b>Where the numbers come from:</b> the booking webhook writes rep, booking ID, and call time onto each
           deal, and outcomes route through the sales workflow. Axcion logs every change it observes, so history
@@ -634,6 +666,214 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
       </div>
     </div>
     </SDDrillCtx.Provider>
+  );
+}
+
+/* ── Commissions ───────────────────────────────────────────────────────────────────────────
+   Reps are contracted through an agency that invoices monthly, so the question this answers
+   is "what is owed for THIS month" — and, just as importantly, what has already been settled
+   so the same dollar is never invoiced twice.
+
+   Commission is earned on cash that ARRIVED, not on contracts signed: a $14,400 plan pays its
+   rep $1,200 at a time, so a member reappears here every month they keep paying.
+
+   Closing a month locks its payments and drafts the agency's bill in Payables. After that the
+   rows are frozen — a rate edited next week cannot restate an invoice already sent. */
+function CommissionsCard({ businessKey, isEditor, usingSample }) {
+  const [period, setPeriod] = useState(null);
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [vendors, setVendors] = useState(null);
+  const [vendorId, setVendorId] = useState("");
+  const [confirming, setConfirming] = useState(false);
+
+  const load = async (p) => {
+    setErr(null);
+    try {
+      const q = p ? `?period=${encodeURIComponent(p)}` : "";
+      const r = await getJSON(`/businesses/${businessKey}/launches/active/sales-desk/commissions${q}`);
+      setData(r);
+      setPeriod(r.period);
+    } catch (e) {
+      setErr(e.detail || e.message || "Could not load commissions");
+    }
+  };
+  useEffect(() => { if (!usingSample) load(null); }, [businessKey, usingSample]);
+
+  useEffect(() => {
+    if (!isEditor || usingSample) return;
+    let alive = true;
+    getJSON(`/businesses/${businessKey}/launches/active/sales-desk/commissions/vendors`)
+      .then((v) => alive && setVendors(v))
+      .catch(() => alive && setVendors([]));      // not an owner, or none set up yet
+    return () => { alive = false; };
+  }, [businessKey, isEditor, usingSample]);
+
+  const act = async (what) => {
+    setBusy(true); setErr(null);
+    try {
+      await postJSON(`/businesses/${businessKey}/launches/active/sales-desk/commissions/${what}`,
+                     { period, vendor_id: vendorId || undefined });
+      setConfirming(false);
+      await load(period);
+    } catch (e) {
+      setErr(e.detail || e.message || `Could not ${what} ${period}`);
+    } finally { setBusy(false); }
+  };
+
+  // Fetched as a blob rather than linked: the session is a Bearer token, so a plain href
+  // would arrive unauthenticated and save the sign-in page as a .csv.
+  const download = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const blob = await getBlob(
+        `/businesses/${businessKey}/launches/active/sales-desk/commissions.csv?period=${period}`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `commissions-${period}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setErr(e.detail || e.message || "Could not download the CSV");
+    } finally { setBusy(false); }
+  };
+
+  if (usingSample) return null;
+  if (err && !data) return <div className="sd-card"><div className="sd-empty">{err}</div></div>;
+  if (!data) return <div className="sd-card"><div className="sd-empty">Loading commissions…</div></div>;
+
+  const money = (n) => `$${(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const label = (p) => {
+    const [y, m] = p.split("-");
+    return new Date(Number(y), Number(m) - 1, 1)
+      .toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  };
+  const periods = data.periods && data.periods.length ? data.periods : [data.period];
+
+  return (
+    <div className="sd-card sd-comm">
+      <div className="sd-head">
+        <span className="sd-title">Commissions</span>
+        <span className="sd-sub">
+          cash collected this month, by rep
+          {data.closed && <span className="sd-closed">closed{data.closed_at ? ` · ${new Date(data.closed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</span>}
+        </span>
+        <span className="sd-spacer" />
+        <select className="sd-sel" value={period || ""} onChange={(e) => load(e.target.value)}>
+          {periods.map((p) => <option key={p} value={p}>{label(p)}</option>)}
+        </select>
+        <button className="sd-clear" onClick={download} disabled={busy}>download .csv</button>
+      </div>
+
+      <div className="sd-ctot">
+        <div><span className="l">Cash collected</span><span className="v">{money(data.total_cash)}</span></div>
+        <div><span className="l">Commission owed</span><span className="v">{money(data.total_commission)}</span></div>
+        <div><span className="l">Payments</span><span className="v">{data.rows.length}</span></div>
+        <div><span className="l">Settled</span>
+          <span className="v">{data.locked_payments} of {data.rows.length}</span></div>
+      </div>
+
+      {data.rows.length === 0 && (
+        <div className="sd-empty">No payments landed in {label(period)}.</div>
+      )}
+
+      {data.by_rep.length > 0 && (
+        <div className="sd-cscroll"><table className="sd-tbl sd-ctbl">
+          <thead><tr>
+            <th>Rep</th><th className="r">Rate</th><th className="r">Members</th>
+            <th className="r">Payments</th><th className="r">Cash collected</th><th className="r">Commission</th>
+          </tr></thead>
+          <tbody>
+            {data.by_rep.map((r) => (
+              <tr key={r.rep_email || "u"}>
+                <td>{r.rep || "(unassigned)"}</td>
+                <td className="r">{r.rate_mixed ? "mixed"
+                  : r.rate_pct == null ? <span className="sd-warnt">not set</span> : `${r.rate_pct}%`}</td>
+                <td className="r">{r.members}</td>
+                <td className="r">{r.payments}</td>
+                <td className="r">{money(r.cash)}</td>
+                <td className="r">{r.commission ? money(r.commission) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+
+      {data.unresolved.length > 0 && (
+        <div className="sd-unres">
+          <b>{data.unresolved.length} payment{data.unresolved.length > 1 ? "s" : ""} cannot be priced</b> —
+          counted as cash, excluded from commission, and left open when the month closes.
+          <ul>
+            {data.unresolved.map((x, i) => (
+              <li key={i}>{x.member} · {money(x.amount)} — {x.issue}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <details className="sd-cdet">
+        <summary>Every payment in {label(period)}</summary>
+        <div className="sd-cscroll"><table className="sd-tbl sd-ctbl">
+          <thead><tr>
+            <th>Member</th><th>Rep</th><th>Type</th><th>Paid</th>
+            <th className="r">Cash</th><th className="r">Commission</th><th>Status</th>
+          </tr></thead>
+          <tbody>
+            {data.rows.map((r) => (
+              <tr key={r.payment_id}>
+                <td>{r.member}</td>
+                <td>{r.rep || <span className="sd-warnt">unassigned</span>}</td>
+                <td>{r.payment_type || "—"}</td>
+                <td>{r.paid_on}</td>
+                <td className="r">{money(r.cash)}</td>
+                <td className="r">{r.commission == null ? "—" : money(r.commission)}</td>
+                <td>{r.locked ? <span className="sd-lockt">invoiced</span> : "open"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      </details>
+
+      {isEditor && (
+        <div className="sd-cact">
+          {!data.closed && !confirming && (
+            <button className="sd-btn" disabled={busy || data.total_commission <= 0}
+              onClick={() => setConfirming(true)}>Close {label(period)}</button>
+          )}
+          {!data.closed && confirming && (
+            <div className="sd-confirm">
+              <div>
+                Lock <b>{data.rows.length - data.unresolved.length - data.locked_payments}</b>{" "}
+                payment{data.rows.length - data.unresolved.length - data.locked_payments === 1 ? "" : "s"}{" "}
+                and draft a bill for <b>{money(data.total_commission)}</b>:
+              </div>
+              <select className="sd-sel" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
+                <option value="">Who is it owed to?</option>
+                {(vendors || []).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+              <button className="sd-btn" disabled={busy || !vendorId} onClick={() => act("close")}>
+                {busy ? "Closing…" : "Close & draft bill"}</button>
+              <button className="sd-btn ghost" onClick={() => setConfirming(false)}>Cancel</button>
+              {vendors && vendors.length === 0 && (
+                <span className="sd-warnt">Add the agency as a vendor in Payables first.</span>
+              )}
+            </div>
+          )}
+          {data.closed && (
+            <>
+              <span className="sd-sub">
+                Settled. The bill is in Payables{data.payable_id ? "" : " (not found)"}.
+              </span>
+              <button className="sd-clear" disabled={busy} onClick={() => act("reopen")}>reopen</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {err && <div className="sd-cerr">{err}</div>}
+      <div className="sd-cnote">{data.source_note} Months run on {data.timezone}.</div>
+    </div>
   );
 }
 
@@ -703,10 +943,14 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
         .sd-input:focus { outline:none; border-color:${T.petalDeep}; }
         .sd-active { font-size:11px; color:${T.tertiary}; display:flex; align-items:center; gap:5px; flex:none; }
         .sd-active.off { opacity:.4; }
+        .sd-rate { font-size:11px; color:${T.tertiary}; display:flex; align-items:center; gap:3px; flex:none; }
+        .sd-rate.off { opacity:.4; }
+        .sd-input.rate { width:58px; text-align:right; }
         @media (pointer: coarse), (max-width:700px) {
           .sd-input { font-size:16px; padding:9px 10px; }        /* no iOS focus zoom */
           .sd-rrow { flex-wrap:wrap; }
           .sd-input { width:100%; }
+          .sd-input.rate { width:76px; }      /* the rate stays small - it is two digits */
         }
         .sd-btn { font:inherit; font-size:12px; font-weight:700; border:none; border-radius:9px; padding:8px 15px;
           background:${T.evergreen}; color:${T.onDark}; cursor:pointer; }
@@ -719,7 +963,8 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
         <div className="sd-sub" style={{ marginBottom: 10 }}>
           Display names shown on the leaderboard. The email is the rep's own <b>Sales Rep</b> value on the
           booking (read-only) — it isn't always a team-directory address, so anyone booking calls appears here.
-          Name them or deactivate a rep who's left.
+          Name them or deactivate a rep who's left. <b>%</b> is the commission rate applied to cash
+          collected; leave it blank and that rep's payments stay unresolved rather than paying zero.
         </div>
         {needing > 0 && (
           <div className="sd-needs">
@@ -743,6 +988,13 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
               <input className="sd-input" value={r.display_name || ""} placeholder={r.unmapped ? "Add a name" : r.email}
                 onChange={(e) => patch(i, "display_name", e.target.value)} />
               {/* 'active' has no roster row to persist to until the rep is named, so it's disabled there. */}
+              {/* The rate pays a contractor, so blank means "not set" and is reported as
+                  unresolved on the commission card - never silently treated as 0%. */}
+              <label className={`sd-rate${stillNeeds(r) ? " off" : ""}`} title="Commission rate on cash collected">
+                <input className="sd-input rate" inputMode="decimal" placeholder="—"
+                  value={r.commission_pct ?? ""} disabled={stillNeeds(r)}
+                  onChange={(e) => patch(i, "commission_pct", e.target.value)} />%
+              </label>
               <label className={`sd-active${stillNeeds(r) ? " off" : ""}`}>
                 <input type="checkbox" checked={r.is_active !== false} disabled={stillNeeds(r)}
                   onChange={(e) => patch(i, "is_active", e.target.checked)} /> active</label>

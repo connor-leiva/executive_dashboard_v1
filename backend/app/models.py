@@ -2037,7 +2037,81 @@ class SalesRep(Base):
     email: Mapped[str] = mapped_column(String(160))
     display_name: Mapped[str] = mapped_column(String(80))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Commission rate, percent (12.5 = 12.5%). Null means "not set" and is NOT zero — a rep
+    # with no rate is reported as an exception rather than silently earning nothing.
+    commission_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
     __table_args__ = (UniqueConstraint("tenant_id", "email", name="uq_sales_rep_email"),)
+
+
+# ── Commissions (beCollective Sales Desk) ────────────────────────────────────
+# Commission is owed on cash that ARRIVED, not on contracts signed: a $14,400 plan pays its
+# rep $1,200 at a time. So the unit here is one payment, not one member — a member appears
+# once a month for as long as they keep paying.
+
+
+class CommissionPayment(Base):
+    """One cash event, attributed to the rep who closed the member.
+
+    Keyed on the PROVIDER's transaction id, which is what makes a re-sync idempotent and is
+    the first half of the no-double-pay guarantee. The second half is `statement_id`: once a
+    payment belongs to a closed statement it is frozen, and a later sync must not move it,
+    re-rate it, or re-attribute it however much the opportunity changes afterwards. Paying a
+    rep twice for the same dollar is the failure this table exists to make impossible.
+
+    `rep_email` is nullable on purpose. An unattributed payment is a real and recurring state
+    (an opportunity with no Sales Rep set), and it has to be visible and payable-to-nobody
+    rather than dropped from a report somebody invoices against.
+    """
+    __tablename__ = "commission_payment"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    launch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("launch.id", ondelete="CASCADE"), index=True)
+    external_id: Mapped[str] = mapped_column(String(64))          # provider transaction id
+    provider: Mapped[str] = mapped_column(String(24), default="ghl")
+    contact_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    opportunity_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    member_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    rep_email: Mapped[str | None] = mapped_column(String(160), index=True, nullable=True)
+    payment_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))        # net of refunds
+    paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    statement_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("commission_statement.id", ondelete="SET NULL"), index=True, nullable=True)
+    # Frozen when the statement closes. The rate lives on the rep and rates change; a closed
+    # statement that re-reads the current rate would quietly restate an invoice already sent.
+    rate_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
+    commission_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "provider", "external_id", name="uq_commission_payment_ext"),
+        Index("ix_commission_payment_period", "tenant_id", "launch_id", "paid_at"),
+    )
+
+
+class CommissionStatement(Base):
+    """A month, closed. A row here means the period is settled and its payments are locked.
+
+    An OPEN month has no row — it is computed from the payments themselves — so the presence
+    of a statement is the whole state machine, and there is no way to be half-closed.
+    """
+    __tablename__ = "commission_statement"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    launch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("launch.id", ondelete="CASCADE"), index=True)
+    period: Mapped[str] = mapped_column(String(7))                 # "2026-09"
+    total_cash: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    total_commission: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    payment_count: Mapped[int] = mapped_column(Integer, default=0)
+    vendor_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("vendor.id", ondelete="SET NULL"), nullable=True)
+    payable_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("payable.id", ondelete="SET NULL"), nullable=True)
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    closed_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "launch_id", "period", name="uq_commission_statement_period"),
+    )
 
 
 # ── AI Employees (SPEC-ai-employees-tab §3) ──────────────────────────────────

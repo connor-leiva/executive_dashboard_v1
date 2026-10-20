@@ -1143,6 +1143,23 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
         except Exception as e:  # noqa: BLE001 — never break the bc sync, but make the failure loud
             import traceback
             print(f"[ghl_bc] sales desk FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}", flush=True)
+        # Commissions: record the cash that actually arrived, attributed to the rep who closed
+        # the member. AFTER the Desk sync, because attribution reads the SalesCall rows it has
+        # just written. Isolated for the same reason - a payments-scope failure must not cost
+        # the whole bc sync, and a stale commission report is recoverable while a missing
+        # membership sync is not.
+        try:
+            from .commissions import sync_commission_payments
+            from .launch import active_launch_for
+            _lc = await active_launch_for(s, tenant_id, biz)
+            if _lc is not None:
+                cstat = await sync_commission_payments(s, tenant_id, _lc, token, location_id)
+                if cstat:
+                    print(f"[ghl_bc] commissions {cstat}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            print(f"[ghl_bc] commissions FAILED: {type(e).__name__}: {e}", flush=True)
+            traceback.print_exc()
         # Launch section (Section 7): snapshot the active cohort launch's pipeline opps.
         n_records += await snapshot_launch_opps(
             s, tenant_id, biz, opps, stage_name, pipeline_name, plan_by_contact,

@@ -6,7 +6,7 @@ import uuid
 import datetime as dt
 from decimal import Decimal, InvalidOperation
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -268,16 +268,31 @@ async def list_sales_reps(key: str, user: User = Depends(current_user),
     on_calls = {e.lower() for e in call_emails}
 
     out = [{"email": r.email, "display_name": r.display_name, "is_active": r.is_active,
+            "commission_pct": float(r.commission_pct) if r.commission_pct is not None else None,
             "on_calls": (r.email or "").lower() in on_calls, "unmapped": False} for r in reps]
     seen = {(r["email"] or "").lower() for r in out}
     for e in call_emails:                                  # call-reps with no roster row yet
         if e.lower() not in seen:
             seen.add(e.lower())
             out.append({"email": e, "display_name": None, "is_active": True,
-                        "on_calls": True, "unmapped": True})
+                        "commission_pct": None, "on_calls": True, "unmapped": True})
     # Needs-a-name first (on a call, not yet named), then the rest alphabetically.
     out.sort(key=lambda r: (not r["unmapped"], (r["display_name"] or r["email"] or "").lower()))
     return out
+
+
+def _commission_pct(item: dict):
+    """A rate, or None for "not set". Never a silent zero."""
+    raw = item.get("commission_pct")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        v = Decimal(str(raw).strip().rstrip("%"))
+    except (ArithmeticError, ValueError):
+        raise HTTPException(422, f"commission_pct must be a number, got {raw!r}")
+    if not (0 <= v <= 100):
+        raise HTTPException(422, "commission_pct must be between 0 and 100")
+    return v
 
 
 @router.put("/businesses/{key}/sales-desk/reps")
@@ -295,25 +310,141 @@ async def update_sales_reps(key: str, body: dict, user: User = Depends(require_r
             continue
         raw = (item.get("display_name") or "").strip()
         cur = existing.get(email.lower())
+        # The rate decides what a contractor is paid, so a malformed one is rejected rather
+        # than coerced: 0 and "not set" are different answers, and "12%" silently becoming
+        # null would invoice nothing for a rep who is owed.
+        pct = _commission_pct(item) if "commission_pct" in item else ...
         if cur is None:
             if not raw:                          # unmapped rep left unnamed — don't create a ghost row
                 continue
             rep = SalesRep(tenant_id=user.tenant_id, email=email, display_name=raw[:80],
-                           is_active=bool(item.get("is_active", True)))
+                           is_active=bool(item.get("is_active", True)),
+                           commission_pct=(None if pct is ... else pct))
             s.add(rep)
             existing[email.lower()] = rep        # a repeat of this email in the same body now updates it
             changed.append(email)
         else:
             name = (raw or cur.display_name or email)[:80]                       # a blank keeps the name
             active = bool(item["is_active"]) if "is_active" in item else cur.is_active  # omitted → unchanged
-            if cur.display_name != name or cur.is_active != active:
-                cur.display_name, cur.is_active = name, active
+            new_pct = cur.commission_pct if pct is ... else pct
+            if cur.display_name != name or cur.is_active != active or cur.commission_pct != new_pct:
+                if cur.commission_pct != new_pct:
+                    audit(s, user.tenant_id, user.id, "sales_rep.commission_rate_changed",
+                          "sales_rep", cur.id,
+                          {"email": email, "from": str(cur.commission_pct), "to": str(new_pct)})
+                cur.display_name, cur.is_active, cur.commission_pct = name, active, new_pct
                 changed.append(email)
     if changed:
         audit(s, user.tenant_id, user.id, "sales_rep.roster_updated", "sales_rep", None,
               {"emails": sorted(changed)[:50]})
     await s.commit()
     return {"updated": len(changed)}
+
+
+# ── commissions ───────────────────────────────────────────────────────────────────────────
+# Reps are contracted through an agency that invoices monthly, so this has to answer "what is
+# owed for THIS month" without ever counting a dollar twice. The guard is structural: closing
+# a month locks its payments to a statement, and a locked payment is frozen against every
+# later sync. See services/commissions.py.
+
+
+async def _commission_launch(s: AsyncSession, user, key: str):
+    b = await _biz(s, user.tenant_id, key)
+    await assert_tab(user, s, _launch_tab(b))
+    launch = await active_launch_for(s, user.tenant_id, b.id)
+    if not launch:
+        raise HTTPException(404, "No active launch")
+    return launch
+
+
+def _period_or_current(period: str | None, launch) -> str:
+    from ..services import commissions
+    if not period:
+        return commissions.current_period(launch)
+    try:
+        y, m = period.split("-")
+        if not (len(period) == 7 and 1 <= int(m) <= 12 and 2000 <= int(y) <= 2999):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(422, "period must look like 2026-09")
+    return period
+
+
+@router.get("/businesses/{key}/launches/active/sales-desk/commissions")
+async def sales_desk_commissions(key: str, period: str | None = None,
+                                 user: User = Depends(current_user),
+                                 s: AsyncSession = Depends(get_session)):
+    """One month of commission: every payment that landed, who earned it, what is settled."""
+    from ..services import commissions
+    launch = await _commission_launch(s, user, key)
+    p = _period_or_current(period, launch)
+    report = await commissions.month_report(s, user.tenant_id, launch, p)
+    report["periods"] = await commissions.periods_with_activity(s, user.tenant_id, launch)
+    return report
+
+
+@router.get("/businesses/{key}/launches/active/sales-desk/commissions.csv")
+async def sales_desk_commissions_csv(key: str, period: str | None = None,
+                                     user: User = Depends(current_user),
+                                     s: AsyncSession = Depends(get_session)):
+    """The same month as a spreadsheet — this is what gets sent to the agency."""
+    from ..services import commissions
+    launch = await _commission_launch(s, user, key)
+    p = _period_or_current(period, launch)
+    report = await commissions.month_report(s, user.tenant_id, launch, p)
+    body = commissions.report_csv(report)
+    return Response(
+        content=body, media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="commissions-{p}.csv"'})
+
+
+@router.post("/businesses/{key}/launches/active/sales-desk/commissions/close")
+async def close_commission_month(key: str, body: dict,
+                                 user: User = Depends(require_role("owner", "admin")),
+                                 s: AsyncSession = Depends(get_session)):
+    """Settle a month and draft the agency's bill. Owner/admin — this commits money."""
+    from ..services import commissions
+    launch = await _commission_launch(s, user, key)
+    p = _period_or_current(body.get("period"), launch)
+    try:
+        out = await commissions.close_month(s, user.tenant_id, launch, p,
+                                            body.get("vendor_id"), user)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    audit(s, user.tenant_id, user.id, "commissions.month_closed", "commission_statement", None,
+          {"period": p, "total_commission": out["total_commission"],
+           "payments": out["payments_locked"], "invoice": out["invoice_number"]})
+    await s.commit()
+    return out
+
+
+@router.post("/businesses/{key}/launches/active/sales-desk/commissions/reopen")
+async def reopen_commission_month(key: str, body: dict,
+                                  user: User = Depends(require_role("owner", "admin")),
+                                  s: AsyncSession = Depends(get_session)):
+    """Unlock a closed month. The drafted bill is left alone — see the service."""
+    from ..services import commissions
+    launch = await _commission_launch(s, user, key)
+    p = _period_or_current(body.get("period"), launch)
+    try:
+        out = await commissions.reopen_month(s, user.tenant_id, launch, p)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    audit(s, user.tenant_id, user.id, "commissions.month_reopened", "commission_statement", None,
+          {"period": p, "payments_unlocked": out["payments_unlocked"]})
+    await s.commit()
+    return out
+
+
+@router.get("/businesses/{key}/launches/active/sales-desk/commissions/vendors")
+async def commission_vendors(key: str, user: User = Depends(require_role("owner", "admin")),
+                             s: AsyncSession = Depends(get_session)):
+    """Payees the commission bill can be raised against — the Payables vendor list."""
+    from ..models import Vendor
+    await _biz(s, user.tenant_id, key)
+    rows = (await s.execute(select(Vendor).where(
+        Vendor.tenant_id == user.tenant_id).order_by(Vendor.display_name))).scalars().all()
+    return [{"id": str(v.id), "name": v.display_name or v.legal_name} for v in rows]
 
 
 async def _desk_share_url(s, tenant_id, token: str) -> str:
