@@ -30,6 +30,12 @@ export function useCleanupLine(view, line, month, rev) {
                      [view, line, month, rev]);
 }
 
+/* The months after the books end (Forecast, Cash flow, the Statement's future months) and every company's
+   budget lines. */
+export function useCleanupForward(rev) {
+  return useEndpoint("/cleanup/forward", null, [rev]);
+}
+
 /* Every transaction in the year, with its words and where the books put it (one gzipped read). */
 export function useCleanupTransactions(rev) {
   return useEndpoint("/cleanup/transactions", null, [rev]);

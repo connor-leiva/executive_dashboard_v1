@@ -104,6 +104,28 @@ books, every check passing. A moved transaction stays in sight where it was (str
 Forum"); Decisions lists every change in words with who, when, why, and Undo; the audit log says it in
 the same words ("Minky Couture, Mar 24, $5,598.47: moved to The Forum").
 
+## The months ahead (Forecast, Budget, Cash flow)
+
+For the company the file projects (`forward`: beCollective, whose memberships are contracts): each
+membership earned day by day over its 12 months, split into what members already paid and the
+installments still to come; the installments, month by month; the launches by date window; the bank
+balance to start from; and the Oct 19 meeting's assumptions as starting values. The engine
+(`Books.forward`) projects from the CORRECTED books, so a Move changes the forecast too:
+
+* **Forecast**: what's contracted, collected, earned and still to earn; the partner's share accrued on
+  each calendar year's profit exactly as the corrected books accrue it (tied out with the mockup: with
+  the defaults Julie earns $121,010 by Aug 2027 against $385,000 paid; with the meeting's retreats and
+  10% commissions, $79,621); each launch's cost against what it contracted.
+* **Budget**: every company's cost lines (so far, the last three months' pace, share of revenue); the
+  projected company's monthly plan, editable, starting from that pace (and the meeting's no ads).
+* **Cash flow**: the projected company's balance month by month from QuickBooks' Sep 30 balance
+  (until the bank's own feed is connected): installments in, plan and assumptions out.
+* **The Statement's "+ Future months"**: the projected company's year so far, still to come, and
+  through the horizon.
+
+The assumptions and the plan are saved like decisions (`inputs.forward`, `inputs.budget`; owners and
+admins). They change projections only, never the books or the entries.
+
 ## Who may do what
 
 * **Reading** needs the `cleanup` tab — owners and admins have it; a member needs the grant.
@@ -159,6 +181,6 @@ own value. Earlier files are kept, not replaced.
 * Posting to QuickBooks. By decision, the app never writes to QuickBooks: the entries go in by
   hand or by QuickBooks' own journal-entry import, and their numbers are recorded here.
 * A history view of earlier uploads (they are kept in `cleanup_dataset`; nothing shows them yet).
-* The rest of the Oct 19 mockup, in this order: **the forward view** (Forecast, Budget, Cash flow, and
-  the Statement's future months); **the finishing** (Intercompany itemized, entry descriptions that name
+* The rest of the Oct 19 mockup:
+  **the finishing** (Intercompany itemized, entry descriptions that name
   each change, Ask about this).

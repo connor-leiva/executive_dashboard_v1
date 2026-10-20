@@ -11,8 +11,8 @@
    never lives in colour alone. */
 import { useMemo, useState } from "react";
 import { StatePanel } from "../books/ui.jsx";
-import { useCleanupStatement, useCleanupLine } from "./useCleanup.js";
-import { Bar, Chip, Controls, EYEBROW, Foot, L, F, Loss, NUM, OkPill, Panel, Sheet, Toggle, cents, change,
+import { useCleanupForward, useCleanupStatement, useCleanupLine } from "./useCleanup.js";
+import { Bar, Chip, Controls, EYEBROW, Foot, L, F, Loss, NUM, OkPill, Panel, Seg, Sheet, Toggle, cents, change,
          money, pctOf, periodLabel, shortOf } from "./kit.jsx";
 import { Legend, TxList, rowsFromLine } from "./CleanupTx.jsx";
 
@@ -238,6 +238,73 @@ function TotalRow({ label, v, revenue, one, tone, loss }) {
 
 /* ── the screen ─────────────────────────────────────────────────────────────────────────── */
 
+/* The projected company's year with the months ahead (GET /cleanup/forward): the corrected year so far, what
+   the contracts, the plan and the forecast add, and the year through the horizon. Every figure is the server's. */
+function FutureStatement({ ov, rev }) {
+  const fw = useCleanupForward(rev);
+  const st = fw.data?.forward?.statement;
+  const t = st?.totals;
+  const cols = (strong) => ({ ...NUM, fontSize: strong ? 14 : 13.5, fontWeight: strong ? 700 : 400 });
+  const rowOf = (label, a, b, c, tone, loss) => (
+    <div key={label} className="cu-frow" style={{ padding: tone === "big" ? "14px 20px 14px 18px" : "8px 20px 8px 32px",
+      alignItems: "center", background: tone === "big" ? L.deep : tone === "strong" ? L.totalBand : L.paper,
+      borderTop: `1px solid ${tone ? L.ruleInner : L.ruleLine}` }}>
+      <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: tone ? 700 : 400,
+                     color: tone === "big" ? L.onDeep : tone ? L.deep : L.body }}>{label}</span>
+      <span className="wide-only" style={{ ...cols(false), color: tone === "big" ? L.onDeepPct : L.muted }}>{money(a)}</span>
+      <span className="wide-only" style={{ ...cols(false), color: tone === "big" ? L.onDeepPct : L.infoInk }}>{money(b)}</span>
+      <span style={{ ...cols(true), color: tone === "big" ? L.paper : L.deep }}>{money(c)}
+        {loss ? <Loss v={c} color={tone === "big" ? L.onDeepLoss : undefined} /> : null}</span>
+    </div>
+  );
+  return (
+    <StatePanel loading={fw.loading} error={fw.error} retry={fw.retry}>
+      {st && (
+        <div className="cu-page" style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
+          <div className="cu-summary" style={{ display: "grid", gap: 12 }}>
+            {[["Revenue", "total_revenue"], ["Costs", "total_costs"], ["Net operating income", "net_operating_income"],
+              ["Net income", "net_income"]].map(([label, k]) => (
+              <div key={k} style={{ border: `1px solid ${L.ruleInner}`, borderRadius: 12, background: L.paper,
+                                    padding: "13px 15px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ ...EYEBROW, color: L.ghost }}>{label}, through {st.through}</div>
+                <div style={{ fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize: 23, color: L.deep,
+                              letterSpacing: "-.02em" }}>{money(t.through[k])}
+                  {k.startsWith("net") ? <Loss v={t.through[k]} size={13} /> : null}</div>
+                <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+                  {money(t.so_far[k])} so far · {money(t.ahead[k])} still to come</div>
+              </div>))}
+          </div>
+          <div style={{ border: `1px solid ${L.ruleInner}`, borderRadius: 13, background: L.paper, overflow: "hidden" }}>
+            <div className="cu-frow" style={{ padding: "9px 20px 9px 18px", background: L.colHead,
+                                              borderBottom: `1px solid ${L.ruleHeader}` }}>
+              <span style={EYEBROW}>Line</span>
+              <span className="wide-only" style={{ ...EYEBROW, textAlign: "right" }}>So far (corrected)</span>
+              <span className="wide-only" style={{ ...EYEBROW, textAlign: "right" }}>Still to come</span>
+              <span style={{ ...EYEBROW, textAlign: "right" }}>Through {st.through}</span>
+            </div>
+            {st.sections.map((sec) => (
+              <div key={sec.key}>
+                {sec.lines.length ? (
+                  <div style={{ padding: "11px 20px 11px 18px", background: L.sectionBand, borderTop: `1px solid ${L.ruleSection}`,
+                                fontFamily: F.num, fontSize: 15.5, fontWeight: 700, color: L.deep }}>{sec.label}</div>) : null}
+                {sec.lines.map((l) => rowOf(l.line, l.so_far, l.ahead, l.through))}
+                {sec.key === "revenue" ? rowOf("Total revenue", t.so_far.total_revenue, t.ahead.total_revenue,
+                                                t.through.total_revenue, "strong") : null}
+                {sec.key === "costs" ? [rowOf("Total costs", t.so_far.total_costs, t.ahead.total_costs, t.through.total_costs, "strong"),
+                  rowOf("Net operating income", t.so_far.net_operating_income, t.ahead.net_operating_income,
+                        t.through.net_operating_income, "strong", true)] : null}
+              </div>
+            ))}
+            {rowOf("Net income", t.so_far.net_income, t.ahead.net_income, t.through.net_income, "big", true)}
+          </div>
+          <Foot>Through {st.through}: the contracts still to be earned, the plan&rsquo;s monthly costs (Budget), and the
+            retreats, commissions and partner share (Forecast). No new members are assumed.</Foot>
+        </div>
+      )}
+    </StatePanel>
+  );
+}
+
 export default function CleanupStatement({ ov, rev }) {
   // The workbook's order: each company, with the brand run inside the hub right after it.
   const views = [];
@@ -251,6 +318,8 @@ export default function CleanupStatement({ ov, rev }) {
   const [month, setMonth] = useState(null);            // null = the year so far
   const [expanded, setExpanded] = useState(null);
   const [closed, setClosed] = useState({});
+  const [ahead, setAhead] = useState(false);           // the projected company, with the months after the books
+  const future = ahead && view === ov.forward_company;
   const st = useCleanupStatement(view, month, rev);
   const d = st.data;
   const one = d?.kind === "brand";
@@ -316,12 +385,16 @@ export default function CleanupStatement({ ov, rev }) {
         ))}
       </Bar>
       <Controls>
+        {view === ov.forward_company ? (
+          <Seg options={[["Year so far", false], ["+ Future months", true]]} value={future}
+               onChange={(v) => { setAhead(v); setMonth(null); setExpanded(null); }} />) : null}
+        {!future ? (
         <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
           <Toggle on={month === null} onClick={() => { setMonth(null); setExpanded(null); }}>Year so far</Toggle>
           {months.map((m) => (
             <Toggle key={m.m} on={month === m.m} onClick={() => { setMonth(m.m); setExpanded(null); }}>{m.label}</Toggle>
           ))}
-        </div>
+        </div>) : null}
         <button onClick={() => setClosed(allClosed ? {} : Object.fromEntries(keys.map((k) => [k, true])))} style={{
           height: 28, padding: "0 12px", borderRadius: 8, cursor: "pointer", fontFamily: F.body, fontSize: 12.5,
           fontWeight: 500, whiteSpace: "nowrap", border: `1px solid ${L.pillEdge}`, background: L.paper,
@@ -338,6 +411,7 @@ export default function CleanupStatement({ ov, rev }) {
         )}
       </Controls>
 
+      {future ? <FutureStatement ov={ov} rev={rev} /> : (
       <StatePanel loading={st.loading} error={st.error} retry={st.retry}>
         {d && (
           <div className="cu-page" style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
@@ -393,7 +467,7 @@ export default function CleanupStatement({ ov, rev }) {
             </Foot>
           </div>
         )}
-      </StatePanel>
+      </StatePanel>)}
 
       <style>{`
         .cu-row { display:grid; grid-template-columns: minmax(0,1fr) 112px 104px 124px 62px; gap:12px; }
@@ -403,6 +477,7 @@ export default function CleanupStatement({ ov, rev }) {
         .cu-line:hover { background:${L.totalBand}; }
         .cu-flagged:hover { background:${L.flagBgHover}; }
         .cu-summary { grid-template-columns: repeat(4, minmax(0,1fr)); }
+        .cu-frow { display:grid; grid-template-columns: minmax(0,1fr) 130px 130px 150px; gap:12px; }
         .cu-drawer { animation: cuOpen 130ms ease-out; }
         @keyframes cuOpen { from { opacity:0; transform:translateY(-3px); } }
         @media (max-width: 1080px) { .cu-summary { grid-template-columns: repeat(2, minmax(0,1fr)); } }
@@ -413,6 +488,8 @@ export default function CleanupStatement({ ov, rev }) {
         }
         @media (max-width: 560px) {
           .cu-drawer { padding: 12px 8px 14px 12px !important; }
+          .wide-only { display: none !important; }
+          .cu-frow { grid-template-columns: minmax(0,1fr) 120px; padding-left: 12px !important; padding-right: 12px !important; }
           .cu-page { padding: 14px 10px 18px !important; }
           .cu-row, .cu-row.cu-one { grid-template-columns: minmax(0,1fr) 104px; }
           .cu-chg { display:none; }

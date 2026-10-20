@@ -49,7 +49,9 @@ from ..services.audit import audit
 TAB = "cleanup"
 MAX_BYTES = 25 * 1024 * 1024
 # moving, splitting or taking out a single transaction moves money between companies too ("tx")
-DECISIONS = {"ads", "rates", "salary", "holdco", "bc_basis", "staff", "items", "charges", "tx"}
+DECISIONS = {"ads", "rates", "salary", "holdco", "bc_basis", "staff", "items", "charges", "tx",
+             # the forward view's assumptions and the budget: the owners' plan, not the bookkeeper's
+             "forward", "budget"}
 
 router = APIRouter(prefix="/cleanup", tags=["cleanup"])
 
@@ -133,6 +135,7 @@ async def overview(user: User = Depends(current_user), s: AsyncSession = Depends
         "lines": {"revenue": [l for l in bk.REVENUE if not l.startswith(("Uncategorized", "Not yet"))],
                   "costs": [l for l in bk.COSTS if not l.startswith(("Uncategorized", "Not yet"))]},
         "can_move_month": all((d["accounts"].get(k) or {}) for k in ("prepaid", "accrued_liab")),
+        "forward_company": (d.get("forward") or {}).get("company"),
         "headline": {
             "net_income": {c: bk.net_income(c) for c in bk.companies},
             "inside": ({inside: bk.statement(inside)["totals"]["net_income"]["corrected"]} if inside else {}),
@@ -178,6 +181,15 @@ async def statement_line(request: Request, view: str, line: str,
         return _big(request, bk.line_detail(view, line, month))
     except eng.InputError as e:
         _bad(e)
+
+
+@router.get("/forward")
+async def forward(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """The months after the books end (Forecast, Cash flow, the Statement's future months), and every company's
+    budget lines. `forward` is null for a file that projects nothing."""
+    bk, _, _ = await _books(s, user)
+    return {"forward": bk.forward(), "budgets": {c: bk.budget(c) for c in bk.companies},
+            "can_decide": _may_decide(user)}
 
 
 @router.get("/transactions")

@@ -1,7 +1,7 @@
 /* Books Cleanup -- the shared pieces, in the Books Statement's ledger language (books/
    BooksStatement.jsx): the cream card, the dark entity bar, the controls strip, Archivo figures.
    The palette is theme.js LEDGER; no colour is spelled here. */
-import { createContext } from "react";
+import { createContext, useEffect, useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F, alpha } from "../theme.js";
 
 /* The tab's shell, for anything deep in a page that changes the books: the overview, whether this person
@@ -223,6 +223,31 @@ export function SaveLine({ state }) {
     </span>
   );
 }
+
+/* A number somebody plans with: typed freely, saved when they leave the field (or press Enter), and only
+   if it changed -- so a projection isn't recomputed on every keystroke. */
+export function NumberField({ value, onSave, disabled, prefix, suffix, width = 90, label, step = 1 }) {
+  const [draft, setDraft] = useState(String(value ?? ""));
+  useEffect(() => { setDraft(String(value ?? "")); }, [value]);
+  const commit = () => {
+    const v = Number(draft);
+    if (draft.trim() !== "" && !Number.isNaN(v) && v !== Number(value)) onSave(v);
+    else setDraft(String(value ?? ""));
+  };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {prefix ? <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>{prefix}</span> : null}
+      <input type="number" value={draft} step={step} disabled={disabled} aria-label={label}
+             onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+             style={{ ...inputStyle, width, textAlign: "right" }} />
+      {suffix ? <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>{suffix}</span> : null}
+    </span>
+  );
+}
+
+/* "Mar 2026", from a month key ("2026-03"). */
+export const keyLabel = (k) => (k ? `${MONTH[Number(k.slice(5, 7)) - 1]} ${k.slice(0, 4)}` : "");
 
 /* The server's reason when it has one ("A share is a number between 0 and 1."). */
 export const reasonOf = (e) => (typeof e?.detail === "string" ? e.detail : e?.message) || "That didn't save.";

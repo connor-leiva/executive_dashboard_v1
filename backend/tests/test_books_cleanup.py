@@ -567,6 +567,99 @@ def test_a_moved_charge_stays_in_sight():
     assert eng.describe_change(data, "ev", {"do": "move", "to": "Cohort"}) == "Venue, Mar 15, $200.00: moved to Cohort"
 
 
+# ── the forward view (Forecast, Budget, Cash flow) ───────────────────────────────────────────────────
+
+def forwarded(data=None) -> dict:
+    """The invented file projecting the cohort two months past its books (which end half-way through month 3)."""
+    data = data or dataset()
+    data["forward"] = {
+        "company": COHORT, "revenue_line": "Programs and coaching", "as_of": "2026-03-15", "horizon": "2026-05",
+        "first_fraction": 0.5,
+        "contracts": {"members": 2, "contracted": 9000.0, "collected": 6000.0, "still_to_collect": 3000.0,
+                      "earned_so_far": 4000.0, "stopped": {"count": 0, "plan_value": 0.0, "kept": 0.0}},
+        "schedule": [{"key": "2026-03", "label": "Mar 16-31", "from_paid": 500.0, "from_future": 0.0},
+                     {"key": "2026-04", "label": "Apr 2026", "from_paid": 1000.0, "from_future": 500.0},
+                     {"key": "2026-05", "label": "May 2026", "from_paid": 0.0, "from_future": 1500.0},
+                     {"key": "2026-06", "label": "Jun 2026", "from_paid": 0.0, "from_future": 1000.0}],
+        "collections": {"2026-04": 1000.0, "2026-05": 2000.0},
+        "launches": [{"name": "Launch", "window": "Jan – Feb", "months": [1, 2], "members": 2, "contracted": 9000.0}],
+        "cash": {"account": "Cohort checking", "as_of": "2026-02-28", "balance": 5000.0},
+        "selling": ["Advertising and marketing", "Sales commissions", "Event costs"],
+        "plan_from": {"Event costs": "retreats", "Sales commissions": "commissions"},
+        "plan_defaults": {"Advertising and marketing": 0}, "notes": {},
+        "assumptions": {"commission_pct": 0, "partner_pay": 100.0, "partner_end": "2026-05",
+                        "retreats": [{"label": "A retreat", "key": "2026-05", "amount": 300.0, "on": False}],
+                        "repay": {"label": "Repay the hub", "key": "2026-04", "amount": 1000.0, "on": False}},
+        "meeting": {"label": "The meeting's", "commission_pct": 10, "retreats_on": True}}
+    return data
+
+
+def test_the_forward_view_accrues_the_partner_share_as_the_books_do():
+    f = books(data=forwarded()).forward()
+    # the plan: the last three months' pace (staff 550, fees 20, software 30), the file's no ads
+    assert f["plan"] == {"Advertising and marketing": 0.0, "Staff and contractors": 550.0, "Payment processing": 20.0,
+                         "Software and subscriptions": 30.0} and f["running"] == 600.0
+    rows = {r["key"]: r for r in f["rows"]}
+    # month 3: the books' 3,000 and 780, plus the rest of the month: 500 of contracts and half a month of plan
+    assert (rows["2026-03"]["rev"], rows["2026-03"]["cost"], rows["2026-03"]["projected"]) == (3500.0, 1080.0, True)
+    assert (rows["2026-04"]["profit"], rows["2026-05"]["profit"]) == (900.0, 900.0)
+    # Jo's 50% on the year so far, month by month: 1,110, 610, 1,210, 450, 450
+    assert [rows[k]["share"] for k in sorted(rows)] == [1110.0, 610.0, 1210.0, 450.0, 450.0]
+    # paid: 800 a month on the books, then the assumption's 100 (month 3 had a real payment, so it's that)
+    assert (f["summary"]["earned"], f["summary"]["paid"], f["summary"]["ahead"]) == (3830.0, 2600.0, -1230.0)
+    # what the Statement adds for the months ahead: 2.5 months of plan, the contracts, the projected shares
+    assert f["future_by_line"]["Programs and coaching"] == 3500.0
+    assert f["future_by_line"]["Staff and contractors"] == 1375.0 and f["future_by_line"]["Partner profit shares"] == 2110.0
+
+
+def test_the_meetings_assumptions_and_the_budget_move_the_forecast():
+    data = forwarded()
+    meeting = books({"forward": {"commission_pct": 10, "retreats": [
+        {"label": "A retreat", "key": "2026-05", "amount": 300.0, "on": True}]}}, data=data).forward()
+    rows = {r["key"]: r for r in meeting["rows"]}
+    assert rows["2026-05"]["cost"] == 600.0 + 300.0 + 200.0                 # the plan, the retreat, 10% of 2,000 in
+    assert meeting["future_by_line"]["Event costs"] == 300.0 and meeting["future_by_line"]["Sales commissions"] == 300.0
+    leaner = books({"budget": {"Staff and contractors": 400.0}}, data=data).forward()
+    assert leaner["running"] == 450.0 and leaner["plan"]["Staff and contractors"] == 400.0
+
+
+def test_cash_flows_from_the_starting_balance():
+    data = forwarded()
+    cash = books(data=data).forward()["cash"]
+    assert [(r["key"], r["close"]) for r in cash["rows"]] == [("2026-03", 4300.0), ("2026-04", 4600.0), ("2026-05", 5900.0)]
+    assert cash["runs_out"] is None
+    repay = {"forward": {"repay": {"label": "Repay the hub", "key": "2026-04", "amount": 5000.0, "on": True}}}
+    cash = books(repay, data=data).forward()["cash"]
+    assert [r["close"] for r in cash["rows"]] == [4300.0, -400.0, 900.0] and cash["runs_out"] == "2026-04"
+
+
+def test_a_company_budget_is_its_lines_so_far_and_at_the_recent_pace():
+    b = books(data=forwarded()).budget(COHORT)
+    staff = next(l for l in b["lines"] if l["line"] == "Staff and contractors")
+    assert (staff["ytd"], staff["recent"]) == (1650.0, 550.0) and staff["pct"] == pytest.approx(1650 / 8000 * 100, abs=0.01)
+    assert b["revenue"] == 8000.0 and b["noi"] == 8000.0 - 2340.0
+
+
+@pytest.mark.parametrize("path,value", [
+    (["forward", "commission_pct"], 101),
+    (["forward", "partner_end"], "2026-06"),                 # past the horizon
+    (["forward", "retreats"], [{"label": "x", "key": "2027-01", "amount": 1, "on": True}]),
+    (["forward", "retreats"], [{"label": "x", "key": "2026-04", "amount": 1, "on": True}] * 9),
+    (["forward", "nonsense"], 1),
+    (["budget", "Event costs"], 100),                        # the forecast plans that line itself
+    (["budget", "Staff and contractors"], -5),
+])
+def test_a_forward_change_the_file_cannot_hold_is_refused(path, value):
+    with pytest.raises(eng.InputError):
+        eng.validate_change(forwarded(), path, value)
+
+
+def test_a_file_that_projects_nothing_has_no_forward_view():
+    assert books().forward() is None
+    with pytest.raises(eng.InputError):
+        eng.validate_change(dataset(), ["forward", "commission_pct"], 5)
+
+
 def test_merged_inputs_change_only_what_was_saved():
     data = dataset()
     m = eng.merged_inputs(data, {"staff": {"Ann": {"2": {"Club": 1.0, "Cohort": 0.0}}}})
@@ -790,6 +883,21 @@ async def test_an_owner_moves_a_transaction_and_can_undo_it(ctx):
             AuditLog.tenant_id == ctx["tenant"], AuditLog.target_id == "tx/ev"))).scalars().all()}
         assert said >= {"Books Cleanup: Venue, Mar 15, $200.00: moved to Cohort",
                         "Books Cleanup: Venue, Mar 15, $200.00: back to where the review put it"}
+
+
+async def test_the_forward_view_is_the_tabs_to_read_and_the_owners_to_plan(ctx):
+    await _loaded(ctx)
+    async with _client() as c:
+        assert (await c.post("/api/v1/cleanup/dataset", headers=_H(ctx["owner"]), files=_file(forwarded()))).status_code == 200
+        r = await c.get("/api/v1/cleanup/forward", headers=_H(ctx["keeper"]))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["forward"]["company"] == COHORT and set(body["budgets"]) == set(COMPANIES)
+        assert body["forward"]["statement"]["totals"]["through"]["total_revenue"] == pytest.approx(8000.0 + 3500.0)
+        plan = {"changes": [{"path": ["budget", "Staff and contractors"], "value": 400}]}
+        assert (await c.put("/api/v1/cleanup/inputs", headers=_H(ctx["keeper"]), json=plan)).status_code == 403
+        assert (await c.put("/api/v1/cleanup/inputs", headers=_H(ctx["owner"]), json=plan)).status_code == 200
+        assert (await c.get("/api/v1/cleanup/forward", headers=_H(ctx["owner"]))).json()["forward"]["running"] == 450.0
 
 
 async def test_a_new_file_keeps_the_decisions(ctx):

@@ -14,21 +14,27 @@ import { uploadCleanupFile, useCleanupOverview } from "./useCleanup.js";
 import { Button, CleanupCtx, L, F, OkPill, SaveLine, reasonOf } from "./kit.jsx";
 import CleanupStatement from "./CleanupStatement.jsx";
 import CleanupTransactions from "./CleanupTransactions.jsx";
+import CleanupForecast from "./CleanupForecast.jsx";
+import CleanupBudget from "./CleanupBudget.jsx";
+import CleanupCash from "./CleanupCash.jsx";
 import CleanupDecisions from "./CleanupDecisions.jsx";
 import CleanupCorrections from "./CleanupCorrections.jsx";
 import CleanupBalance from "./CleanupBalance.jsx";
 import CleanupInterco from "./CleanupInterco.jsx";
 import { CleanupFindings, CleanupTodo } from "./CleanupItems.jsx";
 
-const PAGES = [["statement", "Statement"], ["transactions", "Transactions"], ["decisions", "Decisions"],
-               ["corrections", "Corrections"],
+const PAGES = [["statement", "Statement"], ["transactions", "Transactions"], ["forecast", "Forecast"],
+               ["budget", "Budget"], ["cash", "Cash flow"], ["decisions", "Decisions"], ["corrections", "Corrections"],
                ["balance", "Balance sheet"], ["interco", "Intercompany"], ["todo", "To do"],
                ["findings", "Findings"]];
 
-function SubNav({ page, setPage, counts }) {
+// Forecast and Cash flow are a projected company's: a file that projects none has no such pages.
+const FORWARD_ONLY = new Set(["forecast", "cash"]);
+
+function SubNav({ page, setPage, counts, forward }) {
   return (
     <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
-      {PAGES.map(([k, l]) => (
+      {PAGES.filter(([k]) => forward || !FORWARD_ONLY.has(k)).map(([k, l]) => (
         <button key={k} onClick={() => setPage(k)} aria-current={page === k ? "page" : undefined} style={{
           fontFamily: font.head, fontSize: 13, fontWeight: 600, color: page === k ? T.ink : T.muted,
           background: "transparent", border: "none",
@@ -93,7 +99,7 @@ export default function Cleanup({ role }) {
           {isOwner && d.can_decide && <Upload onLoaded={onSaved} />}
         </div>
       )}
-      <SubNav page={page} setPage={setPage} counts={counts} />
+      <SubNav page={page} setPage={setPage} counts={counts} forward={!!d?.forward_company} />
       <StatePanel loading={ov.loading} error={ov.error} retry={ov.retry}>
         {d && (
           // A transaction's card changes the books from deep inside a page: it needs the overview, whether
@@ -101,6 +107,9 @@ export default function Cleanup({ role }) {
           <CleanupCtx.Provider value={{ ov: d, canDecide: isOwner && d.can_decide, onSaved, goto: setPage }}>
             {page === "statement" && <CleanupStatement ov={d} rev={rev} />}
             {page === "transactions" && <CleanupTransactions ov={d} rev={rev} />}
+            {page === "forecast" && <CleanupForecast ov={d} rev={rev} onSaved={onSaved} />}
+            {page === "budget" && <CleanupBudget ov={d} rev={rev} onSaved={onSaved} />}
+            {page === "cash" && <CleanupCash ov={d} rev={rev} onSaved={onSaved} />}
             {page === "decisions" && <CleanupDecisions ov={d} rev={rev} onSaved={onSaved} />}
             {page === "corrections" && <CleanupCorrections ov={d} rev={rev} onSaved={onSaved} />}
             {page === "balance" && <CleanupBalance ov={d} rev={rev} />}
