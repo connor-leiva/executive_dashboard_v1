@@ -13,13 +13,15 @@ import { StatePanel, font, T } from "../books/ui.jsx";
 import { uploadCleanupFile, useCleanupOverview } from "./useCleanup.js";
 import { Button, L, F, OkPill, SaveLine, reasonOf } from "./kit.jsx";
 import CleanupStatement from "./CleanupStatement.jsx";
+import CleanupTransactions from "./CleanupTransactions.jsx";
 import CleanupDecisions from "./CleanupDecisions.jsx";
 import CleanupCorrections from "./CleanupCorrections.jsx";
 import CleanupBalance from "./CleanupBalance.jsx";
 import CleanupInterco from "./CleanupInterco.jsx";
 import { CleanupFindings, CleanupTodo } from "./CleanupItems.jsx";
 
-const PAGES = [["statement", "Statement"], ["decisions", "Decisions"], ["corrections", "Corrections"],
+const PAGES = [["statement", "Statement"], ["transactions", "Transactions"], ["decisions", "Decisions"],
+               ["corrections", "Corrections"],
                ["balance", "Balance sheet"], ["interco", "Intercompany"], ["todo", "To do"],
                ["findings", "Findings"]];
 
@@ -96,6 +98,7 @@ export default function Cleanup({ role }) {
         {d && (
           <>
             {page === "statement" && <CleanupStatement ov={d} rev={rev} />}
+            {page === "transactions" && <CleanupTransactions ov={d} rev={rev} />}
             {page === "decisions" && <CleanupDecisions ov={d} rev={rev} onSaved={onSaved} />}
             {page === "corrections" && <CleanupCorrections ov={d} rev={rev} onSaved={onSaved} />}
             {page === "balance" && <CleanupBalance ov={d} rev={rev} />}

@@ -30,6 +30,11 @@ export function useCleanupLine(view, line, month, rev) {
                      [view, line, month, rev]);
 }
 
+/* Every transaction in the year, with its words and where the books put it (one gzipped read). */
+export function useCleanupTransactions(rev) {
+  return useEndpoint("/cleanup/transactions", null, [rev]);
+}
+
 export function useCleanupCorrections(company, rev) {
   return useEndpoint(company ? `/cleanup/corrections?${qs({ company })}` : null, null, [company, rev]);
 }

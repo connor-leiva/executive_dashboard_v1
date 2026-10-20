@@ -100,6 +100,17 @@ export const LEDGER = {
   flagEdge: "#E0C476",
   flagRing: "#D4B45F",
   flagInk: "#93854F",
+
+  // a loss, and something that needs a person (Books Cleanup's "Needs you")
+  loss: "#93413A",
+  lossBg: "#F7EDEB",
+  lossEdge: "#E8C9C4",
+  // an explanation of what a change will do, before it is saved
+  infoInk: "#2F5D7C",
+  infoBg: "#E6EFF5",
+  infoEdge: "#C9DCE9",
+  accentEdge: "#CFE2D8",
+  onDeepLoss: "#F2B8AE",     // "loss", on the dark net-income band
 };
 
 /* Archivo everywhere a figure or a label appears; Outfit for prose. Both loaded in

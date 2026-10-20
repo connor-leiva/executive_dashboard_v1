@@ -49,12 +49,36 @@ recommendation text). A different workspace's cleanup would be a different file.
 
 | Page | What it is |
 | --- | --- |
-| Statement | The corrected P&L by company (and The Edge, a brand inside the hub, on a cash basis), year or month: QuickBooks, the cleanup's change, corrected. Every line opens to *how the number is made* (QuickBooks → each kind of correction → corrected) and every dollar in it. |
+| Statement | The corrected P&L by company (and The Edge, a brand inside the hub, on a cash basis), year or month: QuickBooks, the cleanup's change, corrected. Every line opens to *how the number is made*, in one sentence, and every dollar in it, month by month (below). Losses read "−$89,844 loss", never "($89,844)". |
+| Transactions | Every transaction in the year, month by month, searchable, by company ("anything to do with beCollective": what it paid, and what the corrected books put on it), with *Needs you* (a decision, or a possible second copy) and *Changed by the cleanup* filters. |
 | Decisions | The workbook's yellow cells: partner rates and the owner's salary, investment or loan, the revenue basis, the ad split, staff person by person and month by month, software and other shared costs item by item, the owner's charges one by one. |
 | Corrections | The journal entries to post: one per company per month, plus January 1, in debits and credits to the cent. The QuickBooks entry number is written against each once posted; the download is a QuickBooks journal-entry import file. |
 | Balance sheet | Each company on the last day, as booked and corrected, with the accounts to create or retype. |
 | Intercompany | What the companies owe each other, each brand's year, and each partner's earned-against-paid. |
 | To do / Findings | The checklist and open items (answered here), and the audit's findings and answered questions. |
+
+## A transaction, the way the owners read it
+
+The Oct 19 review (Spring and Connor, on a mockup) settled how a transaction reads, everywhere the tab
+lists them (`frontend/src/cleanup/CleanupTx.jsx`, used by a Statement line's drawer and by
+Transactions):
+
+* **five columns up front**: Date · Payee and the account it was paid from · *For* the company and
+  the P&L line it's filed to · What it was · Amount;
+* **month by month, oldest first**, each month with its count and total;
+* **a quiet ⋯** on each row (or a click anywhere on it) opens a card with what the columns don't say:
+  what the cleanup changed, how QuickBooks had it, the review's note, and a possible second copy;
+* in a line's drawer, the shares of shared costs, timing, dues and partner shares are **one row per
+  month per kind** ("Shared staff", "Held for later months"), each card saying what it's made of;
+* sized by the list's own width (CSS container queries), so a drawer on a phone reads as cards.
+
+The words are the file's. `books_cleanup_out/engine/tx_words.py` (outside the repo, with the data)
+gives each transaction a tidy payee (one spelling per vendor), the account it was paid from, the
+review's description without the audit workbook's row numbers, what changed, and a possible second
+copy: the same payee and amount within ten days, money out, $25 or more, and not a charge that
+recurs (unless two companies paid it within three days); the review's own explanation ("two movers,
+$489.25 each") marks a pair checked. An older file without the words still reads, on its QuickBooks
+payee.
 
 ## Who may do what
 
@@ -97,9 +121,10 @@ base64 -w0 ../books_cleanup_out/axcion_cleanup_v12.json | railway ssh --service 
   "base64 -d > /tmp/c.json && python -m scripts.load_books_cleanup --tenant springb --file /tmp/c.json --apply && rm /tmp/c.json"
 ```
 
-The second command has not been run against Railway yet: `railway ssh` takes a command, but that it
-forwards piped input is an assumption until someone sees it work. Check with a harmless pipe first
-(`echo ok | railway ssh --service executive_dashboard_v1 cat`).
+That is how v12 went into production on 2026-10-19: `railway ssh` forwards piped input (the
+base64 file, ~2.2 MB, arrives whole), so run it once without `--apply` and compare the net incomes
+and checks it prints with the workbook before running it with `--apply`. The temporary copy is
+deleted either way.
 
 A new file keeps every decision already made on the tab; anything the new file adds arrives at its
 own value. Earlier files are kept, not replaced.
@@ -109,3 +134,9 @@ own value. Earlier files are kept, not replaced.
 * Posting to QuickBooks. By decision, the app never writes to QuickBooks: the entries go in by
   hand or by QuickBooks' own journal-entry import, and their numbers are recorded here.
 * A history view of earlier uploads (they are kept in `cleanup_dataset`; nothing shows them yet).
+* The rest of the Oct 19 mockup, in this order: **Move** (a transaction to another company, split,
+  personal, not real, another line or month, recomputed into the books and the entries, listed on
+  Decisions with undo); **the forward view** (Forecast, Budget, Cash flow, and the Statement's future
+  months); **the finishing** (Intercompany itemized, entry descriptions that name each change, Ask
+  about this). The file already carries what Move needs (`accounts.ic_revenue`, `prepaid`,
+  `accrued_liab`, each transaction's bank lines).

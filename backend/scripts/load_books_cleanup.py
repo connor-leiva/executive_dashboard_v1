@@ -11,8 +11,8 @@ Dry run by default: it builds the books and prints what the tab will open on. --
 
 The FIRST file has to come this way (or as a direct POST to /cleanup/dataset): the tab, and its
 upload button, only exist once a file is loaded. In production the file has to reach the container
-first; pipe it rather than copying it anywhere (see BOOKS-CLEANUP.md -- that the pipe reaches the
-container is untested until someone sees `echo ok | railway ssh ... cat` print it):
+first; pipe it rather than copying it anywhere (`railway ssh` forwards stdin -- this is how v12 was
+loaded on 2026-10-19; see BOOKS-CLEANUP.md):
 
   base64 -w0 file.json | railway ssh --service executive_dashboard_v1 \\
       "base64 -d > /tmp/c.json && python -m scripts.load_books_cleanup --tenant springb --file /tmp/c.json --apply \\

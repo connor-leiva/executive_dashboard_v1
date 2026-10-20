@@ -9,50 +9,92 @@
    A FLAGGED LINE is one the cleanup changes by a dollar or more. It carries the Statement's gold
    wash, a solid left edge and a ringed marker, and its change is in its own column, so the meaning
    never lives in colour alone. */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { StatePanel } from "../books/ui.jsx";
 import { useCleanupStatement, useCleanupLine } from "./useCleanup.js";
-import { Bar, Chip, Controls, EYEBROW, Foot, L, F, NUM, OkPill, Panel, Toggle, cents, change, money,
-         pctOf, periodLabel, shortOf } from "./kit.jsx";
-
-const KIND = { tx: "Transaction", dues: "Dues earned", share: "Share", charge: "Owner's charge",
-               timing: "Timing", partner: "Partner share" };
+import { Bar, Chip, Controls, EYEBROW, Foot, L, F, Loss, NUM, OkPill, Panel, Sheet, Toggle, cents, change,
+         money, pctOf, periodLabel, shortOf } from "./kit.jsx";
+import { Legend, TxList, rowsFromLine } from "./CleanupTx.jsx";
 
 /* ── the drawer: how the number is made, then what's in it ─────────────────────────────── */
 
+/* Each kind of correction, said both ways round: [when it adds to the line, when it takes away]. The
+   server names the kinds (services/books_cleanup.py COMPONENTS); a kind this map doesn't know is said
+   with the server's own label. */
+const PLAIN = {
+  moved: ["came over from other companies' books", "moved to the company it belongs to"],
+  recat: ["moved in from other lines", "moved out to other lines"],
+  never: ["added back entries that did happen", "removed entries that never happened"],
+  old: ["added back what the old bookkeeper's journal entries took out", "undid the old bookkeeper's journal entries"],
+  outside: ["brought in what another company paid", "took out what another company paid"],
+  split: ["added this company's share of shared costs (your splits)", "took out the share other companies carry (your splits)"],
+  dues: ["counted dues as members earn them", "held back dues not yet earned"],
+  timing: ["counted it in the month it belongs to", "moved it to the month it belongs to"],
+  own: ["added the owner's charges", "took out the owner's own charges"],
+  chargeline: ["moved the owner's charges here", "moved the owner's charges to another line"],
+  partner: ["added the partner's share as profit builds", "took back partner share as profit fell"],
+};
+
 function HowMade({ d, monthLabel }) {
-  const why = d.why || [];
+  const why = (d.why || []).filter((w) => Math.abs(w.amount) >= 0.5);
   const named = why.reduce((n, w) => n + w.amount, 0);
   const rest = (d.corrections || 0) - named;            // parts under 50 cents, summed rather than dropped
-  const row = (label, value, opts = {}) => (
-    <div style={{ display: "flex", gap: 12, alignItems: "baseline", fontFamily: F.body, fontSize: 12.5,
-                  ...(opts.total ? { borderTop: `1px solid ${L.ruleInner}`, paddingTop: 6 } : {}) }}>
-      <span style={{ flex: 1, minWidth: 0, color: opts.total ? L.deep : L.bodyDim,
-                     fontWeight: opts.total ? 600 : 400 }}>{label}</span>
-      <span style={{ ...NUM, minWidth: 110, color: opts.flag ? L.flagInk : L.deep,
-                     fontWeight: opts.total ? 700 : 400 }}>{value}</span>
-    </div>
-  );
+  const said = why.map((w) => {
+    const pair = PLAIN[w.component];
+    const words = pair ? pair[w.amount >= 0 ? 0 : 1] : w.label.toLowerCase();
+    return `${words} (${w.amount >= 0 ? "+" : "−"}${money(Math.abs(w.amount))})`;
+  });
+  if (Math.abs(rest) >= 0.5) said.push(`smaller items (${rest >= 0 ? "+" : "−"}${money(Math.abs(rest))})`);
+  const body = said.length
+    ? ` The cleanup ${said.slice(0, -1).join(", ")}${said.length > 1 ? ", and " : ""}${said[said.length - 1]}.`
+    : " The cleanup doesn’t change it: QuickBooks has it right.";
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div>
       <div style={EYEBROW}>How this number is made{monthLabel ? ` · ${monthLabel}` : ""}</div>
-      <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-        {row("QuickBooks has", money(d.qbo))}
-        {why.length === 0 && Math.abs(d.corrections || 0) < 0.5 && (
-          <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>The cleanup doesn&rsquo;t change
-            this line: QuickBooks has it right.</div>
-        )}
-        {why.map((w) => <div key={w.component}>{row(w.label, change(w.amount), { flag: true })}</div>)}
-        {Math.abs(rest) >= 0.5 && row("Smaller items", change(rest), { flag: true })}
-        {row(<>Corrected<span style={{ fontWeight: 600, color: L.flagInk }}> · shown above</span></>,
-             money(d.corrected), { total: true })}
+      <div style={{ marginTop: 6, fontFamily: F.body, fontSize: 14, color: L.deep, lineHeight: 1.55, maxWidth: 900 }}>
+        QuickBooks shows {money(d.qbo)}.{body} That leaves <strong>{money(d.corrected)}</strong>.
       </div>
     </div>
   );
 }
 
-function LineDetail({ view, line, month, monthLabel, rev, brandView, monthNames }) {
+/* The staff line, person by person: what each one cost this company, month by month. */
+function People({ people, months, viewShort }) {
+  const cell = { ...NUM, padding: "7px 6px", fontSize: 12.5 };
+  return (
+    <Sheet title={`Who's in it: ${viewShort}'s share, person by person`}>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 200 + months.length * 76 }}>
+          <thead><tr>
+            <th style={{ ...EYEBROW, textAlign: "left", padding: "8px 16px" }}>Person</th>
+            {months.map((m) => <th key={m.m} style={{ ...EYEBROW, textAlign: "right", padding: "8px 6px" }}>{m.label}</th>)}
+            <th style={{ ...EYEBROW, textAlign: "right", padding: "8px 16px" }}>Total</th>
+          </tr></thead>
+          <tbody>{people.map((p) => (
+            <tr key={p.name} style={{ borderTop: `1px solid ${L.ruleLine}` }}>
+              <td style={{ padding: "7px 16px", fontFamily: F.body, fontSize: 13, color: L.deep, fontWeight: 600 }}>
+                {p.name}{p.follows_wages ? <span style={{ fontWeight: 400, color: L.muted }}> · follows W-2 wages</span> : null}</td>
+              {months.map((m) => {
+                const v = p.months[String(m.m)];
+                return <td key={m.m} style={{ ...cell, color: v ? L.body : L.ghost }}>{v ? money(v) : "–"}</td>;
+              })}
+              <td style={{ ...cell, padding: "7px 16px", fontWeight: 700, color: L.deep }}>{money(p.total)}</td>
+            </tr>))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ padding: "8px 16px 12px", fontFamily: F.body, fontSize: 12, color: L.muted }}>
+        Each person&rsquo;s split, month by month, is on Decisions.</div>
+    </Sheet>
+  );
+}
+
+function LineDetail({ ov, view, line, month, monthLabel, rev, brandView, income }) {
   const { data, error, loading, retry } = useCleanupLine(view, line, month, rev);
+  const short = (x) => shortOf(ov, x);
+  const year = (ov.period?.start || "").slice(0, 4);
+  const rows = useMemo(() => (data ? rowsFromLine(data, { viewShort: short(view), hubShort: short(ov.hub), short, income })
+    : []), [data]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
     Loading the dollars behind this line…</div>;
   if (error) {
@@ -67,65 +109,40 @@ function LineDetail({ view, line, month, monthLabel, rev, brandView, monthNames 
   }
   if (!data) return null;
   const off = (data.rows_total || 0) - (data.corrected || 0);
+  const tx = rows.filter((r) => r.kind === "tx").length;
+  const adj = rows.length - tx;
+  const months = month ? ov.period.months.filter((m) => m.m === month) : ov.period.months;
   return (
     <div style={{ display: "grid", gap: 14 }}>
       {!brandView && <HowMade d={data} monthLabel={monthLabel} />}
-      <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12,
-                      flexWrap: "wrap" }}>
-          <span style={EYEBROW}>What&rsquo;s in it</span>
-          <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.ghost }}>
-            {data.count} {data.count === 1 ? "item" : "items"}, biggest first
-            {data.truncated ? ` · ${data.truncated} more not shown` : ""}</span>
+      {data.people && data.people.length ? <People people={data.people} months={months} viewShort={short(view)} /> : null}
+      <Sheet right={<Legend />} title={<>Month by month <span style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 400,
+        color: L.muted }}>· {tx} {income ? (tx === 1 ? "payment" : "payments") : (tx === 1 ? "charge" : "charges")}
+        {adj ? `, ${adj} adjustment${adj === 1 ? "" : "s"}` : ""} · oldest first</span></>}>
+        {rows.length ? <TxList rows={rows} income={income} year={year} /> : (
+          <div style={{ padding: "12px 16px", fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+            Nothing on this line{monthLabel ? ` in ${monthLabel}` : ""}.</div>
+        )}
+        <div style={{ padding: "9px 16px", borderTop: `1px solid ${L.ruleInner}`, display: "flex", gap: 12,
+                      alignItems: "center", flexWrap: "wrap", background: L.totalBand }}>
+          <OkPill ok={Math.abs(off) < 0.5}>
+            {Math.abs(off) < 0.5 ? `Together ${money(data.rows_total)}: the line's corrected total`
+              : off < 0 ? `Short of the line by ${money(-off)}` : `Over the line by ${money(off)}`}</OkPill>
         </div>
-        <div style={{ marginTop: 6, maxHeight: 340, overflowY: "auto" }}>
-          {data.rows.length === 0 && (
-            <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted, padding: "6px 0" }}>
-              Nothing on this line{monthLabel ? ` in ${monthLabel}` : ""}.</div>
-          )}
-          {data.rows.map((r, i) => (
-            <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "5px 0",
-                                  borderTop: `1px solid ${L.ruleLine}`, flexWrap: "wrap" }}>
-              <span style={{ fontFamily: F.num, fontSize: 11.5, color: L.ghost, width: 76, flexShrink: 0,
-                             fontVariantNumeric: "tabular-nums" }}>{r.date || monthNames[r.month] || `month ${r.month}`}</span>
-              <span style={{ flex: 1, minWidth: 180, fontFamily: F.body, fontSize: 12.5, color: L.body,
-                             overflowWrap: "anywhere" }}>
-                <span style={{ fontFamily: F.num, fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase",
-                               color: r.kind === "tx" ? L.faint : L.flagInk, marginRight: 7 }}>{KIND[r.kind] || r.kind}</span>
-                {r.who && r.kind !== "share" ? <strong style={{ fontWeight: 600, color: L.deep }}>{r.who} </strong> : null}
-                {r.label}
-                <span style={{ color: L.muted }}>
-                  {r.brand && !brandView && r.kind !== "share" ? ` · ${r.brand}` : ""}
-                  {r.booked_as ? ` · booked as ${r.booked_as}` : ""}
-                  {r.paid_by && r.kind === "tx" && r.paid_by !== view ? ` · paid by ${r.paid_by}` : ""}
-                  {r.ref ? ` · ${r.ref}` : ""}
-                </span>
-              </span>
-              <span style={{ ...NUM, fontSize: 12.5, color: L.deep, minWidth: 100 }}>{cents(r.amount)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div style={{ borderTop: `1px solid ${L.ruleInner}`, paddingTop: 8, display: "flex", gap: 12,
-                    alignItems: "baseline", flexWrap: "wrap" }}>
-        <OkPill ok={Math.abs(off) < 0.5}>
-          {Math.abs(off) < 0.5 ? "These add up to the line"
-            : off < 0 ? `Short of the line by ${money(-off)}` : `Over the line by ${money(off)}`}</OkPill>
-        <span style={{ ...NUM, fontSize: 12, color: L.ghost }}>{money(data.rows_total)} of {money(data.corrected)}</span>
-      </div>
+      </Sheet>
     </div>
   );
 }
 
 /* ── ledger rows ─────────────────────────────────────────────────────────────────────────── */
 
-function Nums({ v, revenue, one, strong, big, flag, hide }) {
+function Nums({ v, revenue, one, strong, big, flag, hide, loss }) {
   const col = big ? L.paper : strong ? L.deep : L.body;
   const size = big ? 20 : strong ? 16 : 13.5;
   return one ? (
     <>
       <span style={{ ...NUM, fontSize: size, fontWeight: big || strong || flag ? 700 : 400, color: col }}>
-        {hide ? "" : money(v.corrected)}</span>
+        {hide ? "" : money(v.corrected)}{!hide && loss ? <Loss v={v.corrected} color={big ? L.onDeepLoss : undefined} /> : null}</span>
       <span className="cu-pct" style={{ ...NUM, fontSize: 12, color: big ? L.onDeepPct : L.muted }}>
         {hide ? "" : pctOf(v.corrected, revenue)}</span>
     </>
@@ -137,7 +154,8 @@ function Nums({ v, revenue, one, strong, big, flag, hide }) {
         color: big ? L.onDeepPct : Math.abs(v.corrections || 0) >= 1 ? L.flagInk : L.ghost }}>
         {hide ? "" : Math.abs(v.corrections || 0) < 0.5 ? "–" : change(v.corrections)}</span>
       <span style={{ ...NUM, fontSize: size, fontWeight: big || strong || flag ? 700 : 400, color: col,
-                     letterSpacing: big ? "-.02em" : 0 }}>{hide ? "" : money(v.corrected)}</span>
+                     letterSpacing: big ? "-.02em" : 0 }}>{hide ? "" : money(v.corrected)}
+        {!hide && loss ? <Loss v={v.corrected} color={big ? L.onDeepLoss : undefined} /> : null}</span>
       <span className="cu-pct" style={{ ...NUM, fontSize: 12, color: big ? L.onDeepPct : L.muted }}>
         {hide ? "" : pctOf(v.corrected, revenue)}</span>
     </>
@@ -203,7 +221,7 @@ function LineRow({ line, open, onToggle, revenue, one, children }) {
   );
 }
 
-function TotalRow({ label, v, revenue, one, tone }) {
+function TotalRow({ label, v, revenue, one, tone, loss }) {
   const big = tone === "big", strong = tone === "strong";
   return (
     <div className={`cu-row${one ? " cu-one" : ""}`} style={{ alignItems: "center",
@@ -212,7 +230,7 @@ function TotalRow({ label, v, revenue, one, tone }) {
       borderBottom: big ? "none" : `1px solid ${L.ruleInner}` }}>
       <span style={{ fontFamily: F.body, fontSize: big ? 16 : strong ? 15 : 14, fontWeight: big || strong ? 700 : 600,
                      letterSpacing: "-.01em", color: big ? L.onDeep : strong ? L.deep : L.bodyDim }}>{label}</span>
-      <Nums v={v} revenue={revenue} one={one} strong={strong} big={big} />
+      <Nums v={v} revenue={revenue} one={one} strong={strong} big={big} loss={loss} />
     </div>
   );
 }
@@ -237,7 +255,6 @@ export default function CleanupStatement({ ov, rev }) {
   const one = d?.kind === "brand";
   const months = ov.period.months;
   const monthLabel = month ? months.find((m) => m.m === month)?.label : null;
-  const monthNames = Object.fromEntries(months.map((m) => [m.m, m.label]));
 
   const keys = d ? d.sections.map((s) => s.key) : [];
   const allClosed = keys.length > 0 && keys.every((k) => closed[k]);
@@ -267,14 +284,15 @@ export default function CleanupStatement({ ov, rev }) {
           rows.push(
             <LineRow key={id} line={l} revenue={revenue} one={one} open={expanded === id}
                      onToggle={() => setExpanded(expanded === id ? null : id)}>
-              <LineDetail view={view} line={l.line} month={month} monthLabel={monthLabel} rev={rev}
-                          brandView={one} monthNames={monthNames} />
+              <LineDetail ov={ov} view={view} line={l.line} month={month} monthLabel={monthLabel} rev={rev}
+                          brandView={one} income={sec.key === "revenue"} />
             </LineRow>);
         });
       }
       (CLOSERS[sec.key] || []).forEach(([label, k, tone]) => {
         if (tone === null && closed[sec.key]) return;    // a section's own sum, under a shut section, echoes it
-        rows.push(<TotalRow key={`t-${k}`} label={label} v={t[k]} revenue={revenue} one={one} tone={tone} />);
+        rows.push(<TotalRow key={`t-${k}`} label={label} v={t[k]} revenue={revenue} one={one} tone={tone}
+                            loss={k === "net_operating_income" || k === "net_income"} />);
       });
     });
   }
@@ -321,14 +339,15 @@ export default function CleanupStatement({ ov, rev }) {
 
       <StatePanel loading={st.loading} error={st.error} retry={st.retry}>
         {d && (
-          <div style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
+          <div className="cu-page" style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
             <div className="cu-summary" style={{ display: "grid", gap: 12 }}>
               {tiles.map(([label, v, tone, ratio]) => (
                 <div key={label} style={{ border: `1px solid ${L.ruleInner}`, borderRadius: 12, background: L.paper,
                   padding: "13px 15px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ ...EYEBROW, color: L.ghost }}>{label}</div>
                   <div style={{ fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize: 23, fontWeight: 500,
-                                color: L.deep, letterSpacing: "-.02em" }}>{money(v.corrected)}</div>
+                                color: L.deep, letterSpacing: "-.02em" }}>{money(v.corrected)}
+                    {label.startsWith("Net") ? <Loss v={v.corrected} size={13} /> : null}</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <div style={{ flex: 1, height: 5, borderRadius: 999, background: L.track, overflow: "hidden" }}>
                       <div style={{ width: `${Math.min(Math.max(ratio, 0), 1) * 100}%`, height: "100%",
@@ -392,6 +411,8 @@ export default function CleanupStatement({ ov, rev }) {
           .cu-qbo, .cu-pct { display:none; }
         }
         @media (max-width: 560px) {
+          .cu-drawer { padding: 12px 8px 14px 12px !important; }
+          .cu-page { padding: 14px 10px 18px !important; }
           .cu-row, .cu-row.cu-one { grid-template-columns: minmax(0,1fr) 104px; }
           .cu-chg { display:none; }
           .cu-summary { grid-template-columns: minmax(0,1fr); }

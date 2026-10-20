@@ -27,13 +27,14 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import gzip
 import io
 import json
 import math
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -100,6 +101,16 @@ def _bad(e: Exception):
     raise HTTPException(400, str(e))
 
 
+def _big(request: Request, payload) -> Response:
+    """A large read, gzipped when the browser takes it (every browser does). The year's transactions are
+    about two megabytes of JSON and a busy line's detail a few hundred kilobytes; compressed, a tenth."""
+    body = json.dumps(payload, separators=(",", ":"), default=str).encode()
+    if len(body) > 32_000 and "gzip" in (request.headers.get("accept-encoding") or "").lower():
+        return Response(gzip.compress(body, 6), media_type="application/json",
+                        headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"})
+    return Response(body, media_type="application/json", headers={"Vary": "Accept-Encoding"})
+
+
 # ── reads ────────────────────────────────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -150,16 +161,26 @@ def _known_month(bk: eng.Books, month: int | None) -> None:
 
 
 @router.get("/statement/line")
-async def statement_line(view: str, line: str, month: int | None = Query(default=None, ge=1, le=12),
+async def statement_line(request: Request, view: str, line: str,
+                         month: int | None = Query(default=None, ge=1, le=12),
                          user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     bk, _, _ = await _books(s, user)
     _known_month(bk, month)
     if line not in bk.REVENUE + bk.COSTS + bk.BELOW:
         raise HTTPException(400, f"Unknown line {line!r}.")
     try:
-        return bk.line_detail(view, line, month)
+        return _big(request, bk.line_detail(view, line, month))
     except eng.InputError as e:
         _bad(e)
+
+
+@router.get("/transactions")
+async def transactions(request: Request, user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """Every transaction in the file, with its words and where the corrected books put it. One read for the
+    whole year: the page searches and filters it in place."""
+    bk, _, _ = await _books(s, user)
+    return _big(request, {"rows": bk.transactions(), "brands": bk.brands, "brand_company": bk.bc,
+                          "hub": bk.hub, "vendor_names": bk.d.get("vendor_names") or []})
 
 
 @router.get("/corrections")

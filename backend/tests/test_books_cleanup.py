@@ -331,6 +331,85 @@ def test_the_detail_adds_up_to_the_line(view):
             assert det["rows_total"] == pytest.approx(r["corrected"], abs=0.02), (view, r["line"])
 
 
+def test_a_transaction_reads_as_one_row_with_its_words():
+    data = dataset()
+    # one charge the hub paid for its own brand and the brand inside it: in the hub's view, one row
+    data["ledger"] += [{**_l(HUB, "Hub", "cost", "Travel and meals", 2, 120.0, "Travel"), "key": "t1"},
+                       {**_l(HUB, "Inside", "cost", "Travel and meals", 2, 80.0, "Travel"), "key": "t1"}]
+    data["qbo"][HUB]["by_month"]["2"]["Travel and meals"] = 200.0
+    data["accounts"]["acct_line"][f"{HUB}|Travel"] = "Travel and meals"
+    data["transactions"]["t1"] = {
+        "ref": "T2", "who": "AIRLINE INC", "payee": "Airline", "what": "Flights to the retreat", "note": "",
+        "changed": "", "status": "duplicate", "paid_from": "Hub · Card ••1234", "card_holder": "Owner",
+        "twins": [{"key": "t9", "date": "2026-02-16", "amount": -200.0, "paid_from": "Hub · Card ••1234"}],
+        "qbo": {"payee": "AIRLINE INC", "category": "Travel"}, "amount": -200.0, "money_in": False,
+        "date": "2026-02-15", "company": HUB}
+    det = books(data=data).line_detail(HUB, "Travel and meals", 2)
+    (tx,) = [r for r in det["rows"] if r["kind"] == "tx"]
+    assert tx["amount"] == 200.0 and sorted(tx["brands"]) == ["Hub", "Inside"]
+    assert (tx["payee"], tx["what"], tx["status"], tx["tx_amount"]) == ("Airline", "Flights to the retreat",
+                                                                       "duplicate", -200.0)
+    assert tx["twins"][0]["key"] == "t9" and tx["qbo"]["category"] == "Travel"
+    # a file without the words (every file before them) still reads: its QuickBooks payee, and no flags
+    (old,) = [r for r in books().line_detail(COHORT, "Programs and coaching", 1)["rows"] if r["kind"] == "tx"]
+    assert (old["payee"], old["status"], old["twins"], old["qbo"]["payee"]) == ("Someone", "", [], "Someone")
+
+
+def test_a_share_says_what_its_made_of():
+    bk = books()
+    staff = {r["who"]: r for r in bk.line_detail(CLUB, "Staff and contractors", 1)["rows"] if r.get("src") == "staff"}
+    assert set(staff) == {"Ann", "Taxes"}                       # Bo is all the hub's (and the brand inside it)
+    assert (staff["Ann"]["pct"], staff["Ann"]["pool_total"], staff["Ann"]["amount"]) == (0.5, 1000.0, 500.0)
+    assert staff["Taxes"]["follows_wages"] is True and staff["Taxes"]["amount"] == 50.0
+    (ads,) = [r for r in bk.line_detail(CLUB, "Advertising and marketing", 1)["rows"] if r.get("src") == "ads"]
+    assert (ads["pct"], ads["pool_total"], ads["amount"]) == (0.5, 600.0, 300.0)
+    (soft,) = [r for r in bk.line_detail(CLUB, "Software and subscriptions", 1)["rows"] if r.get("src") == "item"]
+    assert (soft["who"], soft["item_kind"]) == ("Zoomish", "software") and soft["amount"] == pytest.approx(30.0)
+
+
+@pytest.mark.parametrize("view", [CLUB, HUB, "Inside", "all"])
+def test_the_staff_line_person_by_person_adds_up_to_it(view):
+    bk = books()
+    people = bk.line_detail(view, "Staff and contractors")["people"]
+    assert sum(p["total"] for p in people) == pytest.approx(_line(bk, view, None, "Staff and contractors")["corrected"])
+    if view == CLUB:
+        club = {p["name"]: p for p in people}
+        assert club["Ann"]["months"] == {"1": 500.0, "2": 500.0, "3": 500.0} and "Bo" not in club
+
+
+def test_every_transaction_once_with_where_the_books_put_it():
+    data = dataset()
+    for i, l in enumerate(data["ledger"]):          # one transaction per ledger line, as a real file has them
+        l["key"] = f"t{i:02d}"
+        data["transactions"][l["key"]] = {"ref": "", "who": "Someone", "what": "A line", "note": "", "verdict": "",
+                                          "category": "", "type": ""}
+    del data["transactions"]["k"]
+    txs = books(data=data).transactions()
+    by = {t["key"]: t for t in txs}
+    assert len(by) == len(txs) == len(data["ledger"])
+    pick = lambda **kw: by[next(l["key"] for l in data["ledger"] if all(l[k] == v for k, v in kw.items()))]
+    dues = pick(brand="Club", cls="revenue", month=1)
+    assert dues["placement"] == [{"brand": "Club", "line": "Membership dues", "amount": 1000.0}]
+    assert (dues["amount"], dues["money_in"]) == (1000.0, True)
+    ads = pick(pool="Advertising", month=1)                    # shared: no one brand, the decisions split it
+    assert ads["placement"] == [{"brand": None, "line": "Advertising and marketing", "amount": 600.0}]
+    assert (ads["amount"], ads["money_in"]) == (-600.0, False)
+    assert pick(cls="partner", month=1)["placement"] == []    # a partner's advance: not income, not a cost
+    assert [t["date"] for t in txs] == sorted(t["date"] for t in txs)
+
+
+def test_a_big_read_is_gzipped_when_the_browser_takes_it():
+    import gzip
+    from starlette.requests import Request
+    from app.routers.books_cleanup import _big
+    req = lambda enc: Request({"type": "http", "headers": [(b"accept-encoding", enc.encode())]})
+    payload = {"rows": [{"what": "x" * 100, "n": i} for i in range(1000)]}
+    z = _big(req("gzip, deflate, br"), payload)
+    assert z.headers["content-encoding"] == "gzip" and json.loads(gzip.decompress(z.body)) == payload
+    plain = _big(req(""), payload)
+    assert "content-encoding" not in plain.headers and json.loads(plain.body) == payload
+
+
 def test_merged_inputs_change_only_what_was_saved():
     data = dataset()
     m = eng.merged_inputs(data, {"staff": {"Ann": {"2": {"Club": 1.0, "Cohort": 0.0}}}})
@@ -518,6 +597,19 @@ async def test_an_owners_split_moves_the_numbers_and_is_audited(ctx):
         assert all(len(r.target_id) <= 64 and len(r.summary) <= 500 for r in rows)
         hub = next(r for r in rows if r.target_id.startswith("items/software/") and r.detail["path"][3] == "Hub")
         assert hub.detail["path"][2] == LONG and hub.detail["from"] == 1.0 and hub.detail["to"] == 0.5
+
+
+async def test_the_years_transactions_are_the_tabs(ctx):
+    await _loaded(ctx)
+    async with _client() as c:
+        assert (await c.get("/api/v1/cleanup/transactions", headers=_H(ctx["other"]))).status_code == 403
+        r = await c.get("/api/v1/cleanup/transactions", headers=_H(ctx["keeper"]))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["rows"] and body["brands"] == BRANDS and body["brand_company"]["Inside"] == HUB
+        line = await c.get(f"/api/v1/cleanup/statement/line?view={CLUB}&line=Staff and contractors",
+                           headers=_H(ctx["keeper"]))
+        assert line.status_code == 200 and line.json()["people"]
 
 
 async def test_a_new_file_keeps_the_decisions(ctx):

@@ -4,11 +4,13 @@
 import { LEDGER as L, LEDGER_FONT as F, alpha } from "../theme.js";
 
 /* Round the MAGNITUDE, not the signed value, exactly as the Statement does: Math.round(-0.5) is -0,
-   so rounding first prints mirrored amounts a dollar apart. Nothing rounds to "($0)". */
+   so rounding first prints mirrored amounts a dollar apart. Nothing rounds to "−$0".
+   A negative reads "−$89,844" (a true minus sign), not "($89,844)": the owners asked for it on Oct 19,
+   and a loss says so in words where it's a result (see `Loss`). */
 export const money = (n) => {
   const v = Math.round(Math.abs(Number(n) || 0));
   const neg = Number(n) < 0 && v !== 0;
-  return (neg ? "(" : "") + "$" + v.toLocaleString("en-US") + (neg ? ")" : "");
+  return (neg ? "−$" : "$") + v.toLocaleString("en-US");
 };
 
 /* Cents, for anything somebody will type into QuickBooks: an entry, a balance, a transaction. */
@@ -16,8 +18,41 @@ export const cents = (n) => {
   const v = Math.abs(Number(n) || 0);
   const s = v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const neg = Number(n) < 0 && s !== "0.00";
-  return (neg ? "(" : "") + "$" + s + (neg ? ")" : "");
+  return (neg ? "−$" : "$") + s;
 };
+
+/* " loss" after a negative result (net income, operating income), so a loss never rests on a sign alone. */
+export function Loss({ v, size = 12, color }) {
+  return Math.round(Number(v) || 0) < 0
+    ? <span style={{ fontFamily: F.body, fontSize: size, fontWeight: 600, marginLeft: 5, color: color || L.loss }}>loss</span>
+    : null;
+}
+
+const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                    "November", "December"];
+/* "March 2026", from the period's year and a month number. */
+export const monthName = (m, year) => `${MONTH_LONG[m - 1] || ""}${year ? ` ${year}` : ""}`;
+export const dayLabel = (iso) => (iso ? `${MONTH[Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8, 10))}` : "");
+
+/* A small rounded label: "Needs you", "Duplicate?", a saved change. */
+export function Pill({ children, tone = "gold", title }) {
+  const t = { red: [L.lossBg, L.loss, L.lossEdge], gold: [L.flagBg, L.flagInk, L.flagEdge],
+              green: [L.accentBg, L.accentInk, L.accentEdge], blue: [L.infoBg, L.infoInk, L.infoEdge] }[tone];
+  return (
+    <span title={title} style={{ display: "inline-block", fontFamily: F.body, fontSize: 11, fontWeight: 600,
+      padding: "1px 8px", borderRadius: 999, border: `1px solid ${t[2]}`, background: t[0], color: t[1],
+      whiteSpace: "nowrap", lineHeight: 1.5 }}>{children}</span>
+  );
+}
+
+/* A boxed sentence: an explanation (blue), a warning (gold), a done thing (green). */
+export function Note({ children, tone = "plain", style }) {
+  const t = { plain: [L.totalBand, L.bodyDim, L.ruleInner], gold: [L.flagBg, L.flagInk, L.flagEdge],
+              blue: [L.infoBg, L.infoInk, L.infoEdge], green: [L.accentBg, L.accentInk, L.accentEdge],
+              red: [L.lossBg, L.loss, L.lossEdge] }[tone];
+  return <div style={{ background: t[0], color: t[1], border: `1px solid ${t[2]}`, borderRadius: 10,
+                       padding: "10px 13px", fontFamily: F.body, fontSize: 13, lineHeight: 1.5, ...style }}>{children}</div>;
+}
 
 /* A signed change, said with a word as well as a sign: direction never rests on a minus alone. */
 export const change = (n) => {

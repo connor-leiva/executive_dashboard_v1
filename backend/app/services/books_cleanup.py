@@ -537,8 +537,24 @@ class Books:
                              "amount": _r(float(self.inp.get("salary") or 0) * f)})
         return memo
 
-    def line_detail(self, view: str, line: str, month: int | None = None, limit: int = 250) -> dict:
-        """Every dollar behind one line: the transactions, and each share, schedule and timing item."""
+    def tx_words(self, key: str) -> dict:
+        """How one transaction reads on a row: the file's words for it (`transactions`), with whatever an older
+        file lacks filled from what it has -- its QuickBooks payee for the tidy one, no flags."""
+        t = self.tx.get(key) or {}
+        payee = t.get("payee")
+        return {"key": key, "payee": (t.get("who") or "") if payee is None else payee, "short": t.get("short") or "",
+                "what": t.get("what") or "", "note": t.get("note") or "", "changed": t.get("changed") or "",
+                "status": t.get("status") or "", "twins": t.get("twins") or [], "paid_from": t.get("paid_from") or "",
+                "card_holder": t.get("card_holder") or "",
+                "qbo": t.get("qbo") or {"payee": t.get("who") or "", "category": ""},
+                "tx_amount": t.get("amount"), "money_in": t.get("money_in"), "tx_date": t.get("date") or ""}
+
+    def line_detail(self, view: str, line: str, month: int | None = None, limit: int = 5000) -> dict:
+        """Every dollar behind one line: the transactions, and each share, schedule and timing item.
+
+        A transaction is one row however many of its ledger lines land here (one split across two brands of
+        the same company is still one charge), with the words a row shows. Shares carry what they're made of
+        (whose pay, which pool, what percent), so a page can group them without reading the label."""
         kind = self.view_kind(view)
         ms = set([month] if month else self.MONTHS)
         brands = (self.brands if kind == "all" else [view] if kind == "brand"
@@ -546,14 +562,25 @@ class Books:
         comps = set(self.bc[b] for b in brands)
         rows = []
         dc, dl = self.dues["company"], self.dues["line"]
+        txs: dict[tuple, dict] = {}
         for l in self.d["ledger"]:
             if (l["cls"] in ("revenue", "cost") and l["brand"] in brands and l["line"] == line
                     and l["month"] in ms and not (self.bc[l["brand"]] == dc and line == dl and kind != "brand")):
+                r = txs.get((l["key"], l["month"]))
+                if r is not None:
+                    r["amount"] += l["amount"]
+                    if l["brand"] not in r["brands"]:
+                        r["brands"].append(l["brand"])
+                    continue
                 t = self.tx.get(l["key"]) or {}
-                rows.append({"kind": "tx", "month": l["month"], "date": l["date"], "label": t.get("what") or "",
-                             "who": t.get("who") or "", "brand": l["brand"], "paid_by": l["company"],
-                             "booked_as": l["account"], "ref": t.get("ref") or "", "amount": l["amount"],
-                             "verdict": t.get("verdict") or ""})
+                txs[(l["key"], l["month"])] = r = {"kind": "tx", "month": l["month"], "date": l["date"], "label": t.get("what") or "",
+                                     "who": t.get("who") or "", "brand": l["brand"], "brands": [l["brand"]],
+                                     "paid_by": l["company"], "booked_as": l["account"], "ref": t.get("ref") or "",
+                                     "amount": l["amount"], "verdict": t.get("verdict") or "", "pooled": bool(l["pool"]),
+                                     **self.tx_words(l["key"])}
+                rows.append(r)
+        for r in txs.values():
+            r["amount"] = _r(r["amount"])
         if line == dl and dc in comps and kind != "brand":
             for m in sorted(ms):
                 rows.append({"kind": "dues", "month": m, "label": "Dues earned this month, member by member",
@@ -562,24 +589,27 @@ class Books:
         if line in self.COSTS:
             for b in brands:
                 k = self.brands.index(b)
-                for pool, pct, what in (("Advertising", self.ads, "the shared ads"),
-                                        ("Payment processing", self.fees, "the Stripe fees")):
+                for pool, pct, what, src in (("Advertising", self.ads, "the shared ads", "ads"),
+                                             ("Payment processing", self.fees, "the Stripe fees", "fees")):
                     if self.d["pools"][pool]["line"] != line:
                         continue
                     for m in sorted(ms):
                         v = self.pool_m[(pool, m)] * pct[b]
                         if abs(v) >= 0.005:
-                            rows.append({"kind": "share", "month": m, "label": f"{b}'s share of {what} "
+                            rows.append({"kind": "share", "src": src, "month": m, "label": f"{b}'s share of {what} "
                                          f"({pct[b] * 100:.1f}% of {self.pool_m[(pool, m)]:,.0f})",
-                                         "brand": b, "paid_by": self.hub, "amount": _r(v)})
+                                         "brand": b, "paid_by": self.hub, "pct": pct[b],
+                                         "pool_total": _r(self.pool_m[(pool, m)]), "amount": _r(v)})
                 if line == "Staff and contractors":
                     for (p, m), c in sorted(self.staff_cost.items()):
                         if m in ms:
                             v = c * self.split(p, m)[k]
                             if abs(v) >= 0.005:
-                                rows.append({"kind": "share", "month": m, "label": f"{b}'s share of {p}'s pay "
-                                             f"({self.split(p, m)[k] * 100:.1f}%)", "who": p, "brand": b,
+                                rows.append({"kind": "share", "src": "staff", "month": m, "label": f"{b}'s share of "
+                                             f"{p}'s pay ({self.split(p, m)[k] * 100:.1f}%)", "who": p, "brand": b,
                                              "paid_by": self.hub, "booked_as": self.people[p]["account"],
+                                             "pct": self.split(p, m)[k], "pool_total": _r(c),
+                                             "follows_wages": bool(self.people[p].get("follows_wages")),
                                              "amount": _r(v)})
                 for (pool, item, m), c in sorted(self.item_m.items()):
                     if m not in ms:
@@ -589,15 +619,18 @@ class Books:
                         continue
                     s = self.item_split(pool, item)[b]
                     if abs(c * s) >= 0.005:
-                        rows.append({"kind": "share", "month": m, "label": f"{b}'s share of {item} ({s * 100:.1f}%)",
-                                     "who": item, "brand": b, "paid_by": self.hub, "amount": _r(c * s)})
+                        rows.append({"kind": "share", "src": "item", "month": m,
+                                     "label": f"{b}'s share of {item} ({s * 100:.1f}%)", "who": item, "brand": b,
+                                     "paid_by": self.hub, "pct": s, "pool_total": _r(c),
+                                     "item_kind": self.item_kind[pool], "amount": _r(c * s)})
                 if b == self.d.get("charges_brand"):
                     for c in self.d["charges"]:
                         treat, cl = self.charge(c)
                         if treat == "business" and cl == line and c["month"] in ms:
                             rows.append({"kind": "charge", "month": c["month"], "date": c["date"],
                                          "label": c["what"], "who": c["who"], "brand": b, "paid_by": self.hub,
-                                         "booked_as": c["account"], "ref": c["sid"], "amount": c["amount"]})
+                                         "booked_as": c["account"], "ref": c["sid"], "amount": c["amount"],
+                                         "charge_ref": c["ref"]})
         if kind != "brand" and (line in self.REVENUE or line in self.COSTS):
             for t in self.timing_rows():
                 if t["company"] in comps and t["line"] == line and t["month"] in ms:
@@ -617,6 +650,62 @@ class Books:
                "rows": rows[:limit], "truncated": max(0, len(rows) - limit), **self.amounts(view, line, month)}
         if kind != "brand":
             out["why"] = self._why(comps, line, month)
+        if line == "Staff and contractors":
+            out["people"] = self._people(brands, ms)
+        return out
+
+    def _people(self, brands, ms) -> list[dict]:
+        """The staff line person by person: what each one cost these brands, month by month (their pay times
+        the brands' share of them)."""
+        ks = [self.brands.index(b) for b in brands]
+        out = []
+        for p in self.d["people"]:
+            months = {}
+            for m in sorted(ms):
+                c = self.staff_cost.get((p["name"], m), 0.0)
+                v = c * sum(self.split(p["name"], m)[k] for k in ks) if abs(c) >= 0.005 else 0.0
+                if abs(v) >= 0.005:
+                    months[str(m)] = _r(v)
+            if months:
+                out.append({"name": p["name"], "months": months, "total": _r(sum(months.values())),
+                            "follows_wages": bool(p.get("follows_wages")), "note": p.get("note") or ""})
+        return sorted(out, key=lambda r: -abs(r["total"]))
+
+    def transactions(self) -> list[dict]:
+        """Every transaction in the file, as the Transactions page lists it: its words, the company that paid
+        it, and where the corrected books put it (each brand and P&L line it lands on, and how much). A shared
+        cost has no one brand -- the decisions split it -- and money moving between accounts has no P&L line."""
+        if getattr(self, "_txs", None) is not None:
+            return self._txs
+        lines = defaultdict(list)
+        for l in self.d["ledger"]:
+            lines[l["key"]].append(l)
+        out = []
+        for key, t in self.tx.items():
+            ls = lines.get(key, [])
+            place, shared = defaultdict(float), defaultdict(float)
+            for l in ls:
+                if l["cls"] not in ("revenue", "cost") or not l.get("line"):
+                    continue
+                if l["brand"] in self.bc:
+                    place[(l["brand"], l["line"])] += l["amount"]
+                else:
+                    shared[l["line"]] += l["amount"]
+            w = self.tx_words(key)
+            date = w["tx_date"] or (ls[0]["date"] if ls else "")
+            amount = w["tx_amount"]
+            if amount is None:          # an older file: the P&L lines, money in positive
+                amount = _r(sum(l["amount"] if l["cls"] == "revenue" else -l["amount"] for l in ls
+                                if l["cls"] in ("revenue", "cost")))
+            out.append({**w, "date": date, "month": int(date[5:7]) if date else None,
+                        "company": t.get("company") or (ls[0]["company"] if ls else ""), "amount": amount,
+                        "money_in": w["money_in"] if w["money_in"] is not None else amount > 0,
+                        "placement": [{"brand": b, "line": ln, "amount": _r(v)}
+                                      for (b, ln), v in place.items() if abs(v) >= 0.005]
+                                     + [{"brand": None, "line": ln, "amount": _r(v)}
+                                        for ln, v in shared.items() if abs(v) >= 0.005]})
+        out.sort(key=lambda r: (r["date"] or "", r["key"]))
+        self._txs = out
         return out
 
     def _why(self, comps, line, month):
