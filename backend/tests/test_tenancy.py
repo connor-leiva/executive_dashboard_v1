@@ -460,7 +460,7 @@ def test_sisu_and_fub_clients_take_credentials_and_have_no_ambient_account():
     import inspect
 
     for fn in (sisu.fetch_all_clients, sisu.get_team_vendors, sisu.fetch_agent_groups,
-               sisu.enrich_commissions):
+               sisu.fetch_team_agents, sisu.fetch_agent_records, sisu.enrich_commissions):
         first = list(inspect.signature(fn).parameters)[0]
         assert first == "creds", f"{fn.__name__} does not take credentials"
     for fn in (fub.fub_users, fub.fub_people):

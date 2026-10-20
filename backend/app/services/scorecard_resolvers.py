@@ -292,6 +292,8 @@ async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.d
     office restriction, so the list is exactly what was counted. For the two RATE keys (attach rates)
     it's the denominator deals, each flagged `captured` (numerator subset). Returns [] for an office
     that maps to no agents (or an unmapped/overall-only key with no records), None for an unknown key."""
+    if key in ROSTER_KEYS:
+        return await _roster_records(key, s, tenant_id, business_id, week_start, week_end, group, limit)
     if key == "forum_members_added":
         return await _forum_member_records(s, tenant_id, business_id, week_start, week_end, limit)
     if key == "forum_vip_guests_added":
@@ -507,6 +509,85 @@ async def recruiting_signed_qtd(s, tenant_id, business_id, week_start: dt.date, 
         RecruitingStageEvent.occurred_at >= start,
         RecruitingStageEvent.occurred_at < end))).scalar()
     return float(rows or 0)
+
+
+# ── ULRG roster rows: Onboardings / Offboardings / Net agent count ──────────────────────────────
+# Source = Sisu's TEAM list (get-team-agents, via sync_agent_offices): start_date is Sisu's start_dt,
+# ended_date the day the roster sync first saw the agent gone (Sisu's last-update date). Office rows
+# scope by the agent's Sisu office group; Overall is the whole team, out-of-office agents included,
+# the same convention as Overall Homes Sold.
+
+ROSTER_KEYS = ("ulrg_roster_onboarded", "ulrg_roster_offboarded", "ulrg_roster_net")
+
+
+async def _roster_rows(s, tenant_id, business_id, group):
+    """The agents in this row's scope, or UNAVAILABLE when Sisu isn't live or the team roster has
+    never been read (no agent carries a start date yet) — a collection gap, not an empty office."""
+    if not await _sisu_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    rows = (await s.execute(select(Agent.id, Agent.name, Agent.is_active, Agent.start_date,
+                                   Agent.ended_date, Agent.sisu_group_ids).where(
+        Agent.tenant_id == tenant_id, Agent.source == "sisu"))).all()
+    if not any(r.start_date for r in rows):
+        return UNAVAILABLE
+    sgid = (group or {}).get("sisu_group_id")
+    if sgid is not None:
+        rows = [r for r in rows if isinstance(r.sisu_group_ids, list) and sgid in r.sisu_group_ids]
+    return rows
+
+
+def _roster_match(key: str, r, week_start: dt.date, week_end: dt.date) -> bool:
+    if key == "ulrg_roster_onboarded":
+        return r.start_date is not None and week_start <= r.start_date <= week_end
+    if key == "ulrg_roster_offboarded":
+        return r.ended_date is not None and week_start <= r.ended_date <= week_end
+    # Net: on the team at the END of the week — joined by then, and either still here or left after.
+    # An inactive agent with no ended_date left before tracking began, so is not counted.
+    return ((r.start_date is None or r.start_date <= week_end)
+            and (r.is_active or (r.ended_date is not None and r.ended_date > week_end)))
+
+
+async def _roster_count(key, s, tenant_id, business_id, week_start, week_end, group):
+    rows = await _roster_rows(s, tenant_id, business_id, group)
+    if rows is UNAVAILABLE:
+        return UNAVAILABLE
+    return float(sum(1 for r in rows if _roster_match(key, r, week_start, week_end)))
+
+
+@resolver("ulrg_roster_onboarded")
+async def roster_onboarded(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Onboardings — agents whose Sisu start date falls in the week."""
+    return await _roster_count("ulrg_roster_onboarded", s, tenant_id, business_id, week_start, week_end, group)
+
+
+@resolver("ulrg_roster_offboarded")
+async def roster_offboarded(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Offboardings — agents who left the Sisu team in the week."""
+    return await _roster_count("ulrg_roster_offboarded", s, tenant_id, business_id, week_start, week_end, group)
+
+
+@resolver("ulrg_roster_net")
+async def roster_net(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Net agent count — a SNAPSHOT: agents on the team as of the week's last day."""
+    return await _roster_count("ulrg_roster_net", s, tenant_id, business_id, week_start, week_end, group)
+
+
+async def _roster_records(key, s, tenant_id, business_id, week_start, week_end, group, limit):
+    rows = await _roster_rows(s, tenant_id, business_id, group)
+    if rows is UNAVAILABLE:
+        return []
+    out = []
+    for r in rows:
+        if not _roster_match(key, r, week_start, week_end):
+            continue
+        d = r.ended_date if key == "ulrg_roster_offboarded" else r.start_date
+        detail = ("Left the team" if key == "ulrg_roster_offboarded" else
+                  "Joined" if key == "ulrg_roster_onboarded" else
+                  "On the team" + (f" (left {r.ended_date.isoformat()})" if r.ended_date else ""))
+        out.append({"id": str(r.id), "client": r.name, "date": d.isoformat() if d else None,
+                    "detail": detail})
+    out.sort(key=lambda x: x["client"] or "")
+    return out[:limit]
 
 
 # ── Spring B board (Forum lines) ────────────────────────────────────────────────────────────────

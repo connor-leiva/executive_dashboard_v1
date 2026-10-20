@@ -388,16 +388,91 @@ async def sync_agent_offices(s: AsyncSession, tenant_id: uuid.UUID) -> int:
         Integration.tenant_id == tenant_id, Integration.provider == "sisu"))).scalars().first()
     if not integ:
         return 0
-    groups = await sisu.fetch_agent_groups(_sisu_creds(integ), [a.external_id for a in agents])
+    creds = _sisu_creds(integ)
+    departed = await _sync_team_roster(s, tenant_id, integ, creds, agents)
+    if departed is not None:
+        agents = (await s.execute(select(Agent).where(
+            Agent.tenant_id == tenant_id, Agent.source == "sisu"))).scalars().all()
+    # A departed agent keeps the office they left from: Sisu tends to strip a leaver's groups, and
+    # refreshing them would move that departure out of its office's Offboardings/Net rows.
+    frozen = {a.id for a in agents if not a.is_active and a.ended_date is not None
+              and (departed is None or a.id not in departed)}
+    todo = [a for a in agents if a.id not in frozen]
+    records = await sisu.fetch_agent_records(creds, [a.external_id for a in todo])
     updated = 0
-    for a in agents:
-        g = groups.get(str(a.external_id))
-        if g is not None:                               # None = fetch failed → keep prior value
-            a.sisu_group_ids = g
-            updated += 1
+    for a in todo:
+        rec = records.get(str(a.external_id))
+        if rec is None:                                 # None = fetch failed → keep prior value
+            continue
+        if departed and a.id in departed:
+            if a.sisu_group_ids is None:                # never knew their office: take Sisu's last word
+                a.sisu_group_ids = sisu.agent_group_ids(rec)
+            # Sisu keeps no leave date; the record's last update is the deactivation for a fresh exit
+            a.ended_date = sisu.parse_dt(rec.get("updated_ts")) or a.ended_date
+        else:
+            a.sisu_group_ids = sisu.agent_group_ids(rec)
+        updated += 1
     await s.commit()
     print(f"[sisu] refreshed group memberships for {updated}/{len(agents)} agents", flush=True)
     return updated
+
+
+async def _sync_team_roster(s: AsyncSession, tenant_id, integ, creds, agents) -> set | None:
+    """Bring the agent table in line with Sisu's CURRENT team list (get-team-agents): add agents who
+    have no clients yet (the client feed never shows them), record each one's start date, and mark
+    agents who have dropped off the list as departed (is_active False, ended_date set from today and
+    corrected to Sisu's last-update date by the caller). Returns the ids that need an ended_date
+    from their Sisu record, or None when the team list couldn't be read — then NOTHING is marked
+    departed, because "couldn't look" must never read as "everybody left"."""
+    team = await sisu.fetch_team_agents(creds)
+    if not team:
+        print("[sisu] team roster unavailable; departures not checked", flush=True)
+        return None
+    by_ext = {a.external_id: a for a in agents}
+    on_team = set()
+    added = 0
+    for t in team:
+        ext = str(t.get("agent_id") or "")[:64]
+        if not ext:
+            continue
+        on_team.add(ext)
+        a = by_ext.get(ext)
+        if a is None:
+            name = " ".join(p for p in [t.get("first_name"), t.get("last_name")] if p).strip()
+            a = Agent(tenant_id=tenant_id, business_id=integ.business_id, source="sisu", external_id=ext,
+                      name=(name or f"Agent {ext}")[:200], email=(t.get("email") or None) and t["email"][:255],
+                      is_active=True)
+            s.add(a)
+            by_ext[ext] = a
+            added += 1
+        a.is_active, a.ended_date = True, None          # on the team today (a rejoin clears the exit)
+        a.start_date = sisu.parse_dt(t.get("start_dt")) or sisu.parse_dt(t.get("created_ts")) or a.start_date
+    active_before = [a for a in agents if a.is_active or a.external_id in on_team]
+    # A list far shorter than the roster we hold is a partial response, not a mass exit.
+    if len(on_team) < 0.5 * len(active_before):
+        print(f"[sisu] team roster returned {len(on_team)} of ~{len(active_before)} agents; "
+              f"departures not checked", flush=True)
+        await s.flush()
+        return set()
+    # The offices a scorecard attributes to. Only an inactive agent still carrying one of these is a
+    # recent exit worth dating; the hundreds of long-gone agents in the client feed are not.
+    from ..models import ScorecardGroup
+    offices = set((await s.execute(select(ScorecardGroup.sisu_group_id).where(
+        ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.sisu_group_id.is_not(None)))).scalars().all())
+    departed = set()
+    today = dt.date.today()
+    for a in agents:
+        if a.external_id in on_team:
+            continue
+        # gone from the team: newly (was active) or never dated (inactive, no ended_date, but still
+        # in an office — a recent exit the client feed flagged before this roster sync existed)
+        if a.is_active or (a.ended_date is None and set(a.sisu_group_ids or []) & offices):
+            a.is_active = False
+            a.ended_date = a.ended_date or today
+            departed.add(a.id)
+    await s.flush()
+    print(f"[sisu] team roster: {len(on_team)} on the team, {added} added, {len(departed)} departed", flush=True)
+    return departed
 
 
 async def _workspace_tz(s: AsyncSession, tenant_id) -> dt.tzinfo:

@@ -116,11 +116,57 @@ async def _get_page(client: httpx.AsyncClient, creds: SisuCreds, page: int) -> d
     return r.json()
 
 
+def agent_group_ids(agent: dict) -> list[int]:
+    """The included group_ids on an edit-agent record (office/pod/tier groups)."""
+    return sorted({int(g["group_id"]) for g in (agent.get("agent_groups") or [])
+                   if g.get("is_included") and g.get("group_id") is not None})
+
+
 async def _agent_group_ids(client: httpx.AsyncClient, creds: SisuCreds, agent_id) -> list[int] | None:
-    """One agent's CURRENT Sisu group_ids via GET /v1/agent/edit-agent/{id} (agent.agent_groups,
-    is_included). The client feed carries no sub-team, but this does — it's the live source for
-    per-team scorecard attribution (office/pod/tier group ids). None on any failure or app-error, so
-    a transient blip leaves the stored roster untouched rather than wiping it."""
+    rec = await _agent_record(client, creds, agent_id)
+    return None if rec is None else agent_group_ids(rec)
+
+
+async def fetch_team_agents(creds: SisuCreds) -> list[dict] | None:
+    """The CURRENT team roster via GET /v1/team/get-team-agents — every agent on the team, including
+    ones with no clients yet (the client feed only ever shows agents who have a deal). Sisu returns
+    active agents only (status N), with `start_dt`; a departed agent simply drops off the list.
+    None on any failure or app-error, so the caller can tell "couldn't look" from an empty team."""
+    async with httpx.AsyncClient(auth=creds.auth, timeout=60, headers={"accept": "application/json"}) as c:
+        for attempt in range(3):
+            try:
+                r = await c.get(f"{creds.base}/v1/team/get-team-agents")
+                if r.status_code in (429,) or r.status_code >= 500:
+                    await asyncio.sleep(3 * (attempt + 1))
+                    continue
+                if r.status_code != 200:
+                    return None
+                body = r.json() or {}
+                if body.get("status_code") not in (0, None) or not isinstance(body.get("agents"), list):
+                    return None
+                return body["agents"]
+            except Exception:  # noqa: BLE001 — best-effort; None = couldn't look
+                await asyncio.sleep(1)
+    return None
+
+
+async def fetch_agent_records(creds: SisuCreds, agent_external_ids, concurrency: int = 8) -> dict[str, dict | None]:
+    """Each agent's full edit-agent record ({external_id: agent dict | None on failure})."""
+    out: dict[str, dict | None] = {}
+    sem = asyncio.Semaphore(concurrency)
+    async with httpx.AsyncClient(auth=creds.auth, timeout=60, headers={"accept": "application/json"}) as c:
+        async def one(aid):
+            async with sem:
+                out[str(aid)] = await _agent_record(c, creds, aid)
+        await asyncio.gather(*(one(aid) for aid in agent_external_ids))
+    return out
+
+
+async def _agent_record(client: httpx.AsyncClient, creds: SisuCreds, agent_id) -> dict | None:
+    """One agent's CURRENT Sisu record via GET /v1/agent/edit-agent/{id} — agent_groups (is_included),
+    status, start_dt, updated_ts. The client feed carries no sub-team, but this does — it's the live
+    source for per-team scorecard attribution (office/pod/tier group ids). None on any failure or
+    app-error, so a transient blip leaves the stored roster untouched rather than wiping it."""
     url = f"{creds.base}/v1/agent/edit-agent/{agent_id}"
     for attempt in range(3):                            # same 429/5xx backoff as the other Sisu calls
         try:
@@ -135,9 +181,7 @@ async def _agent_group_ids(client: httpx.AsyncClient, creds: SisuCreds, agent_id
             body = r.json() or {}
             if body.get("status_code") not in (0, None) or "agent" not in body:
                 return None                             # Sisu app-level error envelope (status_code != 0)
-            groups = (body.get("agent") or {}).get("agent_groups") or []
-            return sorted({int(g["group_id"]) for g in groups
-                           if g.get("is_included") and g.get("group_id") is not None})
+            return body.get("agent") or {}
         except Exception:  # noqa: BLE001 — best-effort; caller keeps the prior value on failure
             if attempt >= 2:
                 return None

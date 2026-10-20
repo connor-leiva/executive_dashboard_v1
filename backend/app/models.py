@@ -1436,6 +1436,12 @@ class Agent(Base):
     # source for per-team scorecard attribution (Sisu's client feed carries no sub-team). NULL = not
     # yet fetched (≠ "no groups").
     sisu_group_ids: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    # The roster's own dates, from Sisu's team list (get-team-agents), for the L10 recruiting rows.
+    # start_date = Sisu `start_dt` (joined). ended_date = the day the agent left the team: the date
+    # Sisu last updated the record when the roster sync first sees them gone (Sisu keeps no leave
+    # date of its own). NULL ended_date on an inactive agent = left before tracking began, unknown.
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ended_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     __table_args__ = (UniqueConstraint("tenant_id", "source", "external_id", name="uq_agent_src_ext"),)
 
 
