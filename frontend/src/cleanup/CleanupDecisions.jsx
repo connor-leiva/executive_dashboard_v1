@@ -18,6 +18,44 @@ import { BODY, Button, EYEBROW, Foot, L, F, NUM, OkPill, Panel, SaveLine, Seg, S
          reasonOf, share, shortOf } from "./kit.jsx";
 
 const EPS = 1e-4;
+
+/* Each transaction changed from its card on Statement or Transactions -- moved, split, personal, taken out,
+   another line or month -- in the server's words, with who, when and why, and Undo. */
+function TxChanges({ d, canDecide, onSaved }) {
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+  const rows = d.tx_changes || [];
+  const undo = async (key) => {
+    setBusy(key);
+    setError(null);
+    try { onSaved(await saveChanges([{ path: ["tx", key], value: null }])); }
+    catch (e) { setError(reasonOf(e)); }
+    setBusy(null);
+  };
+  return (
+    <Sheet title="Transactions you've changed" right={<span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
+      {rows.length} {rows.length === 1 ? "change" : "changes"}</span>}>
+      {rows.length === 0 ? (
+        <div style={{ padding: "12px 18px", fontFamily: F.body, fontSize: 13, color: L.muted }}>
+          None yet. Open any transaction on Statement or Transactions and move it, split it or mark it personal:
+          it&rsquo;s listed here, with Undo.</div>
+      ) : rows.map((r) => (
+        <div key={r.key} style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 18px",
+                                  borderTop: `1px solid ${L.ruleLine}`, flexWrap: "wrap" }}>
+          <span style={{ flex: 1, minWidth: 240, fontFamily: F.body, fontSize: 13, color: L.body, lineHeight: 1.45 }}>
+            <strong style={{ color: L.deep, fontWeight: 600 }}>{r.said}</strong>
+            {r.change?.why ? <span> Why: &ldquo;{r.change.why}&rdquo;.</span> : null}
+            <span style={{ display: "block", fontSize: 11.5, color: L.muted }}>
+              {[r.change?.by, r.change?.at ? r.change.at.slice(0, 10) : ""].filter(Boolean).join(", ")}</span>
+          </span>
+          {canDecide ? <Button onClick={() => undo(r.key)} disabled={busy === r.key}>
+            {busy === r.key ? "Undoing…" : "Undo"}</Button> : null}
+        </div>
+      ))}
+      {error ? <div style={{ padding: "0 18px 12px", fontFamily: F.body, fontSize: 12.5, color: L.loss }}>{error}</div> : null}
+    </Sheet>
+  );
+}
 const sumOf = (o) => Object.values(o).reduce((n, v) => n + (Number(v) || 0), 0);
 const isPct = (v) => typeof v === "number" && v >= -EPS && v <= 1 + EPS;
 
@@ -552,6 +590,7 @@ export default function CleanupDecisions({ ov, rev, onSaved }) {
                 {!canDecide && " Only an owner or admin changes these; you can read them."}
               </Foot>
             </div>
+            <TxChanges d={d} canDecide={canDecide} onSaved={onSaved} />
             <Partners d={d} ov={ov} canDecide={canDecide} onSaved={onSaved} />
             <div className="cd-two" style={{ display: "grid", gap: 18 }}>
               <Holdco d={d} ov={ov} canDecide={canDecide} onSaved={onSaved} />

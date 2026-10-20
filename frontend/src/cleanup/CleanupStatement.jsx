@@ -33,6 +33,7 @@ const PLAIN = {
   own: ["added the owner's charges", "took out the owner's own charges"],
   chargeline: ["moved the owner's charges here", "moved the owner's charges to another line"],
   partner: ["added the partner's share as profit builds", "took back partner share as profit fell"],
+  yours: ["added what you moved here", "took out what you moved away"],
 };
 
 function HowMade({ d, monthLabel }) {

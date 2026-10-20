@@ -11,7 +11,7 @@ import { useRef, useState } from "react";
 import { ProductIcon, iconFor } from "../brand/productIcons.jsx";
 import { StatePanel, font, T } from "../books/ui.jsx";
 import { uploadCleanupFile, useCleanupOverview } from "./useCleanup.js";
-import { Button, L, F, OkPill, SaveLine, reasonOf } from "./kit.jsx";
+import { Button, CleanupCtx, L, F, OkPill, SaveLine, reasonOf } from "./kit.jsx";
 import CleanupStatement from "./CleanupStatement.jsx";
 import CleanupTransactions from "./CleanupTransactions.jsx";
 import CleanupDecisions from "./CleanupDecisions.jsx";
@@ -96,7 +96,9 @@ export default function Cleanup({ role }) {
       <SubNav page={page} setPage={setPage} counts={counts} />
       <StatePanel loading={ov.loading} error={ov.error} retry={ov.retry}>
         {d && (
-          <>
+          // A transaction's card changes the books from deep inside a page: it needs the overview, whether
+          // this person may (owners and admins), the save counter, and the way to Decisions.
+          <CleanupCtx.Provider value={{ ov: d, canDecide: isOwner && d.can_decide, onSaved, goto: setPage }}>
             {page === "statement" && <CleanupStatement ov={d} rev={rev} />}
             {page === "transactions" && <CleanupTransactions ov={d} rev={rev} />}
             {page === "decisions" && <CleanupDecisions ov={d} rev={rev} onSaved={onSaved} />}
@@ -105,7 +107,7 @@ export default function Cleanup({ role }) {
             {page === "interco" && <CleanupInterco ov={d} rev={rev} />}
             {page === "todo" && <CleanupTodo rev={rev} onSaved={onSaved} />}
             {page === "findings" && <CleanupFindings rev={rev} />}
-          </>
+          </CleanupCtx.Provider>
         )}
       </StatePanel>
     </div>

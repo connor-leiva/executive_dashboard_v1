@@ -14,6 +14,7 @@
    reads, on its QuickBooks payee. */
 import { useMemo, useState } from "react";
 import { EYEBROW, F, L, NUM, Pill, cents, dayLabel, money, monthName } from "./kit.jsx";
+import { ChangeArea, changeLabel, useNames } from "./CleanupTxChange.jsx";
 
 /* ── turning the server's rows into list rows ─────────────────────────────────────────────── */
 
@@ -36,8 +37,10 @@ export function rowsFromLine(data, { viewShort, hubShort, short, income, year })
         ? Math.abs(r.tx_amount) : null;
       out.push({ id: `${r.key}|${r.month}`, kind: "tx", key: r.key, month: r.month, date: r.date, payee: r.payee,
                  paidLine: paidLine({ ...r, company: short(r.paid_by) }), forWho: (r.brands || [r.brand]).map(short),
-                 line: data.line, what: r.what || r.label, amount: r.amount, full, status: r.status, changed: r.changed,
-                 note: r.note, qbo: r.qbo, booked: r.booked_as, twins: r.twins || [] });
+                 brands: r.brands || [r.brand], company: r.paid_by, line: data.line, what: r.what || r.label,
+                 amount: r.amount, full: r.gone ? null : full, status: r.status, changed: r.changed, note: r.note,
+                 qbo: r.qbo, booked: r.booked_as, twins: r.twins || [], change: r.change, was: r.was, gone: r.gone,
+                 cleared: r.cleared, moneyIn: r.money_in ?? income, pooled: r.pooled });
     } else if (r.kind === "charge") {
       out.push({ id: `charge|${r.charge_ref}`, kind: "tx", month: r.month, date: r.date, payee: r.who,
                  paidLine: `${short(r.paid_by)} · the owner's charge`, forWho: [short(r.brand)], line: data.line,
@@ -116,12 +119,16 @@ export function rowsFromList(rows, short) {
     const brands = [...new Set(place.filter((p) => p.brand).map((p) => short(p.brand)))];
     const lines = [...new Map(place.map((p) => [p.line, Math.abs(p.amount)])).entries()]
       .sort((a, b) => b[1] - a[1]).map(([l]) => l);
+    const was = r.was || null;
+    const wasLines = was ? [...new Set(was.map((p) => p.line))] : [];
     return { id: r.key, kind: "tx", key: r.key, month: r.month, date: r.date, payee: r.payee,
              paidLine: paidLine({ ...r, company: short(r.company) }), forWho: brands, company: r.company,
+             brands: [...new Set(place.filter((p) => p.brand).map((p) => p.brand))],
              shared: place.some((p) => !p.brand), transfer: place.length === 0,
-             line: lines.length > 1 ? `${lines[0]} + ${lines.length - 1} more` : lines[0] || "",
+             line: lines.length > 1 ? `${lines[0]} + ${lines.length - 1} more` : lines[0] || wasLines[0] || "",
              what: r.what, amount: Math.abs(r.amount), moneyIn: r.money_in, status: r.status, changed: r.changed,
-             note: r.note, qbo: r.qbo, twins: r.twins || [] };
+             note: r.note, qbo: r.qbo, twins: r.twins || [], change: r.change, cleared: r.cleared,
+             wasFor: was ? [...new Set(was.map((p) => (p.brand ? short(p.brand) : "Shared")))] : null };
   });
 }
 
@@ -140,20 +147,35 @@ export function Legend() {
 }
 
 function ForCell({ r }) {
-  const name = (n) => <strong style={{ color: L.deep, fontWeight: 600 }}>{n}</strong>;
+  const { ov } = useNames();
+  const struck = { fontSize: 11.5, color: L.ghost, textDecoration: "line-through" };
+  if (r.change && (r.gone || r.transfer)) {           // moved off this line, or out of every company's results
+    const said = changeLabel(r.change, ov).replace(/^→ /, "Moved to ");
+    return (
+      <span className="cx-for" style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, lineHeight: 1.45 }}>
+        <strong style={{ display: "block", color: L.accentInk, fontWeight: 600 }}>{said}</strong>
+        <span style={struck}>For {(r.wasFor || r.forWho).join(", ")}{r.line ? ` · ${r.line}` : ""}</span>
+      </span>
+    );
+  }
+  const name = (n) => <strong style={{ color: r.change ? L.accentInk : L.deep, fontWeight: 600 }}>{n}</strong>;
   const who = r.transfer ? name("Transfer")
     : r.shared && !r.forWho.length ? <>For {name("Shared")} <span style={{ fontSize: 11.5, color: L.muted }}>(your splits)</span></>
     : <>For {name(r.forWho.join(", ") || "—")}{r.shared ? <span style={{ fontSize: 11.5, color: L.muted }}> and shared</span> : null}</>;
   return (
     <span className="cx-for" style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, lineHeight: 1.45 }}>
-      <span style={{ display: "block" }}>{who}</span>
+      <span style={{ display: "block" }}>{who}
+        {r.change && r.wasFor && r.wasFor.join() !== r.forWho.join() ? (
+          <span style={{ ...struck, marginLeft: 6 }}>{r.wasFor.join(", ")}</span>) : null}</span>
       <span style={{ fontSize: 11.5, color: L.muted }}>{r.transfer ? "Not income or a cost" : r.line}</span>
     </span>
   );
 }
 
 function TxLine({ r, signed, open, onToggle }) {
-  const mark = r.status === "decision" ? <Pill tone="red">Needs you</Pill>
+  const { ov } = useNames();
+  const mark = r.status === "yours" ? <Pill tone="green">{changeLabel(r.change, ov)}</Pill>
+    : r.status === "decision" ? <Pill tone="red">Needs you</Pill>
     : r.status === "duplicate" ? <Pill tone="gold">Duplicate?</Pill> : null;
   const inFlow = signed && r.moneyIn;
   return (
@@ -170,8 +192,13 @@ function TxLine({ r, signed, open, onToggle }) {
       <span className="cx-what" style={{ fontFamily: F.body, fontSize: 13, color: L.body, lineHeight: 1.45,
                                         overflowWrap: "anywhere" }}>{r.what}</span>
       <span className="cx-amt">
-        <span style={{ ...NUM, display: "block", fontSize: 13.5, fontWeight: 600, color: inFlow ? L.accentInk : L.deep }}>
-          {inFlow ? "+" : ""}{cents(r.amount)}</span>
+        {r.gone ? (
+          <span style={{ ...NUM, display: "block", fontSize: 13.5, fontWeight: 600, color: L.ghost,
+                         textDecoration: "line-through" }}>{cents(r.was)}</span>
+        ) : (
+          <span style={{ ...NUM, display: "block", fontSize: 13.5, fontWeight: 600, color: inFlow ? L.accentInk : L.deep }}>
+            {inFlow ? "+" : ""}{cents(r.amount)}</span>
+        )}
         {r.full ? <span style={{ ...NUM, display: "block", fontSize: 11, color: L.muted, marginTop: 1 }}>
           of {cents(r.full)}</span> : null}
       </span>
@@ -221,6 +248,7 @@ function TxCard({ r }) {
         <div style={{ marginTop: 10, fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
           Nothing more on file: the cleanup didn&rsquo;t change this one.</div>
       )}
+      <ChangeArea r={r} />
     </div>
   );
 }
@@ -305,6 +333,15 @@ const TX_CSS = `
     padding: 9px 10px 8px 16px; background: ${L.sectionBand}; border-top: 1px solid ${L.ruleSection}; }
   .cx-card { padding: 2px 16px 14px 92px; background: ${L.totalBand}; animation: cxOpen 130ms ease-out; }
   .cx-kv { display:grid; grid-template-columns: 150px minmax(0,1fr); gap: 7px 14px; margin: 10px 0 0; max-width: 880px; }
+  .cx-acts { display:flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .cx-act { height: 28px; padding: 0 11px; border-radius: 8px; border: 1px solid ${L.pillEdge}; background: ${L.paper};
+    color: ${L.bodyDim}; font-family: ${F.body}; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .cx-act:hover { border-color: ${L.accentMuted}; color: ${L.deep}; }
+  .cx-act.on { background: ${L.deep}; border-color: ${L.deep}; color: ${L.onDeep}; }
+  .cx-act.ghost { border-style: dashed; background: transparent; }
+  .cx-act:focus-visible { outline: 2px solid ${L.accent}; outline-offset: 1px; }
+  .cx-form { margin-top: 10px; border: 1px solid ${L.ruleInner}; border-radius: 10px; background: ${L.paper};
+    padding: 12px 14px; display: grid; gap: 10px; max-width: 880px; }
   @keyframes cxOpen { from { opacity:0; transform: translateY(-3px); } }
   @media (prefers-reduced-motion: reduce) { .cx-card { animation: none; } }
   /* Sized by the list's own width, not the screen's: inside a Statement drawer on a phone the list has a

@@ -1,7 +1,12 @@
 /* Books Cleanup -- the shared pieces, in the Books Statement's ledger language (books/
    BooksStatement.jsx): the cream card, the dark entity bar, the controls strip, Archivo figures.
    The palette is theme.js LEDGER; no colour is spelled here. */
+import { createContext } from "react";
 import { LEDGER as L, LEDGER_FONT as F, alpha } from "../theme.js";
+
+/* The tab's shell, for anything deep in a page that changes the books: the overview, whether this person
+   may change them (owners and admins), the save counter's bump, and a way to another page. */
+export const CleanupCtx = createContext(null);
 
 /* Round the MAGNITUDE, not the signed value, exactly as the Statement does: Math.round(-0.5) is -0,
    so rounding first prints mirrored amounts a dollar apart. Nothing rounds to "−$0".

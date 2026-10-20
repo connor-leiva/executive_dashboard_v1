@@ -71,8 +71,9 @@ def dataset() -> dict:
             _l(HUB, None, "cost", "Office, insurance and other", m, 300.0, "Insurer", "General overhead", "Insurer"),
             _l(COHORT, "Cohort", "partner", None, m, 800.0, "Jo advances"),
         ]
-    # an event the hub paid for that was the club's: QuickBooks has it on the hub
-    ledger.append(_l(HUB, "Club", "cost", "Event costs", 3, 200.0, f"{HUB} Event costs"))
+    # an event the hub paid for that was the club's: QuickBooks has it on the hub, the review puts it on the club
+    ledger.append({**_l(HUB, "Club", "cost", "Event costs", 3, 200.0, f"{HUB} Event costs"),
+                   "corr_account": f"{CLUB} Event costs"})
 
     # QuickBooks booked everything where it was paid, plus the owner's charge where it was booked
     by_month = {c: {} for c in COMPANIES}
@@ -127,6 +128,8 @@ def dataset() -> dict:
         "fees": {"Club": 0.5, "Cohort": 0.2, "Inside": 0.1, "Hub": 0.2, "billback": 0.0},
         "accounts": {"main": main, "acct_line": acct_line, "acct_new": {}, "ic": ic, "owner": "Owner draw",
                      "deferred": {c: f"{c} deferred" for c in COMPANIES},
+                     "prepaid": {c: f"{c} prepaid" for c in COMPANIES},
+                     "accrued_liab": {c: f"{c} accrued liabilities" for c in COMPANIES},
                      "accrued_revenue": {c: f"{c} accrued" for c in COMPANIES},
                      "cash_to_accrual": "Cash to accrual", "retained_earnings": "Retained earnings",
                      "transfer": "Transfer", "holdco": {"invest": "Investment in Subsidiary", "loan": "Loan from Holdco",
@@ -410,6 +413,160 @@ def test_a_big_read_is_gzipped_when_the_browser_takes_it():
     assert "content-encoding" not in plain.headers and json.loads(plain.body) == payload
 
 
+# ── changing one transaction (the tab's Move, Split, Personal, Not real, line and month) ─────────────
+
+def keyed(data=None) -> dict:
+    """The invented file with one transaction per ledger line, as a real file has them. "ev" is the event the
+    hub paid for the club (QuickBooks has it on the hub, the review on the club), with its bank line."""
+    data = data or dataset()
+    data["transactions"] = {}
+    for i, l in enumerate(data["ledger"]):
+        l["key"] = "ev" if l["line"] == "Event costs" else f"t{i:02d}"
+        data["transactions"][l["key"]] = {"ref": "", "who": "Someone", "what": "A line", "note": "", "verdict": "",
+                                          "category": "", "type": "", "company": l["company"], "date": l["date"],
+                                          "cleared": True, "cash": []}
+    data["transactions"]["ev"].update({"payee": "Venue", "who": "VENUE LLC", "amount": -200.0, "money_in": False,
+                                       "cleared": False, "cash": [{"account": "Checking", "amount": -200.0, "month": 3}]})
+    return data
+
+
+def changed(data, **tx) -> eng.Books:
+    """The books with these transactions changed, each change checked the way the API checks it."""
+    return books({"tx": {k: eng.validate_change(data, ["tx", k], v) for k, v in tx.items()}}, data=data)
+
+
+def _ok(bk):
+    assert all(c["ok"] for c in bk.checks()), [c for c in bk.checks() if not c["ok"]]
+    for c in COMPANIES:
+        assert bk.balance_sheet(c)["balanced"] == {"qbo": True, "corrected": True}, c
+
+
+def _delta(before, after, company, m) -> dict:
+    """How one month's correcting entry for a company changed, account by account."""
+    a = {r["account"]: r["amounts"][m] for r in before.corrections(company)["accounts"]}
+    b = {r["account"]: r["amounts"][m] for r in after.corrections(company)["accounts"]}
+    return {k: round(b.get(k, 0) - a.get(k, 0), 2) for k in set(a) | set(b) if abs(b.get(k, 0) - a.get(k, 0)) >= 0.005}
+
+
+def test_moving_a_charge_moves_its_cost_and_who_owes_whom():
+    data = keyed()
+    before, after = books(data=data), changed(data, ev={"do": "move", "to": "Cohort"})
+    _ok(after)
+    ev = lambda bk, c: _line(bk, c, 3, "Event costs")["corrected"]
+    assert (ev(before, CLUB), ev(before, COHORT), ev(after, CLUB), ev(after, COHORT)) == (200.0, 0.0, 0.0, 200.0)
+    # the hub paid it: the club no longer owes the hub for it, the cohort does
+    hub, cohort, club = (_delta(before, after, c, 3) for c in (HUB, COHORT, CLUB))
+    assert (hub[f"Due from {CLUB}"], hub[f"Due from {COHORT}"]) == (-200.0, 200.0)
+    assert (cohort[f"{COHORT} Event costs"], cohort[f"Due to {HUB}"]) == (200.0, -200.0)
+    assert (club[f"{CLUB} Event costs"], club[f"Due to {HUB}"]) == (-200.0, 200.0)
+
+
+def test_a_split_charge_lands_on_each_company():
+    bk = changed(keyed(), ev={"do": "split", "parts": {"Club": 0.25, "Cohort": 0.75}})
+    _ok(bk)
+    assert (_line(bk, CLUB, 3, "Event costs")["corrected"], _line(bk, COHORT, 3, "Event costs")["corrected"]) == (50.0, 150.0)
+
+
+def test_a_personal_charge_leaves_every_companys_costs():
+    data = keyed()
+    before, own = books(data=data), changed(data, ev={"do": "personal", "who": "owner"})
+    _ok(own)
+    total = lambda bk: sum(_line(bk, c, 3, "Event costs")["corrected"] for c in COMPANIES)
+    assert total(before) - total(own) == 200.0
+    assert _delta(before, own, HUB, 3)["Owner draw"] == 200.0             # the hub paid it: the owner's draw
+    pat = changed(data, ev={"do": "personal", "who": "Pat"})
+    _ok(pat)
+    assets = next(s for s in pat.balance_sheet(HUB)["sections"] if s["key"] == "Asset")["rows"]
+    due = next(r for r in assets if r["account"] == "Due from Pat")       # somebody else's: owed back
+    assert due["corrected"] == 200.0 and due["note"].startswith("New")
+
+
+def test_paid_twice_is_owed_back_and_never_happened_takes_out_the_bank_line():
+    data = keyed()
+    before = books(data=data)
+    twice = changed(data, ev={"do": "remove", "reason": "paid_twice"})
+    _ok(twice)
+    assert _line(twice, CLUB, 3, "Event costs")["corrected"] == 0.0
+    assert _delta(before, twice, HUB, 3)["Due from Venue"] == 200.0          # the payee owes the second one back
+    never = changed(data, ev={"do": "remove", "reason": "never"})
+    _ok(never)
+    assert _delta(before, never, HUB, 3)["Checking"] == 200.0             # and the payment comes back out of the bank
+    bank = lambda bk: next(r for r in next(s for s in bk.balance_sheet(HUB)["sections"] if s["key"] == "Asset")["rows"]
+                           if r["account"] == "Checking")["corrected"]
+    assert bank(never) - bank(before) == 200.0
+
+
+def test_another_line_or_another_month():
+    data = keyed()
+    line = changed(data, ev={"do": "line", "line": "Travel and meals"})
+    _ok(line)
+    assert (_line(line, CLUB, 3, "Event costs")["corrected"], _line(line, CLUB, 3, "Travel and meals")["corrected"]) == (0.0, 200.0)
+    early = changed(data, ev={"do": "month", "month": 1})                 # paid in month 3, counted in month 1
+    _ok(early)
+    assert (_line(early, CLUB, 3, "Event costs")["corrected"], _line(early, CLUB, 1, "Event costs")["corrected"]) == (0.0, 200.0)
+    accrued = {r["account"]: r["amounts"] for r in early.corrections(CLUB)["accounts"]}[f"{CLUB} accrued liabilities"]
+    assert (accrued[1], accrued[3]) == (-200.0, 200.0)
+
+
+def test_every_kind_of_change_at_once_still_balances():
+    data = keyed()
+    pick = lambda **kw: next(l["key"] for l in data["ledger"] if all(l[k] == v for k, v in kw.items()))
+    bk = changed(data, ev={"do": "move", "to": "Inside"},
+                 **{pick(brand="Cohort", cls="revenue", month=2): {"do": "split", "parts": {"Club": 0.5, "Cohort": 0.5}},
+                    pick(pool="Advertising", month=1): {"do": "move", "to": "Club"},
+                    pick(pool="Staff and contractors", item="Ann", month=2): {"do": "personal", "who": "owner"},
+                    pick(brand="Inside", cls="revenue", month=3): {"do": "month", "month": 1},
+                    pick(pool="Software and subscriptions", item="Zoomish", month=3): {"do": "remove", "reason": "paid_twice"}})
+    _ok(bk)
+    for view in COMPANIES + ["Inside", "all"]:
+        for s in bk.statement(view)["sections"]:
+            for r in s["lines"]:
+                assert bk.line_detail(view, r["line"])["rows_total"] == pytest.approx(r["corrected"], abs=0.02)
+
+
+@pytest.mark.parametrize("key,value", [
+    ("nope", {"do": "move", "to": "Club"}),                      # no such transaction
+    ("ev", {"do": "move", "to": "Elsewhere"}),
+    ("ev", {"do": "split", "parts": {"Club": 0.5, "Cohort": 0.4}}),
+    ("ev", {"do": "split", "parts": {"Club": 1.0}}),
+    ("ev", {"do": "line", "line": "Membership dues"}),           # a cost onto an income line
+    ("ev", {"do": "month", "month": 7}),                         # a month the books don't cover
+    ("ev", {"do": "fly"}),
+    ("ev", "move"),
+])
+def test_a_change_the_books_cannot_hold_is_refused(key, value):
+    with pytest.raises(eng.InputError):
+        eng.validate_change(keyed(), ["tx", key], value)
+
+
+def test_some_changes_need_the_right_transaction():
+    data = keyed()
+    pick = lambda **kw: next(l["key"] for l in data["ledger"] if all(l[k] == v for k, v in kw.items()))
+    data["transactions"]["ev"]["cleared"] = True
+    for key, value in ((pick(cls="partner"), {"do": "move", "to": "Club"}),       # an advance: not income or a cost
+                       (pick(cls="revenue"), {"do": "personal"}),                 # money in isn't anybody's spending
+                       (pick(pool="Advertising"), {"do": "line", "line": "Event costs"}),  # a shared cost's line is its pool's
+                       ("ev", {"do": "remove", "reason": "never"})):              # the bank shows it: it happened
+        with pytest.raises(eng.InputError):
+            eng.validate_change(data, ["tx", key], value)
+    assert eng.validate_change(data, ["tx", "ev"], None) is None                  # undo
+
+
+def test_a_moved_charge_stays_in_sight():
+    data = keyed()
+    bk = changed(data, ev={"do": "move", "to": "Cohort"})
+    club = bk.line_detail(CLUB, "Event costs", 3)
+    (gone,) = [r for r in club["rows"] if r.get("gone")]
+    assert (gone["amount"], gone["was"], gone["status"], gone["change"]["to"]) == (0.0, 200.0, "yours", "Cohort")
+    assert club["rows_total"] == club["corrected"] == 0.0
+    (here,) = [r for r in bk.line_detail(COHORT, "Event costs", 3)["rows"] if r["kind"] == "tx"]
+    assert (here["amount"], here["status"]) == (200.0, "yours") and "was" not in here
+    t = next(t for t in bk.transactions() if t["key"] == "ev")
+    assert t["placement"] == [{"brand": "Cohort", "line": "Event costs", "amount": 200.0}]
+    assert t["was"] == [{"brand": "Club", "line": "Event costs", "amount": 200.0}]
+    assert eng.describe_change(data, "ev", {"do": "move", "to": "Cohort"}) == "Venue, Mar 15, $200.00: moved to Cohort"
+
+
 def test_merged_inputs_change_only_what_was_saved():
     data = dataset()
     m = eng.merged_inputs(data, {"staff": {"Ann": {"2": {"Club": 1.0, "Cohort": 0.0}}}})
@@ -610,6 +767,29 @@ async def test_the_years_transactions_are_the_tabs(ctx):
         line = await c.get(f"/api/v1/cleanup/statement/line?view={CLUB}&line=Staff and contractors",
                            headers=_H(ctx["keeper"]))
         assert line.status_code == 200 and line.json()["people"]
+
+
+async def test_an_owner_moves_a_transaction_and_can_undo_it(ctx):
+    await _loaded(ctx)
+    async with _client() as c:
+        assert (await c.post("/api/v1/cleanup/dataset", headers=_H(ctx["owner"]), files=_file(keyed()))).status_code == 200
+        move = {"changes": [{"path": ["tx", "ev"], "value": {"do": "move", "to": "Cohort", "why": "Spring, Oct 19"}}]}
+        # it moves money between companies: an owner's or admin's
+        assert (await c.put("/api/v1/cleanup/inputs", headers=_H(ctx["keeper"]), json=move)).status_code == 403
+        r = await c.put("/api/v1/cleanup/inputs", headers=_H(ctx["owner"]), json=move)
+        assert r.status_code == 200, r.text
+        assert all(ch["ok"] for ch in r.json()["checks"])
+        (ch,) = (await c.get("/api/v1/cleanup/decisions", headers=_H(ctx["owner"]))).json()["tx_changes"]
+        assert (ch["key"], ch["change"]["to"], ch["change"]["why"]) == ("ev", "Cohort", "Spring, Oct 19")
+        assert ch["change"]["by"] and ch["change"]["at"] and ch["said"] == "Venue, Mar 15, $200.00: moved to Cohort"
+        undo = {"changes": [{"path": ["tx", "ev"], "value": None}]}
+        assert (await c.put("/api/v1/cleanup/inputs", headers=_H(ctx["owner"]), json=undo)).status_code == 200
+        assert (await c.get("/api/v1/cleanup/decisions", headers=_H(ctx["owner"]))).json()["tx_changes"] == []
+    async with SessionLocal() as s:
+        said = {r.summary for r in (await s.execute(select(AuditLog).where(
+            AuditLog.tenant_id == ctx["tenant"], AuditLog.target_id == "tx/ev"))).scalars().all()}
+        assert said >= {"Books Cleanup: Venue, Mar 15, $200.00: moved to Cohort",
+                        "Books Cleanup: Venue, Mar 15, $200.00: back to where the review put it"}
 
 
 async def test_a_new_file_keeps_the_decisions(ctx):

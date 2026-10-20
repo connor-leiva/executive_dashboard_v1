@@ -11,7 +11,8 @@ import { useCleanupTransactions } from "./useCleanup.js";
 import { Bar, Chip, Controls, F, L, NUM, Panel, Sheet, inputStyle, money, periodLabel, shortOf } from "./kit.jsx";
 import { Legend, TxList, rowsFromList } from "./CleanupTx.jsx";
 
-const FILTERS = [["all", "Everything"], ["needs", "Needs you"], ["changed", "Changed by the cleanup"]];
+const FILTERS = [["all", "Everything"], ["needs", "Needs you"], ["changed", "Changed by the cleanup"],
+                 ["yours", "Your changes"]];
 
 export default function CleanupTransactions({ ov, rev }) {
   const tx = useCleanupTransactions(rev);
@@ -33,7 +34,8 @@ export default function CleanupTransactions({ ov, rev }) {
   const ofCo = (r) => co === "all" || r.companies.has(co);
   const words = q.trim().toLowerCase();
   const list = rows.filter((r) => ofCo(r)
-    && (only === "all" || (only === "needs" && needs(r)) || (only === "changed" && r.status === "changed"))
+    && (only === "all" || (only === "needs" && needs(r)) || (only === "changed" && r.status === "changed")
+      || (only === "yours" && r.status === "yours"))
     && (!words || [r.payee, r.what, r.paidLine, r.line, r.forWho.join(" "), r.qbo?.payee, r.qbo?.category]
       .join(" ").toLowerCase().includes(words)));
   const nNeeds = rows.filter((r) => ofCo(r) && needs(r)).length;

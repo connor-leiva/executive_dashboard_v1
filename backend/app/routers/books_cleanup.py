@@ -48,7 +48,8 @@ from ..services.audit import audit
 
 TAB = "cleanup"
 MAX_BYTES = 25 * 1024 * 1024
-DECISIONS = {"ads", "rates", "salary", "holdco", "bc_basis", "staff", "items", "charges"}
+# moving, splitting or taking out a single transaction moves money between companies too ("tx")
+DECISIONS = {"ads", "rates", "salary", "holdco", "bc_basis", "staff", "items", "charges", "tx"}
 
 router = APIRouter(prefix="/cleanup", tags=["cleanup"])
 
@@ -127,6 +128,11 @@ async def overview(user: User = Depends(current_user), s: AsyncSession = Depends
         "company_short": d.get("company_short") or {}, "brands": bk.brands, "inside_brand": inside,
         "hub": d["hub"], "brand_company": d["brand_company"],
         "views": bk.companies + ([inside] if inside else []) + ["all"],
+        # what a transaction's Move, Personal and Line say in words
+        "billback_name": (d.get("billback") or {}).get("name"), "salary_owner": d.get("salary_owner"),
+        "lines": {"revenue": [l for l in bk.REVENUE if not l.startswith(("Uncategorized", "Not yet"))],
+                  "costs": [l for l in bk.COSTS if not l.startswith(("Uncategorized", "Not yet"))]},
+        "can_move_month": all((d["accounts"].get(k) or {}) for k in ("prepaid", "accrued_liab")),
         "headline": {
             "net_income": {c: bk.net_income(c) for c in bk.companies},
             "inside": ({inside: bk.statement(inside)["totals"]["net_income"]["corrected"]} if inside else {}),
@@ -303,6 +309,11 @@ async def decisions(user: User = Depends(current_user), s: AsyncSession = Depend
         "words": d.get("decision_words") or {},
         "staff": staff, "items": items, "charges": charges, "charge_lines": eng.charge_lines(d),
         "notes": inp.get("notes") or {},
+        # each transaction changed on the tab, oldest change first, with what it was
+        "tx_changes": [{**{k: w[k] for k in ("key", "payee", "what", "paid_from", "tx_date", "tx_amount", "money_in")},
+                        "change": ch, "said": eng.describe_change(d, key, ch)}
+                       for key, ch in sorted((inp.get("tx") or {}).items(), key=lambda kv: kv[1].get("at") or "")
+                       for w in [bk.tx_words(key)]],
     }
 
 
@@ -351,6 +362,9 @@ async def put_inputs(body: ChangeSet, user: User = Depends(current_user), s: Asy
         clean = [([str(p) for p in c.path], eng.validate_change(bk.d, list(c.path), c.value)) for c in body.changes]
     except eng.InputError as e:
         raise HTTPException(400, str(e))
+    stamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    clean = [(path, {**value, "by": user.name or user.email, "at": stamp} if path[0] == "tx" and value else value)
+             for path, value in clean]
     # Locked and re-read, not the row _books() saw: two people saving at once would otherwise both
     # start from the same version and the second save would silently drop the first one's changes.
     st = (await s.execute(select(CleanupState).where(CleanupState.tenant_id == user.tenant_id)
@@ -375,9 +389,11 @@ async def put_inputs(body: ChangeSet, user: User = Depends(current_user), s: Asy
         # target_id is String(64) and summary String(500), and real paths run past 64 (a subscription's
         # full name) -- Postgres refuses an over-long value where SQLite stores it. The whole path and
         # value are in `detail`.
+        said = (eng.describe_change(bk.d, path[1], value) if path[0] == "tx" and len(path) == 2
+                else f"{where} set to {value!r}")
         audit(s, user.tenant_id, user.id, "cleanup.change", "cleanup", where[:64],
               {"path": path, "from": was, "to": value}, category="Books",
-              summary=f"Books Cleanup: {where} set to {value!r}"[:500], actor_label=user.name or user.email)
+              summary=f"Books Cleanup: {said}"[:500], actor_label=user.name or user.email)
     await s.commit()
     bk2, _, _ = await _books(s, user)
     return {"version": st.version, "checks": bk2.checks(),

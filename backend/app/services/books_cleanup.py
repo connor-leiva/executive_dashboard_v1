@@ -47,13 +47,25 @@ COMPONENTS = {
     "own": "The owner's own charges",
     "chargeline": "The owner's charges, on another line",
     "holdco": "Investment or loan",
+    "yours": "Your changes to single transactions",
 }
 HOLDCO_CHOICES = ("Investment (equity)", "Loan")
+# what the tab can do to one transaction (inputs["tx"][key]), and why one can come out of the books
+TX_DO = ("move", "split", "personal", "remove", "line", "month")
+REMOVE_WHY = ("paid_twice", "entered_twice", "never")
 BC_BASES = ("rebuilt", "old_books", "received")
 
 
 def _r(x: float) -> float:
     return round(x + 0.0, 2)
+
+
+def _parts(amount: float, parts: dict) -> dict:
+    """An amount split by shares, to the cent, the parts adding back to the whole (the rounding on the largest)."""
+    out = {b: _r(amount * f) for b, f in parts.items()}
+    big = max(out, key=lambda b: abs(out[b]))
+    out[big] = _r(out[big] + amount - sum(out.values()))
+    return out
 
 
 class InputError(ValueError):
@@ -83,6 +95,8 @@ def merged_inputs(data: dict, saved: dict | None) -> dict:
         "posted": {c: dict(v) for c, v in (base.get("posted") or {}).items()},
         "checklist": {},
         "notes": dict(base.get("notes") or {}),
+        # each transaction the tab moved, split, made personal, took out, or put on another line or month
+        "tx": {k: dict(v) for k, v in (base.get("tx") or {}).items() if v},
     }
     for k, v in (saved or {}).items():
         if k in ("salary", "holdco", "bc_basis"):
@@ -103,6 +117,12 @@ def merged_inputs(data: dict, saved: dict | None) -> dict:
         elif k == "posted":
             for c, refs in (v or {}).items():
                 out["posted"].setdefault(c, {}).update(refs)
+        elif k == "tx":
+            for key, ch in (v or {}).items():   # a change replaces the one before it; null undoes it
+                if ch:
+                    out["tx"][key] = dict(ch)
+                else:
+                    out["tx"].pop(key, None)
     return out
 
 
@@ -178,7 +198,120 @@ def validate_change(data: dict, path: list, value):
         if not isinstance(value, dict):
             raise InputError("A checklist step is {done, note}.")
         return {"done": bool(value.get("done")), "note": text(value.get("note"), 2000)}
+    if head == "tx" and len(path) == 2:
+        return _tx_change(data, path[1], value, pct, text)
     raise InputError(f"Nothing to change at {'/'.join(path)}.")
+
+
+def _tx_change(data: dict, key: str, value, pct, text):
+    """One transaction's change, checked against the file: {do, why} and what the change needs. None undoes it.
+
+    A transaction is changed whole -- every one of its income and cost lines -- because a charge belongs to one
+    company (or is split between them) as a charge, not line by line."""
+    if key not in (data.get("transactions") or {}):
+        raise InputError("There's no such transaction in the file.")
+    if value is None:
+        return None                       # undone: back to where the review put it
+    if not isinstance(value, dict):
+        raise InputError("A change to a transaction says what to do: move, split, personal, remove, line or month.")
+    lines = [l for l in data["ledger"] if l["key"] == key]
+    pl = [l for l in lines if l["cls"] in ("revenue", "cost")]
+    if not pl:
+        raise InputError("That transaction isn't income or a cost, so it isn't on any company's results to change.")
+    money_in = all(l["cls"] == "revenue" for l in pl)
+    brands = set(data["brands"])
+    do = value.get("do")
+    out = {"do": do, "why": text(value.get("why"), 500)}
+    if do == "move":
+        to = value.get("to")
+        if to not in brands and not (to == "billback" and data.get("billback")):
+            raise InputError("Move it to one of the companies, or bill it back.")
+        out["to"] = to
+    elif do == "split":
+        parts = value.get("parts")
+        if not isinstance(parts, dict):
+            raise InputError("A split is each company's share.")
+        clean = {}
+        for b, f in parts.items():
+            if b not in brands:
+                raise InputError(f"{b!r} isn't one of the companies.")
+            f = pct(f)
+            if f > 0:
+                clean[b] = f
+        if len(clean) < 2 or abs(sum(clean.values()) - 1) > 1e-4:
+            raise InputError("A split is two or more companies, adding up to 100%.")
+        out["parts"] = clean
+    elif do == "personal":
+        if money_in:
+            raise InputError("Money coming in isn't anybody's personal spending.")
+        out["who"] = text(value.get("who"), 80) or "owner"
+    elif do == "remove":
+        if len(pl) != len(lines):
+            raise InputError("Part of this transaction isn't income or a cost: it can't come out whole here.")
+        reason = value.get("reason")
+        if reason not in REMOVE_WHY:
+            raise InputError("It was paid twice, entered twice, or never happened.")
+        if reason == "paid_twice" and money_in:
+            raise InputError("Money that came in twice is a refund to make, not a payment owed back.")
+        if reason != "paid_twice" and data["transactions"][key].get("cleared"):
+            raise InputError("The bank shows it, so it happened. If it was paid twice, the money is owed back.")
+        out["reason"] = reason
+    elif do == "line":
+        if any(l["pool"] for l in pl):
+            raise InputError("A shared cost's line is its pool's: change the item's split on Decisions.")
+        if not money_in and any(l["cls"] == "revenue" for l in pl):
+            raise InputError("Money in and money out together: there's no one line for both.")
+        side = data["lines"]["revenue"] if money_in else data["lines"]["costs"]
+        line = value.get("line")
+        if line not in side or str(line).startswith(("Uncategorized", "Not yet")):
+            raise InputError("Pick a line on its own side: income for money in, a cost for money out.")
+        out["line"] = line
+    elif do == "month":
+        m = value.get("month")
+        if isinstance(m, bool) or not isinstance(m, int) or m not in {x["m"] for x in data["period"]["months"]}:
+            raise InputError("Pick a month the books cover.")
+        if not all((data["accounts"].get(k) or {}) for k in ("prepaid", "accrued_liab")):
+            raise InputError("This file has no prepaid or accrued accounts to carry it to another month: load a newer one.")
+        out["month"] = m
+    else:
+        raise InputError("Move, split, personal, remove, line or month.")
+    return out
+
+
+def describe_change(data: dict, key: str, ch: dict | None) -> str:
+    """One transaction's change in words, for the audit log and the Decisions list: "Minky Couture, Mar 24,
+    $5,598.47: moved to The Forum"."""
+    t = (data.get("transactions") or {}).get(key) or {}
+    name = t.get("payee") or t.get("who") or "A transaction"
+    when = t.get("date") or ""
+    if when:
+        when = f", {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][int(when[5:7]) - 1]} {int(when[8:10])}"
+    amt = f", ${abs(float(t['amount'])):,.2f}" if t.get("amount") is not None else ""
+    if not ch:
+        return f"{name}{when}{amt}: back to where the review put it"
+    do = ch.get("do")
+    short = data.get("company_short") or {}
+    co = lambda b: short.get(b, b)
+    if do == "move":
+        what = (f"billed back to {(data.get('billback') or {}).get('name', 'the neighbour')}" if ch.get("to") == "billback"
+                else f"moved to {co(ch.get('to'))}")
+    elif do == "split":
+        what = "split " + ", ".join(f"{co(b)} {f * 100:.1f}%".replace(".0%", "%") for b, f in (ch.get("parts") or {}).items())
+    elif do == "personal":
+        who = ch.get("who") or "owner"
+        what = (f"{data.get('salary_owner') or 'the owner'}'s personal (an owner's draw)" if who == "owner"
+                else f"{who}'s personal (owed back)")
+    elif do == "remove":
+        what = {"paid_twice": "paid twice: the second payment is owed back", "entered_twice": "entered twice: taken out",
+                "never": "never happened: taken out"}.get(ch.get("reason"), "taken out")
+    elif do == "line":
+        what = f"filed to {ch.get('line')}"
+    elif do == "month":
+        labels = {x["m"]: x["label"] for x in data["period"]["months"]}
+        what = f"counted in {labels.get(ch.get('month'), ch.get('month'))}"
+    else:
+        what = "changed"
+    return f"{name}{when}{amt}: {what}"
 
 
 def set_path(saved: dict, path: list, value) -> None:
@@ -220,6 +353,8 @@ class Books:
         self.labels = {**COMPONENTS, **(d.get("component_labels") or {})}
         self.dues = d["dues"]
         self.tx = d["transactions"]
+        self.changes = inputs.get("tx") or {}
+        self.ledger = self._effective()
         self._pools()
         self._corrected()
         self._postings()
@@ -233,7 +368,7 @@ class Books:
         self.item_kind = {}
         for kind, spec in (self.d.get("items") or {}).items():
             self.item_kind[spec["pool"]] = kind
-        for l in self.d["ledger"]:
+        for l in self.ledger:
             if l["cls"] != "cost" or not l["pool"]:
                 continue
             m = l["month"]
@@ -286,13 +421,137 @@ class Books:
             if t["basis"] is None or t["basis"] == basis:
                 yield t
 
+    # ---- the tab's changes to single transactions
+    def _effective(self) -> list:
+        """The reviewed ledger with the tab's changes to single transactions laid over it -- a moved charge on
+        its new company, a split one on each, a personal or removed one on nobody -- and (in `tx_post`) the
+        postings that put each one there.
+
+        The postings are the review's own rule (engine/corrections.py) run again: the placement the review gave
+        a line comes back out, the new one goes in, each through intercompany when another company paid it. Every
+        placement leaves the paying company where QuickBooks has it (one debit against the payment's credit) and
+        every other company even, so a change can't unbalance an entry; and the partner shares, the pools' splits
+        and the brand views all read the changed ledger, so they follow on their own."""
+        self.tx_post = defaultdict(float)          # (company, account, month) -> debit-positive
+        self.extra_types = {}                      # accounts a change creates: {account: [class, type]}
+        if not self.changes:
+            return self.d["ledger"]
+        out = []
+        for l in self.d["ledger"]:
+            ch = self.changes.get(l["key"])
+            out.extend(self._change(l, ch) if ch and l["cls"] in ("revenue", "cost") else [l])
+        for key, ch in self.changes.items():       # one that never happened takes its bank lines back out too
+            if ch.get("do") == "remove" and ch.get("reason") in ("entered_twice", "never"):
+                t = self.tx.get(key) or {}
+                comp = t.get("company") or next((l["company"] for l in self.d["ledger"] if l["key"] == key), None)
+                for c in t.get("cash") or []:
+                    self._post(comp, c["account"], c["month"], -c["amount"])
+        return out
+
+    def _change(self, l: dict, ch: dict) -> list:
+        """One income or cost line under one change: the lines that replace it (none, if it leaves every
+        company's results), with its postings added to `tx_post`."""
+        c0, cls, a, m = l["company"], l["cls"], l["amount"], l["month"]
+        old = self.bc.get(l["brand"]) or c0                    # a shared cost sits on the company that paid it
+        acct = l.get("corr_account") or self.acc["main"][f"{old}|{l['line']}"]
+        dr = a if cls == "cost" else -a
+        bare = {**l, "pool": None, "item": None}               # out of its pool: on one company, not split
+        do = ch.get("do")
+        if do == "move" and ch.get("to") == "billback":        # billed back to the neighbour: owed, not a cost
+            self._place(c0, cls, old, acct, m, -a)
+            self._post(c0, self._owed_by(c0, self.d["billback"]["name"], self.d["billback"]["account"]), m, dr)
+            return []
+        if do == "move":
+            new = self.bc[ch["to"]]
+            if new != old:
+                self._place(c0, cls, old, acct, m, -a)
+                self._place(c0, cls, new, self.acc["main"][f"{new}|{l['line']}"], m, a)
+            return [{**bare, "brand": ch["to"]}]
+        if do == "split":
+            self._place(c0, cls, old, acct, m, -a)
+            out = []
+            for b, part in _parts(a, ch["parts"]).items():
+                comp = self.bc[b]
+                self._place(c0, cls, comp, acct if comp == old else self.acc["main"][f"{comp}|{l['line']}"], m, part)
+                out.append({**bare, "brand": b, "amount": part})
+            return out
+        if do == "personal":                                    # the owner's draw, or owed back by whoever it was
+            self._place(c0, cls, old, acct, m, -a)
+            who = ch.get("who") or "owner"
+            if who == "owner":
+                draw = (self.acc["owner"] if c0 == self.hub
+                        else f"{self.d.get('salary_owner') or 'The owner'}'s draws")
+                if draw != self.acc["owner"]:
+                    self.extra_types.setdefault(draw, ["Equity", "Equity"])
+                self._post(c0, draw, m, dr)
+            else:
+                self._post(c0, self._owed_by(c0, who), m, dr)
+            return []
+        if do == "remove":                                      # paid twice: the second payment is owed back
+            self._place(c0, cls, old, acct, m, -a)
+            if ch.get("reason") == "paid_twice":
+                t = self.tx.get(l["key"]) or {}
+                self._post(c0, self._owed_by(c0, t.get("payee") or t.get("who") or "the payee"), m, dr)
+            return []
+        if do == "line":
+            self._place(c0, cls, old, acct, m, -a)
+            self._place(c0, cls, old, self.acc["main"][f"{old}|{ch['line']}"], m, a)
+            return [{**l, "line": ch["line"]}]
+        if do == "month":                                       # paid one month, counted in another
+            m2 = ch["month"]
+            if m2 != m:
+                side = self._side(old, cls, later=m2 > m)
+                self._post(old, acct, m, -dr)
+                self._post(old, side, m, dr)
+                self._post(old, acct, m2, dr)
+                self._post(old, side, m2, -dr)
+            return [{**l, "month": m2}]
+        return [l]
+
+    def _place(self, c0: str, cls: str, comp: str, acct: str, m: int, amount: float) -> None:
+        """A line's corrected placement on `acct` in `comp` (P&L-signed `amount`; negative takes it back out).
+        The paying company's debit always lands; another company carries it and owes the payer for it."""
+        dr = amount if cls == "cost" else -amount
+        if comp == c0:
+            self._post(c0, acct, m, dr)
+        else:
+            self._post(c0, self._ic(c0, comp, cls), m, dr)
+            self._post(comp, acct, m, dr)
+            self._post(comp, self._ic(comp, c0, cls), m, -dr)
+
+    def _post(self, comp: str, acct: str, m: int, v: float) -> None:
+        self.tx_post[(comp, acct, m)] += v
+
+    def _ic(self, a: str, b: str, cls: str) -> str:
+        """What `a` books against `b`: money in between two companies can sit on its own account."""
+        if cls == "revenue":
+            own = (self.acc.get("ic_revenue") or {}).get(f"{a}|{b}")
+            if own:
+                return own
+        return self.acc["ic"][f"{a}|{b}"]
+
+    def _owed_by(self, comp: str, who: str, existing: str | None = None) -> str:
+        """The account for money somebody owes `comp` back: the file's own where it has one, else a new
+        'Due from <who>' (an asset, which the balance sheet says to set up)."""
+        if existing and comp == self.hub:
+            return existing
+        acct = f"Due from {who}"
+        self.extra_types.setdefault(acct, ["Asset", "Other Current Asset"])
+        return acct
+
+    def _side(self, comp: str, cls: str, later: bool) -> str:
+        """Where a line waits between the month it was paid and the month it counts in: a cost counted later is
+        prepaid, earlier is accrued; money in counted later is deferred, earlier is accrued revenue."""
+        key = ("prepaid" if later else "accrued_liab") if cls == "cost" else ("deferred" if later else "accrued_revenue")
+        return self.acc[key][comp]
+
     # ---- the corrected P&L, by company, line and month (and by brand, for the brand views)
     def _corrected(self):
         corr = defaultdict(float)            # (company, line, m)
         by_brand = defaultdict(float)        # (brand, line, m): no timing, no partner share
         self.dues_dep = defaultdict(float)
         dc, dl = self.dues["company"], self.dues["line"]
-        for l in self.d["ledger"]:
+        for l in self.ledger:
             if l["cls"] not in ("revenue", "cost") or l["brand"] not in self.bc:
                 continue
             comp, line, m = self.bc[l["brand"]], l["line"], l["month"]
@@ -450,6 +709,9 @@ class Books:
         post[(dc, acc["transfer"], "opening", 0)] += net0
         post[(hub, acc["transfer"], "opening", 0)] -= net0
         post[(hub, acc["cash_to_accrual"], "opening", 0)] += net0
+        for (c, a, m), v in self.tx_post.items():     # the tab's changes to single transactions
+            if abs(v) >= 1e-9:
+                post[(c, a, "yours", m)] += v
         self.post = post
         self.by_account = defaultdict(float)  # (company, account, m)
         for (c, a, _comp, m), v in post.items():
@@ -542,9 +804,11 @@ class Books:
         file lacks filled from what it has -- its QuickBooks payee for the tidy one, no flags."""
         t = self.tx.get(key) or {}
         payee = t.get("payee")
+        change = self.changes.get(key)
         return {"key": key, "payee": (t.get("who") or "") if payee is None else payee, "short": t.get("short") or "",
                 "what": t.get("what") or "", "note": t.get("note") or "", "changed": t.get("changed") or "",
-                "status": t.get("status") or "", "twins": t.get("twins") or [], "paid_from": t.get("paid_from") or "",
+                "status": "yours" if change else (t.get("status") or ""), "change": change,
+                "cleared": t.get("cleared"), "twins": t.get("twins") or [], "paid_from": t.get("paid_from") or "",
                 "card_holder": t.get("card_holder") or "",
                 "qbo": t.get("qbo") or {"payee": t.get("who") or "", "category": ""},
                 "tx_amount": t.get("amount"), "money_in": t.get("money_in"), "tx_date": t.get("date") or ""}
@@ -563,9 +827,10 @@ class Books:
         rows = []
         dc, dl = self.dues["company"], self.dues["line"]
         txs: dict[tuple, dict] = {}
-        for l in self.d["ledger"]:
-            if (l["cls"] in ("revenue", "cost") and l["brand"] in brands and l["line"] == line
-                    and l["month"] in ms and not (self.bc[l["brand"]] == dc and line == dl and kind != "brand")):
+        here = lambda l: (l["cls"] in ("revenue", "cost") and l["brand"] in brands and l["line"] == line
+                          and l["month"] in ms and not (self.bc[l["brand"]] == dc and line == dl and kind != "brand"))
+        for l in self.ledger:
+            if here(l):
                 r = txs.get((l["key"], l["month"]))
                 if r is not None:
                     r["amount"] += l["amount"]
@@ -581,6 +846,26 @@ class Books:
                 rows.append(r)
         for r in txs.values():
             r["amount"] = _r(r["amount"])
+        if self.changes:
+            # what a changed transaction had here before the change: on its row if some of it is still here (a
+            # split), else as a row of its own that adds nothing to the line -- moved away, not vanished
+            was = defaultdict(float)
+            first = {}
+            for l in self.d["ledger"]:
+                if l["key"] in self.changes and here(l):
+                    was[(l["key"], l["month"])] += l["amount"]
+                    first.setdefault((l["key"], l["month"]), l)
+            for k, v in was.items():
+                if k in txs:
+                    txs[k]["was"] = _r(v)
+                    continue
+                l = first[k]
+                t = self.tx.get(l["key"]) or {}
+                rows.append({"kind": "tx", "gone": True, "month": l["month"], "date": l["date"],
+                             "label": t.get("what") or "", "who": t.get("who") or "", "brand": l["brand"],
+                             "brands": [l["brand"]], "paid_by": l["company"], "booked_as": l["account"],
+                             "ref": t.get("ref") or "", "amount": 0.0, "was": _r(v), "verdict": t.get("verdict") or "",
+                             "pooled": False, **self.tx_words(l["key"])})
         if line == dl and dc in comps and kind != "brand":
             for m in sorted(ms):
                 rows.append({"kind": "dues", "month": m, "label": "Dues earned this month, member by member",
@@ -677,12 +962,14 @@ class Books:
         cost has no one brand -- the decisions split it -- and money moving between accounts has no P&L line."""
         if getattr(self, "_txs", None) is not None:
             return self._txs
-        lines = defaultdict(list)
-        for l in self.d["ledger"]:
+        lines, before = defaultdict(list), defaultdict(list)
+        for l in self.ledger:
             lines[l["key"]].append(l)
-        out = []
-        for key, t in self.tx.items():
-            ls = lines.get(key, [])
+        for l in self.d["ledger"]:
+            if l["key"] in self.changes:
+                before[l["key"]].append(l)
+
+        def placement(ls):
             place, shared = defaultdict(float), defaultdict(float)
             for l in ls:
                 if l["cls"] not in ("revenue", "cost") or not l.get("line"):
@@ -691,7 +978,16 @@ class Books:
                     place[(l["brand"], l["line"])] += l["amount"]
                 else:
                     shared[l["line"]] += l["amount"]
+            return ([{"brand": b, "line": ln, "amount": _r(v)} for (b, ln), v in place.items() if abs(v) >= 0.005]
+                    + [{"brand": None, "line": ln, "amount": _r(v)} for ln, v in shared.items() if abs(v) >= 0.005])
+
+        out = []
+        for key, t in self.tx.items():
+            ls = lines.get(key, [])
             w = self.tx_words(key)
+            if key in self.changes:          # where the review had it, before the tab's change
+                w["was"] = placement(before[key])
+            ls = ls or before.get(key, [])   # a removed one still has a date and a payer
             date = w["tx_date"] or (ls[0]["date"] if ls else "")
             amount = w["tx_amount"]
             if amount is None:          # an older file: the P&L lines, money in positive
@@ -700,10 +996,7 @@ class Books:
             out.append({**w, "date": date, "month": int(date[5:7]) if date else None,
                         "company": t.get("company") or (ls[0]["company"] if ls else ""), "amount": amount,
                         "money_in": w["money_in"] if w["money_in"] is not None else amount > 0,
-                        "placement": [{"brand": b, "line": ln, "amount": _r(v)}
-                                      for (b, ln), v in place.items() if abs(v) >= 0.005]
-                                     + [{"brand": None, "line": ln, "amount": _r(v)}
-                                        for ln, v in shared.items() if abs(v) >= 0.005]})
+                        "placement": placement(lines.get(key, []))})
         out.sort(key=lambda r: (r["date"] or "", r["key"]))
         self._txs = out
         return out
@@ -793,14 +1086,15 @@ class Books:
             if a in tb:
                 cls_, typ = tb[a]["class"], tb[a]["type"]
             else:
-                cls_, typ = (types.get(a) or new_types.get(a) or ["Liability", "Other Current Liability"])
+                cls_, typ = (types.get(a) or new_types.get(a) or self.extra_types.get(a)
+                             or ["Liability", "Other Current Liability"])
             sec, note = cls_ if cls_ in sections else "Liability", ""
             rc = (self.acc.get("reclass") or {}).get(a)
             if "due from" in a.lower() and cls_ != "Asset" and (a not in tb or tb[a]["balance"] >= 0):
                 sec, note = "Asset", f"Set up as {typ}, but it's owed to {company}: make it Other Current Asset."
             elif rc and cls_ == rc.get("when_class", cls_):
                 sec, note = rc["section"], rc["note"]   # the file's own reading of an account set up wrong
-            elif a not in tb and (self.acc["acct_new"].get(f"{company}|{a}") or a in new_types):
+            elif a not in tb and (self.acc["acct_new"].get(f"{company}|{a}") or a in new_types or a in self.extra_types):
                 note = f"New: set it up as {typ}."
             sign = 1 if sec == "Asset" else -1
             q = sign * (tb[a]["balance"] if a in tb else 0.0)
@@ -841,7 +1135,7 @@ class Books:
     def summary(self) -> dict:
         """Each brand's year on a cash basis, and the partners' shares worked out (January to the last
         full month)."""
-        L, b_ = self.d["ledger"], self.brands
+        L, b_ = self.ledger, self.brands
         rev, direct = defaultdict(float), defaultdict(float)
         rev_m, direct_m = defaultdict(float), defaultdict(float)
         for l in L:

@@ -80,10 +80,35 @@ recurs (unless two companies paid it within three days); the review's own explan
 $489.25 each") marks a pair checked. An older file without the words still reads, on its QuickBooks
 payee.
 
+## Changing one transaction
+
+What the owners change most (Oct 19) isn't a transaction's category: it's which company it shows on. So
+a transaction's card offers **Move it to another company** (or bill it back to Utah Life), **Split it
+between companies**, **Personal, not business** (the owner's draw, or somebody else's to pay back), and
+**Not a real charge** (paid twice and owed back; or, if it never cleared the bank, entered twice or never
+happened), with **another line** and **another month** under "More…". Each says in one sentence, before
+it's saved, what it will do, including who will owe whom.
+
+A change is saved as `inputs.tx[key]` (owners and admins: it moves money between companies) and the
+engine lays it over the reviewed ledger (`Books._effective`). It is the review's own placement rule
+(`engine/corrections.py`) run again: the place the review gave each of the transaction's lines comes back
+out, the new one goes in, each through intercompany when another company paid it. Every placement leaves
+the paying company where QuickBooks has it and every other company even, so a change can't unbalance an
+entry, and the pools' splits, the partners' shares and the brand views all read the changed ledger.
+Its postings are their own part of each entry ("Your changes to single transactions").
+
+Pinned by the tests (each kind on the invented file, where every figure can be worked by hand) and by a
+harness run on the real file: every kind of change on every kind of transaction (own-paid, paid by
+another company, shared, money in, a deposit with its fees), one at a time and all at once, 93 changed
+books, every check passing. A moved transaction stays in sight where it was (struck through, "→ The
+Forum"); Decisions lists every change in words with who, when, why, and Undo; the audit log says it in
+the same words ("Minky Couture, Mar 24, $5,598.47: moved to The Forum").
+
 ## Who may do what
 
 * **Reading** needs the `cleanup` tab — owners and admins have it; a member needs the grant.
-* **The decisions** (splits, rates, salary, investment or loan, revenue basis, the owner's charges)
+* **The decisions** (splits, rates, salary, investment or loan, revenue basis, the owner's charges,
+  and any change to a single transaction)
   move money between companies: **owners and admins only**, enforced by the server.
 * **The work** (an answer, a tick, a posted entry number) needs only the tab.
 * **Loading a file**: owners and admins.
@@ -134,9 +159,6 @@ own value. Earlier files are kept, not replaced.
 * Posting to QuickBooks. By decision, the app never writes to QuickBooks: the entries go in by
   hand or by QuickBooks' own journal-entry import, and their numbers are recorded here.
 * A history view of earlier uploads (they are kept in `cleanup_dataset`; nothing shows them yet).
-* The rest of the Oct 19 mockup, in this order: **Move** (a transaction to another company, split,
-  personal, not real, another line or month, recomputed into the books and the entries, listed on
-  Decisions with undo); **the forward view** (Forecast, Budget, Cash flow, and the Statement's future
-  months); **the finishing** (Intercompany itemized, entry descriptions that name each change, Ask
-  about this). The file already carries what Move needs (`accounts.ic_revenue`, `prepaid`,
-  `accrued_liab`, each transaction's bank lines).
+* The rest of the Oct 19 mockup, in this order: **the forward view** (Forecast, Budget, Cash flow, and
+  the Statement's future months); **the finishing** (Intercompany itemized, entry descriptions that name
+  each change, Ask about this).
