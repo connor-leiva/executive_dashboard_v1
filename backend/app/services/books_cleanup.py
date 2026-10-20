@@ -486,19 +486,24 @@ class Books:
         every other company even, so a change can't unbalance an entry; and the partner shares, the pools' splits
         and the brand views all read the changed ledger, so they follow on their own."""
         self.tx_post = defaultdict(float)          # (company, account, month) -> debit-positive
+        self.tx_post_key = defaultdict(lambda: defaultdict(float))   # ...and which transaction each part is for
         self.extra_types = {}                      # accounts a change creates: {account: [class, type]}
+        self._key = None
         if not self.changes:
             return self.d["ledger"]
         out = []
         for l in self.d["ledger"]:
             ch = self.changes.get(l["key"])
+            self._key = l["key"]
             out.extend(self._change(l, ch) if ch and l["cls"] in ("revenue", "cost") else [l])
         for key, ch in self.changes.items():       # one that never happened takes its bank lines back out too
             if ch.get("do") == "remove" and ch.get("reason") in ("entered_twice", "never"):
                 t = self.tx.get(key) or {}
                 comp = t.get("company") or next((l["company"] for l in self.d["ledger"] if l["key"] == key), None)
+                self._key = key
                 for c in t.get("cash") or []:
                     self._post(comp, c["account"], c["month"], -c["amount"])
+        self._key = None
         return out
 
     def _change(self, l: dict, ch: dict) -> list:
@@ -574,6 +579,8 @@ class Books:
 
     def _post(self, comp: str, acct: str, m: int, v: float) -> None:
         self.tx_post[(comp, acct, m)] += v
+        if self._key is not None:
+            self.tx_post_key[(comp, acct, m)][self._key] += v
 
     def _ic(self, a: str, b: str, cls: str) -> str:
         """What `a` books against `b`: money in between two companies can sit on its own account."""
@@ -669,29 +676,40 @@ class Books:
     # ---- the correcting entries, by company, account, part and month (debit-positive)
     def _postings(self):
         post = defaultdict(float)            # (company, account, component, m)
+        # ...and what each is made of, for the entries' words and the intercompany detail:
+        # (company, account, component, m) -> {(kind, name): debit}. Kinds: review (name = the review's reason),
+        # ads, billback, fees (name = the pool), staff (the person), item (the subscription or cost), timing (what
+        # moved), partner (the partner), own and chargeline (the owner's charge), holdco, yours (the transaction).
+        src = defaultdict(lambda: defaultdict(float))
         acc, hub = self.acc, self.hub
         main = acc["main"]
         ic = lambda a, b: acc["ic"][f"{a}|{b}"]
+
+        def put(c, a, part, m, v, kind=None, name=None):
+            post[(c, a, part, m)] += v
+            src[(c, a, part, m)][(kind or part, name)] += v
+
         for r in self.d["review"]:
             for m, v in enumerate(r["months"]):
                 if v:
-                    post[(r["company"], r["account"], r["component"], m)] += v
+                    put(r["company"], r["account"], r["component"], m, v, "review", r.get("sub") or None)
         outside = [b for b in self.brands if self.bc[b] != hub]       # the brands whose company isn't the hub
         for m in self.MONTHS:
             for pool, pct, billback in (("Advertising", self.ads, True), ("Payment processing", self.fees, False)):
+                kind = "ads" if billback else "fees"
                 moved = sum(pct[b] for b in outside) + (self.ads["billback"] if billback else 0)
                 for (p, a, mm), amt in self.acct_of_pool_line.items():
                     if p == pool and mm == m:
-                        post[(hub, a, "split", m)] -= amt * moved
+                        put(hub, a, "split", m, -(amt * moved), kind, pool)
                 pm = self.pool_m[(pool, m)]
                 for b in outside:
                     comp = self.bc[b]
                     a = self.d["pools"][pool]["share_account"] or main[f"{comp}|{self.d['pools'][pool]['line']}"]
-                    post[(comp, a, "split", m)] += pm * pct[b]
-                    post[(hub, ic(hub, comp), "split", m)] += pm * pct[b]
-                    post[(comp, ic(comp, hub), "split", m)] -= pm * pct[b]
+                    put(comp, a, "split", m, pm * pct[b], kind, pool)
+                    put(hub, ic(hub, comp), "split", m, pm * pct[b], kind, pool)
+                    put(comp, ic(comp, hub), "split", m, -(pm * pct[b]), kind, pool)
                 if billback:
-                    post[(hub, self.d["billback"]["account"], "split", m)] += pm * self.ads["billback"]
+                    put(hub, self.d["billback"]["account"], "split", m, pm * self.ads["billback"], "billback", pool)
             for (p, mm), v in self.staff_cost.items():
                 if mm != m:
                     continue
@@ -701,74 +719,120 @@ class Books:
                     if b not in outside:
                         continue
                     comp = self.bc[b]
-                    post[(hub, acct, "split", m)] -= v * sp[k]
-                    post[(comp, self.d["pools"]["Staff and contractors"]["share_account"], "split", m)] += v * sp[k]
-                    post[(hub, ic(hub, comp), "split", m)] += v * sp[k]
-                    post[(comp, ic(comp, hub), "split", m)] -= v * sp[k]
+                    put(hub, acct, "split", m, -(v * sp[k]), "staff", p)
+                    put(comp, self.d["pools"]["Staff and contractors"]["share_account"], "split", m, v * sp[k], "staff", p)
+                    put(hub, ic(hub, comp), "split", m, v * sp[k], "staff", p)
+                    put(comp, ic(comp, hub), "split", m, -(v * sp[k]), "staff", p)
             # membership dues: earned, not deposited
             dc, dl = self.dues["company"], self.dues["line"]
             acc_prev, acc_now = self.dues["accrued"][m - 1], self.dues["accrued"][m]
             adj = float(self.dues["earned"].get(str(m), 0)) - self.dues_dep[m]
-            post[(dc, main[f"{dc}|{dl}"], "dues", m)] -= adj
-            post[(dc, acc["accrued_revenue"][dc], "dues", m)] += acc_now - acc_prev
-            post[(dc, acc["deferred"][dc], "dues", m)] += adj - (acc_now - acc_prev)
+            put(dc, main[f"{dc}|{dl}"], "dues", m, -adj)
+            put(dc, acc["accrued_revenue"][dc], "dues", m, acc_now - acc_prev)
+            put(dc, acc["deferred"][dc], "dues", m, adj - (acc_now - acc_prev))
             for p in self.d["partners"]:
                 comp, s = p["company"], self.share[(p["company"], m)]
-                post[(comp, main[f"{comp}|Partner profit shares"], "partner", m)] += s
-                post[(comp, p.get("payable_account") or p.get("advance_account"), "partner", m)] -= s
+                put(comp, main[f"{comp}|Partner profit shares"], "partner", m, s, "partner", p["person"])
+                put(comp, p.get("payable_account") or p.get("advance_account"), "partner", m, -s, "partner", p["person"])
         for (pool, item, m), v in self.item_m.items():
             s = self.item_split(pool, item)
             acct = self.d["items"][self.item_kind[pool]]["rows"]
             row = next(r for r in acct if r["name"] == item)
             for b in outside:
                 comp = self.bc[b]
-                post[(hub, row["account"], "split", m)] -= v * s[b]
+                put(hub, row["account"], "split", m, -(v * s[b]), "item", item)
                 a = (self.d["pools"][pool]["share_account"] if self.d["pools"][pool]["share_account"]
                      else main[f"{comp}|{self.item_line[(pool, item)]}"])
-                post[(comp, a, "split", m)] += v * s[b]
-                post[(hub, ic(hub, comp), "split", m)] += v * s[b]
-                post[(comp, ic(comp, hub), "split", m)] -= v * s[b]
+                put(comp, a, "split", m, v * s[b], "item", item)
+                put(hub, ic(hub, comp), "split", m, v * s[b], "item", item)
+                put(comp, ic(comp, hub), "split", m, -(v * s[b]), "item", item)
         mirror_to = next(c for c in self.companies if c != hub and c == self.dues["company"])
         for t in self.timing_rows():
             d = t["amount"] if t["line"] in self.COSTS else -t["amount"]
-            post[(t["company"], t["account"], "timing", t["month"])] += d
-            post[(t["company"], t["side"], "timing", t["month"])] -= d
+            what = t.get("what") or None
+            put(t["company"], t["account"], "timing", t["month"], d, "timing", what)
+            put(t["company"], t["side"], "timing", t["month"], -d, "timing", what)
             if t["mirror"]:
-                post[(hub, ic(hub, mirror_to), "timing", t["month"])] += d
-                post[(hub, acc["retained_earnings"], "timing", t["month"])] -= d
+                put(hub, ic(hub, mirror_to), "timing", t["month"], d, "timing", what)
+                put(hub, acc["retained_earnings"], "timing", t["month"], -d, "timing", what)
         for c in self.d["charges"]:
             treat, line = self.charge(c)
+            who = c.get("who") or None
             if treat == "own":
-                post[(hub, c["account"], "own", c["month"])] -= c["amount"]
-                post[(hub, acc["owner"], "own", c["month"])] += c["amount"]
+                put(hub, c["account"], "own", c["month"], -c["amount"], "own", who)
+                put(hub, acc["owner"], "own", c["month"], c["amount"], "own", who)
             elif line != c["booked_line"]:
-                post[(hub, c["account"], "chargeline", c["month"])] -= c["amount"]
-                post[(hub, main[f"{hub}|{line}"], "chargeline", c["month"])] += c["amount"]
+                put(hub, c["account"], "chargeline", c["month"], -c["amount"], "chargeline", who)
+                put(hub, main[f"{hub}|{line}"], "chargeline", c["month"], c["amount"], "chargeline", who)
         loan = self.inp.get("holdco") == HOLDCO_CHOICES[1]
         hc = acc["holdco"]
         for x in self.d["holdco"]:
+            who = x.get("who") or None
             if x["account"] == hc["invest"]:
-                post[(x["company"], x["account"], "holdco", x["month"])] -= x["amount"]
-                post[(x["company"], hc["loan"] if loan else hc["dist"], "holdco", x["month"])] += x["amount"]
+                put(x["company"], x["account"], "holdco", x["month"], -x["amount"], "holdco", who)
+                put(x["company"], hc["loan"] if loan else hc["dist"], "holdco", x["month"], x["amount"], "holdco", who)
             elif loan:
-                post[(x["company"], x["account"], "holdco", x["month"])] -= x["amount"]
-                post[(x["company"], hc["loan"], "holdco", x["month"])] += x["amount"]
+                put(x["company"], x["account"], "holdco", x["month"], -x["amount"], "holdco", who)
+                put(x["company"], hc["loan"], "holdco", x["month"], x["amount"], "holdco", who)
         # January 1: the dues the hub collected in the prior year for this year's service
         dc = self.dues["company"]
         d0, a0 = self.dues["deferred"][0], self.dues["accrued"][0]
         net0 = d0 - float(self.dues.get("in_transit_open") or 0) - a0
-        post[(dc, acc["deferred"][dc], "opening", 0)] -= d0 - float(self.dues.get("in_transit_open") or 0)
-        post[(dc, acc["accrued_revenue"][dc], "opening", 0)] += a0
-        post[(dc, acc["transfer"], "opening", 0)] += net0
-        post[(hub, acc["transfer"], "opening", 0)] -= net0
-        post[(hub, acc["cash_to_accrual"], "opening", 0)] += net0
+        put(dc, acc["deferred"][dc], "opening", 0, -(d0 - float(self.dues.get("in_transit_open") or 0)))
+        put(dc, acc["accrued_revenue"][dc], "opening", 0, a0)
+        put(dc, acc["transfer"], "opening", 0, net0)
+        put(hub, acc["transfer"], "opening", 0, -net0)
+        put(hub, acc["cash_to_accrual"], "opening", 0, net0)
         for (c, a, m), v in self.tx_post.items():     # the tab's changes to single transactions
             if abs(v) >= 1e-9:
                 post[(c, a, "yours", m)] += v
+                for key, kv in self.tx_post_key[(c, a, m)].items():
+                    src[(c, a, "yours", m)][("yours", key)] += kv
         self.post = post
+        self.src = src
+        self.src_at = defaultdict(dict)       # (company, account, m) -> {component: what it's made of}
+        for (c, a, part, m), made in src.items():
+            self.src_at[(c, a, m)][part] = made
         self.by_account = defaultdict(float)  # (company, account, m)
         for (c, a, _comp, m), v in post.items():
             self.by_account[(c, a, m)] += v
+
+    def _src_name(self, kind: str, name) -> str:
+        """One thing a posting is made of, in words."""
+        if kind == "staff":       # payroll taxes are on the list of people, and follow the wages
+            if (self.people.get(name) or {}).get("follows_wages"):
+                return name
+            base, _, paren = name.partition(" (")      # "Sarah Ostermiller (salary)" -> "Sarah Ostermiller's pay (salary)"
+            if not paren.endswith(")"):
+                base, paren = name, ""
+            whose = f"{base}'" if base.endswith("s") else f"{base}'s"      # "Upwork freelancers' pay"
+            return f"{whose} pay ({paren}" if paren else f"{whose} pay"
+        if kind == "ads":
+            return "the shared ads"
+        if kind == "billback":
+            return f"ads billed back to {self.d['billback']['name']}"
+        if kind == "partner":
+            return f"{name}'s share"
+        if kind == "yours":
+            return describe_change(self.d, name, self.changes.get(name))
+        return str(name)
+
+    def _said(self, company: str, account: str, m: int, limit: int = 600) -> str:
+        """What one line of one month's entry is for, in words: each part, largest first, and what it's made of
+        (the review's reasons, whose pay and which subscriptions, the transactions changed on the tab)."""
+        bits = []
+        for part, made in sorted((self.src_at.get((company, account, m)) or {}).items(),
+                                 key=lambda kv: -abs(sum(kv[1].values()))):
+            if abs(sum(made.values())) < 0.005:
+                continue
+            names = [self._src_name(kind, name) for (kind, name), v in sorted(made.items(), key=lambda kv: -abs(kv[1]))
+                     if name and abs(v) >= 0.005 and not (kind == "review" and name == "Unchanged")]
+            names = list(dict.fromkeys(names))
+            more = f" and {len(names) - 3} more" if len(names) > 3 else ""
+            label = self.labels.get(part, part)
+            bits.append(f"{label}: {', '.join(names[:3])}{more}" if names else label)
+        said = "; ".join(bits)
+        return said if len(said) <= limit else said[:limit - 1].rstrip(" ,;:") + "…"
 
     # ── reads ────────────────────────────────────────────────────────────────────────────────────
 
@@ -1086,6 +1150,7 @@ class Books:
             rows.append({"account": a, "line": line, "new": bool(self.acc["acct_new"].get(f"{company}|{a}")),
                          "amounts": [_r(v) for v in vals], "total": _r(sum(vals)),
                          "parts": {k: _r(sum(v)) for k, v in comp_parts[a].items() if abs(sum(v)) >= 0.005},
+                         "said": [self._said(company, a, k) if abs(vals[k]) >= 0.005 else "" for k in range(n)],
                          "parts_by_month": {k: [_r(x) for x in v] for k, v in comp_parts[a].items()
                                             if any(abs(x) >= 0.005 for x in v)}})
         rows.sort(key=lambda r: (r["line"] is None, rank.get(r["line"], 99) if r["line"] else self._bs_rank(r["account"]),
@@ -1175,15 +1240,82 @@ class Books:
                 "liabilities_plus_equity": {k: _r(v) for k, v in le.items()}, "balanced": balanced}
 
     def intercompany(self) -> dict:
+        """What the companies owe each other: as booked, the cleanup's change (and the reasons for it), corrected."""
+        if getattr(self, "_ic_pairs", None) is not None:
+            return {"pairs": self._ic_pairs}
         bal = {(b["company"], b["account"]): b["closing"] for b in self.d["interco"]["balances"]}
         ytd = lambda c, a: sum(v for (cc, aa, m), v in self.by_account.items() if cc == c and aa == a)
         pairs = []
         for p in self.d["interco"]["pairs"]:
             booked = sum(t["sign"] * (bal.get(tuple(t["balance"]), 0.0) if t["balance"] else 0.0) for t in p["terms"])
             corr = sum(t["sign"] * ytd(t["company"], t["post"]) for t in p["terms"])
+            terms = {(t["company"], t["post"]): t["sign"] for t in p["terms"]}
+            parts = defaultdict(float)
+            for (c, a, part, m), v in self.post.items():
+                if (c, a) in terms:
+                    parts[part] += terms[(c, a)] * v
             pairs.append({"pair": p["pair"], "reads": p["reads"], "booked": _r(booked), "corrections": _r(corr),
-                          "corrected": _r(booked + corr)})
+                          "corrected": _r(booked + corr),
+                          "parts": [{"component": k, "label": self.labels.get(k, k), "amount": _r(v)}
+                                    for k, v in sorted(parts.items(), key=lambda kv: -abs(kv[1])) if abs(v) >= 0.5]})
+        self._ic_pairs = pairs
         return {"pairs": pairs}
+
+    def interco_detail(self, pair: str) -> dict:
+        """One pair's change, item by item, each in the pair's own reading (a positive amount adds to what the one
+        owes the other): each transaction the review placed through the pair (the file's `interco.items`, one per
+        transaction, month and reason), each shared cost's share month by month (whose pay, which subscription, the
+        ads, the fees), each change made on the tab, and the rest by what it is. It adds up to the change."""
+        p = next((x for x in self.d["interco"]["pairs"] if x["pair"] == pair), None)
+        if p is None:
+            raise InputError(f"Unknown pair {pair!r}.")
+        head = next(x for x in self.intercompany()["pairs"] if x["pair"] == pair)
+        terms = {(t["company"], t["post"]): t["sign"] for t in p["terms"]}
+        by_file = defaultdict(list)       # (company, account, component, month) -> the review's per-transaction rows
+        for it in (self.d["interco"].get("items") or []):
+            if (it["company"], it["account"]) in terms:
+                by_file[(it["company"], it["account"], it["component"], it["month"])].append(it)
+        # whom an account is owed by or owes: the company at the other end of an intercompany account
+        other = {acct: k.split("|", 1)[1] for k, acct in self.acc["ic"].items()}
+        other.update({acct: k.split("|", 1)[1] for k, acct in (self.acc.get("ic_revenue") or {}).items()})
+        other[self.d["billback"]["account"]] = self.d["billback"]["name"]
+        txs = {t["key"]: t for t in self.transactions()}
+        entries = self.d["interco"].get("entries") or {}      # the old journal entries, which the tab doesn't list
+        rows = []
+
+        def row(kind, part, m, v, c, a, **kw):
+            if abs(v) >= 0.005:
+                rows.append({"kind": kind, "component": part, "label": self.labels.get(part, part), "month": m,
+                             "amount": _r(v), "company": c, "account": a, "other": other.get(a), **kw})
+
+        for (c, a, part, m), made in self.src.items():
+            sign = terms.get((c, a))
+            if sign is None:
+                continue
+            for (kind, name), v in made.items():
+                v = sign * v
+                if kind == "review":
+                    items = by_file.get((c, a, part, m))
+                    if items:
+                        done = 0.0
+                        for it in (x for x in items if (x.get("sub") or None) == name):
+                            row("tx", part, m, sign * it["amount"], c, a, key=it["key"], why=name, tx=txs.get(it["key"]),
+                                entry=None if it["key"] in txs else entries.get(it["key"]))
+                            done += sign * it["amount"]
+                        if abs(v - done) >= 0.5:        # cents are the rounding of the file's rows
+                            row("other", part, m, v - done, c, a, what=name or self.labels.get(part, part))
+                    else:
+                        row("other", part, m, v, c, a, what=name or self.labels.get(part, part))
+                elif kind == "yours":
+                    row("tx", part, m, v, c, a, key=name, why=self._src_name(kind, name), tx=txs.get(name))
+                elif kind in ("ads", "billback", "fees", "staff", "item"):
+                    row("share", part, m, v, c, a, src=kind, who=name, what=self._src_name(kind, name))
+                else:
+                    row("other", part, m, v, c, a, what=self._src_name(kind, name) if name else self.labels.get(part, part))
+        rows.sort(key=lambda r: (r["month"], r["kind"] != "tx", (r.get("tx") or {}).get("date") or "", -abs(r["amount"])))
+        total = sum(r["amount"] for r in rows)
+        return {**head, "terms": [{"company": t["company"], "account": t["post"], "sign": t["sign"]} for t in p["terms"]],
+                "rows": rows, "ties": abs(total - head["corrections"]) < 1, "itemized": bool(by_file)}
 
     def summary(self) -> dict:
         """Each brand's year on a cash basis, and the partners' shares worked out (January to the last

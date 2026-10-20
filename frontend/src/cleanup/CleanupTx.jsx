@@ -15,6 +15,7 @@
 import { useMemo, useState } from "react";
 import { EYEBROW, F, L, NUM, Pill, cents, dayLabel, money, monthName } from "./kit.jsx";
 import { ChangeArea, changeLabel, useNames } from "./CleanupTxChange.jsx";
+import { AskAbout } from "./CleanupAsk.jsx";
 
 /* ── turning the server's rows into list rows ─────────────────────────────────────────────── */
 
@@ -226,6 +227,7 @@ function TxCard({ r }) {
        q.payee && plainName(q.payee) !== plainName(r.payee) ? `payee “${q.payee}”` : ""].filter(Boolean).join(", ")
     : "";
   const facts = [];
+  if (r.onPair) facts.push(["Why it's on this pair", r.onPair]);
   if (r.made && r.made.length) {
     facts.push(["Made of", r.made.map((p) => (
       <div key={p.label} style={{ display: "flex", gap: 10, maxWidth: 560 }}>
@@ -249,6 +251,7 @@ function TxCard({ r }) {
           Nothing more on file: the cleanup didn&rsquo;t change this one.</div>
       )}
       <ChangeArea r={r} />
+      {r.kind === "tx" && r.key ? <AskAbout about={{ kind: "tx", key: r.key }} placeholder="Why is this on this company?" /> : null}
     </div>
   );
 }
@@ -256,8 +259,9 @@ function TxCard({ r }) {
 /* ── the list ────────────────────────────────────────────────────────────────────────────── */
 
 /* `signed`: money in and out in one list (the Transactions page), "+" on money in. Otherwise the amounts
-   are one line's (a drawer), as the line counts them. */
-export function TxList({ rows, signed, income, year }) {
+   are one line's (a drawer), as the line counts them, or one pair's (Intercompany), in its reading.
+   `noun`: what the month headings count, [one, many]. */
+export function TxList({ rows, signed, income, year, noun: nounOf }) {
   const [openId, setOpenId] = useState(null);
   const groups = useMemo(() => {
     const sorted = [...rows].sort((a, b) => (a.month - b.month) || ((a.kind === "adj") - (b.kind === "adj"))
@@ -270,7 +274,7 @@ export function TxList({ rows, signed, income, year }) {
     }
     return out;
   }, [rows]);
-  const noun = signed ? ["transaction", "transactions"] : income ? ["payment", "payments"] : ["charge", "charges"];
+  const noun = nounOf || (signed ? ["transaction", "transactions"] : income ? ["payment", "payments"] : ["charge", "charges"]);
   return (
     <div className="cx-list">
       <div className="cx-head">

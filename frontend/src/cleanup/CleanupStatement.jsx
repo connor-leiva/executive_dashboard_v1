@@ -15,6 +15,7 @@ import { useCleanupForward, useCleanupStatement, useCleanupLine } from "./useCle
 import { Bar, Chip, Controls, EYEBROW, Foot, L, F, Loss, NUM, OkPill, Panel, Seg, Sheet, Toggle, cents, change,
          money, pctOf, periodLabel, shortOf } from "./kit.jsx";
 import { Legend, TxList, rowsFromLine } from "./CleanupTx.jsx";
+import { AskAbout } from "./CleanupAsk.jsx";
 
 /* ── the drawer: how the number is made, then what's in it ─────────────────────────────── */
 
@@ -131,6 +132,8 @@ function LineDetail({ ov, view, line, month, monthLabel, rev, brandView, income 
               : off < 0 ? `Short of the line by ${money(-off)}` : `Over the line by ${money(off)}`}</OkPill>
         </div>
       </Sheet>
+      <AskAbout about={{ kind: "line", view, line, month }} label="Ask about this line"
+                placeholder={`Why is ${line} what it is${monthLabel ? ` in ${monthLabel}` : ""}?`} />
     </div>
   );
 }

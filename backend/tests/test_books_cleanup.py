@@ -567,6 +567,63 @@ def test_a_moved_charge_stays_in_sight():
     assert eng.describe_change(data, "ev", {"do": "move", "to": "Cohort"}) == "Venue, Mar 15, $200.00: moved to Cohort"
 
 
+# ── what the companies owe each other, item by item; each entry's line in words ──────────────────────
+
+SPLIT = eng.COMPONENTS["split"]
+
+
+def test_a_pair_says_why_and_is_made_of_its_items():
+    bk = books()
+    (pair,) = bk.intercompany()["pairs"]
+    # the club's shares of the hub's costs, 930 a month, and the event the review moved onto the club
+    assert [(p["component"], p["amount"]) for p in pair["parts"]] == [("split", 2790.0), ("moved", 200.0)]
+    dt = bk.interco_detail("Hub and Club")
+    assert dt["ties"] and dt["corrections"] == 2990.0 and dt["itemized"] is False
+    m1 = {(r["src"], r["who"]): r["amount"] for r in dt["rows"] if r["kind"] == "share" and r["month"] == 1}
+    assert m1 == {("ads", "Advertising"): 300.0, ("fees", "Payment processing"): 50.0, ("staff", "Ann"): 500.0,
+                  ("staff", "Taxes"): 50.0, ("item", "Zoomish"): 30.0}
+    # a file without the review's rows per transaction says what the review did, not which transaction
+    (moved,) = [r for r in dt["rows"] if r["component"] == "moved"]
+    assert (moved["kind"], moved["amount"], moved["what"]) == ("other", 200.0, eng.COMPONENTS["moved"])
+    with pytest.raises(eng.InputError):
+        bk.interco_detail("Nobody and Nothing")
+
+
+def test_a_pair_names_the_transactions_the_review_moved():
+    data = keyed()
+    data["interco"]["items"] = [{"company": HUB, "account": f"Due from {CLUB}", "key": "ev", "component": "moved",
+                                 "sub": None, "month": 3, "amount": 200.0}]
+    dt = books(data=data).interco_detail("Hub and Club")
+    (ev,) = [r for r in dt["rows"] if r["component"] == "moved"]
+    assert (ev["kind"], ev["key"], ev["amount"], ev["tx"]["payee"]) == ("tx", "ev", 200.0, "Venue")
+    assert dt["ties"] and dt["itemized"]
+
+
+def test_a_change_on_the_tab_shows_on_its_pair_in_its_own_words():
+    data = keyed()
+    bk = changed(data, ev={"do": "move", "to": "Cohort"})
+    _ok(bk)
+    hub_club = bk.interco_detail("Hub and Club")
+    assert hub_club["corrections"] == 2790.0 and hub_club["ties"]            # the club no longer owes for the event
+    (ev,) = [r for r in hub_club["rows"] if r["component"] == "yours"]
+    assert (ev["kind"], ev["key"], ev["amount"]) == ("tx", "ev", -200.0)
+    assert ev["why"] == "Venue, Mar 15, $200.00: moved to Cohort" and ev["tx"]["payee"] == "Venue"
+
+
+def test_each_line_of_an_entry_says_what_it_is_for():
+    bk = books()
+    hub = {r["account"]: r for r in bk.corrections(HUB)["accounts"]}
+    assert hub["Pay:Ann"]["said"][1] == f"{SPLIT}: Ann's pay"
+    due = hub[f"Due from {CLUB}"]["said"]
+    assert due[1] == f"{SPLIT}: Ann's pay, the shared ads, Payment processing and 2 more"     # largest first
+    assert due[3].endswith(f"; {eng.COMPONENTS['moved']}") and due[0] == ""
+    assert hub["Due from Neighbour"]["said"][2] == f"{SPLIT}: ads billed back to Neighbour"
+    # a change made on the tab is named in the entry it makes
+    moved = changed(keyed(), ev={"do": "move", "to": "Cohort"})
+    said = {r["account"]: r["said"] for r in moved.corrections(HUB)["accounts"]}[f"Due from {COHORT}"][3]
+    assert f"{eng.COMPONENTS['yours']}: Venue, Mar 15, $200.00: moved to Cohort" in said
+
+
 # ── the forward view (Forecast, Budget, Cash flow) ───────────────────────────────────────────────────
 
 def forwarded(data=None) -> dict:
@@ -915,3 +972,67 @@ async def test_a_new_file_keeps_the_decisions(ctx):
     async with SessionLocal() as s:
         n = len((await s.execute(select(CleanupDataset.id).where(CleanupDataset.tenant_id == ctx["tenant"]))).all())
         assert n >= 2                                                            # kept, not replaced
+
+
+async def test_a_pair_item_by_item_and_the_entries_in_words(ctx):
+    await _loaded(ctx)
+    url = "/api/v1/cleanup/intercompany/pair?pair=Hub and Club"
+    async with _client() as c:
+        assert (await c.get(url, headers=_H(ctx["other"]))).status_code == 403
+        r = await c.get(url, headers=_H(ctx["keeper"]))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ties"] and sum(x["amount"] for x in body["rows"]) == pytest.approx(body["corrections"], abs=1)
+        assert (await c.get("/api/v1/cleanup/intercompany/pair?pair=Nobody", headers=_H(ctx["keeper"]))).status_code == 400
+        assert (await c.get("/api/v1/cleanup/intercompany", headers=_H(ctx["keeper"]))).json()["pairs"][0]["parts"]
+        # the import file: each line says what it's for
+        csv = await c.get(f"/api/v1/cleanup/corrections.csv?company={HUB}", headers=_H(ctx["owner"]))
+        assert f"{SPLIT}: " in csv.text and "Ann's pay" in csv.text
+
+
+async def test_ask_about_this(ctx, monkeypatch):
+    from app.config import settings
+    from app.services import cleanup_ask
+    await _loaded(ctx)
+    q = {"about": {"kind": "line", "view": CLUB, "line": "Staff and contractors", "month": 2},
+         "question": "Why is half of Ann's pay on the club?"}
+    ask = lambda who, body: c.post("/api/v1/cleanup/ask", headers=_H(ctx[who]), json=body)
+    seen = []
+
+    async def fake(system, messages):
+        seen.append((system, messages))
+        return "Half of Ann's pay is the club's and half the cohort's."
+
+    async def broken(system, messages):
+        raise RuntimeError("the network")
+
+    async with _client() as c:
+        assert (await c.post("/api/v1/cleanup/dataset", headers=_H(ctx["owner"]), files=_file(keyed()))).status_code == 200
+        monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
+        assert (await c.get("/api/v1/cleanup", headers=_H(ctx["keeper"]))).json()["can_ask"] is False
+        assert (await ask("keeper", q)).status_code == 503                   # no key on the server: not offered
+        monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "test-key")
+        monkeypatch.setattr(cleanup_ask, "_claude_call", fake)
+        assert (await c.get("/api/v1/cleanup", headers=_H(ctx["keeper"]))).json()["can_ask"] is True
+        # a read: the bookkeeper may ask; a member without the tab may not
+        assert (await ask("other", q)).status_code == 403
+        r = await ask("keeper", {**q, "history": [{"role": "user", "content": "What is this line?"},
+                                                  {"role": "assistant", "content": "The hub's staff."}]})
+        assert r.status_code == 200, r.text
+        assert r.json()["answer"].startswith("Half of Ann's pay")
+        system, messages = seen[-1]
+        assert '"line":"Staff and contractors"' in system and '"who":"Ann"' in system      # the line, as the tab has it
+        assert [m["role"] for m in messages] == ["user", "assistant", "user"] and messages[-1]["content"] == q["question"]
+        # a transaction, and a pair
+        assert (await ask("keeper", {**q, "about": {"kind": "tx", "key": "ev"}})).status_code == 200
+        assert '"payee":"Venue"' in seen[-1][0]
+        assert (await ask("keeper", {**q, "about": {"kind": "pair", "pair": "Hub and Club"}})).status_code == 200
+        assert '"pair":"Hub and Club"' in seen[-1][0]
+        for bad in ({"kind": "tx", "key": "nope"}, {"kind": "line", "view": HUB, "line": "Nonsense"},
+                    {"kind": "line", "view": HUB, "line": "Staff and contractors", "month": 9},
+                    {"kind": "line", "view": HUB, "line": "Staff and contractors", "month": "March"},
+                    {"kind": "line", "view": "Nowhere", "line": "Staff and contractors"},
+                    {"kind": "pair", "pair": "Nobody"}, {"kind": "weather"}):
+            assert (await ask("keeper", {**q, "about": bad})).status_code == 400, bad
+        monkeypatch.setattr(cleanup_ask, "_claude_call", broken)
+        assert (await ask("keeper", q)).status_code == 502                   # a clean error, not a 500

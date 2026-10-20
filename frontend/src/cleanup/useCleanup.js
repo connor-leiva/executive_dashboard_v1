@@ -11,7 +11,7 @@
    No sample data, deliberately: the tab exists only where the server says a file is loaded, so
    there is no offline version of it to fake. */
 import { useEndpoint } from "../books/useBooks.js";
-import { getBlob, putJSON, uploadFile } from "../api.js";
+import { getBlob, postJSON, putJSON, uploadFile } from "../api.js";
 
 const qs = (o) => new URLSearchParams(
   Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== "")).toString();
@@ -51,6 +51,18 @@ export function useCleanupBalance(company, rev) {
 
 export function useCleanupInterco(rev) {
   return useEndpoint("/cleanup/intercompany", null, [rev]);
+}
+
+/* Two companies, item by item: every transaction, share and change behind the cleanup's change to what one owes
+   the other. Fetched on expand: the busiest pair is a few hundred rows. */
+export function useCleanupPair(pair, rev) {
+  return useEndpoint(pair ? `/cleanup/intercompany/pair?${qs({ pair })}` : null, null, [pair, rev]);
+}
+
+/* Ask about this. `about` is {kind: "tx", key} | {kind: "line", view, line, month} | {kind: "pair", pair}.
+   Resolves to {answer, model}. */
+export function askCleanup(about, question, history) {
+  return postJSON("/cleanup/ask", { about, question, history });
 }
 
 export function useCleanupDecisions(rev) {

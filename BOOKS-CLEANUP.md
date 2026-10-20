@@ -38,6 +38,7 @@ recommendation text). A different workspace's cleanup would be a different file.
 | --- | --- |
 | The engine (corrected P&L, entries, balance sheets, intercompany, checks) | `backend/app/services/books_cleanup.py` |
 | API, mounted at `/api/v1/cleanup` | `backend/app/routers/books_cleanup.py` |
+| Ask about this (the one network call: `_claude_call`) | `backend/app/services/cleanup_ask.py` |
 | Tables | `cleanup_dataset`, `cleanup_state` — `backend/app/models.py`, migration `0093_books_cleanup` |
 | Audit category "Books" | `services/audit.py`; 0093 also rebuilds Postgres' `ck_audit_log_category` to allow it (without that, every save is a 500 in production and green everywhere else — `test_audit_categories.py` now checks the pairing) |
 | The tab exists only while a file is loaded | `backend/app/services/tabs.py` (`_has_cleanup`) |
@@ -52,9 +53,9 @@ recommendation text). A different workspace's cleanup would be a different file.
 | Statement | The corrected P&L by company (and The Edge, a brand inside the hub, on a cash basis), year or month: QuickBooks, the cleanup's change, corrected. Every line opens to *how the number is made*, in one sentence, and every dollar in it, month by month (below). Losses read "−$89,844 loss", never "($89,844)". |
 | Transactions | Every transaction in the year, month by month, searchable, by company ("anything to do with beCollective": what it paid, and what the corrected books put on it), with *Needs you* (a decision, or a possible second copy) and *Changed by the cleanup* filters. |
 | Decisions | The workbook's yellow cells: partner rates and the owner's salary, investment or loan, the revenue basis, the ad split, staff person by person and month by month, software and other shared costs item by item, the owner's charges one by one. |
-| Corrections | The journal entries to post: one per company per month, plus January 1, in debits and credits to the cent. The QuickBooks entry number is written against each once posted; the download is a QuickBooks journal-entry import file. |
+| Corrections | The journal entries to post: one per company per month, plus January 1, in debits and credits to the cent, each line saying what it's for (below). The QuickBooks entry number is written against each once posted; the download is a QuickBooks journal-entry import file whose Description column carries the same words. |
 | Balance sheet | Each company on the last day, as booked and corrected, with the accounts to create or retype. |
-| Intercompany | What the companies owe each other, each brand's year, and each partner's earned-against-paid. |
+| Intercompany | What the companies owe each other, each brand's year, and each partner's earned-against-paid. Each pair opens to why the cleanup changes it, by reason, and every item behind that (below). |
 | To do / Findings | The checklist and open items (answered here), and the audit's findings and answered questions. |
 
 ## A transaction, the way the owners read it
@@ -126,6 +127,41 @@ balance to start from; and the Oct 19 meeting's assumptions as starting values. 
 The assumptions and the plan are saved like decisions (`inputs.forward`, `inputs.budget`; owners and
 admins). They change projections only, never the books or the entries.
 
+## What each posting is made of (Intercompany itemized, the entries in words)
+
+Every posting the engine makes records what it is made of (`Books.src`): the review's reason for it, whose pay or
+which subscription a shared cost's share is, the ads, the fees, the timing row, the partner, the owner's charge,
+and, for a change made on the tab, the transaction it came from (`_effective` remembers the key behind each of
+its postings). The arithmetic is untouched: the same additions in the same order, so every figure is identical
+(checked on the real file: the engine before and after, as delivered, with every decision changed, and with seven
+single-transaction changes of every kind, about 1.5 million characters of figures each, identical).
+
+* **Intercompany, item by item.** Each pair carries its change by reason (`parts`), and opens
+  (`GET /cleanup/intercompany/pair`, gzipped) to everything behind it, month by month in the tab's own transaction
+  list, each amount in the pair's reading: each transaction the review put through the pair (its card can move it
+  from there), each old journal entry the review undid (number, memo and why), each shared cost's share grouped
+  by month (made of whose pay, which subscriptions), each change made on the tab in its own words. It adds up to
+  the pair's change, and says so.
+  The review's postings are per transaction only in a file that lists them: `interco.items` (one row per
+  transaction, month and reason, on the pairs' accounts) and `interco.entries` (the old journal entries' words),
+  written by the export from the review's own builder (`corrections.build` records `key_rows`; the export rebuilds
+  the review and stops if it isn't the one `analysis.json` holds). An older file shows the review's moves by reason.
+* **The entries in words.** Each line of each month's entry says what it's for (`corrections()[...]["said"]`),
+  largest part first: "Shared costs split (your splits): Justin Nelson's pay; Recategorized within the company:
+  Justin's fee: a cost, not money he owes (Oct 14)"; "Your changes to single transactions: Minky Couture, Mar 24,
+  $5,598.47: moved to The Forum". Corrections shows it; the import file's Description carries it.
+
+## Ask about this
+
+A transaction's card, a Statement line's drawer and an Intercompany pair each offer **Ask about this**: a question
+answered by Claude from the tab's own figures for that one thing (`POST /cleanup/ask`, `services/cleanup_ask.py`):
+the transaction with its words and where the corrected books put it, the line with how it's made and its largest
+rows, the pair with its reasons and its largest items, and the books' context. Never the database, never another
+workspace. It answers in plain words, quotes the figures as given, says when the data doesn't say, and can't change
+anything: when the question is really "change this", it names the tab's own action. A read: anyone with the tab
+may ask. The key is the server's (`ANTHROPIC_API_KEY`, the model `ASSISTANT_MODEL`); without one the overview's
+`can_ask` is false and the button isn't there. A short conversation per box; closing it forgets it.
+
 ## Who may do what
 
 * **Reading** needs the `cleanup` tab — owners and admins have it; a member needs the grant.
@@ -181,6 +217,3 @@ own value. Earlier files are kept, not replaced.
 * Posting to QuickBooks. By decision, the app never writes to QuickBooks: the entries go in by
   hand or by QuickBooks' own journal-entry import, and their numbers are recorded here.
 * A history view of earlier uploads (they are kept in `cleanup_dataset`; nothing shows them yet).
-* The rest of the Oct 19 mockup:
-  **the finishing** (Intercompany itemized, entry descriptions that name
-  each change, Ask about this).

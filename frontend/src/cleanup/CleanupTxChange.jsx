@@ -273,7 +273,7 @@ export function ChangeArea({ r }) {
   const [state, setState] = useState(null);
   const can = !!ctx.canDecide;
   if (r.kind === "adj") {
-    return ["staff", "item", "ads", "fees"].includes(r.src) && ctx.goto ? (
+    return ["staff", "item", "ads", "fees", "billback"].includes(r.src) && ctx.goto ? (
       <div className="cx-acts">
         <button className="cx-act" onClick={() => ctx.goto("decisions")}>Change this split on Decisions →</button>
       </div>) : null;

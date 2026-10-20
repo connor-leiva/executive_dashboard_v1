@@ -66,6 +66,12 @@ function Entry({ c, k, onSaved, ov }) {
               {rows.map((r) => {
                 const v = r.amounts[k];
                 const parts = Object.entries(r.parts_by_month || {}).filter(([, a]) => Math.abs(a[k]) >= 0.005);
+                // the server's words for this line: "Part: what it's made of; Part: ..." (whose pay, which
+                // subscriptions, the review's reasons, the transactions changed on the tab)
+                const named = Object.fromEntries(((r.said || [])[k] || "").split("; ").map((seg) => {
+                  const i = seg.indexOf(": ");
+                  return i > 0 ? [seg.slice(0, i), seg.slice(i + 2)] : [seg, ""];
+                }));
                 return (
                   <div key={r.account} style={{ ...grid, padding: "8px 18px", alignItems: "baseline",
                                                 borderBottom: `1px solid ${L.ruleLine}`,
@@ -79,7 +85,8 @@ function Entry({ c, k, onSaved, ov }) {
                     <span style={{ fontFamily: F.body, fontSize: 12, color: L.bodyDim, lineHeight: 1.5 }}>
                       {parts.map(([comp, a]) => (
                         <span key={comp} style={{ display: "block" }}>{c.labels[comp] || comp}
-                          {parts.length > 1 ? <span style={{ color: L.muted }}> {cents(a[k])}</span> : null}</span>
+                          {named[c.labels[comp] || comp] ? <span style={{ color: L.muted }}>: {named[c.labels[comp] || comp]}</span> : null}
+                          {parts.length > 1 ? <span style={{ color: L.muted }}> · {cents(a[k])}</span> : null}</span>
                       ))}
                     </span>
                     <span style={{ ...NUM, fontSize: 13, color: L.deep }}>{v > 0 ? cents(v) : ""}</span>

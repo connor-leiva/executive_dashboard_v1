@@ -30,6 +30,7 @@ import datetime as dt
 import gzip
 import io
 import json
+import logging
 import math
 import uuid
 from typing import Any
@@ -44,6 +45,7 @@ from ..db import get_session
 from ..deps import assert_tab, current_user
 from ..models import CleanupDataset, CleanupState, User
 from ..services import books_cleanup as eng
+from ..services import cleanup_ask
 from ..services.audit import audit
 
 TAB = "cleanup"
@@ -54,6 +56,7 @@ DECISIONS = {"ads", "rates", "salary", "holdco", "bc_basis", "staff", "items", "
              "forward", "budget"}
 
 router = APIRouter(prefix="/cleanup", tags=["cleanup"])
+log = logging.getLogger(__name__)
 
 # The computed books, per (file, decisions version). Building them is a few tens of milliseconds;
 # reading a multi-megabyte file out of the database every request is most of that, so the cache
@@ -68,6 +71,12 @@ class Change(BaseModel):
 
 class ChangeSet(BaseModel):
     changes: list[Change] = Field(min_length=1, max_length=250)
+
+
+class AskBody(BaseModel):
+    about: dict                    # {"kind": "tx", "key"} | {"kind": "line", "view", "line", "month"} | {"kind": "pair", "pair"}
+    question: str = Field(min_length=1, max_length=1000)
+    history: list[dict] = Field(default_factory=list, max_length=12)
 
 
 async def _current(s: AsyncSession, tenant_id) -> tuple[CleanupDataset | None, CleanupState | None]:
@@ -149,6 +158,7 @@ async def overview(user: User = Depends(current_user), s: AsyncSession = Depends
         "checklist": {"done": sum(1 for v in checklist.values() if v.get("done")), "total": len(d.get("checklist", []))},
         "version": st.version if st else 0,
         "can_decide": _may_decide(user),
+        "can_ask": cleanup_ask.enabled(),
     }
 
 
@@ -255,9 +265,12 @@ async def corrections_csv(company: str, user: User = Depends(current_user), s: A
         if not lines:
             continue
         jno, date = _journal(bk, company, k)
+        said = {r["account"]: (r.get("said") or [""] * len(c["months"]))[k] for r in c["accounts"]}
         for acct, v in lines:
+            # each line says what it's for (the parts, whose pay, which transactions changed on the tab)
+            words = f"Books cleanup, {mon['label']}: {said[acct]}" if said.get(acct) else f"Books cleanup correction, {mon['label']}"
             w.writerow([jno, date.strftime("%m/%d/%Y"), acct, f"{v:.2f}" if v > 0 else "",
-                        f"{-v:.2f}" if v < 0 else "", f"Books cleanup correction, {mon['label']}"])
+                        f"{-v:.2f}" if v < 0 else "", words])
     name = f"cleanup-entries-{code.lower()}.csv"
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
@@ -277,6 +290,34 @@ async def intercompany(user: User = Depends(current_user), s: AsyncSession = Dep
     bk, _, _ = await _books(s, user)
     return {**bk.intercompany(), "summary": bk.summary(), "billback_name": bk.d["billback"]["name"],
             "recover_label": bk.d.get("recover_label") or "Recovered"}
+
+
+@router.get("/intercompany/pair")
+async def intercompany_pair(request: Request, pair: str, user: User = Depends(current_user),
+                            s: AsyncSession = Depends(get_session)):
+    """What two companies owe each other, item by item: every transaction, share and change behind the cleanup's
+    change to it (a few hundred rows for the busiest pair, so gzipped like the other large reads)."""
+    bk, _, _ = await _books(s, user)
+    try:
+        return _big(request, bk.interco_detail(pair))
+    except eng.InputError as e:
+        _bad(e)
+
+
+@router.post("/ask")
+async def ask(body: AskBody, user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """Ask about this: a question about one transaction, line or pair, answered from the tab's own figures for it.
+    Reading the tab is enough (it changes nothing); without the server's key the tab doesn't offer it."""
+    bk, _, _ = await _books(s, user)
+    if not cleanup_ask.enabled():
+        raise HTTPException(503, "Asking isn't set up on this server.")
+    try:
+        return await cleanup_ask.ask(bk, body.about, body.question, body.history)
+    except eng.InputError as e:
+        _bad(e)
+    except Exception:
+        log.exception("cleanup ask failed")
+        raise HTTPException(502, "The answer didn't come back. Try again in a moment.")
 
 
 @router.get("/decisions")
