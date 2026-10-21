@@ -88,7 +88,16 @@ export function uploadCleanupFile(file) {
 /* The entries as a QuickBooks journal-entry import. Fetched with the session's headers and handed
    over as a blob: a plain link is a navigation with no Authorization header (see BooksPayables). */
 export async function downloadEntries(company, filename) {
-  const blob = await getBlob(`/cleanup/corrections.csv?${qs({ company })}`);
+  saveBlob(await getBlob(`/cleanup/corrections.csv?${qs({ company })}`), filename);
+}
+
+/* Every change saved on the tab, as one JSON file (owners and admins; the server audits it): the file they
+   apply to plus these changes rebuild every figure, so an analysis outside the app starts from them. */
+export async function downloadSavedChanges(filename) {
+  saveBlob(await getBlob("/cleanup/saved.json"), filename);
+}
+
+function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

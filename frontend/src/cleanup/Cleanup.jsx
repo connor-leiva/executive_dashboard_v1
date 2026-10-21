@@ -10,7 +10,7 @@
 import { useRef, useState } from "react";
 import { ProductIcon, iconFor } from "../brand/productIcons.jsx";
 import { StatePanel, font, T } from "../books/ui.jsx";
-import { uploadCleanupFile, useCleanupOverview } from "./useCleanup.js";
+import { downloadSavedChanges, uploadCleanupFile, useCleanupOverview } from "./useCleanup.js";
 import { Button, CleanupCtx, L, F, OkPill, SaveLine, reasonOf } from "./kit.jsx";
 import CleanupStatement from "./CleanupStatement.jsx";
 import CleanupTransactions from "./CleanupTransactions.jsx";
@@ -70,6 +70,27 @@ function Upload({ onLoaded }) {
   );
 }
 
+/* Every change saved on the tab as one file, for an analysis outside the app (owners and admins). */
+function DownloadSaved({ version }) {
+  const [state, setState] = useState(null);
+  const go = async () => {
+    setState({ busy: true });
+    try {
+      const day = new Date().toISOString().slice(0, 10);
+      await downloadSavedChanges(`books-cleanup-saved-changes-v${version || 0}-${day}.json`);
+      setState({ saved: "Downloaded." });
+    } catch (err) { setState({ error: reasonOf(err) }); }
+  };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <Button onClick={go} disabled={state?.busy}
+              title="Every decision and change saved here, as a JSON file. With the loaded file it rebuilds every figure.">
+        {state?.busy ? "Preparing…" : "Download saved changes"}</Button>
+      <SaveLine state={state?.busy ? null : state} />
+    </span>
+  );
+}
+
 export default function Cleanup({ role }) {
   const [page, setPage] = useState("statement");
   const [rev, setRev] = useState(0);
@@ -96,6 +117,7 @@ export default function Cleanup({ role }) {
           <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
             {d.checklist.done} of {d.checklist.total} steps done · {d.open_items} open {d.open_items === 1 ? "item" : "items"}</span>
           <div style={{ flex: 1 }} />
+          {isOwner && d.can_decide && <DownloadSaved version={d.version} />}
           {isOwner && d.can_decide && <Upload onLoaded={onSaved} />}
         </div>
       )}

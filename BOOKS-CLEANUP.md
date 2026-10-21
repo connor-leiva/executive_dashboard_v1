@@ -170,6 +170,10 @@ may ask. The key is the server's (`ANTHROPIC_API_KEY`, the model `ASSISTANT_MODE
   move money between companies: **owners and admins only**, enforced by the server.
 * **The work** (an answer, a tick, a posted entry number) needs only the tab.
 * **Loading a file**: owners and admins.
+* **Download saved changes** (`GET /cleanup/saved.json`, owners and admins): every saved change as one file
+  (`axcion.books_cleanup_saved/1`: the loaded file's id and label, the version, the sparse `inputs`). With
+  the loaded file, `Books(data, merged_inputs(data, inputs))` rebuilds every figure on the tab, so an
+  analysis outside the app starts from what the owners actually saved. Audited as `cleanup.export`.
 * Every change is audited (`cleanup.change`, category Books) with its path, old value and new one.
 
 ## Correctness

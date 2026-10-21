@@ -1036,3 +1036,32 @@ async def test_ask_about_this(ctx, monkeypatch):
             assert (await ask("keeper", {**q, "about": bad})).status_code == 400, bad
         monkeypatch.setattr(cleanup_ask, "_claude_call", broken)
         assert (await ask("keeper", q)).status_code == 502                   # a clean error, not a 500
+
+
+async def test_the_saved_changes_download_rebuilds_the_tab(ctx):
+    await _loaded(ctx)
+    url = "/api/v1/cleanup/saved.json"
+    async with _client() as c:
+        r = await c.put("/api/v1/cleanup/inputs", headers=_H(ctx["owner"]), json={"changes": [
+            {"path": ["staff", "Ann", "2", "Club"], "value": 0.7}, {"path": ["staff", "Ann", "2", "Cohort"], "value": 0.3}]})
+        assert r.status_code == 200, r.text
+        # the decisions move money between companies: an owner's or admin's, like changing them
+        assert (await c.get(url, headers=_H(ctx["other"]))).status_code == 403
+        assert (await c.get(url, headers=_H(ctx["keeper"]))).status_code == 403
+        r = await c.get(url, headers=_H(ctx["owner"]))
+        assert r.status_code == 200, r.text
+        assert r.headers["content-disposition"].startswith('attachment; filename="books-cleanup-saved-changes-v')
+        body = r.json()
+        assert body["schema"] == "axcion.books_cleanup_saved/1" and body["version"] >= 1
+        assert body["inputs"]["staff"]["Ann"]["2"]["Club"] == 0.7
+        ov = (await c.get("/api/v1/cleanup", headers=_H(ctx["owner"]))).json()
+        assert body["file"]["label"] == ov["label"] and body["version"] == ov["version"]
+    # the file it names, plus these changes, gives the tab's own figures
+    async with SessionLocal() as s:
+        payload = (await s.execute(select(CleanupDataset.payload).where(
+            CleanupDataset.id == __import__("uuid").UUID(body["file"]["id"])))).scalar_one()
+        rows = (await s.execute(select(AuditLog).where(AuditLog.tenant_id == ctx["tenant"],
+                                                       AuditLog.action == "cleanup.export"))).scalars().all()
+    bk = eng.Books(payload, eng.merged_inputs(payload, body["inputs"]))
+    assert {c: bk.net_income(c) for c in bk.companies} == ov["headline"]["net_income"]
+    assert rows and rows[-1].summary.startswith("Books Cleanup: downloaded the saved changes")

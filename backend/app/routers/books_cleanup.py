@@ -320,6 +320,39 @@ async def ask(body: AskBody, user: User = Depends(current_user), s: AsyncSession
         raise HTTPException(502, "The answer didn't come back. Try again in a moment.")
 
 
+SAVED_SCHEMA = "axcion.books_cleanup_saved/1"
+
+
+@router.get("/saved.json")
+async def saved_changes(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """Every change saved on the tab, as one file: the decisions, the changes to single transactions, the forecast
+    and plan, the answers, ticks and posted entry numbers -- exactly what cleanup_state holds, with the file they
+    apply to. That file plus these changes rebuild every figure the tab shows
+    (`Books(file, merged_inputs(file, inputs))`), so an analysis outside the app can start from the owners' own
+    decisions. The decisions move money between companies, so the download is an owner's or admin's, and audited."""
+    await assert_tab(user, s, TAB)
+    if not _may_decide(user):
+        raise HTTPException(403, "Only an owner or admin downloads the saved changes.")
+    ds, st = await _current(s, user.tenant_id)
+    if ds is None:
+        raise HTTPException(404, "No Books Cleanup file has been loaded for this workspace.")
+    now = dt.datetime.now(dt.timezone.utc)
+    version = st.version if st else 0
+    payload = {"schema": SAVED_SCHEMA, "exported_at": now.isoformat(timespec="seconds"),
+               "file": {"id": str(ds.id), "label": ds.label,
+                        "uploaded_at": ds.uploaded_at.isoformat() if ds.uploaded_at else None},
+               "version": version,
+               "updated_at": st.updated_at.isoformat() if st and st.updated_at else None,
+               "inputs": (st.inputs if st else None) or {}}
+    audit(s, user.tenant_id, user.id, "cleanup.export", "cleanup", "saved.json",
+          {"version": version, "file": str(ds.id)}, category="Books",
+          summary=f"Books Cleanup: downloaded the saved changes (version {version})", actor_label=user.name or user.email)
+    await s.commit()
+    name = f"books-cleanup-saved-changes-v{version}-{now:%Y-%m-%d}.json"
+    return Response(json.dumps(payload, indent=1, default=str), media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 @router.get("/decisions")
 async def decisions(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     """Every decision with the money it moves, so a split is never set without seeing what it splits."""
