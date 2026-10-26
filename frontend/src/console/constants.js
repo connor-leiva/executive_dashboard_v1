@@ -1,4 +1,6 @@
-export const TOKEN_KEY = "cc_token";
+// Re-exported from the one place that owns it. A second literal here is how the console
+// came to have its own session rule in the first place.
+export { TOKEN_KEY } from "../session.js";
 export const TENANT_HOST_KEY = "cc_console_tenant_host";
 
 export const NAV_SECTIONS = [

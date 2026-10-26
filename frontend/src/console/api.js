@@ -1,4 +1,8 @@
-import { DEFAULT_TENANT_HOST, TENANT_HOST_KEY, TOKEN_KEY } from "./constants.js";
+import { DEFAULT_TENANT_HOST, TENANT_HOST_KEY } from "./constants.js";
+// The SAME session the dashboard and the portal use -- one key, one host, one rule.
+// The console used to keep its own copy, which read and cleared only localStorage;
+// see session.js for the three ways that diverged.
+import { clearToken, readToken, writeToken } from "../session.js";
 
 const FALLBACK_API_BASE = "http://localhost:8000/api/v1";
 
@@ -42,12 +46,12 @@ export function setTenantHost(host) {
 }
 
 export function hasToken() {
-  return Boolean(typeof window !== "undefined" && localStorage.getItem(TOKEN_KEY));
+  return Boolean(typeof window !== "undefined" && readToken());
 }
 
 export function logout() {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(TOKEN_KEY);
+  clearToken();
 }
 
 export function tenantHeaders(extra) {
@@ -58,7 +62,7 @@ export function tenantHeaders(extra) {
 
 export function authHeaders(extra) {
   const headers = tenantHeaders(extra);
-  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+  const token = typeof window !== "undefined" ? readToken() : null;
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
@@ -154,15 +158,32 @@ function consoleUpload(path, fields) {
   });
 }
 
-export async function login(email, password, tenantHost) {
+export async function login(email, password, tenantHost, remember = false) {
   setTenantHost(tenantHost);
   const data = await request(apiV1Base(), "/auth/login", {
     method: "POST",
     headers: tenantHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, remember }),
   });
-  localStorage.setItem(TOKEN_KEY, data.token);
+  // `remember` decides the SERVER's expiry and WHERE this is kept, together. Sending one without
+  // the other is how the console ended up storing a short-lived token past the tab closing.
+  writeToken(data.token, remember);
   return data;
+}
+
+/* The signed-out calls: no session, but still this workspace. The tenant host comes from the
+   console's own stored value rather than window.location, because the console can be pointed at
+   another workspace (and is, in local development). */
+export async function postPublic(path, body) {
+  return request(apiV1Base(), path, {
+    method: "POST",
+    headers: tenantHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body || {}),
+  });
+}
+
+export async function getPublic(path) {
+  return request(apiV1Base(), path, { headers: tenantHeaders() });
 }
 
 export const getConfig = () => consoleGet("/config");

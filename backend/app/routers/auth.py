@@ -274,9 +274,18 @@ async def google_config(s: AsyncSession = Depends(get_session)):
     return {"enabled": bool(cfg and cfg["enabled"])}
 
 
+# Where a Google round trip may come back to, BY KEY. Never a URL and never a path from the
+# request: an auth callback that redirects wherever it is told is an open redirect, and this one
+# carries a session in the fragment. A key the server resolves itself cannot be pointed anywhere.
+GOOGLE_RETURN = {"app": "", "console": "/console"}
+
+
 @router.get("/auth/google/start")
-async def google_start(request: Request, s: AsyncSession = Depends(get_session)):
+async def google_start(request: Request, app: str = Query("app"),
+                       s: AsyncSession = Depends(get_session)):
     tid = current_tenant_id()
+    if app not in GOOGLE_RETURN:
+        raise HTTPException(422, "Unknown sign-in surface.")
     cfg = await google_auth.workspace_config(s, tid)
     if not cfg or not cfg["enabled"]:
         raise HTTPException(404, "This workspace does not use Google sign-in.")
@@ -284,7 +293,7 @@ async def google_start(request: Request, s: AsyncSession = Depends(get_session))
     # make_capability exists. This string is handed to Google, sits in their logs and comes back
     # as a URL query parameter, so it must not be usable as a credential here. read_token
     # rejects it because it carries a purpose claim.
-    state = make_capability("google_signin", minutes=15, tid=str(tid))
+    state = make_capability("google_signin", minutes=15, tid=str(tid), app=app)
     audit(s, tid, None, "auth.google_start", "tenant", tid)
     await s.commit()
     return {"url": google_auth.authorize_url(
@@ -301,23 +310,30 @@ async def google_callback(code: str = Query(None), state: str = Query(None),
     string rather than a message: this URL is shared infrastructure and the specifics -- which
     address was refused, whether an account exists -- are exactly what must not be echoed back.
     """
-    async def fail(reason: str, tenant_id=None) -> RedirectResponse:
+    # `back` is "" until the state has been read, because until then we do not know which surface
+    # the person started from -- and guessing would send somebody to a screen that cannot show the
+    # error. The dashboard can show every one of them, so it is the honest default.
+    async def fail(reason: str, tenant_id=None, back: str = "") -> RedirectResponse:
         base = await tenant_app_url(s, tenant_id) if tenant_id else settings.APP_PUBLIC_URL
-        return RedirectResponse(f"{base}/?google_error={reason}")
+        return RedirectResponse(f"{base}{back}/?google_error={reason}")
 
     if error or not code or not state:
         return await fail("cancelled")
     try:
-        tid = uuid.UUID(read_capability(state, "google_signin")["tid"])
+        claims = read_capability(state, "google_signin")
+        tid = uuid.UUID(claims["tid"])
     except Exception:                                            # noqa: BLE001
         return await fail("expired")
+    # A state minted before this existed carries no `app`, and an unknown one is not trusted: both
+    # land on the dashboard, which every account can open.
+    back = GOOGLE_RETURN.get(claims.get("app") or "app", "")
 
     tenant = (await s.execute(select(Tenant).where(Tenant.id == tid))).scalar_one_or_none()
     if tenant is None or tenant.status == "suspended":
-        return await fail("unavailable", tid)
+        return await fail("unavailable", tid, back)
     cfg = await google_auth.workspace_config(s, tid)
     if not cfg or not cfg["enabled"]:
-        return await fail("unavailable", tid)
+        return await fail("unavailable", tid, back)
 
     try:
         tokens = await google_auth.exchange_code(
@@ -326,14 +342,14 @@ async def google_callback(code: str = Query(None), state: str = Query(None),
     except google_auth.GoogleAuthError as exc:
         audit(s, tid, None, "auth.google_failed", "tenant", tid, {"reason": str(exc)[:300]})
         await s.commit()
-        return await fail("google", tid)
+        return await fail("google", tid, back)
 
     email = (claims.get("email") or "").lower()
     if not google_auth.domain_allowed(claims, cfg["allowed_domains"]):
         audit(s, tid, None, "auth.google_denied", "tenant", tid,
               {"reason": "domain", "email": email[:160]})
         await s.commit()
-        return await fail("domain", tid)
+        return await fail("domain", tid, back)
 
     user = (await s.execute(select(User).where(
         User.tenant_id == tid, User.email == email))).scalar_one_or_none()
@@ -347,7 +363,7 @@ async def google_callback(code: str = Query(None), state: str = Query(None),
         audit(s, tid, None, "auth.google_denied", "tenant", tid,
               {"reason": reason, "email": email[:160]})
         await s.commit()
-        return await fail("no_account", tid)
+        return await fail("no_account", tid, back)
 
     if user.status == "invited":
         # Proving control of the invited address IS accepting the invite. Requiring the emailed
@@ -369,7 +385,7 @@ async def google_callback(code: str = Query(None), state: str = Query(None),
     # The session travels in the fragment, not the query string: a fragment is never sent to a
     # server and never lands in an access log or a Referer header. The app reads it on load and
     # replaces the URL.
-    return RedirectResponse(f"{await tenant_app_url(s, tid)}/#google_token={token}")
+    return RedirectResponse(f"{await tenant_app_url(s, tid)}{back}/#google_token={token}")
 
 
 @router.post("/auth/link-info", response_model=ActionLinkInfo)

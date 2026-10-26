@@ -27,7 +27,10 @@ function MailGlyph() {
   );
 }
 
-export function ForgotPassword() {
+/* `post` is the caller's own public fetcher. The dashboard's reads the workspace from the
+   address bar; the console's reads it from the workspace the console is pointed at, which in
+   local development is not the same thing. */
+export function ForgotPassword({ post = postPublic } = {}) {
   const chrome = useChrome();
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
@@ -39,7 +42,7 @@ export function ForgotPassword() {
     if (e) e.preventDefault();
     setBusy(true);
     try {
-      await postPublic("/auth/forgot-password", { email: email.trim() });
+      await post("/auth/forgot-password", { email: email.trim() });
     } catch {
       // Deliberately swallowed. The endpoint answers 200 for every address, so the only errors
       // reaching here are transport ones — and showing a failure would make an unreachable API

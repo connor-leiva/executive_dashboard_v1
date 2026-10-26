@@ -1,5 +1,6 @@
+import { clearToken, readToken, refreshToken, writeToken } from "./session.js";
+
 const API = import.meta.env.VITE_API_BASE; // e.g. https://api.springb.com/api/v1
-const TOKEN_KEY = "cc_token";
 
 /* WHERE THE SESSION LIVES, and why it is not always the same place.
  *
@@ -16,12 +17,10 @@ const TOKEN_KEY = "cc_token";
  * directly, which would have worked for exactly as long as there was only one place to look.
  */
 export function getToken() {
+  // A view-as token layers ON TOP of the stored session and never replaces it, so this is the one
+  // place the two are reconciled; the storage rule itself lives in session.js.
   if (viewAsToken) return viewAsToken;
-  try {
-    return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;                     // private window, or storage blocked entirely
-  }
+  return readToken();
 }
 
 /* AN AXCION SUPPORT VIEW OF THE PORTAL, as one of the workspace's people.
@@ -79,35 +78,6 @@ function refuseWhileViewing() {
   err.status = 403;
   err.detail = VIEW_AS_READ_ONLY;
   throw err;
-}
-
-function storeToken(token, remember) {
-  try { localStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
-  try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
-  try {
-    (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
-  } catch {
-    // Storage refused. The in-memory session still works until the page reloads, which is a
-    // better outcome than throwing out of a successful sign-in.
-  }
-}
-
-/* A token that REPLACES the current one, kept where the current one was kept.
- *
- * Changing a password bumps the account's token_version, which is exactly what makes every other
- * session stop working -- including the tab it was changed from. The server hands back a fresh
- * token for that reason, and dropping it signs the person out of the page they just succeeded on.
- * `remember` is read from where the old token lives, so "remember me" survives a password change
- * instead of quietly becoming a session-only sign-in. */
-export function replaceToken(token) {
-  if (!token) return;
-  let remember = false;
-  try {
-    remember = Boolean(localStorage.getItem(TOKEN_KEY));
-  } catch {
-    remember = false;               // storage blocked: keep it in memory for this page's life
-  }
-  storeToken(token, remember);
 }
 
 /* ── step-up (second factor) grants ──────────────────────────────────────────────
@@ -268,7 +238,7 @@ export async function login(email, password, remember = false) {
     throw err;
   }
   const { token } = await res.json();
-  storeToken(token, remember);
+  writeToken(token, remember);
   return token;
 }
 
@@ -326,8 +296,12 @@ export async function getPublic(path) {
 }
 
 export function setToken(token, remember = true) {
-  storeToken(token, remember);
+  writeToken(token, remember);
 }
+
+/* The fresh token a password change hands back, kept where the old one was kept.
+   See session.js refreshToken for why dropping it signs the person out. */
+export const replaceToken = refreshToken;
 
 export function logout() {
   if (viewedInThisTab) {
@@ -336,11 +310,7 @@ export function logout() {
     endViewAs();
     return;
   }
-  try { localStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
-  try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* nothing to clear */ }
-  // Never leave a section unlocked for whoever logs in next on this machine.
-  Object.keys(sessionStorage).filter((k) => k.startsWith("cc_stepup_"))
-    .forEach((k) => sessionStorage.removeItem(k));
+  clearToken();
 }
 
 export function hasToken() {

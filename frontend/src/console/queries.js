@@ -580,7 +580,8 @@ export function useSopVersions(sopId, enabled) {
 
 export function useLogin() {
   return useMutation({
-    mutationFn: ({ email, password, tenantHost }) => login(email, password, tenantHost),
+    mutationFn: ({ email, password, tenantHost, remember }) =>
+      login(email, password, tenantHost, remember),
   });
 }
 

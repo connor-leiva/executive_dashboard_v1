@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
-import { getTenantHost, hasToken, logout, setTenantHost } from "./api.js";
+import { getPublic, getTenantHost, hasToken, logout, postPublic, setTenantHost } from "./api.js";
+import { AuthShell, ErrorNote, Field as AuthField, Handoff, PasswordField, PrimaryButton,
+         RememberMe, useChrome } from "../auth/AuthShell.jsx";
+import { ForgotPassword } from "../auth/ForgotPassword.jsx";
+import { GoogleSignIn, googleErrorFromUrl } from "../auth/GoogleSignIn.jsx";
+// The derived action colour, so a workspace that chose its own five gets its own link colour
+// for free. AuthShell's rule: colour comes from the palette, never from a component.
+import { T } from "../theme.js";
 import { palette } from "./brand.js";
 import {
   COPY,
@@ -56,47 +63,108 @@ function filterSections(search) {
     .filter((section) => section.items.length);
 }
 
+/* SIGNING IN TO THE CONSOLE IS SIGNING IN, not a different thing that happens to need a password.
+ *
+ * This was its own small card: email, password, submit. No "remember me", no way back from a
+ * forgotten password, no Google -- so a workspace admin who forgot their password had no route
+ * at all from the only screen they could see, and the console's session quietly followed
+ * different rules from the dashboard's on the same host (see session.js).
+ *
+ * It is the SHARED shell now, which is the point of that module: the sign-in, the forgotten
+ * password, the invite and the reset are one moment in a person's day, and built separately they
+ * drift. The console was the fifth implementation.
+ *
+ * THE WORKSPACE FIELD IS ONLY SHOWN WHEN IT CANNOT BE DERIVED. In production the console is
+ * served from the workspace's own host, so asking which workspace is asking a question the
+ * address bar already answered -- and the main sign-in page does not ask it. It stays for local
+ * development, where the host is localhost and something has to say which workspace is meant.
+ */
+function workspaceIsAmbiguous() {
+  if (typeof window === "undefined") return true;
+  const host = window.location.hostname || "";
+  return !host || host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost");
+}
+
 function LoginScreen({ onLogin }) {
   const loginMutation = useLogin();
+  const chrome = useChrome();
   const [tenantHost, setHost] = useState(getTenantHost());
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+  const [error, setError] = useState(googleErrorFromUrl);
+  // Separate from `error`: the two fields must only go red when THEY are what was wrong. A failed
+  // Google round trip outlining an empty email and password points at the wrong thing entirely.
+  const [rejected, setRejected] = useState(false);
+  const [phase, setPhase] = useState("idle");          // idle | busy | done
+  // A workspace can hide the control. Hidden means remembered -- see RememberMe.
+  const offerRemember = !chrome || chrome.remember_me !== false;
+  const [remember, setRemember] = useState(false);
+  const askWorkspace = workspaceIsAmbiguous();
 
   async function submit(event) {
     event.preventDefault();
-    setMessage("");
+    setPhase("busy");
+    setError(null);
+    setRejected(false);
     try {
-      await loginMutation.mutateAsync({ email, password, tenantHost });
+      await loginMutation.mutateAsync({
+        email, password, tenantHost, remember: offerRemember ? remember : true,
+      });
+      setPhase("done");
       onLogin();
     } catch (err) {
-      setMessage(err.detail || err.message);
+      // The API answers 401 for a wrong password, an unknown address, an account not yet accepted
+      // and a disabled one -- all the same, on purpose. This sentence covers all four without
+      // hinting which, and still says what to try next.
+      const locked = err && err.status === 423;
+      const suspended = err && err.status === 403;
+      setError(suspended
+        ? (err.detail || "This workspace is suspended. Contact your administrator.")
+        : locked
+          ? "Too many attempts. Wait a few minutes and try again."
+          : "That email and password don't match. Check both, or reset your password.");
+      setRejected(!suspended && !locked);
+      setPhase("idle");
     }
   }
 
   return (
-    <main className="console-gate" style={cssVars()}>
-      <section className="console-login">
-        <div className="console-wordmark">
-          <strong>{COPY.productName}</strong>
-          <span>{COPY.consoleName}</span>
+    <AuthShell
+      chrome={chrome}
+      title={COPY.consoleName}
+      sub="Sign in with the account that administers this workspace."
+      overlay={phase === "done"
+        ? <Handoff title="Signed in" sub="Opening the console." />
+        : null}
+    >
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        {askWorkspace ? (
+          <AuthField id="console-host" label={COPY.tenantHostLabel} autoComplete="organization"
+                     hint="Only asked here because this address does not name a workspace."
+                     value={tenantHost} onChange={(e) => setHost(e.target.value)} />
+        ) : null}
+        <AuthField id="console-email" label={COPY.emailLabel} type="email" autoComplete="username"
+                   required autoFocus value={email} invalid={rejected}
+                   onChange={(e) => setEmail(e.target.value)} />
+        <PasswordField id="console-password" label={COPY.passwordLabel}
+                       autoComplete="current-password" required value={password} invalid={rejected}
+                       onChange={(e) => setPassword(e.target.value)} />
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 2 }}>
+          {offerRemember ? <RememberMe checked={remember} onChange={setRemember} /> : null}
+          <NavLink to="/forgot-password" style={{
+            marginLeft: "auto", fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 500,
+            color: T.poppy, textDecoration: "none",
+          }}>Forgot password?</NavLink>
         </div>
-        <h1>{COPY.loginTitle}</h1>
-        <form onSubmit={submit}>
-          <Field label={COPY.tenantHostLabel}>
-            <input value={tenantHost} onChange={(event) => setHost(event.target.value)} autoComplete="organization" />
-          </Field>
-          <Field label={COPY.emailLabel}>
-            <input value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
-          </Field>
-          <Field label={COPY.passwordLabel}>
-            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" />
-          </Field>
-          {message ? <p className="console-form-error">{message}</p> : null}
-          <Button type="submit" tone="primary" busy={loginMutation.isPending}>{COPY.loginButton}</Button>
-        </form>
-      </section>
-    </main>
+        <PrimaryButton type="submit" busy={phase !== "idle"} busyLabel="Signing in">
+          {COPY.loginButton}
+        </PrimaryButton>
+      </form>
+      {/* Outside the form on purpose: a separate way in, not another way to submit this one, and
+          a <button> inside a form is one stray `type` away from being its submit. */}
+      <GoogleSignIn onError={setError} get={getPublic} app="console" />
+    </AuthShell>
   );
 }
 
@@ -299,7 +367,18 @@ export default function Console() {
     }
   }
 
-  if (!signedIn) return <LoginScreen onLogin={() => setSignedIn(true)} />;
+  // SIGNED OUT IS A PLACE WITH MORE THAN ONE SCREEN. This branch used to return the login card
+  // whatever the address was, so a "Forgot password?" link had nowhere to go -- which is why
+  // there was not one. Routed here rather than in the main table below, because everything there
+  // assumes a session.
+  if (!signedIn) {
+    return (
+      <Routes>
+        <Route path="/forgot-password" element={<ForgotPassword post={postPublic} />} />
+        <Route path="*" element={<LoginScreen onLogin={() => setSignedIn(true)} />} />
+      </Routes>
+    );
+  }
   if (overviewQuery.error?.status === 403) return <NoAccess onSignOut={signOut} />;
   if (overviewQuery.error && overviewQuery.error.status !== 401) {
     return (

@@ -285,3 +285,80 @@ async def test_an_account_whose_invite_is_held_is_refused(monkeypatch):
         u = (await s.execute(select(User).where(
             User.tenant_id == tid, User.email == "held@utahlife.com"))).scalar_one()
     assert u.status == "invited" and u.invite_held is True
+
+
+# -- where a round trip comes back to -------------------------------------------------------
+#
+# The admin console got its own "Continue with Google", and the callback always returned to the
+# dashboard root -- so an admin who signed in from /console landed somewhere else. The surface
+# travels in the state capability, and the whole point of these is that it travels as a KEY.
+#
+# AN AUTH CALLBACK THAT REDIRECTS WHEREVER IT IS TOLD IS AN OPEN REDIRECT, and this one carries a
+# session in its fragment: a crafted `app` that reached the Location header would hand somebody's
+# token to another origin. The server owns the mapping, so there is nothing to craft.
+
+async def _callback_from(monkeypatch, *, email, tid, state):
+    async def fake_exchange(client_id, client_secret, code, redirect_uri):
+        return {"id_token": _id_token(email=email)}
+    monkeypatch.setattr(google_auth, "exchange_code", fake_exchange)
+    async with _client() as c:
+        return await c.get(f"/api/v1/auth/google/callback?code=x&state={state}",
+                           follow_redirects=False)
+
+
+@pytest.mark.parametrize("bad", [
+    "https://evil.example/steal",
+    "//evil.example",
+    "/console/../../etc",
+    "javascript:alert(1)",
+    "dashboard",
+])
+async def test_the_return_surface_cannot_be_an_address(bad):
+    """`app` is a key into a table the server owns, so nothing here is even a candidate."""
+    await _choose(domains=["utahlife.com"])
+    async with _client() as c:
+        r = await c.get("/api/v1/auth/google/start", params={"app": bad})
+    assert r.status_code == 422, f"{bad!r} was accepted as a return surface"
+
+
+async def test_signing_in_from_the_console_comes_back_to_the_console(monkeypatch):
+    tid = await _choose(domains=["utahlife.com"])
+    async with SessionLocal() as s:
+        s.add(User(tenant_id=tid, email="admin@utahlife.com", name="Admin", role="admin",
+                   status="active", tab_access=[], token_version=0))
+        await s.commit()
+
+    state = make_capability("google_signin", minutes=15, tid=str(tid), app="console")
+    r = await _callback_from(monkeypatch, email="admin@utahlife.com", tid=tid, state=state)
+
+    assert r.status_code in (302, 307)
+    where = r.headers["location"]
+    assert "/console/#google_token=" in where, where
+    # Still a fragment, and still a real session: the surface must not have changed either.
+    assert read_token(where.split("#google_token=")[1])["sub"]
+
+
+async def test_a_state_from_before_this_existed_still_lands_on_the_dashboard(monkeypatch):
+    """Minted without `app`, because it was issued by the previous deploy. It must not 500, and
+    it must not land nowhere -- the dashboard is the surface every account can open."""
+    tid = await _choose(domains=["utahlife.com"])
+    async with SessionLocal() as s:
+        s.add(User(tenant_id=tid, email="old@utahlife.com", name="Old", role="admin",
+                   status="active", tab_access=[], token_version=0))
+        await s.commit()
+
+    state = make_capability("google_signin", minutes=15, tid=str(tid))     # no app claim
+    r = await _callback_from(monkeypatch, email="old@utahlife.com", tid=tid, state=state)
+
+    where = r.headers["location"]
+    assert "/#google_token=" in where and "/console/" not in where, where
+
+
+async def test_a_failure_from_the_console_is_shown_on_the_console(monkeypatch):
+    """Sending somebody to a screen that cannot show the error is how a refusal reads as a crash."""
+    tid = await _choose(domains=["utahlife.com"])
+    state = make_capability("google_signin", minutes=15, tid=str(tid), app="console")
+    r = await _callback_from(monkeypatch, email="stranger@utahlife.com", tid=tid, state=state)
+
+    where = r.headers["location"]
+    assert "/console/?google_error=no_account" in where, where
