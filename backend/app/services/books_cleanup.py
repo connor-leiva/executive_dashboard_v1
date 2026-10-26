@@ -98,7 +98,8 @@ def merged_inputs(data: dict, saved: dict | None) -> dict:
         "notes": dict(base.get("notes") or {}),
         # each transaction the tab moved, split, made personal, took out, or put on another line or month
         "tx": {k: dict(v) for k, v in (base.get("tx") or {}).items() if v},
-        # the forward view's assumptions (Forecast) and the projected company's monthly plan (Budget)
+        # the forward view's assumptions (Forecast) and each projected company's monthly plan (Budget): flat for
+        # the company the file projects, under its name for one the app projects from its own records
         "forward": dict(base.get("forward") or {}),
         "budget": dict(base.get("budget") or {}),
     }
@@ -206,15 +207,28 @@ def validate_change(data: dict, path: list, value):
         return {"done": bool(value.get("done")), "note": text(value.get("note"), 2000)}
     if head == "tx" and len(path) == 2:
         return _tx_change(data, path[1], value, pct, text)
-    if head in ("forward", "budget") and len(path) == 2 and data.get("forward"):
-        return _forward_change(data, head, path[1], value, text)
+    if head in ("forward", "budget") and (f := _projected_for(data, path)) is not None:
+        return _forward_change(data, f, head, path[-1], value, text)
     raise InputError(f"Nothing to change at {'/'.join(path)}.")
 
 
-def _forward_change(data: dict, head: str, field: str, value, text):
-    """One of the forward view's assumptions (Forecast) or one line of the projected company's monthly plan
-    (Budget). They change projections, never the books."""
-    f = data["forward"]
+def _projected_for(data: dict, path: list) -> dict | None:
+    """The projected company a Forecast or Budget change is for: ["forward", field] is the file's own projected
+    company's (the shape it was first saved in), ["forward", company, field] any other's -- one the app projects
+    from its own records (`forward_live`, which the router lays over the file for the check)."""
+    own = data.get("forward")
+    if len(path) == 2:
+        return own or None
+    live = {b["company"]: b for b in data.get("forward_live") or []}
+    if len(path) == 3 and path[1] in live and path[1] != (own or {}).get("company"):
+        return live[path[1]]
+    return None
+
+
+def _forward_change(data: dict, f: dict, head: str, field: str, value, text):
+    """One of a projected company's assumptions (Forecast) or one line of its monthly plan (Budget). They change
+    projections, never the books. An assumption is one its block has (or a partner's pay, for a company with a
+    partner)."""
     months = {s["key"] for s in f["schedule"] if s["key"] <= f["horizon"]}
 
     def dollars(v, top=10_000_000):
@@ -241,7 +255,12 @@ def _forward_change(data: dict, head: str, field: str, value, text):
         if field not in data["lines"]["costs"] or field in (f.get("plan_from") or {}) or field.startswith(("Uncategorized", "Not yet")):
             raise InputError("That line isn't one the budget plans.")
         return dollars(value)
-    if field == "commission_pct":
+    has = set(f.get("assumptions") or {})
+    if any(p["company"] == f["company"] for p in data["partners"]):
+        has |= {"partner_pay", "partner_end"}
+    if field not in has:
+        raise InputError(f"Nothing to change at {head}/{field}.")
+    if field in ("commission_pct", "renew_pct"):
         return dollars(value, 100)
     if field == "partner_pay":
         return dollars(value)
@@ -253,6 +272,10 @@ def _forward_change(data: dict, head: str, field: str, value, text):
         return [when(r, "A retreat") for r in value]
     if field == "repay":
         return when(value, (f["assumptions"].get("repay") or {}).get("label") or "A repayment")
+    if field == "new_members":
+        return dollars(value, 1000)
+    if field == "new_value":
+        return dollars(value)
     raise InputError(f"Nothing to change at {head}/{field}.")
 
 
@@ -1396,6 +1419,27 @@ class Books:
         n = int(self.d["period"].get("accrual_months") or self.MONTHS[-1])
         return [m for m in self.MONTHS if n - 2 <= m <= n]
 
+    def projected(self, live: list | None = None) -> list[dict]:
+        """Every company projected ahead, as the block it's projected from: the file's own (`forward`) first, then each
+        one the app builds from its own records (`live`: services/cleanup_live.py) for a company the file doesn't
+        project."""
+        out = [self.d["forward"]] if self.d.get("forward") else []
+        for b in live or []:
+            if b.get("company") in self.companies and all(b["company"] != x["company"] for x in out):
+                out.append(b)
+        return out
+
+    def _own(self, co: str) -> bool:
+        return co == (self.d.get("forward") or {}).get("company")
+
+    def _saved(self, head: str, co: str) -> dict:
+        """What the tab saved for one projected company's assumptions (`forward`) or plan (`budget`). The file's own
+        projected company keeps the flat shape it was first saved in; any other is saved under its name."""
+        v = self.inp.get(head) or {}
+        if self._own(co):
+            return {k: x for k, x in v.items() if k not in self.companies}
+        return dict(v.get(co) or {})
+
     def budget(self, company: str) -> dict:
         """A company's cost lines: the year so far, a month at the last three months' pace, and each as a share
         of revenue -- what it was, beside what the plan says it needs to be."""
@@ -1416,12 +1460,12 @@ class Books:
                   - self.corr[(company, "Other income", m)] for m in self.MONTHS)
         return {"company": company, "revenue": _r(rev), "noi": _r(noi), "lines": lines}
 
-    def plan(self) -> dict:
-        """The projected company's monthly cost, line by line: what the file says to start from (the meeting's
-        no ads, say), else the last three months' pace; and whatever the tab saved over it. The lines the
-        forecast plans itself (the retreats, the commissions on installments) aren't in it."""
-        f = self.d.get("forward") or {}
-        co = f.get("company")
+    def plan(self, f: dict | None = None) -> dict:
+        """A projected company's monthly cost, line by line: what its block says to start from (the meeting's no
+        ads, say), else the last three months' pace; and whatever the tab saved over it. The lines the forecast
+        plans itself (the retreats, the commissions on installments) aren't in it."""
+        f = self.d.get("forward") if f is None else f
+        co = (f or {}).get("company")
         if not co:
             return {}
         rec = self._recent_months()
@@ -1434,47 +1478,85 @@ class Books:
                 out[x] = float(f["plan_defaults"][x])
             elif x not in (f.get("selling") or []) and abs(pace) >= 1:
                 out[x] = float(round(pace / len(rec)))
-        for x, v in (self.inp.get("budget") or {}).items():
+        for x, v in self._saved("budget", co).items():
             if x in self.COSTS and x not in (f.get("plan_from") or {}):
                 out[x] = float(v)
         return out
 
-    def forward(self) -> dict | None:
-        """The months after the books end, for the company the file projects (`forward`), through its horizon:
-        its contracts' revenue as members earn it, the plan's monthly costs, the forecast's retreats and
-        commissions, and its partner's share as the year's profit builds -- the same accrual as the corrected
-        books, each calendar year on its own. Then its cash, from the bank balance the file starts from. None
-        when the file projects nothing."""
-        f = self.d.get("forward")
+    def forwards(self, live: list | None = None) -> list[dict]:
+        """Every projected company's months ahead (Forecast, Cash flow, the Statement's future months)."""
+        return [self.forward(f) for f in self.projected(live)]
+
+    def forward(self, f: dict | None = None) -> dict | None:
+        """The months after the books end for one projected company (the file's own, `forward`, unless another
+        block is passed), through its horizon: its contracts' revenue as members earn it -- and, for a company whose
+        members renew, the renewals at the forecast's rate and any new members it assumes -- the plan's monthly
+        costs, the forecast's retreats and commissions, and its partner's share as the year's profit builds -- the
+        same accrual as the corrected books, each calendar year on its own. Then its cash, from the bank balance
+        the block starts from (or the corrected books' own, on their last day), and what's been paid ahead of being
+        earned. None when there's nothing to project."""
+        f = self.d.get("forward") if f is None else f
         if not f:
             return None
         co = f["company"]
         year = int(self.d["period"]["start"][:4])
-        asm = json.loads(json.dumps(f.get("assumptions") or {}))
-        asm.update(self.inp.get("forward") or {})
-        plan = self.plan()
-        running = sum(plan.values())
-        sched = {s["key"]: s["from_paid"] + s["from_future"] for s in f["schedule"]}
         horizon = [s["key"] for s in f["schedule"] if s["key"] <= f["horizon"]]
-        coll = f.get("collections") or {}
-        frac0 = float(f.get("first_fraction") or 1.0)
-        retreats = lambda k: sum(float(r.get("amount") or 0) for r in asm.get("retreats") or []
-                                 if r.get("on") and r.get("key") == k)
-        commission = lambda k: float(asm.get("commission_pct") or 0) / 100 * float(coll.get(k, 0))
-        pay_of = lambda k: float(asm.get("partner_pay") or 0) if k <= (asm.get("partner_end") or "") else 0.0
         partner = next((p for p in self.d["partners"] if p["company"] == co), None)
         rate = float(self.inp["rates"].get(co) or 0) if partner else 0.0
+        sal = float(self.inp.get("salary") or 0) if partner and partner.get("salary") else 0.0
         paid_m = defaultdict(float)
         for l in self.ledger:
             if l["cls"] == "partner" and l["company"] == co:
                 paid_m[l["month"]] += l["amount"]
+        asm = json.loads(json.dumps(f.get("assumptions") or {}))
+        if partner and "partner_pay" not in asm:          # a block from outside the file: the last three months' pace
+            rec = self._recent_months()
+            asm["partner_pay"] = float(round(sum(paid_m[m] for m in rec) / len(rec))) if rec else 0.0
+            asm["partner_end"] = horizon[-1] if horizon else ""
+        asm.update(self._saved("forward", co))
+        plan = self.plan(f)
+        running = sum(plan.values())
+        sched = {s["key"]: s["from_paid"] + s["from_future"] for s in f["schedule"]}
+        coll = f.get("collections") or {}
+        frac0 = 1.0 if f.get("first_fraction") is None else float(f["first_fraction"])
+        # renewals still to come, at 100% (counted at the forecast's rate), and the new members it assumes: each
+        # joins at the start of a month after the books', is earned over twelve months, and pays the way today's
+        # members do (the block's share paying in full, the rest monthly)
+        due = f.get("renewals") or {}
+        renew = float(asm.get("renew_pct") or 0) / 100
+        joins = defaultdict(lambda: [0.0, 0.0])
+        n_new, v_new = float(asm.get("new_members") or 0), float(asm.get("new_value") or 0)
+        pif = float((f.get("mix") or {}).get("pif") or 0)
+        if n_new and v_new:
+            for i in range(1, len(horizon)):
+                joins[horizon[i]][1] += n_new * v_new * pif
+                for t in range(i, min(i + 12, len(horizon))):
+                    joins[horizon[t]][0] += n_new * v_new / 12
+                    joins[horizon[t]][1] += n_new * v_new * (1 - pif) / 12
+        earned = lambda k: (sched.get(k, 0) + renew * float((due.get(k) or {}).get("earned") or 0)
+                            + (joins[k][0] if k in joins else 0.0))
+        collected = lambda k: (float(coll.get(k, 0)) + renew * float((due.get(k) or {}).get("collected") or 0)
+                               + (joins[k][1] if k in joins else 0.0))
+        retreats = lambda k: sum(float(r.get("amount") or 0) for r in asm.get("retreats") or []
+                                 if r.get("on") and r.get("key") == k)
+        commission = lambda k: float(asm.get("commission_pct") or 0) / 100 * collected(k)
+        pay_of = lambda k: float(asm.get("partner_pay") or 0) if k <= (asm.get("partner_end") or "") else 0.0
+        frac = self.d["period"]["salary_fraction"]
+
+        def salary_by(k):
+            """The owner's salary to date in k's calendar year, ahead of a partner whose agreement puts it first."""
+            if not sal:
+                return 0.0
+            m = int(k[5:7])
+            return sal * (float(frac[str(m)]) if int(k[:4]) == year and str(m) in frac else m / 12)
+
         rows, cum, base = [], defaultdict(float), defaultdict(float)
         tot = {"earned": 0.0, "paid": 0.0}
 
         def step(k, rev, cost, projected, pay):
             yr = k[:4]
             cum[yr] += rev - cost
-            nb = max(0.0, cum[yr])
+            nb = max(0.0, cum[yr] - salary_by(k))
             share = rate * (nb - base[yr])
             base[yr] = nb
             tot["earned"] += share
@@ -1489,31 +1571,58 @@ class Books:
             rev = sum(self.corr[(co, x, m)] for x in self.REVENUE)
             cost = sum(self.corr[(co, x, m)] for x in self.COSTS)
             if k == first:      # the month the books end in: actual so far, then the rest of it projected
-                step(k, rev + sched.get(k, 0), cost + running * frac0 + retreats(k) + commission(k), True,
+                step(k, rev + earned(k), cost + running * frac0 + retreats(k) + commission(k), True,
                      paid_m[m] or pay_of(k))
             else:
                 step(k, rev, cost, False, paid_m[m])
         for k in horizon[1:]:
-            step(k, sched.get(k, 0), running + retreats(k) + commission(k), True, pay_of(k))
+            step(k, earned(k), running + retreats(k) + commission(k), True, pay_of(k))
         future = [r for r in rows if r["projected"]]
         months_ahead = frac0 + max(0, len(horizon) - 1)
         by_line = defaultdict(float)
-        by_line[f["revenue_line"]] += sum(sched.get(k, 0) for k in horizon)
+        by_line[f["revenue_line"]] += sum(earned(k) for k in horizon)
         for x, v in plan.items():
             by_line[x] += v * months_ahead
         for x, what in (f.get("plan_from") or {}).items():
             by_line[x] += sum((retreats if what == "retreats" else commission)(k) for k in horizon)
         by_line["Partner profit shares"] += sum(r["share"] for r in future)
-        # cash: from the file's balance, a whole month at a time (the balance is the month before the books end)
-        cash, bal = [], float((f.get("cash") or {}).get("balance") or 0)
+        bs = self.balance_sheet(co)
+        # cash: from the block's balance, a whole month at a time (the file's is the month before the books end); or
+        # from the corrected books' bank accounts on their last day, when only the rest of that month is ahead
+        cash_from = dict(f.get("cash") or {})
+        part = 1.0
+        if cash_from.get("from_books"):
+            banks = [r for s in bs["sections"] if s["key"] == "Asset" for r in s["rows"] if r["type"] == "Bank"]
+            cash_from = {"account": banks[0]["account"] if len(banks) == 1 else f"{len(banks)} bank accounts",
+                         "as_of": self.d["period"]["end"], "balance": _r(sum(r["corrected"] for r in banks)),
+                         "note": "The bank in the corrected books on their last day.", "from_books": True}
+            part = frac0
+        cash, bal = [], float(cash_from.get("balance") or 0)
         repay = asm.get("repay") or {}
-        for k in horizon:
+        for i, k in enumerate(horizon):
+            share_ = part if i == 0 else 1.0
+            if share_ <= 0:
+                continue
             back = float(repay.get("amount") or 0) if repay.get("on") and repay.get("key") == k else 0.0
-            row = {"key": k, "open": _r(bal), "in": _r(coll.get(k, 0)), "partner": _r(pay_of(k)), "running": _r(running),
-                   "commissions": _r(commission(k)), "retreats": _r(retreats(k)), "repay": _r(back)}
+            row = {"key": k, "open": _r(bal), "in": _r(collected(k)), "partner": _r(pay_of(k) * share_),
+                   "running": _r(running * share_), "commissions": _r(commission(k)), "retreats": _r(retreats(k)),
+                   "repay": _r(back)}
             bal += row["in"] - row["partner"] - row["running"] - row["commissions"] - row["retreats"] - back
             row["close"] = _r(bal)
             cash.append(row)
+        # paid ahead of being earned (deferred revenue; below zero, earned before it's paid), month by month from the
+        # contracts' own position -- beside what the corrected books carry on their last day
+        c = f["contracts"]
+        held = float(c.get("collected") or 0) - float(c.get("earned_so_far") or 0)
+        start_held, deferred = held, []
+        for k in horizon:
+            inn, out_ = collected(k), earned(k)
+            deferred.append({"key": k, "open": _r(held), "in": _r(inn), "earned": _r(out_), "close": _r(held + inn - out_)})
+            held += inn - out_
+        on_bs = {r["account"]: r["corrected"] for s in bs["sections"] for r in s["rows"]}
+        acc_d, acc_a = (self.acc.get("deferred") or {}).get(co), (self.acc.get("accrued_revenue") or {}).get(co)
+        books = {"as_of": self.d["period"]["end"], "deferred_account": acc_d, "deferred": _r(on_bs.get(acc_d, 0.0)),
+                 "accrued_account": acc_a, "accrued": _r(on_bs.get(acc_a, 0.0))}
         launches = []
         for l in f.get("launches") or []:
             costs = {x: _r(sum(self.corr[(co, x, m)] for m in l["months"])) for x in f.get("selling") or []}
@@ -1521,7 +1630,6 @@ class Books:
             launches.append({**l, "costs": costs, "cost_total": _r(total),
                              "per_dollar": _r(l["contracted"] / total) if total > 0 else None})
         labels = {s["key"]: s["label"] for s in f["schedule"]}
-        c = f["contracts"]
         # the company's statement through the horizon: the corrected year so far, plus the months ahead
         secs = []
         for s in self.statement(co)["sections"]:
@@ -1535,21 +1643,34 @@ class Books:
             below = {l["line"]: l[field] for l in sec("below")}
             return {"total_revenue": _r(rev), "total_costs": _r(cost), "net_operating_income": _r(rev - cost),
                     "net_income": _r(rev - cost + below.get("Other income", 0) - below.get("Partner profit shares", 0))}
+        own = self._own(co)
+        members = int(c.get("members") or 0)
         return {
             "company": co, "partner": partner["person"] if partner else None, "rate": rate,
+            "source": f.get("source") or "file", "business": f.get("business"), "as_of": f.get("as_of"),
+            "paths": {"forward": ["forward"] if own else ["forward", co], "budget": ["budget"] if own else ["budget", co]},
             "contracts": {**c, "still_to_earn": _r(c["contracted"] - c["earned_so_far"])},
             "schedule": f["schedule"], "months": [{"key": k, "label": labels[k]} for k in horizon],
             "assumptions": asm, "meeting": f.get("meeting"), "plan": plan, "plan_from": f.get("plan_from") or {},
-            "notes": f.get("notes") or {}, "running": _r(running), "months_ahead": _r(months_ahead),
+            "notes": f.get("notes") or {}, "labels": f.get("labels") or {}, "running": _r(running),
+            "months_ahead": _r(months_ahead), "members": members,
+            "cost_per_member": _r(running / members) if members else None,
             "rows": rows, "future_by_line": {x: _r(v) for x, v in by_line.items()},
             "statement": {"sections": secs, "totals": {k: totals(k) for k in ("so_far", "ahead", "through")},
                           "through": labels.get(horizon[-1]) if horizon else None},
             "summary": {"profit": _r(sum(r["profit"] for r in rows)), "earned": rows[-1]["earned"] if rows else 0.0,
                         "paid": rows[-1]["paid"] if rows else 0.0, "ahead": rows[-1]["ahead"] if rows else 0.0,
                         "through": horizon[-1] if horizon else None},
+            "renewals": ({"count": sum(int(r.get("count") or 0) for r in due.values()),
+                          "value": _r(sum(float(r.get("value") or 0) for r in due.values())),
+                          "earned": _r(renew * sum(float((due.get(k) or {}).get("earned") or 0) for k in horizon))}
+                         if "renew_pct" in asm else None),
+            "joins": ({"members": _r(n_new * max(0, len(horizon) - 1)), "earned": _r(sum(joins[k][0] for k in horizon))}
+                      if "new_members" in asm else None),
+            "retention": f.get("retention"), "detail": f.get("detail"),
+            "deferred": {"start": _r(start_held), "rows": deferred, "books": books},
             "launches": launches,
-            "cash": {**(f.get("cash") or {}), "rows": cash,
-                     "runs_out": next((r["key"] for r in cash if r["close"] < 0), None)},
+            "cash": {**cash_from, "rows": cash, "runs_out": next((r["key"] for r in cash if r["close"] < 0), None)},
         }
 
     def checks(self) -> list[dict]:

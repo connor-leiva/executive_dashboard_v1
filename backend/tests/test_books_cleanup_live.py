@@ -1,0 +1,326 @@
+"""Books Cleanup -- the Forum's months ahead, projected from its members' records rather than the audit file.
+
+On the invented three-company file (test_books_cleanup.py), the club is the company the file keeps a dues schedule
+for; here it gets five invented members as the CRM and the payment feeds would hold them, on the books' last day
+(Mar 31) and a "today" three weeks later:
+
+  * Ada pays in full, $1,200 a year, renewing Jul 1 -- paid last July, so part of it is paid ahead (deferred);
+  * Ben pays $100 a month on a subscription, renewing May 15 -- paid through March, and once since;
+  * Cy joined Apr 10, after the books, $2,000 paid quarterly -- a contract in hand, counted in full;
+  * Di has no renewal date -- left out, and named;
+  * Ed's renewal date was never moved on (Feb 1) and nothing was paid toward the term -- flagged;
+  * Flo is an add-on seat on Ada's contract, with nothing of her own to earn.
+
+The properties pinned: each member's term is earned day by day, the paid part first; what's owed comes in as it
+has and as it's scheduled, never more than is owed; a renewal is counted at the forecast's rate, paid the way that
+member pays; The Edge's charges are not the Forum's; and everything the books already do (the partner's share
+after the owner's salary, the file's own projected company) is untouched by a second projected company.
+"""
+import datetime as dt
+from types import SimpleNamespace as NS
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from app.db import SessionLocal
+from app.main import app
+from app.models import Business, MetricRecord, Tenant, User
+from app.security import hash_pw, make_token
+from app.services import books_cleanup as eng
+from app.services import cleanup_live as live
+from tests.test_books_cleanup import CLUB, COHORT, COMPANIES, dataset, forwarded
+
+TODAY = dt.date(2026, 4, 20)
+D = dt.date
+
+
+def member(cid, name, total, renewal, plan, enrolled=None, kind="primary"):
+    mem = {"total_cost": total, "payment": plan, "member_kind": kind}
+    if renewal:
+        mem["renewal_date"] = renewal
+    if enrolled:
+        mem["enrollment_date"] = enrolled
+    return NS(external_id=cid, name=name, email=f"{name.lower()}@club.test", status="active",
+              source_url=f"https://crm.test/{cid}", meta={"membership": mem})
+
+
+def pay(cid, name, day, amount, what="Forum membership", **meta):
+    return NS(external_id=f"{cid}-{day}-{amount}", name=name, email=f"{name.lower()}@club.test", amount=amount,
+              status="succeeded", occurred_on=day, meta={"contact_id": cid, "entity_source_name": what,
+                                                          "stream": "memberships", **meta})
+
+
+def records():
+    members = [member("a", "Ada", 1200, "2026-07-01", "pif"),
+               member("b", "Ben", 1200, "2026-05-15", "monthly"),
+               member("c", "Cy", 2000, "2027-04-10", "quarterly", enrolled="2026-04-10"),
+               member("d", "Di", 900, None, "pif"),
+               member("e", "Ed", 1000, "2026-02-01", "pif"),
+               member("f", "Flo", 0, "2026-07-01", None, kind="add_on")]      # a seat on Ada's contract
+    payments = [pay("a", "Ada", D(2025, 7, 1), 1200),
+                pay("b", "Ben", D(2026, 3, 2), 50, what="The Edge Monthly"),          # not the Forum's
+                pay("b", "Ben", D(2026, 3, 3), 25, what="VIP ticket", stream="event_tickets")]
+    payments += [pay("b", "Ben", D(2025 + (4 + i) // 12, (4 + i) % 12 + 1, 15), 100) for i in range(12)]  # May 15 .. Apr 15
+    payments += [pay("b", "Ben", D(2025, 4, 15), 100)]                       # the last of his term before
+    payments += [pay("c", "Cy", D(2026, 4, 10), 500)]
+    subs = [NS(name="Ben", email="ben@club.test", status="active", amount=100,
+               meta={"contact_id": "b", "interval": "month", "start_date": "2025-05-15", "next_payment_date": "2026-05-15"})]
+    lost = [NS(occurred_on=D(2025, 11, 3)), NS(occurred_on=D(2024, 1, 1))]   # one in the last twelve months
+    return members, payments, subs, lost
+
+
+def block(data=None):
+    m, p, s, lost = records()
+    return live.build(data or forwarded(), m, p, s, lost, TODAY)
+
+
+def term_earned(value, start, end, day):
+    return value * ((day + dt.timedelta(days=1)) - start).days / (end - start).days
+
+
+# ── the block, from the records ─────────────────────────────────────────────────────────────────
+
+def test_the_block_is_the_dues_companys_through_a_year_after_the_books():
+    b = block()
+    assert b["company"] == CLUB and b["source"] == "live" and b["revenue_line"] == "Membership dues"
+    assert b["schedule"][0]["key"] == "2026-03" and b["horizon"] == "2027-03"
+    assert b["first_fraction"] == 0                                   # the books end on the month's last day
+    # a file that projects the dues company itself, or keeps no dues schedule, gets no block
+    assert live.build({**forwarded(), "forward": {**forwarded()["forward"], "company": CLUB}}, *records(), TODAY) is None
+    assert live.build({**dataset(), "dues": {}}, *records(), TODAY) is None
+
+
+def test_each_term_is_earned_day_by_day_and_paid_ahead_is_deferred():
+    b = block()
+    c = b["contracts"]
+    end = D(2026, 3, 31)
+    ada = term_earned(1200, D(2025, 7, 1), D(2026, 7, 1), end)
+    ben = term_earned(1200, D(2025, 5, 15), D(2026, 5, 15), end)
+    ed = term_earned(1000, D(2026, 2, 1), D(2027, 2, 1), end)
+    assert c["members"] == 4                                          # Di is left out
+    assert c["contracted"] == 1200 + 1200 + 2000 + 1000
+    assert c["collected"] == 1200 + 1100                              # by the books' last day; Edge and tickets aren't dues
+    assert c["still_to_collect"] == 100 + 2000 + 1000
+    assert c["earned_so_far"] == pytest.approx(ada + ben + ed, abs=0.02)
+    # the part of each term already paid for is earned first
+    from_paid = sum(s["from_paid"] for s in b["schedule"])
+    assert from_paid == pytest.approx((1200 - ada) + (1100 - ben), abs=0.05)
+    # everything in hand is earned by the books' end or in the year after it, but for Cy's last nine days
+    earned_ahead = sum(s["from_paid"] + s["from_future"] for s in b["schedule"])
+    assert earned_ahead + c["earned_so_far"] + 2000 * 9 / 365 == pytest.approx(c["contracted"], abs=0.05)
+
+
+def test_whats_owed_comes_in_as_it_has_and_as_its_scheduled():
+    coll = block()["collections"]
+    # Ben's last $100 came Apr 15 (his subscription keeps billing, but the term is paid); Cy paid $500 Apr 10 and
+    # pays a quarter each three months after
+    assert coll == {"2026-04": 600.0, "2026-07": 500.0, "2026-10": 500.0, "2027-01": 500.0}
+
+
+def test_never_more_comes_in_than_is_owed():
+    m, p, s, lost = records()
+    p = [x if x.meta["contact_id"] != "c" else pay("c", "Cy", D(2026, 4, 10), 600) for x in p]   # $100 over
+    coll = live.build(forwarded(), m, p, s, lost, TODAY)["collections"]
+    assert coll["2026-04"] == 100 + 600 and coll["2027-01"] == 400.0                # the last quarter is what's left
+    cy = next(r for r in live.build(forwarded(), m, p, s, lost, TODAY)["detail"]["members"] if r["name"] == "Cy")
+    assert cy["since"] + cy["scheduled"] == 2000
+
+
+def test_renewals_due_are_counted_at_100_and_paid_the_way_each_member_pays():
+    r = block()["renewals"]
+    assert (r["2026-05"]["count"], r["2026-05"]["value"]) == (1, 1200.0)                 # Ben
+    assert (r["2026-07"]["count"], r["2026-07"]["collected"]) == (1, 1200.0 + 100.0)     # Ada in full on the day; Ben
+    assert r["2026-06"]["collected"] == 100.0 and r["2027-03"]["collected"] == 100.0     # Ben, monthly
+    assert (r["2027-02"]["count"], r["2027-02"]["collected"]) == (1, 1000.0 + 100.0)     # Ed in full; Ben
+    # Ada's next term is earned from Jul 1; what falls in the year ahead
+    assert sum(x["earned"] for x in r.values()) == pytest.approx(
+        1200 * 274 / 365 + 1200 * (D(2027, 4, 1) - D(2026, 5, 15)).days / 365 + 1000 * 59 / 365, abs=0.05)
+
+
+def test_a_renewal_already_paid_or_in_the_crm_is_a_contract_in_hand():
+    m, p, s, lost = records()
+    p.append(pay("a", "Ada", D(2026, 4, 1), 50))                 # unrelated: before her renewal
+    paid_early = live.build(forwarded(), m, p, s, lost, D(2026, 7, 5))
+    assert paid_early["renewals"].get("2026-07", {}).get("count") == 1               # not paid since Jul 1: still due
+    p.append(pay("a", "Ada", D(2026, 7, 2), 1200))
+    b = live.build(forwarded(), m, p, s, lost, D(2026, 7, 5))
+    assert "2026-07" not in b["renewals"] or b["renewals"]["2026-07"]["count"] == 0
+    assert b["contracts"]["contracted"] == 5400 + 1200 and b["detail"]["counts"]["renewed"] == 1
+    m[0].meta["membership"]["renewal_date"] = "2027-07-01"        # the CRM moved it on a year: in hand, unpaid yet
+    b = live.build(forwarded(), m, records()[1], s, lost, TODAY)
+    assert b["contracts"]["contracted"] == 5400 + 1200 and b["collections"]["2026-07"] == 500 + 1200
+
+
+def test_what_the_records_cant_place_is_named():
+    d = block()["detail"]
+    assert d["left_out"] == [{"name": "Di", "why": "no renewal date", "source_url": "https://crm.test/d"}]
+    ed = next(r for r in d["members"] if r["name"] == "Ed")
+    assert ed["flag"] == "Nothing paid toward this term, and nothing scheduled" and d["members"][0] is ed
+    assert d["counts"]["nothing"] == 1 and d["counts"]["joined"] == 1 and d["counts"]["due"] == 3
+    assert d["counts"]["add_ons"] == 1 and all(r["name"] != "Flo" for r in d["members"])    # not left out either
+
+
+def test_the_renewal_rate_starts_from_the_last_twelve_months_and_new_members_from_todays():
+    b = block()
+    assert b["retention"] == {"lost12": 1, "members": 6}
+    assert b["assumptions"]["renew_pct"] == round(100 * (1 - 1 / 7))
+    assert b["assumptions"]["new_value"] == round((1200 + 1200 + 2000 + 1000) / 4)
+    assert b["mix"]["pif"] == 0.5                                 # Ada and Ed of the four with a plan and a value
+
+
+# ── the engine, projecting it ───────────────────────────────────────────────────────────────────
+
+def books_with(saved=None):
+    data = forwarded()
+    return eng.Books(data, eng.merged_inputs(data, saved)), block(data)
+
+
+def club(saved=None):
+    bk, b = books_with(saved)
+    f = bk.forwards([b])
+    assert [x["company"] for x in f] == [COHORT, CLUB]
+    return bk, f[1], b
+
+
+def test_the_files_own_projection_is_untouched_by_a_second():
+    bk, b = books_with()
+    assert bk.forwards([b])[0] == bk.forward()
+    assert bk.projected([b, {**b}])[1:] == [b]                    # a company is projected once
+
+
+def test_revenue_ahead_is_the_terms_plus_the_renewals_at_the_rate():
+    _, none, b = club({"forward": {CLUB: {"renew_pct": 0}}})
+    _, all_, _ = club({"forward": {CLUB: {"renew_pct": 100}}})
+    in_hand = sum(s["from_paid"] + s["from_future"] for s in b["schedule"])
+    due = sum(r["earned"] for r in b["renewals"].values())
+    assert none["future_by_line"]["Membership dues"] == pytest.approx(in_hand, abs=0.05)
+    assert all_["future_by_line"]["Membership dues"] == pytest.approx(in_hand + due, abs=0.05)
+    assert all_["renewals"]["earned"] == pytest.approx(due, abs=0.05) and all_["renewals"]["count"] == 3
+
+
+def test_new_members_join_each_month_and_pay_the_way_todays_do():
+    _, f, _ = club({"forward": {CLUB: {"renew_pct": 0, "new_members": 2, "new_value": 1200}}})
+    _, g, _ = club({"forward": {CLUB: {"renew_pct": 0}}})
+    rows, base = {r["key"]: r for r in f["rows"]}, {r["key"]: r for r in g["rows"]}
+    assert rows["2026-04"]["rev"] - base["2026-04"]["rev"] == pytest.approx(2 * 100)        # one month's twelfth
+    assert rows["2026-06"]["rev"] - base["2026-06"]["rev"] == pytest.approx(3 * 2 * 100)     # three cohorts in
+    cash, cash0 = {r["key"]: r for r in f["cash"]["rows"]}, {r["key"]: r for r in g["cash"]["rows"]}
+    # half pay in full on joining, half a twelfth a month
+    assert cash["2026-04"]["in"] - cash0["2026-04"]["in"] == pytest.approx(2 * 600 + 2 * 50)
+    assert f["joins"] == {"members": 24.0, "earned": pytest.approx(sum(2 * 100 * min(12, 13 - i) for i in range(1, 13)))}
+
+
+def test_deferred_revenue_rolls_from_the_terms_and_sits_beside_the_books():
+    _, f, b = club()
+    c = b["contracts"]
+    d = f["deferred"]
+    assert d["start"] == pytest.approx(c["collected"] - c["earned_so_far"], abs=0.01)
+    assert d["rows"][-1]["close"] == pytest.approx(d["start"] + sum(r["in"] - r["earned"] for r in d["rows"]), abs=0.05)
+    assert d["books"]["deferred_account"] == f"{CLUB} deferred" and d["books"]["as_of"] == "2026-03-31"
+
+
+def test_cash_starts_from_the_books_bank_on_their_last_day():
+    bk, f, _ = club()
+    bank = next(r for s in bk.balance_sheet(CLUB)["sections"] for r in s["rows"] if r["type"] == "Bank")
+    assert f["cash"]["from_books"] and f["cash"]["balance"] == bank["corrected"]
+    # the books end on a month's last day: nothing of March is ahead, so the flow starts in April
+    assert f["cash"]["rows"][0]["key"] == "2026-04" and f["cash"]["rows"][0]["open"] == bank["corrected"]
+
+
+def test_the_partner_after_the_owners_salary_accrues_as_the_books_do():
+    bk, f, _ = club({"forward": {CLUB: {"renew_pct": 100, "new_members": 2, "new_value": 24000}}})   # a profit
+    rows = {r["key"]: r for r in f["rows"]}
+    assert f["partner"] == "Pat" and f["assumptions"]["partner_pay"] == 0.0
+    assert [rows[f"2026-{m:02d}"]["share"] for m in bk.MONTHS] == [round(bk.share[(CLUB, m)], 2) for m in bk.MONTHS]
+    # each calendar year, 20% of the year's profit once the owner's $12,000 a year (to date) is out of it
+    profit = lambda yr: sum(r["profit"] for r in f["rows"] if r["key"].startswith(yr))
+    assert profit("2026") > 12000 and profit("2027") > 3000
+    assert f["summary"]["earned"] == pytest.approx(0.2 * ((profit("2026") - 12000) + (profit("2027") - 3000)), abs=0.1)
+
+
+def test_cost_per_member_is_the_plan_over_todays_members():
+    _, f, _ = club()
+    assert f["members"] == 4 and f["cost_per_member"] == pytest.approx(f["running"] / 4, abs=0.01)
+
+
+def test_a_second_projected_companys_assumptions_and_plan_are_saved_under_its_name():
+    data = {**forwarded(), "forward_live": [block()]}
+    assert eng.validate_change(data, ["forward", CLUB, "renew_pct"], 75) == 75
+    assert eng.validate_change(data, ["budget", CLUB, "Staff and contractors"], 300) == 300
+    assert eng.validate_change(data, ["forward", CLUB, "partner_pay"], 200) == 200      # the club has a partner
+    for path, value in ((["forward", CLUB, "renew_pct"], 101), (["forward", CLUB, "commission_pct"], 5),
+                        (["forward", CLUB, "nonsense"], 1), (["forward", "Nobody Co", "renew_pct"], 5),
+                        (["forward", COHORT, "commission_pct"], 5)):
+        with pytest.raises(eng.InputError):
+            eng.validate_change(data, path, value)
+    with pytest.raises(eng.InputError):                            # without the records' block there's nothing there
+        eng.validate_change(forwarded(), ["forward", CLUB, "renew_pct"], 75)
+    saved = {}
+    for path, v in ((["forward", CLUB, "renew_pct"], 75), (["forward", CLUB, "new_members"], 1),
+                    (["budget", CLUB, "Staff and contractors"], 300), (["forward", "commission_pct"], 10)):
+        eng.set_path(saved, path, v)
+    bk, f, _ = club(saved)
+    assert f["assumptions"]["renew_pct"] == 75 and f["assumptions"]["new_members"] == 1
+    assert f["plan"]["Staff and contractors"] == 300.0
+    assert bk.forward()["assumptions"]["commission_pct"] == 10    # the file's own, still flat
+    assert CLUB not in bk.forward()["assumptions"]
+
+
+# ── the API ──────────────────────────────────────────────────────────────────────────────────────
+
+def _H(token):
+    return {"Authorization": f"Bearer {token}", "x-tenant-host": "liveco.localhost"}
+
+
+@pytest.fixture(scope="module")
+async def ctx():
+    from app.seed import seed
+    await seed()
+    async with SessionLocal() as s:
+        t = Tenant(slug="liveco", name="Live Co", plan="portfolio")
+        s.add(t)
+        await s.flush()
+        biz = Business(tenant_id=t.id, key="club", name="Club Holdings", tag="Memberships", kind="membership")
+        s.add(biz)
+        await s.flush()
+        m, p, subs, lost = records()
+        for src, kind, rows in (("ghl", "member", m), ("ghl", "payment", p), ("ghl", "subscription", subs),
+                                ("ghl", "membership_lost", lost)):
+            for i, r in enumerate(rows):
+                s.add(MetricRecord(tenant_id=t.id, business_id=biz.id, source=src, kind=kind,
+                                   external_id=getattr(r, "external_id", None) or f"{kind}{i}",
+                                   name=getattr(r, "name", None), email=getattr(r, "email", None),
+                                   amount=getattr(r, "amount", None), status=getattr(r, "status", None),
+                                   occurred_on=getattr(r, "occurred_on", None), meta=getattr(r, "meta", None) or {}))
+
+        def mk(email, role, tabs=None):
+            return User(tenant_id=t.id, email=email, name=email.split("@")[0], role=role,
+                        password_hash=hash_pw("x" * 12), status="active", tab_access=tabs)
+        owner, keeper = mk("owner@live.test", "owner"), mk("keeper@live.test", "member", ["cleanup"])
+        s.add_all([owner, keeper])
+        await s.commit()
+        return {"owner": make_token(owner.id, t.id, 0), "keeper": make_token(keeper.id, t.id, 0)}
+
+
+async def test_the_forum_is_projected_beside_the_files_own_and_planned_by_the_owners(ctx, monkeypatch):
+    import io
+    import json
+    monkeypatch.setattr(live, "_today", lambda: TODAY)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        f = {"file": ("cleanup.json", io.BytesIO(json.dumps(forwarded()).encode()), "application/json")}
+        assert (await c.post("/api/v1/cleanup/dataset", headers=_H(ctx["owner"]), files=f)).status_code == 200
+        ov = (await c.get("/api/v1/cleanup", headers=_H(ctx["keeper"]))).json()
+        assert ov["forward_companies"] == [COHORT, CLUB] and ov["forward_company"] == COHORT
+        body = (await c.get("/api/v1/cleanup/forward", headers=_H(ctx["keeper"]))).json()
+        assert [x["company"] for x in body["forwards"]] == [COHORT, CLUB] and body["live_error"] is None
+        forum = body["forwards"][1]
+        assert forum["source"] == "live" and forum["contracts"]["contracted"] == 5400.0
+        assert forum["paths"] == {"forward": ["forward", CLUB], "budget": ["budget", CLUB]}
+        assert body["forward"]["company"] == COHORT and set(body["budgets"]) == set(COMPANIES)
+        change = {"changes": [{"path": ["forward", CLUB, "renew_pct"], "value": 50}]}
+        assert (await c.put("/api/v1/cleanup/inputs", headers=_H(ctx["keeper"]), json=change)).status_code == 403
+        assert (await c.put("/api/v1/cleanup/inputs", headers=_H(ctx["owner"]), json=change)).status_code == 200
+        bad = {"changes": [{"path": ["forward", CLUB, "commission_pct"], "value": 5}]}
+        assert (await c.put("/api/v1/cleanup/inputs", headers=_H(ctx["owner"]), json=bad)).status_code == 400
+        after = (await c.get("/api/v1/cleanup/forward", headers=_H(ctx["owner"]))).json()["forwards"]
+        assert after[1]["assumptions"]["renew_pct"] == 50 and after[0] == body["forwards"][0]
