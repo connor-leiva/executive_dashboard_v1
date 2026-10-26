@@ -45,7 +45,7 @@ from ..db import get_session
 from ..deps import assert_tab, current_user
 from ..models import CleanupDataset, CleanupState, User
 from ..services import books_cleanup as eng
-from ..services import cleanup_ask
+from ..services import cleanup_ask, cleanup_live
 from ..services.audit import audit
 
 TAB = "cleanup"
@@ -105,6 +105,17 @@ async def _books(s: AsyncSession, user: User) -> tuple[eng.Books, Any, CleanupSt
     return hit[0], hit[1], st
 
 
+async def _live(s: AsyncSession, user: User, bk: eng.Books) -> tuple[list[dict], str | None]:
+    """The companies the app projects from its own records rather than the file (the Forum, from its members), as
+    they stand today. Not cached with the books: the records move with every sync. A failure here is said on
+    Forecast rather than taking the file's own projection down with it."""
+    try:
+        return await cleanup_live.blocks(s, user.tenant_id, bk.d), None
+    except Exception:
+        log.exception("cleanup live projection failed")
+        return [], "The projection from the members' records didn't build. Try again in a moment."
+
+
 def _may_decide(user: User) -> bool:
     return user.role in ("owner", "admin")
 
@@ -145,6 +156,9 @@ async def overview(user: User = Depends(current_user), s: AsyncSession = Depends
                   "costs": [l for l in bk.COSTS if not l.startswith(("Uncategorized", "Not yet"))]},
         "can_move_month": all((d["accounts"].get(k) or {}) for k in ("prepaid", "accrued_liab")),
         "forward_company": (d.get("forward") or {}).get("company"),
+        # every company with Forecast and Cash flow: the file's own, then any the app projects from its records
+        "forward_companies": [f["company"] for f in bk.projected()]
+                             + await cleanup_live.companies(s, user.tenant_id, d),
         "headline": {
             "net_income": {c: bk.net_income(c) for c in bk.companies},
             "inside": ({inside: bk.statement(inside)["totals"]["net_income"]["corrected"]} if inside else {}),
@@ -195,11 +209,13 @@ async def statement_line(request: Request, view: str, line: str,
 
 @router.get("/forward")
 async def forward(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
-    """The months after the books end (Forecast, Cash flow, the Statement's future months), and every company's
-    budget lines. `forward` is null for a file that projects nothing."""
+    """The months after the books end (Forecast, Cash flow, the Statement's future months) for every projected
+    company -- the file's own first, then any the app projects from its own records -- and every company's budget
+    lines. `forward` is the file's own (null for a file that projects nothing)."""
     bk, _, _ = await _books(s, user)
-    return {"forward": bk.forward(), "budgets": {c: bk.budget(c) for c in bk.companies},
-            "can_decide": _may_decide(user)}
+    live, err = await _live(s, user, bk)
+    return {"forwards": bk.forwards(live), "forward": bk.forward(),
+            "budgets": {c: bk.budget(c) for c in bk.companies}, "can_decide": _may_decide(user), "live_error": err}
 
 
 @router.get("/transactions")
@@ -328,8 +344,8 @@ async def saved_changes(user: User = Depends(current_user), s: AsyncSession = De
     """Every change saved on the tab, as one file: the decisions, the changes to single transactions, the forecast
     and plan, the answers, ticks and posted entry numbers -- exactly what cleanup_state holds, with the file they
     apply to. That file plus these changes rebuild every figure the tab shows
-    (`Books(file, merged_inputs(file, inputs))`), so an analysis outside the app can start from the owners' own
-    decisions. The decisions move money between companies, so the download is an owner's or admin's, and audited."""
+    (`Books(file, merged_inputs(file, inputs))`), but for a projection the app builds from its own records (the
+    Forum's), so an analysis outside the app can start from the owners' own decisions. The decisions move money between companies, so the download is an owner's or admin's, and audited."""
     await assert_tab(user, s, TAB)
     if not _may_decide(user):
         raise HTTPException(403, "Only an owner or admin downloads the saved changes.")
@@ -444,8 +460,12 @@ async def put_inputs(body: ChangeSet, user: User = Depends(current_user), s: Asy
     heads = {str(c.path[0]) for c in body.changes}
     if heads & DECISIONS and not _may_decide(user):
         raise HTTPException(403, "Only an owner or admin changes the decisions.")
+    data = bk.d
+    if any(str(c.path[0]) in ("forward", "budget") and len(c.path) == 3 for c in body.changes):
+        # a projected company the app builds from its own records: its block says what it can hold
+        data = {**bk.d, "forward_live": (await _live(s, user, bk))[0]}
     try:
-        clean = [([str(p) for p in c.path], eng.validate_change(bk.d, list(c.path), c.value)) for c in body.changes]
+        clean = [([str(p) for p in c.path], eng.validate_change(data, list(c.path), c.value)) for c in body.changes]
     except eng.InputError as e:
         raise HTTPException(400, str(e))
     stamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")

@@ -241,11 +241,12 @@ function TotalRow({ label, v, revenue, one, tone, loss }) {
 
 /* ── the screen ─────────────────────────────────────────────────────────────────────────── */
 
-/* The projected company's year with the months ahead (GET /cleanup/forward): the corrected year so far, what
+/* A projected company's year with the months ahead (GET /cleanup/forward): the corrected year so far, what
    the contracts, the plan and the forecast add, and the year through the horizon. Every figure is the server's. */
-function FutureStatement({ ov, rev }) {
+function FutureStatement({ company, rev }) {
   const fw = useCleanupForward(rev);
-  const st = fw.data?.forward?.statement;
+  const f = (fw.data?.forwards || []).find((x) => x.company === company);
+  const st = f?.statement;
   const t = st?.totals;
   const cols = (strong) => ({ ...NUM, fontSize: strong ? 14 : 13.5, fontWeight: strong ? 700 : 400 });
   const rowOf = (label, a, b, c, tone, loss) => (
@@ -300,8 +301,12 @@ function FutureStatement({ ov, rev }) {
             ))}
             {rowOf("Net income", t.so_far.net_income, t.ahead.net_income, t.through.net_income, "big", true)}
           </div>
-          <Foot>Through {st.through}: the contracts still to be earned, the plan&rsquo;s monthly costs (Budget), and the
-            retreats, commissions and partner share (Forecast). No new members are assumed.</Foot>
+          {f.source === "live" ? (
+            <Foot>Through {st.through}: the memberships still to be earned, the renewals at the forecast&rsquo;s rate and any
+              new members it assumes, the plan&rsquo;s monthly costs (Budget), and the partner share (Forecast).</Foot>
+          ) : (
+            <Foot>Through {st.through}: the contracts still to be earned, the plan&rsquo;s monthly costs (Budget), and the
+              retreats, commissions and partner share (Forecast). No new members are assumed.</Foot>)}
         </div>
       )}
     </StatePanel>
@@ -322,7 +327,8 @@ export default function CleanupStatement({ ov, rev }) {
   const [expanded, setExpanded] = useState(null);
   const [closed, setClosed] = useState({});
   const [ahead, setAhead] = useState(false);           // the projected company, with the months after the books
-  const future = ahead && view === ov.forward_company;
+  const projected = ov.forward_companies || (ov.forward_company ? [ov.forward_company] : []);
+  const future = ahead && projected.includes(view);
   const st = useCleanupStatement(view, month, rev);
   const d = st.data;
   const one = d?.kind === "brand";
@@ -388,7 +394,7 @@ export default function CleanupStatement({ ov, rev }) {
         ))}
       </Bar>
       <Controls>
-        {view === ov.forward_company ? (
+        {projected.includes(view) ? (
           <Seg options={[["Year so far", false], ["+ Future months", true]]} value={future}
                onChange={(v) => { setAhead(v); setMonth(null); setExpanded(null); }} />) : null}
         {!future ? (
@@ -414,7 +420,7 @@ export default function CleanupStatement({ ov, rev }) {
         )}
       </Controls>
 
-      {future ? <FutureStatement ov={ov} rev={rev} /> : (
+      {future ? <FutureStatement company={view} rev={rev} /> : (
       <StatePanel loading={st.loading} error={st.error} retry={st.retry}>
         {d && (
           <div className="cu-page" style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 18 }}>

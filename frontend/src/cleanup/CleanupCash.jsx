@@ -1,35 +1,39 @@
-/* Books Cleanup · Cash flow -- the projected company's bank balance, month by month, from the balance the file
-   starts from: the installments still to come in, against the plan's monthly costs and the forecast's partner
-   pay, commissions and retreats (and a repayment, if one is planned). Every figure is the server's.
+/* Books Cleanup · Cash flow -- a projected company's bank balance, month by month, from the balance its block
+   starts from (the file's QuickBooks balance; for one projected from its members' records, the corrected books'
+   bank on their last day): what members still pay in -- for the Forum, their dues, the renewals at the forecast's
+   rate and any new members -- against the plan's monthly costs and the forecast's partner pay, commissions and
+   retreats (and a repayment, if one is planned). Every figure is the server's.
 
    Illustrative until the bank's own feed is connected: it starts from QuickBooks' balance, and the monthly
    costs include shares another company pays and bills back. */
 import { StatePanel } from "../books/ui.jsx";
 import { useCleanupForward } from "./useCleanup.js";
-import { Bar, Chip, EYEBROW, F, L, NUM, Note, NumberField, Panel, SaveLine, Sheet, inputStyle, keyLabel, money,
+import { Bar, EYEBROW, F, L, NUM, Note, NumberField, Panel, SaveLine, Sheet, inputStyle, keyLabel, money,
          shortOf } from "./kit.jsx";
-import { CF_CSS, useSaver } from "./CleanupForecast.jsx";
+import { CF_CSS, ProjectedChips, useProjected, useSaver } from "./CleanupForecast.jsx";
 
 export default function CleanupCash({ ov, rev, onSaved }) {
   const fw = useCleanupForward(rev);
-  const f = fw.data?.forward;
+  const [f, list, setCo] = useProjected(fw);
   const can = !!fw.data?.can_decide;
   const [state, save] = useSaver(onSaved);
   const cash = f?.cash;
   const repay = f?.assumptions?.repay || null;
-  const setRepay = (patch) => save([{ path: ["forward", "repay"], value: { ...repay, ...patch } }]);
+  const setRepay = (patch) => save([{ path: [...f.paths.forward, "repay"], value: { ...repay, ...patch } }]);
+  const live = f?.source === "live";
   return (
     <Panel>
       <Bar label="Cash flow" right={f ? `${shortOf(ov, f.company)} · through ${f.statement?.through}` : ""}>
-        {f ? <Chip dark on>{shortOf(ov, f.company)}</Chip> : null}
+        <ProjectedChips ov={ov} list={list} f={f} setCo={setCo} />
       </Bar>
       <StatePanel loading={fw.loading} error={fw.error} retry={fw.retry}>
         {fw.data && !f ? <div style={{ padding: 24, fontFamily: F.body, color: L.muted }}>This file projects nothing ahead.</div> : null}
         {f && cash && (
           <div className="cf-page" style={{ padding: "18px 26px 26px", display: "grid", gap: 14 }}>
             <Note tone="gold"><strong>Starts from {cash.account} at {cash.as_of ? keyLabel(cash.as_of.slice(0, 7)) : ""}: </strong>
-              {money(cash.balance)}. {cash.note} Illustrative: the money in is the installments still to come; the money out
-              is the Budget and Forecast assumptions.</Note>
+              {money(cash.balance)}. {cash.note} Illustrative: the money in is {live
+                ? "the dues members still owe on their terms, the renewals at the forecast's rate and any new members"
+                : "the installments still to come"}; the money out is the Budget and Forecast assumptions.</Note>
             {repay ? (
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontFamily: F.body, fontSize: 13,
                             color: L.body }}>
@@ -47,7 +51,7 @@ export default function CleanupCash({ ov, rev, onSaved }) {
             <Sheet>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 900, fontFamily: F.body, fontSize: 12.5 }}>
-                  <thead><tr>{["Month", "Starts with", "+ Installments in", `− ${f.partner || "Partner"}`, "− Monthly costs",
+                  <thead><tr>{["Month", "Starts with", `+ ${f.labels?.in || "Installments in"}`, `− ${f.partner || "Partner"}`, "− Monthly costs",
                                "− Commissions", "− Retreats", "− Repayment", "Ends with"].map((h, i) => (
                     <th key={h} style={{ ...EYEBROW, textAlign: i ? "right" : "left", padding: "9px 12px", background: L.colHead }}>{h}</th>))}
                   </tr></thead>

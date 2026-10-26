@@ -39,12 +39,13 @@ recommendation text). A different workspace's cleanup would be a different file.
 | The engine (corrected P&L, entries, balance sheets, intercompany, checks) | `backend/app/services/books_cleanup.py` |
 | API, mounted at `/api/v1/cleanup` | `backend/app/routers/books_cleanup.py` |
 | Ask about this (the one network call: `_claude_call`) | `backend/app/services/cleanup_ask.py` |
+| The Forum's months ahead, from its members' records (not the file) | `backend/app/services/cleanup_live.py` |
 | Tables | `cleanup_dataset`, `cleanup_state` — `backend/app/models.py`, migration `0093_books_cleanup` |
 | Audit category "Books" | `services/audit.py`; 0093 also rebuilds Postgres' `ck_audit_log_category` to allow it (without that, every save is a 500 in production and green everywhere else — `test_audit_categories.py` now checks the pairing) |
 | The tab exists only while a file is loaded | `backend/app/services/tabs.py` (`_has_cleanup`) |
 | Command-line loader | `backend/scripts/load_books_cleanup.py` |
 | Frontend | `frontend/src/cleanup/` (shell `Cleanup.jsx`, one file per page) |
-| Tests | `backend/tests/test_books_cleanup.py`, `test_migration_0093_cleanup.py` |
+| Tests | `backend/tests/test_books_cleanup.py`, `test_books_cleanup_live.py`, `test_migration_0093_cleanup.py` |
 
 ## The pages
 
@@ -127,6 +128,52 @@ balance to start from; and the Oct 19 meeting's assumptions as starting values. 
 The assumptions and the plan are saved like decisions (`inputs.forward`, `inputs.budget`; owners and
 admins). They change projections only, never the books or the entries.
 
+Each projection also shows **deferred revenue** (Forecast): what's been paid ahead of being earned, month by month
+from the contracts' own position (collected less earned), beside what the corrected books carry in the company's
+deferred and accrued-revenue accounts on their last day. Budget shows each projected company's lines **a member a
+month** (the plan over its members).
+
+## The Forum's months ahead, from its members' records
+
+Added 2026-10-26, for Spring's action item: the same Forecast, Budget, Cash flow and future Statement for the Forum,
+whose memberships renew every year. Its block isn't in the file: `services/cleanup_live.py` builds one, in the file's
+`forward` shape, from what the app already holds, as it stands at the request:
+
+* **which company**: the one the file keeps the dues schedule for (`dues.company`), when the workspace has a
+  membership business with members on record and the file doesn't project that company itself. Nothing names it;
+* **the members**: the membership business's active GHL members (`member`): each one's contract value
+  (`total_cost`), renewal and enrollment dates, and how they pay (in full, monthly, quarterly, installments).
+  The Edge's members are their own records and stay out; so do its charges, event tickets and sponsorships;
+* **what they paid**: GHL Payments and the legacy Stripe account, deduplicated the way the Forum tab does it, matched
+  on the CRM contact and then on the email; **what's scheduled**: their active subscriptions (`project_charges`).
+
+A member's **term** is the twelve months before their renewal date, earned day by day (the books' rule for dues). On
+the books' last day, what they had paid toward it against what had been earned is the paid-ahead (deferred) or
+earned-ahead position; after it, the rest of the term is earned month by month (the paid part first), and what's
+still owed comes in as it has since the books' end and then as their subscription schedules it, never more than is
+owed. A member who **joined** since the books' end, or whose renewal is **already done** (the CRM's date moved on a
+year, or they've paid since the renewal date), is a contract in hand, counted in full. Every other renewal in the
+year ahead is **due**: counted at the renewal rate and paid the way that member pays.
+
+Forecast's assumptions for it: the **renewal rate** (starting from the last twelve months' retention: of everyone who
+was a member, the share still here), **new members a month** (none, to start) at **a year's value** (today's average),
+joining each month after the books and paying the way today's members do; and the partner's pay, if the company has a
+partner (starting from the last three months' pace; the share accrues after the owner's salary where the agreement
+puts it first, as the books do). Cash flow starts from the corrected books' bank accounts on their last day. The
+projection runs twelve months past the month the books end in.
+
+The changes are saved under the company's name (`["forward", company, field]`, `["budget", company, line]`), so the
+file's own projected company keeps the flat shape it was first saved in, and validated against the block built at
+the save. **What the records can't place is said, not guessed**: a member with no renewal date or contract value is
+left out and named, one with nothing paid toward the term and nothing scheduled is flagged (Forecast lists every
+member, worst first, with what they paid by the books' end and since, what's scheduled, and their renewal), and the
+deferred revenue the records imply is shown beside the books' own, with the difference: that is what to reconcile.
+Add-on seats with no contract value of their own ride on a primary's and aren't flagged.
+
+Pinned by `test_books_cleanup_live.py` on the invented file plus six invented members, each control broken on
+purpose with a test failing every time. The file's own projection was compared before and after on the invented file
+with five sets of assumptions: identical.
+
 ## What each posting is made of (Intercompany itemized, the entries in words)
 
 Every posting the engine makes records what it is made of (`Books.src`): the review's reason for it, whose pay or
@@ -173,7 +220,8 @@ may ask. The key is the server's (`ANTHROPIC_API_KEY`, the model `ASSISTANT_MODE
 * **Download saved changes** (`GET /cleanup/saved.json`, owners and admins): every saved change as one file
   (`axcion.books_cleanup_saved/1`: the loaded file's id and label, the version, the sparse `inputs`). With
   the loaded file, `Books(data, merged_inputs(data, inputs))` rebuilds every figure on the tab, so an
-  analysis outside the app starts from what the owners actually saved. Audited as `cleanup.export`.
+  analysis outside the app starts from what the owners actually saved -- except the Forum's projection, which is
+  also made of the members' records as they stood (`services/cleanup_live.py`). Audited as `cleanup.export`.
 * Every change is audited (`cleanup.change`, category Books) with its path, old value and new one.
 
 ## Correctness

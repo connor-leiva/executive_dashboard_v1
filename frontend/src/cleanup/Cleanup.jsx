@@ -28,7 +28,8 @@ const PAGES = [["statement", "Statement"], ["transactions", "Transactions"], ["f
                ["balance", "Balance sheet"], ["interco", "Intercompany"], ["todo", "To do"],
                ["findings", "Findings"]];
 
-// Forecast and Cash flow are a projected company's: a file that projects none has no such pages.
+// Forecast and Cash flow are a projected company's: without one (from the file, or from the members' records)
+// there are no such pages.
 const FORWARD_ONLY = new Set(["forecast", "cash"]);
 
 function SubNav({ page, setPage, counts, forward }) {
@@ -121,7 +122,7 @@ export default function Cleanup({ role }) {
           {isOwner && d.can_decide && <Upload onLoaded={onSaved} />}
         </div>
       )}
-      <SubNav page={page} setPage={setPage} counts={counts} forward={!!d?.forward_company} />
+      <SubNav page={page} setPage={setPage} counts={counts} forward={!!(d?.forward_companies?.length || d?.forward_company)} />
       <StatePanel loading={ov.loading} error={ov.error} retry={ov.retry}>
         {d && (
           // A transaction's card changes the books from deep inside a page: it needs the overview, whether
