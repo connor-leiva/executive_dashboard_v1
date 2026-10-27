@@ -168,6 +168,133 @@ def test_the_renewal_rate_starts_from_the_last_twelve_months_and_new_members_fro
     assert b["mix"]["pif"] == 0.5                                 # Ada and Ed of the four with a plan and a value
 
 
+# ── what production's records showed (2026-10-26): each case, invented ─────────────────────────────
+
+def paid_from(name, email, day, amount, **meta):
+    """A charge on the old Stripe account: no CRM contact, and often another address than the member's own."""
+    return NS(external_id=f"{email}-{day}-{amount}", name=name, email=email, amount=amount, status="succeeded",
+              occurred_on=day, meta={"entity_source_name": "Inner Circle dues", "stream": "memberships", **meta})
+
+
+def sub(cid, name, amount, start, nxt, interval="month", **meta):
+    return NS(name=name, email=f"{name.lower()}@club.test", status="active", amount=amount,
+              meta={"contact_id": cid, "interval": interval, "start_date": start, "next_payment_date": nxt, **meta})
+
+
+def monthly(cid, name, first, n, amount):
+    return [pay(cid, name, live._add(first, i), amount) for i in range(n)]
+
+
+def scenario(members, payments, subs=(), today=TODAY):
+    return live.build(forwarded(), members, payments, list(subs), [], today)
+
+
+def row(b, name):
+    return next(r for r in b["detail"]["members"] if r["name"] == name)
+
+
+def test_a_payment_from_another_address_is_matched_on_a_name_only_one_member_has():
+    gil = member("g", "Gil", 1800, "2026-09-01", "pif")
+    hal1, hal2 = member("h1", "Hal", 1000, "2026-09-01", "pif"), member("h2", "Hal", 1000, "2026-10-01", "pif")
+    ann, bob = member("an", "Ann", 1500, "2026-09-01", "pif"), member("bo", "Bob", 1500, "2026-09-01", "pif")
+    ann.email = bob.email = "home@club.test"                     # one household address on two contacts
+    b = scenario([gil, hal1, hal2, ann, bob],
+                 [paid_from("Gil", "gil@business.test", D(2025, 9, 1), 1800),     # his business card: his
+                  paid_from("Hal", "hal@elsewhere.test", D(2025, 9, 2), 1000),    # two Hals: nobody's
+                  paid_from("Ann", "home@club.test", D(2025, 9, 1), 1500)])       # the shared address: by name
+    assert row(b, "Gil")["paid_by_end"] == 1800 and row(b, "Gil")["flag"] is None
+    assert [row_["paid_by_end"] for row_ in b["detail"]["members"] if row_["name"] == "Hal"] == [0.0, 0.0]
+    assert row(b, "Ann")["paid_by_end"] == 1500 and row(b, "Bob")["paid_by_end"] == 0.0
+    assert b["contracts"]["collected"] == 1800 + 1500
+
+
+def test_a_member_with_no_contract_value_is_counted_at_what_they_pay_and_said():
+    ivy, jo = member("i", "Ivy", 0, "2026-08-23", None), member("j", "Jo", 0, "2026-08-23", None)
+    kit = member("k", "Kit", 0, "2026-08-23", None)
+    b = scenario([ivy, jo, kit], [pay("i", "Ivy", D(2025, 8, 23), 2700)],
+                 [sub("k", "Kit", 250, "2025-08-23", "2026-04-23")])
+    assert row(b, "Ivy")["value"] == 2700 and row(b, "Ivy")["value_from_billing"]
+    assert row(b, "Ivy")["flag"].startswith("No contract value in the CRM: counted at $2,700.00 a year")
+    assert row(b, "Kit")["value"] == 3000 and row(b, "Kit")["plan"] == "monthly"      # a $250 monthly subscription
+    assert b["detail"]["left_out"] == [{"name": "Jo", "why": "no contract value", "source_url": "https://crm.test/j"}]
+    assert b["detail"]["counts"]["from_billing"] == 2 and b["contracts"]["contracted"] == 2700 + 3000
+
+
+def test_a_renewal_paid_early_pays_for_the_term_it_was_paid_ahead_of():
+    # paid since the books' end, before the renewal date, the CRM not moved yet: renewed, and the cash is in
+    kay = member("k", "Kay", 2400, "2026-08-01", "pif")
+    b = scenario([kay], [pay("k", "Kay", D(2025, 8, 1), 2400), pay("k", "Kay", D(2026, 7, 20), 2400)],
+                 today=D(2026, 8, 9))
+    assert row(b, "Kay")["renewal"]["state"] == "renewed" and row(b, "Kay")["renewal"]["since"] == 2400
+    assert b["collections"] == {"2026-07": 2400.0} and b["contracts"]["collected"] == 2400
+    # paid before the books' end for a term that opens after it: in the bank already, deferred, not collected again
+    lee = member("l", "Lee", 2400, "2027-04-20", "pif")          # the CRM moved it on
+    b = scenario([lee], [pay("l", "Lee", D(2025, 4, 20), 2400), pay("l", "Lee", D(2026, 3, 25), 2400)],
+                 today=D(2026, 4, 25))
+    r = row(b, "Lee")
+    assert r["paid_by_end"] == 2400 and r["renewal"]["paid_by_end"] == 2400 and r["flag"] is None
+    assert b["collections"] == {} and b["contracts"]["collected"] == 4800
+    earned = term_earned(2400, D(2025, 4, 20), D(2026, 4, 20), D(2026, 3, 31))
+    assert b["contracts"]["earned_so_far"] == pytest.approx(earned, abs=0.02)        # all of the second is deferred
+
+
+@pytest.mark.parametrize("day", [1, 10, 15, 17, 18, 25])
+def test_a_monthly_members_payments_fall_into_terms_a_year_at_a_time_whatever_day_the_card_bills(day):
+    lou = member("lu", "Lou", 2400, "2026-06-18", "monthly")
+    pays = monthly("lu", "Lou", D(2025, 5, day), 12, 200)        # May 2025 .. Apr 2026, billed on `day`
+    nxt = D(2026, 5, day)
+    b = scenario([lou], pays, [sub("lu", "Lou", 200, f"2025-05-{day:02d}", nxt.isoformat())], today=D(2026, 4, 28))
+    in_hand = sum(b["collections"].values())
+    due = sum(r["collected"] for r in b["renewals"].values())
+    # the year after the books (Apr 2026 .. Mar 2027) is twelve of his payments: what's left of this term, then the
+    # renewal's, never one too many or too few
+    assert in_hand + due == pytest.approx(12 * 200)
+    r = row(b, "Lou")
+    assert r["paid_by_end"] + r["since"] + r["scheduled"] == 2400 and r["flag"] is None
+
+
+def test_a_monthly_members_first_charge_of_the_new_term_renews_them_though_it_bills_days_before_the_date():
+    lou = member("lu", "Lou", 2400, "2026-06-18", "monthly")
+    pays = monthly("lu", "Lou", D(2025, 6, 8), 13, 200)           # billed on the 8th: Jun 8 2026 opens the new term
+    b = scenario([lou], pays, [sub("lu", "Lou", 200, "2025-06-08", "2026-07-08")], today=D(2026, 6, 12))
+    assert row(b, "Lou")["renewal"]["state"] == "renewed" and row(b, "Lou")["renewal"]["since"] == 200
+
+
+def test_a_blank_payment_plan_is_read_from_the_members_subscription():
+    mo = member("m", "Mo", 3000, "2026-06-10", None)
+    b = scenario([mo], monthly("m", "Mo", D(2025, 6, 10), 11, 250), [sub("m", "Mo", 250, "2025-06-10", "2026-05-10")],
+                 today=D(2026, 4, 25))
+    r = row(b, "Mo")
+    assert r["plan"] == "monthly" and r["plan_from_crm"] is False
+    assert r["paid_by_end"] == 2500                               # Jun .. Mar, not last May's payment as well
+    assert b["renewals"]["2026-06"]["collected"] == 250           # the renewal billed monthly, not one lump
+    assert sum(x["collected"] for x in b["renewals"].values()) == pytest.approx(10 * 250)
+
+
+def test_a_small_charge_after_the_renewal_date_doesnt_renew_a_member_and_a_real_payment_does():
+    ned = member("n", "Ned", 5000, "2026-05-01", "pif")
+    base = [pay("n", "Ned", D(2025, 5, 1), 5000)]
+    for extra in (pay("n", "Ned", D(2026, 5, 3), 75, what="Mastermind Workbook", stream="other"),
+                  pay("n", "Ned", D(2026, 5, 3), 0), pay("n", "Ned", D(2026, 5, 4), 300, what="Invoice #88", stream="invoices")):
+        b = scenario([ned], base + [extra], today=D(2026, 5, 10))
+        assert row(b, "Ned")["renewal"]["state"] == "due" and b["contracts"]["contracted"] == 5000
+    b = scenario([ned], base + [pay("n", "Ned", D(2026, 5, 4), 5000)], today=D(2026, 5, 10))
+    assert row(b, "Ned")["renewal"]["state"] == "renewed" and b["contracts"]["contracted"] == 10000
+
+
+def test_a_new_or_renewed_term_with_nothing_paid_is_flagged_and_so_is_whats_owed_with_nothing_scheduled():
+    pia = member("p", "Pia", 4000, "2027-04-12", "pif", enrolled="2026-04-12")              # joined, never paid
+    roy = member("r", "Roy", 2000, "2027-04-15", "pif")                                      # the CRM moved it on
+    sal = member("s", "Sal", 3600, "2026-08-01", "monthly")                                  # card cancelled
+    b = scenario([pia, roy, sal], [pay("r", "Roy", D(2025, 4, 15), 2000)] + monthly("s", "Sal", D(2025, 8, 1), 4, 300),
+                 today=D(2026, 4, 25))
+    assert row(b, "Pia")["flag"] == "Nothing paid toward this term, and nothing scheduled"
+    assert row(b, "Roy")["flag"] == "Nothing paid toward the term renewed Apr 15 2026, and nothing scheduled"
+    assert row(b, "Sal")["flag"] == "$2,400.00 of this term still owed, and nothing scheduled to collect it"
+    c = b["detail"]["counts"]
+    assert (c["nothing"], c["nothing_value"], c["owed"], c["owed_value"]) == (2, 6000.0, 1, 3600.0)
+
+
 # ── the engine, projecting it ───────────────────────────────────────────────────────────────────
 
 def books_with(saved=None):
