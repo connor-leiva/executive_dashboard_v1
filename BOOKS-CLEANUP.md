@@ -45,7 +45,7 @@ recommendation text). A different workspace's cleanup would be a different file.
 | The tab exists only while a file is loaded | `backend/app/services/tabs.py` (`_has_cleanup`) |
 | Command-line loader | `backend/scripts/load_books_cleanup.py` |
 | Frontend | `frontend/src/cleanup/` (shell `Cleanup.jsx`, one file per page) |
-| Tests | `backend/tests/test_books_cleanup.py`, `test_books_cleanup_live.py`, `test_migration_0093_cleanup.py` |
+| Tests | `backend/tests/test_books_cleanup.py`, `test_books_cleanup_live.py`, `test_books_cleanup_forward_fixes.py`, `test_migration_0093_cleanup.py` |
 
 ## The pages
 
