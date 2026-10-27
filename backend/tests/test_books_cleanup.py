@@ -664,9 +664,10 @@ def test_the_forward_view_accrues_the_partner_share_as_the_books_do():
     assert [rows[k]["share"] for k in sorted(rows)] == [1110.0, 610.0, 1210.0, 450.0, 450.0]
     # paid: 800 a month on the books, then the assumption's 100 (month 3 had a real payment, so it's that)
     assert (f["summary"]["earned"], f["summary"]["paid"], f["summary"]["ahead"]) == (3830.0, 2600.0, -1230.0)
-    # what the Statement adds for the months ahead: 2.5 months of plan, the contracts, the projected shares
+    # what the Statement adds for the months ahead: 2.5 months of plan, the contracts, the projected shares (month 3's
+    # 1,210 less the 1,110 the books already hold for it, then 450 and 450)
     assert f["future_by_line"]["Programs and coaching"] == 3500.0
-    assert f["future_by_line"]["Staff and contractors"] == 1375.0 and f["future_by_line"]["Partner profit shares"] == 2110.0
+    assert f["future_by_line"]["Staff and contractors"] == 1375.0 and f["future_by_line"]["Partner profit shares"] == 1000.0
 
 
 def test_the_meetings_assumptions_and_the_budget_move_the_forecast():

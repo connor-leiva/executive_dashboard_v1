@@ -231,14 +231,20 @@ def _forward_change(data: dict, f: dict, head: str, field: str, value, text):
     partner)."""
     months = {s["key"] for s in f["schedule"] if s["key"] <= f["horizon"]}
 
-    def dollars(v, top=10_000_000):
+    def number(v, top, bad, out=None):
+        """A number from zero to `top`, to the cent; `bad` is what's said when it isn't a number, `out` when it's
+        outside that range."""
         try:
             x = float(v)
         except (TypeError, ValueError):
-            raise InputError("An amount in dollars.")
+            raise InputError(bad)
         if not 0 <= x <= top or x != x:
-            raise InputError("An amount in dollars, from zero up.")
+            raise InputError(out or bad)
         return round(x, 2)
+
+    dollars = lambda v: number(v, 10_000_000, "An amount in dollars.", "An amount in dollars, from zero up.")
+    percent = lambda v: number(v, 100, "A percentage from 0 to 100.")
+    members = lambda v: number(v, 1000, "A number of members, 0 to 1,000.")
 
     def month(v):
         if v not in months:
@@ -261,7 +267,7 @@ def _forward_change(data: dict, f: dict, head: str, field: str, value, text):
     if field not in has:
         raise InputError(f"Nothing to change at {head}/{field}.")
     if field in ("commission_pct", "renew_pct"):
-        return dollars(value, 100)
+        return percent(value)
     if field == "partner_pay":
         return dollars(value)
     if field == "partner_end":
@@ -273,7 +279,7 @@ def _forward_change(data: dict, f: dict, head: str, field: str, value, text):
     if field == "repay":
         return when(value, (f["assumptions"].get("repay") or {}).get("label") or "A repayment")
     if field == "new_members":
-        return dollars(value, 1000)
+        return members(value)
     if field == "new_value":
         return dollars(value)
     raise InputError(f"Nothing to change at {head}/{field}.")
@@ -1542,13 +1548,18 @@ class Books:
         commission = lambda k: float(asm.get("commission_pct") or 0) / 100 * collected(k)
         pay_of = lambda k: float(asm.get("partner_pay") or 0) if k <= (asm.get("partner_end") or "") else 0.0
         frac = self.d["period"]["salary_fraction"]
+        # the month the books end in opens the horizon: its row is the whole month, the books' part and the rest of it
+        first = horizon[0] if horizon else None
+        last_m = next((m for m in self.MONTHS if f"{year}-{m:02d}" == first), None)
 
         def salary_by(k):
-            """The owner's salary to date in k's calendar year, ahead of a partner whose agreement puts it first."""
+            """The owner's salary to date in k's calendar year, ahead of a partner whose agreement puts it first: through
+            the books' last day for a month the books alone cover, through the month's end for a projected one -- the
+            month the books end in too, whose row is the whole month's profit."""
             if not sal:
                 return 0.0
             m = int(k[5:7])
-            return sal * (float(frac[str(m)]) if int(k[:4]) == year and str(m) in frac else m / 12)
+            return sal * (float(frac[str(m)]) if int(k[:4]) == year and str(m) in frac and k != first else m / 12)
 
         rows, cum, base = [], defaultdict(float), defaultdict(float)
         tot = {"earned": 0.0, "paid": 0.0}
@@ -1565,14 +1576,16 @@ class Books:
                          "share": _r(share), "earned": _r(tot["earned"]), "paid_month": _r(pay), "paid": _r(tot["paid"]),
                          "ahead": _r(tot["paid"] - tot["earned"]), "projected": projected})
 
-        first = horizon[0] if horizon else None
+        from_books = bool((f.get("cash") or {}).get("from_books"))
         for m in self.MONTHS:
             k = f"{year}-{m:02d}"
             rev = sum(self.corr[(co, x, m)] for x in self.REVENUE)
             cost = sum(self.corr[(co, x, m)] for x in self.COSTS)
             if k == first:      # the month the books end in: actual so far, then the rest of it projected
-                step(k, rev + earned(k), cost + running * frac0 + retreats(k) + commission(k), True,
-                     paid_m[m] or pay_of(k))
+                # the partner's pay that month: for a block whose cash starts from the books' last day, what the books
+                # paid and then the rest of the month at the forecast's pay, as the cash flow pays it
+                pay = paid_m[m] + pay_of(k) * frac0 if from_books else (paid_m[m] or pay_of(k))
+                step(k, rev + earned(k), cost + running * frac0 + retreats(k) + commission(k), True, pay)
             else:
                 step(k, rev, cost, False, paid_m[m])
         for k in horizon[1:]:
@@ -1585,7 +1598,9 @@ class Books:
             by_line[x] += v * months_ahead
         for x, what in (f.get("plan_from") or {}).items():
             by_line[x] += sum((retreats if what == "retreats" else commission)(k) for k in horizon)
-        by_line["Partner profit shares"] += sum(r["share"] for r in future)
+        # the books already hold the partner's share of the month they end in, as far as they go, and that month's row
+        # is the whole month's: the months ahead add only the rest of it
+        by_line["Partner profit shares"] += sum(r["share"] for r in future) - self.share.get((co, last_m), 0.0)
         bs = self.balance_sheet(co)
         # cash: from the block's balance, a whole month at a time (the file's is the month before the books end); or
         # from the corrected books' bank accounts on their last day, when only the rest of that month is ahead
