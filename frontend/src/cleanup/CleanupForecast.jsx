@@ -60,26 +60,119 @@ export function Tile({ label, value, sub, loss }) {
 
 /* The revenue still to be earned, month by month: the dark part was already paid, the light part is still to come.
    A first month with nothing left in it (the books end on its last day) isn't drawn. */
-function Bars({ schedule: all }) {
-  const schedule = all.filter((r, i) => i > 0 || r.from_paid + r.from_future > 0);
+const monthLabel = (r, i) => (i === 0 ? r.label.split(",")[0] : r.label.replace(" 20", " ’"));
+// a bar's figure: whole thousands from $10k, one decimal under it, dollars under $1k -- never a bare "0k"
+const short$ = (v) => (v >= 9950 ? `${Math.round(v / 1000)}k` : v >= 999.5 ? `${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`);
+
+/* The months the chart draws: not a first month with nothing left in it (the books end on its last day), nor months
+   at the end with nothing in them. */
+const drawn = (all) => {
+  const total = (r) => r.from_paid + r.from_future;
+  const out = all.filter((r, i) => i > 0 || total(r) > 0.5);
+  while (out.length && total(out[out.length - 1]) <= 0.5) out.pop();
+  return out;
+};
+
+function Bars({ schedule: all, pick, onPick }) {
+  const schedule = drawn(all);
   const max = Math.max(1, ...schedule.map((r) => r.from_paid + r.from_future));
-  const W = 900, H = 190, bw = W / Math.max(1, schedule.length);
+  // TOP keeps the tallest bar's figure inside the chart: the bars scale to the room under it
+  const W = 900, H = 190, TOP = 20, bw = W / Math.max(1, schedule.length), room = H - TOP;
+  const open = (k) => onPick(pick === k ? null : k);
   return (
-    <svg viewBox={`0 0 ${W} ${H + 34}`} style={{ width: "100%", height: "auto", display: "block" }} role="img"
-         aria-label="Revenue still to be earned, month by month: already paid, and payments still to come">
+    <svg viewBox={`0 0 ${W} ${H + 34}`} style={{ width: "100%", height: "auto", display: "block" }} role="group"
+         aria-label="Revenue still to be earned, month by month: already paid, and payments still to come. Each month opens to what it's made of.">
       {schedule.map((r, i) => {
-        const hp = (r.from_paid / max) * H, hf = (r.from_future / max) * H;
+        const v = r.from_paid + r.from_future;
+        const hp = (r.from_paid / max) * room, hf = (r.from_future / max) * room;
+        const on = pick === r.key, dim = pick && !on;
         return (
-          <g key={r.key} transform={`translate(${i * bw + 6},0)`}>
-            <rect x="0" y={H - hp - hf} width={bw - 12} height={hf} fill={L.accentMuted} opacity="0.55" rx="3" />
-            <rect x="0" y={H - hp} width={bw - 12} height={hp} fill={L.accentInk} rx="3" />
-            <text x={(bw - 12) / 2} y={H - hp - hf - 5} textAnchor="middle" fontSize="11" fontFamily={F.num} fill={L.bodyDim}>
-              {Math.round((r.from_paid + r.from_future) / 1000)}k</text>
-            <text x={(bw - 12) / 2} y={H + 16} textAnchor="middle" fontSize="10.5" fontFamily={F.num} fill={L.faint}>
-              {i === 0 ? r.label.split(",")[0] : r.label.replace(" 20", " ’")}</text>
+          <g key={r.key} transform={`translate(${i * bw + 6},0)`} role="button" tabIndex={0} style={{ cursor: "pointer", outline: "none" }}
+             aria-pressed={on} aria-label={`${monthLabel(r, i)}: ${money(v)}, ${money(r.from_paid)} already paid. Show what it's made of`}
+             onClick={() => open(r.key)}
+             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(r.key); } }}>
+            <title>{`${monthLabel(r, i)}: ${money(v)} (${money(r.from_paid)} already paid). Click for what it's made of.`}</title>
+            {/* the whole column answers the click, not only the bar */}
+            <rect x="-6" y="0" width={bw} height={H + 30} fill={on ? L.colHead : "transparent"} rx="6" />
+            <g opacity={dim ? 0.4 : 1}>
+              <rect x="0" y={H - hp - hf} width={bw - 12} height={hf} fill={L.accentMuted} opacity="0.55" rx="3" />
+              <rect x="0" y={H - hp} width={bw - 12} height={hp} fill={L.accentInk} rx="3" />
+              <text x={(bw - 12) / 2} y={Math.max(13, H - hp - hf - 5)} textAnchor="middle" fontSize="11" fontFamily={F.num}
+                    fill={on ? L.deep : L.bodyDim} fontWeight={on ? 700 : 400} style={{ textDecoration: "underline dotted" }}>
+                {short$(v)}</text>
+              <text x={(bw - 12) / 2} y={H + 16} textAnchor="middle" fontSize="10.5" fontFamily={F.num} fill={on ? L.deep : L.faint}>
+                {monthLabel(r, i)}</text>
+            </g>
           </g>);
       })}
     </svg>
+  );
+}
+
+/* One month of the chart, opened: what was already paid and what's still to come, and the members (or contracts) it
+   comes from, largest first. Their names are the program's roster, so someone without its tab gets the totals and a
+   sentence saying where the names are (`earning.restricted`: the server never sent them). */
+const FIRST = 12;            // the largest, before "Show all": a month can be made of eighty contracts
+
+function MonthDrill({ f, k, onClose }) {
+  const [all, setAll] = useState(false);
+  const i = f.schedule.findIndex((r) => r.key === k);
+  const r = f.schedule[i];
+  if (!r) return null;
+  const total = r.from_paid + r.from_future;
+  const e = f.earning;
+  const live = f.source === "live";
+  const rows = (e?.members || []).map((m) => {
+    const [p, fu] = m.months?.[k] || [0, 0];
+    return { name: m.name, url: m.source_url, p, fu, t: p + fu };
+  }).filter((x) => x.t > 0.005).sort((a, b) => b.t - a.t);
+  const sum = rows.reduce((a, x) => a + x.t, 0);
+  const cell = { padding: "6px 10px", borderTop: `1px solid ${L.ruleLine}` };
+  const who = live ? "member" : "contract";
+  return (
+    <div style={{ margin: "0 14px 14px", border: `1px solid ${L.ruleInner}`, borderRadius: 12, background: L.paper }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap",
+                    padding: "10px 14px", fontFamily: F.body, fontSize: 13, color: L.deep }}>
+        <span><strong>{monthLabel(r, i)}: {money(total)}</strong>
+          <span style={{ color: L.muted }}> · {money(r.from_paid)} already paid · {money(r.from_future)} still to come</span></span>
+        <Button onClick={onClose} title="Close this month">Close</Button>
+      </div>
+      {e?.restricted ? (
+        <div style={{ padding: "0 14px 12px" }}><Note>Who it&rsquo;s from, {who} by {who}, is on {e.roster_tab
+          ? `${e.roster_tab}’s roster` : "the program’s roster"}. You don&rsquo;t have that tab, so it isn&rsquo;t shown here.</Note></div>
+      ) : !e ? (
+        <div style={{ padding: "0 14px 12px" }}><Note>The loaded file doesn&rsquo;t carry each {who}&rsquo;s part of the month yet;
+          the next file loaded will.</Note></div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 480, fontFamily: F.body, fontSize: 12.5 }}>
+            <thead><tr>{[live ? "Member" : "Contract", "Already paid", "Still to come", "This month"].map((h, j) => (
+              <th key={h} style={{ ...EYEBROW, textAlign: j ? "right" : "left", padding: "8px 10px", background: L.colHead }}>{h}</th>))}</tr></thead>
+            <tbody>
+              {(all ? rows : rows.slice(0, FIRST)).map((x, j) => (
+                <tr key={x.name + j}>
+                  <td style={{ ...cell, color: L.deep, fontWeight: 600 }}>{x.url
+                    ? <a href={x.url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{x.name}</a> : x.name}</td>
+                  {[x.p, x.fu, x.t].map((v, n) => (
+                    <td key={n} style={{ ...cell, ...NUM, color: v ? L.deep : L.ghost }}>{money(v)}</td>))}
+                </tr>))}
+              {rows.length > FIRST ? (
+                <tr><td colSpan={4} style={{ ...cell, padding: "6px 10px" }}>
+                  <Button onClick={() => setAll((x) => !x)}>{all ? `Show the largest ${FIRST}` : `Show all ${rows.length}`}</Button>
+                </td></tr>) : null}
+              <tr>
+                <td style={{ ...cell, fontWeight: 700, color: L.deep }}>{rows.length} {who}{rows.length === 1 ? "" : "s"}</td>
+                {[rows.reduce((a, x) => a + x.p, 0), rows.reduce((a, x) => a + x.fu, 0), sum].map((v, n) => (
+                  <td key={n} style={{ ...cell, ...NUM, fontWeight: 700, color: L.deep }}>{money(v)}</td>))}
+              </tr>
+            </tbody>
+          </table>
+          {Math.abs(sum - total) >= 0.5 ? (
+            <div style={{ padding: "6px 14px 10px", fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+              The {who}s add to {money(sum)}; the bar&rsquo;s {money(total)} is the same figures rounded once rather than each.</div>) : null}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -284,6 +377,9 @@ export default function CleanupForecast({ ov, rev, onSaved }) {
   const s = f?.summary;
   const through = f?.statement?.through;
   const live = f?.source === "live";
+  // the month opened on the chart, for the company it was opened on (switching company closes it)
+  const [pick, setPick] = useState(null);
+  const month = pick && pick.co === f?.company && f?.schedule.some((r) => r.key === pick.k) ? pick.k : null;
   return (
     <Panel>
       <Bar label="Forecast" right={f ? `${short(f.company)} · through ${through}` : ""}>
@@ -312,12 +408,14 @@ export default function CleanupForecast({ ov, rev, onSaved }) {
             </Note>
             <Sheet title="Revenue still to be earned, month by month">
               <div style={{ padding: "8px 14px 4px", overflowX: "auto" }}>
-                <div style={{ minWidth: 560 }}><Bars schedule={f.schedule} /></div></div>
-              <div style={{ display: "flex", gap: 16, padding: "0 18px 12px", fontFamily: F.body, fontSize: 12, color: L.bodyDim }}>
+                <div style={{ minWidth: 560 }}><Bars schedule={f.schedule} pick={month} onPick={(k) => setPick(k && { co: f.company, k })} /></div></div>
+              <div style={{ display: "flex", gap: 16, padding: "0 18px 12px", fontFamily: F.body, fontSize: 12, color: L.bodyDim, flexWrap: "wrap" }}>
                 <span><span style={{ display: "inline-block", width: 10, height: 10, background: L.accentInk, borderRadius: 2 }} /> already paid</span>
                 <span><span style={{ display: "inline-block", width: 10, height: 10, background: L.accentMuted, opacity: 0.55, borderRadius: 2 }} />
                   {" "}{live ? "payments still to come" : "installments still to come"}</span>
+                <span style={{ marginLeft: "auto", color: L.muted }}>Click a month to see what it&rsquo;s made of.</span>
               </div>
+              {month ? <MonthDrill key={`${f.company}:${month}`} f={f} k={month} onClose={() => setPick(null)} /> : null}
             </Sheet>
             <div className="cf-two">
               <Assumptions f={f} can={can} onSaved={onSaved} />

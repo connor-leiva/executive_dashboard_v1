@@ -63,7 +63,7 @@ def _records(t, biz):
                          occurred_on=dt.date(2025, 11, 3), meta={})]
 
 
-async def _tenant(s, slug, program_tabs, people):
+async def _tenant(s, slug, program_tabs, people, data=None):
     """A workspace with the invented file loaded and a membership business holding the three members. Its tab is the
     Forum's (`program_tabs`, the way Spring's is), or the business's own key when there's none."""
     t = Tenant(slug=slug, name=slug.title(), plan="portfolio")
@@ -79,7 +79,7 @@ async def _tenant(s, slug, program_tabs, people):
              for who, (role, tabs) in people.items()}
     s.add_all(users.values())
     await s.flush()
-    await load_dataset(s, t.id, forwarded(keyed()), user_id=users["owner"].id)
+    await load_dataset(s, t.id, data or forwarded(keyed()), user_id=users["owner"].id)
     await s.commit()
     return {who: make_token(u.id, t.id, 0) for who, u in users.items()}
 
@@ -135,8 +135,11 @@ async def test_without_the_forum_tab_the_projection_comes_without_the_members(ct
     assert forum["detail"] == {"counts": whole["detail"]["counts"], "left_out_count": 1, "restricted": True,
                                "roster_tab": "The Forum"}
     assert forum["detail"]["counts"]["nothing"] == 1 and forum["detail"]["counts"]["due"] == 2
+    # what each month is made of is the members by name too: held back the same way
+    assert forum["earning"] == {"restricted": True, "roster_tab": "The Forum"} and whole["earning"]["members"]
     # every figure is the same, and the file's own projection is untouched
-    assert {k: v for k, v in forum.items() if k != "detail"} == {k: v for k, v in whole.items() if k != "detail"}
+    assert ({k: v for k, v in forum.items() if k not in ("detail", "earning")}
+            == {k: v for k, v in whole.items() if k not in ("detail", "earning")})
     assert body["forwards"][0] == full["forwards"][0] and body["forwards"][0]["company"] == COHORT
     assert body["forward"] == full["forward"] and body["budgets"] == full["budgets"]
     # and nobody's name, link or flag is anywhere in what was sent
@@ -176,11 +179,18 @@ async def test_no_read_on_the_tab_carries_the_members_without_the_forum_tab(ctx,
     Nobody's name, CRM link, email or flag in any of them. The reads come from the router itself, so a read added
     later without a place here fails this test rather than going unchecked (the Ask, a POST, is the test above)."""
     monkeypatch.setattr(live, "_today", lambda: TODAY)
+    assert await _sweep(ctx, "rosterco", NAMES)                        # the members are there to be held back
+
+
+async def _sweep(tokens, slug, names):
+    """Every GET the router has, as the bookkeeper (Books Cleanup only) and the owner: none of `names` (nor a CRM link,
+    an email or a flag) in anything the bookkeeper is sent. Whether the owner's responses carry any of them."""
     from app.routers.books_cleanup import router
     base = "/api/v1"
     async with _client() as c:
-        ov = (await c.get(f"{base}/cleanup", headers=_H(ctx["owner"]))).json()
-        pairs = [p["pair"] for p in (await c.get(f"{base}/cleanup/intercompany", headers=_H(ctx["owner"]))).json()["pairs"]]
+        H = lambda who: _H(tokens[who], slug)
+        ov = (await c.get(f"{base}/cleanup", headers=H("owner"))).json()
+        pairs = [p["pair"] for p in (await c.get(f"{base}/cleanup/intercompany", headers=H("owner"))).json()["pairs"]]
         each = lambda path, key, values: [f"{path}?{key}={v}" for v in values]
         urls = {
             "/cleanup": ["/cleanup"],
@@ -202,14 +212,68 @@ async def test_no_read_on_the_tab_carries_the_members_without_the_forum_tab(ctx,
         owner_saw = False
         for path in (u for us in urls.values() for u in us):
             for who in ("keeper", "owner"):
-                r = await c.get(base + path, headers=_H(ctx[who]))
+                r = await c.get(base + path, headers=H(who))
                 assert r.status_code in (200, 403), (who, path, r.text[:200])
                 if who == "owner":
-                    owner_saw = owner_saw or any(n in r.text for n in NAMES)
+                    owner_saw = owner_saw or any(n in r.text for n in names)
                     continue
-                for leak in NAMES + [CRM, "qm@club.test", "Nothing paid toward this term"]:
+                for leak in names + [CRM, "qm@club.test", "Nothing paid toward this term"]:
                     assert leak not in r.text, (path, leak)
-    assert owner_saw                                                   # the members are there to be held back
+    return owner_saw
+
+
+# ── what each month of the chart is made of ─────────────────────────────────────────────────────────
+
+BC_NAMES = ["Cordelia Fenwick", "Peregrine Osei"]     # the file's own projected company's contracts, by name
+
+
+def _file_with_earning():
+    data = forwarded(keyed())
+    data["forward"]["earning"] = {"members": [{"name": BC_NAMES[0], "months": {"2026-04": [300.0, 100.0]}},
+                                              {"name": BC_NAMES[1], "months": {"2026-05": [0.0, 250.0]}}]}
+    return data
+
+
+@pytest.fixture(scope="module")
+async def progs():
+    """A workspace whose membership business carries both programs' tabs, the way Spring's carries the Forum's and
+    beCollective's, and a file whose own projection names its contracts month by month."""
+    async with SessionLocal() as s:
+        return await _tenant(s, "progco", ["forum", "becollective"], {
+            "owner": ("owner", None), "keeper": ("member", ["cleanup"]),
+            "forum_reader": ("member", ["cleanup", "forum"]), "bc_reader": ("member", ["cleanup", "becollective"])},
+            data=_file_with_earning())
+
+
+async def test_each_months_members_go_where_each_programs_roster_goes(ctx, progs, monkeypatch):
+    """The chart opens each month to the members (the Forum) or the contracts (the file's own company) it's made of:
+    each program's names go to owners, admins and whoever has that program's tab, and to nobody else -- the file's
+    own projection included, in both places the response carries it."""
+    monkeypatch.setattr(live, "_today", lambda: TODAY)
+    names = lambda f: sorted(m["name"] for m in (f.get("earning") or {}).get("members", []))
+    async with _client() as c:
+        for who, sees_bc, sees_forum in (("owner", True, True), ("keeper", False, False),
+                                         ("forum_reader", False, True), ("bc_reader", True, False)):
+            r = await _forward(c, progs[who], "progco")
+            body = r.json()
+            own, forum = body["forwards"][0], _forum(body)
+            assert names(own) == (sorted(BC_NAMES) if sees_bc else []), who
+            assert names(forum) == (sorted(NAMES[:2]) if sees_forum else []), who
+            assert bool(own["earning"].get("restricted")) is not sees_bc and bool(forum["earning"].get("restricted")) is not sees_forum
+            if not sees_bc:
+                assert own["earning"]["roster_tab"], who                 # the page says whose roster it is
+            assert body["forward"] == own, who                          # the second copy, held back the same way
+            for n in BC_NAMES:
+                assert (n in r.text) is sees_bc, (who, n)
+            for n in NAMES[:2]:
+                assert (n in r.text) is sees_forum, (who, n)
+
+
+async def test_no_read_on_the_tab_carries_either_programs_names_without_its_tab(ctx, progs, monkeypatch):
+    """The same sweep of every read, in the workspace whose file names its own company's contracts month by month:
+    the bookkeeper is sent neither program's names, anywhere; the owner's responses do carry them."""
+    monkeypatch.setattr(live, "_today", lambda: TODAY)
+    assert await _sweep(progs, "progco", BC_NAMES + NAMES[:2])
 
 
 # ── when the projection doesn't build ─────────────────────────────────────────────────────────────

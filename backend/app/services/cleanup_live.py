@@ -217,7 +217,7 @@ def build(data: dict, members, payments, subs, lost, today: dt.date, business: s
     coll = defaultdict(float)
     due = {k: {"earned": 0.0, "collected": 0.0, "count": 0, "value": 0.0} for k in keys}
     c = {"members": 0, "contracted": 0.0, "collected": 0.0, "still_to_collect": 0.0, "earned_so_far": 0.0}
-    rows, left_out = [], []
+    rows, left_out, earning = [], [], []
     n_flag = {"nothing": 0, "nothing_value": 0.0, "owed": 0, "owed_value": 0.0, "from_billing": 0,
               "from_billing_value": 0.0, "joined": 0, "joined_value": 0.0, "renewed": 0, "renewed_value": 0.0,
               "due": 0, "due_value": 0.0, "add_ons": 0}
@@ -289,6 +289,7 @@ def build(data: dict, members, payments, subs, lost, today: dt.date, business: s
         row = {"name": name, "plan": plan, "plan_from_crm": said, "value": _r(v), "source_url": m.source_url,
                "renewal": None, "flag": None}
         flags = []
+        months = defaultdict(lambda: [0.0, 0.0])           # this member's part of each month's bar: paid / to come
         for kind, ts, te in terms:
             lo, hi = ts - early, te - early        # this term's payments (see EARLY)
             if kind == "due":
@@ -344,6 +345,8 @@ def build(data: dict, members, payments, subs, lost, today: dt.date, business: s
                 ahead_paid -= from_paid
                 sched[k][0] += from_paid
                 sched[k][1] += amt - from_paid
+                months[k][0] += from_paid
+                months[k][1] += amt - from_paid
             c["contracted"] += v
             c["collected"] += paid
             c["still_to_collect"] += owed
@@ -383,6 +386,9 @@ def build(data: dict, members, payments, subs, lost, today: dt.date, business: s
             n_flag["from_billing_value"] += v
         c["members"] += 1
         rows.append(row)
+        mine = {k: [_r(p), _r(f)] for k, (p, f) in sorted(months.items()) if p + f > 0.005}
+        if mine:
+            earning.append({"name": name, "source_url": m.source_url, "months": mine})
 
     # the renewal rate starts from the last twelve months: of everyone who was a member, the share still here
     year_ago = today - dt.timedelta(days=365)
@@ -399,6 +405,9 @@ def build(data: dict, members, payments, subs, lost, today: dt.date, business: s
         "contracts": {k: (v if k == "members" else _r(v)) for k, v in c.items()},
         "schedule": [{"key": k, "label": label(k, i), "from_paid": _r(sched[k][0]), "from_future": _r(sched[k][1])}
                      for i, k in enumerate(keys)],
+        # the schedule member by member (what each month's bar is made of): the roster's names, so they go only where
+        # the roster goes (routers/books_cleanup.py)
+        "earning": {"members": sorted(earning, key=lambda x: x["name"])},
         "collections": {k: _r(v) for k, v in coll.items() if k in in_view},
         "renewals": {k: {**r, "earned": _r(r["earned"]), "collected": _r(r["collected"]), "value": _r(r["value"])}
                      for k, r in due.items() if r["count"] or r["earned"] or r["collected"]},

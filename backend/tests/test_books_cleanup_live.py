@@ -168,6 +168,23 @@ def test_the_renewal_rate_starts_from_the_last_twelve_months_and_new_members_fro
     assert b["mix"]["pif"] == 0.5                                 # Ada and Ed of the four with a plan and a value
 
 
+def test_each_months_bar_is_made_of_its_members():
+    """What the chart opens to: every member's part of each month, the paid part and the part still to come, adding
+    back to the bar -- the same release of what's paid first, member by member."""
+    b = block()
+    names = {m["name"] for m in b["detail"]["members"]}
+    keys = {s["key"] for s in b["schedule"]}
+    e = b["earning"]["members"]
+    assert {m["name"] for m in e} <= names and all(set(m["months"]) <= keys for m in e)
+    for s in b["schedule"]:
+        p = sum(m["months"].get(s["key"], [0, 0])[0] for m in e)
+        f = sum(m["months"].get(s["key"], [0, 0])[1] for m in e)
+        assert p == pytest.approx(s["from_paid"], abs=0.02) and f == pytest.approx(s["from_future"], abs=0.02), s["key"]
+    ada = next(m for m in e if m["name"] == "Ada")                  # paid in full last July: all of it already paid
+    assert all(fu == 0 for _, fu in ada["months"].values()) and sum(p for p, _ in ada["months"].values()) > 0
+    assert all(m["name"] != "Di" for m in e)                         # left out: no part of any month
+
+
 # ── what production's records showed (2026-10-26): each case, invented ─────────────────────────────
 
 def paid_from(name, email, day, amount, **meta):
@@ -313,6 +330,16 @@ def test_the_files_own_projection_is_untouched_by_a_second():
     bk, b = books_with()
     assert bk.forwards([b])[0] == bk.forward()
     assert bk.projected([b, {**b}])[1:] == [b]                    # a company is projected once
+
+
+def test_each_projection_carries_what_its_months_are_made_of():
+    _, f, b = club()
+    assert f["earning"] == b["earning"] and f["earning"]["members"]
+    data = forwarded()
+    data["forward"]["earning"] = {"members": [{"name": "A contract", "months": {"2026-04": [10.0, 5.0]}}]}
+    bk = eng.Books(data, eng.merged_inputs(data, None))
+    assert bk.forward()["earning"] == data["forward"]["earning"]
+    assert eng.Books(forwarded(), eng.merged_inputs(forwarded(), None)).forward()["earning"] is None   # a file without it
 
 
 def test_revenue_ahead_is_the_terms_plus_the_renewals_at_the_rate():

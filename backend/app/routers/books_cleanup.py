@@ -58,6 +58,9 @@ TAB = "cleanup"
 # The membership tab: the Forum's roster lives there (GET /forum checks the same grant), so its members one by one
 # in a projection from their records go only to someone who could read them there.
 ROSTER_TAB = "forum"
+# The file's own projected company's members by name (beCollective's contracts, in what each month of its months ahead
+# is made of) are that program's roster: its tab's, so they go where that roster goes.
+FILE_ROSTER_TAB = "becollective"
 MAX_BYTES = 25 * 1024 * 1024
 # moving, splitting or taking out a single transaction moves money between companies too ("tx")
 DECISIONS = {"ads", "rates", "salary", "holdco", "bc_basis", "staff", "items", "charges", "tx",
@@ -129,28 +132,31 @@ def _may_decide(user: User) -> bool:
     return user.role in ("owner", "admin")
 
 
-async def _sees_roster(s: AsyncSession, user: User) -> bool:
-    """Whether this person sees the Forum's members one by one in its projection. Owners and admins do; anyone else
-    only with the membership tab, the same grant that opens the roster itself."""
+async def _sees_roster(s: AsyncSession, user: User, tab: str = ROSTER_TAB) -> bool:
+    """Whether this person sees a program's members one by one in its projection. Owners and admins do; anyone else
+    only with the program's tab, the same grant that opens its roster there."""
     if _may_decide(user):
         return True
     try:
-        await assert_tab(user, s, ROSTER_TAB)
+        await assert_tab(user, s, tab)
     except HTTPException:
         return False
     return True
 
 
 def _counts_only(f: dict, tab: str | None) -> dict:
-    """A projection from the members' records without its members: every figure and count stays, the list (names,
-    amounts, renewal dates, flags, CRM links) and who was left out go, and the block says so. The counts are kept
-    by name rather than the list taken out by name, so whatever a member's row grows to hold stays behind too. The
-    file's own projection has no members' list and is passed as it is."""
+    """A projection without its members: every figure and count stays; the list (names, amounts, renewal dates,
+    flags, CRM links), who was left out, and each month's members (`earning`, what the chart opens to) go, and the
+    block says so. The counts are kept by name rather than the list taken out by name, so whatever a member's row
+    grows to hold stays behind too."""
+    out = dict(f)
+    if f.get("earning") is not None:
+        out["earning"] = {"restricted": True, "roster_tab": tab}
     det = f.get("detail")
-    if f.get("source") == "file" or not det:
-        return f
-    return {**f, "detail": {"counts": det.get("counts") or {}, "left_out_count": len(det.get("left_out") or []),
-                            "restricted": True, "roster_tab": tab}}
+    if f.get("source") != "file" and det:
+        out["detail"] = {"counts": det.get("counts") or {}, "left_out_count": len(det.get("left_out") or []),
+                         "restricted": True, "roster_tab": tab}
+    return out
 
 
 def _bad(e: Exception):
@@ -248,11 +254,14 @@ async def forward(user: User = Depends(current_user), s: AsyncSession = Depends(
     left out for someone without the membership tab (_sees_roster); the figures are the same."""
     bk, _, _ = await _books(s, user)
     live, err = await _live(s, user, bk)
-    forwards = bk.forwards(live)
-    if not await _sees_roster(s, user):
-        tab = next((t["label"] for t in await tenant_tab_descriptors(s, user.tenant_id) if t["key"] == ROSTER_TAB), None)
-        forwards = [_counts_only(f, tab) for f in forwards]
-    return {"forwards": forwards, "forward": bk.forward(),
+    labels = {t["key"]: t["label"] for t in await tenant_tab_descriptors(s, user.tenant_id)}
+    forwards = []
+    for f in bk.forwards(live):
+        tab = ROSTER_TAB if f.get("source") == "live" else FILE_ROSTER_TAB
+        forwards.append(f if await _sees_roster(s, user, tab) else _counts_only(f, labels.get(tab)))
+    # `forward`, the file's own, is the same block as the first: passed as it was held back, not afresh
+    own = forwards[0] if bk.d.get("forward") and forwards else None
+    return {"forwards": forwards, "forward": own,
             "budgets": {c: bk.budget(c) for c in bk.companies}, "can_decide": _may_decide(user), "live_error": err}
 
 

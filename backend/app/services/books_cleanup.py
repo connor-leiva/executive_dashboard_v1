@@ -1682,7 +1682,7 @@ class Books:
                          if "renew_pct" in asm else None),
             "joins": ({"members": _r(n_new * max(0, len(horizon) - 1)), "earned": _r(sum(joins[k][0] for k in horizon))}
                       if "new_members" in asm else None),
-            "retention": f.get("retention"), "detail": f.get("detail"),
+            "retention": f.get("retention"), "detail": f.get("detail"), "earning": f.get("earning"),
             "deferred": {"start": _r(start_held), "rows": deferred, "books": books},
             "launches": launches,
             "cash": {**cash_from, "rows": cash, "runs_out": next((r["key"] for r in cash if r["close"] < 0), None)},

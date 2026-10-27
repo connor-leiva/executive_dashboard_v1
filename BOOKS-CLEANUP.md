@@ -117,7 +117,13 @@ balance to start from; and the Oct 19 meeting's assumptions as starting values. 
 * **Forecast**: what's contracted, collected, earned and still to earn; the partner's share accrued on
   each calendar year's profit exactly as the corrected books accrue it (tied out with the mockup: with
   the defaults Julie earns $121,010 by Aug 2027 against $385,000 paid; with the meeting's retreats and
-  10% commissions, $79,621); each launch's cost against what it contracted.
+  10% commissions, $79,621); each launch's cost against what it contracted. The chart of revenue still to be
+  earned opens month by month (click or Enter on a month): what was already paid and what's still to come, and the
+  contracts (beCollective) or members (the Forum) the month is made of, largest first -- `earning.members`, each
+  one's part of every month, added back to the bar to the cent's rounding. beCollective's comes from the file
+  (`forward.earning`, from the export's own per-contract schedule; files from v16 on carry it -- an older file says
+  it doesn't), the Forum's from its members' records. The bars leave room for the tallest one's figure, and a small
+  month reads in dollars or tenths of a thousand rather than "0k".
 * **Budget**: every company's cost lines (so far, the last three months' pace, share of revenue); the
   projected company's monthly plan, editable, starting from that pace (and the meeting's no ads).
 * **Cash flow**: the projected company's balance month by month from QuickBooks' Sep 30 balance
@@ -252,6 +258,11 @@ may ask. The key is the server's (`ANTHROPIC_API_KEY`, the model `ASSISTANT_MODE
   projection and counts without the list, and Forecast says where the names are. Nothing else on the tab carries
   them: Ask about this reads the file and the saved changes only, never the members' records, and the download below
   holds only what was saved.
+* **What each month of the Forecast chart is made of, by name** (`earning`) is each program's roster the same way:
+  the Forum's members to owners, admins and the Forum tab; beCollective's contracts to owners, admins and the
+  beCollective tab (`FILE_ROSTER_TAB`) -- in both copies of the file's own projection the response carries
+  (`forwards[0]` and `forward`). Anyone else opens a month to its totals and a sentence saying whose roster holds
+  the names. Pinned, with a sweep of every read for both programs' names, by `test_books_cleanup_live_access.py`.
 * **Loading a file**: owners and admins.
 * **Download saved changes** (`GET /cleanup/saved.json`, owners and admins): every saved change as one file
   (`axcion.books_cleanup_saved/1`: the loaded file's id and label, the version, the sparse `inputs`). With
