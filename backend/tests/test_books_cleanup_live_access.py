@@ -4,7 +4,7 @@ The Forum's projection from its members' records carries a list of them under it
 to pay, renewal dates, flags, links into the CRM). That list is the membership tab's roster, so it goes where the
 roster goes: owners, admins, and whoever has the Forum tab. Anyone else with Books Cleanup gets the same projection
 and the same counts, and the block says the list is held back. Nothing else on the tab carries the members: the Ask
-reads the file and the saved changes only.
+reads the file and the saved changes only, and every other read the router has is swept for them.
 
 On the invented three-company file (test_books_cleanup.py), the club gets three invented members with names no other
 part of the file uses, so finding one anywhere in a response is a leak:
@@ -168,6 +168,48 @@ async def test_the_ask_never_carries_the_members(ctx, monkeypatch):
     for system in seen:
         for leak in NAMES + [CRM]:
             assert leak not in system
+
+
+async def test_no_read_on_the_tab_carries_the_members_without_the_forum_tab(ctx, monkeypatch):
+    """Every read the tab has, as the bookkeeper with Books Cleanup only: every view's statement, the Forum's dues line,
+    every company's corrections, entries and balance, every pair, the transactions, decisions, items and the download.
+    Nobody's name, CRM link, email or flag in any of them. The reads come from the router itself, so a read added
+    later without a place here fails this test rather than going unchecked (the Ask, a POST, is the test above)."""
+    monkeypatch.setattr(live, "_today", lambda: TODAY)
+    from app.routers.books_cleanup import router
+    base = "/api/v1"
+    async with _client() as c:
+        ov = (await c.get(f"{base}/cleanup", headers=_H(ctx["owner"]))).json()
+        pairs = [p["pair"] for p in (await c.get(f"{base}/cleanup/intercompany", headers=_H(ctx["owner"]))).json()["pairs"]]
+        each = lambda path, key, values: [f"{path}?{key}={v}" for v in values]
+        urls = {
+            "/cleanup": ["/cleanup"],
+            "/cleanup/statement": each("/cleanup/statement", "view", ov["views"]),
+            "/cleanup/statement/line": [f"/cleanup/statement/line?view={CLUB}&line={x}" for x in ov["lines"]["revenue"]],
+            "/cleanup/forward": ["/cleanup/forward"],
+            "/cleanup/transactions": ["/cleanup/transactions"],
+            "/cleanup/corrections": each("/cleanup/corrections", "company", ov["companies"]),
+            "/cleanup/corrections.csv": each("/cleanup/corrections.csv", "company", ov["companies"]),
+            "/cleanup/balance": each("/cleanup/balance", "company", ov["companies"]),
+            "/cleanup/intercompany": ["/cleanup/intercompany"],
+            "/cleanup/intercompany/pair": each("/cleanup/intercompany/pair", "pair", pairs),
+            "/cleanup/saved.json": ["/cleanup/saved.json"],
+            "/cleanup/decisions": ["/cleanup/decisions"],
+            "/cleanup/items": ["/cleanup/items"],
+        }
+        assert {r.path for r in router.routes if "GET" in r.methods} == set(urls), "a read with no place in this sweep"
+        assert pairs and all(urls.values())
+        owner_saw = False
+        for path in (u for us in urls.values() for u in us):
+            for who in ("keeper", "owner"):
+                r = await c.get(base + path, headers=_H(ctx[who]))
+                assert r.status_code in (200, 403), (who, path, r.text[:200])
+                if who == "owner":
+                    owner_saw = owner_saw or any(n in r.text for n in NAMES)
+                    continue
+                for leak in NAMES + [CRM, "qm@club.test", "Nothing paid toward this term"]:
+                    assert leak not in r.text, (path, leak)
+    assert owner_saw                                                   # the members are there to be held back
 
 
 # ── when the projection doesn't build ─────────────────────────────────────────────────────────────

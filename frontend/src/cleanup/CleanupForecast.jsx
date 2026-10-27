@@ -111,9 +111,10 @@ function Assumptions({ f, can, onSaved }) {
                            onSave={(v) => save([{ path: at("renew_pct"), value: v }])} /></div>
             {ret && ret.lost12 ? <span style={{ fontSize: 11.5, color: L.ghost }}>
               Started from the last twelve months: {ret.lost12} of {ret.members + ret.lost12} members left.</span> : null}
-            {ret && !ret.lost12 ? <span style={{ fontSize: 11.5, color: L.flagInk }}>
-              No lost memberships are on record for the last twelve months, so this starts at 100%. Set it to the share
-              you expect to renew.</span> : null}
+            {/* the records' silence, not a forecast: flagged while it still stands at 100%, said plainly once it's set */}
+            {ret && !ret.lost12 ? <span style={{ fontSize: 11.5, color: a.renew_pct === 100 ? L.flagInk : L.ghost }}>
+              No lost memberships are on record for the last twelve months, so this {a.renew_pct === 100
+                ? "starts at 100%. Set it to the share you expect to renew." : "started at 100%."}</span> : null}
           </div>) : null}
         {"new_members" in a ? (
           <div style={row}><span>New members a month</span>

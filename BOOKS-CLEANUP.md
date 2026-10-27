@@ -162,7 +162,7 @@ partner (starting from the last three months' pace; the share accrues after the 
 puts it first, as the books do). Cash flow starts from the corrected books' bank accounts on their last day. The
 projection runs twelve months past the month the books end in. With **no lost memberships on record** for the last
 twelve months the renewal rate starts at 100%, and Forecast says so under it: that is the records' silence, not a
-forecast, so it is to be set to what's expected.
+forecast, so it is to be set to what's expected (flagged while it still stands at 100%, said plainly once it's set).
 
 The changes are saved under the company's name (`["forward", company, field]`, `["budget", company, line]`), so the
 file's own projected company keeps the flat shape it was first saved in, and validated against the block built at
@@ -186,7 +186,9 @@ so this can't be saved right now"), never as "Nothing to change", and nothing in
 Pinned by `test_books_cleanup_live.py` on the invented file plus six invented members, each control broken on
 purpose with a test failing every time. The file's own projection was compared before and after on the invented file
 with five sets of assumptions: identical. Who sees the members and the refused save are pinned by
-`test_books_cleanup_live_access.py` (three more invented members, whose names are searched for in the whole response).
+`test_books_cleanup_live_access.py` (three more invented members, whose names are searched for in the whole response
+-- and in every read the router has, as someone without the Forum tab: the list of reads is taken from the router, so
+a new one can't be added without being checked).
 
 ## What each posting is made of (Intercompany itemized, the entries in words)
 
