@@ -144,16 +144,25 @@ whose memberships renew every year. Its block isn't in the file: `services/clean
 * **the members**: the membership business's active GHL members (`member`): each one's contract value
   (`total_cost`), renewal and enrollment dates, and how they pay (in full, monthly, quarterly, installments).
   The Edge's members are their own records and stay out; so do its charges, event tickets and sponsorships;
-* **what they paid**: GHL Payments and the legacy Stripe account, deduplicated the way the Forum tab does it, matched
-  on the CRM contact and then on the email; **what's scheduled**: their active subscriptions (`project_charges`).
+* **what they paid**: GHL Payments and the legacy Stripe account, deduplicated the way the Forum tab does it; each
+  payment is the member's with its CRM contact, else the one member with its email, else the one member with its name
+  (the old account's charges carry no contact and are often paid from another address: on Oct 26 four members'
+  ~$70k came from a business card or a spouse's email). An email or a name two members share is nobody's.
+  **What's scheduled**: their active subscriptions (`project_charges`), matched the same way.
 
-A member's **term** is the twelve months before their renewal date, earned day by day (the books' rule for dues). On
-the books' last day, what they had paid toward it against what had been earned is the paid-ahead (deferred) or
-earned-ahead position; after it, the rest of the term is earned month by month (the paid part first), and what's
-still owed comes in as it has since the books' end and then as their subscription schedules it, never more than is
-owed. A member who **joined** since the books' end, or whose renewal is **already done** (the CRM's date moved on a
-year, or they've paid since the renewal date), is a contract in hand, counted in full. Every other renewal in the
-year ahead is **due**: counted at the renewal rate and paid the way that member pays.
+A member's **term** is the twelve months before their renewal date, earned day by day (the books' rule for dues).
+**Which payments pay for it**: those from a little before it opens to a little before the next one does -- 45 days
+for a lump, half a billing period otherwise (`EARLY`), the same at both ends -- so a card billing on any day gives each
+term exactly its year, and a renewal paid early pays for the term it was paid ahead of (one paid before the books' end
+is in their bank already: deferred, not collected again). A blank Payment Plan is read from what the member does: their
+subscription's charge against the year's value, else a year of regular payments as monthly, else in full. On the books'
+last day, what they had paid toward the term against what had been earned is the paid-ahead (deferred) or earned-ahead
+position; after it, the rest of the term is earned month by month (the paid part first), and what's still owed comes
+in as it has since the books' end and then as their subscription schedules it, never more than is owed. A member who
+**joined** since the books' end, or whose renewal is **already done** (the CRM's date moved on a year, or a real
+payment toward the new term has come -- half a regular one at least, so a $75 workbook or a $0 row doesn't renew
+anybody), is a contract in hand, counted in full. Every other renewal in the year ahead is **due**: counted at the
+renewal rate and paid the way that member pays (their subscription's own billing days, else the plan's).
 
 Forecast's assumptions for it: the **renewal rate** (starting from the last twelve months' retention: of everyone who
 was a member, the share still here), **new members a month** (none, to start) at **a year's value** (today's average),
@@ -166,11 +175,14 @@ forecast, so it is to be set to what's expected (flagged while it still stands a
 
 The changes are saved under the company's name (`["forward", company, field]`, `["budget", company, line]`), so the
 file's own projected company keeps the flat shape it was first saved in, and validated against the block built at
-the save. **What the records can't place is said, not guessed**: a member with no renewal date or contract value is
-left out and named, one with nothing paid toward the term and nothing scheduled is flagged (Forecast lists every
-member, worst first, with what they paid by the books' end and since, what's scheduled, and their renewal), and the
-deferred revenue the records imply is shown beside the books' own, with the difference: that is what to reconcile.
-Add-on seats with no contract value of their own ride on a primary's and aren't flagged.
+the save. **What the records can't place is said, not guessed**: a member with no renewal date is left out and named;
+one with no contract value in the CRM is counted at what they pay (a subscription's year, or what came in toward the
+term) and flagged to have it set in GHL -- left out and named only when they pay nothing; any term (the current one, a
+new member's, a renewed one) with nothing paid and nothing scheduled is flagged, and so is one with money still owed
+and nothing scheduled to collect it, and one paid more than its value. Forecast lists every member, worst first, with
+what they paid by the books' end and since, what's scheduled, and their renewal; and the deferred revenue the records
+imply is shown beside the books' own, with the difference: that is what to reconcile. Add-on seats with no contract
+value of their own ride on a primary's and aren't flagged.
 
 **That list is the Forum's roster**, so it goes only where the roster goes (see Who may do what): owners, admins and
 whoever has the Forum tab. Anyone else with Books Cleanup gets the same projection, every figure and count, with
@@ -183,8 +195,10 @@ Statement's "+ Future months", which says it, or that nothing is projected, rath
 the Forum's assumptions or plan then has nothing to be checked against, so it's refused as that (503, "didn't build,
 so this can't be saved right now"), never as "Nothing to change", and nothing in the set is saved.
 
-Pinned by `test_books_cleanup_live.py` on the invented file plus six invented members, each control broken on
-purpose with a test failing every time. The file's own projection was compared before and after on the invented file
+Pinned by `test_books_cleanup_live.py` on the invented file plus six invented members, and one invented case for each
+thing production's records showed on Oct 26 (a payment from another address, a member with no contract value, an
+early renewal, a card billing on another day than the renewal, a blank plan, a small charge after the renewal date,
+a new or renewed term with nothing paid), each control broken on purpose with a test failing every time. The file's own projection was compared before and after on the invented file
 with five sets of assumptions: identical. Who sees the members and the refused save are pinned by
 `test_books_cleanup_live_access.py` (three more invented members, whose names are searched for in the whole response
 -- and in every read the router has, as someone without the Forum tab: the list of reads is taken from the router, so
