@@ -226,7 +226,9 @@ function Members({ f }) {
   return (
     <Sheet title="The members behind this" right={<span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
       {counted} counted{leftOut ? ` · ${leftOut} left out` : ""}
-      {n.nothing ? ` · ${n.nothing} with nothing paid or scheduled` : ""}</span>}>
+      {n.nothing ? ` · ${n.nothing} with nothing paid or scheduled` : ""}
+      {n.owed ? ` · ${n.owed} owing with nothing scheduled` : ""}
+      {n.from_billing ? ` · ${n.from_billing} with no contract value in the CRM` : ""}</span>}>
       <div style={{ padding: "10px 18px", display: "grid", gap: 8, fontFamily: F.body, fontSize: 12.5, color: L.body }}>
         <span>From the members&rsquo; records (GHL and Stripe) as they stand today. {n.joined ? `${n.joined} joined since the books end
           (${money(n.joined_value)} a year), counted in full. ` : ""}{n.renewed ? `${n.renewed} already renewed (${money(n.renewed_value)}). ` : ""}
@@ -235,7 +237,7 @@ function Members({ f }) {
           <Note>Who they are, by name, with what each paid and when each renews, is on {rosterOf(det)}. You don&rsquo;t
             have that tab, so it isn&rsquo;t shown here; the figures and counts are the same.</Note>) : null}
         {!hidden && det.left_out.length ? (
-          <Note tone="gold">Left out, for want of a renewal date or a contract value in the CRM:{" "}
+          <Note tone="gold">Left out, with no renewal date in the CRM, or no contract value and nothing paid:{" "}
             {det.left_out.map((x, i) => <span key={x.name + i}>{i ? ", " : ""}{x.source_url
               ? <a href={x.source_url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{x.name}</a> : x.name} ({x.why})</span>)}.
           </Note>) : null}
@@ -256,8 +258,10 @@ function Members({ f }) {
                 <tr key={m.name + i} style={{ background: m.flag ? L.flagBg : L.paper }}>
                   <td style={{ ...cell, color: L.deep, fontWeight: 600 }}>{m.source_url
                     ? <a href={m.source_url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{m.name}</a> : m.name}</td>
-                  <td style={cell}>{plan[m.plan] || "—"}</td>
-                  <td style={{ ...cell, ...NUM }}>{money(m.value)}</td>
+                  <td style={cell} title={m.plan_from_crm === false ? "No payment plan in the CRM: read from how they pay" : undefined}>
+                    {plan[m.plan] || "—"}{m.plan_from_crm === false ? " (read)" : ""}</td>
+                  <td style={{ ...cell, ...NUM }} title={m.value_from_billing ? "No contract value in the CRM: what they pay" : undefined}>
+                    {money(m.value)}{m.value_from_billing ? " (billing)" : ""}</td>
                   <td style={{ ...cell, whiteSpace: "nowrap" }}>{m.term ? `${dayLabel(m.term[0])} ’${m.term[0].slice(2, 4)} – ${dayLabel(m.term[1])} ’${m.term[1].slice(2, 4)}` : "—"}</td>
                   {[m.paid_by_end, m.earned_by_end, m.since, m.scheduled].map((v, j) => (
                     <td key={j} style={{ ...cell, ...NUM, color: v ? L.deep : L.ghost }}>{v === undefined ? "—" : money(v)}</td>))}
