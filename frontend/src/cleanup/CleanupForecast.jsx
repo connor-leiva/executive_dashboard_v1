@@ -39,6 +39,13 @@ export function ProjectedChips({ ov, list, f, setCo }) {
       {shortOf(ov, x.company)}</Chip>));
 }
 
+/* The projection from the members' records didn't build (GET /cleanup/forward's `live_error`): said on every page that
+   shows a projection, since the Forum is then missing from all of them, not only from Forecast. */
+export function LiveError({ fw, style }) {
+  const err = fw.data?.live_error;
+  return err ? <div style={{ padding: "14px 26px 0", ...style }}><Note tone="red">{err}</Note></div> : null;
+}
+
 export function Tile({ label, value, sub, loss }) {
   return (
     <div style={{ border: `1px solid ${L.ruleInner}`, borderRadius: 12, background: L.paper, padding: "12px 14px",
@@ -102,8 +109,11 @@ function Assumptions({ f, can, onSaved }) {
             <div style={row}><span>Members who renew, of those due</span>
               <NumberField value={a.renew_pct} suffix="%" width={64} disabled={!can} label="Renewal rate"
                            onSave={(v) => save([{ path: at("renew_pct"), value: v }])} /></div>
-            {ret ? <span style={{ fontSize: 11.5, color: L.ghost }}>
+            {ret && ret.lost12 ? <span style={{ fontSize: 11.5, color: L.ghost }}>
               Started from the last twelve months: {ret.lost12} of {ret.members + ret.lost12} members left.</span> : null}
+            {ret && !ret.lost12 ? <span style={{ fontSize: 11.5, color: L.flagInk }}>
+              No lost memberships are on record for the last twelve months, so this starts at 100%. Set it to the share
+              you expect to renew.</span> : null}
           </div>) : null}
         {"new_members" in a ? (
           <div style={row}><span>New members a month</span>
@@ -169,8 +179,9 @@ function Deferred({ f }) {
                   ? <>By the members&rsquo; records, <strong>{money(d.start)}</strong> had been paid ahead of being earned</>
                   : <>By the members&rsquo; records, they had been counted as earning <strong>{money(-d.start)}</strong> more
                       than they&rsquo;d paid</>}
-                {Math.abs(diff) >= 1 ? <>: <strong>{money(Math.abs(diff))}</strong> apart from the books, to reconcile. The
-                  members below show where it comes from.</> : <>: the same as the books.</>}</>
+                {Math.abs(diff) >= 1 ? <>: <strong>{money(Math.abs(diff))}</strong> apart from the books, to reconcile.{" "}
+                  {f.detail?.restricted ? <>Each member&rsquo;s part of it is on {rosterOf(f.detail)}.</>
+                    : "The members below show where it comes from."}</> : <>: the same as the books.</>}</>
             : <>The contracts here start from {money(d.start)} paid ahead of earned.</>}
         </Note>
       </div>
@@ -195,28 +206,40 @@ function Deferred({ f }) {
   );
 }
 
+/* Where the members by name are, for someone the server didn't send them to: the roster on the membership tab. */
+const rosterOf = (det) => (det?.roster_tab ? `${det.roster_tab}’s roster` : "the membership roster");
+
 /* The members a projection from the records is made of, worst first: what each owes on their term, what they paid by
-   the books' last day and since, what's still scheduled, and their renewal -- and who couldn't be placed. */
+   the books' last day and since, what's still scheduled, and their renewal -- and who couldn't be placed. They are the
+   membership tab's roster, so someone without that tab gets the counts and a sentence saying where the names are
+   (`detail.restricted`: the server never sent them). */
 function Members({ f }) {
   const det = f.detail;
-  const n = det.counts;
+  const n = det.counts || {};
+  const hidden = !!det.restricted;
+  const counted = hidden ? f.contracts.members : det.members.length;
+  const leftOut = hidden ? det.left_out_count || 0 : det.left_out.length;
   const asOf = dayLabel(f.as_of);
   const plan = { pif: "In full", monthly: "Monthly", quarterly: "Quarterly", installments: "Installments" };
   const cell = { padding: "6px 10px", borderTop: `1px solid ${L.ruleLine}` };
   return (
     <Sheet title="The members behind this" right={<span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
-      {det.members.length} counted{det.left_out.length ? ` · ${det.left_out.length} left out` : ""}
+      {counted} counted{leftOut ? ` · ${leftOut} left out` : ""}
       {n.nothing ? ` · ${n.nothing} with nothing paid or scheduled` : ""}</span>}>
       <div style={{ padding: "10px 18px", display: "grid", gap: 8, fontFamily: F.body, fontSize: 12.5, color: L.body }}>
         <span>From the members&rsquo; records (GHL and Stripe) as they stand today. {n.joined ? `${n.joined} joined since the books end
           (${money(n.joined_value)} a year), counted in full. ` : ""}{n.renewed ? `${n.renewed} already renewed (${money(n.renewed_value)}). ` : ""}
           {n.due ? `${n.due} renewals are due in the year ahead (${money(n.due_value)} a year), counted at the renewal rate.` : ""}</span>
-        {det.left_out.length ? (
+        {hidden ? (
+          <Note>Who they are, by name, with what each paid and when each renews, is on {rosterOf(det)}. You don&rsquo;t
+            have that tab, so it isn&rsquo;t shown here; the figures and counts are the same.</Note>) : null}
+        {!hidden && det.left_out.length ? (
           <Note tone="gold">Left out, for want of a renewal date or a contract value in the CRM:{" "}
             {det.left_out.map((x, i) => <span key={x.name + i}>{i ? ", " : ""}{x.source_url
               ? <a href={x.source_url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{x.name}</a> : x.name} ({x.why})</span>)}.
           </Note>) : null}
       </div>
+      {hidden ? null : (
       <details>
         <summary style={{ cursor: "pointer", padding: "4px 18px 12px", fontFamily: F.body, fontSize: 12.5, color: L.accentInk,
                           fontWeight: 600 }}>Show every member</summary>
@@ -243,7 +266,7 @@ function Members({ f }) {
             })}</tbody>
           </table>
         </div>
-      </details>
+      </details>)}
     </Sheet>
   );
 }
@@ -262,8 +285,8 @@ export default function CleanupForecast({ ov, rev, onSaved }) {
         <ProjectedChips ov={ov} list={list} f={f} setCo={setCo} />
       </Bar>
       <StatePanel loading={fw.loading} error={fw.error} retry={fw.retry}>
-        {fw.data?.live_error ? <div style={{ padding: "14px 26px 0" }}><Note tone="red">{fw.data.live_error}</Note></div> : null}
-        {fw.data && !f ? <div style={{ padding: 24, fontFamily: F.body, color: L.muted }}>This file projects nothing ahead.</div> : null}
+        <LiveError fw={fw} />
+        {fw.data && !f && !fw.data.live_error ? <div style={{ padding: 24, fontFamily: F.body, color: L.muted }}>This file projects nothing ahead.</div> : null}
         {f && (
           <div className="cf-page" style={{ padding: "18px 26px 26px", display: "grid", gap: 16 }}>
             <div className="cf-tiles5">
@@ -295,14 +318,18 @@ export default function CleanupForecast({ ov, rev, onSaved }) {
               <Assumptions f={f} can={can} onSaved={onSaved} />
               <Sheet title={`By ${through}`}>
                 <div style={{ padding: "12px 18px", display: "grid", gap: 8, fontFamily: F.body, fontSize: 13.5, color: L.deep }}>
-                  {[[`${short(f.company)}'s operating profit, ${keyLabel(f.rows[0]?.key)} – ${through}`, s.profit, true],
+                  {/* each row is coloured by what its number means, not by where it sits: the profit when it's a loss,
+                      what the partner was paid beyond the share when there is some */}
+                  {[[`${short(f.company)}'s operating profit, ${keyLabel(f.rows[0]?.key)} – ${through}`, s.profit,
+                     (v) => Math.round(v) < 0, true],
                     ...(f.partner ? [[`${f.partner} earns (${Math.round(f.rate * 100)}% of the profit)`, s.earned],
-                                     [`${f.partner} is paid`, s.paid], ["Paid beyond the share earned", s.ahead]] : [])
-                  ].map(([label, v, loss], i, all) => (
+                                     [`${f.partner} is paid`, s.paid],
+                                     ["Paid beyond the share earned", s.ahead, (v) => v > 0]] : [])
+                  ].map(([label, v, bad, loss], i, all) => (
                     <div key={label} style={{ ...row, borderTop: i === all.length - 1 && f.partner ? `1.5px solid ${L.deep}` : "none",
                                               paddingTop: i === all.length - 1 && f.partner ? 8 : 0 }}>
                       <span style={{ fontWeight: i === all.length - 1 && f.partner ? 700 : 400 }}>{label}</span>
-                      <span style={{ ...NUM, fontWeight: 600, color: i === all.length - 1 && v > 0 ? L.loss : L.deep }}>
+                      <span style={{ ...NUM, fontWeight: 600, color: bad && bad(v) ? L.loss : L.deep }}>
                         {money(v)}{loss ? <Loss v={v} /> : null}</span>
                     </div>))}
                   {f.partner ? (
