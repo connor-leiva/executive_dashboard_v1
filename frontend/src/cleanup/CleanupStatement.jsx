@@ -16,6 +16,7 @@ import { Bar, Chip, Controls, EYEBROW, Foot, L, F, Loss, NUM, OkPill, Panel, Seg
          money, pctOf, periodLabel, shortOf } from "./kit.jsx";
 import { Legend, TxList, rowsFromLine } from "./CleanupTx.jsx";
 import { AskAbout } from "./CleanupAsk.jsx";
+import { LiveError } from "./CleanupForecast.jsx";
 
 /* ── the drawer: how the number is made, then what's in it ─────────────────────────────── */
 
@@ -242,8 +243,10 @@ function TotalRow({ label, v, revenue, one, tone, loss }) {
 /* ── the screen ─────────────────────────────────────────────────────────────────────────── */
 
 /* A projected company's year with the months ahead (GET /cleanup/forward): the corrected year so far, what
-   the contracts, the plan and the forecast add, and the year through the horizon. Every figure is the server's. */
-function FutureStatement({ company, rev }) {
+   the contracts, the plan and the forecast add, and the year through the horizon. Every figure is the server's.
+   Without this company's projection it says why: the projection from the members' records didn't build (the
+   server's words), or there is none to show. */
+function FutureStatement({ company, name, rev }) {
   const fw = useCleanupForward(rev);
   const f = (fw.data?.forwards || []).find((x) => x.company === company);
   const st = f?.statement;
@@ -263,6 +266,9 @@ function FutureStatement({ company, rev }) {
   );
   return (
     <StatePanel loading={fw.loading} error={fw.error} retry={fw.retry}>
+      {fw.data && !f ? (fw.data.live_error ? <LiveError fw={fw} style={{ padding: "20px 26px 26px" }} /> : (
+        <div style={{ padding: "24px 26px", fontFamily: F.body, fontSize: 13.5, color: L.muted }}>
+          Nothing is projected ahead for {name} right now.</div>)) : null}
       {st && (
         <div className="cu-page" style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
           <div className="cu-summary" style={{ display: "grid", gap: 12 }}>
@@ -420,7 +426,7 @@ export default function CleanupStatement({ ov, rev }) {
         )}
       </Controls>
 
-      {future ? <FutureStatement company={view} rev={rev} /> : (
+      {future ? <FutureStatement company={view} name={shortOf(ov, view)} rev={rev} /> : (
       <StatePanel loading={st.loading} error={st.error} retry={st.retry}>
         {d && (
           <div className="cu-page" style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 18 }}>

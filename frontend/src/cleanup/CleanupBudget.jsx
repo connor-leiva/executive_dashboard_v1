@@ -7,7 +7,7 @@ import { useState } from "react";
 import { StatePanel } from "../books/ui.jsx";
 import { useCleanupForward } from "./useCleanup.js";
 import { Bar, Chip, EYEBROW, F, L, NUM, Note, NumberField, Panel, SaveLine, Sheet, money, shortOf } from "./kit.jsx";
-import { CF_CSS, Tile, useSaver } from "./CleanupForecast.jsx";
+import { CF_CSS, LiveError, Tile, useSaver } from "./CleanupForecast.jsx";
 
 export default function CleanupBudget({ ov, rev, onSaved }) {
   const fw = useCleanupForward(rev);
@@ -17,6 +17,8 @@ export default function CleanupBudget({ ov, rev, onSaved }) {
   const b = fw.data?.budgets?.[co];
   const f = (fw.data?.forwards || []).find((x) => x.company === co) || null;
   const planned = !!f;
+  // projected from the members' records, but the projection didn't build this time: no plan to show, and why
+  const unbuilt = !planned && !!fw.data?.live_error && (ov.forward_companies || []).includes(co);
   const per = planned && f.members ? f.members : 0;
   const fromForecast = (line) => (planned ? f.plan_from?.[line] : null);
   const planOf = (line) => {
@@ -35,6 +37,7 @@ export default function CleanupBudget({ ov, rev, onSaved }) {
         {ov.companies.map((c) => <Chip key={c} dark on={c === co} onClick={() => setCo(c)}>{shortOf(ov, c)}</Chip>)}
       </Bar>
       <StatePanel loading={fw.loading} error={fw.error} retry={fw.retry}>
+        <LiveError fw={fw} />
         {b && (
           <div className="cf-page" style={{ padding: "18px 26px 26px", display: "grid", gap: 14 }}>
             <div className="cf-tiles4">
@@ -43,7 +46,7 @@ export default function CleanupBudget({ ov, rev, onSaved }) {
               <Tile label="Costs a month, last 3 months" value={recent}
                     sub={per ? `${money(recent / per)} a member, at ${per} members` : null} />
               <Tile label="Costs a month, planned" value={planned ? monthly : recent}
-                    sub={!planned ? "the plan for this company comes next"
+                    sub={unbuilt ? "no plan: its projection didn't build" : !planned ? "the plan for this company comes next"
                       : per ? `${money(monthly / per)} a member · feeds Forecast and Cash flow` : "feeds Forecast and Cash flow"} />
             </div>
             <Sheet right={<SaveLine state={state} />} title={planned ? `${shortOf(ov, co)}'s plan, line by line`

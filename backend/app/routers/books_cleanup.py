@@ -20,6 +20,11 @@ Every write is audited with the path it changed and the value before and after: 
 a workbook whose yellow cells had no history at all, and "who moved this person's split" is a question
 somebody will ask.
 
+THE FORUM'S MEMBERS ONE BY ONE -- the list under its projection from the members' records: names, what
+each paid and is set to pay, renewal dates, flags, links into the CRM -- are the membership tab's
+roster, so they go where the roster goes: owners, admins, and whoever has that tab. Anyone else with
+this tab gets the same projection and counts, and the page says where the names are (_sees_roster).
+
 THE FILE ARRIVES BY UPLOAD (owners and admins). It holds the company's real books, so it is never
 in the repository; scripts/load_books_cleanup.py loads one from the command line too.
 """
@@ -47,8 +52,12 @@ from ..models import CleanupDataset, CleanupState, User
 from ..services import books_cleanup as eng
 from ..services import cleanup_ask, cleanup_live
 from ..services.audit import audit
+from ..services.tabs import tenant_tab_descriptors
 
 TAB = "cleanup"
+# The membership tab: the Forum's roster lives there (GET /forum checks the same grant), so its members one by one
+# in a projection from their records go only to someone who could read them there.
+ROSTER_TAB = "forum"
 MAX_BYTES = 25 * 1024 * 1024
 # moving, splitting or taking out a single transaction moves money between companies too ("tx")
 DECISIONS = {"ads", "rates", "salary", "holdco", "bc_basis", "staff", "items", "charges", "tx",
@@ -118,6 +127,30 @@ async def _live(s: AsyncSession, user: User, bk: eng.Books) -> tuple[list[dict],
 
 def _may_decide(user: User) -> bool:
     return user.role in ("owner", "admin")
+
+
+async def _sees_roster(s: AsyncSession, user: User) -> bool:
+    """Whether this person sees the Forum's members one by one in its projection. Owners and admins do; anyone else
+    only with the membership tab, the same grant that opens the roster itself."""
+    if _may_decide(user):
+        return True
+    try:
+        await assert_tab(user, s, ROSTER_TAB)
+    except HTTPException:
+        return False
+    return True
+
+
+def _counts_only(f: dict, tab: str | None) -> dict:
+    """A projection from the members' records without its members: every figure and count stays, the list (names,
+    amounts, renewal dates, flags, CRM links) and who was left out go, and the block says so. The counts are kept
+    by name rather than the list taken out by name, so whatever a member's row grows to hold stays behind too. The
+    file's own projection has no members' list and is passed as it is."""
+    det = f.get("detail")
+    if f.get("source") == "file" or not det:
+        return f
+    return {**f, "detail": {"counts": det.get("counts") or {}, "left_out_count": len(det.get("left_out") or []),
+                            "restricted": True, "roster_tab": tab}}
 
 
 def _bad(e: Exception):
@@ -211,10 +244,15 @@ async def statement_line(request: Request, view: str, line: str,
 async def forward(user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     """The months after the books end (Forecast, Cash flow, the Statement's future months) for every projected
     company -- the file's own first, then any the app projects from its own records -- and every company's budget
-    lines. `forward` is the file's own (null for a file that projects nothing)."""
+    lines. `forward` is the file's own (null for a file that projects nothing). The Forum's members one by one are
+    left out for someone without the membership tab (_sees_roster); the figures are the same."""
     bk, _, _ = await _books(s, user)
     live, err = await _live(s, user, bk)
-    return {"forwards": bk.forwards(live), "forward": bk.forward(),
+    forwards = bk.forwards(live)
+    if not await _sees_roster(s, user):
+        tab = next((t["label"] for t in await tenant_tab_descriptors(s, user.tenant_id) if t["key"] == ROSTER_TAB), None)
+        forwards = [_counts_only(f, tab) for f in forwards]
+    return {"forwards": forwards, "forward": bk.forward(),
             "budgets": {c: bk.budget(c) for c in bk.companies}, "can_decide": _may_decide(user), "live_error": err}
 
 
@@ -323,7 +361,9 @@ async def intercompany_pair(request: Request, pair: str, user: User = Depends(cu
 @router.post("/ask")
 async def ask(body: AskBody, user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     """Ask about this: a question about one transaction, line or pair, answered from the tab's own figures for it.
-    Reading the tab is enough (it changes nothing); without the server's key the tab doesn't offer it."""
+    Reading the tab is enough (it changes nothing); without the server's key the tab doesn't offer it. Its context is
+    the file and the saved changes only, never the members' records, so the Forum's members one by one can't reach
+    it (_sees_roster has nothing to hold back here)."""
     bk, _, _ = await _books(s, user)
     if not cleanup_ask.enabled():
         raise HTTPException(503, "Asking isn't set up on this server.")
@@ -344,8 +384,10 @@ async def saved_changes(user: User = Depends(current_user), s: AsyncSession = De
     """Every change saved on the tab, as one file: the decisions, the changes to single transactions, the forecast
     and plan, the answers, ticks and posted entry numbers -- exactly what cleanup_state holds, with the file they
     apply to. That file plus these changes rebuild every figure the tab shows
-    (`Books(file, merged_inputs(file, inputs))`), but for a projection the app builds from its own records (the
-    Forum's), so an analysis outside the app can start from the owners' own decisions. The decisions move money between companies, so the download is an owner's or admin's, and audited."""
+    (`Books(file, merged_inputs(file, inputs))`) -- all but a projection the app builds from its own records (the
+    Forum's), which also needs those records as they stand -- so an analysis outside the app can start from the
+    owners' own decisions. The decisions move money between companies, so the download is an owner's or admin's,
+    and audited. It holds no member of the Forum's: only what was saved, and the Forum's assumptions are numbers."""
     await assert_tab(user, s, TAB)
     if not _may_decide(user):
         raise HTTPException(403, "Only an owner or admin downloads the saved changes.")
@@ -462,8 +504,14 @@ async def put_inputs(body: ChangeSet, user: User = Depends(current_user), s: Asy
         raise HTTPException(403, "Only an owner or admin changes the decisions.")
     data = bk.d
     if any(str(c.path[0]) in ("forward", "budget") and len(c.path) == 3 for c in body.changes):
-        # a projected company the app builds from its own records: its block says what it can hold
-        data = {**bk.d, "forward_live": (await _live(s, user, bk))[0]}
+        # a projected company the app builds from its own records: its block says what it can hold. Without the
+        # block there is nothing to check the change against, which is the build's fault, not the change's: said
+        # as that, not as "Nothing to change"
+        live, err = await _live(s, user, bk)
+        if err:
+            raise HTTPException(503, "The projection from the members' records didn't build, so this can't be "
+                                     "saved right now. Try again in a moment.")
+        data = {**bk.d, "forward_live": live}
     try:
         clean = [([str(p) for p in c.path], eng.validate_change(data, list(c.path), c.value)) for c in body.changes]
     except eng.InputError as e:

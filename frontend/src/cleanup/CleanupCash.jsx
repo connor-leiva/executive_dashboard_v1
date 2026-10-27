@@ -10,7 +10,7 @@ import { StatePanel } from "../books/ui.jsx";
 import { useCleanupForward } from "./useCleanup.js";
 import { Bar, EYEBROW, F, L, NUM, Note, NumberField, Panel, SaveLine, Sheet, inputStyle, keyLabel, money,
          shortOf } from "./kit.jsx";
-import { CF_CSS, ProjectedChips, useProjected, useSaver } from "./CleanupForecast.jsx";
+import { CF_CSS, LiveError, ProjectedChips, useProjected, useSaver } from "./CleanupForecast.jsx";
 
 export default function CleanupCash({ ov, rev, onSaved }) {
   const fw = useCleanupForward(rev);
@@ -27,7 +27,8 @@ export default function CleanupCash({ ov, rev, onSaved }) {
         <ProjectedChips ov={ov} list={list} f={f} setCo={setCo} />
       </Bar>
       <StatePanel loading={fw.loading} error={fw.error} retry={fw.retry}>
-        {fw.data && !f ? <div style={{ padding: 24, fontFamily: F.body, color: L.muted }}>This file projects nothing ahead.</div> : null}
+        <LiveError fw={fw} />
+        {fw.data && !f && !fw.data.live_error ? <div style={{ padding: 24, fontFamily: F.body, color: L.muted }}>This file projects nothing ahead.</div> : null}
         {f && cash && (
           <div className="cf-page" style={{ padding: "18px 26px 26px", display: "grid", gap: 14 }}>
             <Note tone="gold"><strong>Starts from {cash.account} at {cash.as_of ? keyLabel(cash.as_of.slice(0, 7)) : ""}: </strong>

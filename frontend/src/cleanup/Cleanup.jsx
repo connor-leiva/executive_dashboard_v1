@@ -11,7 +11,7 @@ import { useRef, useState } from "react";
 import { ProductIcon, iconFor } from "../brand/productIcons.jsx";
 import { StatePanel, font, T } from "../books/ui.jsx";
 import { downloadSavedChanges, uploadCleanupFile, useCleanupOverview } from "./useCleanup.js";
-import { Button, CleanupCtx, L, F, OkPill, SaveLine, reasonOf } from "./kit.jsx";
+import { Button, CleanupCtx, L, F, OkPill, SaveLine, reasonOf, shortOf } from "./kit.jsx";
 import CleanupStatement from "./CleanupStatement.jsx";
 import CleanupTransactions from "./CleanupTransactions.jsx";
 import CleanupForecast from "./CleanupForecast.jsx";
@@ -71,8 +71,12 @@ function Upload({ onLoaded }) {
   );
 }
 
-/* Every change saved on the tab as one file, for an analysis outside the app (owners and admins). */
-function DownloadSaved({ version }) {
+/* Every change saved on the tab as one file, for an analysis outside the app (owners and admins). With the loaded file
+   it rebuilds every figure but a projection the app makes from its members' records (the Forum's months ahead), which
+   needs those records too: the tooltip says which. */
+function DownloadSaved({ version, live }) {
+  const fromRecords = live.length
+    ? ` but ${live.join(" and ")}'s months ahead, which also need the members' records as they stand` : "";
   const [state, setState] = useState(null);
   const go = async () => {
     setState({ busy: true });
@@ -85,7 +89,7 @@ function DownloadSaved({ version }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       <Button onClick={go} disabled={state?.busy}
-              title="Every decision and change saved here, as a JSON file. With the loaded file it rebuilds every figure.">
+              title={`Every decision and change saved here, as a JSON file. With the loaded file it rebuilds every figure${fromRecords}.`}>
         {state?.busy ? "Preparing…" : "Download saved changes"}</Button>
       <SaveLine state={state?.busy ? null : state} />
     </span>
@@ -118,7 +122,8 @@ export default function Cleanup({ role }) {
           <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
             {d.checklist.done} of {d.checklist.total} steps done · {d.open_items} open {d.open_items === 1 ? "item" : "items"}</span>
           <div style={{ flex: 1 }} />
-          {isOwner && d.can_decide && <DownloadSaved version={d.version} />}
+          {isOwner && d.can_decide && <DownloadSaved version={d.version} live={(d.forward_companies || [])
+            .filter((c) => c !== d.forward_company).map((c) => shortOf(d, c))} />}
           {isOwner && d.can_decide && <Upload onLoaded={onSaved} />}
         </div>
       )}

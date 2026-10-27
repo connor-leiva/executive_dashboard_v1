@@ -160,7 +160,9 @@ was a member, the share still here), **new members a month** (none, to start) at
 joining each month after the books and paying the way today's members do; and the partner's pay, if the company has a
 partner (starting from the last three months' pace; the share accrues after the owner's salary where the agreement
 puts it first, as the books do). Cash flow starts from the corrected books' bank accounts on their last day. The
-projection runs twelve months past the month the books end in.
+projection runs twelve months past the month the books end in. With **no lost memberships on record** for the last
+twelve months the renewal rate starts at 100%, and Forecast says so under it: that is the records' silence, not a
+forecast, so it is to be set to what's expected.
 
 The changes are saved under the company's name (`["forward", company, field]`, `["budget", company, line]`), so the
 file's own projected company keeps the flat shape it was first saved in, and validated against the block built at
@@ -170,9 +172,21 @@ member, worst first, with what they paid by the books' end and since, what's sch
 deferred revenue the records imply is shown beside the books' own, with the difference: that is what to reconcile.
 Add-on seats with no contract value of their own ride on a primary's and aren't flagged.
 
+**That list is the Forum's roster**, so it goes only where the roster goes (see Who may do what): owners, admins and
+whoever has the Forum tab. Anyone else with Books Cleanup gets the same projection, every figure and count, with
+`detail.members` and `detail.left_out` taken out on the server (`detail.restricted`, `left_out_count`, and the tab's
+name in `roster_tab`), and Forecast says where the names are instead of listing them.
+
+**When the projection doesn't build** (the records can't be read, say), the file's own projection still shows and
+the reason (`live_error`) is said on every page that would show the Forum: Forecast, Budget, Cash flow and the
+Statement's "+ Future months", which says it, or that nothing is projected, rather than showing nothing. A change to
+the Forum's assumptions or plan then has nothing to be checked against, so it's refused as that (503, "didn't build,
+so this can't be saved right now"), never as "Nothing to change", and nothing in the set is saved.
+
 Pinned by `test_books_cleanup_live.py` on the invented file plus six invented members, each control broken on
 purpose with a test failing every time. The file's own projection was compared before and after on the invented file
-with five sets of assumptions: identical.
+with five sets of assumptions: identical. Who sees the members and the refused save are pinned by
+`test_books_cleanup_live_access.py` (three more invented members, whose names are searched for in the whole response).
 
 ## What each posting is made of (Intercompany itemized, the entries in words)
 
@@ -216,12 +230,19 @@ may ask. The key is the server's (`ANTHROPIC_API_KEY`, the model `ASSISTANT_MODE
   and any change to a single transaction)
   move money between companies: **owners and admins only**, enforced by the server.
 * **The work** (an answer, a tick, a posted entry number) needs only the tab.
+* **The Forum's members one by one** (Forecast's list under its projection from the members' records: names, what
+  each paid and is set to pay, renewal dates, flags, links into the CRM) are the Forum's roster: **owners, admins, and
+  whoever also has the Forum tab** (`forum`, the grant `GET /forum` checks). Anyone else with the tab gets the same
+  projection and counts without the list, and Forecast says where the names are. Nothing else on the tab carries
+  them: Ask about this reads the file and the saved changes only, never the members' records, and the download below
+  holds only what was saved.
 * **Loading a file**: owners and admins.
 * **Download saved changes** (`GET /cleanup/saved.json`, owners and admins): every saved change as one file
   (`axcion.books_cleanup_saved/1`: the loaded file's id and label, the version, the sparse `inputs`). With
   the loaded file, `Books(data, merged_inputs(data, inputs))` rebuilds every figure on the tab, so an
   analysis outside the app starts from what the owners actually saved -- except the Forum's projection, which is
-  also made of the members' records as they stood (`services/cleanup_live.py`). Audited as `cleanup.export`.
+  also made of the members' records as they stood (`services/cleanup_live.py`); the button's tooltip says so. Audited
+  as `cleanup.export`.
 * Every change is audited (`cleanup.change`, category Books) with its path, old value and new one.
 
 ## Correctness
