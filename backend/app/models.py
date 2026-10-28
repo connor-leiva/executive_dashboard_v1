@@ -1667,6 +1667,55 @@ class BookTxn(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "realm_id", "qbo_type", "qbo_id", name="uq_booktxn_src"),)
 
 
+class BookTxnLine(Base):
+    """One QuickBooks line on one `BookTxn` — its own account, its own amount.
+
+    `BookTxn` keeps the header: one amount, and the FIRST category line's account
+    (`books_sync._txn_to_row`). That is right for the review queue, where the unit of work is
+    the transaction, and wrong for anything that has to tie to a trial balance: a four-line
+    purchase charges its whole header amount to line one's account and nothing to the other
+    three. The gap is real money — the Books Cleanup tab reports it per account as
+    "transactions short by" — and it is almost all journal entries (99.7% of them are
+    multi-line, against 0.8% of purchases; measured on production 2026-10-27).
+
+    Storing the lines costs no extra QuickBooks calls. `sync_qbo_txns` already receives
+    `obj["Line"]` and discards everything after the first category line.
+
+    `amount` IS NOT NORMALIZED. It is QBO's own line `Amount`, a magnitude, with direction
+    carried by `posting_type` (journal entries) and `detail_type` (everything else).
+    `AccountPeriodBalance` normalizes to debit-positive once at ingest and says so, and the
+    temptation here is to copy that — but a trial balance arrives with mixed conventions and
+    these objects do not, so normalizing would mean DECIDING the sign of an income line against
+    no evidence. Phase 2 checks line sums against `AccountPeriodBalance` per account per month;
+    the reader applies the convention once that check exists, and until then no consumer may
+    assume one.
+    """
+    __tablename__ = "book_txn_line"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    book_txn_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("book_txn.id", ondelete="CASCADE"), index=True)
+    # Position in `obj["Line"]`, 0-based. QBO's own LineNum is absent on some entities and is
+    # not contiguous once a line has been deleted, so the array index is the stable key.
+    line_num: Mapped[int] = mapped_column(Integer)
+    qbo_line_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # AccountBasedExpenseLineDetail (29, the longest) | DepositLineDetail | JournalEntryLineDetail
+    # | ItemBasedExpenseLineDetail | SalesItemLineDetail | DescriptionOnly
+    detail_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    account_label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    account_qbo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    posting_type: Mapped[str | None] = mapped_column(String(6), nullable=True)   # debit | credit
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payee: Mapped[str | None] = mapped_column(String(200), nullable=True)        # line-level Entity
+    class_label: Mapped[str | None] = mapped_column(String(200), nullable=True)  # QBO Class
+    __table_args__ = (
+        UniqueConstraint("book_txn_id", "line_num", name="uq_book_txn_line"),
+        # The allocation engine asks which lines hit an account, then joins for the date.
+        Index("ix_book_txn_line_account", "tenant_id", "account_qbo_id"),
+    )
+
+
 class PLLine(Base):
     """Account-level P&L detail behind PLSnapshot group totals — feeds the P&L page.
     The (business, period) sum of section lines ties to the snapshot (Part 7 invariant)."""
@@ -2564,6 +2613,13 @@ class CoaSettings(Base):
     # Default TRUE, and it should stay true. A statement that quietly omits accounts is worse
     # than an error message, because it looks right.
     block_render_on_unmapped: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Which entities carry shared cost. Their unclaimed P&L expense IS the exception queue, so
+    # this is the one setting the applied-allocation module cannot infer: an entity with no
+    # rule pointing at it is indistinguishable from an entity nobody has got to yet. A list of
+    # business id strings. NULL means not configured, and the queue renders its setup state
+    # rather than an empty one — "nothing to do" and "nobody said where to look" are different
+    # answers (ALLOCATION-RULES-SPEC §4.5).
+    alloc_pool_business_ids: Mapped[list | None] = mapped_column(JSONType, nullable=True)
 
 
 class AllocationRule(Base):
@@ -2600,6 +2656,20 @@ class AllocationRule(Base):
     je_ref: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # ── applied allocations (ALLOCATION-RULES-SPEC §4.1) ──
+    # The row above is the rule's IDENTITY. For an `applied` rule, everything that can change
+    # over time lives on `AllocationRuleVersion` instead: `target_business_id` stays NULL
+    # (targets are on the version, and there can be several), `source_business_id` is the POOL
+    # entity, `pattern` is the scope value, `pool_name` is the display name, and `basis`,
+    # `driver_source`, `approved_by` and `je_ref` go unused.
+    mode: Mapped[str] = mapped_column(String(10), default="observed", server_default="observed")
+        # observed (the existing semantics, untouched) | applied
+    scope_kind: Mapped[str] = mapped_column(String(12), default="account", server_default="account")
+        # account (FQN prefix) | program (FQN prefix, labelled a program in the UI)
+        # | vendor (normalized payee equality)
+    # Uniqueness for applied rules is enforced in the service, not here: one rule per
+    # (tenant_id, scope_kind, normalized pattern, source_business_id). A database constraint
+    # would have to agree with the service's normalization, and two normalizations drift.
 
 
 class AllocationContribution(Base):
@@ -2627,8 +2697,11 @@ class AllocationContribution(Base):
     target_business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id", ondelete="CASCADE"))
     standard_account_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("standard_account.id", ondelete="CASCADE"))
-    # Always positive. Direction is carried by source and target, never by the sign, so a
-    # reader never has to work out which way a negative number points.
+    # SIGNED, debit-positive. Direction is carried by source and target, never by the sign, so
+    # a reader never has to work out which way a negative number points — but a refund of a
+    # shared cost is a credit, and `sync_allocations` stores it negative on purpose so it keeps
+    # its effect. This comment used to say "always positive" and the service never did that
+    # (F5); the service is right.
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     booking: Mapped[str] = mapped_column(String(10), default="observed")   # observed | applied
     pool_name: Mapped[str] = mapped_column(String(80))
@@ -2640,11 +2713,156 @@ class AllocationContribution(Base):
     rule_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("allocation_rule.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # ── applied allocations (ALLOCATION-RULES-SPEC §4.4) ──
+    grain: Mapped[str] = mapped_column(String(8), default="window", server_default="window")
+        # window (every existing observed row) | month (applied rows)
+    # WHICH version produced this row, and which committed driver month it read. Without them a
+    # restated month cannot say what it used to say, which is the whole reason versions are
+    # appended rather than edited.
+    #
+    # Both are plain GUIDs with NO database-level foreign key, like `BookTxn.payable_id`. Not a
+    # shortcut: this table already exists, and alembic cannot add a referencing column to it on
+    # SQLite ("No support for ALTER of constraints in SQLite dialect"), so a declared FK here
+    # would be a constraint production has and the test suite has never once exercised. The
+    # relationship is enforced where it is written, and nothing deletes the rows it points at —
+    # versions and commits are append-only, and a tenant going away takes this row with it.
+    rule_version_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    driver_commit_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     __table_args__ = (
         # An entity cannot allocate to itself: that is a rename, not an allocation, and it
         # would net to zero while looking like movement.
         CheckConstraint("source_business_id <> target_business_id", name="ck_alloc_not_self"),
         Index("ix_alloc_period", "tenant_id", "period_start", "period_end"),
+        # The monthly read: one grain, one booking, one month.
+        Index("ix_alloc_month", "tenant_id", "grain", "booking", "period_start"),
+    )
+
+
+# ── Applied allocations · drivers and rule versions (ALLOCATION-RULES-SPEC §4.2, §4.3) ──
+#
+# Why versions rather than the snapshot the commissions module uses. Commissions freeze the
+# rate onto each payment row as its month closes, which is exactly right for ONE rate on ONE
+# payment. A split is not one number: it is three or four entities whose shares move, sometimes
+# retroactively, and every closed month has to stay reconstructable as it stood. So the rule
+# keeps its identity and the terms are appended (§9 D2, amendment 25).
+#
+# `services/books_cleanup.py` is a second, complete, shipped allocation engine and shares
+# nothing with this one. The date decides which is authoritative: Books Cleanup owns 2026
+# through 31 October, this module owns 1 November onward (amendment 10).
+
+
+class AllocationDriver(Base):
+    """A monthly input a rule can be driven by — staff time, headcount, members.
+
+    The working prior art is the Cleanup tab's people-splitter: per person, per month, per
+    entity, with a sum-to-one gate and a wage-weighted derived driver. It has no model behind
+    it, only a per-tenant JSON payload (F15, amendment 22). This generalizes it.
+    """
+    __tablename__ = "allocation_driver"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(40))                   # e.g. staff_time
+    label: Mapped[str] = mapped_column(String(80))                 # e.g. "Staff time commitment"
+    # split — per subject, per entity (a share, an amount, or the remainder)
+    # count — per entity, a count; each entity's share is its count over the total
+    kind: Mapped[str] = mapped_column(String(8))
+    unit: Mapped[str | None] = mapped_column(String(12), nullable=True)   # percent | people | members
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_alloc_driver_key"),)
+
+
+class AllocationDriverCommit(Base):
+    """One month of one driver, committed by a person. APPEND-ONLY, as §4.2.
+
+    A month is committed, not saved: nothing carries forward by itself, because a driver that
+    silently repeats last month's numbers is a number nobody decided. Correcting a committed
+    month appends a new commit and supersedes the old one, so the figures a closed month was
+    allocated on stay readable.
+    """
+    __tablename__ = "allocation_driver_commit"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    driver_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("allocation_driver.id", ondelete="CASCADE"), index=True)
+    period_month: Mapped[date] = mapped_column(Date)               # first of the month
+    committed_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    committed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("allocation_driver_commit.id", ondelete="SET NULL"), nullable=True)
+    __table_args__ = (
+        Index("ix_alloc_drv_commit", "tenant_id", "driver_id", "period_month", "is_current"),
+    )
+
+
+class AllocationDriverValue(Base):
+    """One number inside one commit. Immutable: written with its commit and never again."""
+    __tablename__ = "allocation_driver_value"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    commit_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("allocation_driver_commit.id", ondelete="CASCADE"), index=True)
+    # The person a split driver's row is about. NULL on a count driver, which has no subject.
+    subject: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("business.id", ondelete="CASCADE"))
+    value_kind: Mapped[str] = mapped_column(String(10))            # share | amount | count | remainder
+    # NULL only where `value_kind` is remainder, which means "whatever the others leave".
+    value: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
+
+
+class AllocationRuleVersion(Base):
+    """One version of one rule's terms. APPEND-ONLY.
+
+    Nothing here is ever UPDATEd except `is_current` and `superseded_by`, on the version being
+    replaced — the same narrow exception as `SalesCall.is_current` and
+    `VendorBankAccount.superseded_by`. `update_rule`'s `setattr` loop and `delete_rule`'s hard
+    delete are what made a March restatement impossible (F2); neither is reachable from here.
+
+    `created_at` doubles as the `as_of` key. "What did this rule say when we closed March" is
+    answered by the versions that existed at that moment, not by the current one.
+    """
+    __tablename__ = "allocation_rule_version"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    rule_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("allocation_rule.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer)                  # 1-based
+    # 1 Direct | 2 Traced | 3 Driven | 4 Retained. NULL only where `method` is ended.
+    tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # direct (T1) | traced (T2) | driven (T3, by a driver) | split (T3, a reviewed split)
+    # | retained (T4) | ended
+    method: Mapped[str] = mapped_column(String(10))
+    # [{"business_id": "...", "share": "0.5"}] on direct and split. SHARES ARE FRACTIONS
+    # between 0 and 1 as decimal strings, summing to exactly 1 — the house convention, set by
+    # `books_cleanup.pct` ("A share is a number between 0 and 1"), amendment 12. The drawer
+    # still lets somebody type 50. The pool entity may appear, and its share is what it keeps.
+    targets: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    driver_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("allocation_driver.id", ondelete="SET NULL"), nullable=True)
+    # On a split driver, whose values apply: a person. Longest realistic value is a full name.
+    driver_subject: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_spec: Mapped[dict | None] = mapped_column(JSONType, nullable=True)    # traced only, §5.4
+    effective_from: Mapped[date] = mapped_column(Date)             # always a first of month
+    # forward | from_date | retro. What the author chose, recorded for the audit trail and for
+    # the restatement warning, never re-derived from the dates.
+    reach: Mapped[str] = mapped_column(String(10))
+    # Why, in a person's own words. Non-empty after strip, refused otherwise. This is the
+    # column the Statement shows when somebody asks why a cost landed on their entity.
+    rationale: Mapped[str] = mapped_column(Text)
+    # The author. A person, never a process — an allocation is a policy decision.
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("allocation_rule_version.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("rule_id", "version", name="uq_alloc_rule_version"),
+        Index("ix_alloc_ver_rule", "tenant_id", "rule_id", "is_current"),
     )
 
 

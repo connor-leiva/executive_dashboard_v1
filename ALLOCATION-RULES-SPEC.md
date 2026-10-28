@@ -1077,6 +1077,76 @@ and 11 passed again immediately after the full suite. Full suite **2,477 passed*
 was produced by passing collected node ids in reverse.
 
 ### Phase 1
+
+Done 2026-10-28. Nothing reads the new columns, and no existing row changed meaning.
+
+**Migration `0096_alloc_rule_versions`**, revising `0095_agent_roster_dates`. Revision id 24
+characters. Five tables and six columns, every step guarded.
+
+| Table | Why it is new |
+|---|---|
+| `allocation_driver` | A monthly input a rule can be driven by. |
+| `allocation_driver_commit` | One month of one driver, committed by a person. Append-only. |
+| `allocation_driver_value` | One number inside one commit. Immutable. |
+| `allocation_rule_version` | One version of one rule's terms. Append-only. |
+| `book_txn_line` | One QuickBooks line, with its own account and its own amount (amendment 13). |
+
+Added: `allocation_rule.mode` and `.scope_kind`; `allocation_contribution.grain`,
+`.rule_version_id` and `.driver_commit_id`, plus index `ix_alloc_month`;
+`coa_settings.alloc_pool_business_ids`. Every existing row keeps its meaning: `mode` defaults to
+`observed` and `grain` to `window`, which is what those 1 rule and 36 contributions already are.
+
+F5 fixed: the `AllocationContribution.amount` comment said "always positive" and the service
+never did that. It now says signed and debit-positive, and says the service was right.
+
+Amendment 12 applied: `targets` entries carry `share` as a decimal string between 0 and 1, not
+`pct` summing to 100. The key is `share` because `books_cleanup.pct` already refuses anything
+else with "A share is a number between 0 and 1."
+
+**Three divergences found while building, all between the migration and the models.**
+
+1. **Alembic cannot add a referencing column on SQLite.** `op.add_column` with a `ForeignKey`
+   raises `NotImplementedError: No support for ALTER of constraints in SQLite dialect`, so
+   `allocation_contribution.rule_version_id` and `.driver_commit_id` carry no database-level
+   foreign key, matching `book_txn.payable_id`. Not a shortcut: a constraint declared here would
+   be one production has and the suite has never once exercised. Nothing deletes the rows they
+   point at, since versions and commits are append-only and a tenant going away takes the
+   contribution with it.
+2. `allocation_driver.is_active` had a server default in the migration and none in the model, so
+   a `create_all` database and a migrated one disagreed on what an insert omitting the column
+   does. The model now carries `server_default=text("true")`.
+3. The three timestamp columns were nullable in the migration and NOT NULL in the models, the
+   same shape `0093` ships. Harmless, since the server default always fires, and removed anyway.
+   The test now compares nullability and server-default presence, not just column names, which
+   is what found 2 and 3.
+
+**`book_txn_line` and the sync.** `_txn_lines` is pure and `_txn_pairs` pairs each upsert row
+with its own object's lines in one comprehension. `_write_txn_lines` resolves transaction ids by
+SELECT **after** the upsert, because `on_conflict_do_update` keeps the existing row's id, then
+replaces that transaction's lines rather than merging them. Costs no QuickBooks call and one
+SELECT per 500 transactions. `BookTxn` itself is untouched: it still carries the header amount
+and the first category line's account, because the review queue reads them and changing that
+would be the behavior change this phase promises not to make.
+
+**The Postgres half of the gate could not be run.** No Postgres is reachable from this machine
+(no Docker, no `psql`), and the production database is read-only by policy. Substituted:
+`test_it_renders_native_postgres_ddl` compiles every new table and added column under the
+Postgres dialect and reads the result. It renders `UUID` and `JSONB` with no `CHAR(36)`, no
+`CREATE TYPE`, `DEFAULT true` rather than `DEFAULT 1`, and `DEFAULT 'observed'` /
+`DEFAULT 'window'`. That catches a dialect-only type or a boolean literal SQLite tolerates. It is
+not the same as executing the round trip, and the live Postgres round trip stays owed.
+
+**Gates.** `alembic heads` one line, `0096_alloc_rule_versions`. On SQLite, against a database
+built by `seed()`: `alembic stamp 0095_agent_roster_dates`, `upgrade head`, `downgrade -1`,
+`upgrade head`, every one exit 0. The first upgrade found everything already present (create_all
+built it), the downgrade dropped it, and the second upgrade built it from the migration, which is
+the only run that exercises the create path.
+
+Acceptance check A2 is now a test rather than a glob: `test_no_postgres_only_types_and_exactly_one_file`
+asserts exactly one `0096*` file and no Postgres-only type in the body. A2 as written passed for
+three weeks with no allocation code at all (amendment 4), which is what a grep nobody re-runs is
+worth.
+
 ### Phase 2
 ### Phase 3
 ### Phase 4

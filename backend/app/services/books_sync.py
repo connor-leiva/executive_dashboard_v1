@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..integrations import qbo
-from ..models import Integration, BookTxn, PLLine, SyncRun
+from ..models import Integration, BookTxn, BookTxnLine, PLLine, SyncRun
 from .sync import _valid_access_token, _QBO_PERIODS
 
 # The ledger entities Books categorizes. Order matters only for readable logs.
@@ -161,6 +161,111 @@ def _txn_to_row(tenant_id, integ: Integration, entity_type: str, obj: dict) -> d
     }
 
 
+def _txn_lines(obj: dict) -> list[dict]:
+    """Every line on one QBO transaction, in array order. Pure — the tested surface.
+
+    `_txn_to_row` above keeps the header amount and the FIRST category line's account, which
+    charges a four-line purchase's whole total to line one. These rows are what makes the
+    difference visible. No extra QuickBooks call: the lines arrived with the transaction.
+
+    Skipped: a line carrying no `Amount` (DescriptionOnly, SubTotal). Those are presentation,
+    not money, and storing them would make a line count that means nothing.
+
+    `line_num` is the ARRAY INDEX, not QBO's `LineNum`, which is absent on several entities and
+    stops being contiguous once a line has been deleted. It is the key a re-sync replaces on.
+    """
+    out = []
+    for i, ln in enumerate(obj.get("Line") or []):
+        if ln.get("Amount") is None:
+            continue
+        detail_type = ln.get("DetailType")
+        det = ln.get(detail_type or "") or {}
+        if not det:                                   # older payloads omit DetailType
+            for k in _CATEGORY_DETAIL_KEYS:
+                if ln.get(k):
+                    det = ln[k]
+                    break
+        ref = det.get("AccountRef") or {}
+        ent = det.get("Entity") or {}
+        # Mapped, never truncated. `posting_type` is String(6), so slicing an unexpected value
+        # to six characters would store a plausible-looking wrong answer; SQLite would accept
+        # it and Postgres would too. Anything that is not one of the two is no answer at all.
+        posting = str(det.get("PostingType") or "").strip().lower()
+        out.append({
+            "line_num": i,
+            "qbo_line_id": _trim(str(ln["Id"]), 32) if ln.get("Id") is not None else None,
+            "detail_type": _trim(detail_type or None, 40),
+            "account_label": _trim(ref.get("name") or None, 200),
+            "account_qbo_id": _trim(ref.get("value") or None, 32),
+            "amount": Decimal(str(ln.get("Amount") or 0)),
+            "posting_type": posting if posting in ("debit", "credit") else None,
+            "description": _trim(ln.get("Description") or None, 2000),
+            "payee": _trim(ent.get("name") or _ref_name(ent, "EntityRef")
+                           or _ref_name(det, "CustomerRef") or None, 200),
+            "class_label": _trim(_ref_name(det, "ClassRef"), 200),
+        })
+    return out
+
+
+def _txn_pairs(tenant_id, integ: Integration, by_entity: dict) -> list[tuple[dict, list[dict]]]:
+    """Each upsert row beside the lines from the SAME object. Pure.
+
+    One comprehension rather than two passes over `by_entity`: a row paired with a different
+    object's lines reads as a correctly split transaction posted to the wrong accounts, and
+    nothing downstream can tell. Dict iteration order is stable, but "stable" is not the same
+    as "the same two passes", and this is not worth being clever about.
+    """
+    return [(_txn_to_row(tenant_id, integ, ent, obj), _txn_lines(obj))
+            for ent, objs in by_entity.items() for obj in objs if obj.get("Id")]
+
+
+async def _write_txn_lines(s: AsyncSession, tenant_id, integ: Integration, pairs: list) -> int:
+    """Replace the stored lines for every transaction this pass touched.
+
+    Replace rather than merge: a recategorized line comes back at the same position with a
+    different account, and merging would leave both, which is the overstatement this table
+    exists to remove.
+
+    The transaction ids are resolved AFTER the upsert, by a SELECT. `on_conflict_do_update`
+    keeps the existing row's id, so the id a caller guessed before the upsert may belong to
+    nothing — and a line hanging off a transaction that is not there reads as a missing line,
+    which looks exactly like the bug this fixes.
+    """
+    by_key = {}
+    for row, lines in pairs:
+        by_key[(row["qbo_type"], row["qbo_id"])] = lines   # last wins, as the upsert does
+    if not by_key:
+        return 0
+
+    keys = list(by_key)
+    found: dict[tuple[str, str], object] = {}
+    for i in range(0, len(keys), 500):
+        chunk = keys[i:i + 500]
+        res = await s.execute(
+            select(BookTxn.id, BookTxn.qbo_type, BookTxn.qbo_id).where(
+                BookTxn.tenant_id == tenant_id, BookTxn.realm_id == integ.realm_id,
+                BookTxn.qbo_id.in_([q for _t, q in chunk])))
+        # Filtered on qbo_id alone and paired here: a row-value IN is not portable, and one
+        # realm can hold a Purchase and a Deposit sharing an id.
+        for txn_id, qbo_type, qbo_id in res:
+            if (qbo_type, qbo_id) in by_key:
+                found[(qbo_type, qbo_id)] = txn_id
+
+    if not found:
+        return 0
+    txn_ids = list(found.values())
+    for i in range(0, len(txn_ids), 500):
+        await s.execute(delete(BookTxnLine).where(
+            BookTxnLine.tenant_id == tenant_id,
+            BookTxnLine.book_txn_id.in_(txn_ids[i:i + 500])))
+
+    payload = [{"tenant_id": tenant_id, "book_txn_id": found[k], **ln}
+               for k in keys if k in found for ln in by_key[k]]
+    for i in range(0, len(payload), 500):
+        await s.execute(insert(BookTxnLine), payload[i:i + 500])
+    return len(payload)
+
+
 def _cdc_split(data: dict, entities) -> dict:
     """Flatten a CDCResponse into {entity: [objects]}, dropping tombstones."""
     out = {e: [] for e in entities}
@@ -214,15 +319,16 @@ async def sync_qbo_txns(s: AsyncSession, tenant_id, integ: Integration, since=No
             data = await qbo.cdc(integ.realm_id, token, ",".join(_QBO_TXN_ENTITIES), since.isoformat())
             by_entity = _cdc_split(data, _QBO_TXN_ENTITIES)
 
-    rows = [_txn_to_row(tenant_id, integ, ent, obj)
-            for ent, objs in by_entity.items() for obj in objs if obj.get("Id")]
+    pairs = _txn_pairs(tenant_id, integ, by_entity)
+    rows = [r for r, _lines in pairs]
 
     for i in range(0, len(rows), 500):
         await s.execute(txn_upsert(rows[i:i + 500]))
+    lines = await _write_txn_lines(s, tenant_id, integ, pairs)
     integ.last_synced_at = now
     await s.commit()
     print(f"[qbo_txns] realm={integ.realm_id} mode={'backfill' if have == 0 else 'cdc'} "
-          f"rows={len(rows)}", flush=True)
+          f"rows={len(rows)} lines={lines}", flush=True)
     return len(rows)
 
 
