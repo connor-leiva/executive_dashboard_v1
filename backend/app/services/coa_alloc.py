@@ -28,7 +28,7 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (AccountPeriodBalance, AllocationContribution, AllocationRule, Business,
@@ -84,8 +84,15 @@ async def sync_allocations(s: AsyncSession, tenant_id,
     entities is still carried by source and target, never by the sign.
     """
     ps, pe = period
+    # SCOPED TO ITS OWN GRAIN. Three of the five window keys ARE calendar months (this month,
+    # last month, the month before), so from Phase 2 on a window delete at one of them would
+    # also match the applied month rows `derive_applied` writes there. A person asking to
+    # rebuild October would silently delete October's applied allocations and get back a count
+    # of the observed ones. §5.5 already promises the converse — `derive_applied` never touches
+    # observed or window rows — and this is the other half of that promise.
     await s.execute(delete(AllocationContribution).where(
         AllocationContribution.tenant_id == tenant_id,
+        AllocationContribution.grain == "window",
         AllocationContribution.period_start == ps,
         AllocationContribution.period_end == pe))
 
@@ -151,14 +158,46 @@ async def sync_allocations(s: AsyncSession, tenant_id,
 async def contributions_for(s: AsyncSession, tenant_id, business_id,
                             period: tuple[dt.date, dt.date]) -> dict:
     """This entity's contributions, split into what came IN and what went OUT, keyed by
-    standard account. The shape Phase 5's line composition needs."""
+    standard account. The shape Phase 5's line composition needs.
+
+    TWO GRAINS, matched two ways (ALLOCATION-RULES-SPEC 5.5). A `window` row is keyed on the
+    dashboard window it was derived for, so it matches on equality, as it always has. A `month`
+    row is keyed on its own calendar month, so a year-to-date window has to CONTAIN it: ten
+    monthly rows, not one, which is what lets a split that changed in April be applied to the
+    months it actually governed.
+
+    Containment is deliberately closed on both ends rather than overlapping. A month that only
+    partly overlaps the window is not this window's, and admitting it would attribute a cost to
+    a period that does not include the days it was incurred in.
+
+    The `grain` guard is what keeps this inert until applied rows exist: every pre-existing row
+    carries `grain == "window"` by server default, so the second branch admits nothing today
+    even where a window happens to contain another window's dates.
+    """
     ps, pe = period
+    at_window = and_(AllocationContribution.grain == "window",
+                     AllocationContribution.period_start == ps,
+                     AllocationContribution.period_end == pe)
+    in_months = and_(AllocationContribution.grain == "month",
+                     AllocationContribution.booking == "applied",
+                     AllocationContribution.period_start >= ps,
+                     AllocationContribution.period_end <= pe)
+    # TOTALLY ORDERED, because the payload ships this order. `build_mapped_statement`
+    # concatenates these rows into `contributions` with no sort of its own, so the list a
+    # reader sees IS the database's row order. The old WHERE was two equalities served by one
+    # index range scan; the new one is an OR across two indexes, which SQLite and Postgres are
+    # both free to plan as a bitmap or a scan and return in a different order. That would move
+    # a payload without changing a number, which is the one thing the Phase 2 gate asks about.
     rows = list((await s.execute(select(AllocationContribution).where(
         AllocationContribution.tenant_id == tenant_id,
-        AllocationContribution.period_start == ps,
-        AllocationContribution.period_end == pe,
+        or_(at_window, in_months),
         (AllocationContribution.target_business_id == business_id) |
-        (AllocationContribution.source_business_id == business_id)))).scalars())
+        (AllocationContribution.source_business_id == business_id))
+        .order_by(AllocationContribution.period_start,
+                  AllocationContribution.source_business_id,
+                  AllocationContribution.target_business_id,
+                  AllocationContribution.standard_account_id,
+                  AllocationContribution.id))).scalars())
     inbound: dict = {}
     outbound: dict = {}
     for r in rows:
@@ -190,8 +229,16 @@ async def allocation_check(s: AsyncSession, tenant_id,
     ps, pe = period
     names = {b.id: b for b in (await s.execute(select(Business).where(
         Business.tenant_id == tenant_id))).scalars()}
+    # OBSERVED WINDOW ROWS ONLY. This reconciles contributions against intercompany MOVEMENT,
+    # and only an observed row has any: an applied allocation sits outside the books on both
+    # sides, with no Due To / Due From behind it. Without the grain filter, the three window
+    # keys that are also calendar months would net applied month rows in here and report
+    # `unexplained` breaking by the whole applied amount — a figure that is an artefact of the
+    # two grains sharing a key, not a real break. `zero_sum` would stay balanced throughout,
+    # which is the half of this check that proves least.
     contributions = list((await s.execute(select(AllocationContribution).where(
         AllocationContribution.tenant_id == tenant_id,
+        AllocationContribution.grain == "window",
         AllocationContribution.period_start == ps,
         AllocationContribution.period_end == pe))).scalars())
 

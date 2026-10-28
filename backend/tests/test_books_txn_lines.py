@@ -304,6 +304,38 @@ async def test_one_realm_can_hold_two_types_sharing_an_id():
         assert by_txn[deposit] == ["Dues"]
 
 
+async def test_writing_one_transactions_lines_leaves_every_other_transactions_alone():
+    """The replace must delete only THIS pass's transactions.
+
+    Without this, dropping the `book_txn_id` filter from the delete passes every other test in
+    this file: they each use one transaction, or write both in a single call where one
+    tenant-wide delete fires before both inserts. In production a CDC pass carries a handful of
+    changed objects, so that mutation would empty the tenant's whole line table on every sync
+    and refill only what changed, silently recreating the under-reporting this table exists to
+    remove. Found by mutating exactly that filter away.
+    """
+    tenant_id, business_id = await _ctx()
+    integ = SimpleNamespace(business_id=business_id, realm_id="realm-w", config=None)
+    async with SessionLocal() as s:
+        untouched = await _txn(s, tenant_id, business_id, "Purchase", "P-OLD")
+        await _write_txn_lines(s, tenant_id, integ,
+                              [_pair("Purchase", "P-OLD", _txn_lines(SPLIT_PURCHASE))])
+        await s.commit()
+
+        await _txn(s, tenant_id, business_id, "Purchase", "P-NEW")
+        await _write_txn_lines(s, tenant_id, integ, [_pair("Purchase", "P-NEW", _txn_lines(
+            {"Id": "P-NEW", "Line": [
+                {"Amount": 42.0, "DetailType": "AccountBasedExpenseLineDetail",
+                 "AccountBasedExpenseLineDetail": {
+                     "AccountRef": {"value": "6099", "name": "Other"}}}]}))])
+        await s.commit()
+
+        kept = (await s.execute(select(BookTxnLine).where(
+            BookTxnLine.book_txn_id == untouched))).scalars().all()
+    assert len(kept) == 3, "the earlier transaction's lines were deleted by an unrelated pass"
+    assert sum(r.amount for r in kept) == Decimal("1000.00")
+
+
 async def test_another_realm_s_transactions_are_not_touched():
     tenant_id, business_id = await _ctx()
     integ = SimpleNamespace(business_id=business_id, realm_id="realm-w", config=None)

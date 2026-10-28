@@ -136,6 +136,34 @@ def _fy_start(on: dt.date, fy_month: int) -> dt.date:
     return dt.date(year, fy_month, 1)
 
 
+def _month_end(y: int, m: int) -> dt.date:
+    """The last day of month `m` in year `y`, without importing calendar for one line."""
+    return dt.date(y + (m == 12), (m % 12) + 1, 1) - dt.timedelta(days=1)
+
+
+def allocation_months(today: dt.date, fy_month: int) -> list[tuple[dt.date, dt.date]]:
+    """Every calendar month from the fiscal year start through the month containing `today`
+    (ALLOCATION-RULES-SPEC 5.2).
+
+    `balance_periods()` is deliberately NOT this. Three of its five keys ARE calendar months,
+    which is why "no monthly grain" was the wrong way to say what is missing: the real gap is
+    that the set is a rolling three-month tail plus quarter-to-date plus year-to-date, so April
+    is unreachable from October and each month silently leaves the vocabulary as the clock
+    moves. A rule that changed in April cannot be applied to a year-to-date window, and a
+    driver entered for one month has nothing to attach to.
+
+    `today` is injected rather than read, because the tests time-travel across month and
+    fiscal-year boundaries and a function that reads the clock cannot be asked about April.
+    """
+    ps = _fy_start(today, fy_month)
+    out: list[tuple[dt.date, dt.date]] = []
+    y, m = ps.year, ps.month
+    while (y, m) <= (today.year, today.month):
+        out.append((dt.date(y, m, 1), _month_end(y, m)))
+        y, m = y + (m == 12), (m % 12) + 1
+    return out
+
+
 async def _as_of(realm_id: str, token: str, on: dt.date, cache: dict) -> dict[str, Decimal]:
     """The trial balance AS OF a date, as {qbo_account_id: debit-positive amount}.
 
@@ -165,13 +193,111 @@ async def _as_of(realm_id: str, token: str, on: dt.date, cache: dict) -> dict[st
     return out
 
 
-async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration) -> int:
+async def _write_period(s: AsyncSession, tenant_id, integ: Integration,
+                        ps: dt.date, pe: dt.date, *, token: str, cache: dict,
+                        types: dict, fy_month: int, now: dt.datetime,
+                        today: dt.date) -> int:
+    """One period key, differenced and written. The body both loops in `sync_trial_balances`
+    share, factored out so the window pass and the month pass cannot drift apart.
+
+    That matters more than it looks: if the month pass differenced its openings differently
+    from the window pass, the months would still sum to something, just not to the window, and
+    the only symptom would be a tie-out that is off by whatever the fiscal-year boundary moved.
+    """
+    fetch_end = min(pe, today)                        # actuals through today for an open period
+    opening = await _as_of(integ.realm_id, token, ps - dt.timedelta(days=1), cache)
+    closing = await _as_of(integ.realm_id, token, fetch_end, cache)
+    # A trial balance zeroes P&L accounts at the fiscal year boundary, so an opening pull
+    # from the previous year carries the WHOLE prior year on those accounts. Differencing
+    # across it would subtract a year of trading from a year-to-date figure. Balance-sheet
+    # accounts carry across the boundary and difference normally.
+    crosses_fy = _fy_start(ps - dt.timedelta(days=1), fy_month) != _fy_start(fetch_end, fy_month)
+    await s.execute(delete(AccountPeriodBalance).where(
+        AccountPeriodBalance.tenant_id == tenant_id,
+        AccountPeriodBalance.business_id == integ.business_id,
+        AccountPeriodBalance.period_start == ps,
+        AccountPeriodBalance.period_end == pe))
+    written = 0
+    for qid in set(closing) | set(opening):
+        close_amt = closing.get(qid, ZERO)
+        open_amt = opening.get(qid, ZERO)
+        if crosses_fy and types.get(qid) in PL_TYPES:
+            open_amt = ZERO
+        activity = close_amt - open_amt
+        if not activity and not close_amt:
+            continue                                  # nothing to say about this account
+        s.add(AccountPeriodBalance(
+            tenant_id=tenant_id, business_id=integ.business_id,
+            period_start=ps, period_end=pe, qbo_account_id=qid,
+            amount=activity, balance_end=close_amt, source="qbo_tb", synced_at=now))
+        written += 1
+    return written
+
+
+# How long a PAST month's rows are trusted before they are pulled again. See
+# `_month_is_settled`: the spec's skip is the close checklist, and this is the backstop for a
+# workspace that does not use it. Twenty hours rather than twenty-four so the refresh does not
+# drift into a fixed hour of the day and keep missing the same tick.
+MONTH_REFRESH_HOURS = 20
+
+
+async def _month_is_settled(s: AsyncSession, tenant_id, business_id,
+                            ps: dt.date, pe: dt.date, *, today: dt.date) -> bool:
+    """Can this month's rows be left alone this pass?
+
+    **It must already have rows.** Nothing below applies otherwise: the first pass after Phase 2
+    ships finds no month rows at all, and skipping then would leave the closed part of the year
+    permanently empty with nothing left to trigger a backfill.
+
+    **Then, closed in the checklist** (the spec's rule, §5.3). A signed-off month cannot change,
+    so re-pulling it buys nothing.
+
+    **Or, a past month pulled recently.** This is a deliberate addition to the spec, because the
+    spec's own rule is inert in a workspace nobody closes months in, and the cost of that is not
+    small: the month pass adds about five QuickBooks report calls per realm, five realms sit on
+    one workspace, and the tick runs every thirty minutes against a 1500-second per-tenant
+    budget that covers every other sync too. A past month whose figures somebody moves with a
+    late journal entry is then up to `MONTH_REFRESH_HOURS` stale rather than thirty minutes
+    stale, which is the right trade for a month that is over.
+
+    The CURRENT month is never skipped by the time rule. Its figures move every day, and it is
+    the one month a person is most likely to be looking at.
+    """
+    row = (await s.execute(select(AccountPeriodBalance.synced_at).where(
+        AccountPeriodBalance.tenant_id == tenant_id,
+        AccountPeriodBalance.business_id == business_id,
+        AccountPeriodBalance.period_start == ps,
+        AccountPeriodBalance.period_end == pe)
+        .order_by(AccountPeriodBalance.synced_at.desc()).limit(1))).scalars().first()
+    if row is None:
+        return False
+    if await _books_closed(s, tenant_id, business_id, ps):
+        return True
+    if pe >= today.replace(day=1):
+        return False                                  # the current month, still moving
+    if row.tzinfo is None:                            # SQLite hands back a naive datetime
+        row = row.replace(tzinfo=dt.timezone.utc)
+    age = dt.datetime.now(dt.timezone.utc) - row
+    return age < dt.timedelta(hours=MONTH_REFRESH_HOURS)
+
+
+async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration,
+                              today: dt.date | None = None) -> int:
     """Pull each period into `account_period_balance` (SPEC 5.1 step 2).
 
     Period activity is the DIFFERENCE of two as-of trial balances — the one at the period end
     minus the one the day before it opened. That is the only way to get true period activity
-    out of an as-of report, and it is exact rather than approximate. Both sides sum to zero, so
-    the difference does too, and the tie-out invariant is unaffected.
+    out of an as-of report, and it is exact rather than approximate.
+
+    Both as-of pulls sum to zero, and so does their difference — EXCEPT across the fiscal-year
+    boundary, where zeroing the P&L openings (see `_write_period`) leaves exactly the discarded
+    prior-year P&L balance behind. A year-to-date window always crosses it, so a year-to-date
+    period legitimately does not net to zero, and neither does January. The tie-out is
+    unaffected either way, but not for the reason this docstring used to give: it compares
+    `mapped_total` against `booked_total`, never against zero, so both sides carry the same
+    residue and cancel. What it does affect is the cosmetic `gross` magnitude in the tie-out
+    payload. Measured on the Phase 2 fixture: January and year-to-date each net to the same
+    -525,000, which is one prior year of P&L discarded once.
 
     `balance_end` keeps the as-of figure alongside it, because that is what a balance sheet
     wants and re-deriving it later would mean pulling QuickBooks twice for the same numbers.
@@ -179,9 +305,21 @@ async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration) ->
     Delete-then-insert per period rather than upsert: an account that stops appearing has gone
     to zero, and an upsert would leave its old balance sitting there forever — a stale number
     that ties out perfectly.
+
+    TWO PASSES since Phase 2 (ALLOCATION-RULES-SPEC 5.3): the dashboard windows from
+    `balance_periods()`, then every calendar month of the fiscal year from
+    `allocation_months()`. Both go through `_write_period`, so they difference identically.
+    The table now holds rows at two grains and nothing in a row says which, so a reader that
+    does not pin BOTH `period_start` and `period_end` to one key will double count. Every
+    existing reader does pin both; `tie_out_report` and `build_mapped_statement` take the key
+    as an argument.
+
+    `balance_periods()` itself is deliberately unchanged: `routers/books.py` `_period()`
+    defaults to `balance_periods()[-1]` and the worker's window pass depends on the set.
     """
     token = await _valid_access_token(s, integ)
     now = dt.datetime.now(dt.timezone.utc)
+    today = today or dt.date.today()
     cache: dict = {}
     written = 0
     fy_month = await qbo.fiscal_year_start_month(integ.realm_id, token)
@@ -192,36 +330,44 @@ async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration) ->
     types = {m.qbo_account_id: (m.qbo_account_type or "") for m in (await s.execute(
         select(CoaMap).where(CoaMap.tenant_id == tenant_id,
                              CoaMap.business_id == integ.business_id))).scalars()}
+    kw = dict(token=token, cache=cache, types=types, fy_month=fy_month, now=now, today=today)
     for ps, pe in balance_periods():
-        fetch_end = min(pe, dt.date.today())          # actuals through today for an open period
-        opening = await _as_of(integ.realm_id, token, ps - dt.timedelta(days=1), cache)
-        closing = await _as_of(integ.realm_id, token, fetch_end, cache)
-        # A trial balance zeroes P&L accounts at the fiscal year boundary, so an opening pull
-        # from the previous year carries the WHOLE prior year on those accounts. Differencing
-        # across it would subtract a year of trading from a year-to-date figure. Balance-sheet
-        # accounts carry across the boundary and difference normally.
-        crosses_fy = _fy_start(ps - dt.timedelta(days=1), fy_month) != _fy_start(fetch_end, fy_month)
-        await s.execute(delete(AccountPeriodBalance).where(
-            AccountPeriodBalance.tenant_id == tenant_id,
-            AccountPeriodBalance.business_id == integ.business_id,
-            AccountPeriodBalance.period_start == ps,
-            AccountPeriodBalance.period_end == pe))
-        for qid in set(closing) | set(opening):
-            close_amt = closing.get(qid, ZERO)
-            open_amt = opening.get(qid, ZERO)
-            if crosses_fy and types.get(qid) in PL_TYPES:
-                open_amt = ZERO
-            activity = close_amt - open_amt
-            if not activity and not close_amt:
-                continue                              # nothing to say about this account
-            s.add(AccountPeriodBalance(
-                tenant_id=tenant_id, business_id=integ.business_id,
-                period_start=ps, period_end=pe, qbo_account_id=qid,
-                amount=activity, balance_end=close_amt, source="qbo_tb", synced_at=now))
-            written += 1
+        written += await _write_period(s, tenant_id, integ, ps, pe, **kw)
+
+    # ── the month pass (ALLOCATION-RULES-SPEC 5.3) ──
+    # Same differencing, same `_as_of` cache, so the months and the windows cannot disagree.
+    # Two month keys are identical to two window keys (last month, and the month before it);
+    # delete-then-insert per key is already idempotent, so writing them twice is harmless and
+    # the second write is the same arithmetic on cached figures.
+    # NOT WITHOUT THE CHART. `types` decides which accounts reset at the fiscal year boundary,
+    # and it comes from `coa_map`, whose sync records its own failure and never aborts the pass
+    # (`coa_map.run_coa_sync`) — so this can run with `types` empty. Empty means every account
+    # looks like a balance-sheet account, which means January differences against a trial
+    # balance carrying the whole prior fiscal year on every P&L account. Today that can only
+    # reach the year-to-date window key, which is re-pulled every pass and heals itself. A
+    # month key does not heal: once it is written and the month is closed, nothing pulls it
+    # again. So write no months at all rather than wrong ones.
+    months = allocation_months(today, fy_month)
+    skipped = 0
+    if not types:
+        print(f"[coa_balances] realm={integ.realm_id} month pass SKIPPED: no coa_map rows, so "
+              f"the fiscal-year boundary cannot be classified", flush=True)
+        months = []
+    for ps, pe in months:
+        # A month whose opening crosses the fiscal year boundary is never left alone, however
+        # settled it looks. It is the one month whose figure depends on `types` being right,
+        # and freezing a wrong one is permanent (see above). It costs one extra pull a pass.
+        crosses = _fy_start(ps - dt.timedelta(days=1), fy_month) != _fy_start(pe, fy_month)
+        if not crosses and await _month_is_settled(
+                s, tenant_id, integ.business_id, ps, pe, today=today):
+            skipped += 1
+            continue
+        written += await _write_period(s, tenant_id, integ, ps, pe, **kw)
+
     await s.commit()
     print(f"[coa_balances] realm={integ.realm_id} periods={len(balance_periods())} "
-          f"as_of_pulls={len(cache)} rows={written} fy_start_month={fy_month}", flush=True)
+          f"months={len(months)} skipped_closed={skipped} as_of_pulls={len(cache)} "
+          f"rows={written} fy_start_month={fy_month}", flush=True)
     return written
 
 

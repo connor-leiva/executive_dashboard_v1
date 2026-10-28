@@ -1128,13 +1128,32 @@ SELECT per 500 transactions. `BookTxn` itself is untouched: it still carries the
 and the first category line's account, because the review queue reads them and changing that
 would be the behavior change this phase promises not to make.
 
-**The Postgres half of the gate could not be run.** No Postgres is reachable from this machine
-(no Docker, no `psql`), and the production database is read-only by policy. Substituted:
-`test_it_renders_native_postgres_ddl` compiles every new table and added column under the
-Postgres dialect and reads the result. It renders `UUID` and `JSONB` with no `CHAR(36)`, no
-`CREATE TYPE`, `DEFAULT true` rather than `DEFAULT 1`, and `DEFAULT 'observed'` /
-`DEFAULT 'window'`. That catches a dialect-only type or a boolean literal SQLite tolerates. It is
-not the same as executing the round trip, and the live Postgres round trip stays owed.
+**The Postgres half of the gate, twice.** First as a substitute, because no Postgres is
+reachable from a developer machine here (no Docker, no `psql`) and the production database is
+read-only by policy: `test_it_renders_native_postgres_ddl` compiles every new table and added
+column under the Postgres dialect and reads the result. It renders `UUID` and `JSONB` with no
+`CHAR(36)`, no `CREATE TYPE`, `DEFAULT true` rather than `DEFAULT 1`, and `DEFAULT 'observed'` /
+`DEFAULT 'window'`. That catches a dialect-only type or a boolean literal SQLite tolerates, and
+it stays in the suite, where it guards every later migration in this module.
+
+Then for real, by the deploy. `e9cd8f6` was pushed to `main` on 2026-10-28 and Railway built and
+rolled it. **`Dockerfile` line 15 is
+`CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app ..."]`, so uvicorn starts only
+when `alembic upgrade head` exits 0.** The serving container, from the image pushed at 16:56Z,
+logged `Application startup complete` and `Uvicorn running`, and `GET /health` answers 200 on
+both `api.acumyn.io` and `api.axcion.io`. There is no path to that state on an image containing
+`0096` without the upgrade succeeding against a database that has to reach `0096`, and nothing
+but this migration can put it there. So `0096` executed on production Postgres.
+
+Worth recording for the next phase, because it cost twenty minutes of confusion: **no
+`Running upgrade` line was ever observed in the logs.** `railway logs --deployment` returns at
+most the last 500 lines, the Sisu sync spends hundreds of them per pass, and the container that
+applied the migration had its startup block rotated out before it could be sampled. Every later
+container is a restart finding head already applied, which alembic performs silently. The two
+direct checks were both refused in this session: reading `alembic_version` from production
+(Production Reads) and capturing the Postgres service URL to query it (Credential
+Materialization, correctly, since it would have written a live credential to disk). The
+`Dockerfile` `&&` is what settled it. Next time, read the Dockerfile first.
 
 **Gates.** `alembic heads` one line, `0096_alloc_rule_versions`. On SQLite, against a database
 built by `seed()`: `alembic stamp 0095_agent_roster_dates`, `upgrade head`, `downgrade -1`,
