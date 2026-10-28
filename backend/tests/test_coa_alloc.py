@@ -104,9 +104,19 @@ async def _rule(tenant_id, biz, target="the_forum", source="springb",
 
 
 async def _clear(tenant_id):
+    """Clear THIS workspace's allocation rows, not everybody's.
+
+    It already took `tenant_id` and never used it, which is the tell. The cost is not test
+    ordering -- the suite runs in one process, so another module's tests cannot interleave
+    between this one's clear and its asserts. The cost is that the obvious test for a
+    multi-tenant rules API cannot be written: "workspace A must not see or rebuild workspace B's
+    rules" needs two workspaces' rules alive at once, and an unscoped clear wipes the first while
+    setting up the second.
+    """
     async with SessionLocal() as s:
-        await s.execute(delete(AllocationContribution))
-        await s.execute(delete(AllocationRule))
+        await s.execute(delete(AllocationContribution).where(
+            AllocationContribution.tenant_id == tenant_id))
+        await s.execute(delete(AllocationRule).where(AllocationRule.tenant_id == tenant_id))
         await s.commit()
 
 
