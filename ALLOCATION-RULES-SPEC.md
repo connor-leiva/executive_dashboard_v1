@@ -1167,6 +1167,107 @@ three weeks with no allocation code at all (amendment 4), which is what a grep n
 worth.
 
 ### Phase 2
+
+Done 2026-10-28, commit `bf094c5`. No migration: Phase 1 already shipped the columns.
+
+**What landed.** `allocation_months(today, fy_month)` in `coa_balances.py`, `today` injected so a
+test can ask about April from October. `_write_period(ps, pe, ...)` carved out of
+`sync_trial_balances`, and a second pass over the months sharing the one `_as_of` cache.
+`contributions_for` matches window rows on equality and month rows by containment.
+`balance_periods()` untouched, as §5.3 requires.
+
+**The gate is an identity, not a measurement.** Monthly differences telescope: every
+intermediate as-of pull appears once positive and once negative, so
+`Sum(TB(month_end) - TB(prior month_end))` collapses to `TB(today) - TB(prior Dec 31)`, which is
+exactly the year-to-date window. It holds for balance-sheet accounts directly, and for P&L
+accounts because the fiscal-year zeroing applies to January and to year-to-date identically.
+Simulated first, then asserted: `test_the_months_sum_to_the_year_to_date_window_per_account`
+checks it per account on a fixture with unequal monthly amounts, a non-zero prior-year opening
+on both sides, an account that starts in May and skips July, and a plug that keeps every date
+summing to zero.
+
+**A docstring was wrong and had been.** `sync_trial_balances` said "Both sides sum to zero, so
+the difference does too, and the tie-out invariant is unaffected." The first clause is false
+across the fiscal-year boundary: zeroing the P&L openings leaves exactly the discarded prior
+year behind, and January and year-to-date each net to the same -525,000 on the fixture
+(`Jan sum = Sum_PL(opening)`, derived, not coincidence). The conclusion holds for a different
+reason: the tie-out is `mapped_total - (booked_total - excluded)`, never a comparison against
+zero, so the residue sits on both sides and cancels. What it does affect is the cosmetic `gross`
+magnitude. Corrected, and the real property is
+`test_a_period_nets_to_zero_unless_it_crosses_the_fiscal_year`.
+
+**One blocker, from the blast-radius sweep.** `types` classifies which accounts reset at the
+fiscal-year boundary and comes from `coa_map`, whose sync records its own failure and never
+aborts the pass (`coa_map.py:187`, then `sync.py:1985`). So this can run with `types` empty, and
+empty means every account looks like a balance-sheet account, which means January differences
+against a trial balance carrying the whole prior fiscal year. **Today that can only reach the
+year-to-date key, which is re-pulled every pass and heals itself. A month key does not heal:**
+once written and closed, nothing pulls it again, and there is no force flag or resync route. So:
+the month pass writes nothing at all when `types` is empty and says so in the log, and a month
+whose opening crosses the boundary is never skipped however settled it looks. Two tests.
+
+**Three more from the same sweep, all inert today.**
+
+| Fix | Why it could not wait |
+|---|---|
+| `sync_allocations`' delete scoped to `grain == "window"` | Three window keys ARE calendar months (this month, last month, the month before). A rebuild of October would delete October's applied rows and return a count of the observed ones. §5.5 already promises the converse. |
+| `allocation_check`'s query likewise | It reconciles against intercompany MOVEMENT, which only an observed row has. Applied rows at a shared key report `unexplained` breaking by the whole applied amount, an artefact of the grain collision, while `zero_sum` stays green. |
+| `contributions_for` totally ordered | The payload ships this order unsorted, and an OR across two indexes may be planned as a bitmap or a scan. That moves a payload without moving a number, which is the one thing this phase's gate asks about. |
+
+**Cost, measured on production both before and after.** The pre-Phase-2 log line read
+`periods=5 as_of_pulls=5` on all five realms (`rows=` 644 ULRG, 378 Spring B, 134, 113, 68), so
+the real baseline was **5 report calls per realm per pass, 25 across the portfolio**, not the 6
+Phase 0 projected for a different `today`. After the deploy, ULRG reads:
+
+```
+[coa_balances] realm=9130347534128706 periods=5 months=10 skipped=2 as_of_pulls=11 rows=1560
+```
+
+**`as_of_pulls` 5 to 11 is exactly the +6 per realm Phase 0 projected**, and `rows` 644 to 1560
+is the fifteen keys against five. No `TimeoutError`, no `sqlalchemy.exc`, and no
+`month pass SKIPPED`, so every realm had its chart.
+
+`skipped=2` is not the close checklist, and decoding it is worth recording. The window pass runs
+first and writes August, September and October; the month pass then finds August and September
+already written moments ago and skips them on the time rule. October is exempt as the current
+month and January as the fiscal-year crosser, and February to July had no rows yet. Exactly two.
+It saves no QuickBooks call, because those months' dates are the neighbouring months' openings
+(see the chaining finding below) -- it saves the delete-and-reinsert only. The counter was
+originally named `skipped_closed`, which was wrong the first time it printed, since it counts
+both reasons; renamed to `skipped`.
+
+**The closed-month skip saves nothing on its own, and this is the finding worth keeping.**
+Consecutive months chain: a month's opening date IS the previous month's end date. So skipping an
+interior month removes no date from the union and saves no call. Measured on a replica: baseline
+5 dates; plus ten months, 11; skip March alone, still 11; skip March and June, still 11; skip
+January to March, 9; skip January to June, 6; skip January to September, 5. **Only a contiguous
+prefix saves anything.** `MONTH_REFRESH_HOURS = 20` in `_month_is_settled` is therefore the
+control that actually works, because it skips every past month together, which is a prefix. It
+is a deliberate addition to the spec: §5.3's rule is the close checklist, and that rule is inert
+in a workspace where nobody marks a month closed. The current month is never skipped by time,
+and a closed month is always skipped. **Open question for Connor: does Spring B use the close
+checklist?** If it does, the time rule can go.
+
+**Gates.** 21 tests in `tests/test_coa_months.py`; 78 passed across `test_coa_months`,
+`test_coa_alloc`, `test_coa_balances`, `test_books_txn_lines` and `test_books_api`;
+`alembic heads` one line. `sync_trial_balances` had NO test before this phase, so the
+differencing, the fiscal-year crossing and the as-of cache were all live and unexercised.
+
+**Mutation testing: 20 of 20 caught, after two survived a first pass.** Both survivors were the
+fixture's fault, which is the same shape as Phase 1's line-id survivor.
+
+- The per-entity skip test aged BOTH entities' rows, so a lookup that dropped its `business_id`
+  filter still found a stale row and still answered correctly. The freshness has to differ.
+- No Phase 1 test wrote lines for one transaction and then synced a DIFFERENT one, so dropping
+  `book_txn_id` from `_write_txn_lines`' delete passed everything. In production a CDC pass
+  carries a handful of changed objects, so that would empty the tenant's whole line table on
+  every sync and refill only what changed, silently recreating the under-reporting
+  `book_txn_line` exists to remove.
+
+One mutation (`P12 month pass uses its own cache`) was invalid rather than survived: `kw` is
+built before either loop, so substituting an empty dict still gives both passes the same dict.
+The sharing is pinned by `test_every_as_of_date_is_pulled_exactly_once`.
+
 ### Phase 3
 ### Phase 4
 ### Phase 5

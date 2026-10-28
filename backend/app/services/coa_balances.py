@@ -366,7 +366,7 @@ async def sync_trial_balances(s: AsyncSession, tenant_id, integ: Integration,
 
     await s.commit()
     print(f"[coa_balances] realm={integ.realm_id} periods={len(balance_periods())} "
-          f"months={len(months)} skipped_closed={skipped} as_of_pulls={len(cache)} "
+          f"months={len(months)} skipped={skipped} as_of_pulls={len(cache)} "
           f"rows={written} fy_start_month={fy_month}", flush=True)
     return written
 
