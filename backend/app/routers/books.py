@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..deps import require_tab, require_role
 from ..models import User
-from ..services import books, coa_alloc, coa_balances, coa_map
+from ..services import alloc_rules, books, coa_alloc, coa_balances, coa_map
 from ..services.books_scan import create_ic_rule, update_ic_rule
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -387,9 +387,38 @@ class AllocRulePatch(BaseModel):
     is_active: bool | None = None
 
 
+# ── applied rules: versioned, never edited in place (ALLOCATION-RULES-SPEC Phase 3) ──
+
+class AllocVersionIn(BaseModel):
+    method: str                                        # direct|traced|driven|split|retained|ended
+    effective_from: dt.date
+    reach: str                                         # forward|from_date|retro
+    rationale: str
+    tier: int | None = None
+    targets: list[dict] | None = None                  # [{business_id, share}], shares 0 to 1
+    driver_id: uuid.UUID | None = None
+    driver_subject: str | None = None
+    source_spec: dict | None = None
+
+
+class AppliedRuleIn(AllocVersionIn):
+    scope_kind: str                                    # account|program|vendor
+    pattern: str
+    pool_name: str
+    source_business_id: uuid.UUID                      # the POOL entity
+
+
+class AllocEndIn(BaseModel):
+    effective_from: dt.date
+    rationale: str
+
+
 @router.get("/allocations/rules")
-async def alloc_rules(user: User = Depends(books_user),
-                      s: AsyncSession = Depends(get_session)):
+async def alloc_list_rules(user: User = Depends(books_user),
+                           s: AsyncSession = Depends(get_session)):
+    # Named for its neighbours (alloc_create_rule, alloc_patch_rule), and renamed because
+    # `alloc_rules` shadowed the `services.alloc_rules` module at import: every applied-rule
+    # route then raised AttributeError on a function object, and only calling one showed it.
     return {"rules": await coa_alloc.list_rules(s, user.tenant_id)}
 
 
@@ -404,10 +433,22 @@ async def alloc_create_rule(body: AllocRuleIn,
     return {"ok": True, "id": str(rule.id)}
 
 
+async def _refuse_if_applied(s, tenant_id, rule_id) -> None:
+    """An applied rule is never edited or deleted in place. 409 rather than 400: the request is
+    well formed and the state of the thing is what makes it impossible, and the caller's next
+    move is a different route rather than a corrected body."""
+    rule = await s.get(coa_alloc.AllocationRule, rule_id)
+    if rule is not None and rule.tenant_id == tenant_id and rule.mode == "applied":
+        raise HTTPException(409, "An applied rule is versioned, so it is never edited or "
+                                 "deleted in place. Add a version instead, or end it from a "
+                                 "month, and what it used to say stays readable.")
+
+
 @router.patch("/allocations/rules/{rule_id}")         # CFO only
 async def alloc_patch_rule(rule_id: uuid.UUID, body: AllocRulePatch,
                            user: User = Depends(require_role("owner", "admin")),
                            s: AsyncSession = Depends(get_session)):
+    await _refuse_if_applied(s, user.tenant_id, rule_id)
     try:
         rule = await coa_alloc.update_rule(s, user.tenant_id, user, rule_id,
                                            **body.model_dump(exclude_unset=True))
@@ -420,11 +461,53 @@ async def alloc_patch_rule(rule_id: uuid.UUID, body: AllocRulePatch,
 async def alloc_delete_rule(rule_id: uuid.UUID,
                             user: User = Depends(require_role("owner", "admin")),
                             s: AsyncSession = Depends(get_session)):
+    await _refuse_if_applied(s, user.tenant_id, rule_id)
     try:
         await coa_alloc.delete_rule(s, user.tenant_id, user, rule_id)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True}
+
+
+@router.post("/allocations/applied")                  # CFO only
+async def alloc_create_applied(body: AppliedRuleIn,
+                               user: User = Depends(require_role("owner", "admin")),
+                               s: AsyncSession = Depends(get_session)):
+    try:
+        rule, v = await alloc_rules.create_applied_rule(s, user.tenant_id, user,
+                                                        **body.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "id": str(rule.id), "version": alloc_rules.version_out(v)}
+
+
+@router.get("/allocations/applied/{rule_id}/versions")
+async def alloc_versions(rule_id: uuid.UUID, user: User = Depends(books_user),
+                         s: AsyncSession = Depends(get_session)):
+    rows = await alloc_rules.versions_for(s, user.tenant_id, rule_id)
+    return {"versions": [alloc_rules.version_out(v) for v in rows]}
+
+
+@router.post("/allocations/applied/{rule_id}/versions")   # CFO only
+async def alloc_add_version(rule_id: uuid.UUID, body: AllocVersionIn,
+                            user: User = Depends(require_role("owner", "admin")),
+                            s: AsyncSession = Depends(get_session)):
+    try:
+        v = await alloc_rules.supersede(s, user.tenant_id, user, rule_id, **body.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "version": alloc_rules.version_out(v)}
+
+
+@router.post("/allocations/applied/{rule_id}/end")    # CFO only
+async def alloc_end_rule(rule_id: uuid.UUID, body: AllocEndIn,
+                         user: User = Depends(require_role("owner", "admin")),
+                         s: AsyncSession = Depends(get_session)):
+    try:
+        v = await alloc_rules.end_rule(s, user.tenant_id, user, rule_id, **body.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "version": alloc_rules.version_out(v)}
 
 
 @router.post("/allocations/rebuild")                  # CFO only

@@ -1269,6 +1269,66 @@ built before either loop, so substituting an empty dict still gives both passes 
 The sharing is pinned by `test_every_as_of_date_is_pulled_exactly_once`.
 
 ### Phase 3
+
+Done 2026-10-28. No migration: Phase 1 shipped `allocation_rule_version`.
+
+**`app/services/alloc_rules.py`.** `TIERS` and `METHOD_TIER` (the reader's vocabulary and the
+machine's, both carried so colour is never the only signal, D15 and amendment 23).
+`validate_version` and `effective_version` are pure, which is why the whole refusal set and the
+whole resolution set are testable without a database. `create_applied_rule`, `supersede`,
+`end_rule`, `versions_for`, `version_out` take a session.
+
+A rule and its version 1 arrive together. A rule with no version claims nothing and would sit
+in the list looking live, so the two are never separable.
+
+**Routes.** `POST /allocations/applied`, `POST` and `GET
+/allocations/applied/{id}/versions`, `POST /allocations/applied/{id}/end`. PATCH and DELETE on
+an applied rule answer **409**, not 400: the body is well formed and the state of the thing is
+what makes it impossible, and the caller's next move is a different route rather than a
+corrected body. The observed path is untouched, and a test asserts an observed rule can still be
+patched and deleted, because that is the path in production today.
+
+**All four gate conditions.** Appendix B1 resolves February to v1 and May to v2. A retroactive v3
+from January resolves February to v3, while `as_of` set before v3 was written still resolves
+February to v1 and May to v2, which is what those closed months were allocated on. An empty
+rationale is refused with a sentence. And the append-only gate is watched at the SQL rather than
+asserted about the code: a `before_cursor_execute` listener captures every statement while a rule
+is created, superseded and ended, then fails if any `UPDATE` on `allocation_rule_version` sets
+anything outside `is_current` and `superseded_by`, or if any `DELETE` reaches the table at all. A
+reviewer can miss an assignment; the wire cannot.
+
+**Amendments applied.** Shares are fractions 0 to 1, keyed `share`, quantized to four places
+(amendment 12): `70` is refused, `0.7` is accepted, and thirds work at `0.3333/0.3333/0.3334`.
+Four places because count and traced shares are derived by division and a split typed as thirds
+cannot sum to 1 in decimal at any precision, so the tolerance IS the precision, declared once.
+`split_not_100` is a refusal in `validate_version` and not a pending reason in the engine
+(amendment 16), and it says what the shares do add up to.
+
+**Three bugs, all found by running it rather than reading it.**
+
+1. **A name collision that broke every new route.** The existing handler `async def
+   alloc_rules(...)` shadowed the `services.alloc_rules` module at import, so every
+   applied-rule route raised `AttributeError: 'function' object has no attribute
+   'create_applied_rule'`. It answered 500, not a test failure, and nothing in review would
+   have surfaced it. The handler is now `alloc_list_rules`, which is what its three neighbours
+   are called anyway.
+2. The test fixture assumed production's shape. The seed carries three businesses and neither
+   membership entity, which is F14 exactly: the keys differ between seed, tests and frontend and
+   are minted at runtime from typed names. The fixture creates what it needs.
+3. **One of the test's own assertions was wrong in the direction that matters.** It asserted
+   that with only v1 present, May resolves to nothing. It resolves to v1: a version has no end
+   date and runs until something supersedes it. Had the code been "fixed" to match, a month with
+   a live rule would have resolved to no rule at all.
+
+**Acceptance checks.** A9 (`grep -nE "setattr|\.delete\("` over `alloc_rules.py`) is 0 -- it
+needed a docstring reworded, because the prose explaining why the old path is wrong used the
+literal token. A13 (no business keys) is 0. A14 is two audits for the two mutations, both
+`category="Books"`; `end_rule` delegates to `supersede` and is distinguishable by its
+`method: ended` detail.
+
+**Gates.** 22 tests in `tests/test_alloc_rules.py`; 84 passed with `test_coa_alloc`,
+`test_coa_months`, `test_coa_balances` and `test_books_api`.
+
 ### Phase 4
 ### Phase 5
 ### Phase 6
