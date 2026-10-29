@@ -121,10 +121,14 @@ def user(i, email=None, status="Active", role="Agent", is_owner=False):
 
 
 def person(i, *, assigned=1, created="2026-09-10T15:00:00Z", stage="Lead", contacted=False,
-           last_activity=None, name=None, source="Zillow"):
-    return {"id": i, "name": name if name is not None else f"Person {i}", "stage": stage,
-            "source": source, "contacted": contacted, "assignedUserId": assigned,
-            "created": created, "updated": created, "lastActivity": last_activity or created}
+           last_activity=None, name=None, source="Zillow", emails=None):
+    """`emails` is FUB's own shape: a LIST of {value, isPrimary}, where order is NOT priority."""
+    row = {"id": i, "name": name if name is not None else f"Person {i}", "stage": stage,
+           "source": source, "contacted": contacted, "assignedUserId": assigned,
+           "created": created, "updated": created, "lastActivity": last_activity or created}
+    if emails is not None:
+        row["emails"] = emails
+    return row
 
 
 def task(i, *, person_id, due: dt.date, assigned=1, name="Call back", kind="Call",

@@ -194,12 +194,13 @@ async def _write_people(run: _Run, rows: list[dict]) -> None:
          "source": "fub", "external_id": p["external_id"], "stage": p["stage"],
          "agent_id": run.agents.get(p["agent_external_id"]),
          "created_at_src": p["created_at_src"], "name": p["name"], "origin": p["origin"],
+         "email": p["email"],
          "contacted": p["contacted"], "src_created_at": p["src_created_at"],
          "src_updated_at": p["src_updated_at"], "last_activity_at": p["last_activity_at"],
          "synced_at": run.now}
         for p in mapped],
         keys=["tenant_id", "source", "external_id"],
-        update=["stage", "agent_id", "created_at_src", "name", "origin", "contacted",
+        update=["stage", "agent_id", "created_at_src", "name", "origin", "email", "contacted",
                 "src_created_at", "src_updated_at", "last_activity_at", "synced_at"])
     await run.s.commit()
 

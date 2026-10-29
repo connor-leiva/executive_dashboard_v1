@@ -34,10 +34,12 @@ MAX_RETRIES = 5
 _sleep = asyncio.sleep
 
 # Only what the app keeps. `name` is FUB's display name; first/last are the fallback when it is
-# blank. No emails, phones or addresses: a follow-up row opens the person in FUB, where they are.
+# blank. `emails` is here for ONE reason -- it is the key that joins a FUB lead to a Sisu
+# transaction and an Arive loan, which is how "did this Realtor.com lead finance with Sympli"
+# gets answered. Only the primary address is stored (see map_person); no phones, no addresses.
 PERSON_FIELDS = ",".join((
     "id", "name", "firstName", "lastName", "stage", "source", "contacted", "assignedUserId",
-    "created", "updated", "lastActivity",
+    "created", "updated", "lastActivity", "emails",
 ))
 
 
@@ -150,7 +152,8 @@ def clip(value, length: int) -> str | None:
 
 # Data contract this app needs (FUB fields -> these):
 #   agents:  external_id, name, email, is_active
-#   leads:   external_id, stage, agent_external_id, created_at_src (a date, in the workspace's zone)
+#   leads:   external_id, stage, agent_external_id, created_at_src (a date, in the workspace's
+#            zone), email (the primary one, the attribution join key)
 def map_user(u: dict) -> dict:
     name = u.get("name") or f'{u.get("firstName") or ""} {u.get("lastName") or ""}'.strip()
     return {
@@ -187,6 +190,30 @@ def map_task(t: dict, tz: dt.tzinfo = dt.timezone.utc) -> dict:
     }
 
 
+def primary_email(p: dict) -> str | None:
+    """The one address to keep, lowercased.
+
+    FUB holds a LIST per person and the order is not the priority: the flagged primary can be
+    second or third. Taking `emails[0]` therefore picks a stale or secondary address often enough
+    to break a join silently, which is the failure this helper exists to prevent. Falls back to
+    the first address with a value, then to the older flat `primaryEmail`/`email` shapes that
+    some FUB payloads still use.
+    """
+    rows = p.get("emails")
+    if isinstance(rows, list):
+        for want_primary in (True, False):
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                if want_primary and not row.get("isPrimary"):
+                    continue
+                value = (row.get("value") or "").strip().lower()
+                if value:
+                    return clip(value, 255)
+    flat = (p.get("primaryEmail") or p.get("email") or "").strip().lower()
+    return clip(flat, 255) or None
+
+
 def map_person(p: dict, tz: dt.tzinfo = dt.timezone.utc) -> dict:
     assigned = p.get("assignedUserId")
     created = parse_ts(p.get("created") or p.get("createdAt"))
@@ -202,6 +229,7 @@ def map_person(p: dict, tz: dt.tzinfo = dt.timezone.utc) -> dict:
         "created_at_src": created.astimezone(tz).date() if created else None,
         "name": clip(name, 200),
         "origin": clip(p.get("source"), 120),
+        "email": primary_email(p),
         "contacted": bool(contacted) if contacted is not None else None,
         "src_created_at": created,
         "src_updated_at": parse_ts(p.get("updated")),

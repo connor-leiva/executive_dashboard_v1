@@ -126,8 +126,13 @@ async def test_the_whole_crm_is_walked_with_the_cursor_and_only_the_fields_kept(
     assert [p.get("next") for p in backfill] == [None, "100", "200"]
     assert all("offset" not in p for p in people), "offset paging is what took eight minutes"
     assert all(p.get("fields") == fub.PERSON_FIELDS for p in people)
-    for banned in ("emails", "phones", "addresses"):
-        assert banned not in fub.PERSON_FIELDS, "no contact details are stored"
+    # `emails` WAS banned here too, on the rule that a follow-up row opens the person in FUB so
+    # the app never needed contact details. Connor reversed that deliberately: attribution needs
+    # a join key, and an email address is the only identifier FUB, Sisu and Arive all carry for
+    # the same person. The guard narrows rather than disappears -- what is still banned is still
+    # banned, and only the PRIMARY address is kept (see test_the_sync_stores_the_primary_address).
+    for banned in ("phones", "addresses"):
+        assert banned not in fub.PERSON_FIELDS, "no phone or postal details are stored"
 
 
 async def test_activity_brings_a_change_in_on_the_next_run(fake):
@@ -270,3 +275,82 @@ async def test_the_funnel_counts_the_leads_that_came_in_this_period():
     funnel = {r.label: r.v for r in rows}
     assert funnel["Leads"] == 2
     assert funnel["Appointments"] == 1
+
+
+# ── the attribution join key ──────────────────────────────────────────────────────────────
+
+def test_the_primary_email_is_the_flagged_one_not_the_first():
+    """FUB hands back a LIST and its order is not the priority -- the flagged primary sits behind
+    an older address often enough that `emails[0]` picks a stale one and breaks the join in
+    silence. That is the whole reason this is a helper and not an inline index.
+    """
+    out_of_order = {"emails": [{"value": "old@example.com"},
+                               {"value": "Real@Example.com", "isPrimary": True}]}
+    assert fub.primary_email(out_of_order) == "real@example.com"
+
+    # No flag anywhere: the first address that has a value, rather than nothing.
+    assert fub.primary_email({"emails": [{"value": ""}, {"value": "Second@x.com"}]}) == "second@x.com"
+
+    # The older flat shapes some FUB payloads still use.
+    assert fub.primary_email({"primaryEmail": "Flat@X.com"}) == "flat@x.com"
+    assert fub.primary_email({"email": "Older@X.com"}) == "older@x.com"
+
+    # Nothing to take is None, never "" -- an empty string joins to every other empty string,
+    # which is exactly the match that silently inflates an attribution report.
+    assert fub.primary_email({"emails": []}) is None
+    assert fub.primary_email({}) is None
+    assert fub.primary_email({"emails": [{"isPrimary": True}]}) is None
+
+
+def test_an_over_long_address_is_cut_to_the_column():
+    """String(255) on Postgres rejects what SQLite silently accepts, so the clip happens on the
+    way in rather than at the insert."""
+    assert len(fub.primary_email({"primaryEmail": ("x" * 300) + "@example.com"})) == 255
+
+
+def test_the_people_request_asks_for_emails_and_nothing_wider():
+    """A column the fetch never populates is the quietest failure there is: the sync keeps
+    reporting success and every row stays null. The second half matters as much -- the narrow
+    scope is what made adding this acceptable."""
+    fields = fub.PERSON_FIELDS.split(",")
+    assert "emails" in fields
+    assert "phones" not in fields and "addresses" not in fields
+
+
+async def test_the_sync_stores_the_primary_address_and_leaves_the_rest_alone(fake):
+    fake.users = [user(1)]
+    fake.people = [
+        person(9001, source="Opcity",
+               emails=[{"value": "stale@old.com"},
+                       {"value": "Buyer@Example.com", "isPrimary": True}]),
+        # No address at all: NULL, not "".
+        person(9002, source="Opcity", emails=[]),
+    ]
+    ws = await _workspace("fubemail")
+    async with SessionLocal() as s:
+        await sync_fub(s, ws["tenant_id"], await _integration(s, ws))
+        rows = {l.external_id: l for l in (await s.execute(select(Lead).where(
+            Lead.tenant_id == ws["tenant_id"]))).scalars().all()}
+
+    assert rows["9001"].email == "buyer@example.com"
+    assert rows["9001"].origin == "Opcity"
+    assert rows["9002"].email is None
+
+
+async def test_a_changed_address_is_carried_on_the_next_sync(fake):
+    """The column is in the upsert's UPDATE list, not only its INSERT. Leaving it out of the
+    update is the shape where a backfill looks like it worked and then never moves again."""
+    fake.users = [user(1)]
+    fake.people = [person(9100, source="Opcity",
+                          emails=[{"value": "before@x.com", "isPrimary": True}])]
+    ws = await _workspace("fubemail2")
+    async with SessionLocal() as s:
+        await sync_fub(s, ws["tenant_id"], await _integration(s, ws))
+
+    fake.people = [person(9100, source="Opcity",
+                          emails=[{"value": "after@x.com", "isPrimary": True}])]
+    async with SessionLocal() as s:
+        await sync_fub(s, ws["tenant_id"], await _integration(s, ws))
+        lead = (await s.execute(select(Lead).where(
+            Lead.tenant_id == ws["tenant_id"], Lead.external_id == "9100"))).scalar_one()
+    assert lead.email == "after@x.com"

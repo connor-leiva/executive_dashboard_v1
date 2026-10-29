@@ -1487,9 +1487,20 @@ class Transaction(Base):
 class Lead(Base):
     """FUB people: the top of the dashboard's funnel, and who the portal's Needs You Today lists.
 
-    A NAME AND NO CONTACT DETAILS. A follow-up row opens the person in Follow Up Boss, where the
-    call is made and logged, so nothing here needs a phone number or an email address -- and a
-    copy of every lead's contact details is not something to hold without a reason.
+    A NAME AND ONE EMAIL. No phone, no address. The original rule here was a name and nothing
+    else -- a follow-up row opens the person in Follow Up Boss, where the call is made and logged,
+    so none of it was needed, and a copy of every lead's contact details is not something to hold
+    without a reason.
+
+    THE REASON ARRIVED. Attribution needs a join key. "Which Realtor.com leads financed with
+    Sympli" is three systems deep -- FUB knows the lead source, Sisu knows the transaction, Arive
+    knows the loan -- and the only identifier all three carry for the same human being is an email
+    address. Matching on names was tried and is not merely weaker but wrong: this app's own
+    `transaction.buyer_name` turned out to hold the OTHER side of the deal, so name matching was
+    pairing sellers with buyers and nobody noticed.
+
+    So: the primary email, and still nothing else. Not the secondary addresses FUB holds, not the
+    phone, not the address. One field, because one field is what the join needs.
     """
     __tablename__ = "lead"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
@@ -1503,6 +1514,10 @@ class Lead(Base):
     created_at_src: Mapped[date | None] = mapped_column(Date, nullable=True)
     name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     origin: Mapped[str | None] = mapped_column(String(120), nullable=True)   # FUB `source`: "Zillow"
+    # The PRIMARY address only, lowercased. The join key to Sisu and Arive, and the reason this
+    # column exists at all -- see the class docstring. Indexed because every attribution query
+    # starts from it.
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     # FUB's own flag: false until somebody calls, texts or emails them. NULL = not yet read.
     contacted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
