@@ -1242,11 +1242,28 @@ interior month removes no date from the union and saves no call. Measured on a r
 5 dates; plus ten months, 11; skip March alone, still 11; skip March and June, still 11; skip
 January to March, 9; skip January to June, 6; skip January to September, 5. **Only a contiguous
 prefix saves anything.** `MONTH_REFRESH_HOURS = 20` in `_month_is_settled` is therefore the
-control that actually works, because it skips every past month together, which is a prefix. It
-is a deliberate addition to the spec: §5.3's rule is the close checklist, and that rule is inert
-in a workspace where nobody marks a month closed. The current month is never skipped by time,
-and a closed month is always skipped. **Open question for Connor: does Spring B use the close
-checklist?** If it does, the time rule can go.
+control that actually works, because it skips every past month together, which is a prefix. The
+current month is never skipped by time, and a closed month is always skipped.
+
+**The close-checklist half cannot fire at all, and that was checked rather than assumed.**
+Connor's answer on 2026-10-28 was that an assigned member, a rep from the accounting firm
+overseeing the work, marks the checklist closed. The mechanism says that signal never reaches
+this code:
+
+| What | Where |
+|---|---|
+| `_books_closed()` reads | `ClosePeriod.status == "closed"` |
+| Nothing anywhere WRITES a `ClosePeriod` row | `grep -rnE "insert\(ClosePeriod\|ClosePeriod\("` over `app/` returns only the model definition |
+| The one close route sets | `PLSnapshot.books_closed`, a different column on a different table (`routers/businesses.py` `close_books`) |
+| and requires | `require_role("owner", "admin")`, so a member cannot call it |
+| Four modules READ `ClosePeriod` | `binder.py` (compliance), `binder_status.py`, `books.py` (the close checklist screen), `coa_balances._books_closed` |
+
+So the time rule is not a belt on top of a working braces, it is the only control operating, and
+the Books close-checklist screen is reading a permanently empty table. Three things would have to
+change for §5.3's rule to mean anything: a writer for `ClosePeriod`, a permission that lets the
+assigned member be the one to write it, and a decision about which of the two close signals is
+canonical. All three are Connor's, all three are outside this module, and none of them is
+assumed by anything above.
 
 **Gates.** 21 tests in `tests/test_coa_months.py`; 78 passed across `test_coa_months`,
 `test_coa_alloc`, `test_coa_balances`, `test_books_txn_lines` and `test_books_api`;
@@ -1330,6 +1347,74 @@ literal token. A13 (no business keys) is 0. A14 is two audits for the two mutati
 `test_coa_months`, `test_coa_balances` and `test_books_api`.
 
 ### Phase 4
+
+Done 2026-10-30. No migration.
+
+**`app/services/alloc_engine.py`.** `rate`, `split_amounts`, `retained` (pure);
+`vendor_pools`, `account_pool`, `account_pools`, `longest_prefix_wins`, `derive_applied`,
+`derive_all`. The worker calls `derive_all` after `sync_allocations` in its own `try`, because a
+rule somebody mistyped must not cost the dashboard the observed path, which is the one in
+production. `/allocations/rebuild` derives every calendar month the requested period CONTAINS,
+since month rows are what `contributions_for` matches by containment and deriving the window
+instead would leave the months stale while the window looked fresh.
+
+**Amendments 11 and 12 change the arithmetic.** Shares are fractions, so there is no division by
+100 anywhere and acceptance check A8 returns zero rather than being confined to `rate()`. The
+rounding residue lands on the largest line by MAGNITUDE, following `books_cleanup._parts` so a
+reader comparing the Cleanup workbook against this module sees one rule, not two. Ties break on
+the key: a 50/50 split has two equally large lines, `max` alone would take whichever the dict
+yielded first, and a rebuild has to reproduce the row it replaced.
+
+**Three decisions that are not in the body.**
+
+1. **The whole is `rate(pool, total share)`, not the pool.** Shares do not always sum to 1: a
+   `retained` method sends nothing and a split may deliberately stop short.
+2. **Account pools are assigned PER ACCOUNT, not per rule.** Asking each rule for everything
+   under its own prefix lets "Advertising" and "Advertising:Meta" both claim Meta's spend.
+   Longest prefix wins is a hierarchy, so it has to be structural rather than a filter applied
+   afterwards.
+3. **P&L accounts only.** A prefix match can reach a balance-sheet account sharing a name stem,
+   and a pool that swept in a bank balance would still split to the cent and still tie out.
+
+**Retained is never a row.** `ck_alloc_not_self` forbids a contribution from an entity to itself
+and 5.4 defines retained as `pool - sum(targets)`. A version may legitimately list the pool
+entity among its targets (4.2), and that share is exactly what stays behind, so it is skipped
+rather than written and rejected.
+
+**Five bugs, every one found by running the thing rather than reading it.**
+
+| Bug | Why nothing else would have caught it |
+|---|---|
+| `split_amounts` reconciled to the pool, so `{forum: 0.6}` over 1000.00 returned 1000.00 out and nothing retained | Every fixture in Appendix B1 is a FULL split, so the gate as written passes either way |
+| `double_count_risk` was dead code: `targets` stores business ids as JSON strings and the observed-row set holds UUIDs, so `(UUID, str, UUID) in {(UUID, UUID, UUID)}` was always False | The `GUID` type coerces a string on write, so every row still landed correctly and every other test passed. Caught only because a test asserted the reason APPEARS in `pending` |
+| Two vendor rules could claim one payee: `create_applied_rule` judged uniqueness with `normalize_fqn` and the engine matches with `normalize_name` | "Qualifi, LLC" and "Qualifi Inc." are distinct to one and identical to the other. The pool doubles, D6 subtracts it twice, and every split still sums to its own pool to the cent. Fixed by `scope_norm`, which is now the one place a scope decides what "the same" means (the repo has SIX name normalizers and all six differ) |
+| A vendor pattern of "LLC" normalizes to "" and clears the three-character gate | Stored, it claims every payee that normalizes away, including transactions with no payee at all |
+| The route handler `alloc_rules` shadowed the `services.alloc_rules` module (Phase 3, found here) | Answered 500, not a test failure |
+
+All five share one shape: output that looks right, arithmetic that still balances, and a tie-out
+that still passes because it compares mapped against booked rather than against the pool.
+
+**Two of the tests' OWN assertions were wrong, both asserting that a feature does not work.**
+One claimed the Statement's totals do not move when applied rows exist; they move by exactly the
+amount allocated out, because `as_allocated = direct + in - out`, and the test now asserts the
+tie-out holds AND the expense falls by precisely `out["amount"]`. The other made v1 effective
+from July while deriving January rows against it, by passing the version explicitly and
+bypassing `effective_version`: a fixture disagreeing with Phase 3 rather than a test of
+anything.
+
+**`_compose` keeps the observed payload still.** Month rows are grouped by counterparty and by
+VERSION (not by rule, so a restatement does not merge old terms into new) and summed, so a
+year-to-date Advertising line shows two inbound rows per entity instead of nine, each carrying
+the months it stands for. Pass-through rows keep the query's order untouched, because Phase 2
+promised an existing window's payload would not move and the first version of this function
+sorted everything.
+
+**Gates.** The nine B1 months sum to 52,049.87 with targets plus retained equal to the pool in
+every one. The Statement still answers `tie_out.status == "tied"` with applied rows present, and
+`allocation_check`'s whole payload is byte-identical. A vendor claim inside an account subtree is
+carved out by exactly its own amount. A multi-line transaction is refused and reported.
+167 passed across the six allocation and balance suites.
+
 ### Phase 5
 ### Phase 6
 ### Phase 7

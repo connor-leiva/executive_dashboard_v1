@@ -2034,6 +2034,20 @@ async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, peri
                 await sync_allocations(s, tenant_id, period)
         except Exception as e:  # noqa: BLE001
             print(f"[coa_alloc] skipped for {tenant_id}: {type(e).__name__}: {e}", flush=True)
+        # APPLIED allocations, per calendar month, after the observed ones (SPEC 5.5). Its own
+        # try: a rule somebody mistyped must not cost the dashboard the observed path, which is
+        # the one in production. It reads the month AccountPeriodBalance rows that
+        # sync_trial_balances wrote earlier in this same pass, so the ordering matters and it
+        # runs last for that reason as well as this one.
+        try:
+            from .alloc_engine import derive_all
+            out = await derive_all(s, tenant_id, today=dt.date.today())
+            if out["months"]:
+                print(f"[alloc_engine] tenant={tenant_id} months={out['months']} "
+                      f"rows={out['contributions']} amount={out['amount']} "
+                      f"pending={len(out['pending'])}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[alloc_engine] skipped for {tenant_id}: {type(e).__name__}: {e}", flush=True)
     # Binder: extract newly-uploaded documents into obligation PROPOSALS (never obligations —
     # a human confirms each). Independent of integrations; key-gated and a no-op when there are
     # no pending docs. Proven on real data via the go/no-go before wiring here.

@@ -326,6 +326,66 @@ async def test_the_same_scope_on_the_same_entity_is_refused_once_it_exists():
             **_v("direct", targets=_targets(biz, ("the_forum", "1"))))
 
 
+def test_a_scope_is_compared_by_the_function_that_will_match_it():
+    """The repo has six name normalizers and all six differ. Which one a scope uses is not a
+    style question: it decides which transactions a rule claims."""
+    assert AR.scope_norm("vendor", "Qualifi, LLC") == AR.scope_norm("vendor", "Qualifi Inc.")
+    assert AR.scope_norm("account", "Qualifi, LLC") != AR.scope_norm("account", "Qualifi Inc.")
+    assert AR.scope_norm("account", "  Advertising  ") == "advertising"
+    assert AR.scope_norm("vendor", "LLC") == "", "a bare suffix normalizes away entirely"
+
+
+async def test_two_vendor_rules_that_match_the_same_payee_cannot_both_exist():
+    """Found by mapping Phase 4's pool query against this check.
+
+    "Qualifi, LLC" and "Qualifi Inc." are DIFFERENT strings to `normalize_fqn`, which is what
+    this check used, and the SAME vendor to `normalize_name`, which is what the engine matches
+    payees with. So both rules could be created on one pool entity and both would claim the
+    same transactions: the pool counted twice, each rule's split still summing to its own pool
+    to the cent, and D6 subtracting the claim twice from the enclosing account rule. Nothing in
+    the module's arithmetic would have noticed.
+    """
+    tenant_id, biz, actor = await _ctx()
+    async with SessionLocal() as s:
+        await AR.create_applied_rule(
+            s, tenant_id, actor, scope_kind="vendor", pattern="Qualifi, LLC",
+            pool_name="Qualifi", source_business_id=biz["springb"],
+            **_v("direct", targets=_targets(biz, ("the_forum", "1"))))
+    async with SessionLocal() as s:
+        with pytest.raises(ValueError, match="already covers that"):
+            await AR.create_applied_rule(
+                s, tenant_id, actor, scope_kind="vendor", pattern="Qualifi Inc.",
+                pool_name="Qualifi again", source_business_id=biz["springb"],
+                **_v("direct", targets=_targets(biz, ("becollective", "1"))))
+    # An ACCOUNT rule on the same text is a different scope and still allowed: account patterns
+    # are matched by prefix against an account path, where the suffix is part of the name.
+    async with SessionLocal() as s:
+        await AR.create_applied_rule(
+            s, tenant_id, actor, scope_kind="account", pattern="Qualifi Inc.",
+            pool_name="Qualifi account", source_business_id=biz["springb"],
+            **_v("direct", targets=_targets(biz, ("the_forum", "1"))))
+
+
+async def test_a_vendor_pattern_that_is_only_a_company_suffix_is_refused():
+    """`normalize_name("LLC")` is "", and "LLC" clears the three-character gate. Stored, it
+    would claim every payee that normalizes away, including transactions with no payee."""
+    tenant_id, biz, actor = await _ctx()
+    async with SessionLocal() as s:
+        for bad in ("LLC", "Inc.", "Corporation", "Trust"):
+            with pytest.raises(ValueError, match="only a company suffix"):
+                await AR.create_applied_rule(
+                    s, tenant_id, actor, scope_kind="vendor", pattern=bad,
+                    pool_name="Nope", source_business_id=biz["springb"],
+                    **_v("direct", targets=_targets(biz, ("the_forum", "1"))))
+        # A shorter one is refused earlier, by the length gate, and says so rather than
+        # reaching the suffix check. Two different refusals, each with its own sentence.
+        with pytest.raises(ValueError, match="at least three characters"):
+            await AR.create_applied_rule(
+                s, tenant_id, actor, scope_kind="vendor", pattern="  co  ",
+                pool_name="Nope", source_business_id=biz["springb"],
+                **_v("direct", targets=_targets(biz, ("the_forum", "1"))))
+
+
 async def test_an_observed_rule_is_not_versionable():
     tenant_id, biz, actor = await _ctx()
     async with SessionLocal() as s:

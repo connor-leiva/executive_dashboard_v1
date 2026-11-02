@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..deps import require_tab, require_role
 from ..models import User
-from ..services import alloc_rules, books, coa_alloc, coa_balances, coa_map
+from ..services import alloc_engine, alloc_rules, books, coa_alloc, coa_balances, coa_map
 from ..services.books_scan import create_ic_rule, update_ic_rule
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -516,7 +516,21 @@ async def alloc_rebuild(period_start: dt.date | None = None, period_end: dt.date
                         s: AsyncSession = Depends(get_session)):
     """Re-derive a period's contributions from the current rules. The worker does this on every
     pass; this is for when a rule has just been declared and nobody wants to wait."""
-    return await coa_alloc.sync_allocations(s, user.tenant_id, _period(period_start, period_end))
+    period = _period(period_start, period_end)
+    observed = await coa_alloc.sync_allocations(s, user.tenant_id, period)
+    # And the applied ones, for every calendar month the requested period CONTAINS. A rebuild
+    # of a year-to-date window has to recompute the twelve months inside it, not one row keyed
+    # on the window: month rows are what `contributions_for` matches by containment, and
+    # deriving the window instead would leave the months stale while the window looked fresh.
+    today = dt.date.today()
+    months = [m for m in coa_balances.allocation_months(today, 1)
+              if m[0] >= period[0] and m[1] <= period[1]]
+    applied = await alloc_engine.derive_all(s, user.tenant_id, today=today, months=months)
+    await s.commit()
+    return {**observed, "applied": {"months": applied["months"],
+                                    "contributions": applied["contributions"],
+                                    "amount": float(applied["amount"]),
+                                    "pending": applied["pending"]}}
 
 
 @router.get("/allocation-check")

@@ -583,21 +583,36 @@ async def test_month_grain_balance_rows_do_not_reach_a_window_statement():
 
 
 async def test_a_key_both_passes_write_is_written_once_with_one_figure(fake_qbo):
-    """August and September are window keys AND month keys. Both passes write them in a single
-    call, so the month pass MUST delete before inserting or `uq_apb_account_period` fires. That
-    the sync completes at all is the proof; this pins it so a future refactor cannot lose it."""
+    """Some keys are window keys AND month keys. Both passes write them in a single call, so the
+    month pass MUST delete before inserting or `uq_apb_account_period` fires.
+
+    WHICH month overlaps is NOT hardcoded, and the first version of this named August. That was
+    true on the day it was written and false five days later: `balance_periods()` reads the real
+    clock, its tail rolls forward every month, and the test failed in the full suite for no
+    reason but the date. The overlap is derived now.
+    """
     tenant_id, biz = await _ids()
     await _run(tenant_id, biz["ulrg"])
-    aug = (dt.date(2026, 8, 1), dt.date(2026, 8, 31))
-    assert aug in CB.balance_periods(), "August is a window key as well as a month"
-    async with SessionLocal() as s:
-        rows = (await s.execute(select(AccountPeriodBalance).where(
-            AccountPeriodBalance.business_id == biz["ulrg"],
-            AccountPeriodBalance.period_start == aug[0],
-            AccountPeriodBalance.period_end == aug[1],
-            AccountPeriodBalance.qbo_account_id == "400"))).scalars().all()
-    assert len(rows) == 1
-    assert rows[0].amount == Decimal("2500")              # August's own activity, once
+
+    # Always true, whatever the clock says: `last_month` is a whole calendar month, so the two
+    # key sets always CAN collide, which is the thing being defended against.
+    windows = CB.balance_periods()
+    assert any(ps.day == 1 and pe == CB._month_end(ps.year, ps.month) for ps, pe in windows), \
+        "no window key is a whole calendar month, so this test is defending nothing"
+
+    shared = sorted(set(windows) & set(CB.allocation_months(TODAY, 1)))
+    assert shared, ("the fixture's ledger covers Jan to Sep 2026 and the clock has moved past "
+                    "the window tail; extend ACTIVITY to keep this grounded in real keys")
+    for ps, pe in shared:
+        async with SessionLocal() as s:
+            rows = (await s.execute(select(AccountPeriodBalance).where(
+                AccountPeriodBalance.business_id == biz["ulrg"],
+                AccountPeriodBalance.period_start == ps,
+                AccountPeriodBalance.period_end == pe,
+                AccountPeriodBalance.qbo_account_id == "400"))).scalars().all()
+        assert len(rows) == 1, f"{ps} was written twice"
+        # That month's own activity, not the window's and not a double.
+        assert rows[0].amount == Decimal(ACTIVITY["400"][ps.month - 1]), ps
 
 
 async def test_a_month_grain_observed_contribution_is_not_read_by_a_window():

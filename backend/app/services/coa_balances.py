@@ -631,6 +631,19 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
         approvers = {u.id: u.name for u in (await s.execute(select(User).where(
             User.id.in_(approver_ids), User.tenant_id == tenant_id))).scalars()}
 
+    # The versions behind any APPLIED month rows, for the `rule` block each grouped row carries
+    # (SPEC 5.5). Loaded once here rather than per line: a year-to-date statement can touch the
+    # same version on dozens of accounts, and the alternative is a query inside a loop.
+    version_ids = {c.rule_version_id for side in contribs.values() for cs in side.values()
+                   for c in cs if c.rule_version_id}
+    versions = {}
+    if version_ids:
+        from ..models import AllocationRuleVersion
+        # Tenant-scoped for the same reason as `approvers` above.
+        versions = {v.id: v for v in (await s.execute(select(AllocationRuleVersion).where(
+            AllocationRuleVersion.id.in_(version_ids),
+            AllocationRuleVersion.tenant_id == tenant_id))).scalars()}
+
     wanted = ("bs",) if statement == "bs" else ("pl",)
     sections: dict = {}
     for sid, entry in rolled.items():
@@ -687,8 +700,8 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
             "sources": sorted(entry["sources"], key=lambda x: -abs(x["amount"])),
             # Always present on a flagged line, always empty otherwise: the frontend must never
             # need a second request to expand a row (SPEC 6.5).
-            "contributions": ([_contribution(c, "in", who, approvers) for c in inbound] +
-                              [_contribution(c, "out", who, approvers) for c in outbound]
+            "contributions": (_compose(inbound, "in", who, approvers, versions) +
+                              _compose(outbound, "out", who, approvers, versions)
                               ) if flagged else [],
         })
 
@@ -771,6 +784,58 @@ def _contribution(c, direction: str, who: dict, approvers: dict) -> dict:
         "je_ref": c.je_ref,
         "booking": c.booking,
     }
+
+
+def _compose(rows, direction: str, who: dict, approvers: dict, versions: dict) -> list[dict]:
+    """The composition panel's rows for one direction.
+
+    A `window` row passes through exactly as it always has: one row in, one row out, same keys,
+    same order. That is deliberate, because the observed path is the one in production and this
+    phase promised not to move its payload.
+
+    A `month` row is GROUPED, by counterparty and by which rule VERSION produced it, and summed
+    (SPEC 5.5). A year-to-date Advertising line otherwise shows ten identical-looking inbound
+    rows for one entity; grouped, it shows two, and the two are the thing a reader actually
+    wants to see: the split before April and the split after. The version is part of the key
+    rather than just the rule, so a restatement does not silently merge the old terms into the
+    new ones.
+    """
+    passthrough = [r for r in rows if r.grain != "month"]
+    monthly = [r for r in rows if r.grain == "month"]
+    out = [_contribution(r, direction, who, approvers) for r in passthrough]
+
+    grouped: dict = {}
+    for r in monthly:
+        counterparty = r.source_business_id if direction == "in" else r.target_business_id
+        key = (counterparty, r.rule_version_id)
+        grouped.setdefault(key, []).append(r)
+    for (_cp, _vid), group in grouped.items():
+        first = group[0]
+        total = sum((g.amount for g in group), ZERO)
+        row = _contribution(first, direction, who, approvers)
+        row["amount"] = _money(total if direction == "in" else -total)
+        v = versions.get(first.rule_version_id)
+        row["rule"] = {
+            "id": str(first.rule_id) if first.rule_id else None,
+            "pool_name": first.pool_name,
+            "version": v.version if v else None,
+            "tier": v.tier if v else None,
+            "method": v.method if v else None,
+            "effective_from": v.effective_from.isoformat() if v else None,
+            "rationale": v.rationale if v else None,
+            # Which months this one row stands for. A reader seeing 36,434.90 against a split
+            # needs to know it covers January to March, not the whole year.
+            "months": sorted(g.period_start.isoformat() for g in group),
+        }
+        out.append(row)
+    # The pass-through rows keep the query's order, untouched: Phase 2 promised the payload for
+    # an existing window would not move, and sorting them would move it. Only the grouped rows
+    # are ordered, and they are ordered totally, because a grouped dict's iteration order is
+    # not a promise a reader should depend on.
+    return out[:len(passthrough)] + sorted(
+        out[len(passthrough):],
+        key=lambda d: (d["counterparty_business"] or "",
+                       (d.get("rule") or {}).get("version") or 0, d["amount"]))
 
 
 async def _books_closed(s: AsyncSession, tenant_id, business_id, period_start: dt.date) -> bool:

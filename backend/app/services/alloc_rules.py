@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import AllocationRule, AllocationRuleVersion, Business
 from .audit import audit
+from .binder_extract import normalize_name
 from .coa_map import normalize_fqn
 
 ONE = Decimal("1")
@@ -54,6 +55,22 @@ REACHES = ("forward", "from_date", "retro")
 NEEDS_TARGETS = ("direct", "split")
 NEEDS_DRIVER = ("driven",)
 NEEDS_SOURCE_SPEC = ("traced",)
+
+
+def scope_norm(scope_kind: str, pattern: str) -> str:
+    """How a pattern is compared, per scope kind, in ONE place.
+
+    A `vendor` rule is matched against `BookTxn.payee` by `normalize_name`, which strips legal
+    suffixes, so that is also how two vendor patterns are judged to be the same rule. An
+    `account` or `program` rule is matched against `CoaMap.qbo_account_fqn` by `normalize_fqn`.
+
+    The repo has six name normalizers and all six differ (`coa_map.normalize_fqn`,
+    `binder_extract.normalize_name`, `books_scan._norm`, `ads_rules._norm`, `ads_funnel._norm`,
+    `cleanup_live._norm`). Picking the wrong one is not a style question: it decides which
+    transactions a rule claims, and two rules claiming the same transaction double the pool
+    while every arithmetic check still passes.
+    """
+    return (normalize_name(pattern) if scope_kind == "vendor" else normalize_fqn(pattern))
 
 
 def month_start(d: dt.date) -> dt.date:
@@ -232,13 +249,26 @@ async def create_applied_rule(s: AsyncSession, tenant_id, actor, *, scope_kind: 
 
     # Uniqueness lives here rather than in a constraint, because a database constraint would
     # have to agree with this normalization and two normalizations drift (4.1).
-    norm = normalize_fqn(pattern)
+    #
+    # AND IT IS JUDGED BY THE SAME FUNCTION THE ENGINE WILL MATCH WITH. A vendor rule matches a
+    # payee through `normalize_name`, which strips legal suffixes, while `normalize_fqn` only
+    # lowercases and collapses whitespace. Using the wrong one here let "Qualifi, LLC" and
+    # "Qualifi Inc." both be created on one entity -- distinct to `normalize_fqn`, identical to
+    # `normalize_name` -- so both would claim the same transactions. Each rule's split would
+    # still sum to its own pool to the cent, D6 would subtract the claim twice from the
+    # enclosing account rule, and nothing in the module's arithmetic would notice.
+    norm = scope_norm(scope_kind, pattern)
+    if not norm:
+        # `normalize_name("LLC")` is "", and "LLC" clears the three-character gate above. A rule
+        # stored like that matches every payee that normalizes away, including a missing one.
+        raise ValueError("That is only a company suffix, so it would match almost every payee. "
+                         "Use the vendor's name.")
     for r in (await s.execute(select(AllocationRule).where(
             AllocationRule.tenant_id == tenant_id,
             AllocationRule.mode == "applied",
             AllocationRule.scope_kind == scope_kind,
             AllocationRule.source_business_id == pool.id))).scalars():
-        if normalize_fqn(r.pattern) == norm:
+        if scope_norm(scope_kind, r.pattern) == norm:
             raise ValueError("A rule already covers that, on that entity.")
 
     rule = AllocationRule(
