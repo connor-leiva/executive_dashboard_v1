@@ -48,6 +48,31 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", t).strip().strip("-")
 
 
+def match_name(name: str, match: str, value: str) -> bool:
+    """Does a campaign name match a rule's value, under `prefix` or `contains`?
+
+    Public because the allocation engine's traced method has to match campaigns the SAME way
+    campaign grouping does (ALLOCATION-RULES-SPEC 5.4). Copying `_norm` into that module would
+    be a second normalization, and the two would drift the first time one of them learned about
+    a new kind of dash. `classify_campaign` below calls this rather than repeating it, so there
+    is one answer to "does this campaign match" in the product.
+
+    Returns False for an empty name, an empty value, or a value that normalizes away: a rule
+    that matches everything is never what somebody meant to type.
+    """
+    if not name or not value:
+        return False
+    v = _norm(value).lower()
+    if not v:
+        return False
+    low = _norm(name).lower()
+    if match == "prefix":
+        return low.startswith(v)
+    if match == "contains":
+        return v in low
+    return False
+
+
 def classify_campaign(name: str, rules: list[dict] | None = None) -> str:
     """Which group a campaign name belongs to. Pure, and deliberately boring.
 
@@ -64,7 +89,7 @@ def classify_campaign(name: str, rules: list[dict] | None = None) -> str:
         value = _norm(r.get("value")).lower()
         if not value:
             continue
-        if r.get("match") == "prefix" and low.startswith(value):
+        if r.get("match") == "prefix" and match_name(name, "prefix", r.get("value")):
             if not r.get("split"):
                 return r.get("label") or FALLBACK_GROUP
             # The segment after the prefix, sliced from the CASE-PRESERVED form. Title-casing it
@@ -73,7 +98,7 @@ def classify_campaign(name: str, rules: list[dict] | None = None) -> str:
             tail = [t for t in n[len(value):].split("-") if t.strip()]
             head = r.get("label") or FALLBACK_GROUP
             return f"{head} · {tail[0].strip()}" if tail else head
-        if r.get("match") == "contains" and value in low:
+        if r.get("match") == "contains" and match_name(name, "contains", r.get("value")):
             return r.get("label") or FALLBACK_GROUP
     return FALLBACK_GROUP
 

@@ -266,7 +266,7 @@ async def _observed_inbound(s: AsyncSession, tenant_id, month) -> set:
 
 async def derive_applied(s: AsyncSession, tenant_id, month, *, rules_and_versions,
                          pools_by_rule, today: dt.date, drivers=None, commits=None,
-                         commit_values=None) -> dict:
+                         commit_values=None, spend_by_rule=None) -> dict:
     """Write one month's applied contributions, replacing whatever that month held.
 
     Deletes `booking == "applied"` AND `grain == "month"` for this month only, then writes one
@@ -322,6 +322,26 @@ async def derive_applied(s: AsyncSession, tenant_id, month, *, rules_and_version
                                     "subject": v.driver_subject})
                     continue
                 driver_commit_id = commit.id
+            elif v.method == "traced":
+                # Meta decides the ratio, the books decide the amount (D13). Spend that matched
+                # no map entry counts in the denominator, so its fraction stays on the pool
+                # entity and is reported with BOTH figures: what Meta spent unmatched, and the
+                # pool money that consequently stayed. One without the other is half an answer
+                # -- the first says the map has a hole, the second says what the hole cost.
+                traced, unmapped, reason = traced_shares(
+                    (spend_by_rule or {}).get(rule.id) or {}, v.source_spec or {})
+                if reason:
+                    pending.append({"reason": reason, "rule_id": str(rule.id),
+                                    "standard_account_id": str(std_id)})
+                    continue
+                parts = split_amounts(pool, traced)
+                if unmapped > ZERO:
+                    pending.append({"reason": "source_unmapped_spend",
+                                    "rule_id": str(rule.id),
+                                    "standard_account_id": str(std_id),
+                                    "meta_spend": unmapped,
+                                    "amount": retained(pool, parts)})
+                driver_commit_id = None
             else:
                 parts = split_amounts(pool, shares)
                 driver_commit_id = None
@@ -449,10 +469,26 @@ async def derive_all(s: AsyncSession, tenant_id, *, today: dt.date, fy_month: in
         # per month rather than once, because `current_commit` is per month by definition and
         # reusing another month's would be the silent carry-forward the design refuses.
         drivers, commits, commit_values = await _driver_context(s, tenant_id, live, month[0])
+        # Spend PER RULE, cached by the account set its spec names. Merging every traced
+        # version's spend into one dict would make each rule's ratio a fraction of the UNION's
+        # total rather than of its own accounts', so connecting a second ad account would
+        # silently shrink every existing traced rule's shares. Rules sharing a spec share the
+        # fetch; rules with different specs get the only denominator correct for each.
+        spend_cache: dict = {}
+        spend_by_rule: dict = {}
+        for tr, tv in live:
+            if tv.method != "traced":
+                continue
+            spec = tv.source_spec or {}
+            key = frozenset(str(a) for a in (spec.get("ad_account_ids") or []))
+            if key not in spend_cache:
+                spend_cache[key] = await meta_spend(s, tenant_id, month, spec)
+            spend_by_rule[tr.id] = spend_cache[key]
 
         out = await derive_applied(s, tenant_id, month, rules_and_versions=live,
                                    pools_by_rule=pools, today=today, drivers=drivers,
-                                   commits=commits, commit_values=commit_values)
+                                   commits=commits, commit_values=commit_values,
+                                   spend_by_rule=spend_by_rule)
         done += 1
         written += out["contributions"]
         total += out["amount"]
@@ -554,3 +590,81 @@ async def _driver_context(s: AsyncSession, tenant_id, live, period: dt.date) -> 
         commits[(did, period)] = c
         commit_values[c.id] = await values_for(s, tenant_id, c.id)
     return drivers, commits, commit_values
+
+
+# ── traced shares: Meta is the ratio, QuickBooks is the pool (5.4, D13, Phase 6) ──────────
+
+async def meta_spend(s: AsyncSession, tenant_id, month, source_spec: dict) -> dict:
+    """{campaign name: spend} for one month, from `AdInsightDaily`.
+
+    `occurred_on` is already in the ad account's own timezone, so the month needs no shifting:
+    the ads sync stored it that way precisely so a reader never has to guess which midnight a
+    day belongs to.
+
+    CAMPAIGN LEVEL ONLY. Account-level rows carry the same spend again and ad-level rows carry
+    it a third time, so mixing grains would multiply the ratio's denominator by a number that
+    depends on how much of the account somebody happened to sync.
+    """
+    from ..models import AdCampaign, AdInsightDaily
+
+    ps, pe = month
+    accounts = [str(a) for a in (source_spec.get("ad_account_ids") or [])]
+    q = (select(AdCampaign.name, AdInsightDaily.spend)
+         .join(AdCampaign, AdCampaign.id == AdInsightDaily.campaign_id)
+         .where(AdInsightDaily.tenant_id == tenant_id,
+                AdInsightDaily.level == "campaign",
+                AdInsightDaily.occurred_on >= ps,
+                AdInsightDaily.occurred_on <= pe))
+    if accounts:
+        q = q.where(AdInsightDaily.ad_account_id.in_(accounts))
+    out: dict = {}
+    for name, spend in (await s.execute(q)).all():
+        if not name:
+            continue
+        out[name] = out.get(name, ZERO) + Decimal(spend or 0)
+    return out
+
+
+def traced_shares(spend_by_campaign: dict, source_spec: dict) -> tuple:
+    """A month's Meta spend as shares of the WHOLE, plus what matched nothing.
+
+    Returns `(shares, unmapped_spend, reason)`. The shares are fractions of TOTAL spend, so they
+    deliberately sum to less than 1 whenever some spend matched no map entry: that fraction's
+    money stays on the pool entity, exactly as `retained` reports it, and the unmapped figure
+    comes back so it can be said out loud rather than absorbed.
+
+    D13: **Meta is the ratio and QuickBooks is the amount.** The pool comes from the books and
+    Meta only decides how to divide it. The two totals will differ, because Meta bills on its
+    own clock and the card posts when it posts, and that difference is reported rather than
+    reconciled away: reconciling it would mean choosing which of two true numbers to overwrite.
+
+    FIRST MATCH WINS, in map order, the same precedence `classify_campaign` gives its rules. A
+    campaign matching two entries is the author's ordering decision, not an error.
+
+    Matching goes through `ads_rules.match_name`, which is also what `classify_campaign` calls.
+    A copy of `_norm` here would be a second normalization, and the two would drift the first
+    time one of them learned about a new kind of dash.
+    """
+    from .ads_rules import match_name
+
+    total = sum(spend_by_campaign.values(), ZERO)
+    if total <= ZERO:
+        # No rows at all, or an account connected and spending nothing. Either way there is no
+        # ratio to take, and inventing one would divide the pool by a number nobody measured.
+        return {}, ZERO, "source_not_connected"
+
+    entries = source_spec.get("map") or []
+    by_business: dict = {}
+    unmapped = ZERO
+    for name, spend in spend_by_campaign.items():
+        hit = next((e for e in entries
+                    if match_name(name, (e or {}).get("match"), (e or {}).get("value"))), None)
+        if hit is None:
+            unmapped += spend
+            continue
+        bid = uuid.UUID(str(hit["business_id"]))
+        by_business[bid] = by_business.get(bid, ZERO) + spend
+
+    # Unquantized, for the reason the count driver taught: a derived share rounded to four
+    # places sums to less than 1 and leaves the month short by a cent, correctly and silently.
+    return {bid: amount / total for bid, amount in by_business.items()}, unmapped, None

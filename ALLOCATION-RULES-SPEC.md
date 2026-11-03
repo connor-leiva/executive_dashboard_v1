@@ -1470,6 +1470,58 @@ rather than reusing the prior month, asserted through both the service and the r
 20 tests for this phase, 115 across the allocation suites.
 
 ### Phase 6
+
+Done 2026-11-02. No migration.
+
+**`ads_rules.match_name(name, match, value)` is public, and `classify_campaign` calls it.** The
+spec asked for the function rather than a copy of `_norm`, and the reason is in `_norm`'s own
+docstring: the live account names campaigns `KB - The Shift - August2026`, with spaces around the
+dash, and when that handling was missing all nineteen fell to "Other". A second normalization in
+the engine would drift from this one the first time either learned about a new kind of dash.
+`classify_campaign` keeps its tail-slicing and delegates only the boolean test, so there is one
+answer in the product to "does this campaign match". The 172 ads tests pass unchanged, including
+the grouping-config suite that pins the live account's campaigns.
+
+**`meta_spend` reads campaign level only.** Account-level rows carry the same spend again and
+ad-level rows a third time, so mixing grains would multiply the ratio's denominator by how much
+of the account somebody happened to sync. Bounded by the month and by the spec's
+`ad_account_ids`; `occurred_on` is already in the ad account's timezone, so no shifting.
+
+**`traced_shares` divides, it does not decide the amount (D13).** Shares are fractions of TOTAL
+spend, so they deliberately sum to less than 1 when some spend matched nothing: that fraction's
+money stays on the pool entity, exactly as `retained` reports it. First match wins in map order,
+the same precedence `classify_campaign` gives its rules. Shares are NOT quantized, for the
+reason the count driver taught in Phase 5: a derived share rounded to four places sums short and
+leaves the month a cent light, correctly and silently.
+
+**Unmapped spend is reported with BOTH figures.** `meta_spend` is what Meta spent unmatched and
+`amount` is the pool money that consequently stayed behind. One without the other is half an
+answer: the first says the map has a hole, the second says what the hole cost.
+
+**One bug, found before it shipped and then deliberately re-applied.** The first version loaded
+ONE merged spend dict for every traced rule, which would make each rule's ratio a fraction of
+the UNION's total rather than of its own accounts'. Connecting a second ad account would then
+silently shrink every existing traced rule's shares. Spend is cached per distinct account set
+instead: rules sharing a spec share the fetch, rules with different specs get the only
+denominator correct for each. Phase 0 measured exactly one Meta account on `springb`, so this was
+latent, and `test_two_traced_rules_on_different_accounts_keep_their_own_denominators` is what
+stops it coming back. Re-applied on purpose when the phase was redone, because redoing work from
+memory is precisely where a known bug returns.
+
+**This phase was written twice.** A mutation harness for Phase 5 was running in the background,
+and a harness restores its snapshot of a source file after every mutation, so every restore
+overwrote this phase's additions to `alloc_engine.py` as they were written. The same mistake also
+committed a mutation into Phase 5 (the empty-commit guard, removed, staged in that state) and
+left another on disk when the harness was killed mid-cycle. `8cd9e8c` records it. The rule: never
+edit or commit a file while a harness is cycling it.
+
+**Gates.** Three campaigns at 6,000 / 3,000 / 1,000 give 60 and 30 to the two mapped entities
+with the unmapped 10 percent staying put: on a 12,345.67 pool that is 11,111.10 allocated and
+1,234.57 retained, summing to the pool to the cent. The unmapped amount appears in the rule's
+pending list with its dollars. A month with no insight rows reports `source_not_connected`, and
+one where everything matched nothing leaves the whole pool where it was. 14 tests for this phase,
+247 across the allocation and ads suites together.
+
 ### Phase 7
 ### Phase 8
 ### Phase 9
