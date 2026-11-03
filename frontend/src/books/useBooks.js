@@ -5,7 +5,8 @@ import { getJSON } from "../api";
 import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleCoaMap,
          sampleStatement, sampleLineDetail, sampleVendors, samplePayables,
          sampleRuns, sampleNextRun, sampleRun, samplePolicies,
-         samplePayablesEmail } from "./sampleBooks.js";
+         samplePayablesEmail, sampleAllocRules, sampleAllocExceptions,
+         sampleAllocDrivers, sampleAllocDriverMonth, sampleAllocRecon } from "./sampleBooks.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -157,4 +158,33 @@ export function useLineDetail(businessId, standardAccountId, period) {
   if (period) q.set("period", period);
   return useEndpoint(businessId && standardAccountId ? `/books/statement/line?${q}` : null,
                      sampleLineDetail, [businessId, standardAccountId, period]);
+}
+
+/* Allocation rules (ALLOCATION-RULES-SPEC 7.1). Every one of these is a READ; the mutations go
+   through postJSON at the call site and then `refresh()`, never a local patch, for the reason
+   this file's own comment gives about one entity's name above another entity's numbers. */
+export function useAllocRules(period = "mtd") {
+  return useEndpoint(`/books/allocations/rules?period=${period}`, sampleAllocRules, [period]);
+}
+
+export function useAllocExceptions(period = "mtd") {
+  return useEndpoint(`/books/allocations/exceptions?period=${period}`,
+                     sampleAllocExceptions, [period]);
+}
+
+export function useAllocDrivers() {
+  return useEndpoint("/books/allocations/drivers", sampleAllocDrivers, []);
+}
+
+/* A driver month. `month` is a first-of-month ISO date, which is the only grain a commit has:
+   asking for a day would imply a commit could cover one. A null id means "no driver picked
+   yet", which useEndpoint reads as nothing to ask for rather than an error. */
+export function useAllocDriverMonth(driverId, month) {
+  const q = month ? `?period=${month}` : "";
+  return useEndpoint(driverId ? `/books/allocations/drivers/${driverId}/month${q}` : null,
+                     sampleAllocDriverMonth, [driverId, month]);
+}
+
+export function useAllocRecon(period = "mtd") {
+  return useEndpoint(`/books/allocations/recon?period=${period}`, sampleAllocRecon, [period]);
 }

@@ -115,6 +115,44 @@ function Composition({ line, mode }) {
             </span>
             <span style={{ ...NUM, fontSize: 12.5, color: L.flagInk, minWidth: 110 }}>
               {money(c.amount)}</span>
+            {/* An APPLIED row carries the rule that produced it (ALLOCATION-RULES-SPEC 7.5).
+                Which version matters as much as which rule: a split that changed in April means
+                a year-to-date line holds two of these, and the version is the only thing that
+                tells them apart. The rationale renders as written, because it is somebody's
+                sentence about their own business and paraphrasing it would be editing it.
+                Observed rows have no `rule` and render exactly as they always have. */}
+            {c.rule && (
+              <span style={{ flexBasis: "100%", marginTop: 2, paddingLeft: 2 }}>
+                <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                               display: "block" }}>
+                  {c.rule.pool_name} v{c.rule.version}
+                  {c.rule.tier ? ` · Tier ${c.rule.tier}` : ""}
+                  {c.rule.method ? ` ${c.rule.method}` : ""}
+                  {c.rule.effective_from ? ` · from ${c.rule.effective_from}` : ""}
+                  {c.rule.months && c.rule.months.length > 1
+                    ? ` · ${c.rule.months.length} months`
+                    : ""}
+                </span>
+                {c.rule.rationale && (
+                  <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.bodyDim,
+                                 display: "block", marginTop: 2, maxWidth: 560 }}>
+                    {c.rule.rationale}
+                  </span>
+                )}
+                {/* A driven row for ONE month can show the numbers it read. Across several
+                    months it links to the Drivers view instead: ten months of values inlined
+                    on a statement line is a table nobody asked for. */}
+                {c.driver && c.driver.values && (
+                  <span style={{ fontFamily: F.body, fontSize: 11, color: L.muted,
+                                 display: "block", marginTop: 2 }}>
+                    {c.driver.label}
+                    {c.driver.values.map((v, j) => (
+                      <span key={j}>{j === 0 ? ": " : ", "}{v.business} {v.value}</span>
+                    ))}
+                  </span>
+                )}
+              </span>
+            )}
           </div>
         ))}
         <div style={{ display: "flex", gap: 12, borderTop: `1px solid ${L.ruleInner}`,

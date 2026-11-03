@@ -321,3 +321,51 @@ async def test_a_traced_rule_with_no_insight_rows_reports_source_not_connected()
     async with SessionLocal() as s:
         assert (await s.execute(select(AllocationContribution).where(
             AllocationContribution.tenant_id == tenant_id))).scalars().all() == []
+
+
+# ── gaps the mutation harness found ───────────────────────────────────────────────────────
+
+def test_a_ratio_that_does_not_land_on_four_places_still_adds_back():
+    """B7's 6,000/3,000/1,000 gives 0.6 and 0.3, which quantize to four places EXACTLY, so a
+    test built on it cannot tell a quantized share from an exact one. Equal spend gives thirds,
+    which lose a cent at four places and keep it at full precision. Same lesson as the count
+    driver, found again by mutating the quantize back in."""
+    biz = {"the_forum": uuid.uuid4(), "becollective": uuid.uuid4()}
+    spend = {"Forum - A": D("1000"), "KB - BeCollective - B": D("1000"), "Unmapped": D("1000")}
+    shares, unmapped, reason = E.traced_shares(spend, _spec(biz))
+    assert reason is None and unmapped == D("1000")
+    assert any(v != v.quantize(D("0.0001")) for v in shares.values()), \
+        "the fixture has to carry a ratio that four places would round"
+    pool = D("900.00")
+    parts = E.split_amounts(pool, shares)
+    left = E.retained(pool, parts)
+    assert sum(parts.values()) + left == pool, "every cent of the pool is placed"
+    assert sum(parts.values()) == D("600.00"), "two thirds of it went out"
+    assert left == D("300.00")
+
+
+async def test_spend_after_the_month_ends_stays_out():
+    """The earlier bound test put its out-of-range row in JUNE, before the month, so widening
+    the UPPER bound admitted nothing and the mutation survived. A row in August is the one that
+    tells."""
+    tenant_id, biz, _a, _s = await _ctx()
+    acct = await _ad_account(tenant_id, biz["springb"])
+    await _spend(tenant_id, acct, rows=[("Forum - VIP Day", "1000.00")])
+    await _spend(tenant_id, acct, rows=[("Forum - VIP Day", "50000.00")],
+                 on=dt.date(2026, 8, 1))
+    await _spend(tenant_id, acct, rows=[("Forum - VIP Day", "40000.00")],
+                 on=dt.date(2026, 6, 30))
+    async with SessionLocal() as s:
+        got = await E.meta_spend(s, tenant_id, MONTH, {})
+    assert sum(got.values()) == D("1000.00"), "neither August nor June belongs to July"
+
+
+def test_a_prefix_match_is_anchored_at_the_start():
+    """`match_name` treating prefix as contains survived every earlier assertion, because each
+    one happened to put the value AT the start. A value in the middle is the discriminating
+    case."""
+    assert match_name("The Forum VIP Day", "prefix", "forum") is False
+    assert match_name("Forum VIP Day", "prefix", "forum") is True
+    assert match_name("The Forum VIP Day", "contains", "forum") is True
+    assert match_name("Retarget - KB - The Shift", "prefix", "kb-") is False
+    assert match_name("KB - The Shift", "prefix", "kb-") is True

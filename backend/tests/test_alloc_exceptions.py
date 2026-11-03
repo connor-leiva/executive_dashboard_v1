@@ -478,3 +478,55 @@ async def test_the_preview_route_returns_dollars_as_numbers():
     assert sum(t["amount"] for t in body["targets"]) == 1000.05
     assert body["retained"] == 0.0
     assert body["reach"] == "forward"
+
+
+# ── gaps the mutation harness found ───────────────────────────────────────────────────────
+
+async def test_another_entitys_cost_stays_out_even_when_it_shares_the_chart():
+    """Dropping the pool-entity filter survived the earlier test, because the other entity had
+    no `CoaMap` rows and the inner join to the chart removed its transaction whether the filter
+    was there or not. It needs the SAME account mapped on both entities.
+
+    This is the second time this exact blindness has appeared: Phase 4's vendor-pool test had
+    it too. The pattern to remember is that a fixture entity with no chart cannot test anything
+    that joins through the chart.
+    """
+    tenant_id, biz, _a, std = await _ctx()
+    await _pools(tenant_id, [biz["springb"]])
+    async with SessionLocal() as s:
+        s.add(CoaMap(tenant_id=tenant_id, business_id=biz["the_forum"],
+                     qbo_account_id="6011", qbo_account_name="Qualifi",
+                     qbo_account_fqn="Advertising:Qualifi", qbo_account_type="Expense",
+                     standard_account_id=std["6040"], mapped_via="manual", is_ignored=False))
+        await _txn(s, tenant_id, biz["springb"], payee="Ours", amount="100.00")
+        await _txn(s, tenant_id, biz["the_forum"], payee="Theirs", amount="8000.00",
+                   qbo_id="forum-own-cost")
+        await s.commit()
+    rows = (await _q(tenant_id))["rows"]
+    assert [r["payee"] for r in rows] == ["Ours"], "the forum's own cost is not Spring B's queue"
+    assert (await _q(tenant_id))["total"] == D("100.00")
+
+
+async def test_a_preview_covers_the_months_from_its_effective_date_onward():
+    """Nothing asserted which months a preview spans, so a version that ignored
+    `effective_from` entirely and claimed the whole fiscal year survived. Reach does not widen
+    the set either: section 4.2 keeps `reach` for the audit trail and the restatement warning,
+    and `effective_version` resolves on `effective_from` alone."""
+    tenant_id, biz, _a, _s = await _ctx()
+    await _pools(tenant_id, [biz["springb"]])
+    base = {"scope_kind": "account", "pattern": "Advertising", "pool_name": "Advertising",
+            "source_business_id": str(biz["springb"]), "method": "retained",
+            "rationale": "This one stays here."}
+    async with SessionLocal() as s:
+        july = await E.preview(s, tenant_id, {**base, "effective_from": dt.date(2026, 7, 1),
+                                              "reach": "forward"}, today=TODAY)
+        march = await E.preview(s, tenant_id, {**base, "effective_from": dt.date(2026, 3, 1),
+                                               "reach": "forward"}, today=TODAY)
+        retro = await E.preview(s, tenant_id, {**base, "effective_from": dt.date(2026, 7, 1),
+                                               "reach": "retro"}, today=TODAY)
+    assert july["months"][0] == "2026-07-01", "it starts where it says it starts"
+    assert march["months"][0] == "2026-03-01"
+    assert len(march["months"]) > len(july["months"]), "an earlier date covers more months"
+    assert "2026-01-01" not in july["months"], "and not the whole year"
+    assert retro["months"] == july["months"], \
+        "reach is recorded, not a second resolution rule"

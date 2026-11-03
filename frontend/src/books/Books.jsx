@@ -10,17 +10,20 @@ import BooksIC from "./BooksIC.jsx";
 import BooksMapping from "./BooksMapping.jsx";
 import BooksStatement from "./BooksStatement.jsx";
 import BooksPayables from "./BooksPayables.jsx";
+import BooksAllocations from "./BooksAllocations.jsx";
 import { font, T } from "./ui.jsx";
 
 const PAGE_TITLE = { home: null, pl: "Profit & loss", queue: "Approval queue",
-  payables: "Payables", ic: "Intercompany", mapping: "Chart mapping", statement: "Statement" };
+  payables: "Payables", ic: "Intercompany", mapping: "Chart mapping", statement: "Statement",
+  allocations: "Allocation rules" };
 
 function SubNav({ page, setPage, counts }) {
   const items = [["home", "Home"], ["pl", "P&L"],
     ["queue", `Queue${counts.queue ? ` · ${counts.queue}` : ""}`],
     ["payables", `Payables${counts.payables ? ` · ${counts.payables}` : ""}`],
     ["ic", `Intercompany${counts.ic ? ` · ${counts.ic}` : ""}`],
-    ["mapping", "Mapping"], ["statement", "Statement"]];
+    ["mapping", "Mapping"], ["allocations", "Allocations"],
+    ["statement", "Statement"]];
   return (
     <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${T.line}`, marginBottom: 18, flexWrap: "wrap" }}>
       {items.map(([k, l]) => (
@@ -59,6 +62,7 @@ export default function Books({ period = "mtd", role }) {
       {page === "payables" && <BooksPayables />}
       {page === "ic" && <BooksIC isCFO={isCFO} />}
       {page === "mapping" && <BooksMapping isCFO={isCFO} />}
+      {page === "allocations" && <BooksAllocations period={period} isCFO={isCFO} />}
       {page === "statement" && <BooksStatement period={period} />}
     </div>
   );
