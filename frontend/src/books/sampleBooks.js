@@ -516,7 +516,7 @@ export const sampleAllocRules = {
     { id: "biz-forum", name: "The Forum", accent: "#227175" },
     { id: "biz-bc", name: "beCollective", accent: "#227175" },
   ],
-  rules: [
+  applied: [
     {
       id: "rule-ads", pool_name: "Advertising", scope_kind: "account", pattern: "Advertising",
       pool_business_id: "biz-pool",
@@ -555,6 +555,9 @@ export const sampleAllocRules = {
       pending: [{ month: "2026-07-01", reason: "no_driver_values", amount: 600 }],
     },
   ],
+  // `rules` is the OBSERVED list on the real route and this page does not read it, so the
+  // sample leaves it empty rather than inventing observed rows the view would ignore.
+  rules: [],
 };
 
 export const sampleAllocExceptions = {

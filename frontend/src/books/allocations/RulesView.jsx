@@ -202,7 +202,9 @@ export default function RulesView({ data, period, isCFO, refresh, onSupersede = 
 
   const businesses = data?.businesses || [];
   const tiers = data?.meta?.tiers || [];
-  const all = data?.rules || [];
+  // `applied` on purpose: `rules` is the route's OBSERVED list and this page renders the
+  // applied ones. A test pinned that contract when a swap of the two keys broke it.
+  const all = data?.applied || [];
 
   const rules = all.filter((r) => {
     if (tier != null && (r.current?.tier ?? 0) !== tier) return false;

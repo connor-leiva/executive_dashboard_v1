@@ -1027,3 +1027,96 @@ async def line_detail(s: AsyncSession, tenant_id, business_id, standard_account_
                      + ". The trial balance is the authority — this list is evidence."),
         },
     }
+
+
+# ── the partner view (SPEC 7.3, Phase 10) ─────────────────────────────────────────────────
+
+# Where a draw lands in the standard chart. A constant rather than a setting because the
+# standard chart is the product's own, not a per-tenant choice: 3100 exists on every workspace
+# `seed_standard_chart` has run against.
+DRAW_ACCOUNT_CODE = "3100"
+
+
+async def partner_view(s: AsyncSession, tenant_id, business_id, period, *,
+                       today: dt.date) -> dict:
+    """One entity: what it earned after shared cost, why, and what has been drawn against it.
+
+    **LEADS WITH ALLOCATED** (Connor, 2026-11-04). The headline is the figure AFTER shared cost
+    has been pushed in and out, because that is the number a partner is actually owed against.
+    Booked sits beside it rather than hidden, which is D10's rule and not a style choice: a
+    partner asking why their number moved needs to see the figure it moved from, and a view
+    showing one of two true numbers invites the belief that it is the only one.
+
+    **ACCRUAL** (Connor, same day), which is why there is no second revenue path here. The books
+    are already on that basis, so the partner view reads them as they are. Had the answer been
+    cash, this would have had to rebuild revenue from payments and reconcile the two, and the
+    difference between those readings would itself have needed a place on the page.
+
+    The draw is read from the standard chart's `3100 Member Draws and Distributions`, stored
+    debit-positive like everything else, so a draw is a POSITIVE number here and the sign is not
+    something the caller has to reason about.
+    """
+    stmt = await build_mapped_statement(s, tenant_id, business_id, period, "pl",
+                                        mode="allocated")
+
+    draw_std = (await s.execute(select(StandardAccount.id).where(
+        StandardAccount.tenant_id == tenant_id,
+        StandardAccount.code == DRAW_ACCOUNT_CODE))).scalars().first()
+
+    drawn = ZERO
+    if draw_std is not None:
+        rows = (await s.execute(
+            select(AccountPeriodBalance.amount)
+            .join(CoaMap, (CoaMap.tenant_id == AccountPeriodBalance.tenant_id) &
+                          (CoaMap.business_id == AccountPeriodBalance.business_id) &
+                          (CoaMap.qbo_account_id == AccountPeriodBalance.qbo_account_id))
+            .where(AccountPeriodBalance.tenant_id == tenant_id,
+                   AccountPeriodBalance.business_id == business_id,
+                   AccountPeriodBalance.period_start == period[0],
+                   AccountPeriodBalance.period_end == period[1],
+                   CoaMap.standard_account_id == draw_std))).scalars().all()
+        drawn = sum((Decimal(r) for r in rows), ZERO)
+
+    # Every line that shared cost reached, with the rule and the reason. Taken from the
+    # statement the entity already renders rather than recomputed, so the partner view cannot
+    # disagree with the Statement about a figure they both show.
+    shared = []
+    for section in stmt.get("sections", []):
+        for bucket in section.get("buckets", []):
+            for line in bucket.get("lines", []):
+                contribs = [c for c in (line.get("contributions") or [])]
+                if not contribs:
+                    continue
+                shared.append({
+                    "standard_account_id": line.get("standard_account_id"),
+                    "code": line.get("code"),
+                    "name": line.get("name"),
+                    "as_booked": line.get("as_booked"),
+                    "as_allocated": line.get("as_allocated"),
+                    "contributions": contribs,
+                })
+
+    # TOP LEVEL, not inside `totals`. The first version read both from `totals`, got None for
+    # each, and fell back to making booked equal allocated -- so `shared_cost_effect` was
+    # always zero and the two readings this view exists to show were one number wearing two
+    # names. It passed every test where no shared cost existed, because there the two ARE
+    # equal. There is no fallback now: if a statement ever stops carrying these, that should
+    # surface rather than quietly collapse into agreement.
+    earned = stmt["net_income_allocated"]
+    booked = stmt["net_income_booked"]
+
+    return {
+        "business": stmt.get("business"),
+        "period": stmt.get("period"),
+        "basis": "accrual",
+        "leads_with": "allocated",
+        # The headline, and the figure it moved from, side by side.
+        "earned_allocated": earned,
+        "earned_booked": booked,
+        "shared_cost_effect": _money(Decimal(str(earned)) - Decimal(str(booked))),
+        "drawn": _money(drawn),
+        # Positive means the partner has earned more than they have taken.
+        "undrawn": _money(Decimal(str(earned)) - drawn),
+        "shared_lines": shared,
+        "tie_out": stmt.get("tie_out"),
+    }

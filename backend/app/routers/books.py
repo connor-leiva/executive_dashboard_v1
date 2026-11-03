@@ -439,11 +439,18 @@ async def alloc_list_rules(period: str | None = None,
                            s: AsyncSession = Depends(get_session)):
     """Both modes in one payload (SPEC 6).
 
-    `rules` is the APPLIED list, because that is what the Allocations page renders. The observed
-    list comes back under `observed`: it is the older shape and nothing but this route reads it
-    today, so it is carried for completeness rather than for a caller. A first draft of this
-    docstring claimed the Chart mapping view depended on `rules` keeping the observed shape;
-    that was wrong, and a grep of `frontend/src` settled it in one line.
+    `rules` STAYS THE OBSERVED LIST, which is the shape this route has always returned, and the
+    applied side arrives beside it under `applied`.
+
+    That was decided twice. A first draft kept `rules` observed for a reason that turned out to
+    be invented: the docstring claimed the Chart mapping view depended on it, and a grep of
+    `frontend/src` showed nothing of the sort. So the second draft swapped the keys to suit the
+    new page, and `test_coa_alloc.py` failed in the full suite, because a TEST reads
+    `rules[0]["pool_name"]` and a test is a consumer too. The grep had covered `frontend/src`
+    and `app/` and not `tests/`.
+
+    The shipped shape wins. Breaking a contract to make new code read more nicely is the wrong
+    trade, and the new code is the half nobody else depends on yet.
 
     Named for its neighbours (alloc_create_rule, alloc_patch_rule), and renamed once because
     `alloc_rules` shadowed the `services.alloc_rules` module at import: every applied-rule route
@@ -453,16 +460,16 @@ async def alloc_list_rules(period: str | None = None,
     applied = await alloc_engine.rules_payload(s, user.tenant_id, key, today=dt.date.today())
     money = coa_balances._money
     return {
+        "rules": await coa_alloc.list_rules(s, user.tenant_id),
         "meta": applied["meta"],
         "businesses": applied["businesses"],
         "months": applied["months"],
-        "rules": [{**r,
-                   "pool_amount": money(r["pool_amount"]),
-                   "to_partners": money(r["to_partners"]),
-                   "retained": money(r["retained"]),
-                   "pending": [{**p, "amount": money(p["amount"])} for p in r["pending"]]}
-                  for r in applied["rules"]],
-        "observed": await coa_alloc.list_rules(s, user.tenant_id),
+        "applied": [{**r,
+                     "pool_amount": money(r["pool_amount"]),
+                     "to_partners": money(r["to_partners"]),
+                     "retained": money(r["retained"]),
+                     "pending": [{**p, "amount": money(p["amount"])} for p in r["pending"]]}
+                    for r in applied["rules"]],
     }
 
 
@@ -774,3 +781,25 @@ async def alloc_set_pools(body: AllocPoolsIn,
           detail={"business_ids": cfg.alloc_pool_business_ids})
     await s.commit()
     return {"ok": True, "pool_business_ids": cfg.alloc_pool_business_ids}
+
+
+@router.get("/allocations/partner/{business_id}")
+async def alloc_partner_view(business_id: uuid.UUID, period: str | None = None,
+                             period_start: dt.date | None = None,
+                             period_end: dt.date | None = None,
+                             user: User = Depends(books_user),
+                             s: AsyncSession = Depends(get_session)):
+    """One entity, what it earned after shared cost, and what has been drawn against it.
+
+    Behind `books_user` like every other read here. A partner seeing their own entity is the
+    point of the view, and who may open which entity is the tab grant's question rather than
+    this route's: inventing a second rule here would be a second answer to it.
+    """
+    try:
+        return await coa_balances.partner_view(
+            s, user.tenant_id, business_id, _period(period_start, period_end, period),
+            today=dt.date.today())
+    except coa_balances.UnmappedAccountsError as e:
+        raise HTTPException(409, str(e))
+    except coa_balances.TieOutError as e:
+        raise HTTPException(409, str(e))

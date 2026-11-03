@@ -1686,6 +1686,43 @@ past twelve hours it fails on its own tokens.**
 5 tests in `tests/test_alloc_payload.py`.
 
 ### Phase 10
+
+Done 2026-11-04, unblocked the same day by Connor answering §11 items 1 and 7. No migration.
+
+**Both answers changed what got built, which is why they were worth waiting for.**
+
+`ALLOCATED` leads: the headline is `earned_allocated`, the figure after shared cost has been
+pushed in and out, because that is what a partner is owed against. `earned_booked` sits beside
+it and `shared_cost_effect` is the difference. Showing both is D10 rather than a style
+preference: a partner asking why their number moved needs to see the figure it moved from, and
+a view showing one of two true numbers invites the belief that it is the only one.
+
+`ACCRUAL` removed a whole branch. The books are already on that basis, so the view reads them as
+they are. Had the answer been cash, this phase would have had to rebuild revenue from payments
+and give the difference between the two readings a place on the page, which is a larger piece of
+work than the view itself.
+
+**`partner_view` reads the statement rather than recomputing it**, the same discipline as Phase
+9's `rules_payload` calling `reconciliation`. The partner view and the Statement cannot disagree
+about a figure they both show.
+
+**The draw** comes from `3100 Member Draws and Distributions` in the standard chart, which
+exists on every workspace `seed_standard_chart` has run against. It is POSITIVE here: taking
+money out is a debit to equity and this module is debit-positive throughout, so the sign is not
+something a caller has to reason about. `undrawn` is `earned_allocated - drawn`.
+
+**Two things this phase does NOT do, stated rather than implied.**
+
+1. **There is no partner PERCENTAGE anywhere.** "Earned share" is read as THIS ENTITY's allocated
+   profit, not a share of a pool, because nothing in the schema models a partner share and §11
+   item 5 (Julie's draw granularity) is still open. If the intent is "Julie is owed 50% of
+   beCollective's profit", that is a different calculation and needs somewhere to store the 50.
+2. **Access control is the tab grant's question.** The route sits behind `books_user` like every
+   other read here. If a partner should see only their own entity, that is a permission decision
+   this route deliberately does not make a second answer to.
+
+5 tests in `tests/test_alloc_partner.py`.
+
 ### Phase 11
 
 ---

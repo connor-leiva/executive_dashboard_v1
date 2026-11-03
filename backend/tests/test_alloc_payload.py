@@ -191,8 +191,11 @@ async def test_the_route_returns_numbers_and_keeps_the_observed_list_beside_them
                         headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert isinstance(body["rules"][0]["pool_amount"], float), "a number, never a string"
-    assert body["rules"][0]["pool_amount"] == 1000.05
+    # `rules` is the route's OBSERVED list and keeps the shape it shipped with; the applied
+    # side rides beside it. Swapping those two keys broke `test_coa_alloc.py`, which is how
+    # this contract got pinned: a test is a consumer, and the grep that "proved" there were
+    # none had covered frontend/src and app/ but not tests/.
+    assert isinstance(body["applied"][0]["pool_amount"], float), "a number, never a string"
+    assert body["applied"][0]["pool_amount"] == 1000.05
     assert body["meta"]["tiers"][2]["label"] == "Driven"
-    assert "observed" in body, "the older shape is carried, under its own key"
-    assert isinstance(body["observed"], list)
+    assert isinstance(body["rules"], list), "the observed list, under the key it always had"
