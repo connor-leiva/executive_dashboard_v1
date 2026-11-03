@@ -1523,6 +1523,60 @@ one where everything matched nothing leaves the whole pool where it was. 14 test
 247 across the allocation and ads suites together.
 
 ### Phase 7
+
+Done 2026-11-02. No migration.
+
+**`exceptions`, `preview`, `reconciliation` in `alloc_engine.py`**, plus `GET
+/allocations/exceptions`, `POST /allocations/preview`, `GET /allocations/recon` and
+`PUT /coa/settings/alloc-pools`.
+
+**The queue is computed live, never stored**, the same call `useNextRun` makes about payment
+proposals: a stored queue goes stale the moment somebody writes a rule, and a stale queue is
+read as fact. `configured: false` when nobody has set the pool entities, because "nothing to do"
+and "nobody has said where to look" are different answers and an empty list renders as the
+first.
+
+**EXPENSE sections only** (`opex`, `cogs`, `other_expense`), not every P&L section. A queue that
+swept in revenue would invite somebody to allocate income by a staff-time split, and the
+tie-out would not notice. Assets stay out for the same reason.
+
+**A multi-line transaction always appears** (D7), carrying a `multi_line` gap, even when a
+vendor rule covers its payee perfectly. It is the one thing the engine refuses to claim by
+payee, so the queue is the only place it can surface. `recurring` is counted over the WHOLE
+window before claimed rows are filtered out, so a payee a rule already covers does not make its
+unclaimed siblings look like one-offs.
+
+**Reach does not change which months a version governs.** Section 4.2 says `reach` is what the
+author chose, recorded for the audit trail and the restatement warning, and `effective_version`
+resolves on `effective_from` alone. So `preview_months` follows `effective_from` exactly as the
+engine does: a second resolution rule here would disagree with the one that actually runs. The
+restatement warning is shown for ANY reach, because a forward version dated last month restates
+it just as a retro one does.
+
+**`preview` is not a dry run of `derive_applied`.** Sharing the write path would mean a preview
+that could write, and the one guarantee worth having is that it cannot. A draft has no row, so
+the pool functions take a `DraftRule` carrying only the four fields they read.
+
+**Retained counts as RESOLVED in reconciliation.** Money that deliberately stayed on the pool
+entity was decided, not dropped, so a Tier 4 rule reconciles cleanly rather than looking like a
+permanent gap. `unresolved_amount` is the point of the view: a driven rule whose month was never
+committed resolves nothing while its pool still sits in the books, and a report showing only
+`resolved` would make that rule look finished and the cost look allocated.
+
+**One real bug, found by a failing test.** A fixture tried a `split` of 0.7 and 0.2 expecting
+the missing tenth to be retained. Amendment 16 makes a short split a REFUSAL, so that is not
+expressible: the way to leave money behind is to list the pool entity among the targets (4.2).
+That exposed the actual defect. `preview` excluded the pool entity from `targets` while computing
+`retained` as `pool - sum(ALL parts)`, which is zero when the shares sum to 1 -- so the pool
+entity's real money reported as nothing and appeared NOWHERE in the payload. Retained is now
+what did not leave, and a test asserts every cent of the pool is accounted for.
+
+**Gates.** Creating a vendor rule from an exception with `reach = retro` removed exactly the
+rows the preview promised: the assertion checks the count AND which transaction ids left, and
+the multi-line one correctly stays, which is why the promise was five and not six. A pending
+Tier 3 rule reports `resolved_amount` 0.00 with its full 8,000 pool as `unresolved_amount` and
+`variance` -8,000.00. 15 tests for this phase.
+
 ### Phase 8
 ### Phase 9
 ### Phase 10

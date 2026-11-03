@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (AccountPeriodBalance, AllocationContribution, AllocationRule, BookTxn,
-                      CoaMap)
+                      Business, CoaMap, StandardAccount)
 from .binder_extract import normalize_name
 from .coa_balances import PL_TYPES
 from .coa_map import normalize_fqn
@@ -668,3 +668,335 @@ def traced_shares(spend_by_campaign: dict, source_spec: dict) -> tuple:
     # Unquantized, for the reason the count driver taught: a derived share rounded to four
     # places sums to less than 1 and leaves the month short by a cent, correctly and silently.
     return {bid: amount / total for bid, amount in by_business.items()}, unmapped, None
+
+
+# ── exceptions, computed live (5.6, Phase 7) ──────────────────────────────────────────────
+
+# What an exception is made of. Not every P&L section: a shared cost is an EXPENSE, and a queue
+# that swept in revenue would invite somebody to allocate income by a staff-time split.
+EXPENSE_SECTIONS = ("opex", "cogs", "other_expense")
+
+
+def _gap_codes(txn, payee_counts: dict) -> list[str]:
+    """Why this transaction is hard to place, derived from the row rather than stored.
+
+    `recurring` is the useful one: the same normalized payee three or more times in the window
+    is the shape of a subscription somebody should write a vendor rule for, and it is the
+    difference between a queue of work and a list of noise.
+    """
+    from .binder_extract import normalize_name
+
+    out = []
+    if not (txn.payee or "").strip():
+        out.append("no_payee")
+    if not (txn.memo or "").strip():
+        out.append("no_memo")
+    if (txn.flags or {}).get("multi_line"):
+        out.append("multi_line")
+    n = normalize_name(txn.payee)
+    if n and payee_counts.get(n, 0) >= 3:
+        out.append("recurring")
+    return out
+
+
+async def exceptions(s: AsyncSession, tenant_id, period, *, today: dt.date) -> dict:
+    """Every shared cost on a pool entity that no effective rule claims.
+
+    NEVER STORED, the same call `useNextRun` makes about payment proposals: a stored queue goes
+    stale the moment somebody writes a rule, and a stale queue is read as fact.
+
+    `configured: false` when `alloc_pool_business_ids` is NULL, because "nobody has said which
+    entities carry shared cost" and "there is nothing to do" are different answers and an empty
+    list would render as the second.
+
+    A multi-line transaction ALWAYS appears (D7), carrying a `multi_line` gap. It is the one
+    thing the engine will not claim by payee, so the queue is where it has to surface.
+    """
+    from .alloc_rules import effective_version, versions_for
+    from .binder_extract import normalize_name
+    from .coa_balances import get_settings
+
+    ps, pe = period
+    cfg = await get_settings(s, tenant_id)
+    pools = cfg.alloc_pool_business_ids
+    if pools is None:
+        return {"configured": False, "rows": [], "total": ZERO, "pool_business_ids": []}
+    pool_ids = [uuid.UUID(str(b)) for b in pools]
+    if not pool_ids:
+        return {"configured": True, "rows": [], "total": ZERO, "pool_business_ids": []}
+
+    # The effective version of every applied rule for the month this period opens in. An
+    # account covered by ANY tier is covered, `retained` included: somebody has already decided
+    # that cost stays put, and re-asking would be the queue second-guessing a decision.
+    rules = list((await s.execute(select(AllocationRule).where(
+        AllocationRule.tenant_id == tenant_id,
+        AllocationRule.mode == "applied",
+        AllocationRule.is_active.is_(True)))).scalars())
+    claims_vendor: dict = {}
+    covers_account: dict = {}
+    for r in rules:
+        v = effective_version(await versions_for(s, tenant_id, r.id), ps.replace(day=1))
+        if v is None or v.method == "ended":
+            continue
+        if r.scope_kind == "vendor":
+            claims_vendor.setdefault(r.source_business_id, set()).add(normalize_name(r.pattern))
+        else:
+            covers_account.setdefault(r.source_business_id, []).append(normalize_fqn(r.pattern))
+
+    rows = (await s.execute(
+        select(BookTxn, CoaMap.standard_account_id, CoaMap.qbo_account_fqn,
+               StandardAccount.section, StandardAccount.name)
+        .join(CoaMap, (CoaMap.tenant_id == BookTxn.tenant_id) &
+                      (CoaMap.business_id == BookTxn.business_id) &
+                      (CoaMap.qbo_account_id == BookTxn.account_qbo_id))
+        .join(StandardAccount, StandardAccount.id == CoaMap.standard_account_id)
+        .where(BookTxn.tenant_id == tenant_id,
+               BookTxn.business_id.in_(pool_ids),
+               BookTxn.txn_date >= ps,
+               BookTxn.txn_date <= min(pe, today),
+               CoaMap.is_ignored.is_(False),
+               StandardAccount.section.in_(EXPENSE_SECTIONS)))).all()
+
+    # Counted BEFORE filtering, so `recurring` describes the window rather than the leftovers:
+    # a payee claimed by a rule should not make its unclaimed siblings look like one-offs.
+    payee_counts: dict = {}
+    for txn, _std, _fqn, _sec, _name in rows:
+        n = normalize_name(txn.payee)
+        if n:
+            payee_counts[n] = payee_counts.get(n, 0) + 1
+
+    out, total = [], ZERO
+    for txn, std_id, fqn, section, acct_name in rows:
+        payee_n = normalize_name(txn.payee)
+        multi = bool((txn.flags or {}).get("multi_line"))
+        if not multi:
+            # A multi-line transaction is never claimed by payee (D7), so a vendor rule does
+            # not take it out of the queue however well the name matches.
+            if payee_n and payee_n in (claims_vendor.get(txn.business_id) or set()):
+                continue
+            norm_fqn = normalize_fqn(fqn or "")
+            if any(norm_fqn.startswith(p)
+                   for p in (covers_account.get(txn.business_id) or [])):
+                continue
+        out.append({
+            "txn_id": str(txn.id), "txn_date": txn.txn_date.isoformat(),
+            "business_id": str(txn.business_id), "payee": txn.payee, "memo": txn.memo,
+            "amount": txn.amount, "qbo_type": txn.qbo_type,
+            "account": fqn or acct_name, "standard_account_id": str(std_id),
+            "section": section, "gaps": _gap_codes(txn, payee_counts),
+        })
+        total += txn.amount
+    out.sort(key=lambda r: (-abs(r["amount"]), r["txn_date"], r["txn_id"]))
+    return {"configured": True, "rows": out, "total": total,
+            "pool_business_ids": [str(b) for b in pool_ids]}
+
+
+# ── preview, which writes nothing (5.7, Phase 7) ──────────────────────────────────────────
+
+
+class DraftRule:
+    """The shape the pool functions need from a rule, for a draft that has no row yet.
+
+    Giving a draft a real row so the engine could read it would mean a preview that writes, and
+    the one guarantee worth having here is that it cannot. The pool functions only ever read
+    `id`, `pattern`, `scope_kind` and `source_business_id`.
+    """
+
+    def __init__(self, source_business_id, pattern: str, scope_kind: str):
+        self.id = uuid.uuid4()
+        self.source_business_id = source_business_id
+        self.pattern = pattern
+        self.scope_kind = scope_kind
+
+
+def preview_months(effective_from: dt.date, *, today: dt.date, fy_month: int = 1) -> list:
+    """Which months a version would govern: every month of the fiscal year from its own start.
+
+    REACH DOES NOT CHANGE THIS. Section 4.2 is explicit that `reach` is what the author chose,
+    recorded for the audit trail and the restatement warning, and `effective_version` resolves
+    on `effective_from` alone. A retro version dated April governs April onward just as a
+    forward one does; what makes it retroactive is that April has already been reported. Having
+    reach alter the month set here would be a second resolution rule, disagreeing with the one
+    the engine actually uses.
+    """
+    from .coa_balances import allocation_months
+
+    start = effective_from.replace(day=1)
+    return [m for m in allocation_months(today, fy_month) if m[0] >= start]
+
+
+async def preview(s: AsyncSession, tenant_id, draft: dict, *, today: dt.date,
+                  fy_month: int = 1) -> dict:
+    """What a draft rule or draft version WOULD do. Writes nothing.
+
+    The drawer calls this on every change, so it answers the three questions somebody asks
+    before saving: how much reaches each entity, what it would take out of the exception queue,
+    and which already-reported months it would change.
+
+    Deliberately NOT a dry run of `derive_applied`. Sharing the write path would mean a preview
+    that could write.
+    """
+    from .alloc_rules import validate_version
+
+    known = {str(b.id) for b in (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id))).scalars()}
+    terms = validate_version(known_business_ids=known, **{
+        k: draft[k] for k in ("method", "effective_from", "reach", "rationale", "tier",
+                              "targets", "driver_id", "driver_subject", "source_spec")
+        if k in draft})
+
+    pool_bid = uuid.UUID(str(draft["source_business_id"]))
+    rule = DraftRule(pool_bid, draft["pattern"], draft["scope_kind"])
+    months = preview_months(terms["effective_from"], today=today, fy_month=fy_month)
+    shares = {uuid.UUID(t["business_id"]): Decimal(t["share"])
+              for t in (terms["targets"] or [])}
+
+    by_target: dict = {}
+    retained_total, pool_total = ZERO, ZERO
+    pending: list = []
+    claimed: list = []
+
+    for month in months:
+        if rule.scope_kind == "vendor":
+            got = await vendor_pools(s, tenant_id, pool_bid, month, today=today, rules=[rule])
+            by_account = got["pools"].get(rule.id) or {}
+            pending.extend({**p, "month": month[0].isoformat()} for p in got["pending"])
+            claimed.extend(await claimable_txn_ids(s, tenant_id, pool_bid, month,
+                                                   rule.pattern, today=today))
+        else:
+            by_account = (await account_pools(s, tenant_id, pool_bid, month,
+                                              [rule])).get(rule.id) or {}
+
+        for pool in by_account.values():
+            if pool == ZERO:
+                continue
+            pool_total += pool
+            parts = split_amounts(pool, shares) if shares else {}
+            # RETAINED IS WHAT DID NOT LEAVE, not what the shares failed to cover. A split must
+            # sum to 1 (amendment 16 makes a short one a refusal), so the way to leave money
+            # behind is to list the pool entity among the targets and let its share stay (4.2).
+            # Measuring retained as pool minus ALL parts would then report zero while the pool
+            # entity kept real money, and that money would appear nowhere in the payload.
+            went_out = ZERO
+            for bid, amount in parts.items():
+                if str(bid) == str(pool_bid):
+                    continue                      # retained, never a row
+                by_target[bid] = by_target.get(bid, ZERO) + amount
+                went_out += amount
+            retained_total += pool - went_out
+
+    # Which of those months already hold applied rows for this pool entity. This is the
+    # restatement warning: a month somebody has already read would change. Shown for every
+    # reach, because a forward version dated last month restates it just as a retro one does.
+    covered = {m[0] for m in months}
+    already = sorted({start.isoformat() for (start,) in (await s.execute(
+        select(AllocationContribution.period_start).where(
+            AllocationContribution.tenant_id == tenant_id,
+            AllocationContribution.booking == "applied",
+            AllocationContribution.grain == "month",
+            AllocationContribution.source_business_id == pool_bid))).all()
+        if start in covered})
+
+    return {
+        "months": [m[0].isoformat() for m in months],
+        "pool_amount": pool_total,
+        "targets": [{"business_id": str(b), "amount": a} for b, a in sorted(
+            by_target.items(), key=lambda kv: (-abs(kv[1]), str(kv[0])))],
+        "retained": retained_total,
+        "pending": pending,
+        "claims": {"count": len(claimed), "txn_ids": claimed},
+        "would_restate": already,
+        "reach": terms["reach"],
+    }
+
+
+async def claimable_txn_ids(s: AsyncSession, tenant_id, pool_bid, month, pattern: str, *,
+                            today: dt.date) -> list:
+    """The transactions a vendor rule would claim, so the drawer can say how many rows leave
+    the exception queue and the gate can check that count against what actually leaves.
+
+    Multi-line transactions are excluded, because a vendor rule never claims one (D7) and
+    promising otherwise would overstate what the save achieves.
+    """
+    from .binder_extract import normalize_name
+
+    ps, pe = month
+    want = normalize_name(pattern)
+    if not want:
+        return []
+    rows = (await s.execute(select(BookTxn.id, BookTxn.payee, BookTxn.flags).where(
+        BookTxn.tenant_id == tenant_id, BookTxn.business_id == pool_bid,
+        BookTxn.txn_date >= ps, BookTxn.txn_date <= min(pe, today),
+        BookTxn.qbo_type.in_(POOL_TXN_TYPES), BookTxn.payee.is_not(None)))).all()
+    return [str(tid) for tid, payee, flags in rows
+            if normalize_name(payee) == want and not (flags or {}).get("multi_line")]
+
+
+# ── reconciliation (5.8, Phase 7) ─────────────────────────────────────────────────────────
+
+async def reconciliation(s: AsyncSession, tenant_id, period, *, today: dt.date,
+                         fy_month: int = 1) -> dict:
+    """Per applied rule: what the books hold, what resolved, and what did not.
+
+    `unresolved_amount` is the point of this view. A rule whose driver month was never committed
+    resolves NOTHING while its pool still sits in the books, and a report showing only
+    `resolved` would make that rule look finished and the cost look allocated.
+
+    Retained counts as RESOLVED. Money that deliberately stayed on the pool entity was decided,
+    not dropped, so a Tier 4 rule reconciles cleanly rather than looking like a permanent gap.
+    Variance is `resolved - pool` and is zero on a healthy rule for exactly that reason.
+    """
+    from .alloc_rules import effective_version, versions_for
+    from .coa_balances import allocation_months
+
+    ps, pe = period
+    months = [m for m in allocation_months(today, fy_month) if m[0] >= ps and m[1] <= pe]
+    rules = list((await s.execute(select(AllocationRule).where(
+        AllocationRule.tenant_id == tenant_id,
+        AllocationRule.mode == "applied",
+        AllocationRule.is_active.is_(True)))).scalars())
+
+    out = []
+    for rule in rules:
+        history = await versions_for(s, tenant_id, rule.id)
+        pool_total, resolved = ZERO, ZERO
+        pending: list = []
+        for month in months:
+            v = effective_version(history, month[0])
+            if v is None or v.method == "ended":
+                continue
+            if rule.scope_kind == "vendor":
+                got = await vendor_pools(s, tenant_id, rule.source_business_id, month,
+                                         today=today, rules=[rule])
+                by_account = got["pools"].get(rule.id) or {}
+            else:
+                by_account = (await account_pools(s, tenant_id, rule.source_business_id,
+                                                  month, [rule])).get(rule.id) or {}
+            month_pool = sum(by_account.values(), ZERO)
+            if month_pool == ZERO:
+                continue
+            pool_total += month_pool
+
+            wrote = (await s.execute(select(AllocationContribution.id).where(
+                AllocationContribution.tenant_id == tenant_id,
+                AllocationContribution.rule_id == rule.id,
+                AllocationContribution.grain == "month",
+                AllocationContribution.booking == "applied",
+                AllocationContribution.period_start == month[0]).limit(1))).scalars().first()
+            retained_only = v.method == "retained"
+            if wrote is not None or retained_only:
+                resolved += month_pool
+            else:
+                pending.append({"month": month[0].isoformat(), "amount": month_pool,
+                                "method": v.method, "tier": v.tier})
+
+        out.append({
+            "rule_id": str(rule.id), "pool_name": rule.pool_name,
+            "scope_kind": rule.scope_kind, "pattern": rule.pattern,
+            "pool_business_id": str(rule.source_business_id),
+            "pool_amount": pool_total, "resolved_amount": resolved,
+            "unresolved_amount": pool_total - resolved,
+            "variance": resolved - pool_total, "pending": pending,
+        })
+    out.sort(key=lambda r: (-abs(r["pool_amount"]), r["pool_name"]))
+    return {"rules": out, "months": [m[0].isoformat() for m in months]}

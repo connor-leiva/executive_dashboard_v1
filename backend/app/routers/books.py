@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
@@ -14,6 +15,7 @@ from ..deps import require_tab, require_role
 from ..models import User
 from ..services import (alloc_drivers, alloc_engine, alloc_rules, books, coa_alloc,
                         coa_balances, coa_map)
+from ..services.audit import audit
 from ..services.books_scan import create_ic_rule, update_ic_rule
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -628,3 +630,121 @@ async def alloc_commit_driver(driver_id: uuid.UUID, body: DriverCommitIn,
         raise HTTPException(400, str(e))
     return {"ok": True, "commit": alloc_drivers.commit_out(
         c, await alloc_drivers.values_for(s, user.tenant_id, c.id))}
+
+
+# ── exceptions, preview, reconciliation, pool settings (SPEC 5.6 to 5.8, Phase 7) ──
+
+class AllocPoolsIn(BaseModel):
+    business_ids: list[uuid.UUID]
+
+
+class AllocPreviewIn(BaseModel):
+    scope_kind: str
+    pattern: str
+    source_business_id: uuid.UUID
+    method: str
+    effective_from: dt.date
+    reach: str
+    rationale: str
+    tier: int | None = None
+    targets: list[dict] | None = None
+    driver_id: uuid.UUID | None = None
+    driver_subject: str | None = None
+    source_spec: dict | None = None
+
+
+@router.get("/allocations/exceptions")
+async def alloc_exceptions(period: str | None = None,
+                           period_start: dt.date | None = None,
+                           period_end: dt.date | None = None,
+                           user: User = Depends(books_user),
+                           s: AsyncSession = Depends(get_session)):
+    """Shared cost on a pool entity that no effective rule claims. Computed live, never stored.
+
+    Answers 200 with `configured: false` when nobody has set the pool entities, rather than an
+    empty list: "nothing to do" and "nobody has said where to look" are different answers and
+    an empty list reads as the first.
+    """
+    out = await alloc_engine.exceptions(
+        s, user.tenant_id, _period(period_start, period_end, period), today=dt.date.today())
+    return {
+        "configured": out["configured"],
+        "pool_business_ids": out["pool_business_ids"],
+        "total": coa_balances._money(out["total"]),
+        "rows": [{**r, "amount": coa_balances._money(r["amount"])} for r in out["rows"]],
+    }
+
+
+@router.post("/allocations/preview")                  # CFO only
+async def alloc_preview(body: AllocPreviewIn,
+                        user: User = Depends(require_role("owner", "admin")),
+                        s: AsyncSession = Depends(get_session)):
+    """What a draft would do. Writes nothing, and cannot: it never touches the write path."""
+    try:
+        out = await alloc_engine.preview(s, user.tenant_id, body.model_dump(),
+                                         today=dt.date.today())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {
+        **out,
+        "pool_amount": coa_balances._money(out["pool_amount"]),
+        "retained": coa_balances._money(out["retained"]),
+        "targets": [{**t, "amount": coa_balances._money(t["amount"])}
+                    for t in out["targets"]],
+        "pending": [{**p, **({"amount": coa_balances._money(p["amount"])}
+                             if "amount" in p else {}),
+                     **({"meta_spend": coa_balances._money(p["meta_spend"])}
+                        if "meta_spend" in p else {})}
+                    for p in out["pending"]],
+    }
+
+
+@router.get("/allocations/recon")
+async def alloc_recon(period: str | None = None,
+                      period_start: dt.date | None = None,
+                      period_end: dt.date | None = None,
+                      user: User = Depends(books_user),
+                      s: AsyncSession = Depends(get_session)):
+    """Per rule: what the books hold, what resolved, and what did not (5.8). Plus the
+    intercompany check, unchanged, because that one reads observed rows only."""
+    key = _period(period_start, period_end, period)
+    out = await alloc_engine.reconciliation(s, user.tenant_id, key, today=dt.date.today())
+    money = coa_balances._money
+    return {
+        "months": out["months"],
+        "rules": [{**r,
+                   "pool_amount": money(r["pool_amount"]),
+                   "resolved_amount": money(r["resolved_amount"]),
+                   "unresolved_amount": money(r["unresolved_amount"]),
+                   "variance": money(r["variance"]),
+                   "pending": [{**p, "amount": money(p["amount"])} for p in r["pending"]]}
+                  for r in out["rules"]],
+        "check": await coa_alloc.allocation_check(s, user.tenant_id, key),
+    }
+
+
+@router.put("/coa/settings/alloc-pools")              # CFO only
+async def alloc_set_pools(body: AllocPoolsIn,
+                          user: User = Depends(require_role("owner", "admin")),
+                          s: AsyncSession = Depends(get_session)):
+    """Which entities carry shared cost. The one setting this module cannot infer: an entity
+    with no rule pointing at it is indistinguishable from one nobody has got to yet."""
+    from ..models import Business
+
+    known = {b.id for b in (await s.execute(select(Business).where(
+        Business.tenant_id == user.tenant_id))).scalars()}
+    unknown = [str(b) for b in body.business_ids if b not in known]
+    if unknown:
+        raise HTTPException(400, "One of those entities is not in this workspace.")
+
+    cfg = await coa_balances.get_settings(s, user.tenant_id)
+    # A JSON column is COPIED before writing, never mutated in place: mutating the loaded list
+    # makes SQLAlchemy skip the UPDATE in silence, which cost this repo four syncs that
+    # reported success and wrote nothing.
+    cfg.alloc_pool_business_ids = [str(b) for b in body.business_ids]
+    audit(s, user.tenant_id, user.id, "coa.set_alloc_pools", target_type="coa_settings",
+          target_id=cfg.id, category="Books",
+          summary=f"Shared-cost entities set to {len(body.business_ids)}",
+          detail={"business_ids": cfg.alloc_pool_business_ids})
+    await s.commit()
+    return {"ok": True, "pool_business_ids": cfg.alloc_pool_business_ids}
