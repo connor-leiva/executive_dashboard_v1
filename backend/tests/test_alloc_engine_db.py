@@ -674,3 +674,43 @@ async def test_an_ended_version_claims_nothing_even_if_it_somehow_carries_target
     async with SessionLocal() as s:
         assert (await s.execute(select(AllocationContribution).where(
             AllocationContribution.tenant_id == tenant_id))).scalars().all() == []
+
+
+async def test_the_vendor_carve_out_survives_the_ORCHESTRATION_not_only_the_helper():
+    """D6 end to end, through `pools_for_month`.
+
+    `test_a_vendor_claim_inside_an_account_subtree_is_counted_once` above passes
+    `vendor_claims` to `account_pool` BY HAND, so it proves the subtraction works and says
+    nothing about whether anything ever performs it. Deleting `vendor_claims=claims` from
+    `pools_for_month` left all 52 allocation tests green: the logic was defended and the wiring
+    was not, which is the same shape as a test that asserts the right 404 without reaching the
+    guard it is aimed at.
+
+    `pools_for_month` is now the ONLY place pools are computed, so this one test covers the
+    derivation and the reconciliation report together.
+    """
+    tenant_id, biz, actor, std = await _ctx()
+    vendor = await _vendor_rule(tenant_id, biz, actor)
+    async with SessionLocal() as s:
+        account, _v = await AR.create_applied_rule(
+            s, tenant_id, actor, scope_kind="account", pattern="Advertising",
+            pool_name="Advertising", source_business_id=biz["springb"], method="split",
+            effective_from=MONTH[0], reach="forward",
+            rationale="Everything the vendor rules do not claim.",
+            targets=[{"business_id": str(biz["the_forum"]), "share": "1"}])
+    async with SessionLocal() as s:
+        await _txn(s, tenant_id, biz["springb"], payee="Qualifi", amount="3694.00")
+        await _apb(s, tenant_id, biz["springb"], "6010", "5000.00")
+        await _apb(s, tenant_id, biz["springb"], "6011", "3694.00")
+        await s.commit()
+
+    async with SessionLocal() as s:
+        vers = {r.id: await AR.versions_for(s, tenant_id, r.id) for r in (vendor, account)}
+        live = [(r, next(v for v in vers[r.id] if v.is_current)) for r in (vendor, account)]
+        pools, _pending = await E.pools_for_month(s, tenant_id, live, MONTH, today=TODAY)
+
+    assert pools[vendor.id] == {std["6040"]: D("3694.00")}, "the vendor claims its payee"
+    assert pools[account.id] == {std["6040"]: D("5000.00")}, \
+        "and the account rule holds 8,694 LESS the 3,694 already claimed"
+    assert sum(pools[vendor.id].values()) + sum(pools[account.id].values()) == D("8694.00"), \
+        "the money in the books is claimed exactly once between them"

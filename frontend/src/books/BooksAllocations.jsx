@@ -10,15 +10,18 @@
 import { useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F } from "../theme.js";
 import { StatePanel } from "./ui.jsx";
-import { useAllocRules, useAllocExceptions, useAllocDrivers, useAllocRecon } from "./useBooks.js";
+import { useAllocRules, useAllocExceptions, useAllocDrivers, useAllocRecon,
+         useAllocPartner } from "./useBooks.js";
 import RulesView from "./allocations/RulesView.jsx";
 import ExceptionsView from "./allocations/ExceptionsView.jsx";
 import DriversView from "./allocations/DriversView.jsx";
 import ReconView from "./allocations/ReconView.jsx";
+import PartnerView, { EntityPicker } from "./allocations/PartnerView.jsx";
 import RuleDrawer from "./allocations/RuleDrawer.jsx";
 
 const VIEWS = [["rules", "Rules"], ["exceptions", "Exceptions"],
-               ["drivers", "Drivers"], ["recon", "Reconciliation"]];
+               ["drivers", "Drivers"], ["recon", "Reconciliation"],
+               ["partner", "Partner"]];
 
 function SegNav({ view, setView, counts }) {
   return (
@@ -42,10 +45,14 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
   // One drawer, three entry points (7.4). `mode` says which, so the drawer does not have to
   // guess from whether `rule` or `prefill` happens to be set.
   const [drawer, setDrawer] = useState(null);
+  // Which entity the Partner view is answering for. Held HERE rather than inside that
+  // view so leaving the tab and coming back does not silently reset to no entity.
+  const [partnerId, setPartnerId] = useState(null);
   const rules = useAllocRules(period);
   const exceptions = useAllocExceptions(period);
   const drivers = useAllocDrivers();
   const recon = useAllocRecon(period);
+  const partner = useAllocPartner(partnerId, period);
 
   // The badge counts are the two things somebody is waiting on: unclaimed cost, and rules that
   // resolved nothing. Both come from the payload; neither is derived by counting rows here.
@@ -54,11 +61,21 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
     recon: (recon.data?.rules || []).filter((r) => r.unresolved_amount).length || 0,
   };
 
-  const active = { rules, exceptions, drivers, recon }[view];
+  const active = { rules, exceptions, drivers, recon, partner }[view];
 
   return (
     <div>
       <SegNav view={view} setView={setView} counts={counts} />
+
+      {/* OUTSIDE StatePanel on purpose. StatePanel replaces its children with an error card,
+          and the partner route answers 409 for an unmapped account or a failed tie-out, so a
+          picker rendered inside it disappears exactly when somebody needs it to choose a
+          different entity. Retry would only ask for the failing one again. */}
+      {view === "partner" && (
+        <EntityPicker businesses={rules.data?.businesses || []} value={partnerId}
+                      onPick={setPartnerId} />
+      )}
+
       <StatePanel loading={active.loading} error={active.error}
                   retry={active.retry} empty={false}>
         {view === "rules" && (
@@ -78,6 +95,9 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
                        refresh={drivers.refresh} />
         )}
         {view === "recon" && <ReconView data={recon.data} period={period} />}
+        {view === "partner" && (
+          <PartnerView data={partner.data} period={period} businessId={partnerId} />
+        )}
       </StatePanel>
 
       {isCFO && view === "rules" && (
@@ -112,6 +132,15 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
           grid-template-columns: 28px minmax(0,2fr) minmax(0,1.3fr) repeat(3,minmax(0,1fr));
         }
         .al-recon-row { grid-template-columns: minmax(0,2fr) repeat(4, minmax(0,1fr)); }
+        .al-partner-row { grid-template-columns: minmax(0,2fr) repeat(2, minmax(0,1fr)); }
+        .al-partner-figs { grid-template-columns: repeat(5, minmax(0,1fr)); }
+        /* A bare inline span shrinks to its text, so a right-aligned column header sits above
+           a number flush LEFT. The wrapper is the grid item, so the alignment belongs on it --
+           and HERE rather than inline, so the narrow-width display:none below can still win.
+           (No backticks in this block: it is a template literal, and one ends the string.)
+           Both ledgers carry the same wrapper and had the same misalignment. */
+        .al-partner-row > .al-hide-narrow,
+        .al-recon-row > .al-hide-narrow { display: block; text-align: right; }
         @media (max-width: 900px) {
           .al-cards { grid-template-columns: repeat(2, minmax(0,1fr)); }
         }
@@ -120,11 +149,15 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
           .al-rules-row > .al-hide-narrow { display: none; }
           .al-recon-row { grid-template-columns: minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr); }
           .al-recon-row > .al-hide-narrow { display: none; }
+          .al-partner-figs { grid-template-columns: repeat(3, minmax(0,1fr)); }
         }
         @media (max-width: 520px) {
           .al-cards { grid-template-columns: minmax(0,1fr); }
           .al-rules-row { grid-template-columns: 22px minmax(0,1fr); }
           .al-recon-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+          .al-partner-row { grid-template-columns: minmax(0,1.4fr) minmax(0,1fr); }
+          .al-partner-row > .al-hide-narrow { display: none; }
+          .al-partner-figs { grid-template-columns: repeat(2, minmax(0,1fr)); }
         }
       `}</style>
     </div>

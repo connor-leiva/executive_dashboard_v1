@@ -551,7 +551,9 @@ export const sampleAllocRules = {
           reach: "forward", rationale: "Split by how the month was actually spent.",
           is_current: true, approved_by: "Spring", created_at: "2026-01-05T10:00:00Z" },
       ],
-      pool_amount: 600, to_partners: 0, retained: 0,
+      // Nothing resolved, so the whole pool is RETAINED: `retained` is `pool - to_partners`
+      // on the server and zero here taught the opposite, that an unresolved pool vanishes.
+      pool_amount: 600, to_partners: 0, retained: 600,
       pending: [{ month: "2026-07-01", reason: "no_driver_values", amount: 600 }],
     },
   ],
@@ -609,4 +611,33 @@ export const sampleAllocRecon = {
       pending: [{ month: "2026-07-01", amount: 600, method: "driven", tier: 3 }] },
   ],
   check: { zero_sum: { balanced: true, net: 0 }, entities: [] },
+};
+
+/* The partner view's dev fallback, used only when no API base is configured. The figures are
+   coherent with each other on purpose: earned is booked plus the effect, undrawn is earned
+   less drawn. An incoherent sample teaches a reader the wrong invariant. */
+export const sampleAllocPartner = {
+  business: { name: "An entity", key: null },
+  // The SERVER's period shape, which carries dates and no label. A sample that invents a key
+  // the server does not send teaches the view to read one: the first version of this sample
+  // said `label`, the view read `label`, and the dates silently rendered as nothing.
+  period: { start: "2026-07-01", end: "2026-07-31", books_closed: false, synced_at: null },
+  basis: "accrual",
+  leads_with: "allocated",
+  earned_allocated: 35000,
+  earned_booked: 40000,
+  shared_cost_effect: -5000,
+  drawn: 15000,
+  undrawn: 20000,
+  shared_lines: [
+    { standard_account_id: "std-rent", code: "7010", name: "Rent",
+      as_booked: 20000, as_allocated: 25000,
+      contributions: [{ direction: "in", counterparty_business: "The pool entity",
+                        amount: 5000, pool_name: "Advertising", basis: "Tier 3 Split, 70/30",
+                        booking: "applied",
+                        rule: { pool_name: "Advertising", version: 1, tier: 3, method: "split",
+                                months: ["2026-07-01"],
+                                rationale: "Run centrally on one card and split by programme." } }] },
+  ],
+  tie_out: { status: "tied" },
 };

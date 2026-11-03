@@ -523,12 +523,20 @@ def _money(v) -> float:
 async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
                                  period: tuple[dt.date, dt.date],
                                  statement: str = "pl", mode: str = "allocated",
-                                 threshold_pct=None) -> dict:
+                                 threshold_pct=None, compose_all: bool = False) -> dict:
     """The entity's books, rendered through the standard chart (SPEC 5.3 + 5.4).
 
     Raises `UnmappedAccountsError` before building anything if an account with activity has
     nowhere to go, and `TieOutError` after building if the result does not agree with
     QuickBooks. Neither returns a partial statement.
+
+    `compose_all` widens WHICH lines carry `contributions`, and nothing else. By default a line
+    carries them only when it is FLAGGED, which is a materiality judgement (SPEC 6.5): at least
+    `ic_flag_threshold_pct` of the line, default 5 percent. That is right for the Statement,
+    where flagging is what makes a row worth expanding, and wrong for any caller that needs the
+    lines shared cost actually REACHED, because `as_allocated` moves on every line with a
+    non-zero `ic_net` whether or not it crossed 5 percent. With `compose_all` the gate is
+    `provenance == ALLOCATED` instead: every line the money touched, at any size.
     """
     ps, pe = period
     biz = await s.get(Business, business_id)
@@ -674,6 +682,10 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
         ic_share = (abs(ic_net) / abs(as_allocated) * 100) if (ic_net and as_allocated) else None
 
         provenance = Provenance.ALLOCATED if ic_net else Provenance.DIRECT
+        # Every line shared cost REACHED, with no materiality gate and no `ic_share`: a line
+        # whose `as_allocated` nets to zero has no share to compare (see above), and dropping
+        # it would hide a move of any size, not merely a small one.
+        composable = bool(ic_net and not acct.is_intercompany_account)
         flagged = bool(
             provenance == Provenance.ALLOCATED
             and ic_share is not None
@@ -699,10 +711,12 @@ async def build_mapped_statement(s: AsyncSession, tenant_id, business_id,
             "definition": acct.definition,
             "sources": sorted(entry["sources"], key=lambda x: -abs(x["amount"])),
             # Always present on a flagged line, always empty otherwise: the frontend must never
-            # need a second request to expand a row (SPEC 6.5).
+            # need a second request to expand a row (SPEC 6.5). `compose_all` widens that to
+            # every line the money reached, for callers that must not silently drop one --
+            # see the flag's note in this function's docstring.
             "contributions": (_compose(inbound, "in", who, approvers, versions) +
                               _compose(outbound, "out", who, approvers, versions)
-                              ) if flagged else [],
+                              ) if (flagged or (compose_all and composable)) else [],
         })
 
     order = SECTION_ORDER if statement == "pl" else ("asset", "liability", "equity")
@@ -1056,8 +1070,15 @@ async def partner_view(s: AsyncSession, tenant_id, business_id, period, *,
     debit-positive like everything else, so a draw is a POSITIVE number here and the sign is not
     something the caller has to reason about.
     """
+    # `compose_all` because this view must not inherit the Statement's MATERIALITY gate. By
+    # default a line carries its `contributions` only when FLAGGED, at least 5 percent
+    # intercompany, while `earned_allocated` moves on every line with a non-zero `ic_net`. A
+    # 2 percent allocation therefore moved the headline and vanished from the table, so the
+    # page rendered "Cost came in from another entity" directly above "No shared cost reached
+    # this entity in this period". A line whose `as_allocated` nets to zero was worse: it has
+    # no share to compare, so it was dropped at ANY size.
     stmt = await build_mapped_statement(s, tenant_id, business_id, period, "pl",
-                                        mode="allocated")
+                                        mode="allocated", compose_all=True)
 
     draw_std = (await s.execute(select(StandardAccount.id).where(
         StandardAccount.tenant_id == tenant_id,
@@ -1079,7 +1100,8 @@ async def partner_view(s: AsyncSession, tenant_id, business_id, period, *,
 
     # Every line that shared cost reached, with the rule and the reason. Taken from the
     # statement the entity already renders rather than recomputed, so the partner view cannot
-    # disagree with the Statement about a figure they both show.
+    # disagree with the Statement about a figure they both show. "Every" is true only because
+    # of `compose_all` above; without it this reads the flagged lines and calls them all.
     shared = []
     for section in stmt.get("sections", []):
         for bucket in section.get("buckets", []):

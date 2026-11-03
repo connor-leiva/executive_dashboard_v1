@@ -6,7 +6,8 @@ import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleC
          sampleStatement, sampleLineDetail, sampleVendors, samplePayables,
          sampleRuns, sampleNextRun, sampleRun, samplePolicies,
          samplePayablesEmail, sampleAllocRules, sampleAllocExceptions,
-         sampleAllocDrivers, sampleAllocDriverMonth, sampleAllocRecon } from "./sampleBooks.js";
+         sampleAllocDrivers, sampleAllocDriverMonth, sampleAllocRecon,
+         sampleAllocPartner } from "./sampleBooks.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -183,6 +184,14 @@ export function useAllocDriverMonth(driverId, month) {
   const q = month ? `?period=${month}` : "";
   return useEndpoint(driverId ? `/books/allocations/drivers/${driverId}/month${q}` : null,
                      sampleAllocDriverMonth, [driverId, month]);
+}
+
+/* One entity's partner view. A null business id means "no entity picked yet", which
+   `useEndpoint` reads as nothing to ask for rather than an error. */
+export function useAllocPartner(businessId, period = "mtd") {
+  return useEndpoint(
+    businessId ? `/books/allocations/partner/${businessId}?period=${period}` : null,
+    sampleAllocPartner, [businessId, period]);
 }
 
 export function useAllocRecon(period = "mtd") {

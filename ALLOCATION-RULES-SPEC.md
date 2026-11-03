@@ -996,7 +996,7 @@ the wrong vendor.
 
 ## 11. Only Connor can do
 
-1. ~~**beCollective profit basis**, accrual or cash.~~ **ANSWERED 2026-11-04: ACCRUAL.**
+1. ~~**beCollective profit basis**, accrual or cash.~~ **ANSWERED 2026-11-03: ACCRUAL.**
    Phase 10 is unblocked. Accrual means the partner view reads the period the revenue was
    earned in rather than the month cash arrived, so a launch billed over twelve months does
    not land as one spike in the month it was sold.
@@ -1007,7 +1007,7 @@ the wrong vendor.
 5. **Julie's draw granularity.** 3100 directly, or a sub-account beneath it.
 6. **Rationales in Spring's words** for every rule declared in Phase 11.
 7. ~~**Which reading the Partner View leads with**, booked or allocated.~~
-   **ANSWERED 2026-11-04: ALLOCATED.** It leads with the figure AFTER shared cost has been
+   **ANSWERED 2026-11-03: ALLOCATED.** It leads with the figure AFTER shared cost has been
    pushed out, which is the number a partner is actually owed against. Booked stays visible
    beside it rather than hidden (D10: both columns always show), because a partner asking
    why their number moved needs to see the figure it moved from.
@@ -1646,7 +1646,7 @@ entities and say why in their docstrings.
 
 ### Phase 9
 
-Done 2026-11-04. No migration.
+Done 2026-11-03. No migration.
 
 **7.5 shipped inside Phase 8** and was verified in the browser there: an applied contribution row
 carries `Advertising v2 · Tier 3 split · from 2026-04-01 · 4 months` with the
@@ -1687,7 +1687,7 @@ past twelve hours it fails on its own tokens.**
 
 ### Phase 10
 
-Done 2026-11-04, unblocked the same day by Connor answering §11 items 1 and 7. No migration.
+Done 2026-11-03, unblocked the same day by Connor answering §11 items 1 and 7. No migration.
 
 **Both answers changed what got built, which is why they were worth waiting for.**
 
@@ -1721,7 +1721,153 @@ something a caller has to reason about. `undrawn` is `earned_allocated - drawn`.
    other read here. If a partner should see only their own entity, that is a permission decision
    this route deliberately does not make a second answer to.
 
-5 tests in `tests/test_alloc_partner.py`.
+**The view was missing and the record did not say so.** The endpoint, its tests and this
+section all shipped while Appendix C still read `Partner View | Phase 10 | blocked` and every
+other mockup row named a file. Phase 10 was finished in the tests and invisible on screen.
+`allocations/PartnerView.jsx` is that view: the entity picker, allocated leading with booked
+beside it, the shared lines with their rule and rationale, and the draw.
+
+It says on the page that there is no partner percentage. A partner owed half of an entity would
+otherwise read the headline as their own figure, and a disclosure that lives only in a spec is
+not a disclosure to the person reading the number.
+
+**Four keys the view read did not exist**: `F.display`, `L.goodInk`, `L.goodBg` and
+`period.label`. Every one fails SILENTLY in React, as `L.scrim` did before them: an undefined
+colour inherits, an undefined font falls back, undefined text renders as nothing. Three came
+from assuming a palette had a "good" counterpart to `flagInk`; the fourth from a sample that
+invented a key the server does not send, which is how the view learned to read it. The sample
+now carries the server's own period shape.
+
+## The mutation run, and 11 controls that nothing defended
+
+24 mutations against Phases 9 and 10: 13 caught, 11 survived. The survivors split three ways.
+
+**Six were real and are now tested.** Each is reachable, and each left all ten tests passing:
+
+| | What nothing defended |
+|---|---|
+| Booking filter | an OBSERVED contribution counted as applied money that left |
+| Grain filter | a WINDOW row double-counted beside the month rows |
+| Window start, window end | a month OUTSIDE the period counted, so a year-to-date figure absorbs a month that is not in it |
+| Mode filter | observed rules listed on the applied page, breaking D1 |
+| Draw by entity | another entity's draw on this partner's page |
+| Draw by period | every period's draws summed under one month's heading |
+
+The last two matter most. A partner page showing a draw that is not theirs is not a rounding
+problem: it reads as a statement about them.
+
+The four payload filters became a parametrized test, one case per filter, and each case fails
+for its own mutation and no other. `test_the_draw_is_this_entity_s_only` and
+`test_the_draw_is_this_period_s_only` cover the draw query. Its fixture cleans up by ACCOUNT ID
+on one entity rather than deleting a second entity's books wholesale, because the suite shares
+one SQLite database and a fixture that deletes another module's rows is a failure somewhere
+else.
+
+**Three were equivalent mutants and are documented instead.** `is_active` can never be false on
+an applied rule (`end_rule` writes an `ended` version by D3, and `alloc_patch_rule` refuses
+applied rules); the newest version is always the current one under append-only superseding. A
+test for either would have to insert a row the service cannot produce, which looks like coverage
+and proves nothing.
+
+**One was a finding.** `mode="allocated"` is INERT for the partner view. It selects each line's
+`amount` key and the `totals` built from it, while `net_income_booked` and
+`net_income_allocated` are computed from `as_booked` and `as_allocated` independently and both
+always ship (D10). The view reads those, so its answer cannot be flipped by a display toggle.
+That is a property worth keeping rather than a coincidence, so
+`test_the_view_cannot_be_flipped_by_the_statement_s_mode` pins it.
+
+**One mutation never ran at all, and reported as a survivor.** Its anchor string matched two
+identical lines (the recon route carries the same `money(r["pool_amount"])` line), so the
+harness refused to apply it and the control went untested while reading exactly like a real gap.
+A mutation harness needs to distinguish "not caught" from "not applied", or its own failures
+look like findings.
+
+**Verified against the real payload, not the sample.** A probe drove the route through ASGI
+against its own throwaway database and dumped the JSON: every key the view reads exists, and the
+`rule` block the contribution rows render (tier, method, version, months, rationale) is attached
+only to MONTH-grain rows by `_compose`. The window-grain row that both the probe's first version
+and `test_shared_cost_moves_the_headline` use carries no `rule` at all, so that half of the view
+had never been exercised against real data until the probe used `derive_applied`.
+
+At 375px: no document overflow, both new grids collapse to two columns from the STYLESHEET, and
+nothing inside them exceeds the viewport.
+
+## What a review found that the mutation run could not
+
+The mutation harness asks "does a test notice when this line changes". It cannot ask "is this
+line reading the right thing in the first place". Five reviewers over the same diff raised 22
+findings; 15 survived refutation, and they converge on four real defects. Every fix below is
+mutation-tested in turn, because a fix nothing can falsify is worth no more than the bug.
+
+**1. The partner view inherited a MATERIALITY gate it should never have had.** A line carries
+its `contributions` only when the statement FLAGS it, meaning at least `ic_flag_threshold_pct`
+(5 by default) of the line is intercompany. `earned_allocated` obeys no such gate: it moves on
+every line with a non-zero `ic_net`. So a 2 percent allocation moved the headline and vanished
+from the table, and the page rendered "Cost came in from another entity" directly above "No
+shared cost reached this entity in this period. Earned and booked agree" -- contradicting its
+own figures, with no way to see which line moved. A line allocated out IN FULL was worse and
+size-independent: `as_allocated` nets to zero, so it has no share to compare and was dropped at
+any amount. `build_mapped_statement` now takes `compose_all`, which widens the gate to
+`provenance == ALLOCATED` for this caller and leaves the Statement's payload untouched. The
+shipped test used 5,000 against a 20,000 line, 25 percent, which sails over the gate and is why
+nothing saw it.
+
+**2. Reconciliation computed pools a different way from the derivation.** It asked for one
+rule's pool at a time, and `account_pools` arbitrates only among the rules it is HANDED, so
+longest prefix (5.4) could not happen: "Advertising" and "Advertising:Meta" each claimed Meta's
+spend in full and the same cost appeared in two rules' `pool_amount`. Passing no `vendor_claims`
+lost D6's carve-out as well. The page's "In the books" column could therefore overstate and
+disagree with what `derive_all` actually wrote, while Rules and Reconciliation agreed with each
+other -- the Phase 9 docstring's promise held and was not the promise that mattered. The
+computation is now `pools_for_month`, THE only place pools are computed, called by both.
+
+**3. `pool_amount` and `to_partners` were bounded by different sets.** Pools come from
+`allocation_months`, which runs from the FISCAL YEAR start to the month containing today; the
+outbound total was bounded by the raw window. A window outside the current fiscal year gave a
+pool of zero against a real outflow, and `retained`, being derived as `pool - went`, went
+NEGATIVE. Both read the same month list now, so they describe the same set by construction.
+
+**4. The entity picker was inside the panel that fails.** `StatePanel` replaces its children
+with an error card, and the partner route answers 409 for an unmapped account or a failed
+tie-out, so picking an entity in that state deleted the only control for picking a different
+one; Retry re-requested the entity that had just failed. The tab was stuck until a page reload.
+The picker is the shell's now, rendered above the panel. A control that chooses WHAT to load
+cannot live inside the thing that failed to load it.
+
+Also: an unknown business answered 500 rather than 400; the tie badge branched on a `status`
+that is only ever "tied", since any other outcome raises rather than returns, so it now reports
+`excluded` instead -- money the statement left out while still tying; and both money ledgers
+had their figures flush LEFT under right-aligned headers, because the grid item was a bare
+inline span.
+
+**The alignment fix broke the phone layout and had to be done twice.** An inline
+`display: block` corrected the alignment and outranked the media query that hides that column
+at 520px, so three children sat in a two-column grid and wrapped. It is in the stylesheet now.
+That is the same inline-beats-media-query trap this phase already recorded one entry above, and
+knowing about it did not prevent walking into it; only looking at 375px again did.
+
+**One mutation of the fixes survived, and found a test that was green for the wrong reason.**
+Deleting the D6 vendor carve-out from the orchestration left all 52 allocation tests passing.
+`test_a_vendor_claim_inside_an_account_subtree_is_counted_once` passes `vendor_claims` to
+`account_pool` BY HAND: it proves the subtraction is correct and says nothing about whether
+anything performs it. The logic was defended and the wiring was not.
+`test_the_vendor_carve_out_survives_the_ORCHESTRATION_not_only_the_helper` closes that, and
+because `pools_for_month` is now shared it covers the derivation and the report together.
+
+12 tests in `tests/test_alloc_partner.py`, 12 collected in `tests/test_alloc_payload.py`
+(9 functions, one parametrized over 4), 25 in `tests/test_alloc_engine_db.py`.
+
+**One confirmed finding is deliberately NOT changed, because it is a product decision.**
+Reconciliation counts a month as resolved if ANY contribution row exists for the rule that
+month, rather than comparing what was written against the pool. A month that allocated only
+part of its pool therefore reports as fully resolved with variance zero. That is not obviously
+wrong: `retained` money is never written as a row, so under the literal reading of 5.4 a 70/30
+split with 30 retained writes 70 and is CORRECT and complete. An amount comparison would report
+every retained remainder as a permanent gap. The case it does miss is a partial failure, a
+driven split whose driver covers some subjects and not others, which would write some rows and
+look finished. Distinguishing "retained on purpose" from "did not resolve" needs retained
+amounts to be recorded, and that is a schema question and Connor's call, not a quiet change to
+what Reconciliation means. Written down here rather than fixed silently either way.
 
 ### Phase 11
 
@@ -1790,4 +1936,4 @@ retained and reported as `source_unmapped_spend` with its dollars.
 | Monthly Drivers | `allocations/DriversView.jsx` | GET `/allocations/drivers`, GET month, POST commits |
 | Reconciliation | `allocations/ReconView.jsx` | GET `/allocations/recon` |
 | Allocation Detail | `BooksStatement.jsx` `Composition` | GET `/books/statement` (`contributions[].rule`, `.driver`) |
-| Partner View | Phase 10 | blocked |
+| Partner View | `allocations/PartnerView.jsx` | GET `/allocations/partner/{business_id}` |

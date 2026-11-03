@@ -199,3 +199,137 @@ async def test_the_route_returns_numbers_and_keeps_the_observed_list_beside_them
     assert body["applied"][0]["pool_amount"] == 1000.05
     assert body["meta"]["tiers"][2]["label"] == "Driven"
     assert isinstance(body["rules"], list), "the observed list, under the key it always had"
+
+
+# ── what must NOT count as money that left (added after a mutation run) ───────────────────
+#
+# `rules_payload` reads `to_partners` with ONE query carrying four filters, and a mutation run
+# dropped each in turn while all five tests above kept passing. Every one of the four is
+# reachable in production, so each got a case here rather than a note.
+CONTAMINANT = {
+    # An OBSERVED row for the same rule. The observed path is the one already in production and
+    # its rows carry a rule_id too, so without the booking filter this page would report
+    # somebody else's bookkeeping as this rule's outbound money.
+    "observed_booking": dict(booking="observed", grain="month", period=MONTH),
+    # A WINDOW row beside the month rows. `derive_applied` writes month grain and the observed
+    # path writes window grain; counting both reports the same money twice.
+    "window_grain": dict(booking="applied", grain="window", period=MONTH),
+    # A month that starts after the window ends. Without the end filter a year-to-date figure
+    # absorbs a month that has not happened inside it.
+    "month_after_window": dict(booking="applied", grain="month",
+                               period=(dt.date(2026, 8, 1), dt.date(2026, 8, 31))),
+    # A month that ends before the window starts.
+    "month_before_window": dict(booking="applied", grain="month",
+                                period=(dt.date(2026, 6, 1), dt.date(2026, 6, 30))),
+}
+
+
+@pytest.mark.parametrize("which", sorted(CONTAMINANT))
+async def test_only_applied_month_rows_inside_the_window_count_as_money_that_left(which):
+    tenant_id, biz, actor, std = await _ctx()
+    rule, v = await _split_rule(tenant_id, biz, actor)
+    async with SessionLocal() as s:
+        await E.derive_applied(s, tenant_id, MONTH, rules_and_versions=[(rule, v)],
+                               pools_by_rule={rule.id: {std["6040"]: D("1000.05")}},
+                               today=TODAY)
+        await s.commit()
+    async with SessionLocal() as s:
+        clean = (await E.rules_payload(s, tenant_id, MONTH, today=TODAY))["rules"][0]
+    assert clean["to_partners"] == D("1000.05"), "the derived split, before any contaminant"
+
+    spec = CONTAMINANT[which]
+    async with SessionLocal() as s:
+        s.add(AllocationContribution(
+            tenant_id=tenant_id, period_start=spec["period"][0], period_end=spec["period"][1],
+            source_business_id=biz["springb"], target_business_id=biz["the_forum"],
+            standard_account_id=std["6040"], amount=D("7.77"), rule_id=rule.id,
+            booking=spec["booking"], grain=spec["grain"], pool_name="Advertising",
+            basis="a row that must not be counted"))
+        await s.commit()
+    async with SessionLocal() as s:
+        after = (await E.rules_payload(s, tenant_id, MONTH, today=TODAY))["rules"][0]
+
+    assert after["to_partners"] == D("1000.05"), f"{which} leaked into to_partners"
+    assert after["retained"] == D("0.00"), f"{which} moved retained off the pool"
+    assert after["to_partners"] + after["retained"] == after["pool_amount"]
+
+
+async def test_an_observed_rule_never_appears_on_the_applied_page():
+    """D1 is the module's premise: observed rules and their contributions are untouched, so
+    nothing already on the Statement can move. The page listing one would break that promise in
+    the most visible way, by inviting somebody to supersede a rule this module does not own."""
+    tenant_id, biz, actor, _s = await _ctx()
+    await _split_rule(tenant_id, biz, actor)
+    async with SessionLocal() as s:
+        s.add(AllocationRule(tenant_id=tenant_id, mode="observed", scope_kind="account",
+                             source_business_id=biz["springb"], pattern="Legacy",
+                             pool_name="A rule this module does not own", is_active=True))
+        await s.commit()
+    async with SessionLocal() as s:
+        out = await E.rules_payload(s, tenant_id, MONTH, today=TODAY)
+    names = [r["pool_name"] for r in out["rules"]]
+    assert "Advertising" in names, "the applied rule is still listed"
+    assert "A rule this module does not own" not in names, names
+
+
+# ── two defects a review found that mutation could not (the report must match the write) ──
+
+async def test_a_general_and_a_specific_rule_do_not_both_claim_the_same_account():
+    """LONGEST PREFIX, in the REPORT and not only in the derivation (5.4).
+
+    `account_pools` arbitrates among the rules it is HANDED. `reconciliation` used to ask for
+    one rule's pool at a time, so it could not arbitrate at all: "Advertising" and
+    "Advertising:Meta" each claimed Meta's spend in full and the same cost appeared in two
+    pools. The page's "In the books" column then overstated, and disagreed with what
+    `derive_all` actually wrote, while Rules and Reconciliation happily agreed with each other.
+    """
+    tenant_id, biz, actor, std = await _ctx()
+    async with SessionLocal() as s:
+        # 6010 is Advertising:Meta, mapped to 6040, carrying 1000.05 for the month.
+        await AR.create_applied_rule(
+            s, tenant_id, actor, scope_kind="account", pattern="Advertising",
+            pool_name="Advertising, everything else", source_business_id=biz["springb"],
+            method="retained", effective_from=MONTH[0], reach="forward",
+            rationale="Whatever Meta does not claim stays here.", targets=[])
+    async with SessionLocal() as s:
+        await AR.create_applied_rule(
+            s, tenant_id, actor, scope_kind="account", pattern="Advertising:Meta",
+            pool_name="Meta only", source_business_id=biz["springb"], method="split",
+            effective_from=MONTH[0], reach="forward",
+            rationale="Meta is split by programme.",
+            targets=[{"business_id": str(biz["the_forum"]), "share": "1.0"}])
+
+    async with SessionLocal() as s:
+        recon = await E.reconciliation(s, tenant_id, MONTH, today=TODAY)
+    pools = {r["pool_name"]: r["pool_amount"] for r in recon["rules"]}
+    assert pools["Meta only"] == D("1000.05"), "the specific rule takes the account"
+    assert pools["Advertising, everything else"] == D("0.00"), "the general one does not"
+    assert sum(pools.values()) == D("1000.05"), "the cost is in the books exactly once"
+
+
+async def test_a_window_outside_the_fiscal_year_does_not_report_a_negative_retained():
+    """`pool_amount` comes from `allocation_months`, which runs from the FISCAL YEAR start to
+    the month containing today, so a window outside it has no months and pools nothing. The
+    outbound total was bounded by the raw window instead, so it still found last year's
+    contributions: a zero pool, a real outflow, and `retained = pool - went` going NEGATIVE.
+    Both figures read the same month list now, so they cannot describe different sets."""
+    tenant_id, biz, actor, std = await _ctx()
+    rule, v = await _split_rule(tenant_id, biz, actor)
+    old_month = (dt.date(2025, 7, 1), dt.date(2025, 7, 31))
+    async with SessionLocal() as s:
+        s.add(AllocationContribution(
+            tenant_id=tenant_id, period_start=old_month[0], period_end=old_month[1],
+            source_business_id=biz["springb"], target_business_id=biz["the_forum"],
+            standard_account_id=std["6040"], amount=D("900.00"), rule_id=rule.id,
+            booking="applied", grain="month", pool_name="Advertising",
+            basis="last fiscal year"))
+        await s.commit()
+
+    async with SessionLocal() as s:
+        out = await E.rules_payload(s, tenant_id, old_month, today=TODAY)
+    r = out["rules"][0]
+    assert out["months"] == [], "today is 2026, so 2025 holds no allocation months"
+    assert r["pool_amount"] == D("0.00")
+    assert r["to_partners"] == D("0.00"), "and the outflow is read off the same empty set"
+    assert r["retained"] == D("0.00"), "never negative"
+    assert r["to_partners"] + r["retained"] == r["pool_amount"]

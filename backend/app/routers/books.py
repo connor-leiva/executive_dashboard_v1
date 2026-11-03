@@ -803,3 +803,8 @@ async def alloc_partner_view(business_id: uuid.UUID, period: str | None = None,
         raise HTTPException(409, str(e))
     except coa_balances.TieOutError as e:
         raise HTTPException(409, str(e))
+    except ValueError as e:
+        # `build_mapped_statement` raises this for a business id that is not this tenant's.
+        # Unhandled it answered 500, which reads as "we broke" for what is a bad id, and
+        # every other handler in this file answers 400 for the same class.
+        raise HTTPException(400, str(e))

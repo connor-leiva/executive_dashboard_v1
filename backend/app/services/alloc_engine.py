@@ -236,6 +236,47 @@ def longest_prefix_wins(rules, fqn: str | None):
     return best
 
 
+async def pools_for_month(s: AsyncSession, tenant_id, live, month, *,
+                          today: dt.date) -> tuple[dict, list]:
+    """Every live rule's pool for ONE month, as {rule_id: {standard_account_id: amount}}.
+
+    THE ONLY PLACE POOLS ARE COMPUTED, and that is the point. `reconciliation` used to do this
+    itself, one rule at a time, which silently dropped the two arbitrations that happen here:
+
+    1. LONGEST PREFIX (5.4). `account_pools` assigns each account to the best-matching rule
+       AMONG THE RULES IT IS GIVEN. Handed one rule at a time it cannot arbitrate at all, so
+       "Advertising" and "Advertising:Meta" each claimed Meta's spend in full and the same cost
+       appeared in two rules' `pool_amount`.
+    2. VENDOR CLAIMS FIRST (D6). A specific vendor claim is carved out before account rules see
+       the money. Computed per rule there were no claims to carve, so a vendor-claimed
+       transaction stayed inside the account rule's pool as well.
+
+    The derivation did both and the report did neither, so the page's "In the books" column
+    could disagree with what was actually allocated while Rules and Reconciliation agreed with
+    each other. One function, one answer.
+    """
+    pools: dict = {}
+    pending: list = []
+    by_entity: dict = {}
+    for r, v in live:
+        by_entity.setdefault(r.source_business_id, []).append((r, v))
+    for pool_bid, group in by_entity.items():
+        vend = [r for r, _v in group if r.scope_kind == "vendor"]
+        acct = [r for r, _v in group if r.scope_kind in ("account", "program")]
+        claims: dict = {}
+        if vend:
+            vp = await vendor_pools(s, tenant_id, pool_bid, month, today=today, rules=vend)
+            pools.update(vp["pools"])
+            pending.extend({**p, "month": month[0].isoformat()} for p in vp["pending"])
+            for by_acct in vp["pools"].values():
+                for std_id, amt in by_acct.items():
+                    claims[std_id] = claims.get(std_id, ZERO) + amt
+        if acct:
+            pools.update(await account_pools(s, tenant_id, pool_bid, month, acct,
+                                             vendor_claims=claims))
+    return pools, pending
+
+
 # ── derivation ────────────────────────────────────────────────────────────────────────────
 
 def _basis(v) -> str:
@@ -446,24 +487,8 @@ async def derive_all(s: AsyncSession, tenant_id, *, today: dt.date, fy_month: in
             done += 1
             continue
 
-        pools: dict = {}
-        by_entity: dict = {}
-        for r, v in live:
-            by_entity.setdefault(r.source_business_id, []).append((r, v))
-        for pool_bid, group in by_entity.items():
-            vend = [r for r, _v in group if r.scope_kind == "vendor"]
-            acct = [r for r, _v in group if r.scope_kind in ("account", "program")]
-            claims: dict = {}
-            if vend:
-                vp = await vendor_pools(s, tenant_id, pool_bid, month, today=today, rules=vend)
-                pools.update(vp["pools"])
-                pending.extend({**p, "month": month[0].isoformat()} for p in vp["pending"])
-                for by_acct in vp["pools"].values():
-                    for std_id, amt in by_acct.items():
-                        claims[std_id] = claims.get(std_id, ZERO) + amt
-            if acct:
-                pools.update(await account_pools(s, tenant_id, pool_bid, month, acct,
-                                                 vendor_claims=claims))
+        pools, vendor_pending = await pools_for_month(s, tenant_id, live, month, today=today)
+        pending.extend(vendor_pending)
 
         # The drivers any live version reads this month, and only this month's commits. Loaded
         # per month rather than once, because `current_commit` is per month by definition and
@@ -956,26 +981,24 @@ async def reconciliation(s: AsyncSession, tenant_id, period, *, today: dt.date,
         AllocationRule.mode == "applied",
         AllocationRule.is_active.is_(True)))).scalars())
 
-    out = []
-    for rule in rules:
-        history = await versions_for(s, tenant_id, rule.id)
-        pool_total, resolved = ZERO, ZERO
-        pending: list = []
-        for month in months:
-            v = effective_version(history, month[0])
-            if v is None or v.method == "ended":
-                continue
-            if rule.scope_kind == "vendor":
-                got = await vendor_pools(s, tenant_id, rule.source_business_id, month,
-                                         today=today, rules=[rule])
-                by_account = got["pools"].get(rule.id) or {}
-            else:
-                by_account = (await account_pools(s, tenant_id, rule.source_business_id,
-                                                  month, [rule])).get(rule.id) or {}
-            month_pool = sum(by_account.values(), ZERO)
+    # MONTH FIRST, then rules, so every rule live in a month is handed to `pools_for_month`
+    # together. Iterating rules first and asking for one rule's pool at a time is what this
+    # function used to do, and it lost both longest-prefix arbitration and the D6 vendor
+    # carve-out -- see that function's docstring. The report has to compute pools exactly the
+    # way the derivation does or it reconciles against a number nothing ever wrote.
+    history = {r.id: await versions_for(s, tenant_id, r.id) for r in rules}
+    acc = {r.id: {"pool": ZERO, "resolved": ZERO, "pending": []} for r in rules}
+    for month in months:
+        live = [(r, effective_version(history[r.id], month[0])) for r in rules]
+        live = [(r, v) for r, v in live if v is not None and v.method != "ended"]
+        if not live:
+            continue
+        pools, _vendor_pending = await pools_for_month(s, tenant_id, live, month, today=today)
+        for rule, v in live:
+            month_pool = sum((pools.get(rule.id) or {}).values(), ZERO)
             if month_pool == ZERO:
                 continue
-            pool_total += month_pool
+            acc[rule.id]["pool"] += month_pool
 
             wrote = (await s.execute(select(AllocationContribution.id).where(
                 AllocationContribution.tenant_id == tenant_id,
@@ -985,18 +1008,22 @@ async def reconciliation(s: AsyncSession, tenant_id, period, *, today: dt.date,
                 AllocationContribution.period_start == month[0]).limit(1))).scalars().first()
             retained_only = v.method == "retained"
             if wrote is not None or retained_only:
-                resolved += month_pool
+                acc[rule.id]["resolved"] += month_pool
             else:
-                pending.append({"month": month[0].isoformat(), "amount": month_pool,
-                                "method": v.method, "tier": v.tier})
+                acc[rule.id]["pending"].append(
+                    {"month": month[0].isoformat(), "amount": month_pool,
+                     "method": v.method, "tier": v.tier})
 
+    out = []
+    for rule in rules:
+        a = acc[rule.id]
         out.append({
             "rule_id": str(rule.id), "pool_name": rule.pool_name,
             "scope_kind": rule.scope_kind, "pattern": rule.pattern,
             "pool_business_id": str(rule.source_business_id),
-            "pool_amount": pool_total, "resolved_amount": resolved,
-            "unresolved_amount": pool_total - resolved,
-            "variance": resolved - pool_total, "pending": pending,
+            "pool_amount": a["pool"], "resolved_amount": a["resolved"],
+            "unresolved_amount": a["pool"] - a["resolved"],
+            "variance": a["resolved"] - a["pool"], "pending": a["pending"],
         })
     out.sort(key=lambda r: (-abs(r["pool_amount"]), r["pool_name"]))
     return {"rules": out, "months": [m[0].isoformat() for m in months]}
@@ -1020,7 +1047,6 @@ async def rules_payload(s: AsyncSession, tenant_id, period, *, today: dt.date,
     """
     from .alloc_rules import TIERS, versions_for, version_out
 
-    ps, pe = period
     recon = await reconciliation(s, tenant_id, period, today=today, fy_month=fy_month)
     by_rule = {r["rule_id"]: r for r in recon["rules"]}
 
@@ -1036,15 +1062,24 @@ async def rules_payload(s: AsyncSession, tenant_id, period, *, today: dt.date,
         AllocationRule.is_active.is_(True)).order_by(AllocationRule.pool_name))).scalars())
 
     # One query for every rule's outbound total, rather than one per rule.
+    #
+    # BOUNDED BY THE MONTHS RECONCILIATION USED, not by the raw window, and the two are not the
+    # same set. `allocation_months` runs from the FISCAL YEAR START through the month containing
+    # today, so a window outside the current fiscal year yields no months and every
+    # `pool_amount` is zero -- while this query, bounded only by `period_start >= ps` and
+    # `period_end <= pe`, happily summed that window's contributions. The page then showed a
+    # pool of zero against a non-zero outflow and a NEGATIVE `retained`, because `retained` is
+    # derived as `pool - went`. Reading both figures off one month list makes them describe the
+    # same thing by construction instead of by coincidence.
+    month_starts = [dt.date.fromisoformat(m) for m in recon["months"]]
     out_rows = (await s.execute(
         select(AllocationContribution.rule_id,
                func.sum(AllocationContribution.amount))
         .where(AllocationContribution.tenant_id == tenant_id,
                AllocationContribution.booking == "applied",
                AllocationContribution.grain == "month",
-               AllocationContribution.period_start >= ps,
-               AllocationContribution.period_end <= pe)
-        .group_by(AllocationContribution.rule_id))).all()
+               AllocationContribution.period_start.in_(month_starts))
+        .group_by(AllocationContribution.rule_id))).all() if month_starts else []
     to_partners = {rid: amount for rid, amount in out_rows if rid is not None}
 
     out = []
