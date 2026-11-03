@@ -996,16 +996,24 @@ the wrong vendor.
 
 ## 11. Only Connor can do
 
-1. **beCollective profit basis**, accrual or cash. Blocks Phase 10.
+1. ~~**beCollective profit basis**, accrual or cash.~~ **ANSWERED 2026-11-04: ACCRUAL.**
+   Phase 10 is unblocked. Accrual means the partner view reads the period the revenue was
+   earned in rather than the month cash arrived, so a launch billed over twelve months does
+   not land as one spike in the month it was sold.
 2. **Pam Bakalian's split.** Renders as Not set until committed.
 3. **Vizual Lab, Forward Event, Tina Andrea Media.** Exceptions until a rule claims them.
 4. **The Meta figure.** The brief states 78 percent unattributed and also $30,280 of
    $260,267.22 traced (88.4 percent unattributed). Needs a source read before either is shown.
 5. **Julie's draw granularity.** 3100 directly, or a sub-account beneath it.
 6. **Rationales in Spring's words** for every rule declared in Phase 11.
-7. **Which reading the Partner View leads with**, booked or allocated.
-8. **The BookTxn backfill start** (F10, `books_sync._backfill_start`). It bounds how far a retro
-   rule can reach.
+7. ~~**Which reading the Partner View leads with**, booked or allocated.~~
+   **ANSWERED 2026-11-04: ALLOCATED.** It leads with the figure AFTER shared cost has been
+   pushed out, which is the number a partner is actually owed against. Booked stays visible
+   beside it rather than hidden (D10: both columns always show), because a partner asking
+   why their number moved needs to see the figure it moved from.
+8. ~~**The BookTxn backfill start**~~ **MEASURED in Phase 0: 1 January 2026** on every realm
+   except The Forum (2025-12-31). A retro rule cannot reach before that, whatever reach it
+   declares.
 9. **Which entities are pools** (`alloc_pool_business_ids`), and whether the pool entity's
    display name changes to "SB Coaching".
 
@@ -1637,6 +1645,46 @@ removes the row regardless of the filter under test. Both tests now map the same
 entities and say why in their docstrings.
 
 ### Phase 9
+
+Done 2026-11-04. No migration.
+
+**7.5 shipped inside Phase 8** and was verified in the browser there: an applied contribution row
+carries `Advertising v2 · Tier 3 split · from 2026-04-01 · 4 months` with the
+rationale below it, the observed row beside it unchanged, and the composition panel still adding
+to 13,555.
+
+**What this phase actually closed was the gap between "the page works" and "the page works on
+your data".** `GET /books/allocations/rules` returned the observed shape only, with no
+`meta.tiers`, no versions and no money, so the Allocations page ran entirely on samples.
+`alloc_engine.rules_payload` now builds what section 6 specifies.
+
+**It calls `reconciliation` rather than computing pools a second time.** Rules and
+Reconciliation showing different pool amounts for one rule would be the worst defect this module
+could carry: both would look authoritative, neither would be obviously wrong, and whichever view
+somebody opened first would win the argument. One source, two views, and a test asserts they
+cannot diverge.
+
+**`to_partners` reads what the engine WROTE**, not what the version's shares say. A version is an
+intention and the rows are the fact; where a month is pending those differ, and that difference
+is the thing a reader needs. `retained` is derived from the two, so it absorbs nothing.
+
+**A false claim, written and then caught.** The first version of the route docstring said the
+Chart mapping view depended on `rules` keeping the observed shape, and the applied list was
+buried under another key to protect it. One grep of `frontend/src` showed nothing but this
+module's own hook consumes the endpoint. The shape is the natural one now and the docstring
+records that the claim was wrong rather than quietly dropping it.
+
+**The full suite run of 2026-11-03 is void and must not be read as a regression.** It took 25
+hours 32 minutes of wall clock because the machine slept between turns, and `SESSION_HOURS` is
+12, so every token minted at the start had expired by the time the later modules ran. Seven
+failures: six auth 401s in `test_books_cleanup` and one `day_number` off by one from crossing a
+date boundary. All seven pass in isolation (105 tests), `test_books_cleanup` passes immediately
+after this module's files (169 tests), and the same files passed in the 23-minute run two days
+earlier. **A backend suite run in this repo is only trustworthy if it finishes in one sitting;
+past twelve hours it fails on its own tokens.**
+
+5 tests in `tests/test_alloc_payload.py`.
+
 ### Phase 10
 ### Phase 11
 

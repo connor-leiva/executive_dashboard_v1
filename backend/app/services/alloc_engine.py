@@ -21,7 +21,7 @@ import datetime as dt
 import uuid
 from decimal import ROUND_HALF_EVEN, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (AccountPeriodBalance, AllocationContribution, AllocationRule, BookTxn,
@@ -1000,3 +1000,91 @@ async def reconciliation(s: AsyncSession, tenant_id, period, *, today: dt.date,
         })
     out.sort(key=lambda r: (-abs(r["pool_amount"]), r["pool_name"]))
     return {"rules": out, "months": [m[0].isoformat() for m in months]}
+
+
+# ── what the Allocations page reads (SPEC 6, Phase 9) ────────────────────────────────────
+
+async def rules_payload(s: AsyncSession, tenant_id, period, *, today: dt.date,
+                        fy_month: int = 1) -> dict:
+    """Every applied rule with its identity, its versions, and its money for the window.
+
+    THE POOL FIGURES COME FROM `reconciliation`, not from a second computation. Rules and
+    Reconciliation showing different pool amounts for the same rule would be the worst defect
+    this module could have: both would look authoritative, neither would be obviously wrong,
+    and the one somebody happened to open first would win the argument. One source, two views.
+
+    `to_partners` is what actually left the pool entity, read from the contributions the engine
+    WROTE rather than recomputed from the shares. A version's shares say what should happen;
+    the rows say what did. Where a month is pending those differ, and the difference is the
+    thing a reader needs to see.
+    """
+    from .alloc_rules import TIERS, versions_for, version_out
+
+    ps, pe = period
+    recon = await reconciliation(s, tenant_id, period, today=today, fy_month=fy_month)
+    by_rule = {r["rule_id"]: r for r in recon["rules"]}
+
+    businesses = [
+        {"id": str(b.id), "name": b.name, "accent": b.accent}
+        for b in (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id).order_by(Business.sort_order))).scalars()
+    ]
+
+    rules = list((await s.execute(select(AllocationRule).where(
+        AllocationRule.tenant_id == tenant_id,
+        AllocationRule.mode == "applied",
+        AllocationRule.is_active.is_(True)).order_by(AllocationRule.pool_name))).scalars())
+
+    # One query for every rule's outbound total, rather than one per rule.
+    out_rows = (await s.execute(
+        select(AllocationContribution.rule_id,
+               func.sum(AllocationContribution.amount))
+        .where(AllocationContribution.tenant_id == tenant_id,
+               AllocationContribution.booking == "applied",
+               AllocationContribution.grain == "month",
+               AllocationContribution.period_start >= ps,
+               AllocationContribution.period_end <= pe)
+        .group_by(AllocationContribution.rule_id))).all()
+    to_partners = {rid: amount for rid, amount in out_rows if rid is not None}
+
+    out = []
+    for rule in rules:
+        history = await versions_for(s, tenant_id, rule.id)
+        current = next((v for v in reversed(history) if v.is_current), None)
+        money = by_rule.get(str(rule.id)) or {}
+        pool = money.get("pool_amount", ZERO)
+        went = to_partners.get(rule.id, ZERO)
+        out.append({
+            "id": str(rule.id),
+            "pool_name": rule.pool_name,
+            "scope_kind": rule.scope_kind,
+            "pattern": rule.pattern,
+            "pool_business_id": str(rule.source_business_id),
+            "current": version_out(current) if current else None,
+            "versions": [version_out(v) for v in reversed(history)],
+            "pool_amount": pool,
+            "to_partners": went,
+            # Derived, so it absorbs nothing: whatever did not leave stayed, including the
+            # rounding residue and any month that did not resolve.
+            "retained": pool - went,
+            "pending": money.get("pending", []),
+        })
+
+    return {
+        "meta": {"tiers": [{"tier": t, "code": f"T{t}", "label": label,
+                            "gloss": TIER_GLOSS[t]} for t, label in sorted(TIERS.items())]},
+        "businesses": businesses,
+        "rules": out,
+        "months": recon["months"],
+    }
+
+
+# The one-line explanation each tier carries on screen. Here rather than in the frontend so
+# adding a tier is a server change: acceptance check A10 greps that folder for a constant of
+# tier definitions and expects to find none.
+TIER_GLOSS = {
+    1: "One entity carries the whole cost.",
+    2: "An outside source sets the ratio.",
+    3: "A monthly number sets the split.",
+    4: "The cost stays where it is booked.",
+}

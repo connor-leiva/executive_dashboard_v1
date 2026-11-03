@@ -432,12 +432,38 @@ class DriverCommitIn(BaseModel):
 
 
 @router.get("/allocations/rules")
-async def alloc_list_rules(user: User = Depends(books_user),
+async def alloc_list_rules(period: str | None = None,
+                           period_start: dt.date | None = None,
+                           period_end: dt.date | None = None,
+                           user: User = Depends(books_user),
                            s: AsyncSession = Depends(get_session)):
-    # Named for its neighbours (alloc_create_rule, alloc_patch_rule), and renamed because
-    # `alloc_rules` shadowed the `services.alloc_rules` module at import: every applied-rule
-    # route then raised AttributeError on a function object, and only calling one showed it.
-    return {"rules": await coa_alloc.list_rules(s, user.tenant_id)}
+    """Both modes in one payload (SPEC 6).
+
+    `rules` is the APPLIED list, because that is what the Allocations page renders. The observed
+    list comes back under `observed`: it is the older shape and nothing but this route reads it
+    today, so it is carried for completeness rather than for a caller. A first draft of this
+    docstring claimed the Chart mapping view depended on `rules` keeping the observed shape;
+    that was wrong, and a grep of `frontend/src` settled it in one line.
+
+    Named for its neighbours (alloc_create_rule, alloc_patch_rule), and renamed once because
+    `alloc_rules` shadowed the `services.alloc_rules` module at import: every applied-rule route
+    then raised AttributeError on a function object, and only calling one showed it.
+    """
+    key = _period(period_start, period_end, period)
+    applied = await alloc_engine.rules_payload(s, user.tenant_id, key, today=dt.date.today())
+    money = coa_balances._money
+    return {
+        "meta": applied["meta"],
+        "businesses": applied["businesses"],
+        "months": applied["months"],
+        "rules": [{**r,
+                   "pool_amount": money(r["pool_amount"]),
+                   "to_partners": money(r["to_partners"]),
+                   "retained": money(r["retained"]),
+                   "pending": [{**p, "amount": money(p["amount"])} for p in r["pending"]]}
+                  for r in applied["rules"]],
+        "observed": await coa_alloc.list_rules(s, user.tenant_id),
+    }
 
 
 @router.post("/allocations/rules")                    # CFO only
