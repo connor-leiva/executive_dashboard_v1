@@ -719,6 +719,25 @@ async def seed():
                                  "compensation": gr, "comp_type": "Lender"})
                 if referral:
                     meta.update(referral)
+                # The weekly scorecard's view of the loan: when it really moved (arive.loan_timeline).
+                _path = ("APPLICATION_INTAKE", "PREAPPROVED", "LOAN_SETUP", "DISCLOSURE_SENT",
+                         "UNDERWRITING_SUBMITTED", "APPROVED_WITH_CONDITION", "CLEAR_TO_CLOSE", "DOCS_SIGNED")
+                _ends = (_path.index(status) + 1) if status in _path else len(_path)
+                _hist = {st: (occurred - dt.timedelta(days=6 * (_ends - n))).isoformat()
+                         for n, st in enumerate(_path[:_ends])}
+                if status not in _path:
+                    _hist[status] = occurred.isoformat()
+                _tl = {"history": _hist, "gross_revenue": round(amount * 0.0205), "lo_name": lo[1]}
+                if seg == "funded":
+                    _tl["funded_on"] = occurred.isoformat()
+                if "LOAN_SETUP" in _hist:
+                    _tl["applied_on"] = _hist["LOAN_SETUP"]
+                if "UNDERWRITING_SUBMITTED" in _hist:
+                    _tl["lock_on"] = _hist["UNDERWRITING_SUBMITTED"]
+                if referral:
+                    _tl.update({k: referral[k] for k in ("referral_email", "buyer_agent_email") if k in referral})
+                meta["timeline"] = _tl
+                meta["created_on"] = min(_hist.values())
                 s.add(MetricRecord(
                     tenant_id=tenant.id, business_id=sympli.id, source="arive", kind="loan",
                     external_id=f"arive-{i:04d}", name=f"Borrower {i:03d}",

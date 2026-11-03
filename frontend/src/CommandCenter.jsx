@@ -1282,7 +1282,8 @@ export default function CommandCenter() {
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" && areas?.ulrg) content = <UlrgTabs role={user?.role}
     overview={<AreaDetail area={areas.ulrg} onDrill={onDrill} period={periodKeyStr} />} />;
-  else if (activeView === "sympli") content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
+  else if (activeView === "sympli") content = <BrandScorecardTabs scope="sympli" role={user?.role}
+    overview={<AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
   else if (activeView === "books") content = <Books period={periodKeyStr} role={user?.role} />;
   // A one-off, present only where the server says a cleanup file is loaded (it is in /me nav, never in NAV).

@@ -32,18 +32,20 @@ export default function DrillDrawer({ drill, canEdit, onClose, onSaved }) {
 
 function Records({ r, ws, we }) {
   const [recs, setRecs] = useState(null);
-  const [src, setSrc] = useState("Sisu");      // where the rows came from — the server says (Sisu / GHL)
+  const [src, setSrc] = useState("Sisu");      // where the rows came from — the server says (Sisu / GHL / Arive)
+  const [restricted, setRestricted] = useState(false);   // agent-level rows on the lending board
   const [sort, setSort] = useState("name");   // alphabetical by default; toggle to date
   useEffect(() => {
     let ok = true;
     setRecs(null);
     getJSON(`/ulrg/metric/${r.id}/records?week_start=${ws}&week_end=${we}`)
-      .then((d) => { if (ok) { setRecs(d.records || []); setSrc(d.source_label || "Sisu"); } })
+      .then((d) => { if (ok) { setRecs(d.records || []); setSrc(d.source_label || "Sisu"); setRestricted(!!d.restricted); } })
       .catch(() => { if (ok) setRecs([]); });
     return () => { ok = false; };
   }, [r.id, ws, we]);
 
   if (recs === null) return <div style={muted}>Loading records…</div>;
+  if (restricted) return <div style={muted}>The agent-level detail behind this number is limited to leadership.</div>;
   if (!recs.length) return <div style={muted}>No records from {src} in this window.</div>;
   // attach-rate drill → the denominator deals, each flagged `captured` (the numerator subset), so the
   // list reads back as the rate. Count metrics have no `captured` field → plain "N records".
@@ -87,7 +89,7 @@ function Records({ r, ws, we }) {
           <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {attach && <Tag on={x.captured} label={x.captured ? vendor : "Other"} />}
             {x.side === "sell" && <Tag on={false} label="Listing" />}
-            <span>{x.agent || x.detail || "—"}{x.address ? ` · ${x.address}` : ""}{x.sale_price ? ` · $${Math.round(x.sale_price).toLocaleString()}` : ""}</span>
+            <span>{[x.agent, x.detail].filter(Boolean).join(" · ") || "—"}{x.address ? ` · ${x.address}` : ""}{x.sale_price ? ` · $${Math.round(x.sale_price).toLocaleString()}` : ""}</span>
           </div>
         </div>
       ))}

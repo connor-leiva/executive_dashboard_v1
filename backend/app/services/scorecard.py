@@ -15,9 +15,10 @@ from __future__ import annotations
 import datetime as dt
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from ..models import Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue, ScorecardGoal
+from ..models import (Integration, Tenant, ScorecardGate, ScorecardGroup, ScorecardMetric, ScorecardValue,
+                      ScorecardGoal)
 
 log = logging.getLogger("app")
 
@@ -121,14 +122,15 @@ def cumulative_block(values, goal: float, type_: str, direction: str, window: in
     best = max(vals)
     req = required(vals, goal, type_, weeks_left)
     is_rate = type_ == "rate"
+    dp = 2 if is_rate and goal < 10 else 1       # a 2.25% pricing goal is meaningless rounded to 2.2
     return {
         "n": len(vals),
-        "actual": round(sum(vals) / len(vals), 1) if is_rate else round(sum(vals)),
-        "target": round(goal, 1) if is_rate else round(goal * len(vals)),
+        "actual": round(sum(vals) / len(vals), dp) if is_rate else round(sum(vals)),
+        "target": round(goal, dp) if is_rate else round(goal * len(vals)),
         "attain": round(att, 1) if att is not None else None,
-        "gap": round(g, 1) if is_rate else round(g),
-        "required": round(req, 1) if req is not None else None,
-        "best": round(best, 1) if is_rate else round(best),
+        "gap": round(g, dp) if is_rate else round(g),
+        "required": round(req, dp) if req is not None else None,
+        "best": round(best, dp) if is_rate else round(best),
         "verdict": verdict(g, req, best),
     }
 
@@ -203,6 +205,25 @@ def quarter_of(fiscal_quarters, today: dt.date) -> dict:
     closed = min(total, max(0, (today - start).days // 7))
     return {"key": f"{today.year}Q{qn + 1}", "start": start.isoformat(), "end": end.isoformat(),
             "start_date": start, "weeks_total": total, "weeks_closed": closed, "weeks_left": max(0, total - closed)}
+
+
+async def _sources(s, tenant_id, providers: set) -> list[dict]:
+    """When each feed behind this board last synced: how current its auto rows can be."""
+    rows = (await s.execute(select(Integration.provider, func.max(Integration.last_synced_at)).where(
+        Integration.tenant_id == tenant_id, Integration.provider.in_(providers - {"manual"}))
+        .group_by(Integration.provider).order_by(Integration.provider))).all()
+    return [{"provider": p, "synced_at": at.isoformat()} for p, at in rows if at]
+
+
+async def _gates(s, tenant_id, business_id, today: dt.date) -> list[dict]:
+    """A board's plan gates, oldest first. Status is derived here so a gate can't read "due" after
+    its date has passed: done once marked, missed when past due without that, otherwise due."""
+    rows = (await s.execute(select(ScorecardGate).where(
+        ScorecardGate.tenant_id == tenant_id, ScorecardGate.business_id == business_id)
+        .order_by(ScorecardGate.due_date, ScorecardGate.sort_order))).scalars().all()
+    return [{"id": str(g.id), "due": g.due_date.isoformat(), "label": g.label, "owner": g.owner_name,
+             "done_on": g.done_on.isoformat() if g.done_on else None,
+             "status": "done" if g.done_on else ("missed" if g.due_date < today else "due")} for g in rows]
 
 
 async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt.date | None = None) -> dict:
@@ -344,4 +365,6 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
         "quarter": {k: q[k] for k in ("key", "start", "end", "weeks_total", "weeks_closed", "weeks_left")},
         "windows": [4, weeks_param, "qtd"], "default_window": weeks_param,
         "groups": groups_out,
+        "gates": await _gates(s, tenant_id, business_id, today),
+        "sources": await _sources(s, tenant_id, {m.source for g in groups for m in by_group.get(g.id, [])}),
     }

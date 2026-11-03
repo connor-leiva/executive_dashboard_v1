@@ -1,0 +1,118 @@
+{
+  "_note": "The Sympli Utah lending board, from the Oct 2026 Scaling Plan targets agreed Nov 1, 2026. Goal 0 = track-only until a target is set in Settings. Hand-entered rows have no resolver: no source exists yet (same-day contact, agent updates, disclosure) or the books aren't reachable (NOI, costs). A second market reuses this file with its own offices and loan officers.",
+  "period": {"key": "2026Q4", "start": "2026-10-31", "end": "2027-01-31"},
+  "loan_officer_rows": [
+    {"name": "Funded Loans", "type": "flow", "goal": 0, "resolver_key": "sympli_funded", "source": "arive"},
+    {"name": "Open Pipeline", "type": "snapshot", "goal": 0, "resolver_key": "sympli_open_count", "source": "arive"},
+    {"name": "Open Pipeline ($K)", "type": "snapshot", "goal": 0, "resolver_key": "sympli_open_volume", "source": "arive"},
+    {"name": "Pull-Through", "type": "rate", "goal": 0, "resolver_key": "sympli_pull_through", "source": "arive",
+     "note": "Applications from the 30 days ending 90 days ago that funded within 90 days."},
+    {"name": "Files Past CTC Target", "type": "snapshot", "direction": "lte", "goal": 0.5, "resolver_key": "sympli_past_ctc", "source": "arive",
+     "note": "Target 0. Active files short of clear to close, past the target days since application."},
+    {"name": "Own-Book Loans", "type": "flow", "goal": 0, "resolver_key": "sympli_outside", "source": "arive",
+     "note": "Funded loans not sourced from a Utah Life agent."},
+    {"name": "Avg Pricing (New Locks)", "type": "rate", "goal": 2.25, "resolver_key": "sympli_margin_locks", "source": "arive",
+     "period_goals": {"2026Q3": {"goal": 2.0}, "2026Q4": {"goal": 2.25}},
+     "note": "Amount-weighted revenue % on loans locked that week."}
+  ],
+  "loan_officers": [
+    {"key": "lo_jared", "name": "Jared Browning", "email": "jared@symplimortgage.com", "initials": "JA"},
+    {"key": "lo_kitty", "name": "Kitty", "email": "kitty@symplimortgage.com", "initials": "KI"},
+    {"key": "lo_jan", "name": "Jan Coon", "email": "jan@symplimortgage.com", "initials": "JC"}
+  ],
+  "groups": [
+    {"key": "north_star", "name": "North Star", "owner": "Connor Leiva", "metrics": [
+      {"name": "Funded (40/mo)", "type": "flow", "goal": 9.23, "resolver_key": "sympli_funded", "source": "arive", "owner": "JA",
+       "period_goals": {"2026Q4": {"goal": 9.23, "cumulative": 120}},
+       "note": "40 a month: about 9.2 a week, 120 a quarter."},
+      {"name": "Funded (26/mo)", "type": "flow", "goal": 6, "resolver_key": "sympli_funded", "source": "arive", "owner": "JA",
+       "period_goals": {"2026Q4": {"goal": 6, "cumulative": 78}},
+       "note": "Scaling Plan Year 1 pace: about 26 a month, 78 a quarter."},
+      {"name": "Sympli Attach Rate", "type": "rate", "goal": 32, "resolver_key": "sympli_attach", "source": "sisu", "owner": "CO",
+       "note": "Financed Utah Life buyer closings with Sympli. 32% by May 31, 2027; 45% by Nov 30, 2027."},
+      {"name": "Margin, New Locks", "type": "rate", "goal": 2.25, "resolver_key": "sympli_margin_locks", "source": "arive", "owner": "CO",
+       "period_goals": {"2026Q3": {"goal": 2.0}, "2026Q4": {"goal": 2.25}},
+       "note": "Amount-weighted revenue %. 2.25% on new applications from Dec 1, 2026; 2.00% before."},
+      {"name": "Margin, Funded Loans", "type": "rate", "goal": 2.0, "resolver_key": "sympli_margin_funded", "source": "arive", "owner": "CO",
+       "note": "Secondary view. Baseline 1.92%, stated goal 2.00%."},
+      {"name": "Net Operating Income ($K)", "type": "snapshot", "goal": 60, "source": "manual", "owner": "CO",
+       "note": "Last closed month, from the monthly package. Plan: about $60K a month in Year 1."}
+    ]},
+    {"key": "pipeline", "name": "Pipeline", "owner": "Jared Browning", "metrics": [
+      {"name": "Pre-Application", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_pre", "source": "arive", "owner": "JA",
+       "note": "Active inquiries that aren't applications yet. Not part of the open pipeline."},
+      {"name": "Application", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_application", "source": "arive", "owner": "JA"},
+      {"name": "Application ($K)", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_application_volume", "source": "arive", "owner": "JA"},
+      {"name": "Processing", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_processing", "source": "arive", "owner": "JA"},
+      {"name": "Processing ($K)", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_processing_volume", "source": "arive", "owner": "JA"},
+      {"name": "Underwriting", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_underwriting", "source": "arive", "owner": "JA"},
+      {"name": "Underwriting ($K)", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_underwriting_volume", "source": "arive", "owner": "JA"},
+      {"name": "Conditional Approval", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_conditional", "source": "arive", "owner": "JA"},
+      {"name": "Conditional Approval ($K)", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_conditional_volume", "source": "arive", "owner": "JA"},
+      {"name": "Clear to Close", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_ctc", "source": "arive", "owner": "JA"},
+      {"name": "Clear to Close ($K)", "type": "snapshot", "goal": 0, "resolver_key": "sympli_stage_ctc_volume", "source": "arive", "owner": "JA"},
+      {"name": "Pull-Through", "type": "rate", "goal": 0, "resolver_key": "sympli_pull_through", "source": "arive", "owner": "JA",
+       "note": "Applications from the 30 days ending 90 days ago that funded within 90 days."}
+    ]},
+    {"key": "leading", "name": "Leading Indicators", "owner": "Sophia", "metrics": [
+      {"name": "Same-Day LO Contact", "type": "rate", "goal": 0, "source": "manual", "owner": "SO",
+       "note": "% of introductions the LO reached the same business day. Target to be set."},
+      {"name": "Agent Update Speed", "type": "rate", "goal": 0, "source": "manual", "owner": "SO",
+       "note": "% of loan milestones with the agent updated within the SLA. SLA to be set."},
+      {"name": "Files Past CTC Target", "type": "snapshot", "direction": "lte", "goal": 0.5, "resolver_key": "sympli_past_ctc", "source": "arive", "owner": "SO",
+       "note": "Target 0. Active files short of clear to close, past the target days since application."},
+      {"name": "Stale Files (90+ Days)", "type": "snapshot", "direction": "lte", "goal": 0, "resolver_key": "sympli_stale_files", "source": "arive", "owner": "SO",
+       "note": "Open in Arive but not counted in Pipeline until they move or are archived."},
+      {"name": "Outside Volume (Own Book)", "type": "flow", "goal": 0, "resolver_key": "sympli_outside", "source": "arive", "owner": "JA",
+       "note": "Funded loans not from a Utah Life agent. Plan: about 29 a year per team LO in Year 2."},
+      {"name": "Agents Introducing", "type": "rate", "goal": 60, "resolver_key": "sympli_agents_introducing", "source": "sisu", "owner": "GR",
+       "note": "% of producing Utah Life agents with an introduction in the last 90 days. Target 60%. For finding friction."},
+      {"name": "Lender Recorded", "type": "rate", "goal": 95, "resolver_key": "sympli_lender_recorded", "source": "sisu", "owner": "CO",
+       "note": "New Utah Life buyer contracts with a lender in Sisu. 95% by Dec 31, 2026."},
+      {"name": "Disclosure Delivered", "type": "rate", "goal": 100, "source": "manual", "owner": "SO",
+       "note": "% of introductions with the affiliated business disclosure logged."}
+    ]},
+    {"key": "slc", "name": "Salt Lake City", "owner": "Jared Browning", "sisu_group_id": 43957, "metrics": [
+      {"name": "Sympli Attach Rate", "type": "rate", "goal": 32, "resolver_key": "sympli_attach", "source": "sisu", "owner": "JA",
+       "note": "32% by May 31, 2027; 45% by Nov 30, 2027."},
+      {"name": "Lender Recorded", "type": "rate", "goal": 95, "resolver_key": "sympli_lender_recorded", "source": "sisu", "owner": "CO"},
+      {"name": "Agents Introducing", "type": "rate", "goal": 60, "resolver_key": "sympli_agents_introducing", "source": "sisu", "owner": "GR"}
+    ]},
+    {"key": "davis", "name": "Davis", "owner": "Jared Browning", "sisu_group_id": 43958, "metrics": [
+      {"name": "Sympli Attach Rate", "type": "rate", "goal": 32, "resolver_key": "sympli_attach", "source": "sisu", "owner": "JA",
+       "note": "32% by May 31, 2027; 45% by Nov 30, 2027."},
+      {"name": "Lender Recorded", "type": "rate", "goal": 95, "resolver_key": "sympli_lender_recorded", "source": "sisu", "owner": "CO"},
+      {"name": "Agents Introducing", "type": "rate", "goal": 60, "resolver_key": "sympli_agents_introducing", "source": "sisu", "owner": "GR"}
+    ]},
+    {"key": "utco", "name": "Utah County", "owner": "Kitty", "sisu_group_id": 45345, "metrics": [
+      {"name": "Sympli Attach Rate", "type": "rate", "goal": 0, "resolver_key": "sympli_attach", "source": "sisu", "owner": "KI",
+       "note": "Owned by Kitty. The plan sets no Utah County target yet."},
+      {"name": "Lender Recorded", "type": "rate", "goal": 95, "resolver_key": "sympli_lender_recorded", "source": "sisu", "owner": "CO"},
+      {"name": "Agents Introducing", "type": "rate", "goal": 60, "resolver_key": "sympli_agents_introducing", "source": "sisu", "owner": "GR"}
+    ]},
+    {"key": "lead_source", "name": "Attach by Lead Source", "owner": "Connor Leiva", "metrics": [
+      {"name": "Sympli: Realtor.com", "type": "rate", "goal": 0, "resolver_key": "sympli_attach_realtor", "source": "sisu", "owner": "CO"},
+      {"name": "Sympli: Zillow", "type": "rate", "goal": 0, "resolver_key": "sympli_attach_zillow", "source": "sisu", "owner": "CO"},
+      {"name": "Sympli: Sphere & Other", "type": "rate", "goal": 0, "resolver_key": "sympli_attach_sphere", "source": "sisu", "owner": "CO"}
+    ]},
+    {"key": "loan_officers", "loan_officers": true},
+    {"key": "costs", "name": "Cost Controls", "owner": "Connor Leiva", "metrics": [
+      {"name": "Lead Spend ($K, Month)", "type": "snapshot", "direction": "lte", "goal": 11.4, "source": "manual", "owner": "CO",
+       "note": "Ceiling $137K a year, about $11.4K a month."},
+      {"name": "Cost per Funded Loan ($)", "type": "snapshot", "direction": "lte", "goal": 0, "source": "manual", "owner": "CO",
+       "note": "Purchased-lead spend per funded loan from purchased leads."},
+      {"name": "Credit & Verif. / Loan ($)", "type": "snapshot", "direction": "lte", "goal": 787, "source": "manual", "owner": "CO",
+       "note": "2026 baseline $787 a loan."}
+    ]}
+  ],
+  "gates": [
+    {"due": "2026-11-06", "label": "Jared's growth agreement signed; 2.25% pricing agreed", "owner": "Connor, Spring"},
+    {"due": "2026-11-30", "label": "Every agent has a primary LO; intro SOPs live; lead-spend ceiling set", "owner": "Connor"},
+    {"due": "2026-12-01", "label": "2.25% pricing on all new applications", "owner": "Jared"},
+    {"due": "2026-12-15", "label": "First team LO starts", "owner": "Jared"},
+    {"due": "2026-12-31", "label": "Lender in Sisu on 95% of new contracts; dashboard Sympli profit ties to the monthly books within 5%", "owner": "Connor"},
+    {"due": "2027-01-31", "label": "Kitty's Utah County office built; branch licensing confirmed", "owner": "General manager"},
+    {"due": "2027-03-01", "label": "Second team LO starts", "owner": "Jared"},
+    {"due": "2027-05-31", "label": "Month-6 gate: 32% attach in SLC + Davis", "owner": "Jared"}
+  ]
+}

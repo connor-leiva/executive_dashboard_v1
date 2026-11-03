@@ -188,6 +188,39 @@ def loan_referral(full: dict) -> dict:
             "lead_source": pick(full, "leadSource")}
 
 
+def _iso_day(v) -> str | None:
+    """'2026-10-12T07:00:00.000Z' or '2026-10-12' -> '2026-10-12'; anything else -> None."""
+    s = str(v or "")[:10]
+    return s if len(s) == 10 and s[4] == "-" and s[7] == "-" and s[:4].isdigit() else None
+
+
+def loan_timeline(full: dict) -> dict:
+    """What a weekly scorecard needs from a loan's full detail, kept apart from the top-level meta so
+    enriching non-funded loans can't change what the dashboards read. `history` is {STATUS: day} from
+    loanStatusHistory, the only record of when a loan really moved: the current-status date moves
+    again when a funded loan's broker check arrives, which would re-date the funding."""
+    hist: dict = {}
+    for e in (full.get("loanStatusHistory") or []):
+        if isinstance(e, dict) and e.get("status"):
+            day = _iso_day(e.get("date"))
+            st = str(e["status"]).upper()
+            if day and day > hist.get(st, ""):
+                hist[st] = day
+    kd = full.get("keyDates") if isinstance(full.get("keyDates"), dict) else {}
+    ref = loan_referral(full)
+    out = {
+        "history": hist,
+        "funded_on": next((hist[s] for s in ("LOAN_FUNDED", "FUNDED", "LOAN_FUNDED_ED") if s in hist), None),
+        # LOAN_SETUP is when an inquiry became a real application; tridDate is the same event as a key date
+        "applied_on": hist.get("LOAN_SETUP") or _iso_day(kd.get("tridDate")),
+        "lock_on": _iso_day(pick(full, "lockDate")),
+        "gross_revenue": _money(pick(full, "grossLoanRevenue", "totalLoanRevenue")),
+        "referral_email": ref["referral_email"], "buyer_agent_email": ref["buyer_agent_email"],
+        "lo_name": pick(full, "loanOriginatorName"),
+    }
+    return {k: v for k, v in out.items() if v not in (None, "")}
+
+
 # ── normalization ────────────────────────────────────────────────────
 def loan_status(loan: dict) -> str | None:
     cls = loan.get("currentLoanStatus")

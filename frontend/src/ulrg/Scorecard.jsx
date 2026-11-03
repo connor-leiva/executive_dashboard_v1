@@ -15,6 +15,16 @@ import DrillDrawer from "./DrillDrawer.jsx";
 import MoveCard from "./MoveCard.jsx";
 import ShareButton from "./ShareButton.jsx";
 import ScorecardSettings from "./ScorecardSettings.jsx";
+import PlanGates from "./PlanGates.jsx";
+
+const SOURCE_NAME = { arive: "Arive", sisu: "Sisu", ghl: "GHL", fub: "Follow Up Boss" };
+
+function ago(iso) {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 2880) return `${Math.round(mins / 60)}h ago`;
+  return `${Math.round(mins / 1440)}d ago`;
+}
 
 export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
   const { data, reload } = useScorecard(13, shareToken, scope);
@@ -252,9 +262,13 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                 <span style={{ fontSize: 11.5, color: T.muted }}>{label}</span>
               </div>
             ))}
-            <span style={{ marginLeft: "auto", fontSize: 11.5, color: T.faint }}>Cumulative totals count only weeks with data.</span>
+            <span style={{ marginLeft: "auto", fontSize: 11.5, color: T.faint }}>
+              {(data.sources || []).map((x) => `${SOURCE_NAME[x.provider] || x.provider} synced ${ago(x.synced_at)}`).join(" · ")}
+              {(data.sources || []).length ? " · " : ""}Cumulative totals count only weeks with data.
+            </span>
           </div>
         </div>
+        {data.gates && data.gates.length > 0 && <PlanGates gates={data.gates} canEdit={isAdmin} onChanged={reload} />}
       </div>
     </>
   );

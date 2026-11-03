@@ -1477,6 +1477,7 @@ class Transaction(Base):
     lead_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     listing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     sisu_status_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    lead_type: Mapped[str | None] = mapped_column(String(80), nullable=True)   # Sisu lead_type — the deal's lead source
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     __table_args__ = (
         UniqueConstraint("tenant_id", "source", "external_id", name="uq_txn_src_ext"),
@@ -2353,9 +2354,27 @@ class ScorecardGroup(Base):
     # Sisu office group_id this team maps to (43958=Davis, 43957=Salt Lake, 45345=Utah County for
     # Spring) — tenant data set by the seed, drives per-team resolver attribution. NULL for 'overall'.
     sisu_group_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The loan officer this group reports on (their Arive originator email) — the lending board's
+    # counterpart to sisu_group_id, scoping its resolvers to one LO. NULL = not an LO group.
+    lo_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     owner_photo_ref: Mapped[str | None] = mapped_column(String(300), nullable=True)   # headshot in object storage
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))   # soft-remove an office
     __table_args__ = (UniqueConstraint("tenant_id", "business_id", "key", name="uq_scorecard_group"),)
+
+
+class ScorecardGate(Base):
+    """A dated plan milestone on a board (the lending board's plan gates). Status is derived, never
+    stored: done when done_on is set, missed once due_date has passed without it, otherwise due."""
+    __tablename__ = "scorecard_gate"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("business.id"), index=True)
+    due_date: Mapped[date] = mapped_column(Date)
+    label: Mapped[str] = mapped_column(String(240))
+    owner_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    done_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    __table_args__ = (UniqueConstraint("tenant_id", "business_id", "due_date", "label", name="uq_scorecard_gate"),)
 
 
 class ScorecardMetric(Base):
