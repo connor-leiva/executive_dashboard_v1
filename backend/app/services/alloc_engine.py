@@ -44,6 +44,7 @@ POOL_TXN_TYPES = ("Purchase", "Bill")
 PENDING_REASONS = (
     "no_driver_values", "driver_subject_missing", "fixed_exceeds_pool",
     "source_not_connected", "source_unmapped_spend", "double_count_risk",
+    "allocation_exceeds_pool",
     "multi_line", "unmapped_account", "vendor_rule_collision",
 )
 
@@ -264,7 +265,8 @@ async def _observed_inbound(s: AsyncSession, tenant_id, month) -> set:
 
 
 async def derive_applied(s: AsyncSession, tenant_id, month, *, rules_and_versions,
-                         pools_by_rule, today: dt.date) -> dict:
+                         pools_by_rule, today: dt.date, drivers=None, commits=None,
+                         commit_values=None) -> dict:
     """Write one month's applied contributions, replacing whatever that month held.
 
     Deletes `booking == "applied"` AND `grain == "month"` for this month only, then writes one
@@ -302,7 +304,27 @@ async def derive_applied(s: AsyncSession, tenant_id, month, *, rules_and_version
         for std_id, pool in pool_by_account.items():
             if pool == ZERO:
                 continue
-            parts = split_amounts(pool, shares)
+            if v.method == "driven":
+                # A driven rule reads its month's committed numbers. No commit means
+                # `no_driver_values` and nothing allocated: a driver that silently reused last
+                # month would be indistinguishable on the Statement from one somebody decided.
+                driver = drivers.get(v.driver_id) if drivers else None
+                commit = commits.get((v.driver_id, ps)) if commits else None
+                if driver is None or commit is None:
+                    pending.append({"reason": "no_driver_values", "rule_id": str(rule.id),
+                                    "standard_account_id": str(std_id)})
+                    continue
+                parts, reason = driven_shares(driver.kind, commit_values.get(commit.id) or [],
+                                              subject=v.driver_subject, pool=pool)
+                if reason:
+                    pending.append({"reason": reason, "rule_id": str(rule.id),
+                                    "standard_account_id": str(std_id),
+                                    "subject": v.driver_subject})
+                    continue
+                driver_commit_id = commit.id
+            else:
+                parts = split_amounts(pool, shares)
+                driver_commit_id = None
             for bid, amount in parts.items():
                 if str(bid) == str(rule.source_business_id):
                     continue                      # retained, and the CHECK would refuse it
@@ -319,7 +341,7 @@ async def derive_applied(s: AsyncSession, tenant_id, month, *, rules_and_version
                     standard_account_id=std_id, amount=amount,
                     booking="applied", grain="month", pool_name=rule.pool_name,
                     basis=_basis(v), rule_id=rule.id, rule_version_id=v.id,
-                    approved_by=v.approved_by))
+                    driver_commit_id=driver_commit_id, approved_by=v.approved_by))
                 written += 1
                 total += amount
     return {"contributions": written, "amount": total, "pending": pending}
@@ -423,10 +445,112 @@ async def derive_all(s: AsyncSession, tenant_id, *, today: dt.date, fy_month: in
                 pools.update(await account_pools(s, tenant_id, pool_bid, month, acct,
                                                  vendor_claims=claims))
 
+        # The drivers any live version reads this month, and only this month's commits. Loaded
+        # per month rather than once, because `current_commit` is per month by definition and
+        # reusing another month's would be the silent carry-forward the design refuses.
+        drivers, commits, commit_values = await _driver_context(s, tenant_id, live, month[0])
+
         out = await derive_applied(s, tenant_id, month, rules_and_versions=live,
-                                   pools_by_rule=pools, today=today)
+                                   pools_by_rule=pools, today=today, drivers=drivers,
+                                   commits=commits, commit_values=commit_values)
         done += 1
         written += out["contributions"]
         total += out["amount"]
         pending.extend({**p, "month": month[0].isoformat()} for p in out["pending"])
     return {"months": done, "contributions": written, "amount": total, "pending": pending}
+
+
+# ── driven shares (5.4, Phase 5) ──────────────────────────────────────────────────────────
+
+def driven_shares(kind: str, values, *, subject: str | None, pool: Decimal) -> tuple:
+    """A driver month's numbers, as money per entity. Returns `(amounts, pending_reason)`.
+
+    `amounts` is {business_id: Decimal}, already money rather than shares, because a driver
+    mixes units: a flat amount is not a fraction of anything, and converting it to one would
+    divide by a pool that can be zero.
+
+    A COUNT driver is the simple case: each entity's count over the total, converted to a share
+    at four decimal places and then through `rate()` like any other share.
+
+    A SPLIT driver, for one subject, applies in the order 5.4 states: fixed `amount` values
+    first, then `share` OF THE POOL, then whatever is left to the remainder entity.
+
+      "share of the pool" is read literally, as a fraction of the WHOLE pool rather than of
+      what the fixed amounts left. On B2's numbers (a 70% share and a flat 2,500) a 10,000 pool
+      gives 7,000 and 2,500 with 500 left, not 2,500 and 5,250 with 2,250 left. The literal
+      reading is what a person means by "70% of this contractor's time", and the alternative
+      silently reinterprets a number somebody typed. It also means the two can over-commit the
+      pool, which is reported rather than absorbed -- see `allocation_exceeds_pool`.
+    """
+    rows = [v for v in values if (v.subject or None) == (subject or None)] if kind == "split" \
+        else list(values)
+    if not rows:
+        return {}, ("driver_subject_missing" if kind == "split" else "no_driver_values")
+
+    if kind == "count":
+        total = sum((Decimal(v.value or 0) for v in rows), Decimal(0))
+        if total <= 0:
+            return {}, "no_driver_values"
+        # NOT quantized to four places, though 5.4 says to. A DERIVED share has to stay exact
+        # into `rate()`: three equal counts quantize to 0.3333 each, which sums to 0.9999, so
+        # `split_amounts` reconciles to 99.99 of a 100.00 pool and the month is a cent short.
+        # Correctly short, which is the problem -- it would be short every month on every such
+        # rule and nothing would flag it. Full precision makes the total round to 1 and the
+        # residue land where amendment 11 puts it. Four decimals is right for DISPLAYING a
+        # derived share and wrong for computing with one.
+        shares = {v.business_id: Decimal(v.value or 0) / total for v in rows}
+        return split_amounts(pool, shares), None
+
+    fixed = {v.business_id: Decimal(v.value or 0)
+             for v in rows if v.value_kind == "amount"}
+    shares = {v.business_id: Decimal(v.value or 0)
+              for v in rows if v.value_kind == "share"}
+    rest = [v.business_id for v in rows if v.value_kind == "remainder"]
+
+    fixed_total = sum(fixed.values(), ZERO)
+    if fixed_total > pool and pool >= ZERO:
+        return {}, "fixed_exceeds_pool"
+
+    out: dict = {}
+    for bid, amount in fixed.items():
+        out[bid] = out.get(bid, ZERO) + amount
+    for bid, part in split_amounts(pool, shares).items():
+        out[bid] = out.get(bid, ZERO) + part
+
+    claimed = sum(out.values(), ZERO)
+    if rest:
+        left = Decimal(pool) - claimed
+        if left < ZERO and pool >= ZERO:
+            # The fixed amounts and the shares together claim more than there is. Reported
+            # rather than written as a negative remainder, which would allocate money out of an
+            # entity that never held it. Not in 5.6's table: added, because 5.4's literal
+            # reading makes it reachable and the table only covers fixed amounts alone.
+            return {}, "allocation_exceeds_pool"
+        out[rest[0]] = out.get(rest[0], ZERO) + left
+    return {k: v for k, v in out.items() if v != ZERO}, None
+
+
+async def _driver_context(s: AsyncSession, tenant_id, live, period: dt.date) -> tuple:
+    """The drivers, commits and values the live driven versions need for ONE month.
+
+    Keyed by `(driver_id, month)` so a lookup cannot accidentally reach another month's commit:
+    that would be the silent carry-forward this module exists to refuse, and it would look
+    exactly like a figure somebody committed.
+    """
+    from .alloc_drivers import current_commit, values_for
+    from ..models import AllocationDriver
+
+    want = {v.driver_id for _r, v in live if v.method == "driven" and v.driver_id}
+    if not want:
+        return {}, {}, {}
+    drivers = {d.id: d for d in (await s.execute(select(AllocationDriver).where(
+        AllocationDriver.tenant_id == tenant_id,
+        AllocationDriver.id.in_(want)))).scalars()}
+    commits, commit_values = {}, {}
+    for did in want:
+        c = await current_commit(s, tenant_id, did, period)
+        if c is None:
+            continue
+        commits[(did, period)] = c
+        commit_values[c.id] = await values_for(s, tenant_id, c.id)
+    return drivers, commits, commit_values

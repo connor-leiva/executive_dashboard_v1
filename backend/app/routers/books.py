@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..deps import require_tab, require_role
 from ..models import User
-from ..services import alloc_engine, alloc_rules, books, coa_alloc, coa_balances, coa_map
+from ..services import (alloc_drivers, alloc_engine, alloc_rules, books, coa_alloc,
+                        coa_balances, coa_map)
 from ..services.books_scan import create_ic_rule, update_ic_rule
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -413,6 +414,21 @@ class AllocEndIn(BaseModel):
     rationale: str
 
 
+# ── drivers: the monthly numbers a driven rule reads (ALLOCATION-RULES-SPEC 4.3) ──
+
+class DriverIn(BaseModel):
+    key: str
+    label: str
+    kind: str                                          # split | count
+    unit: str | None = None                            # percent | people | members
+
+
+class DriverCommitIn(BaseModel):
+    period: dt.date
+    rows: list[dict]                                   # {subject, business_id, value_kind, value}
+    note: str | None = None
+
+
 @router.get("/allocations/rules")
 async def alloc_list_rules(user: User = Depends(books_user),
                            s: AsyncSession = Depends(get_session)):
@@ -559,3 +575,56 @@ async def get_line_detail(business_id: uuid.UUID, standard_account_id: uuid.UUID
             _period(period_start, period_end, period), limit=min(limit, 1000))
     except ValueError as e:
         raise HTTPException(404, str(e))
+
+
+# ── drivers (ALLOCATION-RULES-SPEC 4.3, 5.4, Phase 5) ──
+
+@router.get("/allocations/drivers")
+async def alloc_list_drivers(user: User = Depends(books_user),
+                             s: AsyncSession = Depends(get_session)):
+    rows = await alloc_drivers.list_drivers(s, user.tenant_id)
+    return {"drivers": [alloc_drivers.driver_out(d) for d in rows]}
+
+
+@router.post("/allocations/drivers")                  # CFO only
+async def alloc_create_driver(body: DriverIn,
+                              user: User = Depends(require_role("owner", "admin")),
+                              s: AsyncSession = Depends(get_session)):
+    try:
+        d = await alloc_drivers.create_driver(s, user.tenant_id, user, **body.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "driver": alloc_drivers.driver_out(d)}
+
+
+@router.get("/allocations/drivers/{driver_id}/month")
+async def alloc_driver_month(driver_id: uuid.UUID, period: dt.date,
+                             user: User = Depends(books_user),
+                             s: AsyncSession = Depends(get_session)):
+    """What this month holds, and what the form would start from.
+
+    `commit` is null when the month has none, and `prefill` is offered beside it rather than
+    merged into it: the engine reads one and not the other, so the payload must not blur them
+    (a month with no commit allocates nothing and reports `no_driver_values`).
+    """
+    c = await alloc_drivers.current_commit(s, user.tenant_id, driver_id, period)
+    out = {"period": alloc_drivers.month_start(period).isoformat(), "commit": None,
+           "prefill": await alloc_drivers.prefill(s, user.tenant_id, driver_id, period)}
+    if c is not None:
+        out["commit"] = alloc_drivers.commit_out(
+            c, await alloc_drivers.values_for(s, user.tenant_id, c.id))
+    return out
+
+
+@router.post("/allocations/drivers/{driver_id}/commits")   # CFO only
+async def alloc_commit_driver(driver_id: uuid.UUID, body: DriverCommitIn,
+                              user: User = Depends(require_role("owner", "admin")),
+                              s: AsyncSession = Depends(get_session)):
+    try:
+        c = await alloc_drivers.commit_month(s, user.tenant_id, user, driver_id,
+                                             period=body.period, rows=body.rows,
+                                             note=body.note)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "commit": alloc_drivers.commit_out(
+        c, await alloc_drivers.values_for(s, user.tenant_id, c.id))}

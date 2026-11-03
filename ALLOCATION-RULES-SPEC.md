@@ -1416,6 +1416,59 @@ carved out by exactly its own amount. A multi-line transaction is refused and re
 167 passed across the six allocation and balance suites.
 
 ### Phase 5
+
+Done 2026-11-02. No migration: Phase 1 shipped the three driver tables.
+
+**`app/services/alloc_drivers.py`.** `create_driver`, `list_drivers`, `validate_values` (pure),
+`commit_month` (append-only, superseding), `current_commit`, `values_for`, `prefill`.
+`driven_shares` in `alloc_engine.py` turns a commit's numbers into money, and
+`_driver_context` loads the drivers, the commit and its values for ONE month, keyed on
+`(driver_id, month)` so a lookup cannot reach another month's answer. Routes: list and create a
+driver, read a month, commit a month.
+
+**Nothing carries forward by itself.** A month with no commit of its own reports
+`no_driver_values` and allocates nothing. `prefill` returns the last committed month's numbers
+for the FORM to start from and is never consulted at resolution, which is the distinction the
+whole design rests on: a figure repeated because nobody looked at it is indistinguishable on the
+Statement from one somebody decided. The month payload keeps `commit` and `prefill` as separate
+keys for the same reason, rather than merging them into one convenient blob.
+
+**Two deviations, both chosen rather than transcribed, both worth Connor's eye.**
+
+1. **Section 5.4's "share of the pool" is read literally. CONFIRMED by Connor, 2026-11-02.**
+   On B2's numbers, a 10,000 pool gives the Forum 7,000 (70% of the WHOLE pool), beCollective its
+   flat 2,500, and 500 to the pool entity. The alternative reading takes the fixed amount off
+   first and gives the Forum 5,250 of the remaining 7,500, leaving 2,250. The gate pins
+   beCollective and the remainder but never the Forum figure, so BOTH readings pass it, which is
+   why it had to be asked rather than assumed. The literal one is what a person means by "70% of
+   this contractor's time", and it is now settled rather than a default.
+   That reading makes the two able to over-commit: 70% of 3,000 plus a flat 2,500 is past the
+   pool. Reported as `allocation_exceeds_pool` rather than written as a negative remainder, which
+   would allocate money out of an entity that never held it. One reason beyond 5.6's table,
+   added because the literal reading makes it reachable and the table only covers fixed amounts
+   alone.
+2. **Count shares are NOT quantized to four decimals, though 5.4 says to.** Three equal counts
+   quantize to 0.3333 each, which sums to 0.9999, so `split_amounts` reconciles to 99.99 of a
+   100.00 pool and the month is a cent short. Correctly short, which is what makes it dangerous:
+   every month, on every such rule, with nothing flagging it. A derived share stays exact into
+   `rate()` now and the residue lands where amendment 11 puts it. Verified on (1,1,1), (7,11,13),
+   (60,40) and a single count against a one-cent pool: every one adds back exactly. Four decimals
+   is right for DISPLAYING a derived share and wrong for computing with one.
+
+**Two bugs found by running it.** A route queried `AllocationDriver` directly and `select` is not
+imported in `books.py`, so the list route answered 500; the query moved to the service, where a
+router's own query would have drifted from the service's scoping anyway. And an attempt to verify
+the routes by reading `app.routes` found nothing at all: this FastAPI version keeps included
+routers as lazy `_IncludedRouter` wrappers rather than flattening them, so the introspection was
+wrong and the routes were fine. The only check worth making on a route is a request.
+
+**Gates.** B2 resolves: the flat amount to beCollective through August, zero from September (and
+a zero amount writes no row at all), the remainder to the pool entity, and the three add back to
+the pool exactly. B3's unset subject reports `driver_subject_missing` for its own rule while the
+other subject resolves from the same commit. A month with no commit reports `no_driver_values`
+rather than reusing the prior month, asserted through both the service and the route.
+20 tests for this phase, 115 across the allocation suites.
+
 ### Phase 6
 ### Phase 7
 ### Phase 8
