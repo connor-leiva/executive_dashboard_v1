@@ -107,6 +107,8 @@ def validate_values(kind: str, rows, *, known_business_ids: set) -> list[dict]:
         bucket.append(vk)
         out.append({"subject": subject, "business_id": bid, "value_kind": vk, "value": value})
 
+    if not out:
+        raise ValueError("A commit needs at least one number. An empty month is not a commit.")
 
     for subject, kinds in per_subject.items():
         if kinds.count("remainder") > 1:
