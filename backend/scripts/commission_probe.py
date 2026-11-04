@@ -19,6 +19,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -52,6 +53,22 @@ QUERIES: dict[str, tuple[str, str]] = {
         f" AND to_char(paid_at AT TIME ZONE '{TZ}', 'YYYY-MM') = %(period)s"
         " ORDER BY paid, member_name",
     ),
+    "stripe_emails": (
+        "Every email the Stripe feed has a payment for, with its range and total. Joined "
+        "against the tracker locally, this answers whether the feed could replace the "
+        "hand-kept sheet for the older cohort.",
+        "SELECT lower(email) AS email, count(*) AS payments,"
+        " min(occurred_on) AS first, max(occurred_on) AS last, sum(amount) AS cash"
+        " FROM metric_record WHERE source = 'stripe_bc' AND kind = 'payment'"
+        " AND email IS NOT NULL GROUP BY 1 ORDER BY 1",
+    ),
+    "stripe_month": (
+        "The Stripe feed's payments in one month, by email.",
+        "SELECT lower(email) AS email, count(*) AS payments, sum(amount) AS cash"
+        " FROM metric_record WHERE source = 'stripe_bc' AND kind = 'payment'"
+        " AND email IS NOT NULL AND to_char(occurred_on, 'YYYY-MM') = %(period)s"
+        " GROUP BY 1 ORDER BY 1",
+    ),
     "unpriceable": (
         "Cash nobody can be paid on: no rep attributed, or a rep with no rate.",
         f"SELECT to_char(cp.paid_at AT TIME ZONE '{TZ}', 'YYYY-MM') AS month,"
@@ -72,12 +89,22 @@ def database_url() -> str:
     cached = pathlib.Path(__file__).resolve().parents[1] / ".pg_url.json"
     if cached.exists():
         return json.loads(cached.read_text(encoding="utf-8"))["DATABASE_PUBLIC_URL"]
-    out = subprocess.run(["railway", "variables", "--service", "Postgres", "--json"],
+    # shutil.which, not a bare name: on Windows the CLI is `railway.cmd`, and subprocess does
+    # not apply PATHEXT, so a bare "railway" raises FileNotFoundError and reads as "Railway is
+    # broken" when it is on the PATH and working.
+    exe = shutil.which("railway")
+    if not exe:
+        sys.exit("The Railway CLI is not on PATH. Either `npm i -g @railway/cli`, or set "
+                 "DATABASE_PUBLIC_URL in the environment and run this again.")
+    out = subprocess.run([exe, "variables", "--service", "Postgres", "--json"],
                          capture_output=True, text=True, timeout=120)
     if out.returncode != 0:
-        sys.exit("Could not read the database URL from Railway. Set DATABASE_PUBLIC_URL "
-                 "in the environment instead.")
-    return json.loads(out.stdout)["DATABASE_PUBLIC_URL"]
+        sys.exit(f"Railway would not give up the variables (exit {out.returncode}). "
+                 f"Try `railway link` first, or set DATABASE_PUBLIC_URL.")
+    try:
+        return json.loads(out.stdout)["DATABASE_PUBLIC_URL"]
+    except (json.JSONDecodeError, KeyError):
+        sys.exit("Railway's reply had no DATABASE_PUBLIC_URL in it.")
 
 
 def main() -> None:

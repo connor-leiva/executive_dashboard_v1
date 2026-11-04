@@ -170,7 +170,8 @@ def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
     return out, []
 
 
-def exceptions(c1: list[dict], c2: list[dict], cfg: dict) -> list[str]:
+def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
+               partial: bool = False) -> list[str]:
     """What a person has to look at. Never fixed silently, never guessed."""
     out = []
     payee = cfg["payee"]
@@ -182,7 +183,7 @@ def exceptions(c1: list[dict], c2: list[dict], cfg: dict) -> list[str]:
     if wrong_rep:
         out.append(f"Tracker rows credited to someone other than {payee}: "
                    f"{sorted(wrong_rep)}")
-    if not c1:
+    if not c1 and not partial:
         out.append("No cohort-1 rows carried cash this period.")
     if not c2:
         out.append("No cohort-2 payments found for this period.")
@@ -192,8 +193,14 @@ def exceptions(c1: list[dict], c2: list[dict], cfg: dict) -> list[str]:
     dupes = {r["member"] for r in c1} & {r["member"] for r in c2}
     if dupes:
         out.append(f"IN BOTH COHORTS - would be paid twice unless resolved: {sorted(dupes)}")
-    out.append("Confirm each cohort-1 instalment actually settled: the tracker is kept by hand "
-               "and a plan being active is not a payment succeeding (Shanna, September).")
+    if not partial:
+        out.append("Confirm each cohort-1 instalment actually settled: the tracker is kept by "
+                   "hand and a plan being active is not a payment succeeding.")
+    if partial:
+        out.append("PARTIAL STATEMENT: the first cohort is excluded from this run. That "
+                   "cohort was the majority of September's commission and is still kept "
+                   "by hand, so a second payment is owed for it. The document must say "
+                   "so, and the rep must be told.")
     out.append("Confirm every cohort-2 sale is really this rep's before paying "
                "(Sandy Schoettle, September).")
     return out
@@ -203,12 +210,18 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--period", required=True, help="YYYY-MM")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--cohort2-only", action="store_true",
+                    help="settle only the cohort the product tracks, and SAY SO on the "
+                         "statement. For while the older cohort is still kept by hand.")
     a = ap.parse_args()
     if not re.fullmatch(r"\d{4}-\d{2}", a.period):
         sys.exit("--period wants YYYY-MM")
 
     cfg = load_config()
-    c1, c1meta = cohort1(a.period, cfg)
+    if a.cohort2_only:
+        c1, c1meta = [], {"skipped": "excluded by --cohort2-only"}
+    else:
+        c1, c1meta = cohort1(a.period, cfg)
     c2, c2notes = cohort2(a.period, cfg)
 
     c1_cash = round(sum(r["cash"] for r in c1), 2)
@@ -222,13 +235,14 @@ def main() -> None:
         "payee": {"name": cfg["payee"], "email": cfg["email"]},
         "rate_pct": cfg["rate_pct"],
         "gathered_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "partial": bool(a.cohort2_only),
         "cohort1": {"meta": c1meta, "rows": c1, "cash": c1_cash, "commission": c1_due},
         "cohort2": {"rows": c2, "billable_cash": c2_billable, "prior_cash": c2_prior,
                     "commission": c2_due, "notes": c2notes},
         "totals": {"cash_collected": round(c1_cash + c2_billable + c2_prior, 2),
                    "billable_cash": round(c1_cash + c2_billable, 2),
                    "commission_due": round(c1_due + c2_due, 2)},
-        "exceptions": exceptions(c1, c2, cfg),
+        "exceptions": exceptions(c1, c2, cfg, partial=a.cohort2_only),
         "notes_for_the_statement": [
             "Commission is paid on cash collected only. Remaining balances earn commission as "
             "they are collected in future periods.",
@@ -240,7 +254,11 @@ def main() -> None:
     out = pathlib.Path(a.out) if a.out else OUTDIR / f"commission-{a.period}-{slug}.json"
     out.write_text(json.dumps(doc, indent=2), encoding="utf-8")
 
-    print(f"period {a.period}   tracker column {c1meta['column']} ({c1meta['header']!r})")
+    if a.cohort2_only:
+        print(f"period {a.period}   FIRST COHORT EXCLUDED (--cohort2-only)")
+    else:
+        print(f"period {a.period}   tracker column {c1meta['column']} "
+              f"({c1meta['header']!r})")
     print(f"  cohort 1  {len(c1):>3} members  ${c1_cash:>10,.2f}  -> ${c1_due:,.2f}")
     print(f"  cohort 2  {len(c2):>3} payments ${c2_billable:>10,.2f}  -> ${c2_due:,.2f}"
           f"   (+${c2_prior:,.2f} already billed)")
