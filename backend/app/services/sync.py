@@ -1389,6 +1389,7 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     # ── charges → payment records (roster member AND a Forum/IC offering) ──
     charges = await stripe_legacy.list_charges(key, created_gt=since)
     rows, off_roster, off_forum = [], 0, 0
+    dropped = []                 # TEMPORARY diagnostic, see _snapshot_dropped
     for ch in charges:
         email = stripe_legacy.charge_email(ch)
         # The old-GHL label (what the charge is actually FOR) is the primary signal:
@@ -1400,6 +1401,12 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
         # address). Only UNLABELED charges keep the roster as a "is this a Forum person" gate.
         if (email in exclude) or (not label and (not email or email not in roster)):
             off_roster += 1
+            dropped.append(_dropped_row(
+                tenant_id, biz, "stripe_legacy", ch, email, tz,
+                would_be=forum_offering(label or stripe_legacy.charge_description(ch), cfg,
+                                        amount=stripe_legacy.charge_amount(ch),
+                                        recurring=bool(ch.get("invoice"))),
+                labelled=bool(label)))
             continue
         desc = label or stripe_legacy.charge_description(ch)
         include, segment = forum_offering(desc, cfg, amount=stripe_legacy.charge_amount(ch),
@@ -1426,6 +1433,7 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     print(f"[stripe_legacy] {len(rows)} Forum charges of {len(charges)} "
           f"({off_roster} off-roster · {off_forum} non-Forum offerings skipped · roster={len(roster)})",
           flush=True)
+    await _snapshot_dropped(s, tenant_id, biz, "stripe_legacy", dropped)
 
     # ── subscriptions → the legacy recurring book, so MRR + forward projection stop
     #    understating the legacy dues the new sub-account never received. Read-only. ──
@@ -1472,6 +1480,34 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     return len(rows) + len(sub_rows)
 
 
+# ── TEMPORARY (2026-11-04): what the roster filter throws away ───────────────────────────────
+# Remove this block and its three call sites together; the snapshot kind disappears with them.
+def _dropped_row(tenant_id, business_id, source: str, ch, email, tz, would_be, labelled=None):
+    """One charge the roster gate refused, kept so it can be counted in money and by person."""
+    include, segment = would_be
+    meta = {"would_be_offering": bool(include), "segment": segment,
+            "description": (stripe_legacy.charge_description(ch) or None),
+            "charge_id": ch.get("id"), "reason": "no_email" if not email else "off_roster"}
+    if labelled is not None:
+        meta["labelled"] = labelled
+    return dict(
+        tenant_id=tenant_id, business_id=business_id, source=source, kind="dropped_offroster",
+        external_id=str(ch.get("id")), name=(stripe_legacy.charge_name(ch) or email or "")[:200],
+        email=email or None, amount=stripe_legacy.charge_amount(ch),
+        status=stripe_legacy.charge_status(ch),
+        occurred_on=_local_date(ch.get("created"), tz),
+        source_url=stripe_legacy.dashboard_url(ch), meta=meta)
+
+
+async def _snapshot_dropped(s: AsyncSession, tenant_id, business_id, source: str, rows: list):
+    """Replace this source's dropped set. Its own kind, so no existing query can see it."""
+    await _metric_snapshot(s, tenant_id, business_id, source, "dropped_offroster", rows)
+    kept = sum(1 for r in rows if (r["meta"] or {}).get("would_be_offering"))
+    money = sum(float(r["amount"] or 0) for r in rows if (r["meta"] or {}).get("would_be_offering"))
+    print(f"[{source}] dropped {len(rows)} off-roster charges; {kept} of them look like real "
+          f"offerings, worth ${money:,.2f}", flush=True)
+
+
 async def _bc_roster_emails(s: AsyncSession, tenant_id, business_id) -> set[str]:
     """Emails on the beCollective roster (from the GHL sync) — the deterministic filter for
     beCollective's Stripe account: report a charge only if it belongs to a member. beCollective
@@ -1511,12 +1547,18 @@ async def sync_becollective_stripe(s: AsyncSession, tenant_id: uuid.UUID, integ:
     # ── charges → payment records (roster member AND a membership offering) ──
     charges = await stripe_legacy.list_charges(key, created_gt=since)
     rows, off_roster, off_member = [], 0, 0
+    dropped = []                     # TEMPORARY diagnostic, see _snapshot_dropped
     for ch in charges:
         email = stripe_legacy.charge_email(ch)
         # Dedicated account but no old-GHL label source, so the roster email is the gate
         # (a member paying from a different address needs an extra_member_emails override).
         if (email in exclude) or (not email) or (email not in roster):
             off_roster += 1
+            dropped.append(_dropped_row(
+                tenant_id, biz, "stripe_bc", ch, email, tz,
+                would_be=bc_offering(stripe_legacy.charge_description(ch), cfg,
+                                     amount=stripe_legacy.charge_amount(ch),
+                                     recurring=bool(ch.get("invoice")))))
             continue
         desc = stripe_legacy.charge_description(ch)
         include, segment = bc_offering(desc, cfg, amount=stripe_legacy.charge_amount(ch),
@@ -1540,6 +1582,7 @@ async def sync_becollective_stripe(s: AsyncSession, tenant_id: uuid.UUID, integ:
                   "charged_at": cdt.isoformat() if cdt else None,
                   "contact": stripe_legacy.charge_contact(ch)}))
     await _metric_snapshot(s, tenant_id, biz, "stripe_bc", "payment", rows)
+    await _snapshot_dropped(s, tenant_id, biz, "stripe_bc", dropped)
     print(f"[stripe_bc] {len(rows)} membership charges of {len(charges)} "
           f"({off_roster} off-roster · {off_member} non-membership skipped · roster={len(roster)})",
           flush=True)
