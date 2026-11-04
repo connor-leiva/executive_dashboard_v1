@@ -69,6 +69,53 @@ QUERIES: dict[str, tuple[str, str]] = {
         " AND email IS NOT NULL AND to_char(occurred_on, 'YYYY-MM') = %(period)s"
         " GROUP BY 1 ORDER BY 1",
     ),
+    "kinds": (
+        "What the metric feed actually holds, so a join is written against real kinds.",
+        "SELECT source, kind, count(*) AS rows, max(occurred_on) AS latest"
+        " FROM metric_record GROUP BY 1, 2 ORDER BY 1, 2",
+    ),
+    "opps": (
+        "The opportunity snapshot behind one rep's payments: stage, contract value and what "
+        "has been collected against it. Feeds the statement's Stage / Contract / Remaining "
+        "columns.",
+        "SELECT DISTINCT cp.member_name, mr.meta ->> 'stage' AS stage, mr.amount AS contract,"
+        " (SELECT sum(amount) FROM commission_payment x WHERE x.contact_id = cp.contact_id)"
+        "   AS collected_to_date, mr.meta ->> 'payment_plan' AS plan"
+        " FROM commission_payment cp"
+        " LEFT JOIN metric_record mr ON mr.external_id = cp.opportunity_id"
+        "   AND mr.source = 'ghl' AND mr.kind = 'bc_launch_opp'"
+        " WHERE cp.rep_email = %(rep)s ORDER BY 1",
+    ),
+    "launch": (
+        "The cohort's ticket prices and instalment count: where a contract value comes from "
+        "without asking the CRM.",
+        "SELECT name, ticket_pif, ticket_plan, plan_installments, is_active"
+        " FROM launch ORDER BY created_at DESC",
+    ),
+    "opp_meta": (
+        "What the opportunity snapshot keeps in meta, to see whether the stage name is there.",
+        "SELECT external_id, name, status, amount, meta FROM metric_record"
+        " WHERE source = 'ghl' AND kind = 'bc_launch_opp' AND meta IS NOT NULL LIMIT 3",
+    ),
+    "contracts": (
+        "Contract value, plan and stage per member for one rep, all from the membership "
+        "snapshot. No CRM call: amount is GHL's monetaryValue as the sync stored it.",
+        "SELECT DISTINCT cp.member_name, mr.meta ->> 'stage' AS stage,"
+        " mr.meta ->> 'payment' AS plan, mr.amount AS contract,"
+        " (SELECT sum(amount) FROM commission_payment x WHERE x.contact_id = cp.contact_id)"
+        "   AS collected"
+        " FROM commission_payment cp"
+        " LEFT JOIN metric_record mr ON mr.meta ->> 'contact_id' = cp.contact_id"
+        "   AND mr.source = 'ghl' AND mr.kind = 'bc_membership'"
+        " WHERE cp.rep_email = %(rep)s ORDER BY 1",
+    ),
+    "memberships": (
+        "The membership snapshot itself: who is in it, with contract value and plan.",
+        "SELECT name, amount AS contract, meta ->> 'payment' AS plan,"
+        " meta ->> 'stage' AS stage, meta ->> 'contact_id' AS contact_id"
+        " FROM metric_record WHERE source = 'ghl' AND kind = 'bc_membership'"
+        " ORDER BY name",
+    ),
     "unpriceable": (
         "Cash nobody can be paid on: no rep attributed, or a rep with no rate.",
         f"SELECT to_char(cp.paid_at AT TIME ZONE '{TZ}', 'YYYY-MM') AS month,"

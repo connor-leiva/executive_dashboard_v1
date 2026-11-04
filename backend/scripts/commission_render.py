@@ -103,19 +103,41 @@ def kv_table(rows, flag_rows=(), bold_rows=()):
 
 
 def cohort2_table(rows, subtotal_cash, subtotal_due, billed_label="—  billed earlier"):
-    head = ["Client", "Payment plan", "Cash collected", "Commission (10%)"]
+    """Stage, and the contract columns only when the data actually carries them.
+
+    A Contract value column of dashes on a pay document invites somebody to fill it in from
+    memory. It appears when the figure is real and is absent when it is not."""
+    money_cols = any(r.get("contract") for r in rows)
+    head = ["Client", "Stage", "Payment plan"]
+    if money_cols:
+        head += ["Contract value"]
+    head += ["Cash collected"]
+    if money_cols:
+        head += ["Remaining balance"]
+    head += ["Commission (10%)"]
     data = [[Paragraph(h, CELLH) for h in head]]
     for r in rows:
         due = (usd(r["commission"]) if r.get("commission") is not None else billed_label)
-        data.append([Paragraph(r["member"] or "(no name)", CELL),
-                     Paragraph(r.get("plan") or "—", CELL),
-                     Paragraph(usd(r["cash"]), CELL),
-                     Paragraph(due, CELL)])
-    data.append([Paragraph("Subtotal", CELLH), Paragraph("", CELL),
-                 Paragraph(usd(subtotal_cash), CELLH),
-                 Paragraph(usd(subtotal_due) if subtotal_due is not None else "—", CELLH)])
-    return _grid(data, [2.5 * inch, 1.4 * inch, 1.4 * inch, 1.4 * inch],
-                 bold_rows=(len(data) - 1,))
+        row = [Paragraph(r["member"] or "(no name)", CELL),
+               Paragraph(r.get("stage") or "—", CELL),
+               Paragraph(r.get("plan") or "—", CELL)]
+        if money_cols:
+            row.append(Paragraph(usd(r["contract"]) if r.get("contract") else "—", CELL))
+        row.append(Paragraph(usd(r["cash"]), CELL))
+        if money_cols:
+            row.append(Paragraph(usd(r["remaining"]) if r.get("remaining") is not None
+                                 else "—", CELL))
+        row.append(Paragraph(due, CELL))
+        data.append(row)
+    sub = [Paragraph("Subtotal", CELLH)] + [Paragraph("", CELL)] * (2 + (1 if money_cols else 0))
+    sub.append(Paragraph(usd(subtotal_cash), CELLH))
+    if money_cols:
+        sub.append(Paragraph("", CELL))
+    sub.append(Paragraph(usd(subtotal_due) if subtotal_due is not None else "—", CELLH))
+    data.append(sub)
+    widths = ([1.7, 1.5, 0.95, 1.0, 1.0, 1.05, 1.0] if money_cols
+              else [2.2, 1.8, 1.0, 1.1, 1.1])
+    return _grid(data, [w * inch for w in widths], bold_rows=(len(data) - 1,))
 
 
 def cohort1_table(rows, cash, due):

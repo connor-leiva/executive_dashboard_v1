@@ -146,11 +146,18 @@ def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
         return [], [f"Could not obtain the database URL ({type(e).__name__}: {e}). "
                     f"Set DATABASE_PUBLIC_URL, or run `railway link` first."]
 
-    sql = (f"SELECT to_char(paid_at AT TIME ZONE '{TZ}', 'YYYY-MM-DD') AS paid, member_name,"
-           " amount, statement_id IS NOT NULL AS billed"
-           " FROM commission_payment WHERE rep_email = %(rep)s"
-           f" AND to_char(paid_at AT TIME ZONE '{TZ}', 'YYYY-MM') = %(period)s"
-           " ORDER BY paid, member_name")
+    sql = (f"SELECT to_char(cp.paid_at AT TIME ZONE '{TZ}', 'YYYY-MM-DD') AS paid,"
+           " cp.member_name, cp.amount, cp.statement_id IS NOT NULL AS billed,"
+           " cp.opportunity_id,"
+           " (SELECT sum(x.amount) FROM commission_payment x"
+           "    WHERE x.contact_id = cp.contact_id) AS collected,"
+           " mr.meta ->> 'stage' AS stage"
+           " FROM commission_payment cp"
+           " LEFT JOIN metric_record mr ON mr.external_id = cp.opportunity_id"
+           "   AND mr.source = 'ghl' AND mr.kind = 'bc_launch_opp'"
+           " WHERE cp.rep_email = %(rep)s"
+           f" AND to_char(cp.paid_at AT TIME ZONE '{TZ}', 'YYYY-MM') = %(period)s"
+           " ORDER BY paid, cp.member_name")
     try:
         with psycopg.connect(url, connect_timeout=30) as conn:
             conn.read_only = True
@@ -162,12 +169,21 @@ def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
                     f"Cohort 2 is missing from this gather."]
 
     out = []
-    for paid, member, amount, billed in got:
+    for paid, member, amount, billed, opp, collected, stage in got:
         out.append({"paid": paid, "member": member, "cash": money(amount),
                     "already_billed": bool(billed),
+                    "opportunity_id": opp,
+                    "collected_to_date": money(collected),
+                    "stage": stage,
                     "commission": None if billed else
                     round(money(amount) * cfg["rate_pct"], 2)})
-    return out, []
+    missing = [r["member"] for r in out if not r.get("stage")]
+    notes = ([f"No stage for: {missing}"] if missing else []) + [
+        "Contract value and remaining balance are not shown: the sync does not store "
+        "monetaryValue on the opportunity snapshot, and the membership snapshot carries "
+        "0.00. They are not guessed from the ticket price, which does not match what the "
+        "signed statement shows for a monthly plan."]
+    return out, notes
 
 
 def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
