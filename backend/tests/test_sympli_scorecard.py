@@ -442,6 +442,34 @@ async def test_agent_level_drills_are_leadership_only(springb):
         assert r.status_code == 200 and "restricted" not in r.json() and r.json()["source_label"] == "Arive"
 
 
+async def test_quarter_totals_follow_the_period_the_workspace_set(env, monkeypatch, capsys):
+    """Production's Q4 was Nov 2 - Jan 18, not the 13 weeks the seed assumed. Its dates must survive,
+    the output must show them, and the totals must equal the weekly goal over those 11 weeks."""
+    from scripts import setup_sympli_scorecard as S
+    t, b = env["tid"], env["bid"]
+    await _add(_loan(t, b, "a"))
+    async with SessionLocal() as s:
+        tenant = await s.get(Tenant, t)
+        tenant.config = {"fiscal_quarters": [
+            {"key": "2026Q4", "start": "2026-11-02", "end": "2027-01-18"},
+            # starts inside the seed's assumed Q4: must not read as an overlap when Q4 already exists
+            {"key": "2027Q1", "start": "2027-01-19", "end": "2027-04-18"}]}
+        await s.commit()
+    monkeypatch.setattr(sys, "argv", ["x", "--tenant", env["slug"], "--apply", "--no-sync"])
+    assert await S.main() == 0
+    out = capsys.readouterr().out
+    assert "2026-11-02 -> 2027-01-18" in out and "2026-10-31" not in out
+    async with SessionLocal() as s:
+        qs = (await s.get(Tenant, t)).config["fiscal_quarters"]
+        assert qs[0] == {"key": "2026Q4", "start": "2026-11-02", "end": "2027-01-18"} and len(qs) == 2
+        totals = {name: float(c) for name, c in (await s.execute(
+            select(ScorecardMetric.name, ScorecardGoal.cumulative_goal)
+            .join(ScorecardGoal, ScorecardGoal.metric_id == ScorecardMetric.id)
+            .where(ScorecardMetric.tenant_id == t, ScorecardGoal.period_key == "2026Q4",
+                   ScorecardGoal.cumulative_goal.is_not(None)))).all()}
+    assert totals == {"Funded (40/mo)": 102.0, "Funded (26/mo)": 66.0}      # 9.23 and 6 a week x 11
+
+
 async def test_every_agent_naming_resolver_is_gated():
     """Derived, not listed: anything reading Sisu on this board names agents or Utah Life's clients."""
     data = load_data()

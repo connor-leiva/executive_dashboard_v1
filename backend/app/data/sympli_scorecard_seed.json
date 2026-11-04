@@ -23,11 +23,11 @@
   "groups": [
     {"key": "north_star", "name": "North Star", "owner": "Connor Leiva", "metrics": [
       {"name": "Funded (40/mo)", "type": "flow", "goal": 9.23, "resolver_key": "sympli_funded", "source": "arive", "owner": "JA",
-       "period_goals": {"2026Q4": {"goal": 9.23, "cumulative": 120}},
-       "note": "40 a month: about 9.2 a week, 120 a quarter."},
+       "period_goals": {"2026Q4": {"goal": 9.23, "total_from_weekly": true}},
+       "note": "40 a month: about 9.2 a week."},
       {"name": "Funded (26/mo)", "type": "flow", "goal": 6, "resolver_key": "sympli_funded", "source": "arive", "owner": "JA",
-       "period_goals": {"2026Q4": {"goal": 6, "cumulative": 78}},
-       "note": "Scaling Plan Year 1 pace: about 26 a month, 78 a quarter."},
+       "period_goals": {"2026Q4": {"goal": 6, "total_from_weekly": true}},
+       "note": "Scaling Plan Year 1 pace: about 26 a month, 6 a week."},
       {"name": "Sympli Attach Rate", "type": "rate", "goal": 32, "resolver_key": "sympli_attach", "source": "sisu", "owner": "CO",
        "note": "Financed Utah Life buyer closings with Sympli. 32% by May 31, 2027; 45% by Nov 30, 2027."},
       {"name": "Margin, New Locks", "type": "rate", "goal": 2.25, "resolver_key": "sympli_margin_locks", "source": "arive", "owner": "CO",

@@ -1,8 +1,8 @@
 """Stand up the Sympli lending board on a live workspace, and backfill it.
 
 --apply, in order:
-  1. Creates the 2026Q4 period if it's missing (Oct 31 - Jan 31, tenant-wide; the same one
-     seed_springb_goals creates), because the quarter goals attach to it.
+  1. Creates the 2026Q4 period if it's missing (tenant-wide), because the quarter goals attach to
+     it. If it exists, its dates are kept and the quarter totals are worked out from them.
   2. Seeds the board's groups, rows, goals and gates. Additive: nothing that exists is changed.
   3. Syncs Arive, so every loan in the market carries the status history the rows read.
   4. Backfills ONLY this board's auto rows for the last 13 weeks. No other board's row is re-run.
@@ -99,11 +99,13 @@ async def main() -> int:
         fq = list((tenant.config or {}).get("fiscal_quarters") or [])
         have = next((p for p in fq if p.get("key") == period["key"]), None)
         clash = [p["key"] for p in fq if p.get("key") != period["key"] and _overlaps(p, period)]
-        if clash:
+        if clash and have is None:
             print(f"STOP: period {period['key']} would overlap {clash}. Fix the periods in Settings first.")
             return 2
-        print(f"  {'DONE ' if have else 'CREATE'}    period {period['key']}: {period['start']} -> {period['end']}"
-              + ("" if have else " (tenant-wide)"))
+        if have:      # the workspace's own dates win; quarter totals are worked out from them
+            print(f"  DONE      period {period['key']}: {have.get('start')} -> {have.get('end')} (kept as set)")
+        else:
+            print(f"  CREATE    period {period['key']}: {period['start']} -> {period['end']} (tenant-wide)")
 
         existing = {g.key: g.id for g in (await s.execute(select(ScorecardGroup).where(
             ScorecardGroup.tenant_id == tid, ScorecardGroup.business_id == bid))).scalars().all()}

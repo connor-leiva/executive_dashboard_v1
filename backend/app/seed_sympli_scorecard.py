@@ -24,6 +24,7 @@ from sqlalchemy import select
 from .db import SessionLocal
 from .models import ScorecardGate, ScorecardGoal, ScorecardGroup, ScorecardMetric, Tenant
 from .services import roles
+from .services.scorecard import quarter_of
 
 _DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "sympli_scorecard_seed.json")
 
@@ -53,7 +54,7 @@ async def load_sympli_scorecard(s, tenant_id) -> dict:
     if not biz:
         raise RuntimeError("no lending (commission_jv) business for this tenant")
     tenant = await s.get(Tenant, tenant_id)
-    periods = {p.get("key") for p in ((tenant.config or {}).get("fiscal_quarters") or [])}
+    periods = {p.get("key"): p for p in ((tenant.config or {}).get("fiscal_quarters") or [])}
     made = {"rows": 0, "groups": 0, "gates": 0, "goals": 0}
 
     existing = {g.key: g for g in (await s.execute(select(ScorecardGroup).where(
@@ -86,7 +87,13 @@ async def load_sympli_scorecard(s, tenant_id) -> dict:
                 row = (await s.execute(select(ScorecardGoal).where(
                     ScorecardGoal.metric_id == metric.id, ScorecardGoal.period_key == key))).scalar_one_or_none()
                 if row is None:
-                    cum = pg.get("cumulative")
+                    # The weekly goal over the period as this workspace actually set it. A total
+                    # assuming 13 weeks against an 11-week quarter asks for more than the weekly goal.
+                    cum = None
+                    if pg.get("total_from_weekly"):
+                        p = periods[key]
+                        weeks = quarter_of([p], dt.date.fromisoformat(p["start"]))["weeks_total"]
+                        cum = round(pg["goal"] * weeks)
                     s.add(ScorecardGoal(tenant_id=tenant_id, metric_id=metric.id, period_key=key,
                                         goal=Decimal(str(pg["goal"])),
                                         cumulative_goal=Decimal(str(cum)) if cum is not None else None))
