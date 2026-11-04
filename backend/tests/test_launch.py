@@ -497,3 +497,49 @@ async def test_a_member_who_enrolled_without_a_booked_call_still_counts_as_a_sea
     # Priced, not silently free: 3 x 12000 known, Cortni at the blended price of the known ones.
     assert d["enrolled"]["arr"] == 12000 * 3 + 12000
     assert any("blended price" in w for w in d["warnings"]), d["warnings"]
+
+
+async def test_launch_snapshot_keeps_the_contract_value():
+    """monetaryValue reaches bc_launch_opp.amount, and an unset one reads as unknown.
+
+    A commission statement shows what a member signed for and what is still to come, and there
+    is nowhere else to take that from: the membership snapshot holds the FIRST cohort and
+    carries 0.00, and the launch's ticket price disagrees with the contract (14,000 against a
+    14,400 monthly plan). Before this, every bc_launch_opp row had a NULL amount and the column
+    could not be shown at all.
+
+    `or None` is the second half of it: 0 means nobody set a value, and a statement that prints
+    $0.00 as a contract invites somebody to fill the gap from memory.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import MetricRecord
+    from app.services.sync import snapshot_launch_opps
+
+    tenant_id, biz_id, _ = await _make_launch_only()
+    PIPE = "pl1"
+    pipeline_name = {PIPE: "Be Collective August 2026 Sales Funnel"}
+    stage_name = {"s_enr": "Won: Onboarded", "s_lead": "Opt In - No Call Booked"}
+    W = "2026-08-20"
+
+    def o(oid, sid, value, contact="c0", status="open", won=None):
+        return {"id": oid, "contactId": contact, "pipelineId": PIPE, "pipelineStageId": sid,
+                "status": status, "monetaryValue": value, "createdAt": W,
+                "lastStatusChangeAt": won, "name": oid}
+
+    opps = [o("priced", "s_enr", 14400, contact="cP", status="won", won=W),
+            o("unset", "s_lead", 0),
+            o("missing", "s_lead", None)]
+
+    async with SessionLocal() as s:
+        await snapshot_launch_opps(s, tenant_id, biz_id, opps, stage_name, pipeline_name,
+                                   {"cP": "monthly"}, financed_contacts=set(),
+                                   location_id="loc", today=ASOF)
+        rows = {r.external_id: r for r in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == tenant_id,
+            MetricRecord.kind == "bc_launch_opp"))).scalars()}
+
+    assert float(rows["priced"].amount) == 14400.0, "the contract value was dropped"
+    assert rows["unset"].amount is None, "a zero contract must read as unknown, not as free"
+    assert rows["missing"].amount is None, "a missing monetaryValue must not become 0.00"

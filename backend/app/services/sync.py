@@ -1015,6 +1015,13 @@ async def snapshot_launch_opps(s: AsyncSession, tenant_id, biz, opps: list[dict]
             tenant_id=tenant_id, business_id=biz, source="ghl", kind="bc_launch_opp",
             external_id=str(o.get("id")), name=(ghl.opp_name(o) or "")[:200],
             status=o.get("status") or "open",
+            # The deal's contract value, as the membership and recruiting snapshots already
+            # keep it. Without it a commission statement cannot show what a member signed for
+            # or what is still to come, and there is nowhere else to get it: the membership
+            # snapshot holds the FIRST cohort and carries 0.00, and the ticket price on the
+            # launch disagrees with the contract (14,000 against a 14,400 monthly plan).
+            # `or None` so an unset value reads as unknown rather than as free.
+            amount=float(o.get("monetaryValue") or 0) or None,
             source_url=ghl.contact_url(location_id, o.get("contactId")),
             occurred_on=won,
             meta={"launch_id": lid, "group": group, "payment_type": pay, "app_in": app_in,
