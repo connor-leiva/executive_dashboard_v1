@@ -579,7 +579,10 @@ export const sampleAllocExceptions = {
 export const sampleAllocDrivers = {
   drivers: [
     { id: "drv-staff", key: "staff_time", label: "Staff time commitment", kind: "split",
-      unit: "percent", is_active: true, value_kinds: ["share", "amount", "remainder"] },
+      unit: "percent", is_active: true, value_kinds: ["share", "amount", "remainder"],
+      // Who the split driver is about, from the rules that read it. A split driver without
+      // these has no rows to offer and its first month cannot be typed.
+      subjects: ["A Contractor", "Another Contractor"] },
     { id: "drv-heads", key: "headcount", label: "Headcount", kind: "count",
       unit: "people", is_active: true, value_kinds: ["count"] },
   ],

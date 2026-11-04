@@ -161,6 +161,34 @@ async def list_drivers(s: AsyncSession, tenant_id) -> list[AllocationDriver]:
         .order_by(AllocationDriver.key))).scalars())
 
 
+async def subjects_by_driver(s: AsyncSession, tenant_id) -> dict:
+    """Who each split driver is about, from the rules that read it: {driver_id: [subject]}.
+
+    The first month of a driver cannot be typed without this. `prefill` answers "what did last
+    month say", which is nothing when there is no last month, and a form with no rows is a dead
+    end: it was one, and a brand-new driver could never have its first month committed.
+
+    Read from the CURRENT version of each driven rule rather than from past commits, so a person
+    added to a rule this month appears on the form before they have ever been committed for.
+    In the service because a router that builds its own queries drifts from the service's
+    scoping, the same reason `list_drivers` lives here.
+    """
+    from ..models import AllocationRuleVersion
+
+    rows = (await s.execute(
+        select(AllocationRuleVersion.driver_id, AllocationRuleVersion.driver_subject)
+        .where(AllocationRuleVersion.tenant_id == tenant_id,
+               AllocationRuleVersion.is_current.is_(True),
+               AllocationRuleVersion.method == "driven",
+               AllocationRuleVersion.driver_id.is_not(None))
+        .distinct())).all()
+    out: dict = {}
+    for driver_id, subject in rows:
+        if subject:
+            out.setdefault(str(driver_id), set()).add(subject)
+    return {k: sorted(v) for k, v in out.items()}
+
+
 async def current_commit(s: AsyncSession, tenant_id, driver_id, period: dt.date):
     """The commit in force for a month, or None. `is_current` rather than the greatest
     `committed_at`, so a correction that supersedes is found by the same read a rule uses."""

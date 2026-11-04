@@ -618,7 +618,12 @@ async def get_line_detail(business_id: uuid.UUID, standard_account_id: uuid.UUID
 async def alloc_list_drivers(user: User = Depends(books_user),
                              s: AsyncSession = Depends(get_session)):
     rows = await alloc_drivers.list_drivers(s, user.tenant_id)
-    return {"drivers": [alloc_drivers.driver_out(d) for d in rows]}
+    # The subjects come with the drivers so the form can be typed from scratch. Without them a
+    # driver with no history has nothing to put rows against, which is how the first month
+    # became uncommittable.
+    subjects = await alloc_drivers.subjects_by_driver(s, user.tenant_id)
+    return {"drivers": [{**alloc_drivers.driver_out(d),
+                         "subjects": subjects.get(str(d.id), [])} for d in rows]}
 
 
 @router.post("/allocations/drivers")                  # CFO only

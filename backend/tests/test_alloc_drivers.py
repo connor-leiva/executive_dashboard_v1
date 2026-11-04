@@ -353,3 +353,114 @@ async def test_the_routes_create_a_driver_commit_a_month_and_read_it_back():
                            json={"period": "2026-09-01",
                                  "rows": [_row(biz, "the_forum", "share", "70")]})
         assert bad.status_code == 400 and "between 0 and 1" in bad.json()["detail"]
+
+
+# ── who a split driver is about (the first month's form) ──────────────────────────────────
+
+async def _wipe_rules_and_drivers(tenant_id):
+    """`_clean` clears drivers but not RULES, and these two tests read the rules.
+
+    Without this the first test's rules survived into the second and answered for a driver the
+    fixture had already deleted, so the second test failed on a dict with an extra key. The
+    rules had kept their `driver_id`: SQLite does not enforce ON DELETE SET NULL unless the
+    foreign-keys pragma is on, so the column still pointed at a row that was gone.
+    """
+    from app.models import AllocationRule, AllocationRuleVersion
+    async with SessionLocal() as s:
+        await s.execute(delete(AllocationRuleVersion).where(
+            AllocationRuleVersion.tenant_id == tenant_id))
+        await s.execute(delete(AllocationRule).where(AllocationRule.tenant_id == tenant_id))
+        await s.execute(delete(AllocationDriver).where(AllocationDriver.tenant_id == tenant_id))
+        await s.commit()
+
+
+async def test_subjects_come_from_the_rules_that_read_the_driver_not_from_past_commits():
+    """The first month of a driver has no commits, so the form's rows cannot come from them.
+
+    This is what made the first month uncommittable: the Drivers screen offered a commit
+    control only inside the "start from last month" card, which needs a previous commit, so a
+    driver with no history showed the Not set panel and nothing else. The rows have to come
+    from the rules instead, and from the CURRENT version of each, so a person added to a rule
+    this month appears before they have ever been committed for.
+    """
+    from app.services import alloc_rules as AR
+
+    tenant_id, biz, actor = await _ctx()
+    await _wipe_rules_and_drivers(tenant_id)
+    d = await _staff_time(tenant_id, actor)
+
+    # No rule reads it yet: no subjects, and the form says so rather than showing a dead end.
+    async with SessionLocal() as s:
+        assert await DR.subjects_by_driver(s, tenant_id) == {}
+
+    async with SessionLocal() as s:
+        for who, pattern in ((OSTER, "Payroll Expenses:S. Ostermiller"),
+                             (PAM, "Contract Labor:Pamela Bakalian")):
+            await AR.create_applied_rule(
+                s, tenant_id, actor, scope_kind="account", pattern=pattern,
+                pool_name=who, source_business_id=biz["springb"], method="driven",
+                effective_from=JAN, reach="forward",
+                rationale="Split by how the time was spent.",
+                driver_id=d.id, driver_subject=who)
+
+    async with SessionLocal() as s:
+        got = await DR.subjects_by_driver(s, tenant_id)
+    # Both people, sorted, against THIS driver, with no commit anywhere in the workspace.
+    assert got == {str(d.id): sorted([OSTER, PAM])}
+
+
+async def test_a_rule_that_has_been_ended_stops_offering_its_person_a_row():
+    """An ended rule claims nothing, so its person is not a row to answer for any more.
+
+    `effective_version` skips `ended`, and the form has to agree: offering a row for somebody
+    no rule reads would invite a number that allocates nothing, which reads on the Drivers tab
+    as a figure somebody decided.
+    """
+    from app.services import alloc_rules as AR
+
+    tenant_id, biz, actor = await _ctx()
+    await _wipe_rules_and_drivers(tenant_id)
+    d = await _staff_time(tenant_id, actor)
+
+    async with SessionLocal() as s:
+        rule, _v = await AR.create_applied_rule(
+            s, tenant_id, actor, scope_kind="account", pattern="Payroll Expenses:S. O",
+            pool_name=OSTER, source_business_id=biz["springb"], method="driven",
+            effective_from=JAN, reach="forward", rationale="Split by time.",
+            driver_id=d.id, driver_subject=OSTER)
+    async with SessionLocal() as s:
+        assert await DR.subjects_by_driver(s, tenant_id) == {str(d.id): [OSTER]}
+
+    async with SessionLocal() as s:
+        await AR.end_rule(s, tenant_id, actor, rule.id, effective_from=SEP,
+                          rationale="She left.")
+    async with SessionLocal() as s:
+        assert await DR.subjects_by_driver(s, tenant_id) == {}
+
+
+async def test_a_rule_on_a_count_driver_contributes_no_subject():
+    """A count driver is answered per entity and has no subject, so it offers no person rows.
+
+    `validate_version` stores `driver_subject` as None when it is not given, which is exactly
+    what a rule against a count driver has: "a count driver has no subject: it answers per
+    entity". Without the guard on the subject, that NULL would be collected and the form would
+    render a nameless group of rows to fill in for nobody. Found by mutation: dropping the
+    guard left every test green.
+    """
+    from app.services import alloc_rules as AR
+
+    tenant_id, biz, actor = await _ctx()
+    await _wipe_rules_and_drivers(tenant_id)
+    async with SessionLocal() as s:
+        heads = await DR.create_driver(s, tenant_id, actor, key="headcount",
+                                       label="Headcount", kind="count", unit="people")
+    async with SessionLocal() as s:
+        await AR.create_applied_rule(
+            s, tenant_id, actor, scope_kind="account", pattern="Member gifts",
+            pool_name="Member gifts", source_business_id=biz["springb"], method="driven",
+            effective_from=JAN, reach="forward", rationale="Shared by how many members.",
+            driver_id=heads.id)                      # no subject: a count driver has none
+
+    async with SessionLocal() as s:
+        got = await DR.subjects_by_driver(s, tenant_id)
+    assert got == {}, f"a count driver's rule should offer no person rows, got {got}"

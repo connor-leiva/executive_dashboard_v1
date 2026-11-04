@@ -134,6 +134,14 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
         .al-recon-row { grid-template-columns: minmax(0,2fr) repeat(4, minmax(0,1fr)); }
         .al-partner-row { grid-template-columns: minmax(0,2fr) repeat(2, minmax(0,1fr)); }
         .al-partner-figs { grid-template-columns: repeat(5, minmax(0,1fr)); }
+        /* The driver commit form: entity, how it is answered, the number. The track count
+           never changes with width, only the sizes. Dropping a track while the row still
+           renders three children is how this repo's min-size bugs happen: the third child
+           wraps into a track meant for one thing and the row overflows. */
+        .al-drv-row {
+          display: grid; gap: 8px; align-items: center;
+          grid-template-columns: minmax(0,1.5fr) minmax(0,1fr) 104px;
+        }
         /* A bare inline span shrinks to its text, so a right-aligned column header sits above
            a number flush LEFT. The wrapper is the grid item, so the alignment belongs on it --
            and HERE rather than inline, so the narrow-width display:none below can still win.
@@ -158,6 +166,7 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
           .al-partner-row { grid-template-columns: minmax(0,1.4fr) minmax(0,1fr); }
           .al-partner-row > .al-hide-narrow { display: none; }
           .al-partner-figs { grid-template-columns: repeat(2, minmax(0,1fr)); }
+          .al-drv-row { grid-template-columns: minmax(0,1fr) minmax(0,0.9fr) 72px; }
         }
       `}</style>
     </div>

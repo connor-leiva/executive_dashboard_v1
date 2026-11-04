@@ -196,6 +196,23 @@ so the original reasoning stays legible.
     tenant examining nothing was told "an empty queue is the goal". An empty queue is only an
     achievement if something was looked at.
 
+30. **A driver's FIRST month has to be typeable.** The Drivers card put its commit control
+    inside the "start from last month" panel, which renders only when an earlier commit exists,
+    so a driver with no history showed Not set and nothing else and could never be committed
+    for. Hit live on springb the day the rules went in: `staff_time` was created with the
+    rules, had no history by construction, and the four driven rules it feeds could not be
+    given a single month. The same shape as the empty-library Create-SOP bug: the only path to
+    a thing ran through already having one. The form's rows come from `driver_subject` on the
+    CURRENT version of each driven rule (`subjects_by_driver`, carried on `GET
+    /allocations/drivers`), not from past commits, so a person added to a rule this month
+    appears before they have ever been committed for. The prefill now SEEDS that form rather
+    than being committed verbatim, which was the other half of it: last month's figures could
+    be taken whole or not at all, on the one screen whose purpose is that a month is decided
+    rather than carried forward (D8).
+31. **The month picker opens on the month it is.** It was the literal `${year}-07-01`, so the
+    card opened on July whatever the date, and anyone looking at November had to notice and
+    change it before their figures applied to the month they meant. Of a piece with the fixed
+    date literals already found across this repo.
 ---
 
 ## 1. What exists today

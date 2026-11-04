@@ -61,6 +61,182 @@ function ValueRow({ v, businesses }) {
   );
 }
 
+const FIELD = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize: 12.5,
+                color: L.deep, background: L.paper, border: `1px solid ${L.cardEdge}`,
+                borderRadius: 8, padding: "5px 8px", textAlign: "right", width: "100%",
+                minWidth: 0 };
+
+/* THE FORM THE FIRST MONTH NEEDS.
+
+   The commit control used to live inside the "start from last month" card, which renders only
+   when a previous commit exists. A driver with no history therefore showed the Not set panel
+   and nothing else: no inputs, no button, no way forward, and its first month could never be
+   committed. The same shape as the empty-library bug already fixed in this repo, where the only
+   path to a thing ran through already having one.
+
+   The prefill now seeds this form rather than being committed verbatim. That was the other half
+   of it: last month's figures could be accepted whole or not at all, so somebody who needed
+   November to differ from October had no way to say so, on the one screen whose entire purpose
+   is that the month is decided rather than carried forward (D8). */
+function CommitForm({ driver, businesses, month, prefill, isCFO, onCommitted }) {
+  const split = driver.kind === "split";
+  const subjects = split ? (driver.subjects || []) : [""];
+  const kinds = driver.value_kinds || ["share"];
+
+  const seed = () => {
+    const out = {};
+    for (const v of prefill?.rows || []) {
+      out[`${v.subject || ""}|${v.business_id}`] = { kind: v.value_kind, value: v.value ?? "" };
+    }
+    return out;
+  };
+  const [cells, setCells] = useState(seed);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const key = (subject, bid) => `${subject || ""}|${bid}`;
+  const cell = (subject, bid) => cells[key(subject, bid)] || { kind: kinds[0], value: "" };
+  const set = (subject, bid, patch) =>
+    setCells((c) => ({ ...c, [key(subject, bid)]: { ...cell(subject, bid), ...patch } }));
+
+  // A row counts as filled when it carries a number, or when it is the remainder, which is a
+  // claim on what is left and so has no number by definition.
+  const filled = (c) => c.kind === "remainder" || String(c.value ?? "").trim() !== "";
+
+  const rowsFor = (subject) => (businesses || [])
+    .map((b) => ({ b, c: cell(subject, b.id) }))
+    .filter(({ c }) => filled(c));
+
+  const shareTotal = (subject) => rowsFor(subject)
+    .filter(({ c }) => c.kind === "share")
+    .reduce((t, { c }) => t + (Number(c.value) || 0), 0);
+
+  // Only meaningful where the whole subject is shares: mixed with a flat amount or a remainder,
+  // the shares are not supposed to reach 1 (5.4 applies them in order against the pool).
+  const pureShares = (subject) => {
+    const rows = rowsFor(subject);
+    return rows.length > 0 && rows.every(({ c }) => c.kind === "share");
+  };
+  const offBy = (subject) => pureShares(subject)
+    && Math.abs(shareTotal(subject) - 1) > 0.00005;
+
+  const payload = () => subjects.flatMap((subject) =>
+    rowsFor(subject).map(({ b, c }) => ({
+      subject: split ? subject : null,
+      business_id: b.id,
+      value_kind: c.kind,
+      value: c.kind === "remainder" ? null : String(c.value).trim(),
+    })));
+
+  const rows = payload();
+  const bad = subjects.filter(offBy);
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await postJSON(`/books/allocations/drivers/${driver.id}/commits`,
+                     { period: month, rows });
+      onCommitted();
+    } catch (e) {
+      setErr(e?.message || "That did not commit.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!isCFO) return null;
+  if (split && !subjects.length) {
+    return (
+      <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.body }}>
+        No rule reads this driver yet, so there is nobody to answer for. A driven rule names the
+        person it is about, and this form follows that list.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: L.controls, border: `1px solid ${L.cardEdge}`, borderRadius: 11,
+                  padding: "12px 14px" }}>
+      <div style={{ ...EYEBROW, marginBottom: 6 }}>
+        {prefill?.from_month ? `Starting from ${prefill.from_month}` : `Answer ${month}`}
+      </div>
+      <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, marginBottom: 12 }}>
+        {prefill?.from_month
+          ? `Last committed month, offered to start from. Change anything that is different this
+             month: nothing is allocated until you commit it for ${month}.`
+          : `Nothing has been answered for this driver yet. Fill in what applies and commit it;
+             a row left blank is not submitted.`}
+      </div>
+
+      {subjects.map((subject) => (
+        <div key={subject} style={{ marginBottom: 12 }}>
+          {split && (
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10,
+                          alignItems: "baseline", flexWrap: "wrap", marginBottom: 4 }}>
+              <span style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
+                             color: L.deep }}>{subject}</span>
+              {pureShares(subject) && (
+                <span style={{ ...NUM, fontSize: 11.5,
+                               color: offBy(subject) ? L.flagInk : L.muted }}>
+                  {offBy(subject) ? "shares add up to " : "adds up to "}
+                  {shareTotal(subject).toFixed(4)}
+                </span>
+              )}
+            </div>
+          )}
+          {(businesses || []).map((b) => {
+            const c = cell(subject, b.id);
+            return (
+              <div key={b.id} className="al-drv-row" style={{ padding: "5px 0" }}>
+                <Entity id={b.id} businesses={businesses} />
+                <select value={c.kind} aria-label={`How ${b.name} is answered`}
+                  onChange={(e) => set(subject, b.id, { kind: e.target.value })}
+                  style={{ fontFamily: F.body, fontSize: 11.5, color: L.body,
+                           background: L.paper, border: `1px solid ${L.cardEdge}`,
+                           borderRadius: 8, padding: "4px 6px", minWidth: 0 }}>
+                  {kinds.map((k) => (
+                    <option key={k} value={k}>{KIND_WORD[k] || k}</option>
+                  ))}
+                </select>
+                <input value={c.kind === "remainder" ? "" : c.value}
+                  disabled={c.kind === "remainder"}
+                  onChange={(e) => set(subject, b.id, { value: e.target.value })}
+                  inputMode="decimal"
+                  placeholder={c.kind === "remainder" ? "the rest"
+                    : (c.kind === "share" ? "0 to 1" : "")}
+                  aria-label={`${b.name}${subject ? `, ${subject}` : ""}`}
+                  style={FIELD} />
+              </div>
+            );
+          })}
+        </div>
+      ))}
+
+      {!!bad.length && (
+        <div style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk, marginBottom: 8 }}>
+          {bad.join(", ")}: the shares have to add up to 1. They are applied as a fraction of
+          the whole pool, so a total above or below it allocates more or less than there is.
+        </div>
+      )}
+      {err && (
+        <div style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk, marginBottom: 8 }}>
+          {err}
+        </div>
+      )}
+
+      <button onClick={submit} disabled={busy || !rows.length || !!bad.length}
+        style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
+                 color: rows.length && !bad.length ? L.paper : L.muted,
+                 background: rows.length && !bad.length ? L.deep : L.track,
+                 border: "none", borderRadius: 9, padding: "7px 14px",
+                 cursor: busy || !rows.length || bad.length ? "default" : "pointer" }}>
+        {busy ? "Committing" : `Commit ${rows.length || "nothing"} for ${month}`}
+      </button>
+    </div>
+  );
+}
+
 function NotSet({ month }) {
   return (
     <div style={{ background: L.flagBg, border: `1px solid ${L.flagEdge}`, borderRadius: 11,
@@ -77,28 +253,21 @@ function NotSet({ month }) {
   );
 }
 
+/* The month the picker opens on. It was a literal `${year}-07-01`, so the card opened on July
+   whatever month it was, and somebody looking at November had to notice and change it before
+   anything they did applied to the month they meant. Fixed month literals are a known bug
+   family in this repo. */
+function openingMonth(year) {
+  const now = new Date();
+  return `${year}-${MONTHS[now.getFullYear() === year ? now.getMonth() : 0]}-01`;
+}
+
 function DriverCard({ driver, businesses, isCFO, year }) {
-  const [month, setMonth] = useState(`${year}-07-01`);
+  const [month, setMonth] = useState(() => openingMonth(year));
   const { data, loading, refresh } = useAllocDriverMonth(driver.id, month);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
 
   const commit = data?.commit;
   const prefill = data?.prefill;
-
-  const commitPrefill = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      await postJSON(`/books/allocations/drivers/${driver.id}/commits`,
-                     { period: month, rows: prefill.rows });
-      refresh();
-    } catch (e) {
-      setErr(e?.message || "That did not commit.");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <div style={{ background: L.paper, border: `1px solid ${L.cardEdge}`, borderRadius: 14,
@@ -137,32 +306,10 @@ function DriverCard({ driver, businesses, isCFO, year }) {
       {!loading && !commit && (
         <div style={{ padding: 16, display: "grid", gap: 12 }}>
           <NotSet month={month} />
-          {prefill?.from_month && (
-            <div style={{ background: L.controls, border: `1px solid ${L.cardEdge}`,
-                          borderRadius: 11, padding: "12px 14px" }}>
-              <div style={{ ...EYEBROW, marginBottom: 6 }}>From {prefill.from_month}</div>
-              <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.body,
-                            marginBottom: 10 }}>
-                Last committed month, offered to start from. Nothing is allocated until this is
-                committed for {month}.
-              </div>
-              {(prefill.rows || []).map((v, i) => (
-                <ValueRow key={i} v={v} businesses={businesses} />
-              ))}
-              {isCFO && !!prefill.rows?.length && (
-                <button onClick={commitPrefill} disabled={busy}
-                  style={{ marginTop: 10, fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
-                           color: L.paper, background: L.deep, border: "none",
-                           borderRadius: 9, padding: "7px 14px",
-                           cursor: busy ? "default" : "pointer" }}>
-                  {busy ? "Committing" : `Commit these figures for ${month}`}
-                </button>
-              )}
-            </div>
-          )}
-          {err && (
-            <div style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk }}>{err}</div>
-          )}
+          {/* Keyed on the month so switching months re-seeds the form from that month's own
+              prefill, rather than carrying the previous month's typing across. */}
+          <CommitForm key={month} driver={driver} businesses={businesses} month={month}
+                      prefill={prefill} isCFO={isCFO} onCommitted={refresh} />
         </div>
       )}
 
@@ -204,7 +351,8 @@ function DriverCard({ driver, businesses, isCFO, year }) {
   );
 }
 
-export default function DriversView({ data, isCFO, businesses, refresh, year = 2026 }) {
+export default function DriversView({ data, isCFO, businesses, refresh,
+                                      year = new Date().getFullYear() }) {
   const drivers = data?.drivers || [];
 
   if (!drivers.length) {
