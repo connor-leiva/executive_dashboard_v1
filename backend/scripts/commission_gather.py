@@ -151,7 +151,7 @@ def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
            " cp.opportunity_id,"
            " (SELECT sum(x.amount) FROM commission_payment x"
            "    WHERE x.contact_id = cp.contact_id) AS collected,"
-           " mr.meta ->> 'stage' AS stage"
+           " mr.meta ->> 'stage' AS stage, mr.amount AS contract"
            " FROM commission_payment cp"
            " LEFT JOIN metric_record mr ON mr.external_id = cp.opportunity_id"
            "   AND mr.source = 'ghl' AND mr.kind = 'bc_launch_opp'"
@@ -169,12 +169,18 @@ def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
                     f"Cohort 2 is missing from this gather."]
 
     out = []
-    for paid, member, amount, billed, opp, collected, stage in got:
+    for paid, member, amount, billed, opp, collected, stage, contract in got:
         out.append({"paid": paid, "member": member, "cash": money(amount),
                     "already_billed": bool(billed),
                     "opportunity_id": opp,
                     "collected_to_date": money(collected),
                     "stage": stage,
+                    "contract": money(contract) or None,
+                    # What the member still owes on the deal. Only when the contract is known:
+                    # a remaining balance computed against a missing contract would read as
+                    # the whole collected amount still being due.
+                    "remaining": (round(money(contract) - money(collected), 2)
+                                  if contract else None),
                     "commission": None if billed else
                     round(money(amount) * cfg["rate_pct"], 2)})
     missing = [r["member"] for r in out if not r.get("stage")]
