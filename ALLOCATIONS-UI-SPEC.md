@@ -1163,6 +1163,50 @@ markup. Phase 7 compares it against the mockup and decides.
 
 ### Phase 7
 
+**Done 2026-11-04.** §9.6, plus the seventh check §0.1 item 2 added.
+
+Every view was driven in the running production build at 1280, 820 and 375, and the §9.2
+pieces were measured against `Allocation Rules v2.dc.html` side by side rather than compared
+by eye.
+
+**Structural sweep, all four views at all three widths.** For every grid on the page, the
+computed track count against the count of VISIBLE children, plus document-level horizontal
+scroll and any figure whose content is wider than its box:
+
+| | 1280 | 820 | 375 |
+|---|---|---|---|
+| Horizontal scroll | none | none | none |
+| Row grids with more children than tracks | 0 | 0 | 0 |
+| Figures squashed narrower than their content | 0 | 0 | 0 |
+
+The only grid flagged is `.al-cards`, the tier cards, at 820 and 375. That is a card grid
+wrapping and stacking as intended, not a table row putting a figure under the wrong header,
+so it is not a defect. Recorded because the same probe will flag it again.
+
+**Measured against the mockup.** Dark bar: `rgb(14, 43, 34)`, padding 11 top and bottom --
+identical. Needs-you strip: `rgb(251, 248, 242)`, padding 9, bottom border
+`rgb(232, 224, 211)` -- identical. Tab: 13px, weight 500, `rgb(139, 156, 146)`, padding
+11 / 12 -- identical.
+
+One difference found and fixed: the tab underline was **2.5px** per §9.2's recipe and the
+mockup draws **2px**. Principle 8 gives appearance to the mockup, so it is 2px.
+
+**§7.8, the check §0.1 item 2 added.** Every forbidden string from that table grepped across
+`frontend/src`: Spring's judgments, sends Julie, "the amount is round", "manually keyed",
+"not in mockup", and the two retired decision-panel strings. **All zero in shipped code.**
+The two matches for the exception inference are inside a comment in `ExceptionGroup.jsx`
+explaining why that line is not built. For contrast, three of those strings are still live
+in the mockup, which is why the check exists.
+
+**Final copy sweep on the rendered page:** no period token (`mtd`, `qtd`, an ISO date) and no
+enum code (`direct`, `driven`, `retained`, `traced`, `split`) reaches the screen anywhere.
+
+**Not matched, deliberately, and each already recorded above:** the exception card's "what is
+known" sentence (§7.8 forbids it, Phase 4 note 2); Reconciliation's sub-660 figure stack
+(Phase 6 note); the ledger figure's tier weight (Phase 3 note 1); and §9.5's loading skeleton
+and row hover, which the §0.1 review found have no source in the mockup at all and are this
+document's own additions, so a side-by-side cannot validate them.
+
 ---
 
 ## Appendix A. Checks

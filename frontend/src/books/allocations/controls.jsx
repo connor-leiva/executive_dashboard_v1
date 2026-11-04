@@ -118,7 +118,9 @@ export function Tabs({ value, onChange, items }) {
                   style={{ ...CTL, fontSize: 13, padding: "11px 14px 12px",
                            marginBottom: -1, background: "transparent",
                            border: "none",
-                           borderBottom: `2.5px solid ${on ? L.accent : "transparent"}`,
+                           // 2px, not 9.2's 2.5: the mockup draws 2 and principle 8
+                           // gives appearance to the mockup. Measured side by side.
+                           borderBottom: `2px solid ${on ? L.accent : "transparent"}`,
                            color: on ? L.deep : L.faint, fontWeight: on ? 600 : 500 }}>
             {label}{count ? ` · ${count}` : ""}
           </button>
