@@ -1019,6 +1019,61 @@ the wrong vendor.
 - **Balance sheet allocations.** Out of scope, as in the COA phasing.
 - **Writing applied allocations back to QuickBooks.** Never. Read-only is the module invariant.
 
+### 10.1 A `derived` method: a pool that follows other pools
+
+**Asked for 2026-11-04.** Connor, on being shown the four driven subjects: *"I had assumed that
+if we set the payroll and taxes to driven, that it would automatically calculate based on what
+our allocations were set to for our other staffing amounts."*
+
+That is the right instinct and the engine does not do it. `driven` does not mean computed; it
+means the percentages live in a monthly commit rather than inside the rule. `driven_shares`
+(§5.4) reads its commit and nothing else, and no method reads another rule's output — every
+rule resolves independently from its own pool, its own version and at most its own driver.
+So `Payroll Expenses:Payroll Taxes` is the one subject on the Drivers tab that is **arithmetic
+rather than a decision**, and a person redoes that arithmetic every month with nothing checking
+it.
+
+**The naive fix is wrong.** Taxes follow the *dollar-weighted* average of the staffing splits,
+not their mean. October's committed tax split is 0.8465 / 0.1151 / 0.0384 against Sarah
+Ostermiller's 0.80 / 0.15 / 0.05 — it is not any one person's split and not the average of the
+three, because the three people's pay is of unequal size. Anything that averages percentages
+produces a figure that looks plausible and is wrong by a few points every month.
+
+**The shape.** A new tier 3 method, `derived`, resolved in a **second pass** after every
+independent rule has written its month:
+
+```json
+{"source": "follows_rules", "rule_ids": ["…", "…", "…"]}
+```
+
+- `source_spec` carries it, so **no migration**: the column is already JSON and already read by
+  `traced`, and `method` is `String(10)` with no CHECK, so `"derived"` fits as it stands.
+- Weights are the **money those rules actually produced that month**, summed by target entity
+  from the applied contributions the first pass just wrote. Shares are each entity's dollars
+  over the total.
+- Carry the shares into `split_amounts` at **full precision, not quantized** — the same reason
+  the `count` branch of `driven_shares` refuses to quantize, documented in the comment there:
+  a derived share rounded to four places leaves a month a cent short, correctly short, and
+  nothing would ever flag it.
+- **Cycle guard.** v1 refuses at validation: a `derived` rule may follow only non-derived rules.
+  That is strictly weaker than topological ordering and it cannot loop. Revisit only if a real
+  case needs derived-of-derived.
+- Two pending reasons, following §5.4's "pending, never defaulted": `followed_rules_pending`
+  (a followed rule did not resolve that month, so this one must not guess) and
+  `no_followed_amounts` (they resolved, to zero).
+
+**What it covers beyond taxes.** Payroll fees, benefits, workers' comp, a 401k match — every
+cost that follows wages rather than being decided. Each becomes a rule that is correct forever
+and never typed.
+
+**UI.** The rule drawer needs a rule picker for the followed set. The Statement's `basis`
+string should spell the computed result — "Tier 3 Derived, follows 3 wage rules
+(84.65 / 11.51 / 3.84)" — so the shares are legible without opening the rule, since nobody
+chose them and there is no commit note to read.
+
+**Worth it because** it removes the only monthly figure that is not a judgment, and takes the
+Drivers tab from four subjects to three. Roughly half a day with tests.
+
 ---
 
 ## 11. Only Connor can do
