@@ -57,6 +57,7 @@ import os
 import pathlib
 import re
 import sys
+import uuid
 from decimal import Decimal
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -426,7 +427,8 @@ def show(plans, driven=()):
     return ok
 
 
-async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_history=False):
+async def wire(ok, driven=(), *, effective_from, reach, pool_name_default,
+               with_history=False, allow_local=False):
     # CONFIG BEFORE IMPORTS. These checks need nothing but the environment, and importing the
     # app first meant a missing dependency buried the answer to "which database is this
     # pointing at" under a traceback. Cheap questions get asked first.
@@ -438,7 +440,7 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
     url = os.environ.get("DATABASE_URL") or ""
     shown = re.sub(r"//[^@]*@", "//", url) or "(DATABASE_URL is not set)"
     print(f"database: {shown}")
-    if not url or url.startswith("sqlite"):
+    if not url or (url.startswith("sqlite") and not allow_local):
         sys.exit("That is the local development database, which is several migrations behind "
                  "and is not where your books live. Set DATABASE_URL to the production "
                  "database before wiring.")
@@ -458,8 +460,18 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
                  f"This usually means it ran on the system Python instead of the project's. "
                  f"Use:\n  {venv}\ninstead of `python`.")
 
-    tenant = os.environ.get("TENANT_ID")
+    tenant_raw = os.environ.get("TENANT_ID")
     actor_email = os.environ.get("ACTOR_EMAIL")
+    # A UUID, NOT THE STRING THE ENVIRONMENT GIVES. `create_applied_rule` compares
+    # `pool.tenant_id != tenant_id` in Python, and UUID("...") never equals "...", so
+    # every rule was refused as "Unknown pool entity" while the queries all worked:
+    # SQLAlchemy coerces a string at the SQL layer, and a bare Python comparison does not.
+    tenant = None
+    if tenant_raw:
+        try:
+            tenant = uuid.UUID(tenant_raw)
+        except ValueError:
+            sys.exit(f"TENANT_ID is not a UUID: {tenant_raw!r}")
     if not tenant or not actor_email:
         # Rather than send somebody hunting for a UUID, show the ones that are there.
         async with SessionLocal() as s:
@@ -620,10 +632,58 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
                 print(f"  month {mn:>2} refused: {str(e)[:70]}")
 
 
+async def rehearse(ok, driven, *, effective_from, reach):
+    """Run the real write against a throwaway database shaped like the workspace.
+
+    Here because four bugs reached production runs before it existed: a session factory that
+    did not exist, a cascade on failure, ORM objects expiring across a rollback, and a tenant
+    id compared as a string against a UUID. Every one lived in code the dry run never executes,
+    and every one would have surfaced here in seconds. A plan that is proven and a write that
+    is not is half a tool.
+
+    The seed deliberately has no The Edge, because the real workspace has none.
+    """
+    db = pathlib.Path(__file__).resolve().parents[1] / "alloc_rehearsal.sqlite"
+    db.unlink(missing_ok=True)
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db}"      # before app.db is imported
+
+    from app.db import SessionLocal, engine
+    from app.models import Base, Business, Tenant, User
+
+    tid, email = uuid.uuid4(), "rehearsal@example.invalid"
+    async with engine.begin() as c:
+        await c.run_sync(Base.metadata.create_all)
+    async with SessionLocal() as s:
+        s.add(Tenant(id=tid, slug="rehearsal", name="Rehearsal"))
+        for key, name in (("springb", "Spring B"), ("forum", "The Forum"),
+                          ("becollective", "beCollective")):
+            s.add(Business(tenant_id=tid, key=key, name=name, tag=key))
+        s.add(User(tenant_id=tid, email=email, name="Rehearsal", role="owner"))
+        await s.commit()
+
+    os.environ["TENANT_ID"], os.environ["ACTOR_EMAIL"] = str(tid), email
+    await wire(ok, driven, effective_from=effective_from, reach=reach,
+               pool_name_default="Shared cost", allow_local=True)
+
+    from sqlalchemy import func, select
+
+    from app.models import AllocationRule
+    async with SessionLocal() as s:
+        n = (await s.execute(select(func.count()).select_from(AllocationRule))).scalar()
+    want = len(ok) + len(driven)
+    print(f"\nrehearsal: {n} of {want} rules written "
+          f"{'- PASS' if n == want else '- FAIL'}")
+    await engine.dispose()
+    db.unlink(missing_ok=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("workbook")
     ap.add_argument("--wire", action="store_true", help="actually create the rules")
+    ap.add_argument("--rehearse", action="store_true",
+                    help="run the real write against a throwaway database and check "
+                         "the counts, proving the write path before production")
     ap.add_argument("--from", dest="month", default=None, help="effective month, YYYY-MM")
     ap.add_argument("--reach", default="forward", choices=("forward", "from_date", "retro"))
     ap.add_argument("--fold", default="",
@@ -694,6 +754,15 @@ def main():
                 p["skip"].append("held back by --skip-items, so it keeps arriving in the queue")
 
     ok = show(plans, driven)
+
+    if a.rehearse:
+        if not a.month:
+            sys.exit("--rehearse needs --from YYYY-MM, the same as a real run.")
+        import datetime as dt
+        y, m = (int(x) for x in a.month.split("-"))
+        asyncio.run(rehearse(ok, [d for d in driven if not d["skip"]],
+                             effective_from=dt.date(y, m, 1), reach=a.reach))
+        return
 
     if not a.wire:
         print(f"\nPlan only. Re-run with --wire to create them.")
