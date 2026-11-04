@@ -38,6 +38,15 @@ WHAT IT DELIBERATELY DOES NOT LOAD, and why each one is a judgement rather than 
 STAFF ARE ACCOUNT-SCOPED, NOT VENDOR-SCOPED. Nine of the fifteen people share the single payee
 "Payroll Pay", so a vendor rule would claim the whole payroll for whoever was written first.
 Each person does have their own QuickBooks account, so that is what the rule matches on.
+
+THE FOUR WHOSE SPLIT MOVES become a tier 3 driven rule against one `staff_time` driver, each
+naming its own person as the driver subject, which is what `driver_subject` is for. A fixed
+percentage would have been the easy load and the wrong one: it would state that Sarah
+Ostermiller was 55/15 in a month the workbook has her at 80/40, and nothing downstream would
+flag it. `--with-history` additionally commits the workbook's January to October figures, which
+drive nothing when the rules start in November but give the Drivers tab a month to prefill the
+next one from. It is off by default, because D8 says a driver month is committed by a person
+and ten months appearing at once is not that.
 """
 from __future__ import annotations
 
@@ -217,6 +226,53 @@ def plan_row(row, payees, *, is_staff):
             "account": row["account"], "ytd": row["ytd"], "skip": skip}
 
 
+DRIVER_KEY = "staff_time"
+DRIVER_LABEL = "Staff time commitment"
+
+
+def plan_driven(staff):
+    """The people whose split moves: one driven rule each, against the shared staff driver."""
+    out = []
+    for p in staff:
+        if not p.get("varies"):
+            continue
+        paid = [float(v or 0) for v in p["lines"].get("Paid", [])]
+        months, fixed = [], []
+        for m in range(10):
+            if not (m < len(paid) and paid[m]):
+                continue
+            rows = {}
+            for b in BRANDS:
+                vals = p["lines"].get(f"{b} %") or []
+                v = as_share(vals[m]) if m < len(vals) else Decimal(0)
+                if v > 0:
+                    rows[b] = v
+            if rows:
+                # The workbook derives some of these (payroll taxes are worked out FROM the
+                # other people's splits), so a month can land on 1.000001. `validate_version`
+                # refuses a rule split that misses 1, but `validate_values` does NOT check a
+                # driver month's sum: it allows a `remainder` row, so there is nothing to
+                # compare against. The residue would be stored and that month would allocate
+                # 100.0001 percent of the cost, which no total on any page would contradict.
+                # Settled here, on the largest share, which is D5's rounding rule.
+                total = sum(rows.values())
+                if total != Decimal(1):
+                    big = max(rows, key=lambda b: rows[b])
+                    rows[big] = rows[big] + (Decimal(1) - total)
+                    fixed.append((m + 1, big, total))
+                months.append((m + 1, rows))
+        skip = []
+        if not p["account"]:
+            skip.append("no QuickBooks account on the staff row")
+        if not p["rationale"]:
+            skip.append("no rationale in the workbook")
+        out.append({"item": p["item"], "sheet": p["sheet"], "scope_kind": "account",
+                    "pattern": p["account"], "method": "driven", "months": months,
+                    "rationale": p["rationale"], "ytd": p["ytd"], "skip": skip,
+                    "rounded": fixed})
+    return out
+
+
 def detect_shared_payees(plans):
     """A payee two rules would both claim is a collision, whichever was written first."""
     by_pat = collections.defaultdict(list)
@@ -232,10 +288,27 @@ def detect_shared_payees(plans):
 
 # ---- output -----------------------------------------------------------------------------
 
-def show(plans):
+def show(plans, driven=()):
     ok = [p for p in plans if not p["skip"]]
     bad = [p for p in plans if p["skip"]]
     by_method = collections.Counter(p["method"] for p in ok)
+
+    if driven:
+        good = [d for d in driven if not d["skip"]]
+        print(f"\n{'=' * 94}\nDRIVEN, against the {DRIVER_KEY!r} driver: {len(good)} rules"
+              f"\n{'=' * 94}")
+        for d in driven:
+            mark = "  " if not d["skip"] else "! "
+            print(f"{mark}[driven  ] account {d['pattern'][:34]:34} "
+                  f"{len(d['months'])} months in the workbook")
+            for mn, rows in d["months"]:
+                share = " ".join(f"{b}={v}" for b, v in rows.items())
+                print(f"             month {mn:>2}: {share}")
+            for mn, big, was in d.get("rounded", []):
+                print(f"             month {mn:>2} summed to {was}, not 1: the "
+                      f"{was - Decimal(1):+} went on {big}, the largest share (D5)")
+            if d["skip"]:
+                print(f"             NOT LOADED: {d['skip'][0]}")
 
     print(f"\n{'=' * 94}\nLOADABLE: {len(ok)} rules "
           f"({', '.join(f'{v} {k}' for k, v in sorted(by_method.items()))})\n{'=' * 94}")
@@ -258,10 +331,10 @@ def show(plans):
     return ok
 
 
-async def wire(ok, *, effective_from, reach, pool_name_default):
+async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_history=False):
     from app.db import SessionLocal
-    from app.models import Business, User
-    from app.services import alloc_rules
+    from app.models import AllocationDriver, Business, User
+    from app.services import alloc_drivers, alloc_rules
 
     tenant = os.environ.get("TENANT_ID")
     actor_email = os.environ.get("ACTOR_EMAIL")
@@ -311,6 +384,63 @@ async def wire(ok, *, effective_from, reach, pool_name_default):
         for item, err in failed:
             print(f"  {item[:34]:34} {err[:80]}")
 
+        if not driven:
+            return
+
+        # One driver for every person whose split moves, reused if it is already there: the key
+        # is unique per tenant, so a second run must find it rather than fail on the duplicate.
+        drv = (await s.execute(select(AllocationDriver).where(
+            AllocationDriver.tenant_id == tenant,
+            AllocationDriver.key == DRIVER_KEY))).scalars().first()
+        if drv is None:
+            drv = await alloc_drivers.create_driver(
+                s, tenant, actor, key=DRIVER_KEY, label=DRIVER_LABEL, kind="split",
+                unit="percent")
+            print(f"created driver {drv.key!r}")
+        else:
+            print(f"reusing driver {drv.key!r}")
+
+        dmade, dfailed = 0, []
+        for d in driven:
+            try:
+                await alloc_rules.create_applied_rule(
+                    s, tenant, actor, scope_kind="account", pattern=d["pattern"],
+                    pool_name=d["item"][:80], source_business_id=pool.id,
+                    method="driven", driver_id=drv.id, driver_subject=d["item"],
+                    effective_from=effective_from, reach=reach, rationale=d["rationale"])
+                dmade += 1
+            except Exception as e:
+                dfailed.append((d["item"], str(e)))
+        print(f"created {dmade} driven rules; {len(dfailed)} refused")
+        for item, err in dfailed:
+            print(f"  {item[:34]:34} {err[:80]}")
+
+        if not with_history:
+            print("\nNo driver months committed. The rules are live from "
+                  f"{effective_from:%B %Y}, so commit that month on the Drivers tab. "
+                  "Re-run with --with-history to load the workbook's Jan-Oct figures first.")
+            return
+
+        # Each month is one commit carrying every person's row, because a commit is a month of
+        # the DRIVER, not of a person.
+        import datetime as dt
+        by_month: dict = collections.defaultdict(list)
+        for d in driven:
+            for mn, rows in d["months"]:
+                for brand, share in rows.items():
+                    by_month[mn].append({"subject": d["item"],
+                                         "business_id": str(find(brand).id),
+                                         "value_kind": "share", "value": str(share)})
+        for mn in sorted(by_month):
+            try:
+                await alloc_drivers.commit_month(
+                    s, tenant, actor, drv.id, period=dt.date(effective_from.year, mn, 1),
+                    rows=by_month[mn],
+                    note="From the audited books workbook, decided in the Oct 14 meeting.")
+                print(f"  committed month {mn:>2}: {len(by_month[mn])} values")
+            except Exception as e:
+                print(f"  month {mn:>2} refused: {str(e)[:70]}")
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -318,25 +448,32 @@ def main():
     ap.add_argument("--wire", action="store_true", help="actually create the rules")
     ap.add_argument("--from", dest="month", default=None, help="effective month, YYYY-MM")
     ap.add_argument("--reach", default="forward", choices=("forward", "from_date", "retro"))
+    ap.add_argument("--with-history", action="store_true",
+                    help="also commit the workbook's Jan-Oct driver months, so the Drivers tab "
+                         "has a month to prefill the next one from")
     a = ap.parse_args()
 
     wb = openpyxl.load_workbook(a.workbook, read_only=True, data_only=True)
     payees = payee_index(wb)
+    staff = read_staff(wb)
     plans = [plan_row(r, payees, is_staff=False)
              for r in read_items(wb, "33 Software") + read_items(wb, "34 Other Shared Costs")]
-    plans += [plan_row(r, payees, is_staff=True) for r in read_staff(wb)]
+    # The people whose split holds still become fixed rules; the four that move become driven.
+    plans += [plan_row(r, payees, is_staff=True) for r in staff if not r.get("varies")]
+    driven = plan_driven(staff)
     detect_shared_payees(plans)
-    ok = show(plans)
+    ok = show(plans, driven)
 
     if not a.wire:
-        print(f"\nPlan only. Re-run with --wire to create the {len(ok)} loadable rules.")
+        print(f"\nPlan only. Re-run with --wire to create them.")
         return
     if not a.month:
         sys.exit("--wire needs --from YYYY-MM: a rule has to say which month it starts in.")
     import datetime as dt
     y, m = (int(x) for x in a.month.split("-"))
-    asyncio.run(wire(ok, effective_from=dt.date(y, m, 1), reach=a.reach,
-                     pool_name_default="Shared cost"))
+    asyncio.run(wire(ok, [d for d in driven if not d["skip"]],
+                     effective_from=dt.date(y, m, 1), reach=a.reach,
+                     pool_name_default="Shared cost", with_history=a.with_history))
 
 
 if __name__ == "__main__":
