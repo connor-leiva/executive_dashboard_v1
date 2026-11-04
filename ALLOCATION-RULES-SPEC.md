@@ -1578,6 +1578,64 @@ Tier 3 rule reports `resolved_amount` 0.00 with its full 8,000 pool as `unresolv
 `variance` -8,000.00. 15 tests for this phase.
 
 ### Phase 8
+
+Done 2026-11-03, commit `b42014d`. Frontend only.
+
+**Files.** `BooksAllocations.jsx` (shell, SegNav, badge counts, the responsive style block) and
+`books/allocations/`: `TierMarker.jsx`, `RulesView.jsx`, `ExceptionsView.jsx`,
+`DriversView.jsx`, `ReconView.jsx`, `RuleDrawer.jsx`. Five hooks on `useEndpoint` and their
+samples. `Books.jsx` mounts it after Mapping. `BooksStatement.jsx` gains 7.5.
+
+**No Edit and no Delete anywhere on an applied rule.** The API answers 409 to both, and a
+control that cannot work is a lie in the shape of a button. The expanded row carries the full
+version history instead, so what a closed month was allocated on stays readable.
+
+**Save names ONE blocker at a time**, in step order, rather than only disabling. Verified in the
+browser as a chain: pattern, entity, tier, two entities, "The shares have to add up to 1. They
+come to 0.9000.", why, then Save enables.
+
+**Tier is carried three ways** (marker shape, two-character code, row treatment) because three
+of the five businesses share one accent value, so a reader distinguishing tiers by hue would be
+distinguishing some of them by nothing at all.
+
+**Four things the checks caught that would otherwise have shipped.**
+
+| Found by | What |
+|---|---|
+| Looking at 375px | The responsive layout was broken WHILE every check passed. The build succeeded, A12 found four media queries, and the queries were correct, but the grid templates were set INLINE and an inline style beats a stylesheet rule on specificity. Six columns stayed six at phone width, three tracks empty, the pool name crushed to 62px. The templates live in the stylesheet now: 6 columns at 1280px, 2 at 375px, no sideways scroll at either. |
+| A3 and A10 | Both failed on this module's own COMMENTS, which quoted the literal accent value and the forbidden constant name while explaining why neither belongs there. A grep does not read intent. The same trap caught a `setattr` in Phase 3. |
+| Reading the helper | `postJSON` takes only `(path, body)`. A third `"PUT"` argument would have been dropped in silence and sent a POST to a PUT-only route. `putJSON` exists. |
+| Checking an uncertainty | `L.scrim` does not exist in `LEDGER` and a `||` fallback hid it. A missing object key is silent in JavaScript and no build catches it. It uses `alpha(L.deep, 0.38)` now, and goes opaque below 560px as 7.4 asks. |
+
+**Browser verification, on the production build rather than the dev server.** All four views
+render with sample data: Rules (tier cards, filters, two rules, 1,600.00 under T3), Exceptions
+(420.00 across two transactions with gap chips), Drivers (a committed month with the three value
+kinds worded, and the prefill kept visibly separate), Reconciliation (600.00 unresolved,
+variance in ledger parens). Row expansion shows all four sections and no Edit or Delete. The
+drawer opens at 461px and goes full width below 560. The Statement's composition panel shows
+`Advertising v2 · Tier 3 split · from 2026-04-01 · 4 months` with the rationale
+below it, the observed row beside it unchanged, and the panel still adds to 13,555.
+
+**Acceptance checks.** A3, A4, A5, A6, A7, A10, A11 and A13 all zero across the seven files;
+A12 non-zero. A5's grep as written cannot run in this shell (`grep -P` needs a unibyte or UTF-8
+locale and this one is neither), so it was checked with Python instead.
+
+**Not built.** Tier 2's campaign-map builder. The drawer says so plainly and points elsewhere
+rather than offering a form that cannot work.
+
+**Also in this commit: the five gaps the Phases 5 to 7 mutation run found.** Each was a fixture
+that could not tell right from wrong: a traced ratio of 0.6/0.3 quantizes to four places exactly
+so it could not detect a quantize being reintroduced; an out-of-range insight row sat BEFORE the
+month so widening the upper bound admitted nothing; every prefix assertion put the value at the
+start; the queue's second entity had no chart rows so the inner join dropped it whether the
+entity filter existed or not; and nothing asserted which months a preview spans. 40 of 41
+mutations caught now, the one survivor being a guard redundant with the check below it.
+
+**The entity-with-no-chart blindness appeared TWICE** (Phase 4's E12 and Phase 7's X7). A fixture
+entity with no `CoaMap` rows cannot test anything that joins through the chart, because the join
+removes the row regardless of the filter under test. Both tests now map the same account on both
+entities and say why in their docstrings.
+
 ### Phase 9
 ### Phase 10
 ### Phase 11
