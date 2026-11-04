@@ -748,6 +748,68 @@ async def alloc_preview(body: AllocPreviewIn,
     }
 
 
+@router.get("/allocations/summary")
+async def alloc_summary(period: str | None = None,
+                        period_start: dt.date | None = None,
+                        period_end: dt.date | None = None,
+                        user: User = Depends(books_user),
+                        s: AsyncSession = Depends(get_session)):
+    """What needs a person this month, and which months there are to choose from (7.5).
+
+    SCOPED TO THE MONTH ASKED FOR, not the fiscal year. The strip above the page reads "Needs
+    you in November", so a year of months would be eleven times the work for ten months nobody
+    is looking at: `reconciliation` loops months and queries per rule-month, and this is called
+    on every page load on top of the view's own call. One month keeps it cheap enough to be
+    honest about (UI spec 0.1 item 7, and the 2026-10-10 sync incident).
+
+    `months` and `default_month` come from HERE rather than the browser because the fiscal
+    start is not a field the browser can read -- 5.1 of the UI spec assumed `CoaSettings`
+    carried it and it does not; the engine gets it from QuickBooks at sync time. Having the
+    server own the default also means a test can time-travel it, which a `new Date()` in a
+    component cannot be (standing rule: every compute entry point takes an injected `today`).
+    """
+    today = dt.date.today()
+    fy_month = 1
+    series = coa_balances.allocation_months(today, fy_month)
+    # The last COMPLETE month, but never earlier than the month this module became
+    # authoritative: before that date Books Cleanup owns the figures and every rule here is
+    # effective later, so the page would open on a month that renders as zeros (0.1 item 1).
+    complete = [m for m in series if m[1] < today] or series
+    default_month = max(complete[-1][0], alloc_engine.MODULE_LIVE_FROM) if series else None
+    if default_month and series and default_month > series[-1][0]:
+        default_month = series[-1][0]
+
+    key = _period(period_start, period_end, period)
+    ex = await alloc_engine.exceptions(s, user.tenant_id, key, today=today)
+    recon = await alloc_engine.reconciliation(s, user.tenant_id, key, today=today)
+    money = coa_balances._money
+
+    unclaimed = [r for r in ex["rows"] if r.get("status") != "partly_covered"]
+    payees = {alloc_engine.normalize_name(r["payee"]) for r in unclaimed if r.get("payee")}
+    pending_rules = [r for r in recon["rules"] if r["pending"]]
+
+    drivers = []
+    for d in await alloc_drivers.list_drivers(s, user.tenant_id):
+        c = await alloc_drivers.current_commit(s, user.tenant_id, d.id, key[0]) \
+            if key[0] else None
+        drivers.append({"id": str(d.id), "label": d.label,
+                        "committed": c is not None,
+                        "committed_at": c.committed_at.isoformat()
+                                        if c and c.committed_at else None})
+    return {
+        "months": [m[0].isoformat() for m in series],
+        "default_month": default_month.isoformat() if default_month else None,
+        "unclaimed_total": money(ex["total"]),
+        "unclaimed_count": len(unclaimed),
+        "payee_count": len(payees),
+        "partly_covered_count": len(ex["rows"]) - len(unclaimed),
+        "pending_rules": len(pending_rules),
+        "pending_amount": money(sum((r["unresolved_amount"] for r in pending_rules),
+                                    alloc_engine.ZERO)),
+        "drivers": drivers,
+    }
+
+
 @router.get("/allocations/recon")
 async def alloc_recon(period: str | None = None,
                       period_start: dt.date | None = None,

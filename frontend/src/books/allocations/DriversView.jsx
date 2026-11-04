@@ -13,6 +13,7 @@
 import { useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
 import { valueKindLabel, fmtMonth, fmtDay } from "./words.js";
+import { Skeleton } from "./controls.jsx";
 import { postJSON } from "../../api";
 import { useAllocDriverMonth } from "../useBooks.js";
 
@@ -21,9 +22,6 @@ const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: 
 const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
                   textTransform: "uppercase", color: L.faint };
 
-const MONTHS = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
-const MONTH_LABEL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function Entity({ id, businesses }) {
   const b = (businesses || []).find((x) => x.id === id);
@@ -248,17 +246,14 @@ function NotSet({ month }) {
   );
 }
 
-/* The month the picker opens on. It was a literal `${year}-07-01`, so the card opened on July
-   whatever month it was, and somebody looking at November had to notice and change it before
-   anything they did applied to the month they meant. Fixed month literals are a known bug
-   family in this repo. */
-function openingMonth(year) {
-  const now = new Date();
-  return `${year}-${MONTHS[now.getFullYear() === year ? now.getMonth() : 0]}-01`;
-}
+/* No month control here any more (5.1). The card used to carry its own, unconnected to the
+   rest of the page, so Drivers could be showing one month while every other view showed
+   another and nothing on screen said so. It was also the picker that opened on a literal
+   July. The page's month is the only month now, which makes that whole family of bug
+   impossible rather than fixed.
 
-function DriverCard({ driver, meta, businesses, isCFO, year }) {
-  const [month, setMonth] = useState(() => openingMonth(year));
+   The literal `MONTHS` list it needed is gone with it. */
+function DriverCard({ driver, meta, businesses, isCFO, month }) {
   const { data, loading, refresh } = useAllocDriverMonth(driver.id, month);
 
   const commit = data?.commit;
@@ -282,21 +277,13 @@ function DriverCard({ driver, meta, businesses, isCFO, year }) {
               {driver.unit ? ` · ${driver.unit}` : ""}
             </span>
           </span>
-          <select value={month} onChange={(e) => setMonth(e.target.value)}
-            style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, background: L.paper,
-                     border: `1px solid ${L.cardEdge}`, borderRadius: 9, padding: "5px 9px" }}>
-            {MONTHS.map((m, i) => (
-              <option key={m} value={`${year}-${m}-01`}>{MONTH_LABEL[i]} {year}</option>
-            ))}
-          </select>
+          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.bodyDim }}>
+            {fmtMonth(month)}
+          </span>
         </div>
       </div>
 
-      {loading && (
-        <div style={{ padding: "16px", fontFamily: F.body, fontSize: 12, color: L.muted }}>
-          Reading this month.
-        </div>
-      )}
+      {loading && <div style={{ padding: 16 }}><Skeleton rows={2} /></div>}
 
       {!loading && !commit && (
         <div style={{ padding: 16, display: "grid", gap: 12 }}>
@@ -346,8 +333,8 @@ function DriverCard({ driver, meta, businesses, isCFO, year }) {
   );
 }
 
-export default function DriversView({ data, isCFO, businesses, refresh,
-                                      year = new Date().getFullYear() }) {
+export default function DriversView({ data, isCFO, businesses, refresh, month,
+                                      selected = null, onSelect = () => {} }) {
   const meta = data?.meta || {};
   const drivers = data?.drivers || [];
 
@@ -370,7 +357,7 @@ export default function DriversView({ data, isCFO, businesses, refresh,
     <div style={{ display: "grid", gap: 14 }}>
       {drivers.map((d) => (
         <DriverCard key={d.id} driver={d} meta={meta} businesses={businesses} isCFO={isCFO}
-                    year={year} />
+                    month={month} />
       ))}
     </div>
   );

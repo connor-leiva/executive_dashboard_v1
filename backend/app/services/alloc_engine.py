@@ -40,6 +40,13 @@ ZERO = Decimal("0.00")
 # match, and a Transfer because it never touches a P&L account.
 POOL_TXN_TYPES = ("Purchase", "Bill")
 
+# The month this module became authoritative. Books Cleanup owns 2026 through 31 October and
+# this owns 1 November on; the date decides, not the tab somebody opened (SPEC 0.1 cutover).
+# The page's month control will not open earlier than this: every live rule is effective from
+# November with `reach` forward, so an earlier month renders as zeros and reads as a page
+# where nothing works. Here rather than in a route so one date governs every caller.
+MODULE_LIVE_FROM = dt.date(2026, 11, 1)
+
 # Why a rule-month resolved to nothing, from the one set (5.6). Phase 4 can reach three of
 # these; the driver and traced reasons arrive with Phases 5 and 6.
 PENDING_REASONS = (

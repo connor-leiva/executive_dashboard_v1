@@ -20,7 +20,7 @@ const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
    only: the number itself arrived from the server and is not touched. */
 
 
-export default function ReconView({ data, period }) {
+export default function ReconView({ data, month, go = () => {} }) {
   const meta = data?.meta || {};
   const rules = data?.rules || [];
   const months = data?.months || [];
@@ -31,7 +31,7 @@ export default function ReconView({ data, period }) {
       <div style={{ background: L.card, border: `1px solid ${L.cardEdge}`, borderRadius: 14,
                     padding: 28, textAlign: "center" }}>
         <div style={{ fontFamily: F.body, fontSize: 13, color: L.body }}>
-          No applied rules yet for this period.
+          No applied rules yet for this month.
         </div>
         <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted, marginTop: 6 }}>
           Nothing to reconcile until a rule claims a pool.
@@ -108,8 +108,8 @@ export default function ReconView({ data, period }) {
 
       <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
         {months.length
-          ? `Covering ${months.length} month${months.length === 1 ? "" : "s"} of ${period}.`
-          : `No complete months inside ${period} yet.`}
+          ? `Covering ${months.map(fmtMonth).join(", ")}.`
+          : "No complete months in this span yet."}
       </div>
     </div>
   );

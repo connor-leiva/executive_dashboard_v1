@@ -951,6 +951,61 @@ payload shape.
    needs that file.
 
 ### Phase 2
+
+**Done 2026-11-04.** §4, §5, §7.5, §8.3, and the shared visual pieces.
+
+- `GET /books/allocations/summary` (§7.5), plus `months` and `default_month`, which §5.1 wanted
+  the browser to work out and it cannot (§0.1 item 6). **Scoped to the month asked for**, not
+  the fiscal year: the strip says "Needs you in November", so a year of months would be eleven
+  times the work for ten nobody is reading (§0.1 item 7).
+- `alloc_engine.MODULE_LIVE_FROM`, the cutover date, so one constant governs the month rule.
+- `allocations/controls.jsx`: `Button`, `Chip`, `Select`, `Input`, `Tabs`, `Skeleton`,
+  `SavedBand`, `PageFrame`. `allocations/Shell.jsx`: the dark bar, the tab row, the needs-you
+  strip. `LEDGER.deepHover` added, the one colour the mockup uses that was not a token.
+- `BooksAllocations.jsx`: the month lives here, remembered per session, passed to every view.
+  Badges come from the summary rather than from counting rows. New rule moved into the Rules
+  toolbar. Focus, hover and skeleton rules added to the style block.
+- `DriversView`: its own per-card month select is gone, and the `MONTHS`/`MONTH_LABEL`
+  literals with it.
+- Rules gained search and tier chips; the entity filter moved to the dark bar.
+
+**Gate as measured**, on `npm run build` plus `preview`:
+- **Against the real API, the control opens on November 2026** on 4 November, which is the
+  whole point of §0.1 item 1: October is complete and pre-cutover, so the audit's rule would
+  have opened on a month that renders as zeros.
+- Changing it to September re-fired all four endpoints with `period=2026-09-01` (summary,
+  rules, exceptions, recon), read off the network log.
+- Drivers shows the page's month as text, with no control of its own.
+- New rule is in the toolbar at 1280 and 375.
+- All three strip items navigate: the driver item lands on Drivers with that driver selected,
+  the unclaimed item on Exceptions.
+- `.al-ctl:focus-visible` is in the shipped stylesheet (2px `L.accentInk`, offset 2) and
+  matches 20 controls; a real Tab draws it.
+- 375px: `document.scrollWidth === clientWidth`, no horizontal scroll.
+- 161 tests pass across the allocation suites, 7 of them new in `test_alloc_ui_phase2.py`.
+
+**Corrected while building:**
+1. **A remembered month the server no longer offers made the control lie.** `sessionStorage`
+   held September; the sample months stop at July; a `<select>` whose value matches no option
+   displays the FIRST one while the state keeps the old value. The control read January while
+   the page read September, and neither was wrong on its own. Found by using it, not by
+   review. The hook now drops a remembered month that is not in the server's list. Reachable
+   in production at a fiscal rollover or a workspace switch.
+2. **Two ledger rows had fewer grid tracks than visible children at 375px.** Measured: 2
+   tracks, 3 visible children, so In the books wrapped into an implicit row and took the 22px
+   marker track -- "1,000.00" rendered 22px wide. Pre-existing, and the exact failure the
+   grid-template comment in `BooksAllocations.jsx` was written about. Both now carry three.
+3. **A known hole, left in and asserted rather than fixed:** in January the month to close is
+   December, and `allocation_months` runs from the FISCAL YEAR START, so December is not in
+   the series and cannot be selected or defaulted to. Widening that function changes what
+   `derive_all` and `reconciliation` compute, which is an engine decision, not a UI one.
+   `test_in_january_december_is_not_reachable_at_all_and_that_is_a_gap` holds it. **Connor
+   should decide** whether the month list reaches back into the previous fiscal year.
+4. **The local dev database predated the whole module** (no `allocation_rule_version`, no
+   `alloc_pool_business_ids`, and stamped at `0001_init` while its schema came from
+   `create_all`, so migrations could not run). Brought up to the models to verify against a
+   real API. No product change.
+
 ### Phase 3
 ### Phase 4
 ### Phase 5

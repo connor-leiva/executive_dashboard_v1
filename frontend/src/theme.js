@@ -73,6 +73,11 @@ export const LEDGER = {
 
   // ink, darkest to faintest
   deep: "#0E2B22",           // dark rows, active chips, the strongest rule
+  // The primary button's hover fill. A TOKEN rather than an inline hex because the
+  // allocations folder is grepped for raw hex (check B1), and the obvious substitute --
+  // `alpha(deep, .92)` -- is both off-hue and translucent where the design is opaque. This
+  // is the one colour in `Allocation Rules v2.dc.html` that was not already in this palette.
+  deepHover: "#17402F",
   onDeep: "#F3EFE6",
   body: "#40564B",           // an account name
   bodyDim: "#5C7367",

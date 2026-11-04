@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
 import Money from "./Money.jsx";
 import { methodLabel, reasonOf, scopeLabel, fmtMonth } from "./words.js";
+import { Button, Chip, Input } from "./controls.jsx";
 import { TierMarker, TierCode, tierRowStyle } from "./TierMarker.jsx";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
@@ -172,31 +173,38 @@ function Expanded({ rule, meta, businesses, isCFO, onSupersede }) {
   );
 }
 
-export default function RulesView({ data, period, isCFO, refresh, onSupersede = () => {} }) {
+export default function RulesView({ data, month, entity = "", isCFO, refresh,
+                                    onNew = () => {}, onSupersede = () => {} }) {
   const [tier, setTier] = useState(null);
-  const [entity, setEntity] = useState("");
+  const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
 
   const businesses = data?.businesses || [];
   const meta = data?.meta || {};
   const tiers = meta.tiers || [];
-  /* The month these figures cover, in words, from the months the SERVER reconciled rather
-     than from the period token: a card headed with a figure and no period is a figure a
-     reader cannot place (U7, U17). Phase 2 replaces this with the page's month control. */
-  const months = data?.months || [];
-  const monthLabel = months.length
-    ? (months.length === 1 ? fmtMonth(months[0])
-       : `${fmtMonth(months[0])} to ${fmtMonth(months[months.length - 1])}`)
-    : "";
+  /* The month these figures cover, in words. From the page's month control, so the caption
+     on a card and the span the figure covers cannot disagree (U7, U9, U17). */
+  const monthLabel = month && month !== "ytd" ? fmtMonth(month) : "year to date";
   // `applied` on purpose: `rules` is the route's OBSERVED list and this page renders the
   // applied ones. A test pinned that contract when a swap of the two keys broke it.
   const all = data?.applied || [];
 
+  const needle = q.trim().toLowerCase();
+  const nameOf = (id) => (businesses.find((b) => b.id === id)?.name || "").toLowerCase();
   const rules = all.filter((r) => {
     if (tier != null && (r.current?.tier ?? 0) !== tier) return false;
-    if (!entity) return true;
-    if (r.pool_business_id === entity) return true;
-    return (r.current?.targets || []).some((t) => t.business_id === entity);
+    if (entity) {
+      const mine = r.pool_business_id === entity
+        || (r.current?.targets || []).some((t) => t.business_id === entity);
+      if (!mine) return false;
+    }
+    if (!needle) return true;
+    // Pool name, pattern and entity names, client side (6.1). A search that matched only
+    // the pool name would miss the thing most people type, which is a payee.
+    const hay = [r.pool_name, r.pattern, nameOf(r.pool_business_id),
+                 ...(r.current?.targets || []).map((t) => nameOf(t.business_id))]
+      .join(" ").toLowerCase();
+    return hay.includes(needle);
   });
 
   if (!all.length) {
@@ -220,21 +228,35 @@ export default function RulesView({ data, period, isCFO, refresh, onSupersede = 
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12,
                     flexWrap: "wrap" }}>
-        <select value={entity} onChange={(e) => setEntity(e.target.value)}
-          style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, background: L.paper,
-                   border: `1px solid ${L.cardEdge}`, borderRadius: 9, padding: "6px 10px" }}>
-          <option value="">Every entity</option>
-          {businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
-        {(tier != null || entity) && (
-          <button onClick={() => { setTier(null); setEntity(""); }}
-            style={{ fontFamily: F.body, fontSize: 12, color: L.muted, background: "transparent",
-                     border: "none", cursor: "pointer" }}>Clear filters</button>
-        )}
-        <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, marginLeft: "auto" }}>
-          {rules.length} of {all.length} shown
+        <Chip on={tier == null} onClick={() => setTier(null)}>All</Chip>
+        {tiers.map((tt) => {
+          const c = meta.tier_totals?.[String(tt.tier)]?.count || 0;
+          return (
+            <Chip key={tt.tier} on={tier === tt.tier}
+                  onClick={() => setTier(tier === tt.tier ? null : tt.tier)}>
+              {tt.code} {tt.label} {c}
+            </Chip>
+          );
+        })}
+        <span style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <Input value={q} onChange={setQ} placeholder="Search rules"
+                 ariaLabel="Search rules" width={200} />
+          {isCFO && <Button kind="primary" onClick={onNew}>New rule</Button>}
         </span>
       </div>
+
+      {!rules.length && (
+        <div style={{ background: L.paper, border: `1px solid ${L.ruleInner}`,
+                      borderRadius: 13, padding: 22, textAlign: "center" }}>
+          <div style={{ fontFamily: F.body, fontSize: 13, color: L.body }}>
+            No rules match.
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <Button kind="quiet" size="card"
+                    onClick={() => { setTier(null); setQ(""); }}>Clear filters</Button>
+          </div>
+        </div>
+      )}
 
       <div style={{ background: L.paper, border: `1px solid ${L.cardEdge}`, borderRadius: 14,
                     overflow: "hidden" }}>

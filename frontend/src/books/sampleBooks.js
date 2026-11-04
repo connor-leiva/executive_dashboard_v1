@@ -662,6 +662,22 @@ export const sampleAllocDriverMonth = {
   prefill: { from_month: "2026-06-01", rows: [] },
 };
 
+/* The strip, the badges, and the months the control offers. The months are a fixed list on
+   purpose: a sample that computed them from `new Date()` would drift every month and the
+   dev view would quietly stop matching the fixture its figures came from. */
+export const sampleAllocSummary = {
+  months: ["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01", "2026-05-01",
+           "2026-06-01", "2026-07-01"],
+  default_month: "2026-07-01",
+  unclaimed_total: 300, unclaimed_count: 1, payee_count: 1, partly_covered_count: 1,
+  pending_rules: 1, pending_amount: 600,
+  drivers: [
+    { id: "drv-staff", label: "Staff time commitment", committed: false, committed_at: null },
+    { id: "drv-heads", label: "Headcount", committed: true,
+      committed_at: "2026-07-31T17:00:00Z" },
+  ],
+};
+
 export const sampleAllocRecon = {
   meta: sampleAllocRules.meta,
   months: ["2026-07-01"],

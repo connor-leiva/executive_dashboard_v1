@@ -16,6 +16,10 @@
 import { useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
 import Money from "./Money.jsx";
+import { fmtMonth, gapLabel } from "./words.js";
+
+/* The month in words. "in mtd" was a period TOKEN rendered into a sentence. */
+const monthWords = (m) => (!m || m === "ytd" ? "the year to date" : fmtMonth(m));
 import { putJSON } from "../../api";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
@@ -165,7 +169,7 @@ function PoolStrip({ names, isCFO, onChange }) {
   );
 }
 
-export default function ExceptionsView({ data, period, isCFO, businesses, refresh,
+export default function ExceptionsView({ data, month, isCFO, businesses, refresh,
                                          onCreateRule = () => {} }) {
   const [editing, setEditing] = useState(false);
 
@@ -200,7 +204,7 @@ export default function ExceptionsView({ data, period, isCFO, businesses, refres
           <div style={{ fontFamily: F.body, fontSize: 13.5, color: L.deep, fontWeight: 600 }}>
             {nothingWatched
               ? "No entity is set as carrying shared cost."
-              : "Nothing unclaimed this period."}
+              : `Nothing unclaimed in ${monthWords(month)}.`}
           </div>
           <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted, marginTop: 6 }}>
             {nothingWatched
@@ -222,7 +226,8 @@ export default function ExceptionsView({ data, period, isCFO, businesses, refres
         <span style={EYEBROW}>Unclaimed</span>
         <Money v={data?.total} size={18} />
         <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
-          across {rows.length} transaction{rows.length === 1 ? "" : "s"} in {period}
+          across {rows.length} transaction{rows.length === 1 ? "" : "s"}
+          {month ? ` in ${monthWords(month)}` : ""}
         </span>
       </div>
 

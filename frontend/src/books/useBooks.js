@@ -7,7 +7,7 @@ import { sampleHome, samplePL, sampleQueue, sampleIC, sampleCoaEntities, sampleC
          sampleRuns, sampleNextRun, sampleRun, samplePolicies,
          samplePayablesEmail, sampleAllocRules, sampleAllocExceptions,
          sampleAllocDrivers, sampleAllocDriverMonth, sampleAllocRecon,
-         sampleAllocPartner } from "./sampleBooks.js";
+         sampleAllocPartner, sampleAllocSummary } from "./sampleBooks.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -192,6 +192,16 @@ export function useAllocPartner(businessId, period = "mtd") {
   return useEndpoint(
     businessId ? `/books/allocations/partner/${businessId}?period=${period}` : null,
     sampleAllocPartner, [businessId, period]);
+}
+
+/* The strip, the badges and the month control's options (7.5).
+ *
+ * `months` and `default_month` come from the SERVER. The browser cannot work them out: the
+ * fiscal start is read from QuickBooks at sync time and is not a field the page can see, and
+ * a "last complete month" computed from `new Date()` is a clock read no test can travel. */
+export function useAllocSummary(period = "mtd") {
+  return useEndpoint(`/books/allocations/summary?period=${period}`, sampleAllocSummary,
+                     [period]);
 }
 
 export function useAllocRecon(period = "mtd") {

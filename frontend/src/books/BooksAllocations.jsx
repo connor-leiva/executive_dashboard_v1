@@ -7,37 +7,54 @@
 
    No raw hex and no font family names anywhere in this folder: colours come from LEDGER and
    type from LEDGER_FONT, and theme.js says the folder is grepped for both. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F } from "../theme.js";
 import { StatePanel } from "./ui.jsx";
 import { useAllocRules, useAllocExceptions, useAllocDrivers, useAllocRecon,
-         useAllocPartner } from "./useBooks.js";
+         useAllocPartner, useAllocSummary } from "./useBooks.js";
 import RulesView from "./allocations/RulesView.jsx";
 import ExceptionsView from "./allocations/ExceptionsView.jsx";
 import DriversView from "./allocations/DriversView.jsx";
 import ReconView from "./allocations/ReconView.jsx";
 import PartnerView, { EntityPicker } from "./allocations/PartnerView.jsx";
 import RuleDrawer from "./allocations/RuleDrawer.jsx";
+import { DarkBar, ViewTabs, NeedsYou } from "./allocations/Shell.jsx";
+import { PageFrame, Skeleton } from "./allocations/controls.jsx";
 
-const VIEWS = [["rules", "Rules"], ["exceptions", "Exceptions"],
-               ["drivers", "Drivers"], ["recon", "Reconciliation"],
-               ["partner", "Partner"]];
+/* The month the page is on, remembered for the session.
+ *
+ * NOT the dashboard's period (D1). Allocation work is month-grained and the dashboard period
+ * is built for KPIs: `mtd` on the 4th showed four days, so 39 of 46 rules read as doing
+ * nothing (U9). And never written back to the dashboard's own selector -- two controls
+ * setting one value is how a page starts disagreeing with itself.
+ */
+const KEY = "alloc.month";
 
-function SegNav({ view, setView, counts }) {
-  return (
-    <div style={{ display: "inline-flex", gap: 2, background: L.controls,
-                  border: `1px solid ${L.cardEdge}`, borderRadius: 10, padding: 3,
-                  marginBottom: 18, flexWrap: "wrap" }}>
-      {VIEWS.map(([k, label]) => (
-        <button key={k} onClick={() => setView(k)} style={{ fontFamily: F.body, fontSize: 12.5,
-          fontWeight: 600, borderRadius: 8, border: "none", padding: "7px 15px",
-          cursor: "pointer", color: view === k ? L.deep : L.muted,
-          background: view === k ? L.paper : "transparent" }}>
-          {label}{counts[k] ? ` · ${counts[k]}` : ""}
-        </button>
-      ))}
-    </div>
-  );
+function useAllocMonth(fallback, months) {
+  const [month, setMonth] = useState(() => {
+    try { return sessionStorage.getItem(KEY) || null; } catch { return null; }
+  });
+  // The default comes from the SERVER and arrives after the first render, so it is adopted
+  // once, and only when the reader has not already chosen (0.1 item 1 and item 6).
+  //
+  // A REMEMBERED MONTH THE SERVER NO LONGER OFFERS IS DROPPED. A `<select>` whose value
+  // matches no option silently displays the FIRST one while the state holds the old value,
+  // so the control said January while the page showed September and nothing was wrong on
+  // either side on its own. Reachable in production whenever the option list changes under
+  // a live session: the fiscal year rolls over, or somebody switches workspace.
+  useEffect(() => {
+    if (!fallback) return;
+    const known = !months?.length || month === "ytd" || months.includes(month);
+    if (!month || !known) {
+      setMonth(fallback);
+      try { sessionStorage.setItem(KEY, fallback); } catch { /* private mode */ }
+    }
+  }, [month, fallback, months]);
+  const choose = (m) => {
+    setMonth(m);
+    try { sessionStorage.setItem(KEY, m); } catch { /* private mode: the session is enough */ }
+  };
+  return [month || fallback || null, choose];
 }
 
 export default function BooksAllocations({ period = "mtd", isCFO = false }) {
@@ -48,66 +65,94 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
   // Which entity the Partner view is answering for. Held HERE rather than inside that
   // view so leaving the tab and coming back does not silently reset to no entity.
   const [partnerId, setPartnerId] = useState(null);
-  const rules = useAllocRules(period);
-  const exceptions = useAllocExceptions(period);
-  const drivers = useAllocDrivers();
-  const recon = useAllocRecon(period);
-  const partner = useAllocPartner(partnerId, period);
+  // Which entity filters the ledger, and which driver the strip sent us to.
+  const [entity, setEntity] = useState("");
+  const [driverId, setDriverId] = useState(null);
 
-  // The badge counts are the two things somebody is waiting on: unclaimed cost, and rules that
-  // resolved nothing. Both come from the payload; neither is derived by counting rows here.
+  // The summary is asked for the dashboard period only until the month is known; everything
+  // else waits for the month, so no view ever renders a figure for a span the control is not
+  // showing. One request answers the strip, the badges and the control's options.
+  const summary = useAllocSummary(period);
+  const [month, setMonth] = useAllocMonth(summary.data?.default_month,
+                                          summary.data?.months);
+  const span = month || period;
+  const monthSummary = useAllocSummary(span);
+
+  const rules = useAllocRules(span);
+  const exceptions = useAllocExceptions(span);
+  const drivers = useAllocDrivers();
+  const recon = useAllocRecon(span);
+  const partner = useAllocPartner(partnerId, span);
+
+  const sum = monthSummary.data;
+  // The badge counts come from the summary, not from counting rows: a view that has not
+  // loaded yet has no rows, and a badge that reads zero until its tab is opened is worse
+  // than no badge (7.5).
   const counts = {
-    exceptions: exceptions.data?.rows?.length || 0,
-    recon: (recon.data?.rules || []).filter((r) => r.unresolved_amount).length || 0,
+    exceptions: sum?.unclaimed_count || 0,
+    recon: sum?.pending_rules || 0,
+    drivers: (sum?.drivers || []).filter((d) => !d.committed).length || 0,
+  };
+
+  const go = (next, driver = null) => {
+    setView(next);
+    if (driver) setDriverId(driver);
   };
 
   const active = { rules, exceptions, drivers, recon, partner }[view];
 
   return (
     <div>
-      <SegNav view={view} setView={setView} counts={counts} />
+      <PageFrame>
+        <DarkBar businesses={rules.data?.businesses || []} entity={entity}
+                 onEntity={setEntity} month={month}
+                 months={sum?.months || summary.data?.months || []} onMonth={setMonth} />
+        <ViewTabs view={view} setView={setView} counts={counts} />
+        <NeedsYou summary={sum} month={month} go={go} />
 
-      {/* OUTSIDE StatePanel on purpose. StatePanel replaces its children with an error card,
-          and the partner route answers 409 for an unmapped account or a failed tie-out, so a
-          picker rendered inside it disappears exactly when somebody needs it to choose a
-          different entity. Retry would only ask for the failing one again. */}
-      {view === "partner" && (
-        <EntityPicker businesses={rules.data?.businesses || []} value={partnerId}
-                      onPick={setPartnerId} />
-      )}
+        <div style={{ padding: "22px clamp(14px,3vw,26px) 26px", display: "grid", gap: 16 }}>
+          {/* OUTSIDE StatePanel on purpose. StatePanel replaces its children with an error
+              card, and the partner route answers 409 for an unmapped account or a failed
+              tie-out, so a picker rendered inside it disappears exactly when somebody needs
+              it to choose a different entity. Retry would only ask for the failing one. */}
+          {view === "partner" && (
+            <EntityPicker businesses={rules.data?.businesses || []} value={partnerId}
+                          onPick={setPartnerId} />
+          )}
 
-      <StatePanel loading={active.loading} error={active.error}
-                  retry={active.retry} empty={false}>
-        {view === "rules" && (
-          <RulesView data={rules.data} period={period} isCFO={isCFO}
-                     refresh={rules.refresh}
-                     onSupersede={(r) => setDrawer({ mode: "supersede", rule: r })} />
-        )}
-        {view === "exceptions" && (
-          <ExceptionsView data={exceptions.data} period={period} isCFO={isCFO}
-                          businesses={rules.data?.businesses || []}
-                          refresh={() => { exceptions.refresh(); rules.refresh(); }}
-                          onCreateRule={(txn) => setDrawer({ mode: "exception", prefill: txn })} />
-        )}
-        {view === "drivers" && (
-          <DriversView data={drivers.data} isCFO={isCFO}
-                       businesses={rules.data?.businesses || []}
-                       refresh={drivers.refresh} />
-        )}
-        {view === "recon" && <ReconView data={recon.data} period={period} />}
-        {view === "partner" && (
-          <PartnerView data={partner.data} period={period} businessId={partnerId} />
-        )}
-      </StatePanel>
-
-      {isCFO && view === "rules" && (
-        <button onClick={() => setDrawer({ mode: "new" })}
-          style={{ marginTop: 16, fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
-                   color: L.paper, background: L.deep, border: "none", borderRadius: 9,
-                   padding: "8px 15px", cursor: "pointer" }}>
-          New allocation rule
-        </button>
-      )}
+          {active.loading && !active.data ? <Skeleton /> : (
+            <StatePanel loading={false} error={active.error}
+                        retry={active.retry} empty={false}>
+              {view === "rules" && (
+                <RulesView data={rules.data} month={month} entity={entity} isCFO={isCFO}
+                           refresh={rules.refresh}
+                           onNew={() => setDrawer({ mode: "new" })}
+                           onSupersede={(r) => setDrawer({ mode: "supersede", rule: r })} />
+              )}
+              {view === "exceptions" && (
+                <ExceptionsView data={exceptions.data} month={month} isCFO={isCFO}
+                                businesses={rules.data?.businesses || []}
+                                refresh={() => { exceptions.refresh(); rules.refresh(); }}
+                                onCreateRule={(txn) =>
+                                  setDrawer({ mode: "exception", prefill: txn })} />
+              )}
+              {view === "drivers" && (
+                <DriversView data={drivers.data} isCFO={isCFO} month={month}
+                             selected={driverId} onSelect={setDriverId}
+                             businesses={rules.data?.businesses || []}
+                             refresh={() => { drivers.refresh(); monthSummary.refresh(); }} />
+              )}
+              {view === "recon" && <ReconView data={recon.data} month={month} go={go} />}
+              {view === "partner" && (
+                <PartnerView data={partner.data} period={span} businessId={partnerId} />
+              )}
+            </StatePanel>
+          )}
+        </div>
+      </PageFrame>
+      {/* New rule used to render HERE, after StatePanel and below all 46 rows, so on a real
+          tenant there was no way to create a rule without scrolling past the whole ledger
+          (U10). It lives in the Rules toolbar now. */}
 
       <RuleDrawer open={!!drawer} mode={drawer?.mode || "new"} rule={drawer?.rule || null}
                   prefill={drawer?.prefill || null}
@@ -162,6 +207,32 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
            templates are: an inline display beats a media query, so an inline block here
            would defeat the display:none rules below that drop these columns at 820 and 520. */
         .al-money { display: block; text-align: right; }
+
+        /* INTERACTION STATES (9.5). The page had a pointer cursor and nothing else: no
+           hover, no visible keyboard focus, no pressed state (U24). A control with no focus
+           ring cannot be used without a mouse, which is not a polish item. */
+        .al-ctl:focus-visible {
+          outline: 2px solid ${L.accentInk}; outline-offset: 2px; border-radius: 8px;
+        }
+        .al-btn-primary:hover:not(:disabled) { background: ${L.deepHover} !important;
+                                               border-color: ${L.deepHover} !important; }
+        .al-btn-secondary:hover:not(:disabled) { border-color: ${L.accentInk} !important;
+                                                 color: ${L.accentInk} !important; }
+        .al-btn-quiet:hover:not(:disabled) { color: ${L.deep} !important; }
+        .al-chip:hover { border-color: ${L.accentInk}; }
+        .al-tab:hover { color: ${L.deep}; }
+        .al-strip-item:hover { text-decoration: underline; }
+        .al-row-hover:hover { background: ${L.totalBand}; }
+        .al-row-hover.al-t3:hover { background: ${L.flagBgHover}; }
+
+        /* Three bars where a row will be, rather than the words "Reading this month." */
+        .al-skel { animation: al-pulse 1.4s ease-in-out infinite; }
+        @keyframes al-pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+        /* 9.5: everything above is motion or hint, so all of it goes. */
+        @media (prefers-reduced-motion: reduce) {
+          .al-skel { animation: none; }
+        }
         @media (max-width: 900px) {
           .al-cards { grid-template-columns: repeat(2, minmax(0,1fr)); }
         }
@@ -174,8 +245,14 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
         }
         @media (max-width: 520px) {
           .al-cards { grid-template-columns: minmax(0,1fr); }
-          .al-rules-row { grid-template-columns: 22px minmax(0,1fr); }
-          .al-recon-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+          /* THREE tracks, because three children are still visible here: the marker, the
+             name, and In the books. The comment above says dropping a track while the row
+             still renders the child is how this repo's min-size bugs happen, and these two
+             rules were doing exactly that -- at 375px the figure wrapped into an implicit
+             row and took the 22px marker track, so "1,000.00" rendered 22px wide. Measured,
+             not guessed: 2 tracks against 3 visible children. */
+          .al-rules-row { grid-template-columns: 22px minmax(0,1fr) 84px; }
+          .al-recon-row { grid-template-columns: minmax(0,1fr) 76px 76px; }
           .al-partner-row { grid-template-columns: minmax(0,1.4fr) minmax(0,1fr); }
           .al-partner-row > .al-hide-narrow { display: none; }
           .al-partner-figs { grid-template-columns: repeat(2, minmax(0,1fr)); }

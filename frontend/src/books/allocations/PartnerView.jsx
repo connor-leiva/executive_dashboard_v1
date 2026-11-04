@@ -15,6 +15,7 @@
    recomputing them is how two screens come to disagree about one number. */
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
 import Money from "./Money.jsx";
+import { fmtMonth } from "./words.js";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
@@ -246,8 +247,9 @@ export default function PartnerView({ data, businessId, period }) {
       </div>
 
       <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
-        Read from the same statement the Statement page renders for {period}, so the two cannot
-        disagree about a figure they both show.
+        Read from the same statement the Statement page renders for{" "}
+        {period && period !== "ytd" ? fmtMonth(period) : "the year to date"}, so the two
+        cannot disagree about a figure they both show.
       </div>
     </div>
   );
