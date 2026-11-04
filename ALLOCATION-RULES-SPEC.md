@@ -1014,7 +1014,13 @@ the wrong vendor.
 3. **Vizual Lab, Forward Event, Tina Andrea Media.** Exceptions until a rule claims them.
 4. **The Meta figure.** The brief states 78 percent unattributed and also $30,280 of
    $260,267.22 traced (88.4 percent unattributed). Needs a source read before either is shown.
-5. **Julie's draw granularity.** 3100 directly, or a sub-account beneath it.
+5. ~~**Julie's draw granularity.**~~ **ANSWERED 2026-11-03: A SUB-ACCOUNT beneath `3100 Member
+   Draws and Distributions`.** Each member's draws stay separable on the balance sheet, and the
+   partner view can show one draw line per partner without a second mapping layer. Posting every
+   member straight to 3100 would make Julie's draw and anyone else's indistinguishable in exactly
+   the view built to show a partner their own figure. Phase 11 step 3 therefore maps the
+   sub-account, not the parent; if the sub-account does not exist in QuickBooks yet it has to be
+   created there first, since Mapping chooses among accounts QBO already has.
 6. **Rationales in Spring's words** for every rule declared in Phase 11.
 7. ~~**Which reading the Partner View leads with**, booked or allocated.~~
    **ANSWERED 2026-11-03: ALLOCATED.** It leads with the figure AFTER shared cost has been
