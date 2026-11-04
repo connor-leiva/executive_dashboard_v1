@@ -33,6 +33,7 @@ ONE = Decimal("1")
 # Four places, the same precision `alloc_rules` compares shares at: a count driver derives its
 # shares by division and will not land on exact halves.
 SHARE_PLACES = Decimal("0.0001")
+ZERO = Decimal("0.00")
 
 KINDS = ("split", "count")
 UNITS = ("percent", "people", "members")
@@ -92,10 +93,21 @@ def validate_values(kind: str, rows, *, known_business_ids: set) -> list[dict]:
             if row.get("value") not in (None, ""):
                 raise ValueError("A remainder takes no number: it is what the others leave.")
         elif vk == "share":
-            value = _number(row.get("value"), "A share")
-            if not (Decimal(0) <= value <= ONE):
-                raise ValueError("A share has to be a number between 0 and 1.")
-            value = value.quantize(SHARE_PLACES)
+            # A PERCENT IF THE CALLER SENT ONE. The form types percents now, because the
+            # card said "percent" while every box asked for a number between 0 and 1
+            # (U14); `pct_to_share` is the single conversion and storage stays a fraction
+            # (amendment 12). `value` is still accepted so existing callers and the
+            # engine's own fixtures keep working.
+            if row.get("pct") not in (None, ""):
+                if row.get("value") not in (None, ""):
+                    raise ValueError("Send a percent or a share for that entity, not both.")
+                from .alloc_rules import pct_to_share
+                value = pct_to_share(row.get("pct"))
+            else:
+                value = _number(row.get("value"), "A share")
+                if not (Decimal(0) <= value <= ONE):
+                    raise ValueError("A share has to be a number between 0 and 1.")
+                value = value.quantize(SHARE_PLACES)
         elif vk == "count":
             value = _number(row.get("value"), "A count")
             if value < 0:
@@ -189,6 +201,55 @@ async def subjects_by_driver(s: AsyncSession, tenant_id) -> dict:
     return {k: sorted(v) for k, v in out.items()}
 
 
+async def subjects_for_month(s: AsyncSession, tenant_id, driver_id, period: dt.date) -> list:
+    """The subjects this driver answers for in ONE month, with what each one feeds (7.6).
+
+    RESOLVED PER MONTH, not from `is_current`. `subjects_by_driver` reads the current version
+    of every rule, which is right for "who is on the form today" and wrong for a month in the
+    past: it would show this month's roster beside last month's committed numbers, and a
+    person added in November would appear on September's form as an unanswered row. The page
+    gained a month control, so that month is now reachable.
+
+    Each subject carries the rules that read it and what their pools hold, because that is
+    the dollars at stake and the reason to get the number right. The form said nothing about
+    what any row moved.
+    """
+    from ..models import AllocationRule
+    from .alloc_rules import effective_version, versions_for
+    from .alloc_engine import pools_for_month
+
+    month = month_start(period)
+    rules = list((await s.execute(select(AllocationRule).where(
+        AllocationRule.tenant_id == tenant_id,
+        AllocationRule.mode == "applied",
+        AllocationRule.is_active.is_(True)))).scalars())
+
+    live = []
+    for r in rules:
+        v = effective_version(await versions_for(s, tenant_id, r.id), month)
+        if v is None or v.method != "driven" or str(v.driver_id) != str(driver_id):
+            continue
+        live.append((r, v))
+    if not live:
+        return []
+
+    end = (month.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1)
+    pools, _vp = await pools_for_month(s, tenant_id, live, (month, end),
+                                       today=dt.date.today())
+
+    by_subject: dict = {}
+    for r, v in live:
+        if not v.driver_subject:
+            continue
+        amount = sum((pools.get(r.id) or {}).values(), Decimal("0.00"))
+        entry = by_subject.setdefault(v.driver_subject, {"name": v.driver_subject,
+                                                         "rules": [], "pool_amount": ZERO})
+        entry["rules"].append({"id": str(r.id), "pool_name": r.pool_name,
+                               "pool_amount": amount})
+        entry["pool_amount"] += amount
+    return [by_subject[k] for k in sorted(by_subject)]
+
+
 async def current_commit(s: AsyncSession, tenant_id, driver_id, period: dt.date):
     """The commit in force for a month, or None. `is_current` rather than the greatest
     `committed_at`, so a correction that supersedes is found by the same read a rule uses."""
@@ -279,14 +340,34 @@ def driver_out(d: AllocationDriver) -> dict:
             "value_kinds": list(VALUE_KINDS[d.kind])}
 
 
-def commit_out(c: AllocationDriverCommit, values) -> dict:
+def commit_out(c: AllocationDriverCommit, values, *, who: str | None = None) -> dict:
+    """One committed month. `pct` rides BESIDE `value` on a share row, never instead of it.
+
+    The stored figure is still the fraction the engine reads; `pct` is the same number in
+    the units the form types and the page shows (7.6, and the parent spec's rule that the
+    server formats and the browser does not compute).
+    """
+    from .alloc_rules import share_to_pct
     return {
         "id": str(c.id), "period_month": c.period_month.isoformat(),
         "committed_at": c.committed_at.isoformat() if c.committed_at else None,
+        "committed_by": ({"id": str(c.committed_by), "name": who}
+                         if c.committed_by else None),
         "note": c.note, "is_current": c.is_current,
         "superseded_by": str(c.superseded_by) if c.superseded_by else None,
         "values": [{"subject": v.subject, "business_id": str(v.business_id),
                     "value_kind": v.value_kind,
-                    "value": (str(v.value) if v.value is not None else None)}
+                    "value": (str(v.value) if v.value is not None else None),
+                    "pct": (share_to_pct(v.value) if v.value_kind == "share" else None)}
                    for v in values],
     }
+
+
+async def committer_name(s: AsyncSession, tenant_id, commit) -> str | None:
+    """Who committed a month. The Drivers card says "Committed Nov 3 by ..." and a date with
+    no name is half an audit trail."""
+    from ..models import User
+    if commit is None or not commit.committed_by:
+        return None
+    return (await s.execute(select(User.name).where(
+        User.tenant_id == tenant_id, User.id == commit.committed_by))).scalars().first()

@@ -1091,6 +1091,49 @@ payload shape.
    happened to sort first.
 
 ### Phase 5
+
+**Done 2026-11-04.** §6.3 and §7.6. The screen Connor asked about.
+
+- `alloc_rules.pct_to_share` and `share_to_pct`, beside `_share`, quantized the same way.
+  `validate_values` accepts `pct` on a share row; storage stays a fraction (amendment 12).
+  Sending both a percent and a share is refused rather than resolved.
+- `alloc_drivers.subjects_for_month`: the roster for ONE month, through
+  `effective_version`, each subject carrying the rules it feeds and what their pools hold.
+  `committer_name`, and `committed_by` on `commit_out`; `pct` beside `value` on every share.
+- `allocations/DriverMatrix.jsx`: rows are subjects, columns are entities, one mode per row
+  (Percent, or Fixed and rest), a total pill, and a commit bar that is always visible.
+- `CommitForm` deleted. The `NotSet` panel is one line. The per-card month select is gone.
+
+**Gate as measured**, driven in the running prod build:
+- Typing 70 stores `0.7000`, and reads back as `70`. Round-tripped for 70, 12.5, 33.33,
+  100 and 0.
+- A row at 90 blocks the commit and the bar says **"adds up to 90%, not 100%."**; adding
+  the last 10 clears the blocker and enables the button.
+- Each subject shows **"feeds Staff time / 600.00 this month"** -- the dollars at stake.
+- A committed month reads "Committed Jul 31", shows `70%` rather than `0.7000`, and offers
+  "Change July 2026", which reopens the matrix and writes a superseding commit.
+- At 375px the matrix becomes one column per subject with the entity name above each input;
+  `document.scrollWidth === clientWidth`, and nothing inside the matrix overflows.
+- 12 new tests; **five mutations run, five detected**. 182 tests pass across the suites.
+
+**Corrected while building:**
+1. **The roster has to be the month's, not today's.** `subjects_by_driver` reads
+   `is_current`, which was right when Drivers had no month control and is wrong now that any
+   past month is one click away: September's form would show November's people. A test holds
+   both behaviours side by side so the difference is visible.
+2. **A blank page, from a comment.** The `<style>` block in `BooksAllocations.jsx` is a
+   template literal, and its own comment says not to put backticks in it. A comment added
+   with backticks around a class name closed the literal early, after which `.al-money`
+   parsed as a property access minus an undefined variable: **it built cleanly** and threw at
+   runtime. Found by loading the page, not by the build. The replacement comment says what
+   happened, and a check now counts the backticks in that block.
+3. **`.al-money` is a right-aligned block,** which is correct in a ledger column and wrong in
+   a sentence: the dollars-at-stake figure rendered on its own line with the words beneath
+   it. `.al-money.al-inline` wins on specificity without an inline style that a media query
+   could not then beat.
+4. **The committed view showed the stored fraction.** A month committed as 70% read back as
+   "0.7000" -- the same mismatch the input had, in the other direction.
+
 ### Phase 6
 ### Phase 7
 

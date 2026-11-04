@@ -659,11 +659,20 @@ async def alloc_driver_month(driver_id: uuid.UUID, period: dt.date,
     (a month with no commit allocates nothing and reports `no_driver_values`).
     """
     c = await alloc_drivers.current_commit(s, user.tenant_id, driver_id, period)
+    subjects = await alloc_drivers.subjects_for_month(s, user.tenant_id, driver_id, period)
     out = {"period": alloc_drivers.month_start(period).isoformat(), "commit": None,
+           "meta": alloc_rules.vocabulary(),
+           # Who the form has rows for THIS month, and what each row moves in dollars.
+           "subjects": [{**sub,
+                         "pool_amount": coa_balances._money(sub["pool_amount"]),
+                         "rules": [{**r, "pool_amount": coa_balances._money(r["pool_amount"])}
+                                   for r in sub["rules"]]}
+                        for sub in subjects],
            "prefill": await alloc_drivers.prefill(s, user.tenant_id, driver_id, period)}
     if c is not None:
         out["commit"] = alloc_drivers.commit_out(
-            c, await alloc_drivers.values_for(s, user.tenant_id, c.id))
+            c, await alloc_drivers.values_for(s, user.tenant_id, c.id),
+            who=await alloc_drivers.committer_name(s, user.tenant_id, c))
     return out
 
 

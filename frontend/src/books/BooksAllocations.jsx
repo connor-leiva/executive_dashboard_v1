@@ -209,6 +209,38 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
            templates are: an inline display beats a media query, so an inline block here
            would defeat the display:none rules below that drop these columns at 820 and 520. */
         .al-money { display: block; text-align: right; }
+        /* A figure INSIDE a sentence. The rule above makes every money figure a
+           right-aligned block, which is what a ledger column needs and what puts a number
+           in running text on its own line with the words under it. Two class selectors, so
+           this wins over the single one above without an inline style that a media query
+           could not then beat.
+           (Still no backticks anywhere in this block. One of them ends the template
+           literal, and the text after it parses as JS: a comment written here with
+           backticks around a class name became a property access minus an undefined
+           variable, which BUILT CLEANLY and threw a blank page at runtime.) */
+        .al-money.al-inline { display: inline; text-align: inherit; }
+
+        /* The driver matrix. Below 660 it stops being a table: the header row goes, each
+           subject becomes a card, and the entity inputs sit in a two-column grid with the
+           entity NAME above each one -- because a column header a reader has scrolled past
+           is not a label (6.3, 5.3). The track count still matches the children at every
+           width; that is the bug family this file's grid comment is about. */
+        .al-mx-head { }
+        @media (max-width: 660px) {
+          .al-mx { grid-template-columns: minmax(0,1fr) !important; gap: 8px !important; }
+          .al-mx > span { justify-content: flex-start !important; }
+          .al-mx-head { display: none !important; }
+          .al-mx-wrap {
+            border: 1px solid ${L.ruleInner}; border-radius: 11; margin-bottom: 10px;
+            padding: 4px 10px;
+          }
+          .al-mx-cells {
+            display: grid !important; grid-template-columns: repeat(2, minmax(0,1fr));
+            gap: 8px;
+          }
+          .al-mx-cell-label { display: block !important; }
+        }
+        .al-mx-cell-label { display: none; }
 
         /* INTERACTION STATES (9.5). The page had a pointer cursor and nothing else: no
            hover, no visible keyboard focus, no pressed state (U24). A control with no focus

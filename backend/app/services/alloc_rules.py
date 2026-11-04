@@ -408,6 +408,32 @@ async def end_rule(s: AsyncSession, tenant_id, actor, rule_id, *,
                            rationale=rationale)
 
 
+def pct_to_share(text) -> Decimal:
+    """"70" becomes 0.7000. The one place a typed percent becomes a stored share (UI spec 7.6).
+
+    STORAGE STAYS A FRACTION (amendment 12), and the browser never divides: the driver form
+    said "percent" in its subtitle and asked for a number between 0 and 1 in every box (U14),
+    which is the kind of mismatch that gets a 70 typed where 0.7 was meant and allocates
+    seventy times the pool. Converting here means one implementation, beside `_share`, with
+    the same quantization.
+    """
+    try:
+        d = Decimal(str(text))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError("A percent has to be a number between 0 and 100.")
+    if not (Decimal(0) <= d <= Decimal(100)):
+        raise ValueError("A percent has to be a number between 0 and 100.")
+    return (d / Decimal(100)).quantize(SHARE_PLACES)
+
+
+def share_to_pct(value) -> str:
+    """0.7000 back to "70", for display. Trailing zeros trimmed, never scientific notation."""
+    if value is None:
+        return ""
+    d = (Decimal(str(value)) * Decimal(100)).quantize(Decimal("0.01"))
+    return format(d.normalize(), "f")
+
+
 async def approver_names(s: AsyncSession, tenant_id, versions) -> dict:
     """`{user id: name}` for the people who approved these versions.
 

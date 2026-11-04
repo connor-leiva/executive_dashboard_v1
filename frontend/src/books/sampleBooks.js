@@ -679,13 +679,25 @@ export const sampleAllocDrivers = {
 
 export const sampleAllocDriverMonth = {
   period: "2026-07-01",
+  meta: sampleAllocRules.meta,
+  /* Who the form has rows for THIS month, and what each row moves. Resolved per month on
+     the server (7.6), so a person added later does not appear on an earlier month. */
+  subjects: [
+    { name: "A Contractor", pool_amount: 600,
+      rules: [{ id: "rule-staff", pool_name: "Staff time", pool_amount: 600 }] },
+    { name: "Another Contractor", pool_amount: 0, rules: [] },
+  ],
   commit: {
     id: "c1", period_month: "2026-07-01", committed_at: "2026-07-31T17:00:00Z",
+    committed_by: { id: "u1", name: "Spring" },
     note: null, is_current: true, superseded_by: null,
     values: [
-      { subject: "A Contractor", business_id: "biz-forum", value_kind: "share", value: "0.7000" },
-      { subject: "A Contractor", business_id: "biz-bc", value_kind: "amount", value: "250.00" },
-      { subject: "A Contractor", business_id: "biz-pool", value_kind: "remainder", value: null },
+      { subject: "A Contractor", business_id: "biz-forum", value_kind: "share",
+        value: "0.7000", pct: "70" },
+      { subject: "A Contractor", business_id: "biz-bc", value_kind: "amount",
+        value: "250.00", pct: null },
+      { subject: "A Contractor", business_id: "biz-pool", value_kind: "remainder",
+        value: null, pct: null },
     ],
   },
   prefill: { from_month: "2026-06-01", rows: [] },
