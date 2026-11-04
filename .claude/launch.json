@@ -134,6 +134,20 @@
       "cwd": "backend"
     },
     {
+      "name": "docs-mockup",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4191",
+        "--directory",
+        "../docs"
+      ],
+      "port": 4191,
+      "url": "http://localhost:4191",
+      "cwd": "backend"
+    },
+    {
       "name": "operator-preview",
       "runtimeExecutable": "npm",
       "runtimeArgs": [

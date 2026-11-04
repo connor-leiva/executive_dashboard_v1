@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --font-data: Archivo, system-ui, sans-serif;
+    --font-text: Inter, system-ui, sans-serif;
+    --font-display: Archivo, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #F7F2EA; }
+  a { color: #3F7A63; text-decoration: none; }
+  a:hover { color: #0E2B22; text-decoration: underline; }
+  button { font: inherit; }
+  button:focus-visible { outline: 2px solid #3F7A63; outline-offset: 2px; }
+  .ar-row { display: grid; grid-template-columns: 1fr 132px 118px 88px; gap: 14px; align-items: center; }
+  .ar-drv { display: grid; grid-template-columns: 1fr auto 104px; gap: 12px; align-items: center; }
+  .ar-rec { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
+  .ar-pl  { display: grid; grid-template-columns: 1fr 132px 84px; gap: 14px; align-items: center; }
+
+  /* Grouped figure cells. A column drop is right for a supplementary figure (the Statement
+     sheds "% rev" and keeps both money columns). It is wrong where the columns ARE the
+     comparison, so on Reconciliation and Drivers the group STACKS at phone widths and each
+     figure labels itself. Nothing load bearing is ever hidden. */
+  .ar-figs { display: grid; grid-template-columns: 126px 126px 118px; gap: 14px; align-items: center; }
+  .ar-pcts { display: grid; grid-template-columns: 76px 76px 76px; gap: 10px; align-items: center; }
+  .ar-figlab, .ar-pctlab { display: none; }
+
+  @media (max-width: 940px) {
+    .ar-row  { grid-template-columns: 1fr 112px 96px; }
+    .ar-figs { grid-template-columns: 112px 112px 104px; gap: 10px; }
+    .ar-md { display: none !important; }
+  }
+  @media (max-width: 660px) {
+    .ar-row { grid-template-columns: 1fr 104px; }
+    .ar-pl  { grid-template-columns: 1fr 108px; }
+    .ar-drv { grid-template-columns: 1fr auto; }
+    .ar-figs, .ar-pcts { grid-template-columns: 1fr; gap: 3px; justify-items: end; }
+    .ar-drvstatus { grid-column: 1 / -1; justify-self: start; margin-top: 7px; }
+    .ar-tablehead { display: none !important; }
+    .ar-figlab, .ar-pctlab {
+      display: inline; font-style: normal; font-family: var(--font-data);
+      font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+      color: #8B9C92; margin-right: 7px;
+    }
+    .ar-sm { display: none !important; }
+  }
+  @keyframes arOpen { from { opacity: 0; transform: translateY(-3px); } }
+  .ar-drawer { animation: arOpen 130ms ease-out; }
+  @keyframes arSlide { from { transform: translateX(14px); opacity: 0; } }
+  @keyframes arFade { from { opacity: 0; } }
+  .ar-scrim {
+    position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end;
+    background: rgba(14, 43, 34, .34); animation: arFade 120ms ease-out;
+  }
+  .ar-panel {
+    width: 460px; max-width: 100%; height: 100%; overflow-y: auto;
+    background: #F7F2EA; border-left: 1px solid #D8CDBC;
+    box-shadow: -18px 0 44px -24px rgba(14, 43, 34, .55);
+    animation: arSlide 150ms ease-out;
+  }
+  @media (max-width: 560px) {
+    .ar-scrim { background: #F7F2EA; }
+    .ar-panel { width: 100%; border-left: none; box-shadow: none; animation: arFade 120ms ease-out; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ar-drawer, .ar-scrim, .ar-panel { animation: none; }
+  }
+</style>
+</helmet>
+
+<div style="background:#F7F2EA; min-height:100vh; padding:clamp(12px,2vw,26px); font-family:var(--font-text);">
+<div style="max-width:1180px; margin:0 auto; border:1px solid #D8CDBC; border-radius:16px; overflow:hidden; background:#F7F2EA; box-shadow:0 16px 38px -26px rgba(14,43,34,.5);">
+
+  <div style="background:#0E2B22; padding:11px clamp(14px,2vw,26px); display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+    <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#7D9A8D; flex:none;">Books / Allocation Rules</span>
+    <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+      <sc-for list="{{ entityChips }}" as="e" hint-placeholder-count="5">
+        <button type="button" onClick="{{ e.pick }}" style="height:28px; padding:0 13px; border-radius:999px; cursor:pointer; font-family:var(--font-text); font-size:13px; white-space:nowrap; border:1px solid {{ e.edge }}; background:{{ e.bg }}; color:{{ e.fg }}; font-weight:{{ e.weight }};">{{ e.label }}</button>
+      </sc-for>
+    </div>
+    <span style="flex:1 1 20px;"></span>
+    <span style="font-family:var(--font-data); font-size:11px; color:#7D9A8D; white-space:nowrap;">Sep 1 to Sep 30, 2026</span>
+  </div>
+
+  <div style="background:#FDFBF7; border-bottom:1px solid #E8E0D3; padding:0 clamp(14px,2vw,26px); display:flex; gap:2px; flex-wrap:wrap;">
+    <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="6">
+      <button type="button" onClick="{{ n.pick }}" style="font-family:var(--font-text); font-size:13px; background:transparent; border:none; padding:11px 14px 12px; cursor:pointer; white-space:nowrap; margin-bottom:-1px; color:{{ n.fg }}; font-weight:{{ n.weight }}; border-bottom:2.5px solid {{ n.edge }};">{{ n.label }}</button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ isRules }}" hint-placeholder-val="{{ true }}">
+  <div style="padding:clamp(14px,2vw,22px) clamp(14px,2vw,26px) 26px; display:flex; flex-direction:column; gap:16px;">
+
+    <div style="display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+      <div style="flex:1 1 300px; min-width:0;">
+        <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Tier</div>
+        <div style="display:flex; gap:5px; flex-wrap:wrap; margin-top:7px;">
+          <sc-for list="{{ tierChips }}" as="t" hint-placeholder-count="5">
+            <button type="button" onClick="{{ t.pick }}" style="height:30px; padding:0 12px; border-radius:8px; cursor:pointer; font-family:var(--font-text); font-size:12.5px; white-space:nowrap; border:1px solid {{ t.edge }}; background:{{ t.bg }}; color:{{ t.fg }}; font-weight:{{ t.weight }};">{{ t.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap;">
+        <button type="button" onClick="{{ newRule }}" style="height:34px; padding:0 15px; border-radius:9px; cursor:pointer; font-family:var(--font-text); font-size:13px; font-weight:600; white-space:nowrap; border:1px solid #0E2B22; background:#0E2B22; color:#F3EFE6;" style-hover="background:#17402F;">New Rule</button>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr)); gap:11px;">
+      <sc-for list="{{ tierSummary }}" as="s" hint-placeholder-count="4">
+        <div style="border:1px solid #E2D9CA; border-radius:12px; background:#FFFFFF; padding:12px 14px 13px; display:flex; flex-direction:column; gap:6px; box-shadow:inset 3px 0 0 {{ s.edge }};">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8B9C92;">{{ s.tier }}</span>
+            <span style="font-family:var(--font-text); font-size:11.5px; color:#A4B1A8;">{{ s.count }}</span>
+          </div>
+          <div style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:21px; font-weight:{{ s.weight }}; letter-spacing:-.02em; color:{{ s.ink }};">{{ s.amount }}</div>
+          <div style="font-family:var(--font-text); font-size:11.5px; line-height:1.45; color:#7C8F85; text-wrap:pretty;">{{ s.gloss }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="border:1px solid #E2D9CA; border-radius:13px; background:#FFFFFF; overflow:hidden;">
+      <div class="ar-row" style="padding:9px 18px; background:#FBF7F1; border-bottom:1px solid #E8E0D3;">
+        <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Scope</span>
+        <span class="ar-md" style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Target</span>
+        <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92; text-align:right;">Pool</span>
+        <span class="ar-sm" style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92; text-align:right;">To Partners</span>
+      </div>
+
+      <sc-for list="{{ ruleRows }}" as="r" hint-placeholder-count="8">
+        <div>
+          <div class="ar-row" role="button" tabIndex="0" onClick="{{ r.toggle }}" style="padding:9px 18px; border-bottom:1px solid #F7F1E7; cursor:pointer; background:{{ r.bg }}; box-shadow:{{ r.inset }};">
+            <span style="display:flex; align-items:center; gap:9px; min-width:0;">
+              <sc-if value="{{ r.isT1 }}" hint-placeholder-val="{{ false }}">
+                <span aria-hidden="true" style="width:7px; height:7px; flex:none; background:#0E2B22;"></span>
+              </sc-if>
+              <sc-if value="{{ r.isT2 }}" hint-placeholder-val="{{ false }}">
+                <span aria-hidden="true" style="width:7px; height:7px; flex:none; border:2px solid #40564B; border-radius:50%; box-sizing:border-box;"></span>
+              </sc-if>
+              <sc-if value="{{ r.isT3 }}" hint-placeholder-val="{{ false }}">
+                <span aria-hidden="true" style="width:7px; height:7px; flex:none; border:2px solid #D4B45F; border-radius:50%; box-sizing:border-box;"></span>
+              </sc-if>
+              <sc-if value="{{ r.isT4 }}" hint-placeholder-val="{{ false }}">
+                <span aria-hidden="true" style="width:7px; height:7px; flex:none;"></span>
+              </sc-if>
+              <span style="font-family:var(--font-data); font-size:10.5px; font-weight:600; letter-spacing:.04em; color:#8B9C92; flex:none; width:22px;">{{ r.tierKey }}</span>
+              <span style="min-width:0; overflow:hidden;">
+                <span style="display:block; font-family:var(--font-text); font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:{{ r.ink }}; font-weight:{{ r.weight }};">{{ r.scope }}<span style="color:#A4B1A8; font-weight:400;"> · {{ r.kind }}</span></span>
+                <span style="display:block; font-family:var(--font-text); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; color:{{ r.subInk }};">{{ r.sub }}</span>
+              </span>
+            </span>
+            <span class="ar-md" style="font-family:var(--font-text); font-size:12px; color:#5C7367; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ r.targetLabel }}</span>
+            <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap; font-size:13.5px; color:{{ r.ink }}; font-weight:{{ r.weight }};">{{ r.amount }}</span>
+            <span class="ar-sm" style="font-family:var(--font-data); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap; font-size:12px; color:{{ r.allocInk }};">{{ r.alloc }}</span>
+          </div>
+
+          <sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}">
+            <div class="ar-drawer" style="background:#FBF8F2; border-bottom:1px solid #E2D9CA; padding:15px 18px 17px; box-shadow:{{ r.drawerInset }}; display:flex; flex-direction:column; gap:15px;">
+
+              <div>
+                <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Why This Rule Exists</div>
+                <div style="font-family:var(--font-text); font-size:12.5px; line-height:1.55; color:#40564B; margin-top:7px; max-width:74ch; text-wrap:pretty;">{{ r.rationale }}</div>
+              </div>
+
+              <div>
+                <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">How It Resolves</div>
+                <div style="margin-top:8px; display:flex; flex-direction:column; gap:5px;">
+                  <sc-for list="{{ r.splits }}" as="sp" hint-placeholder-count="3">
+                    <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+                      <span style="display:inline-flex; align-items:center; gap:7px; flex:1 1 190px; min-width:0;">
+                        <span style="width:8px; height:8px; border-radius:2px; flex:none; background:{{ sp.tone }};"></span>
+                        <span style="font-family:var(--font-text); font-size:12.5px; color:#40564B;">{{ sp.label }}</span>
+                        <span style="font-family:var(--font-data); font-size:11.5px; color:#8B9C92;">{{ sp.pct }}</span>
+                      </span>
+                      <span style="flex:1 1 90px; height:5px; border-radius:999px; background:#F0E9DD; overflow:hidden; min-width:60px;">
+                        <span style="display:block; height:100%; border-radius:999px; width:{{ sp.bar }}; background:{{ sp.tone }};"></span>
+                      </span>
+                      <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:12.5px; color:#0E2B22; min-width:104px; text-align:right;">{{ sp.dollars }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <sc-if value="{{ r.hasPending }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex; align-items:flex-start; gap:9px; margin-top:11px; border:1px solid #E0C476; border-radius:10px; background:#FEFAEE; padding:11px 13px;">
+                    <span style="width:7px; height:7px; border-radius:50%; border:2px solid #D4B45F; box-sizing:border-box; flex:none; margin-top:4px;"></span>
+                    <span style="font-family:var(--font-text); font-size:12.5px; line-height:1.5; color:#93854F; text-wrap:pretty;">{{ r.pendingNote }}</span>
+                  </div>
+                </sc-if>
+              </div>
+
+              <div>
+                <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Version History</div>
+                <div style="margin-top:8px; display:flex; flex-direction:column; gap:1px;">
+                  <sc-for list="{{ r.history }}" as="h" hint-placeholder-count="1">
+                    <div style="display:flex; align-items:baseline; gap:12px; padding:8px 11px; border-radius:8px; flex-wrap:wrap; background:{{ h.bg }};">
+                      <span style="font-family:var(--font-data); font-size:11px; font-weight:700; color:{{ h.ink }}; flex:none;">{{ h.version }}</span>
+                      <span style="font-family:var(--font-data); font-size:11.5px; color:#7C8F85; flex:none; white-space:nowrap;">{{ h.window }}</span>
+                      <span style="font-family:var(--font-text); font-size:12px; color:#40564B; flex:1 1 150px; min-width:0;">{{ h.split }}</span>
+                      <span style="font-family:var(--font-text); font-size:11.5px; color:#8B9C92; white-space:nowrap;">{{ h.stamp }}</span>
+                      <span style="font-family:var(--font-data); font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:2px 8px; border-radius:5px; white-space:nowrap; background:{{ h.tagBg }}; color:{{ h.tagInk }};">{{ h.tag }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="font-family:var(--font-text); font-size:11.5px; line-height:1.5; color:#A4B1A8; margin-top:9px; text-wrap:pretty;">Editing a rule writes a new version and marks the old one superseded. Nothing is overwritten, so any month can be reconstructed as it was read at the time.</div>
+              </div>
+
+              <div style="display:flex; gap:9px; flex-wrap:wrap; border-top:1px solid #E2D9CA; padding-top:13px;">
+                <button type="button" onClick="{{ r.supersede }}" style="height:31px; padding:0 13px; border-radius:8px; cursor:pointer; font-family:var(--font-text); font-size:12.5px; font-weight:600; border:1px solid #0E2B22; background:#0E2B22; color:#F3EFE6; white-space:nowrap;" style-hover="background:#17402F;">Supersede With New Version</button>
+                <button type="button" style="height:31px; padding:0 13px; border-radius:8px; cursor:pointer; font-family:var(--font-text); font-size:12.5px; font-weight:500; border:1px solid #E0D7C9; background:#FFFFFF; color:#5C7367; white-space:nowrap;" style-hover="border-color:#3F7A63; color:#3F7A63;">View Affected Lines</button>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+
+      <div class="ar-row" style="padding:13px 18px; background:#FBF8F2; border-top:1.5px solid #0E2B22;">
+        <span style="font-family:var(--font-text); font-size:14px; font-weight:700; color:#0E2B22;">{{ ruleCountLabel }}</span>
+        <span class="ar-md"></span>
+        <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:15px; font-weight:700; text-align:right; color:#0E2B22; letter-spacing:-.02em;">{{ rulePoolTotal }}</span>
+        <span class="ar-sm" style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13px; font-weight:600; text-align:right; color:#3F7A63;">{{ ruleAllocTotal }}</span>
+      </div>
+    </div>
+
+    <div style="font-family:var(--font-text); font-size:12px; line-height:1.55; color:#A4B1A8; text-wrap:pretty;">A filled square is a fact from account coding. A ringed circle is a fact from a source report. A gold ring is a judgment reviewed monthly. No marker means the cost is retained and never reaches a partner entity. Tier is carried by the marker, the tier code and the row weight, never by color alone.</div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isQueue }}" hint-placeholder-val="{{ false }}">
+  <div style="padding:clamp(14px,2vw,22px) clamp(14px,2vw,26px) 26px; display:flex; flex-direction:column; gap:16px;">
+
+    <div style="display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;">
+      <div style="flex:1 1 260px;">
+        <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Matched No Rule</div>
+        <div style="display:flex; align-items:baseline; gap:11px; margin-top:6px;">
+          <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:30px; font-weight:600; letter-spacing:-.02em; color:#0E2B22;">{{ excTotal }}</span>
+          <span style="font-family:var(--font-text); font-size:12.5px; color:#7C8F85;">{{ excCountLabel }}</span>
+        </div>
+      </div>
+      <div style="font-family:var(--font-text); font-size:12px; line-height:1.55; color:#7C8F85; flex:1 1 300px; max-width:56ch; text-wrap:pretty;">Nothing falls through to a default pool. A transaction that matches no rule waits here until somebody writes the rule that claims it.</div>
+    </div>
+
+    <sc-for list="{{ excRows }}" as="x" hint-placeholder-count="4">
+      <div style="border:1px solid #E2D9CA; border-radius:13px; background:#FFFFFF; overflow:hidden;">
+        <div style="padding:14px 16px 15px; display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start;">
+          <div style="flex:1 1 260px; min-width:0;">
+            <div style="display:flex; align-items:baseline; gap:9px; flex-wrap:wrap;">
+              <span style="font-family:var(--font-text); font-size:14.5px; font-weight:600; color:#0E2B22;">{{ x.payee }}</span>
+              <span style="font-family:var(--font-data); font-size:11.5px; color:#9AA9A0;">{{ x.account }}</span>
+            </div>
+            <div style="font-family:var(--font-text); font-size:12.5px; line-height:1.5; color:#7C8F85; margin-top:5px; text-wrap:pretty;">{{ x.known }}</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:9px;">
+              <sc-for list="{{ x.gaps }}" as="g" hint-placeholder-count="2">
+                <span style="font-family:var(--font-text); font-size:11px; font-weight:600; padding:3px 9px; border-radius:5px; background:#FEFAEE; border:1px solid #E0C476; color:#93854F; white-space:nowrap;">{{ g.label }}</span>
+              </sc-for>
+            </div>
+          </div>
+          <div style="flex:none; text-align:right;">
+            <div style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:20px; font-weight:600; color:#0E2B22; letter-spacing:-.02em;">{{ x.amount }}</div>
+            <div style="font-family:var(--font-data); font-size:11.5px; color:#9AA9A0; margin-top:3px;">{{ x.date }}</div>
+          </div>
+        </div>
+
+        <sc-if value="{{ x.closed }}" hint-placeholder-val="{{ true }}">
+          <div style="border-top:1px solid #F4EDE2; background:#FDFBF7; padding:11px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <button type="button" onClick="{{ x.open }}" style="height:31px; padding:0 13px; border-radius:8px; cursor:pointer; font-family:var(--font-text); font-size:12.5px; font-weight:600; border:1px solid #0E2B22; background:#0E2B22; color:#F3EFE6; white-space:nowrap;" style-hover="background:#17402F;">Create Rule From This</button>
+            <span style="font-family:var(--font-text); font-size:12px; color:#7C8F85;">{{ x.clears }}</span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ x.done }}" hint-placeholder-val="{{ false }}">
+          <div class="ar-drawer" style="border-top:1px solid #E2D9CA; background:#EEF4F0; padding:13px 16px; display:flex; gap:11px; align-items:center; flex-wrap:wrap;">
+            <span style="width:7px; height:7px; border-radius:50%; background:#5F9C82; flex:none;"></span>
+            <span style="font-family:var(--font-text); font-size:12.5px; color:#0E2B22;">{{ x.doneNote }}</span>
+            <span style="flex:1 1 10px;"></span>
+            <button type="button" onClick="{{ x.cancel }}" style="background:transparent; border:none; padding:0; cursor:pointer; font-family:var(--font-text); font-size:12px; font-weight:600; color:#3F7A63;" style-hover="color:#0E2B22;">Undo</button>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isDrivers }}" hint-placeholder-val="{{ false }}">
+  <div style="padding:clamp(14px,2vw,22px) clamp(14px,2vw,26px) 26px; display:flex; flex-direction:column; gap:18px;">
+
+    <div style="display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+      <div style="flex:1 1 280px;">
+        <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Staff Time Commitment</div>
+        <div style="font-family:var(--font-text); font-size:12.5px; line-height:1.55; color:#7C8F85; margin-top:7px; max-width:60ch; text-wrap:pretty;">These are Spring's judgments, not the bookkeeper's. They change month to month, which is why they are entered rather than written into a policy document.</div>
+      </div>
+      <div style="display:flex; gap:9px; align-items:center; flex-wrap:wrap;">
+        <sc-if value="{{ driversDirty }}" hint-placeholder-val="{{ false }}">
+          <span style="font-family:var(--font-text); font-size:11.5px; font-weight:600; color:#93854F; padding:4px 10px; border-radius:6px; background:#FEFAEE; border:1px solid #E0C476; white-space:nowrap;">Uncommitted changes</span>
+        </sc-if>
+        <button type="button" onClick="{{ commitDrivers }}" style="height:34px; padding:0 15px; border-radius:9px; cursor:pointer; font-family:var(--font-text); font-size:13px; font-weight:600; white-space:nowrap; border:1px solid {{ commitEdge }}; background:{{ commitBg }}; color:{{ commitFg }};">{{ commitLabel }}</button>
+      </div>
+    </div>
+
+    <div style="border:1px solid #E2D9CA; border-radius:13px; background:#FFFFFF; overflow:hidden;">
+      <div class="ar-drv ar-tablehead" style="padding:9px 16px; background:#FBF7F1; border-bottom:1px solid #E8E0D3;">
+        <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Person</span>
+        <span class="ar-pcts">
+          <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8B9C92; text-align:right;">Forum</span>
+          <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8B9C92; text-align:right;">beC</span>
+          <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8B9C92; text-align:right;">SB</span>
+        </span>
+        <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92; text-align:right;">Status</span>
+      </div>
+
+      <sc-for list="{{ driverRows }}" as="d" hint-placeholder-count="5">
+        <div class="ar-drv" style="padding:11px 16px; border-bottom:1px solid #F7F1E7; background:{{ d.bg }}; box-shadow:{{ d.inset }};">
+          <span style="min-width:0;">
+            <span style="display:block; font-family:var(--font-text); font-size:13.5px; font-weight:500; color:#0E2B22; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ d.name }}</span>
+            <span style="display:block; font-family:var(--font-text); font-size:11.5px; color:{{ d.noteInk }}; margin-top:2px;">{{ d.note }}</span>
+          </span>
+          <span class="ar-pcts">
+            <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13px; text-align:right; color:{{ d.ink }}; white-space:nowrap;"><em class="ar-pctlab">Forum</em>{{ d.forum }}</span>
+            <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13px; text-align:right; color:{{ d.ink }}; white-space:nowrap;"><em class="ar-pctlab">beC</em>{{ d.bec }}</span>
+            <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13px; text-align:right; color:{{ d.ink }}; white-space:nowrap;"><em class="ar-pctlab">SB</em>{{ d.sb }}</span>
+          </span>
+          <span class="ar-drvstatus" style="text-align:right;">
+            <span style="font-family:var(--font-data); font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:3px 8px; border-radius:5px; white-space:nowrap; background:{{ d.tagBg }}; color:{{ d.tagInk }}; border:1px solid {{ d.tagEdge }};">{{ d.tag }}</span>
+          </span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:13px;">
+      <sc-for list="{{ otherDrivers }}" as="o" hint-placeholder-count="2">
+        <div style="border:1px solid {{ o.edge }}; border-radius:12px; background:{{ o.bg }}; padding:14px 15px 15px;">
+          <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:{{ o.eyebrow }};">{{ o.label }}</div>
+          <div style="font-family:var(--font-text); font-size:12.5px; line-height:1.5; color:{{ o.ink }}; margin-top:7px; text-wrap:pretty;">{{ o.state }}</div>
+          <div style="font-family:var(--font-text); font-size:11.5px; color:#8B9C92; margin-top:8px;">{{ o.consumer }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="border:1px solid #E2D9CA; border-radius:13px; background:#FBF8F2; padding:16px 17px 17px;">
+      <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">What Commits Change</div>
+      <div style="margin-top:11px; display:flex; flex-direction:column; gap:9px;">
+        <sc-for list="{{ previewRows }}" as="p" hint-placeholder-count="3">
+          <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; padding-bottom:9px; border-bottom:1px solid #F4EDE2;">
+            <span style="flex:1 1 180px; font-family:var(--font-text); font-size:12.5px; color:#40564B; min-width:0;">{{ p.label }}</span>
+            <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:12.5px; color:#9AA9A0; white-space:nowrap;">{{ p.before }}</span>
+            <span style="font-family:var(--font-text); font-size:12px; color:#A4B1A8;">to</span>
+            <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13px; font-weight:600; color:#0E2B22; white-space:nowrap;">{{ p.after }}</span>
+            <span style="font-family:var(--font-data); font-size:11.5px; font-weight:600; color:{{ p.deltaInk }}; white-space:nowrap; min-width:76px; text-align:right;">{{ p.delta }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-family:var(--font-text); font-size:11.5px; line-height:1.5; color:#A4B1A8; margin-top:11px; text-wrap:pretty;">{{ previewNote }}</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isRecon }}" hint-placeholder-val="{{ false }}">
+  <div style="padding:clamp(14px,2vw,22px) clamp(14px,2vw,26px) 26px; display:flex; flex-direction:column; gap:16px;">
+
+    <div style="border:1px solid #E0C476; border-radius:13px; background:#FEFAEE; padding:15px 17px 16px;">
+      <div style="display:flex; align-items:baseline; gap:11px; flex-wrap:wrap;">
+        <span style="width:7px; height:7px; border-radius:50%; border:2px solid #D4B45F; box-sizing:border-box; flex:none;"></span>
+        <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#93854F;">Open Decision, Shown Both Ways</span>
+      </div>
+      <div style="font-family:var(--font-text); font-size:12.5px; line-height:1.55; color:#40564B; margin-top:9px; max-width:82ch; text-wrap:pretty;">The Books module holds a hard invariant: mapped totals tie to QuickBooks to the penny or the view refuses to render. An allocation engine computes what a split should be, and QuickBooks is currently wrong in known ways, so the two readings disagree on purpose. Until that is settled, this screen shows both and claims neither.</div>
+      <div style="display:flex; gap:5px; margin-top:12px; flex-wrap:wrap;">
+        <sc-for list="{{ readingChips }}" as="rc" hint-placeholder-count="3">
+          <button type="button" onClick="{{ rc.pick }}" style="height:30px; padding:0 12px; border-radius:8px; cursor:pointer; font-family:var(--font-text); font-size:12.5px; white-space:nowrap; border:1px solid {{ rc.edge }}; background:{{ rc.bg }}; color:{{ rc.fg }}; font-weight:{{ rc.weight }};">{{ rc.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="border:1px solid #E2D9CA; border-radius:13px; background:#FFFFFF; overflow:hidden;">
+      <div class="ar-rec ar-tablehead" style="padding:9px 18px; background:#FBF7F1; border-bottom:1px solid #E8E0D3;">
+        <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Pool</span>
+        <span class="ar-figs">
+          <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92; text-align:right;">Computed</span>
+          <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92; text-align:right;">Booked</span>
+          <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92; text-align:right;">Variance</span>
+        </span>
+      </div>
+
+      <sc-for list="{{ reconRows }}" as="c" hint-placeholder-count="5">
+        <div class="ar-rec" style="padding:11px 18px; border-bottom:1px solid #F7F1E7; background:{{ c.bg }}; box-shadow:{{ c.inset }};">
+          <span style="min-width:0;">
+            <span style="display:block; font-family:var(--font-text); font-size:13.5px; color:#0E2B22; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:{{ c.weight }};">{{ c.pool }}</span>
+            <span style="display:block; font-family:var(--font-text); font-size:11.5px; line-height:1.45; color:{{ c.noteInk }}; margin-top:3px; text-wrap:pretty;">{{ c.note }}</span>
+          </span>
+          <span class="ar-figs">
+            <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13px; text-align:right; color:#0E2B22; white-space:nowrap;"><em class="ar-figlab">computed</em>{{ c.computed }}</span>
+            <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13px; text-align:right; color:#5C7367; white-space:nowrap;"><em class="ar-figlab">booked</em>{{ c.booked }}</span>
+            <span style="text-align:right;">
+              <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:12.5px; font-weight:600; padding:3px 9px; border-radius:999px; white-space:nowrap; background:{{ c.varBg }}; color:{{ c.varInk }};"><em class="ar-figlab">variance</em>{{ c.variance }}</span>
+            </span>
+          </span>
+        </div>
+      </sc-for>
+
+      <div class="ar-rec" style="padding:13px 18px; background:#0E2B22;">
+        <span style="font-family:var(--font-text); font-size:14px; font-weight:700; color:#F3EFE6;">Portfolio</span>
+        <span class="ar-figs">
+          <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:15px; font-weight:700; text-align:right; color:#FFFFFF; letter-spacing:-.02em; white-space:nowrap;">{{ reconComputedTotal }}</span>
+          <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:15px; font-weight:600; text-align:right; color:#9DBDAE; white-space:nowrap;">{{ reconBookedTotal }}</span>
+          <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13px; font-weight:700; text-align:right; color:#F3EFE6; white-space:nowrap;">{{ reconVarianceTotal }}</span>
+        </span>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:13px;">
+      <sc-for list="{{ reconChecks }}" as="k" hint-placeholder-count="2">
+        <div style="border:1px solid {{ k.edge }}; border-radius:12px; background:{{ k.bg }}; padding:14px 15px 15px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="width:7px; height:7px; border-radius:50%; flex:none; background:{{ k.dot }};"></span>
+            <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:{{ k.eyebrow }};">{{ k.label }}</span>
+          </div>
+          <div style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:19px; font-weight:600; color:#0E2B22; margin-top:8px; letter-spacing:-.02em;">{{ k.value }}</div>
+          <div style="font-family:var(--font-text); font-size:12px; line-height:1.5; color:{{ k.ink }}; margin-top:6px; text-wrap:pretty;">{{ k.note }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+  <div style="padding:clamp(14px,2vw,22px) clamp(14px,2vw,26px) 26px; display:flex; flex-direction:column; gap:16px;">
+
+    <div style="font-family:var(--font-text); font-size:12.5px; line-height:1.55; color:#7C8F85; max-width:76ch; text-wrap:pretty;">This is what opens when a partner clicks an allocated line on the P&amp;L. It extends the composition panel the Statement already renders, adding the two things it cannot show today: which version of the rule produced the number, and what the drivers said that month.</div>
+
+    <div style="border:1px solid #E2D9CA; border-radius:13px; background:#FFFFFF; overflow:hidden;">
+      <div style="padding:15px 18px 16px; border-bottom:1px solid #F4EDE2; box-shadow:inset 3px 0 0 #E0C476; background:#FEFAEE;">
+        <div style="display:flex; align-items:baseline; gap:11px; flex-wrap:wrap;">
+          <span style="width:7px; height:7px; border-radius:50%; border:2px solid #D4B45F; box-sizing:border-box; flex:none;"></span>
+          <span style="font-family:var(--font-data); font-size:11.5px; color:#9AA9A0;">6000</span>
+          <span style="font-family:var(--font-text); font-size:14.5px; font-weight:600; color:#0E2B22;">Advertising</span>
+          <span style="font-family:var(--font-text); font-size:12.5px; color:#93854F;">{{ detailFlag }}</span>
+          <span style="flex:1 1 20px;"></span>
+          <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:20px; font-weight:600; color:#0E2B22; letter-spacing:-.02em;">{{ detailAmount }}</span>
+        </div>
+      </div>
+
+      <div style="padding:16px 18px 18px; display:flex; flex-direction:column; gap:17px;">
+
+        <div>
+          <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">How This Number Is Made</div>
+          <div style="margin-top:9px; display:flex; flex-direction:column; gap:7px;">
+            <sc-for list="{{ detailBuild }}" as="b" hint-placeholder-count="3">
+              <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; padding-bottom:{{ b.pad }}; border-top:{{ b.rule }}; padding-top:{{ b.padTop }};">
+                <span style="flex:1 1 220px; font-family:var(--font-text); font-size:12.5px; color:{{ b.ink }}; font-weight:{{ b.weight }}; min-width:0;">{{ b.label }}<span style="color:#8B9C92; font-weight:400;">{{ b.meta }}</span></span>
+                <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:12.5px; font-weight:{{ b.weight }}; color:{{ b.numInk }}; min-width:106px; text-align:right;">{{ b.amount }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:13px;">
+          <div style="border:1px solid #E2D9CA; border-radius:11px; background:#FBF8F2; padding:13px 14px 14px;">
+            <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Rule Version In Effect</div>
+            <div style="margin-top:9px; display:flex; flex-direction:column; gap:6px;">
+              <sc-for list="{{ detailRule }}" as="v" hint-placeholder-count="4">
+                <div style="display:flex; gap:10px; align-items:baseline;">
+                  <span style="font-family:var(--font-text); font-size:11.5px; color:#8B9C92; min-width:74px; flex:none;">{{ v.k }}</span>
+                  <span style="font-family:var(--font-text); font-size:12.5px; font-weight:500; color:#40564B;">{{ v.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="border:1px solid #E2D9CA; border-radius:11px; background:#FBF8F2; padding:13px 14px 14px;">
+            <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Driver Values That Month</div>
+            <div style="margin-top:9px; display:flex; flex-direction:column; gap:6px;">
+              <sc-for list="{{ detailDrivers }}" as="v" hint-placeholder-count="4">
+                <div style="display:flex; gap:10px; align-items:baseline;">
+                  <span style="font-family:var(--font-text); font-size:11.5px; color:#8B9C92; min-width:74px; flex:none;">{{ v.k }}</span>
+                  <span style="font-family:var(--font-text); font-size:12.5px; font-weight:500; color:#40564B;">{{ v.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid #E2D9CA; padding-top:14px;">
+          <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Rationale, As Written When The Rule Was Declared</div>
+          <div style="font-family:var(--font-text); font-size:12.5px; line-height:1.55; color:#40564B; margin-top:7px; max-width:74ch; text-wrap:pretty;">{{ detailRationale }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isPartner }}" hint-placeholder-val="{{ false }}">
+  <div style="padding:clamp(14px,2vw,22px) clamp(14px,2vw,26px) 26px; display:flex; flex-direction:column; gap:16px;">
+
+    <div style="font-family:var(--font-text); font-size:12.5px; line-height:1.55; color:#7C8F85; max-width:78ch; text-wrap:pretty;">This is what Spring sends Julie instead of a screenshot. One entity, its allocated lines with the reason each one is there, and the profit share those lines produce.</div>
+
+    <div style="border:1px solid #E2D9CA; border-radius:13px; background:#FFFFFF; overflow:hidden;">
+      <div style="background:#0E2B22; padding:14px 18px 15px; display:flex; align-items:baseline; gap:13px; flex-wrap:wrap;">
+        <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#7D9A8D;">Partner Statement</span>
+        <span style="font-family:var(--font-text); font-size:15px; font-weight:600; color:#F3EFE6;">beCollective</span>
+        <span style="font-family:var(--font-text); font-size:12.5px; color:#A7C0B4;">Spring Bengtzen and Julie Peterson, 50/50 on net profit</span>
+      </div>
+
+      <div class="ar-pl" style="padding:9px 18px; background:#FBF7F1; border-bottom:1px solid #E8E0D3;">
+        <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Account</span>
+        <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92; text-align:right;">Amount</span>
+        <span class="ar-sm" style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92; text-align:right;">Source</span>
+      </div>
+
+      <sc-for list="{{ partnerLines }}" as="l" hint-placeholder-count="6">
+        <div>
+          <div class="ar-pl" style="padding:{{ l.pad }} 18px; border-bottom:1px solid {{ l.rule }}; background:{{ l.bg }}; box-shadow:{{ l.inset }}; border-top:{{ l.top }};">
+            <span style="display:flex; align-items:center; gap:9px; min-width:0;">
+              <sc-if value="{{ l.composed }}" hint-placeholder-val="{{ false }}">
+                <span aria-hidden="true" style="width:7px; height:7px; border-radius:50%; border:2px solid #D4B45F; box-sizing:border-box; flex:none;"></span>
+              </sc-if>
+              <sc-if value="{{ l.plain }}" hint-placeholder-val="{{ true }}">
+                <span aria-hidden="true" style="width:7px; height:7px; flex:none;"></span>
+              </sc-if>
+              <span style="font-family:var(--font-text); font-size:{{ l.size }}; font-weight:{{ l.weight }}; color:{{ l.ink }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">{{ l.label }}</span>
+            </span>
+            <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:{{ l.numSize }}; font-weight:{{ l.weight }}; text-align:right; color:{{ l.ink }}; white-space:nowrap;">{{ l.amount }}</span>
+            <span class="ar-sm" style="font-family:var(--font-text); font-size:11.5px; text-align:right; color:{{ l.srcInk }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ l.source }}</span>
+          </div>
+          <sc-if value="{{ l.hasWhy }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:0 18px 10px 34px; background:{{ l.bg }};">
+              <span style="font-family:var(--font-text); font-size:11.5px; line-height:1.5; color:#93854F; text-wrap:pretty;">{{ l.why }}</span>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:13px;">
+      <div style="border:1px solid #E0C476; border-radius:13px; background:#FEFAEE; padding:15px 16px 16px;">
+        <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#93854F;">Draw Against Earned Share</div>
+        <div style="margin-top:11px; display:flex; flex-direction:column; gap:8px;">
+          <sc-for list="{{ drawRows }}" as="dr" hint-placeholder-count="3">
+            <div style="display:flex; align-items:baseline; gap:12px; border-top:{{ dr.rule }}; padding-top:{{ dr.pad }};">
+              <span style="flex:1 1 auto; font-family:var(--font-text); font-size:12.5px; color:{{ dr.ink }}; font-weight:{{ dr.weight }};">{{ dr.label }}</span>
+              <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:{{ dr.size }}; font-weight:{{ dr.weight }}; color:{{ dr.ink }}; white-space:nowrap;">{{ dr.amount }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="font-family:var(--font-text); font-size:11.5px; line-height:1.5; color:#93854F; margin-top:11px; text-wrap:pretty;">{{ drawNote }}</div>
+      </div>
+
+      <div style="border:1px solid #E2D9CA; border-radius:13px; background:#FBF8F2; padding:15px 16px 16px;">
+        <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">Basis Not Chosen</div>
+        <div style="margin-top:11px; display:flex; flex-direction:column; gap:10px;">
+          <sc-for list="{{ basisRows }}" as="br" hint-placeholder-count="2">
+            <div style="border:1px solid #E2D9CA; border-radius:10px; background:#FFFFFF; padding:11px 12px;">
+              <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
+                <span style="font-family:var(--font-text); font-size:12.5px; font-weight:600; color:#0E2B22;">{{ br.label }}</span>
+                <span style="flex:1 1 10px;"></span>
+                <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:14px; font-weight:600; color:#0E2B22; white-space:nowrap;">{{ br.share }}</span>
+              </div>
+              <div style="font-family:var(--font-text); font-size:11.5px; line-height:1.5; color:#7C8F85; margin-top:5px; text-wrap:pretty;">{{ br.note }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="font-family:var(--font-text); font-size:11.5px; line-height:1.5; color:#A4B1A8; margin-top:11px; text-wrap:pretty;">The contract does not say which basis governs, so neither is presented as the answer. $278,500 sits in deferred revenue, which is why the two readings are far apart.</div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ draftOpen }}" hint-placeholder-val="{{ false }}">
+  <div class="ar-scrim" onClick="{{ closeDraft }}">
+    <div class="ar-panel" onClick="{{ stop }}">
+
+      <div style="position:sticky; top:0; z-index:2; background:#0E2B22; padding:15px 20px 16px;">
+        <div style="display:flex; align-items:flex-start; gap:12px;">
+          <div style="flex:1 1 auto; min-width:0;">
+            <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#7D9A8D;">{{ draftEyebrow }}</div>
+            <div style="font-family:var(--font-text); font-size:16px; font-weight:600; color:#F3EFE6; margin-top:5px; text-wrap:pretty;">{{ draftTitle }}</div>
+          </div>
+          <button type="button" onClick="{{ closeDraft }}" aria-label="Close" style="flex:none; width:28px; height:28px; border-radius:8px; cursor:pointer; border:1px solid #2F5044; background:transparent; color:#A7C0B4; font-size:15px; line-height:1;" style-hover="border-color:#A7C0B4; color:#F3EFE6;">&#215;</button>
+        </div>
+      </div>
+
+      <div style="padding:18px 20px 22px; display:flex; flex-direction:column; gap:20px;">
+
+        <div>
+          <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">1 &middot; What It Matches</div>
+          <div style="display:flex; gap:5px; margin-top:9px; flex-wrap:wrap;">
+            <sc-for list="{{ draftKinds }}" as="k" hint-placeholder-count="3">
+              <button type="button" onClick="{{ k.pick }}" style="height:29px; padding:0 11px; border-radius:8px; cursor:pointer; font-family:var(--font-text); font-size:12px; white-space:nowrap; border:1px solid {{ k.edge }}; background:{{ k.bg }}; color:{{ k.fg }}; font-weight:{{ k.weight }};">{{ k.label }}</button>
+            </sc-for>
+          </div>
+          <input type="text" value="{{ draftScope }}" onChange="{{ setScope }}" placeholder="Vendor name, account, or program" style="width:100%; margin-top:9px; padding:10px 12px; border:1px solid #E0D7C9; border-radius:9px; background:#FFFFFF; font-family:var(--font-text); font-size:13.5px; color:#0E2B22;" />
+          <div style="font-family:var(--font-text); font-size:11.5px; color:#A4B1A8; margin-top:6px; text-wrap:pretty;">{{ draftScopeHint }}</div>
+        </div>
+
+        <div>
+          <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">2 &middot; Is It A Fact Or A Judgment</div>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-top:9px;">
+            <sc-for list="{{ draftTiers }}" as="t" hint-placeholder-count="4">
+              <button type="button" onClick="{{ t.pick }}" style="display:flex; align-items:flex-start; gap:10px; width:100%; text-align:left; padding:11px 13px; border-radius:10px; cursor:pointer; border:1px solid {{ t.edge }}; background:{{ t.bg }}; box-shadow:{{ t.inset }};">
+                <span aria-hidden="true" style="flex:none; margin-top:4px; width:8px; height:8px; box-sizing:border-box; border-radius:{{ t.radius }}; background:{{ t.dotBg }}; border:{{ t.dotBorder }};"></span>
+                <span style="min-width:0;">
+                  <span style="display:block; font-family:var(--font-text); font-size:13px; color:#0E2B22; font-weight:{{ t.weight }};">{{ t.name }}</span>
+                  <span style="display:block; font-family:var(--font-text); font-size:11.5px; line-height:1.45; color:{{ t.glossInk }}; margin-top:2px; text-wrap:pretty;">{{ t.gloss }}</span>
+                </span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+
+        <sc-if value="{{ draftHasTier }}" hint-placeholder-val="{{ false }}">
+        <div>
+          <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">3 &middot; {{ draftStepThree }}</div>
+
+          <sc-if value="{{ draftIsT1 }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; gap:5px; margin-top:9px;">
+              <sc-for list="{{ draftEntities }}" as="e" hint-placeholder-count="5">
+                <button type="button" onClick="{{ e.pick }}" style="display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:10px 12px; border-radius:9px; cursor:pointer; border:1px solid {{ e.edge }}; background:{{ e.bg }};">
+                  <span style="width:8px; height:8px; border-radius:2px; flex:none; background:{{ e.tone }};"></span>
+                  <span style="flex:1 1 auto; font-family:var(--font-text); font-size:13px; color:#0E2B22; font-weight:{{ e.weight }};">{{ e.label }}</span>
+                  <span style="font-family:var(--font-data); font-size:12px; color:{{ e.pctInk }};">{{ e.pct }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <div style="font-family:var(--font-text); font-size:11.5px; color:#A4B1A8; margin-top:8px; text-wrap:pretty;">One entity consumes it, so there is no split to enter. This is a fact from account coding.</div>
+          </sc-if>
+
+          <sc-if value="{{ draftIsT2 }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; gap:5px; margin-top:9px;">
+              <sc-for list="{{ draftSources }}" as="s" hint-placeholder-count="3">
+                <button type="button" onClick="{{ s.pick }}" style="display:flex; align-items:flex-start; gap:10px; width:100%; text-align:left; padding:10px 12px; border-radius:9px; cursor:pointer; border:1px solid {{ s.edge }}; background:{{ s.bg }};">
+                  <span style="min-width:0;">
+                    <span style="display:block; font-family:var(--font-text); font-size:13px; color:#0E2B22; font-weight:{{ s.weight }};">{{ s.label }}</span>
+                    <span style="display:block; font-family:var(--font-text); font-size:11.5px; color:#8B9C92; margin-top:2px;">{{ s.note }}</span>
+                  </span>
+                </button>
+              </sc-for>
+            </div>
+            <div style="font-family:var(--font-text); font-size:11.5px; color:#A4B1A8; margin-top:8px; text-wrap:pretty;">No percentages here. The source report is read each period and it decides the split, which is what makes this a fact rather than a judgment.</div>
+          </sc-if>
+
+          <sc-if value="{{ draftIsT3 }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; gap:5px; margin-top:9px; flex-wrap:wrap;">
+              <sc-for list="{{ draftDrivers }}" as="dv" hint-placeholder-count="4">
+                <button type="button" onClick="{{ dv.pick }}" style="height:29px; padding:0 11px; border-radius:8px; cursor:pointer; font-family:var(--font-text); font-size:12px; white-space:nowrap; border:1px solid {{ dv.edge }}; background:{{ dv.bg }}; color:{{ dv.fg }}; font-weight:{{ dv.weight }};">{{ dv.label }}</button>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ draftIsReviewed }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:12px; display:flex; flex-direction:column; gap:7px;">
+                <sc-for list="{{ draftSplit }}" as="sp" hint-placeholder-count="3">
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="width:8px; height:8px; border-radius:2px; flex:none; background:{{ sp.tone }};"></span>
+                    <span style="flex:1 1 auto; font-family:var(--font-text); font-size:12.5px; color:#40564B; min-width:0;">{{ sp.label }}</span>
+                    <span style="display:inline-flex; align-items:center; gap:2px; flex:none;">
+                      <button type="button" onClick="{{ sp.down }}" aria-label="Decrease" style="width:26px; height:26px; border-radius:7px; cursor:pointer; border:1px solid #E0D7C9; background:#FFFFFF; color:#5C7367; font-size:13px; line-height:1;" style-hover="border-color:#3F7A63; color:#3F7A63;">&#8722;</button>
+                      <span style="width:46px; text-align:center; font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13.5px; font-weight:600; color:#0E2B22;">{{ sp.pct }}</span>
+                      <button type="button" onClick="{{ sp.up }}" aria-label="Increase" style="width:26px; height:26px; border-radius:7px; cursor:pointer; border:1px solid #E0D7C9; background:#FFFFFF; color:#5C7367; font-size:13px; line-height:1;" style-hover="border-color:#3F7A63; color:#3F7A63;">+</button>
+                    </span>
+                  </div>
+                </sc-for>
+                <div style="display:flex; align-items:center; gap:10px; border-top:1px solid #E2D9CA; padding-top:8px;">
+                  <span style="flex:1 1 auto; font-family:var(--font-text); font-size:12px; color:#8B9C92;">Total</span>
+                  <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:13px; font-weight:700; padding:3px 10px; border-radius:999px; background:{{ splitTotalBg }}; color:{{ splitTotalInk }};">{{ splitTotal }}</span>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="font-family:var(--font-text); font-size:11.5px; color:#A4B1A8; margin-top:9px; text-wrap:pretty;">{{ draftT3Hint }}</div>
+          </sc-if>
+
+          <sc-if value="{{ draftIsT4 }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:9px; border:1px solid #E2D9CA; border-radius:10px; background:#FBF8F2; padding:12px 14px;">
+              <div style="font-family:var(--font-text); font-size:13px; font-weight:600; color:#0E2B22;">Nothing to enter</div>
+              <div style="font-family:var(--font-text); font-size:12px; line-height:1.5; color:#7C8F85; margin-top:5px; text-wrap:pretty;">Retained on SB Coaching. The cost never reaches a partner entity, so there is no split, no source and no driver. That is the whole definition of this tier.</div>
+            </div>
+          </sc-if>
+        </div>
+        </sc-if>
+
+        <div>
+          <div style="display:flex; align-items:baseline; gap:9px;">
+            <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">4 &middot; Why</span>
+            <span style="font-family:var(--font-text); font-size:11px; font-weight:600; color:{{ whyInk }};">{{ whyLabel }}</span>
+          </div>
+          <textarea rows="2" value="{{ draftRationale }}" onChange="{{ setRationale }}" placeholder="One line. This is what a partner sees when they ask why this cost sits where it does." style="width:100%; margin-top:9px; padding:10px 12px; border:1px solid {{ whyEdge }}; border-radius:9px; background:#FFFFFF; font-family:var(--font-text); font-size:13px; line-height:1.5; color:#0E2B22; resize:vertical;"></textarea>
+        </div>
+
+        <div>
+          <div style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">5 &middot; From When</div>
+          <div style="display:flex; flex-direction:column; gap:5px; margin-top:9px;">
+            <sc-for list="{{ draftEffective }}" as="ef" hint-placeholder-count="3">
+              <button type="button" onClick="{{ ef.pick }}" style="display:flex; align-items:flex-start; gap:10px; width:100%; text-align:left; padding:10px 12px; border-radius:9px; cursor:pointer; border:1px solid {{ ef.edge }}; background:{{ ef.bg }};">
+                <span aria-hidden="true" style="flex:none; margin-top:3px; width:9px; height:9px; border-radius:50%; box-sizing:border-box; border:2px solid {{ ef.ring }}; background:{{ ef.fill }};"></span>
+                <span style="min-width:0;">
+                  <span style="display:block; font-family:var(--font-text); font-size:13px; color:#0E2B22; font-weight:{{ ef.weight }};">{{ ef.label }}</span>
+                  <span style="display:block; font-family:var(--font-text); font-size:11.5px; line-height:1.45; color:{{ ef.noteInk }}; margin-top:2px; text-wrap:pretty;">{{ ef.note }}</span>
+                </span>
+              </button>
+            </sc-for>
+          </div>
+          <sc-if value="{{ draftRestateWarn }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; align-items:flex-start; gap:9px; margin-top:10px; border:1px solid #E0C476; border-radius:10px; background:#FEFAEE; padding:11px 13px;">
+              <span style="width:7px; height:7px; border-radius:50%; border:2px solid #D4B45F; box-sizing:border-box; flex:none; margin-top:4px;"></span>
+              <span style="font-family:var(--font-text); font-size:12px; line-height:1.5; color:#93854F; text-wrap:pretty;">{{ draftRestateNote }}</span>
+            </div>
+          </sc-if>
+        </div>
+
+      </div>
+
+      <div style="position:sticky; bottom:0; background:#FDFBF7; border-top:1px solid #E8E0D3;">
+      <div style="padding:13px 20px 0;">
+        <div style="border:1px solid {{ previewEdge }}; border-radius:12px; background:{{ previewBg }}; padding:12px 14px 13px;">
+          <div style="display:flex; align-items:baseline; gap:9px; flex-wrap:wrap;">
+            <span style="font-family:var(--font-data); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8B9C92;">What This Rule Would Do</span>
+            <span style="flex:1 1 10px;"></span>
+            <span style="font-family:var(--font-data); font-size:11.5px; color:#8B9C92;">{{ previewBasis }}</span>
+          </div>
+          <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px;">
+            <sc-for list="{{ previewSplit }}" as="pv" hint-placeholder-count="3">
+              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <span style="display:inline-flex; align-items:center; gap:7px; flex:1 1 130px; min-width:0;">
+                  <span style="width:8px; height:8px; border-radius:2px; flex:none; background:{{ pv.tone }};"></span>
+                  <span style="font-family:var(--font-text); font-size:12.5px; color:#40564B;">{{ pv.label }}</span>
+                </span>
+                <span style="flex:1 1 60px; height:5px; border-radius:999px; background:#F0E9DD; overflow:hidden; min-width:44px;">
+                  <span style="display:block; height:100%; border-radius:999px; width:{{ pv.bar }}; background:{{ pv.tone }};"></span>
+                </span>
+                <span style="font-family:var(--font-data); font-variant-numeric:tabular-nums; font-size:12.5px; font-weight:600; color:#0E2B22; min-width:88px; text-align:right;">{{ pv.dollars }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-family:var(--font-text); font-size:11.5px; line-height:1.5; color:{{ previewInk }}; margin-top:9px; text-wrap:pretty;">{{ previewNoteText }}</div>
+        </div>
+      </div>
+
+      <div style="padding:12px 20px 15px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <button type="button" onClick="{{ saveDraft }}" disabled="{{ saveDisabled }}" style="height:36px; padding:0 16px; border-radius:9px; cursor:{{ saveCursor }}; font-family:var(--font-text); font-size:13px; font-weight:600; white-space:nowrap; border:1px solid {{ saveEdge }}; background:{{ saveBg }}; color:{{ saveFg }};">{{ saveLabel }}</button>
+        <button type="button" onClick="{{ closeDraft }}" style="height:36px; padding:0 14px; border-radius:9px; cursor:pointer; font-family:var(--font-text); font-size:13px; font-weight:500; border:1px solid #E0D7C9; background:#FFFFFF; color:#5C7367; white-space:nowrap;" style-hover="border-color:#3F7A63; color:#3F7A63;">Cancel</button>
+        <span style="flex:1 1 10px;"></span>
+        <span style="font-family:var(--font-text); font-size:11.5px; color:{{ blockerInk }}; text-align:right; flex:1 1 130px; text-wrap:pretty;">{{ blockerText }}</span>
+      </div>
+      </div>
+
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="border-top:1px solid #E8E0D3; background:#FDFBF7; padding:12px clamp(14px,2vw,26px) 14px; display:flex; gap:12px; justify-content:space-between; flex-wrap:wrap;">
+    <span style="font-family:var(--font-text); font-size:11px; line-height:1.5; color:#A4B1A8; max-width:74ch; text-wrap:pretty;">Figures are as booked and have not been tied to trial balances. Two findings in the source analysis were retracted after review, both because exports were read without one. Treat every number here as accurate to the export and provisional beyond it.</span>
+    <span style="font-family:var(--font-data); font-size:11px; color:#A4B1A8; white-space:nowrap;">Mockup v1 · not a build</span>
+  </div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Rules Table&quot;,&quot;Exception Queue&quot;,&quot;Monthly Drivers&quot;,&quot;Reconciliation&quot;,&quot;Allocation Detail&quot;,&quot;Partner View&quot;],&quot;default&quot;:&quot;Rules Table&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Screen&quot;},&quot;invariantReading&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Show both&quot;,&quot;Tie to QBO&quot;,&quot;Tie to rules&quot;],&quot;default&quot;:&quot;Show both&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Section 5&quot;},&quot;showPendingOnly&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Screen&quot;},&quot;showDemoCopy&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Handoff&quot;}}">
+/* Allocation Rules mockup. Every figure below comes from the handoff brief's Section 4 and
+   Section 3, or from the repo's own Phase 0 discovery. Nothing is invented: where the brief
+   does not state a split, the rule renders as source-pending rather than guessing one. */
+
+var ENT = {
+  sb:    { label: "SB Coaching",     tone: "#0E2B22" },
+  forum: { label: "The Forum",       tone: "#3F7A63" },
+  bec:   { label: "beCollective",    tone: "#5F9C82" },
+  ulrg:  { label: "ULRG + Team",     tone: "#8FAE9F" },
+  sym:   { label: "Sympli Mortgage", tone: "#A4B1A8" }
+};
+
+var TIER = {
+  1: { name: "Direct",   gloss: "One entity consumes it" },
+  2: { name: "Traced",   gloss: "A source report gives the exact split" },
+  3: { name: "Driven",   gloss: "A named driver, reviewed monthly" },
+  4: { name: "Retained", gloss: "Spring's own cost, never reaches a partner entity" }
+};
+
+/* Demo narrative copy. Inventoried in the spec; must not reach production. */
+var DEMO = {
+  driverIntent: "These are Spring's judgments, not the bookkeeper's.",
+  partnerIntent: "This is what Spring sends Julie instead of a screenshot."
+};
+
+var RULES = [
+  { id: "ic-feb", scope: "Inner Circle - Feb 2026", kind: "Program account", tier: 1,
+    amount: 57914.30, entities: ["forum"],
+    versions: [{ v: 1, from: "Feb 1, 2026", to: null, current: true,
+      targets: [{ ent: "forum", pct: 100 }], approver: "Spring Bengtzen", stamp: "Feb 4, 2026",
+      rationale: "Program revenue and program cost both sit in The Forum. The program account is the entity, so no split is needed." }] },
+
+  { id: "sb26", scope: "Spring Break 2026", kind: "Program account", tier: 1,
+    amount: 123525.24, entities: ["sb"],
+    versions: [{ v: 1, from: "Jan 1, 2026", to: null, current: true,
+      targets: [{ ent: "sb", pct: 100 }], approver: "Spring Bengtzen", stamp: "Jan 8, 2026",
+      rationale: "Retained on SB Coaching. No partner entity consumes this program, so nothing moves between partner groups." }] },
+
+  { id: "bts-jun", scope: "Behind the Scenes - June 2026", kind: "Program account", tier: 1,
+    amount: 17346.83, entities: ["sb"],
+    versions: [{ v: 1, from: "Jun 1, 2026", to: null, current: true,
+      targets: [{ ent: "sb", pct: 100 }], approver: "Spring Bengtzen", stamp: "Jun 3, 2026",
+      rationale: "Retained on SB Coaching, same reasoning as Spring Break 2026." }] },
+
+  { id: "qualifi", scope: "Qualifi", kind: "Vendor", tier: 1,
+    amount: 3694.00, entities: ["forum"],
+    versions: [{ v: 1, from: "Jan 1, 2026", to: null, current: true,
+      targets: [{ ent: "forum", pct: 100 }], approver: "Spring Bengtzen", stamp: "Jan 12, 2026",
+      rationale: "Lead aggregator. Every lead it delivers is a Forum lead, so a named 100 percent rule is a fact rather than a judgment." }] },
+
+  { id: "mighty", scope: "Mighty Networks", kind: "Vendor", tier: 1,
+    amount: 1521.47, entities: ["bec"],
+    versions: [{ v: 1, from: "Jan 1, 2026", to: null, current: true,
+      targets: [{ ent: "bec", pct: 100 }], approver: "Spring Bengtzen", stamp: "Jan 12, 2026",
+      rationale: "beCollective's community platform. No other entity has a presence on it." }] },
+
+  { id: "stan", scope: "Stan Store (Rachel Adams Lee)", kind: "Vendor", tier: 1,
+    amount: 22500.00, entities: ["bec"],
+    versions: [{ v: 1, from: "Mar 1, 2026", to: null, current: true,
+      targets: [{ ent: "bec", pct: 100 }], approver: "Spring Bengtzen", stamp: "Mar 2, 2026",
+      rationale: "Social media consulting contracted specifically for beCollective's launch." }] },
+
+  { id: "meta", scope: "Meta ad spend", kind: "GL account", tier: 2,
+    amount: 260267.22, entities: ["forum", "bec", "sb"], traced: 30280.00, untraced: 119852.04,
+    pendingNote: "Campaign level entries ran January to May and covered $30,280.00. They stopped after May, so June to August holds $119,852.04 with no attribution at all. This is the largest allocable cost in the group and the split cannot resolve until Ads Manager is re-read.",
+    versions: [{ v: 1, from: "Jan 1, 2026", to: null, current: true, targets: [],
+      approver: "Spring Bengtzen", stamp: "Jan 5, 2026",
+      rationale: "Campaign names carry the entity, so the split is a fact from Ads Manager rather than a judgment. That is what makes this Tier 2 and not Tier 3." }] },
+
+  { id: "gws", scope: "Google Workspace", kind: "Vendor", tier: 2,
+    amount: 4657.73, entities: ["sb", "forum", "bec"],
+    pendingNote: "One seat, one person, one entity. The seat list is the source and has not been imported into this mockup, so no split is shown rather than a guessed one.",
+    versions: [{ v: 1, from: "Jan 1, 2026", to: null, current: true, targets: [],
+      approver: "Spring Bengtzen", stamp: "Jan 5, 2026",
+      rationale: "Seat assignment is recorded in Workspace admin, so the split is traceable to a source report." }] },
+
+  { id: "adv", scope: "Advertising, general", kind: "GL account", tier: 3,
+    amount: 52049.87, entities: ["forum", "bec", "sb"],
+    versions: [
+      { v: 2, from: "Apr 1, 2026", to: null, current: true,
+        targets: [{ ent: "forum", pct: 50 }, { ent: "bec", pct: 30 }, { ent: "sb", pct: 20 }],
+        approver: "Spring Bengtzen", stamp: "Apr 2, 2026",
+        rationale: "SB Coaching began carrying a real share of general advertising in April, so the retained portion moved from zero to 20 percent and Forum's share came down to fund it." },
+      { v: 1, from: "Jan 1, 2026", to: "Mar 31, 2026", current: false,
+        targets: [{ ent: "forum", pct: 70 }, { ent: "bec", pct: 30 }, { ent: "sb", pct: 0 }],
+        approver: "Spring Bengtzen", stamp: "Jan 6, 2026",
+        rationale: "Original split. General advertising ran almost entirely for Forum programs, with beCollective's launch taking the remainder." }] },
+
+  { id: "software", scope: "Shared operating software", kind: "GL account", tier: 3,
+    amount: 29460.34, entities: ["forum", "bec", "sb"],
+    pendingNote: "Driver is headcount served. No headcount values have been entered for September, so this rule has nothing to resolve against and its spend waits rather than defaulting to an even split.",
+    versions: [{ v: 1, from: "Jan 1, 2026", to: null, current: true, targets: [],
+      approver: "Spring Bengtzen", stamp: "Jan 6, 2026",
+      rationale: "Genuinely shared and no source report exists, so a named driver reviewed monthly is the honest method." }] },
+
+  { id: "ptax", scope: "Payroll taxes", kind: "GL account", tier: 3,
+    amount: 19148.72, entities: ["forum", "bec", "sb"],
+    pendingNote: "Driver is each person's existing wage split. The percentages are entered on the Drivers screen, but per person wage amounts are not in this mockup, so the weighted split cannot be computed here. Today these taxes stay entirely on SB Coaching while the wages they relate to are allocated out.",
+    versions: [{ v: 1, from: "Jan 1, 2026", to: null, current: true, targets: [],
+      approver: "Spring Bengtzen", stamp: "Jan 6, 2026",
+      rationale: "Payroll tax follows the wage it is levied on. Leaving it behind while the wage moves overstates every partner entity's profit." }] },
+
+  { id: "telaviv", scope: "Tel Aviv Couture", kind: "Vendor", tier: 4,
+    amount: 30461.91, entities: ["sb"],
+    pendingNote: "Currently miscoded to Travel. Retained either way, so the miscoding does not move money between partner groups, but it does overstate Travel.",
+    versions: [{ v: 1, from: "Jan 1, 2026", to: null, current: true,
+      targets: [{ ent: "sb", pct: 100 }], approver: "Spring Bengtzen", stamp: "Jan 14, 2026",
+      rationale: "Spring's own cost. It never reaches a partner entity, which is the whole definition of Tier 4." }] },
+
+  { id: "blush", scope: "Blush Beauty", kind: "Vendor", tier: 4,
+    amount: 6882.00, entities: ["sb"],
+    versions: [{ v: 1, from: "Jan 1, 2026", to: null, current: true,
+      targets: [{ ent: "sb", pct: 100 }], approver: "Spring Bengtzen", stamp: "Jan 14, 2026",
+      rationale: "Spring's own cost, retained on SB Coaching." }] }
+];
+
+var EXCEPTIONS = [
+  { id: "debi", payee: "Outsourcing DEBI", account: "Professional Fees", amount: 18367.82,
+    date: "Jul 22, 2026", known: "One invoice, no memo, no program code. Paid from the SB Coaching operating account.",
+    gaps: ["No memo", "No program code"], matches: 1, historical: 0 },
+  { id: "pay1099", payee: "1099 Pay", account: "Contract Labor", amount: 29000.00,
+    date: "Jun 30, 2026", known: "ACH with no payee recorded. The amount is round, which usually means it was a manually keyed transfer.",
+    gaps: ["No payee", "ACH, no detail"], matches: 1, historical: 2 },
+  { id: "source", payee: "Source Systems", account: "Professional Fees", amount: 10000.00,
+    date: "Aug 11, 2026", known: "Four charges to Professional Fees, all the same amount, spread across the quarter.",
+    gaps: ["Recurring, unclaimed"], matches: 4, historical: 4 },
+  { id: "travel", payee: "Travel, payee not recorded", account: "Travel", amount: 6265.48,
+    date: "Aug 2, 2026", known: "Seven charges with no payee. Sits in the same account Tel Aviv Couture is currently miscoded into.",
+    gaps: ["No payee", "7 charges"], matches: 7, historical: 3 }
+];
+
+var STAFF = [
+  { id: "ost", name: "S. Ostermiller", forum: 70, bec: null, sb: null, flat: 2500,
+    note: "70 percent Forum, a flat $2,500 to beCollective through August, remainder SB Coaching",
+    tag: "Effective dated", state: "dated" },
+  { id: "ede", name: "Sarah Edelman", forum: 50, bec: 50, sb: 0, flat: null,
+    note: "Split evenly between the two partner entities", tag: "Set", state: "set" },
+  { id: "car", name: "Taylor Carreon", forum: 50, bec: 50, sb: 0, flat: null,
+    note: "Split evenly between the two partner entities", tag: "Set", state: "set" },
+  { id: "jac", name: "B. Jacobsen", forum: 100, bec: 0, sb: 0, flat: null,
+    note: "Base and commission, both entirely Forum", tag: "Set", state: "set" },
+  { id: "bak", name: "Pamela Bakalian", forum: null, bec: null, sb: null, flat: null,
+    ytd: 66000, note: "Contractor, $66,000 year to date, split across all three entities",
+    tag: "Not set", state: "unset" }
+];
+
+var RECON = [
+  { id: "adv", pool: "Advertising, general", note: "Rule adv v2, 50/30/20", computed: 52049.87,
+    booked: 52049.87, tie: true },
+  { id: "sweep", pool: "Ad Spend Adjustment sweep", note: "Empties three program accounts into one pool",
+    computed: 0, booked: 52049.87, tie: false,
+    detail: "The engine computes zero here because attribution already existed before the sweep destroyed it." },
+  { id: "meta", pool: "Meta ad spend", note: "Traced Jan to May only", computed: 30280.00,
+    booked: 260267.22, tie: false,
+    detail: "The gap is not a disagreement about method. It is 78 percent of the largest allocable cost having no attribution." },
+  { id: "ptax", pool: "Payroll taxes", note: "Driver pending, retained today", computed: 0,
+    booked: 19148.72, tie: false,
+    detail: "Booked entirely to SB Coaching. The computed figure stays zero until wage amounts are available." },
+  { id: "shared", pool: "Shared service charges", note: "Forum and beCollective, already in QBO",
+    computed: 438046.94, booked: 438046.94, tie: true,
+    detail: "Observed rather than applied. These are already in the books, so they tie by construction." }
+];
+
+var IC_CHECKS = [
+  { id: "ties", label: "Ties To The Cent", value: "3 of 4", dot: "#5F9C82", tone: "good",
+    note: "Forum Due To SB Coaching at $447,968.76, beCollective at $119,384.11, and ULRG at $13,082.08 all reconcile exactly." },
+  { id: "break", label: "One Break", value: "$2,450.00", dot: "#D4B45F", tone: "warn",
+    note: "Forum Transfer Account reads $676,690.55 on Forum against $679,140.55 on SB Coaching. Found in Phase 0 and still open." },
+  { id: "unexplained", label: "Unexplained Movement", value: "$5,000.00", dot: "#D4B45F", tone: "warn",
+    note: "beCollective's July intercompany movement ran larger than its shared service charge. That difference is a cash transfer, not an allocation." }
+];
+
+/* Only the allocated lines are stated in the brief. beCollective's own revenue and native
+   costs are NOT, so they are named as absent rather than filled with a plausible number. */
+var PARTNER_ALLOC = [
+  { k: "stan", label: "Stan Store (Rachel Adams Lee)", ruleId: "stan", ver: 1,
+    why: "Tier 1 Direct. Social media consulting contracted specifically for beCollective's launch, so it is 100 percent yours." },
+  { k: "mighty", label: "Mighty Networks", ruleId: "mighty", ver: 1,
+    why: "Tier 1 Direct. Your community platform. No other entity has a presence on it." },
+  { k: "adv", label: "Advertising, general", ruleId: "adv", ver: 2,
+    why: "Tier 3 Driven. 30 percent of a $52,049.87 shared pool, unchanged across both rule versions this year. Reviewed monthly." }
+];
+
+var BEC_LOSS = -141782.00;      // stated, before any partner share
+var JULIE_DRAWN = 194450.00;    // stated
+var BEC_DEFERRED = 278500.00;   // stated
+var JULIE_PCT = 50;             // stated, 50/50 on net profit
+
+var SCREENS = ["Rules Table", "Exception Queue", "Monthly Drivers", "Reconciliation",
+               "Allocation Detail", "Partner View"];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { screen: null, tier: "all", entity: "all", openRule: null,
+                   exc: {}, excTier: {}, drivers: "clean", reading: null, draft: null };
+  }
+
+  /* Three entry points, one drawer. A rule is only ever created or changed here. */
+  startNew() {
+    this.setState({ draft: { mode: "new", scopeKind: "Vendor", scope: "", tier: null,
+      entity: null, source: null, driver: null, split: { forum: 50, bec: 30, sb: 20 },
+      rationale: "", effective: null, amount: null, matchCount: 0,
+      title: "New rule", eyebrow: "From scratch" } });
+  }
+
+  startSupersede(rule) {
+    var v = this.current(rule);
+    var split = { forum: 0, bec: 0, sb: 0 };
+    v.targets.forEach(function (t) { if (split[t.ent] !== undefined) split[t.ent] = t.pct; });
+    this.setState({ draft: { mode: "supersede", scopeKind: rule.kind, scope: rule.scope,
+      tier: rule.tier, entity: v.targets.length === 1 ? v.targets[0].ent : null,
+      source: null, driver: v.targets.length ? "Reviewed split" : null, split: split,
+      rationale: "", effective: null, amount: rule.amount, matchCount: 0,
+      nextVersion: v.v + 1, ruleId: rule.id,
+      title: "New version of " + rule.scope, eyebrow: "Supersedes v" + v.v } });
+  }
+
+  startFromException(x) {
+    this.setState({ draft: { mode: "exception", scopeKind: "Vendor", scope: x.payee,
+      tier: null, entity: null, source: null, driver: null,
+      split: { forum: 50, bec: 30, sb: 20 }, rationale: "", effective: null,
+      amount: x.amount, matchCount: x.matches + x.historical, excId: x.id,
+      title: "Rule from " + x.payee, eyebrow: "From an unclaimed charge" } });
+  }
+
+  patchDraft(fields) {
+    this.setState({ draft: Object.assign({}, this.state.draft, fields) });
+  }
+
+  /* THE single rate helper. Every percentage in this mockup becomes dollars here and
+     nowhere else. No component computes a figure inline. */
+  rate(amount, pct) {
+    return (Number(amount) || 0) * (Number(pct) || 0) / 100;
+  }
+
+  money(n) {
+    var v = Math.round(Math.abs(Number(n) || 0));
+    var neg = Number(n) < 0 && v !== 0;
+    return (neg ? "(" : "") + "$" + v.toLocaleString("en-US") + (neg ? ")" : "");
+  }
+
+  /* Cents, not whole dollars: the tie-out tolerance is a penny, so every break the check
+     actually cares about would print as "$0" if rounded. Parens carry the sign, as on the
+     rest of the ledger. */
+  cents(n) {
+    var v = Math.abs(Number(n) || 0).toLocaleString("en-US",
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return (Number(n) < 0 ? "($" + v + ")" : "$" + v);
+  }
+
+  current(rule) {
+    for (var i = 0; i < rule.versions.length; i++) {
+      if (rule.versions[i].current) return rule.versions[i];
+    }
+    return rule.versions[0];
+  }
+
+  /* Dollars that leave SB Coaching for a partner entity. Null when the rule cannot resolve. */
+  toPartners(rule) {
+    var v = this.current(rule);
+    if (!v.targets.length) return null;
+    var sum = 0;
+    for (var i = 0; i < v.targets.length; i++) {
+      if (v.targets[i].ent !== "sb") sum += this.rate(rule.amount, v.targets[i].pct);
+    }
+    return sum;
+  }
+
+  splitText(v) {
+    if (!v.targets.length) return "Resolved from source";
+    var parts = [];
+    for (var i = 0; i < v.targets.length; i++) {
+      parts.push(ENT[v.targets[i].ent].label + " " + v.targets[i].pct + "%");
+    }
+    return parts.join(", ");
+  }
+
+  get screen() { return this.state.screen || this.props.screen || "Rules Table"; }
+  get reading() { return this.state.reading || this.props.invariantReading || "Show both"; }
+
+  renderVals() {
+    var self = this;
+    var screen = this.screen;
+    var reading = this.reading;
+    var demo = this.props.showDemoCopy !== false;
+    var pendingOnly = this.props.showPendingOnly === true;
+
+    var DEEP = "#0E2B22", BODY = "#40564B", DIM = "#5C7367", MUTE = "#7C8F85",
+        FAINT = "#8B9C92", GHOST = "#A4B1A8", PAPER = "#FFFFFF", EDGE = "#E0D7C9",
+        GOLDBG = "#FEFAEE", GOLDEDGE = "#E0C476", GOLDRING = "#D4B45F", GOLDINK = "#93854F",
+        ACC = "#5F9C82", ACCINK = "#3F7A63", ACCBG = "#EEF4F0", RULEIN = "#E2D9CA";
+
+    var tierEdge = { 1: DEEP, 2: BODY, 3: GOLDRING, 4: RULEIN };
+    var tierWeight = { 1: 700, 2: 600, 3: 500, 4: 400 };
+
+    /* ── chrome ─────────────────────────────────────────────────────────── */
+    var entityChips = [{ key: "all", label: "All entities" }];
+    Object.keys(ENT).forEach(function (k) { entityChips.push({ key: k, label: ENT[k].label }); });
+    entityChips = entityChips.map(function (e) {
+      var on = self.state.entity === e.key;
+      return { label: e.label, edge: on ? "#FFFFFF" : "#2F5044",
+               bg: on ? "#FFFFFF" : "transparent", fg: on ? DEEP : "#A7C0B4",
+               weight: on ? 600 : 500,
+               pick: function () { self.setState({ entity: e.key, openRule: null }); } };
+    });
+
+    var navItems = SCREENS.map(function (s) {
+      var on = screen === s;
+      return { label: s, fg: on ? DEEP : FAINT, weight: on ? 600 : 500,
+               edge: on ? ACC : "transparent",
+               pick: function () { self.setState({ screen: s, openRule: null }); } };
+    });
+
+    /* ── rules ──────────────────────────────────────────────────────────── */
+    var visible = RULES.filter(function (r) {
+      if (self.state.tier !== "all" && r.tier !== self.state.tier) return false;
+      if (self.state.entity !== "all" && r.entities.indexOf(self.state.entity) < 0) return false;
+      if (pendingOnly && !r.pendingNote) return false;
+      return true;
+    });
+
+    var tierChips = [{ key: "all", label: "All" }].concat([1, 2, 3, 4].map(function (n) {
+      return { key: n, label: "T" + n + " " + TIER[n].name };
+    })).map(function (t) {
+      var on = self.state.tier === t.key;
+      return { label: t.label, edge: on ? DEEP : EDGE, bg: on ? DEEP : PAPER,
+               fg: on ? "#F3EFE6" : DIM, weight: on ? 600 : 500,
+               pick: function () { self.setState({ tier: t.key, openRule: null }); } };
+    });
+
+    var tierSummary = [1, 2, 3, 4].map(function (n) {
+      var set = RULES.filter(function (r) { return r.tier === n; });
+      var pool = set.reduce(function (a, r) { return a + r.amount; }, 0);
+      return { tier: "T" + n + " " + TIER[n].name, gloss: TIER[n].gloss,
+               count: set.length + (set.length === 1 ? " rule" : " rules"),
+               amount: self.money(pool), edge: tierEdge[n], ink: DEEP,
+               weight: tierWeight[n] };
+    });
+
+    var ruleRows = visible.map(function (r) {
+      var v = self.current(r);
+      var alloc = self.toPartners(r);
+      var isT3 = r.tier === 3, isT4 = r.tier === 4;
+      var sub;
+      if (r.tier === 1) sub = "Direct · " + self.splitText(v);
+      else if (r.tier === 2) sub = r.traced
+        ? "Traced · " + self.money(r.traced) + " of " + self.money(r.amount) + " attributed"
+        : "Traced · source not imported";
+      else if (isT3) sub = v.targets.length
+        ? "Driven · " + self.splitText(v)
+        : "Driven · driver has no values";
+      else sub = "Retained on SB Coaching";
+
+      var splits = v.targets.map(function (t) {
+        return { label: ENT[t.ent].label, pct: t.pct + "%", tone: ENT[t.ent].tone,
+                 bar: t.pct + "%", dollars: self.money(self.rate(r.amount, t.pct)) };
+      });
+
+      var history = r.versions.map(function (h) {
+        return { version: "v" + h.v,
+                 window: h.to ? h.from + " to " + h.to : h.from + " to now",
+                 split: self.splitText(h),
+                 stamp: h.approver + " · " + h.stamp,
+                 tag: h.current ? "Current" : "Superseded",
+                 bg: h.current ? ACCBG : "#FBF8F2",
+                 ink: h.current ? DEEP : MUTE,
+                 tagBg: h.current ? PAPER : "#F0E9DD",
+                 tagInk: h.current ? ACCINK : FAINT };
+      });
+
+      return {
+        id: r.id, scope: r.scope, kind: r.kind, sub: sub,
+        tierKey: "T" + r.tier,
+        isT1: r.tier === 1, isT2: r.tier === 2, isT3: isT3, isT4: isT4,
+        ink: isT4 ? MUTE : DEEP, subInk: r.pendingNote ? GOLDINK : FAINT,
+        weight: tierWeight[r.tier],
+        targetLabel: v.targets.length ? self.splitText(v)
+                                      : (r.tier === 2 ? "Per source" : "Per driver"),
+        amount: self.money(r.amount),
+        alloc: alloc === null ? "pending" : self.money(alloc),
+        allocInk: alloc === null ? GOLDINK : (alloc === 0 ? GHOST : ACCINK),
+        bg: isT3 ? GOLDBG : PAPER,
+        inset: isT3 ? "inset 3px 0 0 " + GOLDEDGE : "none",
+        drawerInset: "inset 3px 0 0 " + (isT3 ? GOLDEDGE : "#DCD2C2"),
+        rationale: v.rationale,
+        splits: splits,
+        hasPending: !!r.pendingNote,
+        pendingNote: r.pendingNote || "",
+        history: history,
+        open: self.state.openRule === r.id,
+        toggle: function () {
+          self.setState({ openRule: self.state.openRule === r.id ? null : r.id });
+        },
+        supersede: function () { self.startSupersede(r); }
+      };
+    });
+
+    var poolTotal = visible.reduce(function (a, r) { return a + r.amount; }, 0);
+    var allocTotal = visible.reduce(function (a, r) {
+      var x = self.toPartners(r); return a + (x === null ? 0 : x);
+    }, 0);
+
+    /* ── exceptions ─────────────────────────────────────────────────────── */
+    var excRows = EXCEPTIONS.map(function (x) {
+      var st = self.state.exc[x.id] || "closed";
+      var total = x.matches + x.historical;
+      var set = function (v) {
+        return function () {
+          var m = Object.assign({}, self.state.exc); m[x.id] = v;
+          self.setState({ exc: m });
+        };
+      };
+      return {
+        payee: x.payee, account: x.account, amount: self.money(x.amount), date: x.date,
+        known: x.known,
+        gaps: x.gaps.map(function (g) { return { label: g }; }),
+        clears: "Clears " + total + (total === 1 ? " item" : " items")
+                + (x.historical ? ", including " + x.historical + " historical" : ""),
+        closed: st === "closed", building: st === "building", done: st === "done",
+        doneNote: "Rule saved. " + total + (total === 1 ? " item" : " items")
+                  + " cleared from the queue.",
+        rationaleHint: "One line, shown to any partner who asks why this cost sits where it does. Required before the rule can save.",
+        open: function () { self.startFromException(x); },
+        cancel: set("closed")
+      };
+    });
+    var excSum = EXCEPTIONS.reduce(function (a, x) { return a + x.amount; }, 0);
+
+    /* ── drivers ────────────────────────────────────────────────────────── */
+    var cell = function (v) { return v === null ? "-" : v + "%"; };
+    var driverRows = STAFF.map(function (p) {
+      var unset = p.state === "unset", dated = p.state === "dated";
+      return {
+        name: p.name, note: p.note,
+        forum: cell(p.forum),
+        bec: dated ? self.money(p.flat) : cell(p.bec),
+        sb: dated ? "rem." : cell(p.sb),
+        ink: unset ? GHOST : DEEP,
+        noteInk: unset ? GOLDINK : FAINT,
+        bg: unset ? GOLDBG : PAPER,
+        inset: unset ? "inset 3px 0 0 " + GOLDEDGE : "none",
+        tag: p.tag,
+        tagBg: unset ? PAPER : (dated ? "#FBF8F2" : ACCBG),
+        tagInk: unset ? GOLDINK : (dated ? DIM : ACCINK),
+        tagEdge: unset ? GOLDEDGE : RULEIN
+      };
+    });
+
+    var otherDrivers = [
+      { label: "Headcount Served", state: "No values entered for September.",
+        consumer: "Consumed by: Shared operating software, " + self.money(29460.34),
+        bg: GOLDBG, edge: GOLDEDGE, eyebrow: GOLDINK, ink: GOLDINK },
+      { label: "Active Member Count", state: "No values entered for September.",
+        consumer: "Consumed by: no rule yet",
+        bg: "#FBF8F2", edge: RULEIN, eyebrow: FAINT, ink: MUTE }
+    ];
+
+    var advRule = RULES.filter(function (r) { return r.id === "adv"; })[0];
+    var advV2 = this.current(advRule);
+    var becAdv = this.rate(advRule.amount, 30);
+
+    var previewRows = [
+      { label: "S. Ostermiller, flat amount to beCollective",
+        before: self.money(2500), after: self.money(0), delta: "-" + self.money(2500),
+        deltaInk: GOLDINK },
+      { label: "Advertising, general to beCollective (rule adv v2, unchanged)",
+        before: self.money(becAdv), after: self.money(becAdv), delta: "no change",
+        deltaInk: GHOST },
+      { label: "Payroll taxes, resolvable this month",
+        before: self.money(0), after: self.money(0), delta: "blocked",
+        deltaInk: GOLDINK }
+    ];
+
+    /* ── reconciliation ─────────────────────────────────────────────────── */
+    var readingChips = ["Show both", "Tie to QBO", "Tie to rules"].map(function (r) {
+      var on = reading === r;
+      return { label: r, edge: on ? DEEP : EDGE, bg: on ? DEEP : PAPER,
+               fg: on ? "#F3EFE6" : DIM, weight: on ? 600 : 500,
+               pick: function () { self.setState({ reading: r }); } };
+    });
+
+    var reconRows = RECON.map(function (c) {
+      var variance = c.computed - c.booked;
+      return {
+        pool: c.pool, note: c.detail || c.note,
+        computed: self.money(c.computed), booked: self.money(c.booked),
+        variance: variance === 0 ? "ties" : self.cents(variance),
+        varBg: variance === 0 ? ACCBG : GOLDBG,
+        varInk: variance === 0 ? ACCINK : GOLDINK,
+        weight: c.tie ? 400 : 600,
+        noteInk: c.tie ? FAINT : GOLDINK,
+        bg: c.tie ? PAPER : GOLDBG,
+        inset: c.tie ? "none" : "inset 3px 0 0 " + GOLDEDGE
+      };
+    });
+    var recComputed = RECON.reduce(function (a, c) { return a + c.computed; }, 0);
+    var recBooked = RECON.reduce(function (a, c) { return a + c.booked; }, 0);
+
+    var reconChecks = IC_CHECKS.map(function (k) {
+      return { label: k.label, value: k.value, note: k.note, dot: k.dot,
+               bg: k.tone === "good" ? ACCBG : GOLDBG,
+               edge: k.tone === "good" ? RULEIN : GOLDEDGE,
+               eyebrow: k.tone === "good" ? ACCINK : GOLDINK,
+               ink: k.tone === "good" ? DIM : GOLDINK };
+    });
+
+    /* ── allocation detail ──────────────────────────────────────────────── */
+    var detailBuild = [
+      { label: "Shared pool, Advertising general", meta: " · SB Coaching",
+        amount: self.money(advRule.amount), ink: BODY, numInk: DEEP, weight: 400,
+        pad: "0", rule: "none", padTop: "0" },
+      { label: "beCollective share", meta: " · rule adv v2 · 30 percent",
+        amount: "30%", ink: BODY, numInk: GOLDINK, weight: 400,
+        pad: "0", rule: "none", padTop: "0" },
+      { label: "Allocated to beCollective", meta: "",
+        amount: self.money(becAdv), ink: DEEP, numInk: DEEP, weight: 700,
+        pad: "0", rule: "1px solid " + RULEIN, padTop: "8px" }
+    ];
+
+    var detailRule = [
+      { k: "Rule", v: "adv · Advertising, general" },
+      { k: "Version", v: "v2, current" },
+      { k: "Effective", v: "Apr 1, 2026 to now" },
+      { k: "Supersedes", v: "v1, 70/30/0, Jan 1 to Mar 31, 2026" },
+      { k: "Tier", v: "3 Driven" },
+      { k: "Approved", v: advV2.approver + " · " + advV2.stamp }
+    ];
+
+    var detailDrivers = [
+      { k: "The Forum", v: "50 percent" },
+      { k: "beCollective", v: "30 percent" },
+      { k: "SB Coaching", v: "20 percent" },
+      { k: "Reviewed", v: "Sep 1, 2026" }
+    ];
+
+    /* ── partner view ───────────────────────────────────────────────────── */
+    var byId = {};
+    RULES.forEach(function (r) { byId[r.id] = r; });
+
+    var partnerLines = [];
+    var allocSum = 0;
+    PARTNER_ALLOC.forEach(function (p) {
+      var r = byId[p.ruleId];
+      var amt = p.ruleId === "adv" ? becAdv : self.rate(r.amount, 100);
+      allocSum += amt;
+      partnerLines.push({
+        label: p.label, amount: self.money(amt), source: "Rule " + p.ruleId + " v" + p.ver,
+        composed: true, plain: false, hasWhy: true, why: p.why,
+        ink: DEEP, srcInk: GOLDINK, size: "13.5px", numSize: "13.5px", weight: 500,
+        bg: GOLDBG, inset: "inset 3px 0 0 " + GOLDEDGE, rule: "#F7F1E7", top: "none",
+        pad: "9px"
+      });
+    });
+    partnerLines.push({
+      label: "Total allocated to beCollective", amount: self.money(allocSum), source: "3 rules",
+      composed: false, plain: true, hasWhy: false, why: "",
+      ink: DEEP, srcInk: FAINT, size: "13.5px", numSize: "14px", weight: 700,
+      bg: "#FBF8F2", inset: "none", rule: RULEIN, top: "1px solid " + RULEIN, pad: "11px"
+    });
+    partnerLines.push({
+      label: "Own revenue and native costs", amount: "not in mockup",
+      source: "QuickBooks", composed: false, plain: true, hasWhy: true,
+      why: "The brief states beCollective's loss but not the revenue and native costs behind it. Left empty rather than filled with a plausible number.",
+      ink: GHOST, srcInk: GHOST, size: "13px", numSize: "12px", weight: 400,
+      bg: PAPER, inset: "none", rule: "#F7F1E7", top: "none", pad: "9px"
+    });
+    partnerLines.push({
+      label: "Net Loss Before Partner Share", amount: self.money(BEC_LOSS), source: "as booked",
+      composed: false, plain: true, hasWhy: false, why: "",
+      ink: DEEP, srcInk: FAINT, size: "14px", numSize: "17px", weight: 700,
+      bg: "#FBF8F2", inset: "none", rule: RULEIN, top: "1.5px solid " + DEEP, pad: "13px"
+    });
+
+    var accrualShare = this.rate(BEC_LOSS, JULIE_PCT);
+    var cashBase = BEC_LOSS + BEC_DEFERRED;
+    var cashShare = this.rate(cashBase, JULIE_PCT);
+
+    var drawRows = [
+      { label: "Drawn to date", amount: self.money(JULIE_DRAWN), ink: DEEP, weight: 500,
+        size: "13.5px", rule: "none", pad: "0" },
+      { label: "Earned share, accrual basis", amount: self.money(accrualShare),
+        ink: GOLDINK, weight: 500, size: "13.5px", rule: "none", pad: "0" },
+      { label: "Draw balance, accrual basis", amount: self.money(JULIE_DRAWN - accrualShare),
+        ink: DEEP, weight: 700, size: "16px", rule: "1px solid " + GOLDEDGE, pad: "9px" }
+    ];
+
+    var basisRows = [
+      { label: "Accrual", share: self.money(accrualShare),
+        note: "50 percent of a $141,782 loss. Julie has earned nothing this year, so the whole draw stands as a receivable." },
+      { label: "Cash, deferred revenue recognized", share: self.money(cashShare),
+        note: "Recognizes the $278,500 sitting in deferred revenue first, which turns the loss into profit and the draw into a partial advance." }
+    ];
+
+    var out = {
+      isRules: screen === "Rules Table", isQueue: screen === "Exception Queue",
+      isDrivers: screen === "Monthly Drivers", isRecon: screen === "Reconciliation",
+      isDetail: screen === "Allocation Detail", isPartner: screen === "Partner View",
+      entityChips: entityChips, navItems: navItems,
+      tierChips: tierChips, tierSummary: tierSummary, ruleRows: ruleRows,
+      ruleCountLabel: visible.length + (visible.length === 1 ? " rule" : " rules"),
+      rulePoolTotal: self.money(poolTotal), ruleAllocTotal: self.money(allocTotal),
+
+      excRows: excRows, excTotal: self.money(excSum),
+      excCountLabel: EXCEPTIONS.length + " transactions waiting on a rule",
+
+      driverRows: driverRows, otherDrivers: otherDrivers, previewRows: previewRows,
+      previewNote: demo
+        ? DEMO.driverIntent + " Committing September writes a new driver version, effective Sep 1, and re-derives every Tier 3 rule that reads it."
+        : "Committing September writes a new driver version, effective Sep 1, and re-derives every Tier 3 rule that reads it.",
+      driversDirty: self.state.drivers === "dirty",
+      commitLabel: self.state.drivers === "committed" ? "Committed" : "Commit September",
+      commitBg: self.state.drivers === "committed" ? ACCBG : DEEP,
+      commitFg: self.state.drivers === "committed" ? ACCINK : "#F3EFE6",
+      commitEdge: self.state.drivers === "committed" ? RULEIN : DEEP,
+      commitDrivers: function () {
+        self.setState({ drivers: self.state.drivers === "committed" ? "clean" : "committed" });
+      },
+
+      readingChips: readingChips, reconRows: reconRows,
+      reconComputedTotal: self.money(recComputed),
+      reconBookedTotal: self.money(recBooked),
+      reconVarianceTotal: self.cents(recComputed - recBooked),
+      reconChecks: reconChecks,
+
+      /* No funded percentage. It would be a share of this entity's own advertising activity,
+         which the brief does not state, and a literal here would be the one invented figure
+         on the screen. The Statement omits ic_share_pct for the same reason when it is null. */
+      detailFlag: "part funded by another entity",
+      detailAmount: self.money(becAdv),
+      detailBuild: detailBuild, detailRule: detailRule, detailDrivers: detailDrivers,
+      detailRationale: advV2.rationale,
+
+      partnerLines: partnerLines, drawRows: drawRows, basisRows: basisRows,
+      drawNote: demo
+        ? DEMO.partnerIntent + " Both figures are directional until trial balances are tied."
+        : "Both figures are directional until trial balances are tied."
+    };
+    return Object.assign(out, this.draftVals());
+  }
+
+  /* The create and edit drawer. Method first: picking a tier changes what step 3 asks for,
+     because a fact and a judgment are not entered the same way. */
+  draftVals() {
+    var self = this;
+    var d = this.state.draft;
+
+    var DEEP = "#0E2B22", BODY = "#40564B", DIM = "#5C7367", MUTE = "#7C8F85",
+        FAINT = "#8B9C92", GHOST = "#A4B1A8", PAPER = "#FFFFFF", EDGE = "#E0D7C9",
+        GOLDBG = "#FEFAEE", GOLDEDGE = "#E0C476", GOLDRING = "#D4B45F", GOLDINK = "#93854F",
+        ACC = "#5F9C82", ACCINK = "#3F7A63", ACCBG = "#EEF4F0", RULEIN = "#E2D9CA";
+
+    var always = {
+      draftOpen: !!d,
+      newRule: function () { self.startNew(); },
+      closeDraft: function () { self.setState({ draft: null }); },
+      stop: function (e) { if (e && e.stopPropagation) e.stopPropagation(); }
+    };
+    if (!d) return always;
+
+    var tier = d.tier;
+    var isT1 = tier === 1, isT2 = tier === 2, isT3 = tier === 3, isT4 = tier === 4;
+    var reviewed = d.driver === "Reviewed split";
+    var splitSum = d.split.forum + d.split.bec + d.split.sb;
+
+    var pill = function (on) {
+      return { edge: on ? DEEP : EDGE, bg: on ? DEEP : PAPER,
+               fg: on ? "#F3EFE6" : DIM, weight: on ? 600 : 500 };
+    };
+    var card = function (on) {
+      return { edge: on ? DEEP : RULEIN, bg: on ? PAPER : "#FBF8F2", weight: on ? 600 : 500 };
+    };
+
+    /* step 1 */
+    var draftKinds = ["Vendor", "GL account", "Program account"].map(function (k) {
+      var p = pill(d.scopeKind === k);
+      p.label = k;
+      p.pick = function () { self.patchDraft({ scopeKind: k }); };
+      return p;
+    });
+
+    /* step 2, the tier picker. Same three carriers as the table: marker, name, treatment. */
+    var dots = {
+      1: { radius: "0", dotBg: DEEP, dotBorder: "none" },
+      2: { radius: "50%", dotBg: "transparent", dotBorder: "2px solid " + BODY },
+      3: { radius: "50%", dotBg: "transparent", dotBorder: "2px solid " + GOLDRING },
+      4: { radius: "0", dotBg: "transparent", dotBorder: "1px dashed " + GHOST }
+    };
+    var draftTiers = [1, 2, 3, 4].map(function (n) {
+      var on = tier === n;
+      return {
+        name: "Tier " + n + " " + TIER[n].name, gloss: TIER[n].gloss,
+        radius: dots[n].radius, dotBg: dots[n].dotBg, dotBorder: dots[n].dotBorder,
+        edge: on ? (n === 3 ? GOLDEDGE : DEEP) : RULEIN,
+        bg: on ? (n === 3 ? GOLDBG : PAPER) : "#FBF8F2",
+        inset: on && n === 3 ? "inset 3px 0 0 " + GOLDEDGE : "none",
+        weight: on ? 700 : 500,
+        glossInk: on ? (n === 3 ? GOLDINK : DIM) : FAINT,
+        pick: function () { self.patchDraft({ tier: n }); }
+      };
+    });
+
+    /* step 3, morphing */
+    var stepThree = isT1 ? "Which Entity Consumes It"
+                  : isT2 ? "Which Source Report Decides"
+                  : isT3 ? "Which Driver, Reviewed Monthly"
+                  : isT4 ? "Retained" : "How It Resolves";
+
+    var draftEntities = Object.keys(ENT).map(function (k) {
+      var on = d.entity === k;
+      var c = card(on);
+      return { label: ENT[k].label, tone: ENT[k].tone, edge: c.edge, bg: c.bg,
+               weight: c.weight, pct: on ? "100%" : "",
+               pctInk: on ? DEEP : GHOST,
+               pick: function () { self.patchDraft({ entity: k }); } };
+    });
+
+    var SOURCES = [
+      { label: "Meta Ads Manager", note: "Split by campaign name" },
+      { label: "Google Workspace seat list", note: "One seat, one person, one entity" },
+      { label: "Amex cardholder detail", note: "Split by cardholder" }
+    ];
+    var draftSources = SOURCES.map(function (s) {
+      var c = card(d.source === s.label);
+      return { label: s.label, note: s.note, edge: c.edge, bg: c.bg, weight: c.weight,
+               pick: function () { self.patchDraft({ source: s.label }); } };
+    });
+
+    var DRIVERS = ["Staff time commitment", "Headcount served", "Active member count",
+                   "Reviewed split"];
+    var draftDrivers = DRIVERS.map(function (k) {
+      var p = pill(d.driver === k);
+      p.label = k;
+      p.pick = function () { self.patchDraft({ driver: k }); };
+      return p;
+    });
+
+    var SPLIT_KEYS = [["forum", "The Forum"], ["bec", "beCollective"], ["sb", "SB Coaching"]];
+    var draftSplit = SPLIT_KEYS.map(function (pair) {
+      var k = pair[0];
+      var bump = function (delta) {
+        return function () {
+          var next = Object.assign({}, d.split);
+          next[k] = Math.min(100, Math.max(0, next[k] + delta));
+          self.patchDraft({ split: next });
+        };
+      };
+      return { label: pair[1], tone: ENT[k].tone, pct: d.split[k] + "%",
+               up: bump(5), down: bump(-5) };
+    });
+
+    var t3Hint = reviewed
+      ? "You are entering the judgment yourself, so the rationale below is what a partner reads when they ask why."
+      : "The driver supplies the split each month. Change it on the Monthly Drivers screen and every rule reading it re-derives.";
+
+    /* step 4 */
+    var hasWhy = (d.rationale || "").trim().length > 0;
+
+    /* step 5, asked every time because a vendor rule and a driver change want different answers */
+    var EFFECTIVE = [
+      { key: "forward", label: "This month forward",
+        note: "Sep 1, 2026 onward. History is left exactly as it was read at the time." },
+      { key: "pick", label: "From a date I pick",
+        note: "Defaults to Sep 1, 2026. Use this when the change has a known start." },
+      { key: "retro", label: "Retroactive to every match",
+        note: d.matchCount
+          ? "Claims " + d.matchCount + (d.matchCount === 1 ? " transaction" : " transactions")
+            + " back through January 2026."
+          : "Claims every matching transaction back through January 2026." }
+    ];
+    var draftEffective = EFFECTIVE.map(function (e) {
+      var on = d.effective === e.key;
+      return { label: e.label, note: e.note,
+               edge: on ? DEEP : RULEIN, bg: on ? PAPER : "#FBF8F2",
+               ring: on ? DEEP : GHOST, fill: on ? DEEP : "transparent",
+               weight: on ? 600 : 500, noteInk: on ? DIM : FAINT,
+               pick: function () { self.patchDraft({ effective: e.key }); } };
+    });
+
+    var restateWarn = d.effective === "retro" && (isT3 || d.mode === "supersede");
+
+    /* live preview, every figure through rate() */
+    var previewSplit = [];
+    var previewNoteText = "";
+    if (isT1 && d.entity) {
+      previewSplit = [{ label: ENT[d.entity].label, tone: ENT[d.entity].tone, bar: "100%",
+        dollars: d.amount ? self.money(self.rate(d.amount, 100)) : "100%" }];
+      previewNoteText = "A named 100 percent rule. Nothing is apportioned, so nothing can be argued about.";
+    } else if (isT2 && d.source) {
+      previewSplit = [{ label: d.source, tone: BODY, bar: "100%", dollars: "per source" }];
+      previewNoteText = "The split is read from " + d.source + " each period, so this preview cannot show dollars until the source is read.";
+    } else if (isT3 && reviewed) {
+      previewSplit = SPLIT_KEYS.map(function (pair) {
+        var k = pair[0];
+        return { label: pair[1], tone: ENT[k].tone, bar: d.split[k] + "%",
+                 dollars: d.amount ? self.money(self.rate(d.amount, d.split[k]))
+                                   : d.split[k] + "%" };
+      });
+      previewNoteText = splitSum === 100
+        ? "Reviewed monthly. Superseding this rule later keeps this version in history."
+        : "Shares total " + splitSum + " percent. They must total 100 before this can save.";
+    } else if (isT3 && d.driver) {
+      previewSplit = [{ label: d.driver, tone: GOLDRING, bar: "100%", dollars: "per driver" }];
+      previewNoteText = "Resolved from " + d.driver + " each month. If that driver has no values, this rule waits rather than defaulting.";
+    } else if (isT4) {
+      previewSplit = [{ label: "SB Coaching, retained", tone: DEEP, bar: "100%",
+        dollars: d.amount ? self.money(self.rate(d.amount, 100)) : "100%" },
+        { label: "To partner entities", tone: GHOST, bar: "0%", dollars: self.money(0) }];
+      previewNoteText = "Nothing reaches a partner entity, so no partner's profit moves.";
+    } else {
+      previewSplit = [];
+      previewNoteText = "Pick a tier and the preview fills in.";
+    }
+
+    /* what blocks the save, said plainly and one at a time */
+    var blocker = "";
+    if (!(d.scope || "").trim()) blocker = "Name what this rule matches.";
+    else if (!tier) blocker = "Pick a tier.";
+    else if (isT1 && !d.entity) blocker = "Pick the entity that consumes it.";
+    else if (isT2 && !d.source) blocker = "Pick the source report.";
+    else if (isT3 && !d.driver) blocker = "Pick a driver.";
+    else if (isT3 && reviewed && splitSum !== 100) blocker = "Shares must total 100.";
+    else if (!hasWhy) blocker = "Write one line saying why.";
+    else if (!d.effective) blocker = "Say when it starts.";
+
+    var canSave = !blocker;
+
+    var saveLabel = d.mode === "exception" ? "Save And Clear Matches"
+                  : d.mode === "supersede" ? "Save As v" + d.nextVersion
+                  : "Save Rule";
+
+    return Object.assign(always, {
+      draftTitle: d.title, draftEyebrow: d.eyebrow,
+      draftScope: d.scope,
+      setScope: function (e) { self.patchDraft({ scope: e.target.value }); },
+      draftScopeHint: d.mode === "exception"
+        ? "Prefilled from the charge. Every transaction matching this scope is claimed by the rule."
+        : "Matched as a prefix, so one rule covers a whole subtree of accounts.",
+      draftKinds: draftKinds,
+      draftTiers: draftTiers,
+      draftHasTier: !!tier,
+      draftStepThree: stepThree,
+      draftIsT1: isT1, draftIsT2: isT2, draftIsT3: isT3, draftIsT4: isT4,
+      draftEntities: draftEntities, draftSources: draftSources,
+      draftDrivers: draftDrivers, draftIsReviewed: reviewed, draftSplit: draftSplit,
+      splitTotal: splitSum + "%",
+      splitTotalBg: splitSum === 100 ? ACCBG : GOLDBG,
+      splitTotalInk: splitSum === 100 ? ACCINK : GOLDINK,
+      draftT3Hint: t3Hint,
+      draftRationale: d.rationale,
+      setRationale: function (e) { self.patchDraft({ rationale: e.target.value }); },
+      whyLabel: hasWhy ? "" : "required",
+      whyInk: GOLDINK,
+      whyEdge: hasWhy ? EDGE : GOLDEDGE,
+      draftEffective: draftEffective,
+      draftRestateWarn: restateWarn,
+      draftRestateNote: "Restating changes numbers partners have already been shown. The version you are replacing stays in history, and every affected month is recomputed from this one.",
+      previewSplit: previewSplit,
+      previewNoteText: previewNoteText,
+      previewBasis: d.amount ? self.money(d.amount) + " matched" : "no matched amount yet",
+      previewBg: canSave ? ACCBG : "#FBF8F2",
+      previewEdge: canSave ? RULEIN : RULEIN,
+      previewInk: canSave ? DIM : FAINT,
+      saveLabel: saveLabel,
+      saveDisabled: !canSave,
+      saveCursor: canSave ? "pointer" : "not-allowed",
+      saveBg: canSave ? DEEP : "#F0E9DD",
+      saveFg: canSave ? "#F3EFE6" : GHOST,
+      saveEdge: canSave ? DEEP : RULEIN,
+      blockerText: blocker,
+      blockerInk: GOLDINK,
+      saveDraft: function () {
+        if (!canSave) return;
+        if (d.mode === "exception" && d.excId) {
+          var m = Object.assign({}, self.state.exc);
+          m[d.excId] = "done";
+          self.setState({ exc: m, draft: null });
+        } else {
+          self.setState({ draft: null });
+        }
+      }
+    });
+  }
+}
+
+</script>
+</body>
+</html>
