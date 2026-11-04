@@ -439,6 +439,12 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
                     source_business_id=pool.id, **kw)
                 made += 1
             except Exception as e:                       # the product's own refusal, surfaced
+                # ROLL BACK BEFORE THE NEXT ONE. `create_applied_rule` flushes before it
+                # commits, so anything raised after that flush leaves the session in a failed
+                # transaction and every later rule dies of PendingRollbackError instead of its
+                # own problem. One real failure would print as thirty-seven identical ones and
+                # bury which rule actually broke.
+                await s.rollback()
                 failed.append((p["item"], str(e)))
         print(f"\ncreated {made} rules; {len(failed)} refused")
         for item, err in failed:
@@ -470,6 +476,7 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
                     effective_from=effective_from, reach=reach, rationale=d["rationale"])
                 dmade += 1
             except Exception as e:
+                await s.rollback()                       # as above
                 dfailed.append((d["item"], str(e)))
         print(f"created {dmade} driven rules; {len(dfailed)} refused")
         for item, err in dfailed:
@@ -499,6 +506,7 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
                     note="From the audited books workbook, decided in the Oct 14 meeting.")
                 print(f"  committed month {mn:>2}: {len(by_month[mn])} values")
             except Exception as e:
+                await s.rollback()                       # as above
                 print(f"  month {mn:>2} refused: {str(e)[:70]}")
 
 
