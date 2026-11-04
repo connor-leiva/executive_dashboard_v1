@@ -653,6 +653,15 @@ export const sampleAllocExceptions = {
       covered_by: { rule_id: "rule-ads", pool_name: "Advertising" },
       gaps: ["no_payee", "multi_line"] },
   ],
+  meta: sampleAllocRules.meta,
+  /* One card per payee (6.2). The second row above is partly covered, so it is in `rows`
+     and deliberately in no group: it is not waiting on a rule. */
+  groups: [
+    { payee: "A Supplier", business_id: "biz-pool", account_key: "Software",
+      count: 1, total: 300, accounts: ["Software"], latest_date: "2026-07-09",
+      gaps: ["no_memo", "recurring"], txn_ids: ["t1"], has_payee: true,
+      suggestion: { tier: 1, business_id: "biz-forum", source: "payables" } },
+  ],
 };
 
 export const sampleAllocDrivers = {

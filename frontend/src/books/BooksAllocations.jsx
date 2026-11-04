@@ -133,8 +133,9 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
                 <ExceptionsView data={exceptions.data} month={month} isCFO={isCFO}
                                 businesses={rules.data?.businesses || []}
                                 refresh={() => { exceptions.refresh(); rules.refresh(); }}
-                                onCreateRule={(txn) =>
-                                  setDrawer({ mode: "exception", prefill: txn })} />
+                                onCreateRule={(txn, group, keepOn) =>
+                                  setDrawer({ mode: "exception", prefill: txn, group,
+                                              keepOn: !!keepOn })} />
               )}
               {view === "drivers" && (
                 <DriversView data={drivers.data} isCFO={isCFO} month={month}
@@ -155,7 +156,8 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
           (U10). It lives in the Rules toolbar now. */}
 
       <RuleDrawer open={!!drawer} mode={drawer?.mode || "new"} rule={drawer?.rule || null}
-                  prefill={drawer?.prefill || null}
+                  prefill={drawer?.prefill || null} group={drawer?.group || null}
+                  keepOn={!!drawer?.keepOn}
                   businesses={rules.data?.businesses || []}
                   tiers={rules.data?.meta?.tiers || []}
                   onClose={() => setDrawer(null)}

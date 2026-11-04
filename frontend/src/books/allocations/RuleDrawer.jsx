@@ -61,6 +61,7 @@ function Step({ n, title, children, note }) {
 }
 
 export default function RuleDrawer({ open, mode = "new", rule = null, prefill = null,
+                                     group = null, keepOn = false,
                                      businesses = [], tiers = [], onClose, onSaved }) {
   const [scopeKind, setScopeKind] = useState("account");
   const [pattern, setPattern] = useState("");
@@ -81,10 +82,24 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
   useEffect(() => {
     if (!open) return;
     if (prefill) {
-      setScopeKind(prefill.payee ? "vendor" : "account");
-      setPattern(prefill.payee || prefill.account || "");
-      setPoolBiz(prefill.business_id || "");
-      setMonth(`${(prefill.txn_date || "2026-01-01").slice(0, 7)}-01`);
+      /* The GROUP decides the scope when there is one, not one arbitrary charge: the queue
+         groups by payee because a rule is per payee (6.2), so the card a person clicked is
+         the thing being turned into a rule. */
+      const payee = group?.has_payee === false ? null : (group?.payee ?? prefill.payee);
+      setScopeKind(payee ? "vendor" : "account");
+      setPattern(payee || prefill.account || "");
+      setPoolBiz(String(group?.business_id || prefill.business_id || ""));
+      // The month the charge is IN, not a literal. The fallback used to be "2026-01-01",
+      // which is a fixed date in a file that outlives the year it was written in.
+      setMonth(prefill.txn_date
+        ? `${prefill.txn_date.slice(0, 7)}-01`
+        : (group?.latest_date ? `${group.latest_date.slice(0, 7)}-01` : ""));
+      /* Keep on {entity}: Tier 4, everything filled but the REASON, which stays required.
+         One click to the drawer, not one click to a rule -- the reason is the feature
+         (D7 of the UI spec), and `validate_version` refuses an empty one anyway. A
+         suggestion from Payables preselects Tier 1 instead; it still has to be saved. */
+      if (keepOn) setTier(4);
+      else if (group?.suggestion?.tier) setTier(group.suggestion.tier);
     } else if (rule) {
       setScopeKind(rule.scope_kind);
       setPattern(rule.pattern);
@@ -92,7 +107,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
       setTier(rule.current?.tier ?? null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, prefill?.txn_id, rule?.id]);
+  }, [open, prefill?.txn_id, rule?.id, keepOn, group?.payee]);
 
   const method = tier ? METHOD_FOR_TIER[tier] : null;
 

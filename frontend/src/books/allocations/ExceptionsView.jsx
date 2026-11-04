@@ -18,9 +18,11 @@ import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
 import Money from "./Money.jsx";
 import { fmtMonth, gapLabel } from "./words.js";
 
+import { putJSON } from "../../api";
+import ExceptionGroup from "./ExceptionGroup.jsx";
+
 /* The month in words. "in mtd" was a period TOKEN rendered into a sentence. */
 const monthWords = (m) => (!m || m === "ytd" ? "the year to date" : fmtMonth(m));
-import { putJSON } from "../../api";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
@@ -29,20 +31,16 @@ const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
 
 
 /* Gold means a judgment or an unresolved item, never an error (7.2). A gap is not a mistake:
-   it is the reason this row needs a person. */
-const GAP = {
-  no_payee: "No payee",
-  no_memo: "No memo",
-  multi_line: "More than one account",
-  recurring: "Repeats this period",
-};
+   it is the reason this row needs a person.
 
-function Gap({ code }) {
+   The WORDS come from `meta.gaps` now. This file held the last frontend vocabulary on the
+   page after 8.2 deleted the other three, which principle 4 does not allow. */
+function Gap({ code, meta, children }) {
   return (
-    <span style={{ fontFamily: F.body, fontSize: 10.5, color: L.flagInk,
+    <span style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600, color: L.flagInk,
                    background: L.flagBg, border: `1px solid ${L.flagEdge}`,
-                   borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>
-      {GAP[code] || code}
+                   borderRadius: 5, padding: "3px 9px", whiteSpace: "nowrap" }}>
+      {children || gapLabel(meta, code)}
     </span>
   );
 }
@@ -172,6 +170,7 @@ function PoolStrip({ names, isCFO, onChange }) {
 export default function ExceptionsView({ data, month, isCFO, businesses, refresh,
                                          onCreateRule = () => {} }) {
   const [editing, setEditing] = useState(false);
+  const [worthOpen, setWorthOpen] = useState(false);
 
   const poolIds = (data?.pool_business_ids || []).map(String);
 
@@ -189,6 +188,16 @@ export default function ExceptionsView({ data, month, isCFO, businesses, refresh
                            onChange={() => setEditing(true)} />;
 
   const rows = data?.rows || [];
+  const meta = data?.meta || {};
+  const groups = data?.groups || [];
+  // Partly covered: already allocated by an account rule, listed but not counted (U4, D6).
+  const partly = rows.filter((r) => r.status === "partly_covered");
+  const unclaimedCount = rows.length - partly.length;
+  const nameOf = (id) => (businesses || []).find((b) => String(b.id) === String(id))?.name;
+  /* The drawer still opens from a CHARGE, because that is the shape it already knows how to
+     prefill from. The group rides along so the drawer can take the payee, the pool entity
+     and the suggestion from it rather than from one arbitrary charge. */
+  const firstCharge = (g) => rows.find((r) => r.txn_id === g.txn_ids[0]) || null;
 
   if (!rows.length) {
     /* THE THIRD STATE. This file's own header named two, configured and unconfigured, and the
@@ -221,57 +230,76 @@ export default function ExceptionsView({ data, month, isCFO, businesses, refresh
   return (
     <div>
       {strip}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14,
-                    flexWrap: "wrap" }}>
-        <span style={EYEBROW}>Unclaimed</span>
-        <Money v={data?.total} size={18} />
-        <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
-          across {rows.length} transaction{rows.length === 1 ? "" : "s"}
-          {month ? ` in ${monthWords(month)}` : ""}
-        </span>
+      <div style={{ marginBottom: 14 }}>
+        <span style={EYEBROW}>Unclaimed in {monthWords(month)}</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: F.num, fontSize: 30, fontWeight: 600,
+                         letterSpacing: "-.02em", color: L.deep }}>
+            <Money v={data?.total} size={30} weight={600} />
+          </span>
+          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+            {unclaimedCount} charge{unclaimedCount === 1 ? "" : "s"} from {groups.length}{" "}
+            payee{groups.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted, maxWidth: "56ch",
+                      marginTop: 4 }}>
+          Nothing falls through to a default pool. A charge that matches no rule waits here
+          until somebody writes the rule that claims it.
+        </div>
       </div>
 
       <div style={{ display: "grid", gap: 10 }}>
-        {rows.map((r) => (
-          <div key={r.txn_id} style={{ background: L.paper, border: `1px solid ${L.cardEdge}`,
-                                       borderRadius: 12, padding: "13px 15px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 14,
-                          alignItems: "baseline", flexWrap: "wrap" }}>
-              <span style={{ minWidth: 0 }}>
-                <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: 600,
-                               color: L.deep }}>
-                  {r.payee || "No payee on this transaction"}
-                </span>
-                <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
-                               display: "block" }}>
-                  {r.account} · {r.txn_date} · {r.qbo_type}
-                </span>
-              </span>
-              <Money v={r.amount} size={14} />
-            </div>
-
-            {r.memo && (
-              <div style={{ fontFamily: F.body, fontSize: 12, color: L.body, marginTop: 8 }}>
-                {r.memo}
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap",
-                          alignItems: "center" }}>
-              {(r.gaps || []).map((g) => <Gap key={g} code={g} />)}
-              {isCFO && (
-                <button onClick={() => onCreateRule(r)}
-                  style={{ marginLeft: "auto", fontFamily: F.body, fontSize: 12,
-                           fontWeight: 600, color: L.deep, background: L.controls,
-                           border: `1px solid ${L.ruleInner}`, borderRadius: 9,
-                           padding: "6px 12px", cursor: "pointer" }}>
-                  Create a rule from this
-                </button>
-              )}
-            </div>
-          </div>
+        {groups.map((g) => (
+          <ExceptionGroup key={`${g.business_id}:${g.payee || g.account_key}`}
+                          group={g} meta={meta} businesses={businesses} rows={rows}
+                          poolName={nameOf(g.business_id)} isCFO={isCFO}
+                          onCreateRule={(grp) => onCreateRule(firstCharge(grp), grp)}
+                          onKeepOn={(grp) => onCreateRule(firstCharge(grp), grp, true)} />
         ))}
       </div>
+
+      {/* WORTH A LOOK. Charges an account rule already covers but that post to more than one
+          account, so the other lines could not be checked. Listed, and deliberately NOT in
+          the figure above: counting them reported cost that is already allocated (U4, D6).
+          Collapsed, because it is a second-order question. */}
+      {!!partly.length && (
+        <div style={{ marginTop: 16, background: L.totalBand,
+                      border: `1px solid ${L.ruleInner}`, borderRadius: 13,
+                      overflow: "hidden" }}>
+          <button onClick={() => setWorthOpen(!worthOpen)} className="al-ctl"
+                  style={{ width: "100%", textAlign: "left", background: "transparent",
+                           border: "none", padding: "11px 16px", cursor: "pointer",
+                           display: "flex", alignItems: "center", gap: 8 }}>
+            <span aria-hidden style={{ display: "inline-block",
+                                       transform: worthOpen ? "rotate(90deg)" : "none",
+                                       transition: "transform 130ms", color: L.muted }}>
+              &rsaquo;
+            </span>
+            <span style={EYEBROW}>Worth a look</span>
+            <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
+              {partly.length} charge{partly.length === 1 ? "" : "s"}, not counted above
+            </span>
+          </button>
+          {worthOpen && partly.map((r) => (
+            <div key={r.txn_id} style={{ background: L.paper, padding: "11px 16px",
+                                         borderTop: `1px solid ${L.ruleInner}`,
+                                         display: "flex", gap: 12, alignItems: "baseline",
+                                         flexWrap: "wrap" }}>
+              <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600,
+                             color: L.deep, flex: "0 0 auto" }}>
+                {r.payee || "No payee"}
+              </span>
+              <Money v={r.amount} size={13} />
+              <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted,
+                             flex: "1 1 240px", minWidth: 0 }}>
+                Covered by {r.covered_by?.pool_name || "a rule"} on its main account. It posts
+                to more than one account, so the other lines could not be checked.
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

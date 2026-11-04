@@ -1047,6 +1047,49 @@ payload shape.
    seen.
 
 ### Phase 4
+
+**Done 2026-11-04.** §6.2 and the grouping half of §7.3.
+
+- `_exception_groups` in `alloc_engine.py`: unclaimed rows grouped by
+  `(business_id, normalized payee)`, with count, total, deduplicated account leaves, latest
+  date, the union of the gaps, the charge ids, and a `suggestion` when a Payables vendor with
+  a `default_business_id` matches. `rows` kept beside it for compatibility.
+- `allocations/ExceptionGroup.jsx`: one card per payee, with the charges expanding inside it.
+- "Worth a look", collapsed, for the partly covered charges -- the visible half of U4.
+- `Keep on {entity}` opens the drawer at Tier 4 with everything filled but the reason; a
+  Payables suggestion preselects Tier 1. Neither saves anything by itself.
+- `ExceptionsView`'s `GAP` map deleted: `meta.gaps` carries the words (§0.1 item 12a).
+
+**Gate as measured:**
+- Backend: 9 tests in `test_alloc_ui_phase4.py`. **Five mutations run, five detected** after
+  one was fixed (below).
+- On screen: "Unclaimed in July 2026 / 300.00 / 1 charge from 1 payee", one card carrying the
+  payee, accounts, pool entity, latest date, suggestion and gap chips, and a Worth a look
+  strip reading "1 charge, not counted above".
+- `Keep on Spring B` opens the drawer with the payee, the entity and the month filled and
+  step 3 reading "Nothing to enter. A retained rule sends..." -- Tier 4, reason empty.
+- `grep` for a frontend vocabulary constant -> 0. ISO date literals in rendered copy -> 0.
+- 170 tests pass across the allocation suites.
+
+**Corrected while building:**
+1. **A mutation survived, and the test was at fault.** "Groups are ordered by cost" used
+   payees Big, Middle and Small at 9000, 500 and 100 -- the same sequence alphabetically and
+   by amount, so it passed against a sort by NAME. The fixture now makes the two orders
+   disagree and asserts that they do.
+2. **The mockup's exception card cannot be built as drawn, and should not be.** Its "what is
+   known" line is a written sentence about each charge ("the amount is round, which usually
+   means it was a manually keyed transfer"). Nothing in the payload can produce that, and
+   `ALLOCATION-RULES-SPEC` §7.8 forbids shipping it. The card carries what the data has:
+   payee, accounts, entity, count, latest date, gaps. Recorded because Phase 7 compares
+   against the mockup and will see a difference here.
+3. **`RuleDrawer` had a hardcoded `"2026-01-01"` month fallback** -- a fixed date in a file
+   that outlives the year it was written in, and the live date-rot bug the §0.1 review found
+   in a file no phase was touching. Gone: the month comes from the charge, or from the
+   group's latest charge.
+4. **The drawer now takes the GROUP, not one arbitrary charge,** for scope, payee and pool
+   entity. Prefilling from `txn_ids[0]` would have written a rule from whichever charge
+   happened to sort first.
+
 ### Phase 5
 ### Phase 6
 ### Phase 7

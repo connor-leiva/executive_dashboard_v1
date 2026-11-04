@@ -909,8 +909,69 @@ async def exceptions(s: AsyncSession, tenant_id, period, *, today: dt.date) -> d
         if status == "unclaimed":
             total += txn.amount
     out.sort(key=lambda r: (-abs(r["amount"]), r["txn_date"], r["txn_id"]))
-    return {"configured": True, "rows": out, "total": total,
+    groups = await _exception_groups(s, tenant_id, out)
+    return {"configured": True, "rows": out, "total": total, "groups": groups,
             "pool_business_ids": [str(b) for b in pool_ids]}
+
+
+async def _exception_groups(s: AsyncSession, tenant_id, rows) -> list:
+    """The unclaimed rows, one group per payee per pool entity (UI spec 6.2, 7.3, D8).
+
+    A RULE IS PER PAYEE, so the queue is too. Rendered per charge, a vendor billing monthly
+    filled the screen with its own name and a reader answered the same question once per
+    charge. `rows` stays beside this for anything still reading it.
+
+    Partly covered rows are excluded: they are not waiting on a rule, they are waiting on
+    somebody to look (U4).
+    """
+    from ..models import Vendor
+
+    unclaimed = [r for r in rows if r.get("status") != "partly_covered"]
+    buckets: dict = {}
+    for r in unclaimed:
+        payee_n = normalize_name(r["payee"]) if r.get("payee") else ""
+        # No payee means no vendor rule can ever claim it, so those group by ACCOUNT: the
+        # only scope a rule for them could use (6.2).
+        key = (r["business_id"], payee_n or f"acct:{r['account']}")
+        g = buckets.setdefault(key, {
+            "payee": r["payee"], "business_id": r["business_id"], "account_key": r["account"],
+            "count": 0, "total": ZERO, "accounts": [], "latest_date": None,
+            "gaps": set(), "txn_ids": [], "has_payee": bool(r.get("payee")),
+        })
+        g["count"] += 1
+        g["total"] += Decimal(str(r["amount"]))
+        # The last segment of the FQN, deduplicated: "Education/Dues:Coaching/Consulting"
+        # says less on a card than "Coaching/Consulting", and the full path is on the charge.
+        leaf = (r["account"] or "").split(":")[-1]
+        if leaf and leaf not in g["accounts"]:
+            g["accounts"].append(leaf)
+        if g["latest_date"] is None or r["txn_date"] > g["latest_date"]:
+            g["latest_date"] = r["txn_date"]
+        g["gaps"].update(r.get("gaps") or [])
+        g["txn_ids"].append(r["txn_id"])
+
+    # A Payables vendor that already has a default entity is a likely Tier 1 rule. SUGGEST,
+    # never create: the parent spec's standing item says the same, and a queue that wrote
+    # rules on a guess would be deciding the thing it exists to ask about.
+    wanted = {normalize_name(g["payee"]) for g in buckets.values() if g["payee"]}
+    defaults: dict = {}
+    if wanted:
+        defaults = {n: str(b) for n, b in (await s.execute(select(
+            Vendor.name_norm, Vendor.default_business_id).where(
+                Vendor.tenant_id == tenant_id,
+                Vendor.name_norm.in_(wanted),
+                Vendor.default_business_id.is_not(None)))).all()}
+
+    groups = []
+    for g in buckets.values():
+        payee_n = normalize_name(g["payee"]) if g["payee"] else ""
+        hit = defaults.get(payee_n)
+        groups.append({**g,
+                       "gaps": sorted(g["gaps"]),
+                       "suggestion": ({"tier": 1, "business_id": hit, "source": "payables"}
+                                      if hit else None)})
+    groups.sort(key=lambda g: (-abs(g["total"]), g["payee"] or g["account_key"] or ""))
+    return groups
 
 
 # ── preview, which writes nothing (5.7, Phase 7) ──────────────────────────────────────────

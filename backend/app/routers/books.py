@@ -718,9 +718,12 @@ async def alloc_exceptions(period: str | None = None,
         s, user.tenant_id, _period(period_start, period_end, period), today=dt.date.today())
     return {
         "configured": out["configured"],
+        "meta": alloc_rules.vocabulary(),
         "pool_business_ids": out["pool_business_ids"],
         "total": coa_balances._money(out["total"]),
         "rows": [{**r, "amount": coa_balances._money(r["amount"])} for r in out["rows"]],
+        "groups": [{**g, "total": coa_balances._money(g["total"])}
+                   for g in out.get("groups", [])],
     }
 
 
