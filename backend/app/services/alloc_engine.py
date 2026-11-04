@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from decimal import ROUND_HALF_EVEN, Decimal
+from typing import NamedTuple
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -305,6 +306,140 @@ async def _observed_inbound(s: AsyncSession, tenant_id, month) -> set:
     return {(a, b, c) for a, b, c in rows}
 
 
+class ResolveCtx(NamedTuple):
+    """What one rule-month needs beyond its rule, its version and its pool. Read-only.
+
+    `resolve_rule_month` performs no IO, so every read a month needs is hoisted in here by the
+    caller ONCE PER MONTH rather than once per rule-month.
+    """
+    already: frozenset
+    drivers: dict
+    commits: dict
+    commit_values: dict
+    spend_by_rule: dict
+
+
+EMPTY_CTX = ResolveCtx(frozenset(), {}, {}, {}, {})
+
+
+def resolve_rule_month(rule, v, pool_by_account, month, ctx: ResolveCtx = EMPTY_CTX) -> tuple:
+    """THE resolver: one rule, one month, as `(rows, pending)`. Writes nothing, reads nothing.
+
+    `derive_applied` writes the rows this returns. `reconciliation` calls the SAME function for
+    a rule-month that wrote no row, to report why rather than printing the method name (U3).
+    Two computations of one figure is the worst defect this module could have, and the pool
+    figures already come from one place for that reason -- so the reasons come from one too.
+
+    A row is a dict rather than an `AllocationContribution` on purpose: this function is called
+    by a reporting path that must not be able to add anything to the session by accident.
+    """
+    ps, _pe = month
+    rows, pending = [], []
+    # UUIDs, not the strings `targets` stores. The GUID type coerces a string on the way
+    # into a column, so writing worked either way -- but `already` holds UUIDs read back
+    # from the database, and `(UUID, str, UUID) in {(UUID, UUID, UUID)}` is always False.
+    # The double_count_risk check was dead code until a test asserted it FIRES.
+    shares = {uuid.UUID(str(t["business_id"])): Decimal(t["share"])
+              for t in (v.targets or [])}
+    for std_id, pool in pool_by_account.items():
+        if pool == ZERO:
+            continue
+        if v.method == "driven":
+            # A driven rule reads its month's committed numbers. No commit means
+            # `no_driver_values` and nothing allocated: a driver that silently reused last
+            # month would be indistinguishable on the Statement from one somebody decided.
+            driver = ctx.drivers.get(v.driver_id)
+            commit = ctx.commits.get((v.driver_id, ps))
+            if driver is None or commit is None:
+                pending.append({"reason": "no_driver_values", "rule_id": str(rule.id),
+                                "standard_account_id": str(std_id)})
+                continue
+            parts, reason = driven_shares(driver.kind, ctx.commit_values.get(commit.id) or [],
+                                          subject=v.driver_subject, pool=pool)
+            if reason:
+                pending.append({"reason": reason, "rule_id": str(rule.id),
+                                "standard_account_id": str(std_id),
+                                "subject": v.driver_subject})
+                continue
+            driver_commit_id = commit.id
+        elif v.method == "traced":
+            # Meta decides the ratio, the books decide the amount (D13). Spend that matched
+            # no map entry counts in the denominator, so its fraction stays on the pool
+            # entity and is reported with BOTH figures: what Meta spent unmatched, and the
+            # pool money that consequently stayed. One without the other is half an answer
+            # -- the first says the map has a hole, the second says what the hole cost.
+            traced, unmapped, reason = traced_shares(
+                ctx.spend_by_rule.get(rule.id) or {}, v.source_spec or {})
+            if reason:
+                pending.append({"reason": reason, "rule_id": str(rule.id),
+                                "standard_account_id": str(std_id)})
+                continue
+            parts = split_amounts(pool, traced)
+            if unmapped > ZERO:
+                pending.append({"reason": "source_unmapped_spend",
+                                "rule_id": str(rule.id),
+                                "standard_account_id": str(std_id),
+                                "meta_spend": unmapped,
+                                "amount": retained(pool, parts)})
+            driver_commit_id = None
+        else:
+            parts = split_amounts(pool, shares)
+            driver_commit_id = None
+        for bid, amount in parts.items():
+            if str(bid) == str(rule.source_business_id):
+                continue                      # retained, and the CHECK would refuse it
+            if amount == ZERO:
+                continue
+            if (rule.source_business_id, bid, std_id) in ctx.already:
+                pending.append({"reason": "double_count_risk", "rule_id": str(rule.id),
+                                "target": str(bid), "standard_account_id": str(std_id),
+                                "amount": amount})
+                continue
+            rows.append({"target_business_id": bid, "standard_account_id": std_id,
+                         "amount": amount, "driver_commit_id": driver_commit_id})
+    return rows, pending
+
+
+def _keeps_all(v, pool_business_id) -> bool:
+    """True when every target of this version IS the pool entity, so the whole pool stays put.
+
+    A Direct rule whose one target is its own entity writes no row: `resolve_rule_month` skips
+    the pool entity's own share and `ck_alloc_not_self` would refuse it anyway. Asking "was a
+    row written" therefore reported it unresolved every month, forever (U2). It is as resolved
+    as a `retained` rule -- somebody decided, and the decision was that nothing moves.
+
+    NON-EMPTY IS REQUIRED. `all()` of an empty list is True, and `targets` is NULL on every
+    `driven`, `traced`, `retained` and `ended` version, so without the `bool(targets)` guard an
+    uncommitted driver month would report as resolved: the exact opposite of what this view
+    exists to show, and green for the wrong reason.
+    """
+    targets = v.targets or []
+    return bool(targets) and all(
+        str(t.get("business_id")) == str(pool_business_id) for t in targets)
+
+
+async def _spend_context(s: AsyncSession, tenant_id, live, month) -> dict:
+    """`{rule_id: {campaign: spend}}` for the traced versions live this month.
+
+    Cached by the account set a spec names. Merging every traced version's spend into one dict
+    would make each rule's ratio a fraction of the UNION's total rather than of its own
+    accounts', so connecting a second ad account would silently shrink every existing traced
+    rule's shares. Rules sharing a spec share the fetch; rules with different specs get the
+    only denominator correct for each.
+    """
+    cache: dict = {}
+    out: dict = {}
+    for tr, tv in live:
+        if tv.method != "traced":
+            continue
+        spec = tv.source_spec or {}
+        key = frozenset(str(a) for a in (spec.get("ad_account_ids") or []))
+        if key not in cache:
+            cache[key] = await meta_spend(s, tenant_id, month, spec)
+        out[tr.id] = cache[key]
+    return out
+
+
 async def derive_applied(s: AsyncSession, tenant_id, month, *, rules_and_versions,
                          pools_by_rule, today: dt.date, drivers=None, commits=None,
                          commit_values=None, spend_by_rule=None) -> dict:
@@ -329,82 +464,27 @@ async def derive_applied(s: AsyncSession, tenant_id, month, *, rules_and_version
         AllocationContribution.period_start == ps,
         AllocationContribution.period_end == pe))
 
-    already = await _observed_inbound(s, tenant_id, month)
+    ctx = ResolveCtx(await _observed_inbound(s, tenant_id, month), drivers or {},
+                     commits or {}, commit_values or {}, spend_by_rule or {})
     written, total, pending = 0, ZERO, []
 
     for rule, v in rules_and_versions:
         if v is None or v.method == "ended":
             continue
-        pool_by_account = pools_by_rule.get(rule.id) or {}
-        # UUIDs, not the strings `targets` stores. The GUID type coerces a string on the way
-        # into a column, so writing worked either way -- but `already` holds UUIDs read back
-        # from the database, and `(UUID, str, UUID) in {(UUID, UUID, UUID)}` is always False.
-        # The double_count_risk check was dead code until a test asserted it FIRES.
-        shares = {uuid.UUID(str(t["business_id"])): Decimal(t["share"])
-                  for t in (v.targets or [])}
-        for std_id, pool in pool_by_account.items():
-            if pool == ZERO:
-                continue
-            if v.method == "driven":
-                # A driven rule reads its month's committed numbers. No commit means
-                # `no_driver_values` and nothing allocated: a driver that silently reused last
-                # month would be indistinguishable on the Statement from one somebody decided.
-                driver = drivers.get(v.driver_id) if drivers else None
-                commit = commits.get((v.driver_id, ps)) if commits else None
-                if driver is None or commit is None:
-                    pending.append({"reason": "no_driver_values", "rule_id": str(rule.id),
-                                    "standard_account_id": str(std_id)})
-                    continue
-                parts, reason = driven_shares(driver.kind, commit_values.get(commit.id) or [],
-                                              subject=v.driver_subject, pool=pool)
-                if reason:
-                    pending.append({"reason": reason, "rule_id": str(rule.id),
-                                    "standard_account_id": str(std_id),
-                                    "subject": v.driver_subject})
-                    continue
-                driver_commit_id = commit.id
-            elif v.method == "traced":
-                # Meta decides the ratio, the books decide the amount (D13). Spend that matched
-                # no map entry counts in the denominator, so its fraction stays on the pool
-                # entity and is reported with BOTH figures: what Meta spent unmatched, and the
-                # pool money that consequently stayed. One without the other is half an answer
-                # -- the first says the map has a hole, the second says what the hole cost.
-                traced, unmapped, reason = traced_shares(
-                    (spend_by_rule or {}).get(rule.id) or {}, v.source_spec or {})
-                if reason:
-                    pending.append({"reason": reason, "rule_id": str(rule.id),
-                                    "standard_account_id": str(std_id)})
-                    continue
-                parts = split_amounts(pool, traced)
-                if unmapped > ZERO:
-                    pending.append({"reason": "source_unmapped_spend",
-                                    "rule_id": str(rule.id),
-                                    "standard_account_id": str(std_id),
-                                    "meta_spend": unmapped,
-                                    "amount": retained(pool, parts)})
-                driver_commit_id = None
-            else:
-                parts = split_amounts(pool, shares)
-                driver_commit_id = None
-            for bid, amount in parts.items():
-                if str(bid) == str(rule.source_business_id):
-                    continue                      # retained, and the CHECK would refuse it
-                if amount == ZERO:
-                    continue
-                if (rule.source_business_id, bid, std_id) in already:
-                    pending.append({"reason": "double_count_risk", "rule_id": str(rule.id),
-                                    "target": str(bid), "standard_account_id": str(std_id),
-                                    "amount": amount})
-                    continue
-                s.add(AllocationContribution(
-                    tenant_id=tenant_id, period_start=ps, period_end=pe,
-                    source_business_id=rule.source_business_id, target_business_id=bid,
-                    standard_account_id=std_id, amount=amount,
-                    booking="applied", grain="month", pool_name=rule.pool_name,
-                    basis=_basis(v), rule_id=rule.id, rule_version_id=v.id,
-                    driver_commit_id=driver_commit_id, approved_by=v.approved_by))
-                written += 1
-                total += amount
+        rows, rule_pending = resolve_rule_month(
+            rule, v, pools_by_rule.get(rule.id) or {}, month, ctx)
+        pending.extend(rule_pending)
+        for row in rows:
+            s.add(AllocationContribution(
+                tenant_id=tenant_id, period_start=ps, period_end=pe,
+                source_business_id=rule.source_business_id,
+                target_business_id=row["target_business_id"],
+                standard_account_id=row["standard_account_id"], amount=row["amount"],
+                booking="applied", grain="month", pool_name=rule.pool_name,
+                basis=_basis(v), rule_id=rule.id, rule_version_id=v.id,
+                driver_commit_id=row["driver_commit_id"], approved_by=v.approved_by))
+            written += 1
+            total += row["amount"]
     return {"contributions": written, "amount": total, "pending": pending}
 
 
@@ -494,21 +574,7 @@ async def derive_all(s: AsyncSession, tenant_id, *, today: dt.date, fy_month: in
         # per month rather than once, because `current_commit` is per month by definition and
         # reusing another month's would be the silent carry-forward the design refuses.
         drivers, commits, commit_values = await _driver_context(s, tenant_id, live, month[0])
-        # Spend PER RULE, cached by the account set its spec names. Merging every traced
-        # version's spend into one dict would make each rule's ratio a fraction of the UNION's
-        # total rather than of its own accounts', so connecting a second ad account would
-        # silently shrink every existing traced rule's shares. Rules sharing a spec share the
-        # fetch; rules with different specs get the only denominator correct for each.
-        spend_cache: dict = {}
-        spend_by_rule: dict = {}
-        for tr, tv in live:
-            if tv.method != "traced":
-                continue
-            spec = tv.source_spec or {}
-            key = frozenset(str(a) for a in (spec.get("ad_account_ids") or []))
-            if key not in spend_cache:
-                spend_cache[key] = await meta_spend(s, tenant_id, month, spec)
-            spend_by_rule[tr.id] = spend_cache[key]
+        spend_by_rule = await _spend_context(s, tenant_id, live, month)
 
         out = await derive_applied(s, tenant_id, month, rules_and_versions=live,
                                    pools_by_rule=pools, today=today, drivers=drivers,
@@ -766,7 +832,10 @@ async def exceptions(s: AsyncSession, tenant_id, period, *, today: dt.date) -> d
         if r.scope_kind == "vendor":
             claims_vendor.setdefault(r.source_business_id, set()).add(normalize_name(r.pattern))
         else:
-            covers_account.setdefault(r.source_business_id, []).append(normalize_fqn(r.pattern))
+            # The rule travels with its prefix so a partly covered row can NAME what
+            # already claims it. "Covered by something" is not an answer a reader can check.
+            covers_account.setdefault(r.source_business_id, []).append(
+                (normalize_fqn(r.pattern), r))
 
     rows = (await s.execute(
         select(BookTxn, CoaMap.standard_account_id, CoaMap.qbo_account_fqn,
@@ -794,23 +863,44 @@ async def exceptions(s: AsyncSession, tenant_id, period, *, today: dt.date) -> d
     for txn, std_id, fqn, section, acct_name in rows:
         payee_n = normalize_name(txn.payee)
         multi = bool((txn.flags or {}).get("multi_line"))
+        norm_fqn = normalize_fqn(fqn or "")
+        # Longest prefix wins, as everywhere else this module arbitrates account rules (5.4).
+        hits = [(p, r) for p, r in (covers_account.get(txn.business_id) or [])
+                if norm_fqn.startswith(p)]
+        covering = max(hits, key=lambda h: len(h[0]))[1] if hits else None
         if not multi:
             # A multi-line transaction is never claimed by payee (D7), so a vendor rule does
             # not take it out of the queue however well the name matches.
             if payee_n and payee_n in (claims_vendor.get(txn.business_id) or set()):
                 continue
-            norm_fqn = normalize_fqn(fqn or "")
-            if any(norm_fqn.startswith(p)
-                   for p in (covers_account.get(txn.business_id) or [])):
+            if covering is not None:
                 continue
+        # A MULTI-LINE TRANSACTION STILL APPEARS, and is no longer COUNTED as unclaimed when
+        # an account rule already pools its main account (U4, D6). D7 is about claiming by
+        # PAYEE: the engine cannot know a multi-line charge is all one vendor's. It says
+        # nothing about account rules, which read trial balances and therefore already
+        # include every line of this transaction -- so counting it here reported cost that
+        # was allocated as cost that was not, and the figure at the top of the queue was the
+        # sum of the two.
+        #
+        # 5.6 of the parent spec said "multi-line transactions always appear here" without
+        # qualification, which is what the code implemented, so this is an amendment to that
+        # sentence rather than a bug fix, and 5.6 is amended with it.
+        status = "partly_covered" if (multi and covering is not None) else "unclaimed"
         out.append({
             "txn_id": str(txn.id), "txn_date": txn.txn_date.isoformat(),
             "business_id": str(txn.business_id), "payee": txn.payee, "memo": txn.memo,
             "amount": txn.amount, "qbo_type": txn.qbo_type,
             "account": fqn or acct_name, "standard_account_id": str(std_id),
+            # NOT `section`: that key already carries the statement section, and reusing it
+            # would make one word mean two things in one row.
+            "status": status,
+            "covered_by": ({"rule_id": str(covering.id), "pool_name": covering.pool_name}
+                           if status == "partly_covered" else None),
             "section": section, "gaps": _gap_codes(txn, payee_counts),
         })
-        total += txn.amount
+        if status == "unclaimed":
+            total += txn.amount
     out.sort(key=lambda r: (-abs(r["amount"]), r["txn_date"], r["txn_id"]))
     return {"configured": True, "rows": out, "total": total,
             "pool_business_ids": [str(b) for b in pool_ids]}
@@ -994,6 +1084,10 @@ async def reconciliation(s: AsyncSession, tenant_id, period, *, today: dt.date,
         if not live:
             continue
         pools, _vendor_pending = await pools_for_month(s, tenant_id, live, month, today=today)
+        # The same context the derivation builds, so the reason this report prints is the
+        # reason that stopped the row being written, not a second guess at it (7.2). Built
+        # lazily: a month where every rule resolved needs none of it.
+        ctx = None
         for rule, v in live:
             month_pool = sum((pools.get(rule.id) or {}).values(), ZERO)
             if month_pool == ZERO:
@@ -1006,13 +1100,26 @@ async def reconciliation(s: AsyncSession, tenant_id, period, *, today: dt.date,
                 AllocationContribution.grain == "month",
                 AllocationContribution.booking == "applied",
                 AllocationContribution.period_start == month[0]).limit(1))).scalars().first()
-            retained_only = v.method == "retained"
-            if wrote is not None or retained_only:
+            # Retained decided that nothing moves; so did a Direct rule pointing at its own
+            # entity, which writes no row and used to report unresolved forever (U2).
+            if wrote is not None or v.method == "retained" or _keeps_all(
+                    v, rule.source_business_id):
                 acc[rule.id]["resolved"] += month_pool
-            else:
-                acc[rule.id]["pending"].append(
-                    {"month": month[0].isoformat(), "amount": month_pool,
-                     "method": v.method, "tier": v.tier})
+                continue
+            if ctx is None:
+                drivers, commits, commit_values = await _driver_context(
+                    s, tenant_id, live, month[0])
+                ctx = ResolveCtx(await _observed_inbound(s, tenant_id, month), drivers,
+                                 commits, commit_values,
+                                 await _spend_context(s, tenant_id, live, month))
+            _rows, why = resolve_rule_month(rule, v, pools.get(rule.id) or {}, month, ctx)
+            acc[rule.id]["pending"].append(
+                {"month": month[0].isoformat(), "amount": month_pool,
+                 "method": v.method, "tier": v.tier,
+                 # One reason per rule-month. A rule spanning several accounts can stall on
+                 # each of them, but they stall for the same cause in every case this module
+                 # can produce, and a row offering two fix links would say neither clearly.
+                 "reason": why[0]["reason"] if why else None})
 
     out = []
     for rule in rules:
@@ -1045,7 +1152,7 @@ async def rules_payload(s: AsyncSession, tenant_id, period, *, today: dt.date,
     the rows say what did. Where a month is pending those differ, and the difference is the
     thing a reader needs to see.
     """
-    from .alloc_rules import TIERS, versions_for, version_out
+    from .alloc_rules import (TIERS, approver_names, versions_for, version_out, vocabulary)
 
     recon = await reconciliation(s, tenant_id, period, today=today, fy_month=fy_month)
     by_rule = {r["rule_id"]: r for r in recon["rules"]}
@@ -1082,36 +1189,124 @@ async def rules_payload(s: AsyncSession, tenant_id, period, *, today: dt.date,
         .group_by(AllocationContribution.rule_id))).all() if month_starts else []
     to_partners = {rid: amount for rid, amount in out_rows if rid is not None}
 
+    # What each target actually received this period, per rule. The expanded row shows a
+    # share beside the money it produced, and the two have to come from the same rows the
+    # `to_partners` total does or they will not add up to it.
+    tgt_rows = (await s.execute(
+        select(AllocationContribution.rule_id,
+               AllocationContribution.target_business_id,
+               func.sum(AllocationContribution.amount))
+        .where(AllocationContribution.tenant_id == tenant_id,
+               AllocationContribution.booking == "applied",
+               AllocationContribution.grain == "month",
+               AllocationContribution.period_start.in_(month_starts))
+        .group_by(AllocationContribution.rule_id,
+                  AllocationContribution.target_business_id))).all() if month_starts else []
+    by_target: dict = {}
+    for rid, bid, amount in tgt_rows:
+        by_target.setdefault(rid, {})[str(bid)] = amount
+
+    names = {str(b["id"]): b["name"] for b in businesses}
+    # Driver labels, so a driven rule can say WHICH driver moves it rather than repeating
+    # the same sentence on every driven row.
+    from ..models import AllocationDriver
+    driver_labels = {str(i): lab for i, lab in (await s.execute(select(
+        AllocationDriver.id, AllocationDriver.label).where(
+            AllocationDriver.tenant_id == tenant_id))).all()}
     out = []
+    tier_totals = {t: {"count": 0, "pool_amount": ZERO, "pending_count": 0} for t in TIERS}
+    totals = {"pool_amount": ZERO, "to_partners": ZERO, "retained": ZERO, "unresolved": ZERO}
+    all_versions = []
+    histories = {}
     for rule in rules:
-        history = await versions_for(s, tenant_id, rule.id)
+        histories[rule.id] = await versions_for(s, tenant_id, rule.id)
+        all_versions.extend(histories[rule.id])
+    approvers = await approver_names(s, tenant_id, all_versions)
+
+    for rule in rules:
+        history = histories[rule.id]
         current = next((v for v in reversed(history) if v.is_current), None)
         money = by_rule.get(str(rule.id)) or {}
         pool = money.get("pool_amount", ZERO)
         went = to_partners.get(rule.id, ZERO)
+        pending = money.get("pending", [])
+        kept = pool - went
         out.append({
             "id": str(rule.id),
             "pool_name": rule.pool_name,
             "scope_kind": rule.scope_kind,
             "pattern": rule.pattern,
             "pool_business_id": str(rule.source_business_id),
-            "current": version_out(current) if current else None,
-            "versions": [version_out(v) for v in reversed(history)],
+            "current": version_out(current, approvers) if current else None,
+            "versions": [version_out(v, approvers) for v in reversed(history)],
             "pool_amount": pool,
             "to_partners": went,
             # Derived, so it absorbs nothing: whatever did not leave stayed, including the
             # rounding residue and any month that did not resolve.
-            "retained": pool - went,
-            "pending": money.get("pending", []),
+            "retained": kept,
+            "to_partners_by_target": by_target.get(rule.id, {}),
+            # Built here, not in the browser: it is a sentence made of entity names and
+            # shares, and principle 4 keeps both on this side of the wire.
+            "targets_label": targets_label(current, names, str(rule.source_business_id),
+                                           driver_labels),
+            "pending": pending,
         })
+        if current is not None and current.tier in tier_totals:
+            tier_totals[current.tier]["count"] += 1
+            tier_totals[current.tier]["pool_amount"] += pool
+            if pending:
+                tier_totals[current.tier]["pending_count"] += 1
+        totals["pool_amount"] += pool
+        totals["to_partners"] += went
+        totals["retained"] += kept
+        totals["unresolved"] += money.get("unresolved_amount", ZERO)
 
+    meta = vocabulary()
+    meta["tiers"] = [{"tier": t, "code": f"T{t}", "label": label, "gloss": TIER_GLOSS[t]}
+                     for t, label in sorted(TIERS.items())]
+    meta["tier_totals"] = {str(t): d for t, d in tier_totals.items()}
+    # Summed HERE so the browser does not. The page added these client side, against the
+    # module's own standing rule that every displayed figure is the server's (U7).
+    meta["totals"] = totals
     return {
-        "meta": {"tiers": [{"tier": t, "code": f"T{t}", "label": label,
-                            "gloss": TIER_GLOSS[t]} for t, label in sorted(TIERS.items())]},
+        "meta": meta,
         "businesses": businesses,
         "rules": out,
         "months": recon["months"],
     }
+
+
+def targets_label(v, names: dict, pool_business_id: str, drivers: dict | None = None) -> str:
+    """"The Forum 50%, beCollective 30%" -- what a rule does, as words, for the ledger.
+
+    Replaces a Method column that printed one of six sentences over and over without ever
+    saying where the money went (U11, UI spec 6.1). A driven rule names its DRIVER rather
+    than the method, because "a monthly number sets the split" is true of every driven rule
+    on the page and tells a reader nothing about this one.
+    """
+    from .alloc_rules import METHOD_LABELS
+    if v is None:
+        return None
+    if v.method == "retained":
+        return f"Stays on {names.get(pool_business_id, 'this entity')}"
+    if v.method == "driven":
+        label = (drivers or {}).get(str(v.driver_id))
+        return f"By {label}" if label else METHOD_LABELS["driven"]
+    if v.method == "traced":
+        src = ((v.source_spec or {}).get("source") or "").replace("_", " ").strip()
+        return f"By {src}" if src else METHOD_LABELS["traced"]
+    if v.method in ("direct", "split"):
+        parts = []
+        for t in (v.targets or []):
+            bid = str(t.get("business_id"))
+            share = Decimal(str(t.get("share") or 0)) * 100
+            pct = share.quantize(Decimal("1")) if share == share.to_integral_value() \
+                else share.normalize()
+            name = names.get(bid, "an entity")
+            parts.append(f"{name} {pct}%" if bid != pool_business_id
+                         else f"stays on {name} {pct}%")
+        return ", ".join(parts) or METHOD_LABELS.get(v.method)
+    return METHOD_LABELS.get(v.method)
 
 
 # The one-line explanation each tier carries on screen. Here rather than in the frontend so

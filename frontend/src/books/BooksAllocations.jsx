@@ -146,9 +146,22 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
            a number flush LEFT. The wrapper is the grid item, so the alignment belongs on it --
            and HERE rather than inline, so the narrow-width display:none below can still win.
            (No backticks in this block: it is a template literal, and one ends the string.)
-           Both ledgers carry the same wrapper and had the same misalignment. */
+           Both ledgers carry the same wrapper and had the same misalignment.
+
+           .al-rules-row was LEFT OUT of this list, and that was U1: on the Rules ledger the
+           To partners figure sat against In the books and the Retained figure sat under the
+           To partners header, so a retained 1,666.67 read as 1,666.67 sent to partners. The
+           comment above described the bug on the other two ledgers while the third still had
+           it. Listing the third is the smaller half of the fix; .al-money below is the half
+           that stops it recurring, because every figure now right-aligns itself and no new
+           wrapper anywhere can undo it. */
+        .al-rules-row > .al-hide-narrow,
         .al-partner-row > .al-hide-narrow,
         .al-recon-row > .al-hide-narrow { display: block; text-align: right; }
+        /* Every Money on this page. Here and not inline FOR THE SAME REASON the grid
+           templates are: an inline display beats a media query, so an inline block here
+           would defeat the display:none rules below that drop these columns at 820 and 520. */
+        .al-money { display: block; text-align: right; }
         @media (max-width: 900px) {
           .al-cards { grid-template-columns: repeat(2, minmax(0,1fr)); }
         }

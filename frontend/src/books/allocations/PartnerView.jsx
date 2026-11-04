@@ -14,6 +14,7 @@
    server's. `shared_cost_effect` and `undrawn` arrive computed precisely because a browser
    recomputing them is how two screens come to disagree about one number. */
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
+import Money from "./Money.jsx";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
@@ -22,17 +23,6 @@ const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
 
 /* Ledger parens for a negative, the convention the rest of the module reads in. Formatting
    only: the number arrived from the server and is not touched. */
-function Money({ v, size = 13, weight = 500, tone }) {
-  const n = Number(v || 0);
-  const body = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2,
-                                                       maximumFractionDigits: 2 });
-  return (
-    <span style={{ ...NUM, fontSize: size, fontWeight: weight,
-                   color: tone || (n < 0 ? L.flagInk : L.body) }}>
-      {n < 0 ? `(${body})` : body}
-    </span>
-  );
-}
 
 function Figure({ label, value, size = 15, weight = 600, tone, note }) {
   return (
@@ -245,8 +235,8 @@ export default function PartnerView({ data, businessId, period }) {
                   because it outranks the media query that hides this column at 520px: three
                   children then sat in a two-column grid and wrapped. The repo has a family of
                   bugs from inline styles beating media queries, and this is one more. */}
-              <span className="al-hide-narrow"><Money v={line.as_booked} /></span>
-              <Money v={line.as_allocated} weight={600} />
+              <span className="al-hide-narrow"><Money v={line.as_booked} size={13} weight={500} /></span>
+              <Money v={line.as_allocated} size={13} weight={600} />
             </div>
             {(line.contributions || []).map((c, i) => (
               <Contribution key={i} c={c} />

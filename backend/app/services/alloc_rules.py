@@ -50,6 +50,75 @@ METHOD_TIER: dict[str, int | None] = {
 SCOPE_KINDS = ("account", "program", "vendor")
 REACHES = ("forward", "from_date", "retro")
 
+# THE VOCABULARY. Every word the Allocations page puts on screen for a code lives here and
+# reaches the browser as `meta.*` (UI spec 7.4, principle 4). It is here rather than in the
+# views because the page carried three `REASON` maps that disagreed with each other about the
+# same code (U8), which is what happens to a word defined wherever it is first needed.
+METHOD_LABELS = {
+    "direct": "The whole cost goes to one entity",
+    "traced": "An outside source sets the ratio",
+    "driven": "A monthly number sets the split",
+    "split": "Split between entities by a reviewed share",
+    "retained": "Stays on the entity that books it",
+    "ended": "No longer claims anything",
+}
+SCOPE_LABELS = {"account": "Account", "program": "Program", "vendor": "Vendor"}
+VALUE_KIND_LABELS = {
+    "share": "percent", "amount": "dollars", "remainder": "rest", "count": "count",
+}
+# The gap codes `alloc_engine.exceptions` writes on a queued transaction.
+GAP_LABELS = {
+    "no_payee": "No payee", "no_memo": "No memo",
+    "multi_line": "More than one account", "recurring": "Repeats this period",
+}
+
+# Why a rule-month resolved to nothing, and what a person does about it. `action` is the link
+# text and `target` says which view it lands on, so Reconciliation never prints a method name
+# where a reason belongs (U3). Keyed to `alloc_engine.PENDING_REASONS`; `test_alloc_rules`
+# holds the two in step, because a reason with no entry here renders as a bare code.
+PENDING_REASON_LABELS = {
+    "no_driver_values":
+        {"label": "No driver numbers committed", "action": "Commit", "target": "drivers"},
+    "driver_subject_missing":
+        {"label": "This driver month has no numbers for it", "action": "Commit",
+         "target": "drivers"},
+    "fixed_exceeds_pool":
+        {"label": "The fixed amounts come to more than the pool",
+         "action": "Change the numbers", "target": "drivers"},
+    "allocation_exceeds_pool":
+        {"label": "The amounts and shares together claim more than the pool",
+         "action": "Change the numbers", "target": "drivers"},
+    "double_count_risk":
+        {"label": "The books already move this cost to that entity",
+         "action": "Open rule", "target": "rule"},
+    "source_not_connected":
+        {"label": "The source reported no spend this month",
+         "action": "Check the connection", "target": "integrations"},
+    "source_unmapped_spend":
+        {"label": "Some spend matched no campaign in the map",
+         "action": "Map campaigns", "target": "rule"},
+    "unmapped_account":
+        {"label": "The account is not mapped", "action": "Map account", "target": "mapping"},
+    "vendor_rule_collision":
+        {"label": "More than one vendor rule claims this payee",
+         "action": "Open rules", "target": "rules"},
+    "multi_line":
+        {"label": "The transaction posts to more than one account",
+         "action": "Open in QuickBooks", "target": "qbo"},
+}
+
+
+def vocabulary() -> dict:
+    """`meta.*` for every allocations payload. The frontend holds no vocabulary of its own."""
+    return {
+        "tiers": {str(k): v for k, v in TIERS.items()},
+        "methods": dict(METHOD_LABELS),
+        "scopes": dict(SCOPE_LABELS),
+        "reasons": {k: dict(v) for k, v in PENDING_REASON_LABELS.items()},
+        "gaps": dict(GAP_LABELS),
+        "value_kinds": dict(VALUE_KIND_LABELS),
+    }
+
 # Which methods carry which payload. Stated as data so a new method cannot quietly inherit
 # another one's validation.
 NEEDS_TARGETS = ("direct", "split")
@@ -339,8 +408,31 @@ async def end_rule(s: AsyncSession, tenant_id, actor, rule_id, *,
                            rationale=rationale)
 
 
-def version_out(v: AllocationRuleVersion) -> dict:
+async def approver_names(s: AsyncSession, tenant_id, versions) -> dict:
+    """`{user id: name}` for the people who approved these versions.
+
+    Separate from `version_out` because that is sync and called inside loops; resolving a name
+    per version would be one query per row of the version history.
+    """
+    from ..models import User
+    want = {v.approved_by for v in versions if v.approved_by}
+    if not want:
+        return {}
+    rows = (await s.execute(select(User.id, User.name).where(
+        User.tenant_id == tenant_id, User.id.in_(want)))).all()
+    return {str(uid): name for uid, name in rows}
+
+
+def version_out(v: AllocationRuleVersion, names: dict | None = None) -> dict:
+    """One version as the page reads it.
+
+    `approved_by` is an OBJECT, not an id. The version table exists to name who decided, and
+    the page printed "Unknown" on every row because this returned no name at all (U5).
+    """
+    approver = str(v.approved_by) if v.approved_by else None
     return {
+        "approved_by": ({"id": approver, "name": (names or {}).get(approver)}
+                        if approver else None),
         "id": str(v.id), "version": v.version, "tier": v.tier,
         "tier_label": TIERS.get(v.tier), "method": v.method, "targets": v.targets,
         "driver_id": str(v.driver_id) if v.driver_id else None,

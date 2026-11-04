@@ -15,6 +15,7 @@
    and that is a check on their own input rather than a figure being reported. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F, alpha } from "../../theme.js";
+import { reasonOf, fmtMonth } from "./words.js";
 import { postJSON } from "../../api";
 import { TierMarker, TierCode } from "./TierMarker.jsx";
 
@@ -32,18 +33,6 @@ const MONTH_LABEL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 const METHOD_FOR_TIER = { 1: "direct", 2: "traced", 3: "split", 4: "retained" };
 
-const REASON = {
-  no_driver_values: "No driver numbers committed for that month",
-  driver_subject_missing: "The driver has no numbers for this person",
-  fixed_exceeds_pool: "The fixed amounts come to more than the pool",
-  allocation_exceeds_pool: "The shares and fixed amounts exceed the pool",
-  source_not_connected: "No spend from the source that month",
-  source_unmapped_spend: "Some spend matched no entity in the map",
-  double_count_risk: "The target already books this as a shared charge",
-  multi_line: "A transaction with more than one account, left for review",
-  unmapped_account: "An account with no mapping",
-  vendor_rule_collision: "Another rule already claims that payee",
-};
 
 function money(v) {
   const n = Number(v || 0);
@@ -434,7 +423,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
               )}
               {(preview.pending || []).slice(0, 3).map((p, i) => (
                 <div key={i} style={{ fontFamily: F.body, fontSize: 11.5, color: L.flagInk }}>
-                  {p.month}: {REASON[p.reason] || p.reason}
+                  {fmtMonth(p.month)}: {reasonOf(preview.meta, p.reason)?.label}
                 </div>
               ))}
             </div>

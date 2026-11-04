@@ -8,6 +8,8 @@
    resolves nothing while its pool still sits in the books, and a screen showing only `resolved`
    would make that rule look finished. */
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
+import Money from "./Money.jsx";
+import { reasonOf, scopeLabel, fmtMonth } from "./words.js";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
@@ -16,31 +18,10 @@ const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
 
 /* Ledger parens for a negative, the convention the rest of the module reads in. Formatting
    only: the number itself arrived from the server and is not touched. */
-function Money({ v, tone }) {
-  const n = Number(v || 0);
-  const body = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2,
-                                                       maximumFractionDigits: 2 });
-  return (
-    <span style={{ ...NUM, color: tone || (n < 0 ? L.flagInk : L.body) }}>
-      {n < 0 ? `(${body})` : body}
-    </span>
-  );
-}
 
-const REASON = {
-  no_driver_values: "No driver numbers committed for this month",
-  driver_subject_missing: "The driver has no numbers for this person",
-  fixed_exceeds_pool: "The fixed amounts come to more than the pool",
-  allocation_exceeds_pool: "The shares and fixed amounts together exceed the pool",
-  source_not_connected: "No spend from the outside source this month",
-  source_unmapped_spend: "Some spend matched no entity in the map",
-  double_count_risk: "The target already books this as a shared-service charge",
-  multi_line: "A transaction with more than one account, left for review",
-  unmapped_account: "An account with no mapping",
-  vendor_rule_collision: "Two rules claim the same payee",
-};
 
 export default function ReconView({ data, period }) {
+  const meta = data?.meta || {};
   const rules = data?.rules || [];
   const months = data?.months || [];
   const check = data?.check;
@@ -84,7 +65,7 @@ export default function ReconView({ data, period }) {
                 <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
                                display: "block", overflow: "hidden",
                                textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {r.scope_kind} · {r.pattern}
+                  {scopeLabel(meta, r.scope_kind)} · {r.pattern}
                 </span>
               </span>
               <Money v={r.pool_amount} />
@@ -99,7 +80,8 @@ export default function ReconView({ data, period }) {
                                     background: L.flagBg,
                                     borderBottom: `1px solid ${L.ruleLine}` }}>
                 <span style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk }}>
-                  {p.month} · {REASON[p.reason] || p.method || "Not resolved"}
+                  {fmtMonth(p.month)} · {reasonOf(meta, p.reason)?.label
+                    || "Not resolved, and the engine did not say why"}
                 </span>
                 <Money v={p.amount} tone={L.flagInk} />
               </div>

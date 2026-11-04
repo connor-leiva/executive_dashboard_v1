@@ -12,6 +12,7 @@
    somebody decided, so the screen keeps the two apart exactly as the API does. */
 import { useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
+import { valueKindLabel, fmtMonth, fmtDay } from "./words.js";
 import { postJSON } from "../../api";
 import { useAllocDriverMonth } from "../useBooks.js";
 
@@ -38,21 +39,15 @@ function Entity({ id, businesses }) {
   );
 }
 
-const KIND_WORD = {
-  share: "share of the pool",
-  amount: "a flat amount",
-  remainder: "whatever the others leave",
-  count: "a count",
-};
 
-function ValueRow({ v, businesses }) {
+function ValueRow({ v, meta, businesses }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr) auto",
                   gap: 10, alignItems: "center", padding: "9px 14px",
                   borderBottom: `1px solid ${L.ruleLine}` }}>
       <Entity id={v.business_id} businesses={businesses} />
       <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
-        {KIND_WORD[v.value_kind] || v.value_kind}
+        {valueKindLabel(meta, v.value_kind)}
       </span>
       <span style={{ ...NUM, fontSize: 12.5, color: L.body }}>
         {v.value == null ? "the rest" : v.value}
@@ -78,7 +73,7 @@ const FIELD = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize:
    of it: last month's figures could be accepted whole or not at all, so somebody who needed
    November to differ from October had no way to say so, on the one screen whose entire purpose
    is that the month is decided rather than carried forward (D8). */
-function CommitForm({ driver, businesses, month, prefill, isCFO, onCommitted }) {
+function CommitForm({ driver, meta, businesses, month, prefill, isCFO, onCommitted }) {
   const split = driver.kind === "split";
   const subjects = split ? (driver.subjects || []) : [""];
   const kinds = driver.value_kinds || ["share"];
@@ -196,7 +191,7 @@ function CommitForm({ driver, businesses, month, prefill, isCFO, onCommitted }) 
                            background: L.paper, border: `1px solid ${L.cardEdge}`,
                            borderRadius: 8, padding: "4px 6px", minWidth: 0 }}>
                   {kinds.map((k) => (
-                    <option key={k} value={k}>{KIND_WORD[k] || k}</option>
+                    <option key={k} value={k}>{valueKindLabel(meta, k)}</option>
                   ))}
                 </select>
                 <input value={c.kind === "remainder" ? "" : c.value}
@@ -262,7 +257,7 @@ function openingMonth(year) {
   return `${year}-${MONTHS[now.getFullYear() === year ? now.getMonth() : 0]}-01`;
 }
 
-function DriverCard({ driver, businesses, isCFO, year }) {
+function DriverCard({ driver, meta, businesses, isCFO, year }) {
   const [month, setMonth] = useState(() => openingMonth(year));
   const { data, loading, refresh } = useAllocDriverMonth(driver.id, month);
 
@@ -308,7 +303,7 @@ function DriverCard({ driver, businesses, isCFO, year }) {
           <NotSet month={month} />
           {/* Keyed on the month so switching months re-seeds the form from that month's own
               prefill, rather than carrying the previous month's typing across. */}
-          <CommitForm key={month} driver={driver} businesses={businesses} month={month}
+          <CommitForm key={month} driver={driver} meta={meta} businesses={businesses} month={month}
                       prefill={prefill} isCFO={isCFO} onCommitted={refresh} />
         </div>
       )}
@@ -338,7 +333,7 @@ function DriverCard({ driver, businesses, isCFO, year }) {
                 <div style={{ padding: "9px 14px 5px", fontFamily: F.body, fontSize: 12,
                               fontWeight: 600, color: L.deep }}>{subject}</div>
               )}
-              {vals.map((v, i) => <ValueRow key={i} v={v} businesses={businesses} />)}
+              {vals.map((v, i) => <ValueRow key={i} v={v} meta={meta} businesses={businesses} />)}
             </div>
           ))}
           {commit.note && (
@@ -353,6 +348,7 @@ function DriverCard({ driver, businesses, isCFO, year }) {
 
 export default function DriversView({ data, isCFO, businesses, refresh,
                                       year = new Date().getFullYear() }) {
+  const meta = data?.meta || {};
   const drivers = data?.drivers || [];
 
   if (!drivers.length) {
@@ -373,7 +369,8 @@ export default function DriversView({ data, isCFO, businesses, refresh,
   return (
     <div style={{ display: "grid", gap: 14 }}>
       {drivers.map((d) => (
-        <DriverCard key={d.id} driver={d} businesses={businesses} isCFO={isCFO} year={year} />
+        <DriverCard key={d.id} driver={d} meta={meta} businesses={businesses} isCFO={isCFO}
+                    year={year} />
       ))}
     </div>
   );

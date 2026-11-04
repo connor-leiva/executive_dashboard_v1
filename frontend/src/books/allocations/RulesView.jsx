@@ -8,6 +8,8 @@
    Every figure is the server's. */
 import { useMemo, useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
+import Money from "./Money.jsx";
+import { methodLabel, reasonOf, scopeLabel, fmtMonth } from "./words.js";
 import { TierMarker, TierCode, tierRowStyle } from "./TierMarker.jsx";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
@@ -15,34 +17,7 @@ const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: 
 const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
                   textTransform: "uppercase", color: L.faint };
 
-function Money({ v, tone }) {
-  const n = Number(v || 0);
-  const body = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2,
-                                                       maximumFractionDigits: 2 });
-  return <span style={{ ...NUM, color: tone || L.body }}>{n < 0 ? `(${body})` : body}</span>;
-}
 
-const METHOD_LINE = {
-  direct: "The whole cost goes to one entity.",
-  split: "Split between entities by a reviewed share.",
-  driven: "Split by a number committed each month.",
-  traced: "Split by a ratio taken from an outside source.",
-  retained: "Stays on the entity that books it.",
-  ended: "Claims nothing from its effective month.",
-};
-
-const REASON = {
-  no_driver_values: "No driver numbers committed",
-  driver_subject_missing: "The driver has no numbers for this person",
-  fixed_exceeds_pool: "Fixed amounts exceed the pool",
-  allocation_exceeds_pool: "Shares and fixed amounts exceed the pool",
-  source_not_connected: "No spend from the source this month",
-  source_unmapped_spend: "Some spend matched no entity",
-  double_count_risk: "The target already books this as a shared charge",
-  multi_line: "A multi-account transaction, left for review",
-  unmapped_account: "An account with no mapping",
-  vendor_rule_collision: "Two rules claim the same payee",
-};
 
 /* A name and its dot, both from the payload. Deriving either from a business key is what F11
    was about, and amendment 21 says to feed them from the payload instead. */
@@ -60,24 +35,19 @@ function Entity({ id, businesses }) {
   );
 }
 
-function SummaryCards({ rules, tiers, filter, setFilter }) {
-  const byTier = useMemo(() => {
-    const out = {};
-    for (const r of rules) {
-      const t = r.current?.tier ?? 0;
-      const row = out[t] || (out[t] = { count: 0, pool: 0 });
-      row.count += 1;
-      row.pool += Number(r.pool_amount || 0);
-    }
-    return out;
-  }, [rules]);
+function SummaryCards({ meta, monthLabel, tiers, filter, setFilter }) {
+  /* The figures come from `meta.tier_totals`. They used to be summed HERE, over the rule
+     rows, against the module's standing rule that every displayed figure is the server's
+     (U7) -- and the card showed the result with no label and no period, so a reader could
+     not tell what the number was or what span it covered. */
+  const byTier = meta?.tier_totals || {};
 
   return (
     <div className="al-cards" style={{ display: "grid", gap: 10,
                   gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
                   marginBottom: 16 }}>
       {(tiers || []).map((t) => {
-        const row = byTier[t.tier] || { count: 0, pool: 0 };
+        const row = byTier[String(t.tier)] || { count: 0, pool_amount: 0 };
         const on = filter === t.tier;
         return (
           <button key={t.tier} onClick={() => setFilter(on ? null : t.tier)}
@@ -90,12 +60,16 @@ function SummaryCards({ rules, tiers, filter, setFilter }) {
               <span style={{ fontFamily: F.body, fontSize: 12, fontWeight: 600,
                              color: L.deep }}>{t.label}</span>
             </span>
-            <span style={{ ...NUM, display: "block", fontSize: 15, color: L.deep }}>
-              <Money v={row.pool} />
+            <Money v={row.pool_amount} size={15} tone={L.deep} />
+            <span style={{ fontFamily: F.num, fontSize: 10, letterSpacing: ".12em",
+                           textTransform: "uppercase", color: L.ghost, display: "block",
+                           marginTop: 2 }}>
+              In the books, {monthLabel}
             </span>
             <span style={{ fontFamily: F.body, fontSize: 11, color: L.muted, display: "block",
                            marginTop: 2 }}>
               {row.count} rule{row.count === 1 ? "" : "s"}
+              {row.pending_count ? `, ${row.pending_count} not resolved` : ""}
             </span>
             <span style={{ fontFamily: F.body, fontSize: 11, color: L.muted, display: "block",
                            marginTop: 4 }}>{t.gloss}</span>
@@ -106,7 +80,7 @@ function SummaryCards({ rules, tiers, filter, setFilter }) {
   );
 }
 
-function Expanded({ rule, businesses, isCFO, onSupersede }) {
+function Expanded({ rule, meta, businesses, isCFO, onSupersede }) {
   const v = rule.current;
   const pending = rule.pending || [];
   return (
@@ -125,7 +99,7 @@ function Expanded({ rule, businesses, isCFO, onSupersede }) {
           {pending.map((p, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
               <span style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk }}>
-                {p.month}: {REASON[p.reason] || "Not resolved"}
+                {fmtMonth(p.month)}: {reasonOf(meta, p.reason)?.label || "Not resolved"}
               </span>
               {p.amount != null && <Money v={p.amount} tone={L.flagInk} />}
             </div>
@@ -166,13 +140,16 @@ function Expanded({ rule, businesses, isCFO, onSupersede }) {
               v{ver.version}
             </span>
             <span style={{ fontFamily: F.body, fontSize: 12, color: L.body, minWidth: 90 }}>
-              From {ver.effective_from}
+              From {fmtMonth(ver.effective_from)}
             </span>
             <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, minWidth: 70 }}>
-              {ver.method}
+              {methodLabel(meta, ver.method)}
             </span>
+            {/* The approver, which this printed as "Unknown" on every row because the
+                payload carried no name at all (U5). Still "Unknown" when a version really
+                has no approver, which is a different and far rarer thing. */}
             <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
-              {ver.approved_by || "Unknown"}
+              {ver.approved_by?.name || "Unknown"}
             </span>
             <span style={{ fontFamily: F.num, fontSize: 10, letterSpacing: ".08em",
                            textTransform: "uppercase",
@@ -201,7 +178,16 @@ export default function RulesView({ data, period, isCFO, refresh, onSupersede = 
   const [open, setOpen] = useState(null);
 
   const businesses = data?.businesses || [];
-  const tiers = data?.meta?.tiers || [];
+  const meta = data?.meta || {};
+  const tiers = meta.tiers || [];
+  /* The month these figures cover, in words, from the months the SERVER reconciled rather
+     than from the period token: a card headed with a figure and no period is a figure a
+     reader cannot place (U7, U17). Phase 2 replaces this with the page's month control. */
+  const months = data?.months || [];
+  const monthLabel = months.length
+    ? (months.length === 1 ? fmtMonth(months[0])
+       : `${fmtMonth(months[0])} to ${fmtMonth(months[months.length - 1])}`)
+    : "";
   // `applied` on purpose: `rules` is the route's OBSERVED list and this page renders the
   // applied ones. A test pinned that contract when a swap of the two keys broke it.
   const all = data?.applied || [];
@@ -229,7 +215,8 @@ export default function RulesView({ data, period, isCFO, refresh, onSupersede = 
 
   return (
     <div>
-      <SummaryCards rules={all} tiers={tiers} filter={tier} setFilter={setTier} />
+      <SummaryCards meta={meta} monthLabel={monthLabel} tiers={tiers}
+                    filter={tier} setFilter={setTier} />
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12,
                     flexWrap: "wrap" }}>
@@ -284,13 +271,14 @@ export default function RulesView({ data, period, isCFO, refresh, onSupersede = 
                   <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
                                  display: "block", overflow: "hidden",
                                  textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <TierCode tier={t} /> {r.scope_kind} {r.pattern}
+                    <TierCode tier={t} /> {scopeLabel(meta, r.scope_kind)} {r.pattern}
                   </span>
                 </span>
                 <span className="al-hide-narrow"
                       style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
                                minWidth: 0 }}>
-                  {METHOD_LINE[r.current?.method] || "No current version."}
+                  {r.targets_label || methodLabel(meta, r.current?.method)
+                    || "No current version."}
                 </span>
                 <Money v={r.pool_amount} />
                 <span className="al-hide-narrow"><Money v={r.to_partners} /></span>
@@ -299,7 +287,7 @@ export default function RulesView({ data, period, isCFO, refresh, onSupersede = 
                 </span>
               </div>
               {isOpen && (
-                <Expanded rule={r} businesses={businesses} isCFO={isCFO}
+                <Expanded rule={r} meta={meta} businesses={businesses} isCFO={isCFO}
                           onSupersede={onSupersede} />
               )}
             </div>

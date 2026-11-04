@@ -660,6 +660,16 @@ Multi-line transactions always appear here (D7), with a `multi_line` gap. Each r
 codes derived from the row: `no_payee`, `no_memo`, `multi_line`, `recurring` (same normalized
 payee three or more times in the window).
 
+**AMENDED 2026-11-04 (ALLOCATIONS-UI-SPEC U4, D6).** They still always APPEAR, and they are no
+longer always COUNTED. A multi-line transaction whose account is already covered by an
+account-scope or program-scope rule carries `status: "partly_covered"` and `covered_by`, and is
+excluded from `total`. D7 is about claiming by PAYEE, which the engine cannot do for a
+transaction it knows posts to several accounts; an account rule reads trial balances, which
+already include every line, so the charge was in the pool and in the unclaimed total at once
+and the queue's headline figure was the sum of the two. The sentence above was unqualified and
+the code implemented it faithfully, so this is a change of decision, recorded here rather than
+left to look like a bug fix.
+
 ### 5.7 Preview, no write
 
 `preview(draft, today)` runs §5.4 for a draft rule or a draft version across the months its

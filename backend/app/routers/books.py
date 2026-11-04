@@ -459,15 +459,23 @@ async def alloc_list_rules(period: str | None = None,
     key = _period(period_start, period_end, period)
     applied = await alloc_engine.rules_payload(s, user.tenant_id, key, today=dt.date.today())
     money = coa_balances._money
+    meta = dict(applied["meta"])
+    # Every figure the page shows crosses the wire as a number, the new totals included: a
+    # Decimal reaching JSON as a string is what made the browser sum them itself (U7).
+    meta["totals"] = {k: money(v) for k, v in meta["totals"].items()}
+    meta["tier_totals"] = {t: {**d, "pool_amount": money(d["pool_amount"])}
+                           for t, d in meta["tier_totals"].items()}
     return {
         "rules": await coa_alloc.list_rules(s, user.tenant_id),
-        "meta": applied["meta"],
+        "meta": meta,
         "businesses": applied["businesses"],
         "months": applied["months"],
         "applied": [{**r,
                      "pool_amount": money(r["pool_amount"]),
                      "to_partners": money(r["to_partners"]),
                      "retained": money(r["retained"]),
+                     "to_partners_by_target": {b: money(a) for b, a
+                                               in r["to_partners_by_target"].items()},
                      "pending": [{**p, "amount": money(p["amount"])} for p in r["pending"]]}
                     for r in applied["rules"]],
     }
@@ -536,7 +544,8 @@ async def alloc_create_applied(body: AppliedRuleIn,
 async def alloc_versions(rule_id: uuid.UUID, user: User = Depends(books_user),
                          s: AsyncSession = Depends(get_session)):
     rows = await alloc_rules.versions_for(s, user.tenant_id, rule_id)
-    return {"versions": [alloc_rules.version_out(v) for v in rows]}
+    names = await alloc_rules.approver_names(s, user.tenant_id, rows)
+    return {"versions": [alloc_rules.version_out(v, names) for v in rows]}
 
 
 @router.post("/allocations/applied/{rule_id}/versions")   # CFO only
@@ -622,7 +631,8 @@ async def alloc_list_drivers(user: User = Depends(books_user),
     # driver with no history has nothing to put rows against, which is how the first month
     # became uncommittable.
     subjects = await alloc_drivers.subjects_by_driver(s, user.tenant_id)
-    return {"drivers": [{**alloc_drivers.driver_out(d),
+    return {"meta": alloc_rules.vocabulary(),
+            "drivers": [{**alloc_drivers.driver_out(d),
                          "subjects": subjects.get(str(d.id), [])} for d in rows]}
 
 
@@ -725,6 +735,7 @@ async def alloc_preview(body: AllocPreviewIn,
         raise HTTPException(400, str(e))
     return {
         **out,
+        "meta": alloc_rules.vocabulary(),
         "pool_amount": coa_balances._money(out["pool_amount"]),
         "retained": coa_balances._money(out["retained"]),
         "targets": [{**t, "amount": coa_balances._money(t["amount"])}
@@ -749,6 +760,7 @@ async def alloc_recon(period: str | None = None,
     out = await alloc_engine.reconciliation(s, user.tenant_id, key, today=dt.date.today())
     money = coa_balances._money
     return {
+        "meta": alloc_rules.vocabulary(),
         "months": out["months"],
         "rules": [{**r,
                    "pool_amount": money(r["pool_amount"]),

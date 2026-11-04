@@ -15,6 +15,7 @@
    One action per card, Create Rule From This, which opens the drawer prefilled. */
 import { useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
+import Money from "./Money.jsx";
 import { putJSON } from "../../api";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
@@ -22,13 +23,6 @@ const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: 
 const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
                   textTransform: "uppercase", color: L.faint };
 
-function Money({ v, size = 13 }) {
-  const n = Number(v || 0);
-  const body = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2,
-                                                       maximumFractionDigits: 2 });
-  return <span style={{ ...NUM, fontSize: size, color: L.deep }}>
-    {n < 0 ? `(${body})` : body}</span>;
-}
 
 /* Gold means a judgment or an unresolved item, never an error (7.2). A gap is not a mistake:
    it is the reason this row needs a person. */

@@ -893,6 +893,63 @@ Fill per phase: commit, what changed, the gate as measured, screenshots, anythin
 while building.
 
 ### Phase 1
+
+**Done 2026-11-04.** U1 to U8, plus the coverage half of §7.3 (see "corrected while building").
+
+Backend, `alloc_engine.py` and `alloc_rules.py`:
+- `resolve_rule_month(rule, v, pool_by_account, month, ctx)`, the one resolver, with
+  `ResolveCtx` for the per-month reads. `derive_applied` writes what it returns;
+  `reconciliation` calls it for a rule-month that wrote no row, so the reason on screen is the
+  reason that stopped the write (§7.2, U3). `_spend_context` extracted beside it, because the
+  traced-spend cache was inline in `derive_all` and reconciliation needs the same denominators.
+- `_keeps_all(v, pool_business_id)`, one call site in `reconciliation` (§7.1, U2).
+- `vocabulary()`: `methods`, `scopes`, `reasons` with `{label, action, target}`, `gaps`,
+  `value_kinds`. On the rules, recon, drivers and preview payloads (§7.4, U8).
+- `meta.totals`, `meta.tier_totals`, per-rule `targets_label` and `to_partners_by_target`,
+  `version_out(v, names)` with `approved_by` as an object, `approver_names()` (U5, U7).
+- `exceptions()`: account coverage now applies to multi-line rows, which gain `status` and
+  `covered_by` and leave `total` when covered (U4).
+
+Frontend: `allocations/Money.jsx` and `allocations/words.js` added; four local `Money`
+functions, three `REASON` maps, `METHOD_LINE` and `KIND_WORD` deleted; `.al-rules-row` added to
+the right-align rule and `.al-money` added beside it; `sampleBooks.js` brought to the new
+payload shape.
+
+**Gate as measured:**
+- Every figure under its own header at 1280px and 820px, screenshotted on `npm run build` plus
+  `preview`, not the dev server. At 820px Resolved and Variance drop out and the rest stay
+  aligned, which was the specific risk in `.al-money`.
+- Direct-to-self resolves and leaves the badge: `test_a_direct_rule_to_its_own_entity_...`.
+- Every pending row shows a reason sentence: "July 2026 . No driver numbers committed" on
+  screen where "2026-07-01 . driven" was.
+- A covered multi-line charge is listed and not counted: four tests, both sides of the branch.
+- Version history names a person.
+- `grep -rnE "REASON\s*=|METHOD_LINE|KIND_WORD" $F` -> 0. `grep -rn "row.pool +=" $F` -> 0.
+  `grep -rn "function Money" $F` -> 1, in `Money.jsx`.
+- `backend/tests/test_alloc_ui_phase1.py`, 17 tests. 166 pass across the allocation suites.
+  Full backend suite 2761 pass, 2 fail, both in `test_edge.py`, which contains no reference to
+  allocations, passes alone and passes beside the changed modules: an ordering artifact of the
+  shared test database, raised separately.
+
+**Corrected while building:**
+1. **§7.2 names a function that does not exist.** The writer is `derive_applied`.
+2. **§7.1 is one line, not two callers.** `rules_payload` has no pending logic; it reads
+   `reconciliation`. Fixing one fixes the Rules view, which is why U1's wrong figure and U2's
+   wrong state had the same root.
+3. **`_keeps_all` needs a non-empty guard.** `all()` of an empty list is True and `targets` is
+   NULL on every driven version, so the obvious one-liner reports an uncommitted driver month
+   as RESOLVED. Mutation-tested: all five new controls fail a test when broken.
+4. **The parity gate** §0.1 item 5 asked for: the pure resolver and the writer are compared
+   field for field on a pool with an odd half-cent across three unequal shares.
+5. **§7.3's coverage half moved into Phase 1,** because Phase 1's own "Done when" demands the
+   figure while §10 lists §7.3 under Phase 4. The grouping half stays in Phase 4. `ALLOCATION-
+   RULES-SPEC.md` §5.6 amended in the same commit, per §0.1 item 3.
+6. **`targets_label` names the driver.** §6.1 asks for "By Staff time commitment"; returning
+   the method sentence would print the same words on every driven row.
+7. **`sampleBooks.js` is part of the payload contract.** Reading server totals broke the demo
+   workspace: tier cards to 0.00 and raw `split` in the Method column. Any payload change
+   needs that file.
+
 ### Phase 2
 ### Phase 3
 ### Phase 4

@@ -348,7 +348,7 @@ export const sampleStatement = {
             contributions: [{ direction: "in", counterparty_business: "Spring B", amount: 13491,
               pool_name: "Shared Services", basis: null,
               driver_source: "QuickBooks: Shared Service Expenses sub-accounts",
-              approved_by: "Spring", je_ref: null, booking: "observed" }] })] },
+              approved_by: { id: "u1", name: "Spring" }, je_ref: null, booking: "observed" }] })] },
         { key: "salaries_wages", label: "Salaries, Wages and Contract Labor", total: 16022,
           total_booked: 0, total_allocated: 16022, flagged: true,
           lines: [line({ standard_account_id: "s3", code: "8010", name: "Salaries, Staff",
@@ -358,7 +358,7 @@ export const sampleStatement = {
             contributions: [{ direction: "in", counterparty_business: "Spring B", amount: 16022,
               pool_name: "Shared Services", basis: null,
               driver_source: "QuickBooks: Shared Service Expenses sub-accounts",
-              approved_by: "Spring", je_ref: null, booking: "observed" }] })] },
+              approved_by: { id: "u1", name: "Spring" }, je_ref: null, booking: "observed" }] })] },
         { key: "general_admin", label: "General and Administrative", total: 13555,
           total_booked: 10618, total_allocated: 13555, flagged: false,
           lines: [line({ standard_account_id: "s4", code: "8510", name: "Dues and Subscriptions",
@@ -370,10 +370,10 @@ export const sampleStatement = {
             contributions: [
               { direction: "in", counterparty_business: "Spring B", amount: 2937,
                 pool_name: "Shared Services", basis: null, driver_source: null,
-                approved_by: "Spring", je_ref: null, booking: "observed" },
+                approved_by: { id: "u1", name: "Spring" }, je_ref: null, booking: "observed" },
               { direction: "in", counterparty_business: "Spring B", amount: 1200,
                 pool_name: "Advertising", basis: "Tier 3 Split, 50/30/20",
-                driver_source: null, approved_by: "Spring", je_ref: null,
+                driver_source: null, approved_by: { id: "u1", name: "Spring" }, je_ref: null,
                 booking: "applied",
                 rule: { id: "rule-ads", pool_name: "Advertising", version: 2, tier: 3,
                         method: "split", effective_from: "2026-04-01",
@@ -503,7 +503,54 @@ export const samplePolicies = {
    accents come from the payload here exactly as they do from the server, because the views are
    forbidden to derive either from a business key (F11, amendment 21). */
 export const sampleAllocRules = {
+  /* The server's vocabulary, exactly as `alloc_rules.vocabulary()` sends it (UI spec 7.4).
+     The views hold none of their own, so a sample missing these renders raw enum codes --
+     which is how the demo workspace showed "split" in the Method column. */
   meta: {
+    methods: {
+      direct: "The whole cost goes to one entity",
+      traced: "An outside source sets the ratio",
+      driven: "A monthly number sets the split",
+      split: "Split between entities by a reviewed share",
+      retained: "Stays on the entity that books it",
+      ended: "No longer claims anything",
+    },
+    scopes: { account: "Account", program: "Program", vendor: "Vendor" },
+    gaps: { no_payee: "No payee", no_memo: "No memo",
+            multi_line: "More than one account", recurring: "Repeats this period" },
+    value_kinds: { share: "percent", amount: "dollars", remainder: "rest", count: "count" },
+    reasons: {
+      no_driver_values: { label: "No driver numbers committed", action: "Commit",
+                          target: "drivers" },
+      driver_subject_missing: { label: "This driver month has no numbers for it",
+                                action: "Commit", target: "drivers" },
+      fixed_exceeds_pool: { label: "The fixed amounts come to more than the pool",
+                            action: "Change the numbers", target: "drivers" },
+      allocation_exceeds_pool: {
+        label: "The amounts and shares together claim more than the pool",
+        action: "Change the numbers", target: "drivers" },
+      double_count_risk: { label: "The books already move this cost to that entity",
+                           action: "Open rule", target: "rule" },
+      source_not_connected: { label: "The source reported no spend this month",
+                              action: "Check the connection", target: "integrations" },
+      source_unmapped_spend: { label: "Some spend matched no campaign in the map",
+                               action: "Map campaigns", target: "rule" },
+      unmapped_account: { label: "The account is not mapped", action: "Map account",
+                          target: "mapping" },
+      vendor_rule_collision: { label: "More than one vendor rule claims this payee",
+                               action: "Open rules", target: "rules" },
+      multi_line: { label: "The transaction posts to more than one account",
+                    action: "Open in QuickBooks", target: "qbo" },
+    },
+    /* Summed by the SERVER. These were added client side over the rule rows, against the
+       standing rule that every displayed figure is the server's (U7). */
+    totals: { pool_amount: 1600, to_partners: 800, retained: 800, unresolved: 600 },
+    tier_totals: {
+      1: { count: 0, pool_amount: 0, pending_count: 0 },
+      2: { count: 0, pool_amount: 0, pending_count: 0 },
+      3: { count: 2, pool_amount: 1600, pending_count: 1 },
+      4: { count: 0, pool_amount: 0, pending_count: 0 },
+    },
     tiers: [
       { tier: 1, code: "T1", label: "Direct", gloss: "One entity carries the whole cost." },
       { tier: 2, code: "T2", label: "Traced", gloss: "An outside source sets the ratio." },
@@ -523,7 +570,7 @@ export const sampleAllocRules = {
       current: {
         id: "v2", version: 2, tier: 3, method: "split", effective_from: "2026-04-01",
         reach: "from_date", rationale: "Run centrally on one card and split by programme.",
-        is_current: true, approved_by: "Spring",
+        is_current: true, approved_by: { id: "u1", name: "Spring" },
         targets: [{ business_id: "biz-forum", share: "0.5000" },
                   { business_id: "biz-bc", share: "0.3000" },
                   { business_id: "biz-pool", share: "0.2000" }],
@@ -531,11 +578,13 @@ export const sampleAllocRules = {
       versions: [
         { id: "v2", version: 2, tier: 3, method: "split", effective_from: "2026-04-01",
           reach: "from_date", rationale: "Run centrally on one card and split by programme.",
-          is_current: true, approved_by: "Spring", created_at: "2026-04-02T10:00:00Z" },
+          is_current: true, approved_by: { id: "u1", name: "Spring" }, created_at: "2026-04-02T10:00:00Z" },
         { id: "v1", version: 1, tier: 3, method: "split", effective_from: "2026-01-01",
           reach: "forward", rationale: "Billed to one card from the start of the year.",
-          is_current: false, approved_by: "Spring", created_at: "2026-01-05T10:00:00Z" },
+          is_current: false, approved_by: { id: "u1", name: "Spring" }, created_at: "2026-01-05T10:00:00Z" },
       ],
+      targets_label: "The Forum 50%, beCollective 30%, stays on Spring B 20%",
+      to_partners_by_target: { "biz-forum": 500, "biz-bc": 300 },
       pool_amount: 1000, to_partners: 800, retained: 200, pending: [],
     },
     {
@@ -544,19 +593,22 @@ export const sampleAllocRules = {
       current: {
         id: "v1", version: 1, tier: 3, method: "driven", effective_from: "2026-01-01",
         reach: "forward", rationale: "Split by how the month was actually spent.",
-        is_current: true, approved_by: "Spring", driver_subject: "A Contractor", targets: null,
+        is_current: true, approved_by: { id: "u1", name: "Spring" }, driver_subject: "A Contractor", targets: null,
       },
       versions: [
         { id: "v1", version: 1, tier: 3, method: "driven", effective_from: "2026-01-01",
           reach: "forward", rationale: "Split by how the month was actually spent.",
-          is_current: true, approved_by: "Spring", created_at: "2026-01-05T10:00:00Z" },
+          is_current: true, approved_by: { id: "u1", name: "Spring" }, created_at: "2026-01-05T10:00:00Z" },
       ],
       // Nothing resolved, so the whole pool is RETAINED: `retained` is `pool - to_partners`
       // on the server and zero here taught the opposite, that an unresolved pool vanishes.
+      targets_label: "By Staff time commitment",
+      to_partners_by_target: {},
       pool_amount: 600, to_partners: 0, retained: 600,
       pending: [{ month: "2026-07-01", reason: "no_driver_values", amount: 600 }],
     },
   ],
+  months: ["2026-07-01"],
   // `rules` is the OBSERVED list on the real route and this page does not read it, so the
   // sample leaves it empty rather than inventing observed rows the view would ignore.
   rules: [],
@@ -565,18 +617,26 @@ export const sampleAllocRules = {
 export const sampleAllocExceptions = {
   configured: true,
   pool_business_ids: ["biz-pool"],
-  total: 420,
+  // 300, not 420: the multi-line row below posts to an account the Advertising rule already
+  // pools, so its 120 is allocated already and counting it here reported the same cost twice
+  // (U4, D6). It is still listed, because the engine cannot know every line of it is that
+  // payee's and somebody should look.
+  total: 300,
   rows: [
     { txn_id: "t1", txn_date: "2026-07-09", business_id: "biz-pool", payee: "A Supplier",
       memo: null, amount: 300, qbo_type: "Purchase", account: "Software",
-      standard_account_id: "sa-1", section: "opex", gaps: ["no_memo", "recurring"] },
+      standard_account_id: "sa-1", section: "opex", status: "unclaimed", covered_by: null,
+      gaps: ["no_memo", "recurring"] },
     { txn_id: "t2", txn_date: "2026-07-18", business_id: "biz-pool", payee: null,
       memo: "card charge", amount: 120, qbo_type: "Purchase", account: "Advertising:Other",
-      standard_account_id: "sa-2", section: "opex", gaps: ["no_payee", "multi_line"] },
+      standard_account_id: "sa-2", section: "opex", status: "partly_covered",
+      covered_by: { rule_id: "rule-ads", pool_name: "Advertising" },
+      gaps: ["no_payee", "multi_line"] },
   ],
 };
 
 export const sampleAllocDrivers = {
+  meta: sampleAllocRules.meta,
   drivers: [
     { id: "drv-staff", key: "staff_time", label: "Staff time commitment", kind: "split",
       unit: "percent", is_active: true, value_kinds: ["share", "amount", "remainder"],
@@ -603,6 +663,7 @@ export const sampleAllocDriverMonth = {
 };
 
 export const sampleAllocRecon = {
+  meta: sampleAllocRules.meta,
   months: ["2026-07-01"],
   rules: [
     { rule_id: "rule-ads", pool_name: "Advertising", scope_kind: "account",
@@ -611,7 +672,8 @@ export const sampleAllocRecon = {
     { rule_id: "rule-staff", pool_name: "Staff time", scope_kind: "vendor",
       pattern: "A Contractor", pool_business_id: "biz-pool",
       pool_amount: 600, resolved_amount: 0, unresolved_amount: 600, variance: -600,
-      pending: [{ month: "2026-07-01", amount: 600, method: "driven", tier: 3 }] },
+      pending: [{ month: "2026-07-01", amount: 600, method: "driven", tier: 3,
+                  reason: "no_driver_values" }] },
   ],
   check: { zero_sum: { balanced: true, net: 0 }, entities: [] },
 };
